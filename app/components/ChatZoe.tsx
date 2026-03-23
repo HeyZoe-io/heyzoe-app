@@ -1,7 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+/**
+ * ChatZoe — צ'אט עם זואי
+ * - מעבר פוקוס: לחיצה על שאלה מדהה את האחרות, השאלה הנבחרת עולה לראש (Framer Motion layout).
+ * - תשובת העוזרת האחרונה מוחלפת בכל סיבוב (לא מצטברות בועות assistant).
+ * - שאלות המשך: מסתירות את השאלה שזה עתה נשלחה.
+ * - אפקט הקלדה: חשיפה הדרגתית של הטקסט (מסונכרן לסטרים).
+ * - עיצוב: כהה מינימליסטי עם גרדיאנט ורוד–סגול (#ff85cf → #bc74e9).
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
+import {
+  AnimatePresence,
+  LayoutGroup,
+  motion,
+} from 'framer-motion';
 import { CHAT_STREAM_META, stripMarkdownDecorations } from '@/lib/zoe-shared';
 
 const DEFAULT_FOLLOWUPS = [
@@ -10,6 +24,12 @@ const DEFAULT_FOLLOWUPS = [
   'למי זה מתאים?',
   'איך נרשמים?',
 ] as const;
+
+const GRADIENT = 'from-[#ff85cf] to-[#bc74e9]';
+
+/** משך תנועת הפוקוס (~0.4s) */
+const MOVE = { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const };
+const FADE = { duration: 0.28, ease: [0.4, 0, 0.2, 1] as const };
 
 type BusinessSnapshot = {
   slug: string;
@@ -30,7 +50,9 @@ function ensureFourFollowUps(fu: string[]): string[] {
   return out.slice(0, 4);
 }
 
-function newId() { return crypto.randomUUID(); }
+function newId() {
+  return crypto.randomUUID();
+}
 
 function visibleChatPart(buffer: string) {
   const i = buffer.indexOf(CHAT_STREAM_META);
@@ -42,25 +64,66 @@ function parseStreamMeta(buffer: string): { cta_text: string | null; cta_link: s
   if (i < 0) return { cta_text: null, cta_link: null };
   try {
     const j = JSON.parse(buffer.slice(i + CHAT_STREAM_META.length)) as Record<string, unknown>;
-    return { 
-      cta_text: (j.cta_text as string)?.trim() || null, 
-      cta_link: (j.cta_link as string)?.trim() || null 
+    return {
+      cta_text: (j.cta_text as string)?.trim() || null,
+      cta_link: (j.cta_link as string)?.trim() || null,
     };
-  } catch { return { cta_text: null, cta_link: null }; }
+  } catch {
+    return { cta_text: null, cta_link: null };
+  }
 }
 
 type AssistantMessage = {
-  id: string; role: 'assistant'; content: string;
-  ctaText: string | null; ctaLink: string | null;
-  followUps: string[]; pending?: boolean; showActions?: boolean;
+  id: string;
+  role: 'assistant';
+  content: string;
+  ctaText: string | null;
+  ctaLink: string | null;
+  followUps: string[];
+  pending?: boolean;
+  showActions?: boolean;
 };
 type UserMessage = { id: string; role: 'user'; content: string };
 type ChatMessage = UserMessage | AssistantMessage;
 
-function isAssistant(m: ChatMessage): m is AssistantMessage { return m.role === 'assistant'; }
+function isAssistant(m: ChatMessage): m is AssistantMessage {
+  return m.role === 'assistant';
+}
 
-const ctaPremiumClass = 'block w-full text-center bg-[#1a1a1a] text-white rounded-lg text-[15px] md:text-base font-semibold py-4 px-8 tracking-tight hover:bg-[#141414] transition-colors';
-const followUpBtnClass = 'w-full text-right rounded-lg border-[0.5px] border-neutral-200 bg-white text-neutral-700 text-[15px] font-medium leading-snug py-3 px-5 hover:bg-neutral-50/90 disabled:opacity-50 transition-colors';
+function removeLatestAssistantReply(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= 1) return messages;
+  const last = messages[messages.length - 1];
+  if (isAssistant(last)) return messages.slice(0, -1);
+  return messages;
+}
+
+function filterFollowUpsForActiveQuestion(followUps: string[], activeQuestion: string): string[] {
+  const q = activeQuestion.trim();
+  if (!q) return followUps;
+  return followUps.filter((item) => item.trim() !== q);
+}
+
+/**
+ * חשיפה הדרגתית לכיוון target (מספיק מהיר כדי לעמוד בקצב סטרים).
+ */
+function useRevealToTarget(target: string, messageKey: string | undefined) {
+  const [n, setN] = useState(0);
+
+  useEffect(() => {
+    queueMicrotask(() => setN(0));
+  }, [messageKey]);
+
+  useEffect(() => {
+    if (!messageKey || target.length === 0) return;
+    if (n >= target.length) return;
+    const step = Math.min(3, target.length - n);
+    const t = window.setTimeout(() => setN((x) => Math.min(x + step, target.length)), 14);
+    return () => clearTimeout(t);
+  }, [target, n, messageKey]);
+
+  if (!messageKey) return '';
+  return target.slice(0, n);
+}
 
 export default function ChatZoe({ slug }: { slug: string }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -69,6 +132,13 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lastSubmittedText, setLastSubmittedText] = useState('');
+  /**
+   * שאלה בלחיצה — לפני sendText, כדי לאפשר יציאה של צ'יפים אחרים ואז מעבר layout לכותרת.
+   */
+  const [preSendFocus, setPreSendFocus] = useState<string | null>(null);
+
+  const sendTextRef = useRef<(raw: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
     let cancelled = false;
@@ -80,111 +150,469 @@ export default function ChatZoe({ slug }: { slug: string }) {
         if (!res.ok) throw new Error(data.error || 'bootstrap failed');
 
         const name = (data.name as string)?.trim() || '';
-        const welcome = (data.welcome as string)?.trim() || `שלום, כאן זואי מ־${name || 'העסק'}. במה אפשר לעזור?`;
+        const welcome =
+          (data.welcome as string)?.trim() ||
+          `שלום, כאן זואי מ־${name || 'העסק'}. במה אפשר לעזור?`;
         const followups = ensureFourFollowUps((data.followups as string[]) || []);
         const ctaOk = data.cta_text && data.cta_link;
 
         setBusinessSnapshot({
-          slug, name, service_name: data.service_name || name,
-          address: data.address || '', trial_class: data.trial_class || '',
-          cta_text: ctaOk ? data.cta_text : null, cta_link: ctaOk ? data.cta_link : null,
+          slug,
+          name,
+          service_name: (data.service_name as string) || name,
+          address: (data.address as string) || '',
+          trial_class: (data.trial_class as string) || '',
+          cta_text: ctaOk ? data.cta_text : null,
+          cta_link: ctaOk ? data.cta_link : null,
         });
         setFollowUps(followups);
-        setMessages([{ id: newId(), role: 'assistant', content: welcome, ctaText: ctaOk ? data.cta_text : null, ctaLink: ctaOk ? data.cta_link : null, followUps: followups, showActions: true }]);
+        setMessages([
+          {
+            id: newId(),
+            role: 'assistant',
+            content: welcome,
+            ctaText: ctaOk ? data.cta_text : null,
+            ctaLink: ctaOk ? data.cta_link : null,
+            followUps: followups,
+            showActions: true,
+          },
+        ]);
       } catch (e) {
         console.error('Bootstrap:', e);
         if (!cancelled) {
-          setMessages([{ id: newId(), role: 'assistant', content: 'שלום, כאן זואי. במה אפשר לעזור?', ctaText: null, ctaLink: null, followUps: [...DEFAULT_FOLLOWUPS], showActions: true }]);
+          setMessages([
+            {
+              id: newId(),
+              role: 'assistant',
+              content: 'שלום, כאן זואי. במה אפשר לעזור?',
+              ctaText: null,
+              ctaLink: null,
+              followUps: [...DEFAULT_FOLLOWUPS],
+              showActions: true,
+            },
+          ]);
         }
-      } finally { if (!cancelled) setReady(true); }
+      } finally {
+        if (!cancelled) setReady(true);
+      }
     }
     void bootstrap();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [slug]);
 
-  const sendText = async (raw: string) => {
-    const text = raw.trim();
-    if (!text || loading) return;
-    // UX: לאחר שליחה מנקים את שדה הקלט כדי שהמשתמש לא יראה את מה שכבר נשלח.
-    setInput('');
-    const pendingId = newId();
-    flushSync(() => { setMessages(prev => [...prev, { id: newId(), role: 'user', content: text }]); });
-    setLoading(true);
-    setMessages(prev => [...prev, { id: pendingId, role: 'assistant', content: '', ctaText: null, ctaLink: null, followUps, pending: true, showActions: false }]);
+  const patchAssistant = useCallback((patch: Partial<AssistantMessage> & { id: string }) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === patch.id && isAssistant(m) ? { ...m, ...patch } : m))
+    );
+  }, []);
 
-    const patchAssistant = (patch: Partial<AssistantMessage> & { id: string }) => {
-      setMessages(prev => prev.map(m => m.id === patch.id && isAssistant(m) ? { ...m, ...patch } : m));
-    };
+  const sendText = useCallback(
+    async (raw: string) => {
+      const text = raw.trim();
+      if (!text || loading) return;
 
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, slug, business: businessSnapshot }),
+      setInput('');
+      setLastSubmittedText(text);
+
+      const pendingId = newId();
+
+      flushSync(() => {
+        setMessages((prev) => {
+          const trimmed = removeLatestAssistantReply(prev);
+          return [...trimmed, { id: newId(), role: 'user', content: text }];
+        });
+        setPreSendFocus(null);
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'בעיה בחיבור לזואי');
-      }
+      setLoading(true);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: pendingId,
+          role: 'assistant',
+          content: '',
+          ctaText: null,
+          ctaLink: null,
+          followUps,
+          pending: true,
+          showActions: false,
+        },
+      ]);
 
-      if (response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let acc = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          acc += decoder.decode(value, { stream: true });
-          const display = stripMarkdownDecorations(visibleChatPart(acc));
-          patchAssistant({ id: pendingId, content: display, pending: display.length === 0 });
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, slug, business: businessSnapshot }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error((errorData as { error?: string }).error || 'בעיה בחיבור לזואי');
         }
-        const meta = parseStreamMeta(acc);
-        patchAssistant({ id: pendingId, content: stripMarkdownDecorations(visibleChatPart(acc)), pending: false, showActions: true, ctaText: meta.cta_text || businessSnapshot?.cta_text || null, ctaLink: meta.cta_link || businessSnapshot?.cta_link || null });
-      }
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error && error.message ? error.message : 'בעיה בחיבור לזואי';
-      patchAssistant({
-        id: pendingId,
-        content: message,
-        pending: false,
-        showActions: true,
-        ctaText: businessSnapshot?.cta_text || null,
-        ctaLink: businessSnapshot?.cta_link || null
-      });
-    } finally { setLoading(false); }
-  };
 
-  if (!ready) return <div className="flex flex-col items-center justify-center min-h-[320px] gap-3 text-neutral-400"><div className="h-8 w-8 rounded-full border-2 border-neutral-200 border-t-neutral-500 animate-spin" /><p className="text-sm">טוענים את זואי…</p></div>;
+        if (response.body) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let acc = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += decoder.decode(value, { stream: true });
+            const display = stripMarkdownDecorations(visibleChatPart(acc));
+            patchAssistant({
+              id: pendingId,
+              content: display,
+              pending: display.length === 0,
+            });
+          }
+          acc += decoder.decode();
+          const meta = parseStreamMeta(acc);
+          patchAssistant({
+            id: pendingId,
+            content: stripMarkdownDecorations(visibleChatPart(acc)),
+            pending: false,
+            showActions: true,
+            ctaText: meta.cta_text || businessSnapshot?.cta_text || null,
+            ctaLink: meta.cta_link || businessSnapshot?.cta_link || null,
+          });
+        }
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error && error.message ? error.message : 'בעיה בחיבור לזואי';
+        patchAssistant({
+          id: pendingId,
+          content: message,
+          pending: false,
+          showActions: true,
+          ctaText: businessSnapshot?.cta_text || null,
+          ctaLink: businessSnapshot?.cta_link || null,
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading, slug, businessSnapshot, followUps, patchAssistant]
+  );
+
+  useEffect(() => {
+    sendTextRef.current = sendText;
+  }, [sendText]);
+
+  /** לחיצה על צ'יפ: קודם אנימציה, אחר כך שליחה */
+  const onSuggestionPick = useCallback((q: string) => {
+    if (loading || preSendFocus) return;
+    setPreSendFocus(q);
+  }, [loading, preSendFocus]);
+
+  useEffect(() => {
+    if (!preSendFocus) return;
+    const q = preSendFocus;
+    const t = window.setTimeout(() => {
+      void sendTextRef.current(q);
+    }, 420);
+    return () => clearTimeout(t);
+  }, [preSendFocus]);
+
+  const welcomeAssistant = useMemo(
+    () => messages.find((m) => isAssistant(m)) as AssistantMessage | undefined,
+    [messages]
+  );
+
+  const lastUser = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i] as UserMessage;
+    }
+    return null;
+  }, [messages]);
+
+  const lastAssistant = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (isAssistant(messages[i])) return messages[i] as AssistantMessage;
+    }
+    return null;
+  }, [messages]);
+
+  const inSession = lastUser !== null;
+
+  const displayedAnswer = useRevealToTarget(
+    lastAssistant?.content ?? '',
+    lastAssistant?.id
+  );
+
+  const visibleFollowUpsForMessage = useCallback(
+    (m: AssistantMessage) => filterFollowUpsForActiveQuestion(m.followUps, lastSubmittedText),
+    [lastSubmittedText]
+  );
+
+  const exploreFollowUps = welcomeAssistant?.followUps ?? followUps;
+  const sessionBottomFollowUps = lastAssistant
+    ? visibleFollowUpsForMessage(lastAssistant)
+    : [];
+
+  /** הצגת הצעות תחתית בסשן: במהלך הקלדה אחרי תו ראשון, או כשהסטרים הסתיים */
+  const showSessionBottomChips =
+    inSession &&
+    sessionBottomFollowUps.length > 0 &&
+    (displayedAnswer.length >= 10 || (lastAssistant && !lastAssistant.pending));
+
+  const shellClass = useMemo(
+    () =>
+      `flex flex-col h-full w-full max-w-lg mx-auto rounded-2xl md:rounded-3xl overflow-hidden border border-white/10 bg-gradient-to-b from-[#1a1025]/95 via-[#120c18] to-[#0a070d] shadow-[0_24px_80px_rgba(188,116,233,0.12)]`,
+    []
+  );
+
+  const headerQuestionText = inSession ? lastUser!.content : null;
+  /** בזמן בחירת שאלה חדשה מהתחתית — הכותרת מציגה את השאלה הנוכחית בלי layoutId כדי לא להתנגש עם הצ'יפ הנע */
+  const headerSharesLayoutId =
+    !preSendFocus || preSendFocus === lastUser?.content;
+
+  const chipSurfaceClass =
+    'w-full text-right rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
+
+  if (!ready) {
+    return (
+      <div
+        className={`flex flex-col items-center justify-center min-h-[320px] gap-3 rounded-2xl border border-white/10 bg-[#120c18] text-white/50`}
+      >
+        <div
+          className={`h-9 w-9 rounded-full border-2 border-white/20 border-t-[#ff85cf] animate-spin`}
+          aria-hidden
+        />
+        <p className="text-sm">טוענים את זואי…</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full w-full max-w-lg mx-auto">
-      <div className="flex-1 px-1 py-2 overflow-y-auto space-y-10 min-h-[300px] max-h-[min(70vh,520px)]">
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            {m.role === 'user' ? (
-              <div className="max-w-[85%] px-4 py-2.5 rounded-full bg-neutral-800 text-white text-[15px]">{m.content}</div>
-            ) : (
-              <div className="max-w-[94%] w-full flex flex-col gap-0">
-                <div dir="rtl" className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-800 whitespace-pre-wrap">
-                  {m.pending ? <span className="flex gap-1.5 justify-end animate-pulse"><span className="h-2 w-2 rounded-full bg-neutral-300" /></span> : m.content}
-                </div>
-                {isAssistant(m) && !m.pending && m.showActions !== false && (
-                  <div className="mt-9 flex flex-col gap-2 w-full" dir="rtl">
-                    {m.ctaText && m.ctaLink && <a href={m.ctaLink} target="_blank" rel="noopener noreferrer" className={ctaPremiumClass}>{m.ctaText}</a>}
-                    {m.followUps.map((q) => <button key={q} type="button" disabled={loading} onClick={() => void sendText(q)} className={followUpBtnClass}>{q}</button>)}
+    <div className={shellClass}>
+      <div className={`h-1 w-full shrink-0 bg-gradient-to-l ${GRADIENT}`} aria-hidden />
+
+      <LayoutGroup id="chat-zoe-layout">
+        <div className="flex flex-1 flex-col min-h-0">
+          <div className="flex-1 px-3 py-3 md:px-4 md:py-4 overflow-y-auto min-h-[280px] max-h-[min(70vh,520px)] scroll-smooth flex flex-col gap-4 md:gap-5">
+            {/* כותרת שאלה נוכחית (בסשן) */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {inSession && headerQuestionText && (
+                <motion.div
+                  key={lastUser!.id}
+                  layout
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={MOVE}
+                  className="flex justify-end shrink-0"
+                >
+                  {headerSharesLayoutId ? (
+                    <motion.div
+                      layoutId="active-question"
+                      transition={MOVE}
+                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                    >
+                      {headerQuestionText}
+                    </motion.div>
+                  ) : (
+                    <div
+                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                    >
+                      {headerQuestionText}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* מסך פתיחה: ברכה + CTA + צ'יפים */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {!inSession && welcomeAssistant && (
+                <motion.div
+                  key="explore"
+                  initial={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={FADE}
+                  className="flex flex-col gap-4 md:gap-5"
+                >
+                  <div
+                    dir="rtl"
+                    className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-100/95 whitespace-pre-wrap"
+                  >
+                    {welcomeAssistant.content}
                   </div>
-                )}
+
+                  {welcomeAssistant.ctaText && welcomeAssistant.ctaLink && (
+                    <a
+                      href={welcomeAssistant.ctaLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`block w-full text-center rounded-xl text-[15px] md:text-base font-semibold py-3.5 px-6 text-white bg-gradient-to-l ${GRADIENT} shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity`}
+                    >
+                      {welcomeAssistant.ctaText}
+                    </a>
+                  )}
+
+                  <div className="flex flex-col gap-2 w-full" dir="rtl">
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {exploreFollowUps
+                        .filter((q) => !preSendFocus || q === preSendFocus)
+                        .map((q) => {
+                          const isFocus = preSendFocus === q;
+                          if (isFocus) {
+                            return (
+                              <motion.button
+                                key={q}
+                                type="button"
+                                layoutId="active-question"
+                                transition={MOVE}
+                                disabled
+                                className={chipSurfaceClass}
+                              >
+                                {q}
+                              </motion.button>
+                            );
+                          }
+                          return (
+                            <motion.button
+                              key={q}
+                              type="button"
+                              layout
+                              exit={{ opacity: 0, y: 4 }}
+                              transition={FADE}
+                              disabled={loading || !!preSendFocus}
+                              onClick={() => onSuggestionPick(q)}
+                              whileTap={{ scale: 0.99 }}
+                              className={chipSurfaceClass}
+                            >
+                              {q}
+                            </motion.button>
+                          );
+                        })}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* תשובה + צ'יפים תחתונים (סשן) */}
+            {inSession && lastAssistant && (
+              <div className="flex flex-col gap-4 flex-1 min-h-0">
+                <motion.div
+                  layout
+                  dir="rtl"
+                  className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-100/95 whitespace-pre-wrap min-h-[1.5rem]"
+                >
+                  {lastAssistant.pending && displayedAnswer.length === 0 ? (
+                    <span className="inline-flex items-center gap-2 justify-end w-full text-white/50 text-sm">
+                      <span className="flex gap-1" aria-hidden>
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#ff85cf] animate-pulse" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#bc74e9] animate-pulse [animation-delay:120ms]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#ff85cf] animate-pulse [animation-delay:240ms]" />
+                      </span>
+                      זואי מקלידה…
+                    </span>
+                  ) : (
+                    <>
+                      {displayedAnswer}
+                      {(lastAssistant.pending || displayedAnswer.length < lastAssistant.content.length) && (
+                        <motion.span
+                          animate={{ opacity: [1, 0.2, 1] }}
+                          transition={{ duration: 0.9, repeat: Infinity }}
+                          className="inline-block w-2 h-4 ms-0.5 align-middle bg-gradient-to-b from-[#ff85cf] to-[#bc74e9] rounded-sm"
+                          aria-hidden
+                        />
+                      )}
+                    </>
+                  )}
+                </motion.div>
+
+                {isAssistant(lastAssistant) &&
+                  !lastAssistant.pending &&
+                  lastAssistant.showActions !== false &&
+                  lastAssistant.ctaText &&
+                  lastAssistant.ctaLink && (
+                    <motion.a
+                      layout
+                      href={lastAssistant.ctaLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={FADE}
+                      className={`block w-full text-center rounded-xl text-[15px] md:text-base font-semibold py-3.5 px-6 text-white bg-gradient-to-l ${GRADIENT} shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity`}
+                    >
+                      {lastAssistant.ctaText}
+                    </motion.a>
+                  )}
+
+                <div className="flex flex-col gap-2 w-full mt-auto pt-2" dir="rtl">
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {showSessionBottomChips &&
+                      sessionBottomFollowUps
+                        .filter((q) => !preSendFocus || q === preSendFocus)
+                        .map((q) => {
+                          const isFocus = preSendFocus === q;
+                          if (isFocus) {
+                            return (
+                              <motion.button
+                                key={q}
+                                type="button"
+                                layoutId="active-question"
+                                transition={MOVE}
+                                disabled
+                                className={chipSurfaceClass}
+                              >
+                                {q}
+                              </motion.button>
+                            );
+                          }
+                          return (
+                            <motion.button
+                              key={q}
+                              type="button"
+                              layout
+                              exit={{ opacity: 0, y: 4 }}
+                              disabled={loading || !!preSendFocus}
+                              onClick={() => onSuggestionPick(q)}
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ ...FADE, delay: 0.04 }}
+                              whileTap={{ scale: 0.99 }}
+                              className={chipSurfaceClass}
+                            >
+                              {q}
+                            </motion.button>
+                          );
+                        })}
+                  </AnimatePresence>
+                </div>
               </div>
             )}
           </div>
-        ))}
-      </div>
-      <div className="pt-3 mt-1 border-t border-neutral-100 flex gap-2">
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendText(input)} placeholder="הקלידו כאן…" className="flex-1 py-2.5 px-4 border border-neutral-200 rounded-full text-right" dir="rtl" />
-        <button type="button" onClick={() => sendText(input)} disabled={loading} className="bg-neutral-900 text-white px-5 py-2.5 rounded-full">שלח</button>
-      </div>
+
+          <div className="shrink-0 px-3 pb-3 md:px-4 md:pb-4 pt-2 border-t border-white/10">
+            <div className="flex gap-2 items-stretch">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void sendText(input)}
+                placeholder="הקלידו כאן…"
+                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-right text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[#bc74e9]/40"
+                dir="rtl"
+                aria-label="הודעה לזואי"
+              />
+              <button
+                type="button"
+                onClick={() => void sendText(input)}
+                disabled={loading}
+                className={`shrink-0 rounded-2xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-l ${GRADIENT} disabled:opacity-45 transition-opacity`}
+              >
+                שלח
+              </button>
+            </div>
+          </div>
+        </div>
+      </LayoutGroup>
     </div>
   );
 }

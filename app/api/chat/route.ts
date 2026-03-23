@@ -21,18 +21,17 @@ export async function POST(req: NextRequest) {
       ? `שם העסק: ${business.name}, שירות: ${business.service_name}, כתובת: ${business.address}, שיעור ניסיון: ${business.trial_class}`
       : `Business Slug: ${slug}`;
 
-    const fullPrompt = `
-      את זואי, עוזרת בינה מלאכותית ידידותית עבור העסק: ${businessContext}.
-      המטרה שלך היא להיות עוזרת, תמציתית ולעודד את המשתמש לפעולה (כמו הרשמה לשיעור ניסיון).
-      
-      הודעת המשתמש: "${message}"
-      
-      הוראות תגובה:
-      1. עני תמיד בעברית טבעית וחמה.
-      2. היי מקצועית אך נגישה.
-      3. בסוף התשובה, הוסיפי הנעה לפעולה (CTA) קצרה ו-2-4 שאלות המשך רלוונטיות.
-      4. את המטא-דאטה (JSON) הוסיפי רק בסוף אחרי המפריד "${CHAT_STREAM_META}".
-    `;
+    const fullPrompt = `את זואי (Zoe), נציגת שירות דיגיטלית עבור: ${businessContext}.
+
+סגנון: עברית בלבד. תשובות קצרות, מקצועיות וידידותיות — בלי חפירות ובלי פתיחים ארוכים.
+
+הודעת המשתמש: ${JSON.stringify(message)}
+
+הנחיות:
+- אל תכללי רשימות ארוכות, שאלות המשך או כפתורים בטקסט (הממשק מציג אותם).
+- בלי מרקדאון (לא ** ולא #).
+- אם מתאים, סיימי במשפט הנעה קצר אחד בלבד (שורה אחת).
+- אל תכללי JSON או מפרידי מטא-נתונים בטקסט — השרת מוסיף אותם אחרי הסטרים.`;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -74,8 +73,18 @@ export async function POST(req: NextRequest) {
         if (!success) {
           const errorMsg = lastError instanceof Error ? lastError.message : 'All models failed';
           controller.enqueue(encoder.encode(`מצטערת, יש לי קצת קשיים בחיבור כרגע. אפשר לנסות שוב? (שגיאה: ${errorMsg})`));
+        } else {
+          const cta_text =
+            business && typeof business.cta_text === 'string' ? business.cta_text.trim() || null : null;
+          const cta_link =
+            business && typeof business.cta_link === 'string' ? business.cta_link.trim() || null : null;
+          controller.enqueue(
+            encoder.encode(
+              `${CHAT_STREAM_META}${JSON.stringify({ cta_text, cta_link })}`
+            )
+          );
         }
-        
+
         controller.close();
       },
     });
