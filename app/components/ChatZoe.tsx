@@ -5,7 +5,8 @@
  * - מעבר פוקוס: לחיצה על שאלה מדהה את האחרות, השאלה הנבחרת עולה לראש (Framer Motion layout).
  * - תשובת העוזרת האחרונה מוחלפת בכל סיבוב (לא מצטברות בועות assistant).
  * - שאלות המשך: מסתירות את השאלה שזה עתה נשלחה.
- * - אפקט הקלדה: חשיפה הדרגתית של הטקסט (מסונכרן לסטרים).
+ * - אפקט מכונת כתיבה: אות אחרי אות (מסונכרן לסטרים).
+ * - הצעות תחתיות בסשן: רק אחרי שהתשובה מתחילה להופיע.
  * - עיצוב: כהה מינימליסטי עם גרדיאנט ורוד–סגול (#ff85cf → #bc74e9).
  */
 
@@ -16,7 +17,14 @@ import {
   LayoutGroup,
   motion,
 } from 'framer-motion';
+import {
+  formatUserFacingGeminiError,
+  friendlyHttpErrorMessage,
+} from '@/lib/gemini';
 import { CHAT_STREAM_META, stripMarkdownDecorations } from '@/lib/zoe-shared';
+
+/** מניעת שליחות כפולות מהירות (לחיצה כפולה / Enter+לחיצה) */
+const DEDUPE_WINDOW_MS = 2200;
 
 const DEFAULT_FOLLOWUPS = [
   'איפה אתם?',
@@ -103,9 +111,9 @@ function filterFollowUpsForActiveQuestion(followUps: string[], activeQuestion: s
   return followUps.filter((item) => item.trim() !== q);
 }
 
-/**
- * חשיפה הדרגתית לכיוון target (מספיק מהיר כדי לעמוד בקצב סטרים).
- */
+/** מכונת כתיבה: חשיפת תו אחד בכל פעם לכיוון target (עומד בקצב סטרים). */
+const TYPEWRITER_MS = 20;
+
 function useRevealToTarget(target: string, messageKey: string | undefined) {
   const [n, setN] = useState(0);
 
@@ -116,8 +124,7 @@ function useRevealToTarget(target: string, messageKey: string | undefined) {
   useEffect(() => {
     if (!messageKey || target.length === 0) return;
     if (n >= target.length) return;
-    const step = Math.min(3, target.length - n);
-    const t = window.setTimeout(() => setN((x) => Math.min(x + step, target.length)), 14);
+    const t = window.setTimeout(() => setN((x) => Math.min(x + 1, target.length)), TYPEWRITER_MS);
     return () => clearTimeout(t);
   }, [target, n, messageKey]);
 
@@ -130,6 +137,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const [followUps, setFollowUps] = useState<string[]>([...DEFAULT_FOLLOWUPS]);
   const [businessSnapshot, setBusinessSnapshot] = useState<BusinessSnapshot | null>(null);
   const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [bootRetryToken, setBootRetryToken] = useState(0);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastSubmittedText, setLastSubmittedText] = useState('');
@@ -139,21 +148,51 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const [preSendFocus, setPreSendFocus] = useState<string | null>(null);
 
   const sendTextRef = useRef<(raw: string) => Promise<void>>(async () => {});
+  /** מונע שני fetch bootstrap במקביל (למשל React Strict Mode) */
+  const bootstrapAbortRef = useRef<AbortController | null>(null);
+  /** מונע שני שליחות לצ'אט לפני ש־loading מתעדכן */
+  const chatInFlightRef = useRef(false);
+  const lastSendRef = useRef<{ text: string; at: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    bootstrapAbortRef.current?.abort();
+    const ac = new AbortController();
+    bootstrapAbortRef.current = ac;
+
+    setReady(false);
+    setBootError(null);
+
     async function bootstrap() {
       try {
-        const res = await fetch(`/api/business?slug=${encodeURIComponent(slug)}`);
-        const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) throw new Error(data.error || 'bootstrap failed');
+        const res = await fetch(`/api/business?slug=${encodeURIComponent(slug)}`, {
+          signal: ac.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || ac.signal.aborted) return;
+
+        if (!res.ok) {
+          const msg =
+            typeof (data as { error?: string }).error === 'string'
+              ? (data as { error: string }).error
+              : friendlyHttpErrorMessage(res.status);
+          setBusinessSnapshot(null);
+          setMessages([]);
+          setBootError(msg);
+          return;
+        }
 
         const name = (data.name as string)?.trim() || '';
-        const welcome =
-          (data.welcome as string)?.trim() ||
-          `שלום, כאן זואי מ־${name || 'העסק'}. במה אפשר לעזור?`;
-        const followups = ensureFourFollowUps((data.followups as string[]) || []);
+        const welcome = (data.welcome as string)?.trim();
+        const rawFollowups = (data.followups as string[]) || [];
+        if (!welcome) {
+          setBusinessSnapshot(null);
+          setMessages([]);
+          setBootError('לא התקבלה ברכה מהשרת. נסו שוב.');
+          return;
+        }
+
+        const followups = ensureFourFollowUps(rawFollowups);
         const ctaOk = data.cta_text && data.cta_link;
 
         setBusinessSnapshot({
@@ -178,19 +217,12 @@ export default function ChatZoe({ slug }: { slug: string }) {
           },
         ]);
       } catch (e) {
+        if ((e as Error).name === 'AbortError') return;
         console.error('Bootstrap:', e);
-        if (!cancelled) {
-          setMessages([
-            {
-              id: newId(),
-              role: 'assistant',
-              content: 'שלום, כאן זואי. במה אפשר לעזור?',
-              ctaText: null,
-              ctaLink: null,
-              followUps: [...DEFAULT_FOLLOWUPS],
-              showActions: true,
-            },
-          ]);
+        if (!cancelled && !ac.signal.aborted) {
+          setBusinessSnapshot(null);
+          setMessages([]);
+          setBootError('לא הצלחנו לטעון את העמוד. בדקו חיבור ונסו שוב.');
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -199,8 +231,15 @@ export default function ChatZoe({ slug }: { slug: string }) {
     void bootstrap();
     return () => {
       cancelled = true;
+      ac.abort();
     };
-  }, [slug]);
+  }, [slug, bootRetryToken]);
+
+  const retryBootstrap = useCallback(() => {
+    setBootError(null);
+    setReady(false);
+    setBootRetryToken((n) => n + 1);
+  }, []);
 
   const patchAssistant = useCallback((patch: Partial<AssistantMessage> & { id: string }) => {
     setMessages((prev) =>
@@ -211,16 +250,24 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const sendText = useCallback(
     async (raw: string) => {
       const text = raw.trim();
-      if (!text || loading) return;
+      if (!text || loading || chatInFlightRef.current) return;
 
+      const now = Date.now();
+      const prev = lastSendRef.current;
+      if (prev && prev.text === text && now - prev.at < DEDUPE_WINDOW_MS) {
+        return;
+      }
+      lastSendRef.current = { text, at: now };
+
+      chatInFlightRef.current = true;
       setInput('');
       setLastSubmittedText(text);
 
       const pendingId = newId();
 
       flushSync(() => {
-        setMessages((prev) => {
-          const trimmed = removeLatestAssistantReply(prev);
+        setMessages((prevMsgs) => {
+          const trimmed = removeLatestAssistantReply(prevMsgs);
           return [...trimmed, { id: newId(), role: 'user', content: text }];
         });
         setPreSendFocus(null);
@@ -241,6 +288,17 @@ export default function ChatZoe({ slug }: { slug: string }) {
         },
       ]);
 
+      const failFriendly = (userMessage: string) => {
+        patchAssistant({
+          id: pendingId,
+          content: userMessage,
+          pending: false,
+          showActions: true,
+          ctaText: businessSnapshot?.cta_text || null,
+          ctaLink: businessSnapshot?.cta_link || null,
+        });
+      };
+
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -249,48 +307,63 @@ export default function ChatZoe({ slug }: { slug: string }) {
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error((errorData as { error?: string }).error || 'בעיה בחיבור לזואי');
+          await response.json().catch(() => ({}));
+          failFriendly(friendlyHttpErrorMessage(response.status));
+          return;
         }
 
-        if (response.body) {
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let acc = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            acc += decoder.decode(value, { stream: true });
-            const display = stripMarkdownDecorations(visibleChatPart(acc));
-            patchAssistant({
-              id: pendingId,
-              content: display,
-              pending: display.length === 0,
-            });
-          }
-          acc += decoder.decode();
-          const meta = parseStreamMeta(acc);
+        if (!response.body) {
+          failFriendly(friendlyHttpErrorMessage(502));
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let acc = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          acc += decoder.decode(value, { stream: true });
+          const display = stripMarkdownDecorations(visibleChatPart(acc));
           patchAssistant({
             id: pendingId,
-            content: stripMarkdownDecorations(visibleChatPart(acc)),
-            pending: false,
-            showActions: true,
-            ctaText: meta.cta_text || businessSnapshot?.cta_text || null,
-            ctaLink: meta.cta_link || businessSnapshot?.cta_link || null,
+            content: display,
+            pending: display.length === 0,
           });
         }
-      } catch (error: unknown) {
-        const message =
-          error instanceof Error && error.message ? error.message : 'בעיה בחיבור לזואי';
+        acc += decoder.decode();
+        const meta = parseStreamMeta(acc);
+        const finalText = stripMarkdownDecorations(visibleChatPart(acc));
         patchAssistant({
           id: pendingId,
-          content: message,
+          content: finalText || formatUserFacingGeminiError(new Error('empty stream')),
           pending: false,
           showActions: true,
-          ctaText: businessSnapshot?.cta_text || null,
-          ctaLink: businessSnapshot?.cta_link || null,
+          ctaText: meta.cta_text || businessSnapshot?.cta_text || null,
+          ctaLink: meta.cta_link || businessSnapshot?.cta_link || null,
         });
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (err.name === 'AbortError') {
+          patchAssistant({
+            id: pendingId,
+            content: 'הבקשה בוטלה.',
+            pending: false,
+            showActions: true,
+            ctaText: businessSnapshot?.cta_text || null,
+            ctaLink: businessSnapshot?.cta_link || null,
+          });
+          return;
+        }
+        const net =
+          err.message === 'Failed to fetch' || /network|load failed/i.test(err.message);
+        failFriendly(
+          net
+            ? 'בעיית רשת — בדקו את החיבור ונסו שוב.'
+            : formatUserFacingGeminiError(err)
+        );
       } finally {
+        chatInFlightRef.current = false;
         setLoading(false);
       }
     },
@@ -352,11 +425,11 @@ export default function ChatZoe({ slug }: { slug: string }) {
     ? visibleFollowUpsForMessage(lastAssistant)
     : [];
 
-  /** הצגת הצעות תחתית בסשן: במהלך הקלדה אחרי תו ראשון, או כשהסטרים הסתיים */
+  /** הצעות תחתית רק אחרי שהתשובה מתחילה להופיע (אות ראשון במכונת הכתיבה) */
   const showSessionBottomChips =
     inSession &&
     sessionBottomFollowUps.length > 0 &&
-    (displayedAnswer.length >= 10 || (lastAssistant && !lastAssistant.pending));
+    displayedAnswer.length >= 1;
 
   const shellClass = useMemo(
     () =>
@@ -386,6 +459,24 @@ export default function ChatZoe({ slug }: { slug: string }) {
     );
   }
 
+  if (bootError) {
+    return (
+      <div
+        className={`flex flex-col items-center justify-center min-h-[320px] gap-4 px-6 rounded-2xl border border-white/10 bg-[#120c18] text-center`}
+        dir="rtl"
+      >
+        <p className="text-sm text-neutral-200 max-w-sm leading-relaxed">{bootError}</p>
+        <button
+          type="button"
+          onClick={retryBootstrap}
+          className={`rounded-xl px-6 py-3 text-sm font-semibold text-white bg-gradient-to-l ${GRADIENT} hover:opacity-95 transition-opacity`}
+        >
+          נסו שוב
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className={shellClass}>
       <div className={`h-1 w-full shrink-0 bg-gradient-to-l ${GRADIENT}`} aria-hidden />
@@ -393,6 +484,29 @@ export default function ChatZoe({ slug }: { slug: string }) {
       <LayoutGroup id="chat-zoe-layout">
         <div className="flex flex-1 flex-col min-h-0">
           <div className="flex-1 px-3 py-3 md:px-4 md:py-4 overflow-y-auto min-h-[280px] max-h-[min(70vh,520px)] scroll-smooth flex flex-col gap-4 md:gap-5">
+            {/* שאלה נבחרת בראש — לפני כניסה לסשן (אחרי לחיצה על צ'יפ בפתיחה) */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {!inSession && preSendFocus && (
+                <motion.div
+                  key="pre-header"
+                  layout
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={MOVE}
+                  className="flex justify-end shrink-0"
+                >
+                  <motion.div
+                    layoutId="active-question"
+                    transition={MOVE}
+                    className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                  >
+                    {preSendFocus}
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* כותרת שאלה נוכחית (בסשן) */}
             <AnimatePresence initial={false} mode="popLayout">
               {inSession && headerQuestionText && (
@@ -424,9 +538,9 @@ export default function ChatZoe({ slug }: { slug: string }) {
               )}
             </AnimatePresence>
 
-            {/* מסך פתיחה: ברכה + CTA + צ'יפים */}
+            {/* מסך פתיחה: ברכה + CTA; צ'יפים נפרדים — נעלמים כשבוחרים שאלה (הכותרת למעלה) */}
             <AnimatePresence mode="popLayout" initial={false}>
-              {!inSession && welcomeAssistant && (
+              {!inSession && welcomeAssistant && !preSendFocus && (
                 <motion.div
                   key="explore"
                   initial={{ opacity: 1 }}
@@ -451,48 +565,31 @@ export default function ChatZoe({ slug }: { slug: string }) {
                       {welcomeAssistant.ctaText}
                     </a>
                   )}
-
-                  <div className="flex flex-col gap-2 w-full" dir="rtl">
-                    <AnimatePresence initial={false} mode="popLayout">
-                      {exploreFollowUps
-                        .filter((q) => !preSendFocus || q === preSendFocus)
-                        .map((q) => {
-                          const isFocus = preSendFocus === q;
-                          if (isFocus) {
-                            return (
-                              <motion.button
-                                key={q}
-                                type="button"
-                                layoutId="active-question"
-                                transition={MOVE}
-                                disabled
-                                className={chipSurfaceClass}
-                              >
-                                {q}
-                              </motion.button>
-                            );
-                          }
-                          return (
-                            <motion.button
-                              key={q}
-                              type="button"
-                              layout
-                              exit={{ opacity: 0, y: 4 }}
-                              transition={FADE}
-                              disabled={loading || !!preSendFocus}
-                              onClick={() => onSuggestionPick(q)}
-                              whileTap={{ scale: 0.99 }}
-                              className={chipSurfaceClass}
-                            >
-                              {q}
-                            </motion.button>
-                          );
-                        })}
-                    </AnimatePresence>
-                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {!inSession && welcomeAssistant && !preSendFocus && (
+              <div className="flex flex-col gap-2 w-full" dir="rtl">
+                <AnimatePresence initial={false} mode="popLayout">
+                  {exploreFollowUps.map((q) => (
+                    <motion.button
+                      key={q}
+                      type="button"
+                      layout
+                      exit={{ opacity: 0, y: 4 }}
+                      transition={FADE}
+                      disabled={loading || !!preSendFocus}
+                      onClick={() => onSuggestionPick(q)}
+                      whileTap={{ scale: 0.99 }}
+                      className={chipSurfaceClass}
+                    >
+                      {q}
+                    </motion.button>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
 
             {/* תשובה + צ'יפים תחתונים (סשן) */}
             {inSession && lastAssistant && (

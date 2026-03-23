@@ -5,8 +5,6 @@ import { GEMINI_BOOTSTRAP_MODELS, generateRawWithModelFallback } from "@/lib/gem
 import { stripMarkdownDecorations } from "@/lib/zoe-shared";
 import { TONE_ANALYSIS_AND_VOICE } from "@/lib/zoe-tone";
 
-const DEFAULT_FOLLOWUPS = ["איפה אתם?", "מה המחיר?", "למי זה מתאים?", "איך נרשמים?"];
-
 function parseModelJson(text: string): Record<string, unknown> | null {
   let raw = text.trim();
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(raw);
@@ -50,14 +48,13 @@ export async function GET(req: Request) {
     const address = (business?.address as string | undefined)?.trim() || "";
     const trial = (business?.trial_class as string | undefined)?.trim() || "";
 
-    let welcome = `שלום, כאן זואי מ־${bizName}. במה אפשר לעזור?`;
-    let followups = [...DEFAULT_FOLLOWUPS];
+    let welcome = "";
+    let followups: string[] = [];
     let tone: string | null = null;
 
-    try {
-      const genAI = new GoogleGenerativeAI(apiKey);
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-      const prompt = `את זואי (Zoe), נציגת המותג של "${bizName}".
+    const prompt = `את זואי (Zoe), נציגת המותג של "${bizName}".
 
 ${TONE_ANALYSIS_AND_VOICE}
 
@@ -69,36 +66,63 @@ ${trial ? `- מידע נוסף: ${trial}` : ""}
 
 משימה: החזירי JSON בלבד — בלי טקסט לפני או אחרי, בלי בלוקי קוד markdown.
 המבנה המדויק:
-{"welcome":"משפט ברוכים הבאים אחד, קצר מאוד (עד 16 מילים) בעברית, שמשקף את הטון המתאים לעסק","followups":["שאלה קצרה 1","שאלה קצרה 2","שאלה קצרה 3","שאלה קצרה 4"],"tone":"leisure או wellness או professional"}
+{"welcome":"משפט ברוכים הבאים אחד בלבד בעברית — קצר מאוד (עד 14 מילים), חם ומקצועי","followups":["שאלה קצרה 1","שאלה קצרה 2","שאלה קצרה 3","שאלה קצרה 4"],"tone":"leisure או wellness או professional"}
 
-ה־followups: ארבע שאלות קצרות וברורות שהלקוח עשוי לשאול (למשל מיקום, מחיר, התאמה, הרשמה), מותאמות לעסק ולטון — לא גנריות לחלוטין.`;
+ה־followups: ארבע שאלות קצרות וברורות שהלקוח עשוי לשאול, מותאמות לעסק — לא גנריות לחלוטין.`;
 
-      const text = await generateRawWithModelFallback(GEMINI_BOOTSTRAP_MODELS, async (modelName) => {
+    let text: string;
+    try {
+      text = await generateRawWithModelFallback(GEMINI_BOOTSTRAP_MODELS, async (modelName) => {
         const model = genAI.getGenerativeModel({ model: modelName });
         const result = await model.generateContent(prompt);
         return result.response.text();
       });
-      const parsed = parseModelJson(text);
-
-      if (parsed) {
-        const w = typeof parsed.welcome === "string" ? stripMarkdownDecorations(parsed.welcome.trim()) : "";
-        if (w) welcome = w;
-        const t = typeof parsed.tone === "string" ? parsed.tone.trim() : "";
-        if (t) tone = t;
-        const f = parsed.followups;
-        if (Array.isArray(f) && f.length >= 4) {
-          const four = f
-            .slice(0, 4)
-            .map((x) => (typeof x === "string" ? stripMarkdownDecorations(x.trim()) : ""))
-            .filter(Boolean);
-          if (four.length === 4) followups = four;
-        }
-      }
-
-      welcome = stripMarkdownDecorations(welcome);
     } catch (geminiErr: unknown) {
-      console.error("[HeyZoe api/business] Gemini welcome/followups failed, using defaults:", geminiErr);
+      console.error("[HeyZoe api/business] Gemini failed:", geminiErr);
+      return NextResponse.json(
+        { error: "לא ניתן לטעון את זואי כרגע. נסו שוב בעוד רגע." },
+        { status: 503 }
+      );
     }
+
+    const parsed = parseModelJson(text);
+    if (!parsed) {
+      return NextResponse.json(
+        { error: "תשובת ה-AI לא הייתה בתבנית הצפויה. נסו לרענן." },
+        { status: 502 }
+      );
+    }
+
+    const w = typeof parsed.welcome === "string" ? stripMarkdownDecorations(parsed.welcome.trim()) : "";
+    if (!w) {
+      return NextResponse.json(
+        { error: "חסרה ברכת פתיחה מהמודל. נסו שוב." },
+        { status: 502 }
+      );
+    }
+    welcome = w;
+
+    const t = typeof parsed.tone === "string" ? parsed.tone.trim() : "";
+    if (t) tone = t;
+
+    const f = parsed.followups;
+    if (!Array.isArray(f) || f.length < 4) {
+      return NextResponse.json(
+        { error: "חסרות שאלות המשך מהמודל. נסו שוב." },
+        { status: 502 }
+      );
+    }
+    const four = f
+      .slice(0, 4)
+      .map((x) => (typeof x === "string" ? stripMarkdownDecorations(x.trim()) : ""))
+      .filter(Boolean);
+    if (four.length !== 4) {
+      return NextResponse.json(
+        { error: "שאלות המשך לא הושלמו. נסו שוב." },
+        { status: 502 }
+      );
+    }
+    followups = four;
 
     return NextResponse.json({
       slug,

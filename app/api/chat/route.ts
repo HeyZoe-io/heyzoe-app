@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GEMINI_CHAT_MODELS, GEMINI_RETRY_DELAYS_MS, isRetryableGeminiError, normalizeModelName } from '@/lib/gemini';
+import {
+  GEMINI_CHAT_MODELS,
+  GEMINI_RETRY_DELAYS_MS,
+  formatUserFacingGeminiError,
+  isRetryableGeminiError,
+  normalizeModelName,
+} from '@/lib/gemini';
 import { CHAT_STREAM_META } from '@/lib/zoe-shared';
 
 export const runtime = 'edge';
@@ -23,15 +29,17 @@ export async function POST(req: NextRequest) {
 
     const fullPrompt = `את זואי (Zoe), נציגת שירות דיגיטלית עבור: ${businessContext}.
 
-סגנון: עברית בלבד. תשובות קצרות, מקצועיות וידידותיות — בלי חפירות ובלי פתיחים ארוכים.
+כללים חובה:
+- עברית בלבד. אסור אנגלית או שפות אחרות.
+- קצרה בטירוף: לכל היותר משפט אחד או שניים, אלא אם המשתמש ביקש במפורש פירוט נרחב יותר.
+- טון: חמים ומקצועיים — ישירים, בלי סרק או פתיחים ארוכים.
 
 הודעת המשתמש: ${JSON.stringify(message)}
 
-הנחיות:
-- אל תכללי רשימות ארוכות, שאלות המשך או כפתורים בטקסט (הממשק מציג אותם).
+הנחיות נוספות:
+- בלי רשימות ארוכות, בלי שאלות המשך ובלי "כפתורים" בטקסט (הממשק מציג המשך).
 - בלי מרקדאון (לא ** ולא #).
-- אם מתאים, סיימי במשפט הנעה קצר אחד בלבד (שורה אחת).
-- אל תכללי JSON או מפרידי מטא-נתונים בטקסט — השרת מוסיף אותם אחרי הסטרים.`;
+- אל תכללי JSON או מפרידי מטא-נתונים — השרת מוסיף אותם אחרי הסטרים.`;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -71,8 +79,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (!success) {
-          const errorMsg = lastError instanceof Error ? lastError.message : 'All models failed';
-          controller.enqueue(encoder.encode(`מצטערת, יש לי קצת קשיים בחיבור כרגע. אפשר לנסות שוב? (שגיאה: ${errorMsg})`));
+          controller.enqueue(encoder.encode(formatUserFacingGeminiError(lastError)));
         } else {
           const cta_text =
             business && typeof business.cta_text === 'string' ? business.cta_text.trim() || null : null;

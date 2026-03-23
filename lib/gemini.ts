@@ -14,6 +14,35 @@ export function isRetryableGeminiError(error: unknown): boolean {
   return /429|503|RESOURCE_EXHAUSTED|UNAVAILABLE|Too Many Requests|quota|rate limit/i.test(msg);
 }
 
+/** הודעה קצרה וידידותית למשתמש — בלי פרטי שגיאה גולמיים ששוברים עיצוב */
+export function formatUserFacingGeminiError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/429|RESOURCE_EXHAUSTED|quota|rate limit|Too Many Requests/i.test(msg)) {
+    return "יש עומס רגעי על השירות. נסו שוב בעוד דקה — זואי תשמח לענות.";
+  }
+  if (/503|UNAVAILABLE|overloaded|deadline|timeout/i.test(msg)) {
+    return "השירות זמנית לא זמין. נסו שוב בעוד רגע.";
+  }
+  return "משהו השתבש בחיבור. נסו שוב בעוד רגע — אנחנו כאן.";
+}
+
+/** תגובת HTTP מה-API שלנו (לא סטרים) */
+export function friendlyHttpErrorMessage(status: number): string {
+  if (status === 429) {
+    return "יש עומס רגעי. נסו שוב בעוד דקה — זואי תשמח לעזור.";
+  }
+  if (status >= 500) {
+    return "השרת עמוס זמנית. נסו שוב בעוד רגע.";
+  }
+  if (status === 408) {
+    return "הבקשה ארכה יותר מדי. נסו שוב.";
+  }
+  if (status >= 400) {
+    return "לא הצלחנו לשלוח את ההודעה. בדקו את החיבור ונסו שוב.";
+  }
+  return "משהו השתבש. נסו שוב בעוד רגע.";
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
