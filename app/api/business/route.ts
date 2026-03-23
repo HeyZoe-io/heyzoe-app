@@ -20,7 +20,7 @@ function parseModelJson(text: string): Record<string, unknown> | null {
 }
 
 export async function GET(req: Request) {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
@@ -76,7 +76,7 @@ ${trial ? `- מידע נוסף: ${trial}` : ""}
       const text = await generateRawWithModelFallback(GEMINI_BOOTSTRAP_MODELS, async (modelName) => {
         const model = genAI.getGenerativeModel({ model: modelName });
         const result = await model.generateContent(prompt);
-        return result.response;
+        return result.response.text();
       });
       const parsed = parseModelJson(text);
 
