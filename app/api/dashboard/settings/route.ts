@@ -30,7 +30,27 @@ export async function GET() {
     admin.from("faqs").select("*").eq("business_id", business.id).order("sort_order", { ascending: true }),
   ]);
 
-  return NextResponse.json({ business, services: services ?? [], faqs: faqs ?? [] });
+  const socialRaw = business.social_links;
+  const social =
+    socialRaw && typeof socialRaw === "object" && !Array.isArray(socialRaw)
+      ? (socialRaw as Record<string, unknown>)
+      : {};
+
+  return NextResponse.json({
+    business: {
+      ...business,
+      website_url: typeof social.website_url === "string" ? social.website_url : "",
+      business_description:
+        typeof social.business_description === "string" ? social.business_description : "",
+      instagram: typeof social.instagram === "string" ? social.instagram : "",
+      tiktok: typeof social.tiktok === "string" ? social.tiktok : "",
+      facebook: typeof social.facebook === "string" ? social.facebook : "",
+      youtube: typeof social.youtube === "string" ? social.youtube : "",
+      whatsapp: typeof social.whatsapp === "string" ? social.whatsapp : "",
+    },
+    services: services ?? [],
+    faqs: faqs ?? [],
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -62,7 +82,10 @@ export async function POST(req: NextRequest) {
     niche: String(business.niche ?? ""),
     bot_name: String(business.bot_name ?? "זואי"),
     logo_url: String(business.logo_url ?? ""),
-    social_links: Array.isArray(business.social_links) ? business.social_links : [],
+    social_links:
+      business.social_links && typeof business.social_links === "object"
+        ? business.social_links
+        : {},
     primary_color: String(business.primary_color ?? "#ff85cf"),
     secondary_color: String(business.secondary_color ?? "#bc74e9"),
     welcome_message: String(business.welcome_message ?? "שלום, כאן זואי. איך אפשר לעזור?"),

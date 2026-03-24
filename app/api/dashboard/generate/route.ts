@@ -19,15 +19,21 @@ export async function POST(req: NextRequest) {
   const apiKey = resolveGeminiApiKey();
   if (!apiKey) return NextResponse.json({ error: "missing_gemini_key" }, { status: 500 });
 
-  const { mode, business_name, niche, service_name } = await req.json();
+  const { mode, business_name, niche, service_name, service_description, website_url, business_description } =
+    await req.json();
   const genAI = new GoogleGenerativeAI(apiKey);
   const modelName = normalizeModelName(GEMINI_CHAT_MODELS[0]);
   const model = genAI.getGenerativeModel({ model: modelName }, GEMINI_MODEL_INIT_OPTIONS);
 
   const prompt =
     mode === "faq"
-      ? `Generate 4 concise Hebrew FAQ pairs for business "${business_name}" in niche "${niche}" service "${service_name}". Return JSON array: [{"question":"","answer":""}] only.`
-      : `Write one short Hebrew welcome sentence for chatbot of "${business_name}" niche "${niche}".`;
+      ? `צור בדיוק 3 זוגות שאלה-תשובה בעברית עבור השירות "${service_name}" של העסק "${business_name}".
+הקשר שירות: "${service_description ?? ""}".
+החזר JSON בלבד במבנה: [{"question":"","answer":""}]`
+      : `כתוב הודעת פתיחה מקצועית וקצרה בעברית לצ'אטבוט של "${business_name}" בתחום "${niche}".
+אתר: "${website_url ?? ""}".
+תיאור עסק: "${business_description ?? ""}".
+החזר משפט אחד בלבד.`;
 
   const result = await model.generateContent(prompt, { timeout: 30000 });
   const text = result.response.text().trim();
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
     try {
       const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
       const parsed = JSON.parse(cleaned);
-      return NextResponse.json({ items: Array.isArray(parsed) ? parsed : [] });
+      return NextResponse.json({ items: Array.isArray(parsed) ? parsed.slice(0, 3) : [] });
     } catch {
       return NextResponse.json({ items: [] });
     }

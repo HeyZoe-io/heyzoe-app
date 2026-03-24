@@ -14,6 +14,7 @@ import {
   sleepMs,
 } from '@/lib/gemini';
 import { extractErrorCode, logMessage } from '@/lib/analytics';
+import { createSupabaseAdminClient } from '@/lib/supabase-admin';
 import { resolveGeminiApiKey } from '@/lib/server-env';
 import { CHAT_STREAM_META } from '@/lib/zoe-shared';
 
@@ -34,6 +35,70 @@ You are now representing 'Acrobyjoe' studio. Your answers should focus on their 
 }
 
 export const runtime = 'nodejs';
+
+type KnowledgePack = {
+  businessName: string;
+  niche: string;
+  servicesText: string;
+  faqsText: string;
+  ctaText: string;
+  ctaLink: string;
+};
+
+async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | null> {
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data: business } = await admin
+      .from("businesses")
+      .select("id, name, niche, cta_text, cta_link")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!business) return null;
+
+    const [{ data: services }, { data: faqs }] = await Promise.all([
+      admin
+        .from("services")
+        .select("name, description, price_text, location_text")
+        .eq("business_id", business.id)
+        .order("created_at", { ascending: true }),
+      admin
+        .from("faqs")
+        .select("question, answer")
+        .eq("business_id", business.id)
+        .order("sort_order", { ascending: true }),
+    ]);
+
+    const servicesText =
+      services?.length
+        ? services
+            .map(
+              (s, i) =>
+                `${i + 1}. ${s.name ?? ""} | מחיר: ${s.price_text ?? "לא צוין"} | מיקום: ${
+                  s.location_text ?? "לא צוין"
+                } | תיאור: ${s.description ?? ""}`
+            )
+            .join("\n")
+        : "אין שירותים מוגדרים.";
+
+    const faqsText =
+      faqs?.length
+        ? faqs.map((f, i) => `${i + 1}. ש: ${f.question ?? ""} | ת: ${f.answer ?? ""}`).join("\n")
+        : "אין FAQ מוגדר.";
+
+    return {
+      businessName: String(business.name ?? slug),
+      niche: String(business.niche ?? ""),
+      servicesText,
+      faqsText,
+      ctaText: String(business.cta_text ?? ""),
+      ctaLink: String(business.cta_link ?? ""),
+    };
+  } catch (e) {
+    console.warn("[Chat API] business knowledge pack fetch failed:", e);
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = resolveGeminiApiKey();
@@ -57,7 +122,9 @@ export async function POST(req: NextRequest) {
       session_id: typeof session_id === 'string' ? session_id : null,
     });
 
-    const businessContext = business 
+    const knowledge = await getBusinessKnowledgePack(String(slug));
+
+    const businessContext = business
       ? `שם העסק: ${business.name}, שירות: ${business.service_name}, כתובת: ${business.address}, שיעור ניסיון: ${business.trial_class}`
       : `Business Slug: ${slug}`;
 
@@ -75,7 +142,23 @@ export async function POST(req: NextRequest) {
 הנחיות נוספות:
 - בלי רשימות ארוכות, בלי שאלות המשך ובלי "כפתורים" בטקסט (הממשק מציג המשך).
 - בלי מרקדאון (לא ** ולא #).
-- אל תכללי JSON או מפרידי מטא-נתונים — השרת מוסיף אותם אחרי הסטרים.`;
+- אל תכללי JSON או מפרידי מטא-נתונים — השרת מוסיף אותם אחרי הסטרים.
+- השתמשי בידע העסקי הבא כמקור אמת לפרטים, מחירים ושאלות נפוצות.
+- אם המשתמש שואל איך מצטרפים/נרשמים/משלמים, צייני במפורש את ה-CTA (טקסט + קישור) אם קיים.
+
+=== BUSINESS KNOWLEDGE ===
+שם עסק: ${knowledge?.businessName ?? ""}
+נישה: ${knowledge?.niche ?? ""}
+שירותים:
+${knowledge?.servicesText ?? "לא הוגדר"}
+
+FAQ:
+${knowledge?.faqsText ?? "לא הוגדר"}
+
+CTA:
+טקסט: ${knowledge?.ctaText || "לא הוגדר"}
+קישור: ${knowledge?.ctaLink || "לא הוגדר"}
+=== END BUSINESS KNOWLEDGE ===`;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -157,9 +240,13 @@ export async function POST(req: NextRequest) {
             session_id: typeof session_id === "string" ? session_id : null,
           });
           const cta_text =
-            business && typeof business.cta_text === 'string' ? business.cta_text.trim() || null : null;
+            (knowledge?.ctaText?.trim() || "") ||
+            (business && typeof business.cta_text === 'string' ? business.cta_text.trim() : "") ||
+            null;
           const cta_link =
-            business && typeof business.cta_link === 'string' ? business.cta_link.trim() || null : null;
+            (knowledge?.ctaLink?.trim() || "") ||
+            (business && typeof business.cta_link === 'string' ? business.cta_link.trim() : "") ||
+            null;
           controller.enqueue(
             encoder.encode(
               `${CHAT_STREAM_META}${JSON.stringify({ cta_text, cta_link })}`
