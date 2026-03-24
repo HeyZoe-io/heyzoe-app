@@ -2,13 +2,13 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
 
 /**
  * מזהים יציבים — בלי קידומת `models/` (ה-SDK מוסיף אותה).
- * Primary: gemini-1.5-flash (Tier 1). Fallbacks: pro, then experimental 2.0.
- * Order matters: try each model once per "failure to advance" except transient retries (429/503).
+ * Gemini 1.5 / 2.0 הוסרו מה-API הציבורי (404 על v1beta נכון למרץ 2026).
+ * רשימה מעודכנת לפי https://ai.google.dev/gemini-api/docs/models/gemini
  */
 export const GEMINI_CHAT_MODELS = [
-  "gemini-1.5-flash",
-  "gemini-1.5-pro",
-  "gemini-2.0-flash-exp",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
 ] as const;
 
 /** Same ordered list for bootstrap / one-shot generation callers */

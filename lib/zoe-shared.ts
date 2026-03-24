@@ -1,4 +1,5 @@
-export const MODEL_NAME = "gemini-1.5-flash-latest";
+/** ייחוס לוגי ל-UI/דיבוג; ה-API משתמש ב-GEMINI_CHAT_MODELS ב-lib/gemini.ts */
+export const MODEL_NAME = "gemini-2.5-flash";
 
 /** סיומת סטרימינג ב-/api/chat — אחריה JSON עם cta_text, cta_link */
 export const CHAT_STREAM_META = "\n\n__HEYZOE_META__\n";
