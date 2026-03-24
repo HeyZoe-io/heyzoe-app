@@ -2,12 +2,12 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
 
 /**
  * מזהים יציבים — בלי קידומת `models/` (ה-SDK מוסיף אותה).
- * סדר: 1.5-latest ראשון, אז 1.5, אז 2.0 (ללא gemini-2.5).
+ * סדר fallback מועדף: 1.5-flash -> 1.5-flash-latest -> pro
  */
 export const GEMINI_CHAT_MODELS = [
   "gemini-1.5-flash",
   "gemini-1.5-flash-latest",
-  "gemini-2.0-flash",
+  "gemini-pro",
 ] as const;
 
 export const GEMINI_BOOTSTRAP_MODELS = [

@@ -238,7 +238,7 @@ ${String(message)}`;
         let usedModel: string | null = null;
         let assistantTextAcc = "";
 
-        const chatModels = ["gemini-1.5-flash"];
+        const chatModels = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
         for (const modelNameRaw of chatModels) {
           const modelName = normalizeModelName(modelNameRaw);
           let leftModelFor404 = false;
