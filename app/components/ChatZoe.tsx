@@ -34,15 +34,13 @@ const DEFAULT_FOLLOWUPS = [
   'איך נרשמים?',
 ] as const;
 
-const GRADIENT = 'from-[#ff85cf] to-[#bc74e9]';
-
 /** כפתור CTA — גרדיאנט בזווית קבועה + flex כדי שטקסט עברי יישב נכון ב-RTL */
 const CTA_PRIMARY_CLASS =
-  'flex w-full min-h-[3.25rem] items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-[15px] md:text-base font-semibold text-white shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity bg-[linear-gradient(105deg,#ff85cf_0%,#bc74e9_100%)]';
+  'flex w-full min-h-[3.25rem] items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-[15px] md:text-base font-semibold text-white shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity';
 
 /** כפתור משני (שלח / נסו שוב) */
 const CTA_COMPACT_CLASS =
-  'inline-flex min-h-[2.75rem] min-w-[4.5rem] shrink-0 items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white bg-[linear-gradient(105deg,#ff85cf_0%,#bc74e9_100%)] disabled:opacity-45 transition-opacity';
+  'inline-flex min-h-[2.75rem] min-w-[4.5rem] shrink-0 items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:opacity-45 transition-opacity';
 
 /** משך תנועת הפוקוס (~0.4s) */
 const MOVE = { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const };
@@ -51,11 +49,14 @@ const FADE = { duration: 0.28, ease: [0.4, 0, 0.2, 1] as const };
 type BusinessSnapshot = {
   slug: string;
   name: string;
+  bot_name: string;
   service_name: string;
   address: string;
   trial_class: string;
   cta_text: string | null;
   cta_link: string | null;
+  primary_color: string;
+  secondary_color: string;
 };
 
 function ensureFourFollowUps(fu: string[]): string[] {
@@ -180,6 +181,12 @@ export default function ChatZoe({ slug }: { slug: string }) {
     setSessionId(ensureSessionId());
   }, []);
 
+  const primaryColor = businessSnapshot?.primary_color || "#ff85cf";
+  const secondaryColor = businessSnapshot?.secondary_color || "#bc74e9";
+  const gradientStyle = {
+    backgroundImage: `linear-gradient(105deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+  };
+
   useEffect(() => {
     let cancelled = false;
     bootstrapAbortRef.current?.abort();
@@ -200,17 +207,24 @@ export default function ChatZoe({ slug }: { slug: string }) {
         if (!cancelled && !ac.signal.aborted && quickRes.ok) {
           const q = (await quickRes.json()) as Record<string, unknown>;
           const name = typeof q.name === 'string' ? q.name.trim() : '';
-          const instantWelcome = `שלום, כאן זואי מ־${name || 'העסק'}. במה אוכל לעזור?`;
+          const botName =
+            typeof q.bot_name === "string" && q.bot_name.trim() ? q.bot_name.trim() : "זואי";
+          const instantWelcome =
+            (typeof q.welcome === "string" && q.welcome.trim()) ||
+            `שלום, כאן ${botName} מ־${name || 'העסק'}. במה אוכל לעזור?`;
           const fu = [...DEFAULT_FOLLOWUPS];
           const ctaOk = q.cta_text && q.cta_link;
           setBusinessSnapshot({
             slug,
             name,
+            bot_name: botName,
             service_name: (typeof q.service_name === 'string' && q.service_name.trim()) || name,
             address: typeof q.address === 'string' ? q.address : '',
             trial_class: typeof q.trial_class === 'string' ? q.trial_class : '',
             cta_text: ctaOk ? (q.cta_text as string) : null,
             cta_link: ctaOk ? (q.cta_link as string) : null,
+            primary_color: (typeof q.primary_color === "string" && q.primary_color.trim()) || "#ff85cf",
+            secondary_color: (typeof q.secondary_color === "string" && q.secondary_color.trim()) || "#bc74e9",
           });
           setFollowUps(fu);
           setMessages([
@@ -269,11 +283,14 @@ export default function ChatZoe({ slug }: { slug: string }) {
         setBusinessSnapshot({
           slug,
           name,
+          bot_name: ((data.bot_name as string) || "זואי").trim() || "זואי",
           service_name: (data.service_name as string) || name,
           address: (data.address as string) || '',
           trial_class: (data.trial_class as string) || '',
           cta_text: ctaOk ? data.cta_text : null,
           cta_link: ctaOk ? data.cta_link : null,
+          primary_color: ((data.primary_color as string) || "#ff85cf").trim() || "#ff85cf",
+          secondary_color: ((data.secondary_color as string) || "#bc74e9").trim() || "#bc74e9",
         });
         setFollowUps(followups);
         setMessages([
@@ -565,6 +582,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
           type="button"
           onClick={retryBootstrap}
           className={CTA_PRIMARY_CLASS}
+          style={gradientStyle}
         >
           נסו שוב
         </button>
@@ -574,7 +592,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
 
   return (
     <div dir="rtl" lang="he" className={shellClass}>
-      <div className={`h-1 w-full shrink-0 bg-gradient-to-l ${GRADIENT}`} aria-hidden />
+      <div className="h-1 w-full shrink-0" style={gradientStyle} aria-hidden />
 
       <LayoutGroup id="chat-zoe-layout">
         <div className="flex flex-1 flex-col min-h-0">
@@ -666,6 +684,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                       dir="rtl"
                       lang="he"
                       className={CTA_PRIMARY_CLASS}
+                      style={gradientStyle}
                     >
                       {welcomeAssistant.ctaText}
                     </a>
@@ -746,6 +765,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                       animate={{ opacity: 1, y: 0 }}
                       transition={FADE}
                       className={CTA_PRIMARY_CLASS}
+                      style={gradientStyle}
                     >
                       {lastAssistant.ctaText}
                     </motion.a>
@@ -815,6 +835,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                 dir="rtl"
                 lang="he"
                 className={CTA_COMPACT_CLASS}
+                style={gradientStyle}
               >
                 שלח
               </button>

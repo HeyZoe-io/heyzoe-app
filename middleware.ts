@@ -13,9 +13,18 @@ function redirectToLogin(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+function redirectToDashboardLogin(req: NextRequest) {
+  const url = req.nextUrl.clone();
+  url.pathname = "/dashboard/login";
+  url.searchParams.set("next", req.nextUrl.pathname);
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (!pathname.startsWith("/admin")) return NextResponse.next();
+  const isAdminPath = pathname.startsWith("/admin");
+  const isOwnerDashboardPath = pathname.startsWith("/dashboard");
+  if (!isAdminPath && !isOwnerDashboardPath) return NextResponse.next();
 
   const res = NextResponse.next({ request: { headers: req.headers } });
   const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
@@ -35,25 +44,41 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const allowedEmail = resolveAdminAllowedEmail();
-  const userEmail = user?.email?.toLowerCase() || "";
-  const isAllowed = userEmail === allowedEmail;
-  const isLoginPath = pathname === "/admin/login";
+  if (isAdminPath) {
+    const allowedEmail = resolveAdminAllowedEmail();
+    const userEmail = user?.email?.toLowerCase() || "";
+    const isAllowed = userEmail === allowedEmail;
+    const isLoginPath = pathname === "/admin/login";
 
-  if (!isAllowed) {
-    if (isLoginPath) return res;
-    return redirectToLogin(req);
+    if (!isAllowed) {
+      if (isLoginPath) return res;
+      return redirectToLogin(req);
+    }
+
+    if (isAllowed && isLoginPath) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/admin/dashboard";
+      return NextResponse.redirect(url);
+    }
+    return res;
   }
 
-  if (isAllowed && isLoginPath) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/admin/dashboard";
-    return NextResponse.redirect(url);
+  if (isOwnerDashboardPath) {
+    const isLoginPath = pathname === "/dashboard/login";
+    if (!user) {
+      if (isLoginPath) return res;
+      return redirectToDashboardLogin(req);
+    }
+    if (isLoginPath) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/dashboard/settings";
+      return NextResponse.redirect(url);
+    }
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/dashboard/:path*"],
 };

@@ -1,0 +1,113 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+export const runtime = "nodejs";
+
+async function requireUser() {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  return data.user ?? null;
+}
+
+export async function GET() {
+  const user = await requireUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const admin = createSupabaseAdminClient();
+  const { data: business } = await admin
+    .from("businesses")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!business) return NextResponse.json({ business: null, services: [], faqs: [] });
+
+  const [{ data: services }, { data: faqs }] = await Promise.all([
+    admin.from("services").select("*").eq("business_id", business.id).order("created_at", { ascending: true }),
+    admin.from("faqs").select("*").eq("business_id", business.id).order("sort_order", { ascending: true }),
+  ]);
+
+  return NextResponse.json({ business, services: services ?? [], faqs: faqs ?? [] });
+}
+
+export async function POST(req: NextRequest) {
+  const user = await requireUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const body = await req.json();
+  const business = body.business as Record<string, unknown>;
+  const services = (body.services as Array<Record<string, unknown>>) ?? [];
+  const faqs = (body.faqs as Array<Record<string, unknown>>) ?? [];
+
+  const slug = String(business.slug ?? "").trim().toLowerCase();
+  if (!slug) return NextResponse.json({ error: "slug_required" }, { status: 400 });
+
+  const admin = createSupabaseAdminClient();
+  const { data: existingSlug } = await admin
+    .from("businesses")
+    .select("id, user_id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (existingSlug && existingSlug.user_id !== user.id) {
+    return NextResponse.json({ error: "slug_taken" }, { status: 403 });
+  }
+
+  const upsertBusiness = {
+    user_id: user.id,
+    slug,
+    name: String(business.name ?? ""),
+    niche: String(business.niche ?? ""),
+    bot_name: String(business.bot_name ?? "זואי"),
+    logo_url: String(business.logo_url ?? ""),
+    social_links: Array.isArray(business.social_links) ? business.social_links : [],
+    primary_color: String(business.primary_color ?? "#ff85cf"),
+    secondary_color: String(business.secondary_color ?? "#bc74e9"),
+    welcome_message: String(business.welcome_message ?? "שלום, כאן זואי. איך אפשר לעזור?"),
+    cta_text: String(business.cta_text ?? ""),
+    cta_link: String(business.cta_link ?? ""),
+  };
+
+  const { data: savedBiz, error: bizErr } = await admin
+    .from("businesses")
+    .upsert(upsertBusiness, { onConflict: "slug" })
+    .select("id, slug")
+    .single();
+  if (bizErr || !savedBiz) return NextResponse.json({ error: bizErr?.message ?? "business_save_failed" }, { status: 400 });
+
+  await admin.from("services").delete().eq("business_id", savedBiz.id);
+  await admin.from("faqs").delete().eq("business_id", savedBiz.id);
+
+  const servicesPayload = services.map((s) => ({
+    business_id: savedBiz.id,
+    name: String(s.name ?? ""),
+    description: String(s.description ?? ""),
+    location_mode: String(s.location_mode ?? "online"),
+    location_text: String(s.location_text ?? ""),
+    price_text: String(s.price_text ?? ""),
+    service_slug: String(s.service_slug ?? ""),
+  })).filter((s) => s.name && s.service_slug);
+
+  let insertedServices: Array<{ id: number; service_slug: string }> = [];
+  if (servicesPayload.length) {
+    const { data } = await admin.from("services").insert(servicesPayload).select("id, service_slug");
+    insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
+  }
+
+  const faqsPayload = faqs
+    .map((f, i) => ({
+      business_id: savedBiz.id,
+      service_id:
+        insertedServices.find((s) => s.service_slug === String(f.service_slug ?? ""))?.id ?? null,
+      question: String(f.question ?? ""),
+      answer: String(f.answer ?? ""),
+      sort_order: i,
+    }))
+    .filter((f) => f.question && f.answer);
+
+  if (faqsPayload.length) await admin.from("faqs").insert(faqsPayload);
+
+  return NextResponse.json({ ok: true, slug: savedBiz.slug });
+}
