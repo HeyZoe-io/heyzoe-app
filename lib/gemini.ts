@@ -53,6 +53,16 @@ export function isQuotaOrRateLimitError(error: unknown): boolean {
   return /429|RESOURCE_EXHAUSTED|quota|rate limit|Too Many Requests/i.test(msg);
 }
 
+/**
+ * Hard quota exhaustion (e.g. daily/project limit = 0) where retries are pointless.
+ */
+export function isHardQuotaExhaustedError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /limit:\s*0|GenerateRequestsPerDayPerProjectPerModel-FreeTier|generate_content_free_tier_requests/i.test(
+    msg
+  );
+}
+
 /** מודל לא קיים / לא זמין ב-endpoint — לא לבזבז backoff, לעבור למודל הבא */
 export function isImmediateModelSwitchError(error: unknown): boolean {
   if (error instanceof GoogleGenerativeAIFetchError) {
