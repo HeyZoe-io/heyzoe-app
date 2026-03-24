@@ -47,6 +47,10 @@ export async function GET() {
       facebook: typeof social.facebook === "string" ? social.facebook : "",
       youtube: typeof social.youtube === "string" ? social.youtube : "",
       whatsapp: typeof social.whatsapp === "string" ? social.whatsapp : "",
+      target_audience: Array.isArray(social.target_audience) ? social.target_audience : [],
+      benefits: Array.isArray(social.benefits) ? social.benefits : [],
+      vibe: Array.isArray(social.vibe) ? social.vibe : [],
+      schedule_text: typeof social.schedule_text === "string" ? social.schedule_text : "",
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -75,6 +79,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "slug_taken" }, { status: 403 });
   }
 
+  const firstServiceWithCta = services.find(
+    (s) => String(s.cta_text ?? "").trim() && String(s.cta_link ?? "").trim()
+  );
+
   const upsertBusiness = {
     user_id: user.id,
     slug,
@@ -89,8 +97,8 @@ export async function POST(req: NextRequest) {
     primary_color: String(business.primary_color ?? "#ff85cf"),
     secondary_color: String(business.secondary_color ?? "#bc74e9"),
     welcome_message: String(business.welcome_message ?? "שלום, כאן זואי. איך אפשר לעזור?"),
-    cta_text: String(business.cta_text ?? ""),
-    cta_link: String(business.cta_link ?? ""),
+    cta_text: String(firstServiceWithCta?.cta_text ?? business.cta_text ?? ""),
+    cta_link: String(firstServiceWithCta?.cta_link ?? business.cta_link ?? ""),
   };
 
   const { data: savedBiz, error: bizErr } = await admin

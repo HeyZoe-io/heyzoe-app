@@ -43,6 +43,10 @@ type KnowledgePack = {
   faqsText: string;
   ctaText: string;
   ctaLink: string;
+  targetAudienceText: string;
+  benefitsText: string;
+  vibeText: string;
+  scheduleText: string;
 };
 
 async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | null> {
@@ -50,7 +54,7 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
     const admin = createSupabaseAdminClient();
     const { data: business } = await admin
       .from("businesses")
-      .select("id, name, niche, cta_text, cta_link")
+      .select("id, name, niche, cta_text, cta_link, social_links")
       .eq("slug", slug)
       .maybeSingle();
     if (!business) return null;
@@ -85,6 +89,11 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
         ? faqs.map((f, i) => `${i + 1}. ש: ${f.question ?? ""} | ת: ${f.answer ?? ""}`).join("\n")
         : "אין FAQ מוגדר.";
 
+    const social =
+      business.social_links && typeof business.social_links === "object"
+        ? (business.social_links as Record<string, unknown>)
+        : {};
+
     return {
       businessName: String(business.name ?? slug),
       niche: String(business.niche ?? ""),
@@ -92,6 +101,12 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
       faqsText,
       ctaText: String(business.cta_text ?? ""),
       ctaLink: String(business.cta_link ?? ""),
+      targetAudienceText: Array.isArray(social.target_audience)
+        ? social.target_audience.join(", ")
+        : "",
+      benefitsText: Array.isArray(social.benefits) ? social.benefits.join(", ") : "",
+      vibeText: Array.isArray(social.vibe) ? social.vibe.join(", ") : "",
+      scheduleText: typeof social.schedule_text === "string" ? social.schedule_text : "",
     };
   } catch (e) {
     console.warn("[Chat API] business knowledge pack fetch failed:", e);
@@ -158,6 +173,10 @@ ${knowledge?.faqsText ?? "לא הוגדר"}
 CTA:
 טקסט: ${knowledge?.ctaText || "לא הוגדר"}
 קישור: ${knowledge?.ctaLink || "לא הוגדר"}
+קהל יעד: ${knowledge?.targetAudienceText || "לא הוגדר"}
+יתרונות: ${knowledge?.benefitsText || "לא הוגדר"}
+סגנון דיבור רצוי: ${knowledge?.vibeText || "לא הוגדר"}
+שעות פעילות: ${knowledge?.scheduleText || "לא הוגדר"}
 === END BUSINESS KNOWLEDGE ===`;
 
     const encoder = new TextEncoder();
