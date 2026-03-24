@@ -20,12 +20,23 @@ export type PublicBusinessData = {
 };
 
 export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusinessData | null> {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (
+    !normalizedSlug ||
+    normalizedSlug.includes(".") ||
+    normalizedSlug === "robots.txt" ||
+    normalizedSlug === "favicon.ico" ||
+    normalizedSlug === "sitemap.xml"
+  ) {
+    return null;
+  }
+
   const supabase = createClient(resolveSupabaseUrl(), resolveSupabaseAnonKey());
 
   const { data: business, error } = await supabase
     .from("businesses")
     .select("id, slug, name, niche, logo_url, welcome_message, bot_name, primary_color, secondary_color, cta_text, cta_link")
-    .eq("slug", slug)
+    .eq("slug", normalizedSlug)
     .single();
 
   if (error || !business) return null;
