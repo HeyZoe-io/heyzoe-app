@@ -118,6 +118,16 @@ export function resolveGeminiApiKeyFromEnv(): string {
   );
 }
 
+export function resolveGeminiApiKeyWithSource(): { key: string; source: string } {
+  const fromGoogleGenerative = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
+  if (fromGoogleGenerative) return { key: fromGoogleGenerative, source: "GOOGLE_GENERATIVE_AI_API_KEY" };
+  const fromGemini = process.env.GEMINI_API_KEY?.trim();
+  if (fromGemini) return { key: fromGemini, source: "GEMINI_API_KEY" };
+  const fromGoogleApi = process.env.GOOGLE_API_KEY?.trim();
+  if (fromGoogleApi) return { key: fromGoogleApi, source: "GOOGLE_API_KEY" };
+  return { key: "", source: "MISSING" };
+}
+
 /** פונקציית עזר שמנסה מודלים ברצף עם retry בסיסי לשגיאות עומס */
 export async function generateRawWithModelFallback<T>(
   modelNames: readonly string[],
