@@ -26,6 +26,25 @@ function stripHtmlToText(html: string): string {
     .trim();
 }
 
+function decodeHtmlEntities(input: string): string {
+  const named: Record<string, string> = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&ndash;": "-",
+    "&mdash;": "-",
+  };
+  return input
+    .replace(/&(nbsp|amp|quot|#39|lt|gt|ndash|mdash);/g, (m) => named[m] ?? m)
+    .replace(/&#(\d+);/g, (_, num) => {
+      const n = Number(num);
+      return Number.isFinite(n) ? String.fromCharCode(n) : "";
+    });
+}
+
 function findLogoCandidate(html: string, pageUrl: string): string {
   const base = new URL(pageUrl);
   const iconMatch =
@@ -134,7 +153,7 @@ export async function POST(req: NextRequest) {
 
     logoCandidate = findLogoCandidate(html, url);
     metaHints = extractMetaHints(html);
-    pageText = stripHtmlToText(html).slice(0, 10000);
+    pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, 10000);
   } catch {
     return NextResponse.json(
       {
@@ -158,6 +177,7 @@ export async function POST(req: NextRequest) {
 ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבירים על בסיס הדומיין, title/meta והקשר העסק.' : ""}
 אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" במקום להיכשל בבקשה.
 עצב את business_description בעברית תקינה, קריאה, קלילה ומקצועית (טון מזמין ולא שיווקי מדי).
+סכם את העסק ב-2 עד 3 משפטים נקיים ומזמינים בעברית. אל תעתיק טקסט גולמי מהאתר.
 ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר (למשל שיעורים שבועיים/סדנאות), כולל benefits מוסקים.
 החזר JSON בלבד במבנה:
 {

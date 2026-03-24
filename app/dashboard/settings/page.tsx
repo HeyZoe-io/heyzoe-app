@@ -1031,37 +1031,44 @@ export default function DashboardSettingsPage() {
               </div>
               {uploadedScheduleFileName ? <p className="text-xs text-emerald-600 text-right">הקובץ הועלה: {uploadedScheduleFileName}</p> : null}
               <div className="rounded-xl border border-zinc-200 p-3">
-                <div className="mb-2 grid grid-cols-[1fr,1fr,1fr] gap-2 text-xs font-semibold text-zinc-500">
-                  <span className="text-right">יום</span>
-                  <span className="text-right">שעת פתיחה</span>
-                  <span className="text-right">שעת סגירה</span>
-                </div>
-                <div className="space-y-2">
-                  {scheduleGrid.map((row, idx) => (
-                    <div key={row.day} className="grid grid-cols-[1fr,1fr,1fr] gap-2">
-                      <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-2 text-sm text-right">{row.day}</div>
-                      <select
-                        className="rounded-md border border-zinc-300 bg-white p-2 text-sm text-right cursor-pointer"
-                        value={row.start}
-                        onChange={(e) => {
-                          const next = scheduleGrid.map((x, i) => (i === idx ? { ...x, start: e.target.value } : x));
-                          setScheduleGrid(next);
-                          setBusiness((b) => ({ ...b, schedule_text: scheduleGridToText(next) }));
-                        }}
-                      >
-                        {TIME_OPTIONS.map((t) => <option key={`${row.day}-${t}-s`} value={t}>{t}</option>)}
-                      </select>
-                      <select
-                        className="rounded-md border border-zinc-300 bg-white p-2 text-sm text-right cursor-pointer"
-                        value={row.end}
-                        onChange={(e) => {
-                          const next = scheduleGrid.map((x, i) => (i === idx ? { ...x, end: e.target.value } : x));
-                          setScheduleGrid(next);
-                          setBusiness((b) => ({ ...b, schedule_text: scheduleGridToText(next) }));
-                        }}
-                      >
-                        {TIME_OPTIONS.map((t) => <option key={`${row.day}-${t}-e`} value={t}>{t}</option>)}
-                      </select>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {[scheduleGrid.slice(0, 4), scheduleGrid.slice(4)].map((col, colIdx) => (
+                    <div key={`hours-col-${colIdx}`} className="space-y-2">
+                      <div className="mb-1 grid grid-cols-[1fr,1fr,1fr] gap-1 text-[11px] font-semibold text-zinc-500">
+                        <span className="text-right">יום</span>
+                        <span className="text-right">פתיחה</span>
+                        <span className="text-right">סגירה</span>
+                      </div>
+                      {col.map((row) => {
+                        const idx = scheduleGrid.findIndex((x) => x.day === row.day);
+                        return (
+                          <div key={row.day} className="grid grid-cols-[1fr,1fr,1fr] gap-1">
+                            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs text-right">{row.day}</div>
+                            <select
+                              className="rounded-md border border-zinc-300 bg-white p-1.5 text-xs text-right cursor-pointer"
+                              value={row.start}
+                              onChange={(e) => {
+                                const next = scheduleGrid.map((x, i) => (i === idx ? { ...x, start: e.target.value } : x));
+                                setScheduleGrid(next);
+                                setBusiness((b) => ({ ...b, schedule_text: scheduleGridToText(next) }));
+                              }}
+                            >
+                              {TIME_OPTIONS.map((t) => <option key={`${row.day}-${t}-s`} value={t}>{t}</option>)}
+                            </select>
+                            <select
+                              className="rounded-md border border-zinc-300 bg-white p-1.5 text-xs text-right cursor-pointer"
+                              value={row.end}
+                              onChange={(e) => {
+                                const next = scheduleGrid.map((x, i) => (i === idx ? { ...x, end: e.target.value } : x));
+                                setScheduleGrid(next);
+                                setBusiness((b) => ({ ...b, schedule_text: scheduleGridToText(next) }));
+                              }}
+                            >
+                              {TIME_OPTIONS.map((t) => <option key={`${row.day}-${t}-e`} value={t}>{t}</option>)}
+                            </select>
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>

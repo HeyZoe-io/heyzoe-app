@@ -39,6 +39,7 @@ export const runtime = 'nodejs';
 type KnowledgePack = {
   businessName: string;
   niche: string;
+  businessDescription: string;
   servicesText: string;
   faqsText: string;
   ctaText: string;
@@ -55,6 +56,35 @@ function truncateText(value: string, max = 280): string {
   const clean = value.replace(/\s+/g, " ").trim();
   if (clean.length <= max) return clean;
   return `${clean.slice(0, max)}...`;
+}
+
+function decodeHtmlEntities(input: string): string {
+  const named: Record<string, string> = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&ndash;": "-",
+    "&mdash;": "-",
+  };
+  return input
+    .replace(/&(nbsp|amp|quot|#39|lt|gt|ndash|mdash);/g, (m) => named[m] ?? m)
+    .replace(/&#(\d+);/g, (_, num) => {
+      const n = Number(num);
+      return Number.isFinite(n) ? String.fromCharCode(n) : "";
+    });
+}
+
+function sanitizeBusinessText(value: string, max = 350): string {
+  return truncateText(
+    decodeHtmlEntities(value)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+    max
+  );
 }
 
 function clampPromptSize(prompt: string, maxChars = 7000): string {
@@ -117,6 +147,7 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
     return {
       businessName: String(business.name ?? slug),
       niche: String(business.niche ?? ""),
+      businessDescription: sanitizeBusinessText(String(social.business_description ?? ""), 350),
       servicesText,
       faqsText,
       ctaText: String(business.cta_text ?? ""),
@@ -184,6 +215,7 @@ export async function POST(req: NextRequest) {
 
 ידע עסקי:
 נישה: ${truncateText(knowledge?.niche ?? "", 90)}
+תיאור עסק: ${truncateText(knowledge?.businessDescription ?? "לא הוגדר", 220)}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
 FAQ:
@@ -205,7 +237,8 @@ ${String(message)}`;
         let usedModel: string | null = null;
         let assistantTextAcc = "";
 
-        for (const modelNameRaw of GEMINI_CHAT_MODELS) {
+        const chatModels = ["gemini-1.5-flash", ...GEMINI_CHAT_MODELS.filter((m) => m !== "gemini-1.5-flash")];
+        for (const modelNameRaw of chatModels) {
           const modelName = normalizeModelName(modelNameRaw);
           let leftModelFor404 = false;
           for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {

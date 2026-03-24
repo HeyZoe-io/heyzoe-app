@@ -44,7 +44,8 @@ export default async function Page({ params }: PageProps) {
             <img
               src={businessLogo}
               alt={`${businessName} לוגו`}
-              className="h-20 w-20 rounded-full object-cover border border-neutral-200 bg-white"
+              className="h-20 w-20 rounded-full object-contain border border-neutral-200 bg-white shadow-sm"
+              style={{ imageRendering: "auto" }}
             />
           ) : (
             <p className="text-center text-base font-semibold text-neutral-700">{businessName}</p>
