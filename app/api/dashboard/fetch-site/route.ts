@@ -20,6 +20,7 @@ function stripHtmlToText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -58,6 +59,15 @@ function extractMetaHints(html: string): string {
   const ogDescription =
     html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
   return [title, description, ogTitle, ogDescription].filter(Boolean).join(" | ");
+}
+
+function guessNicheFromHost(hostname: string): string {
+  const h = hostname.toLowerCase();
+  if (/gym|fit|pilates|yoga|studio/.test(h)) return "Fitness";
+  if (/clinic|med|doctor|therapy/.test(h)) return "Clinic";
+  if (/beauty|skin|hair|nail/.test(h)) return "Beauty";
+  if (/school|academy|learn|course/.test(h)) return "Education";
+  return "Business";
 }
 
 export async function POST(req: NextRequest) {
@@ -124,7 +134,7 @@ export async function POST(req: NextRequest) {
 
     logoCandidate = findLogoCandidate(html, url);
     metaHints = extractMetaHints(html);
-    pageText = stripHtmlToText(html).slice(0, 12000);
+    pageText = stripHtmlToText(html).slice(0, 10000);
   } catch {
     return NextResponse.json(
       {
@@ -146,6 +156,7 @@ export async function POST(req: NextRequest) {
 כתובת אתר: ${url}
 רמזי מטא (אם קיימים): ${metaHints || "אין"}
 ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבירים על בסיס הדומיין, title/meta והקשר העסק.' : ""}
+אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" במקום להיכשל בבקשה.
 החזר JSON בלבד במבנה:
 {
   "niche": "נישה קצרה ומדויקת",
@@ -168,13 +179,22 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 
 טקסט אתר:
 ${pageText}`;
+  const compactPrompt = `החזר JSON בלבד. נתח בקצרה אתר עסקי.
+אתר: ${url}
+מטא: ${metaHints || "אין"}
+טקסט (מקוצר): ${pageText.slice(0, 2600)}
+מבנה:
+{"niche":"","business_description":"","logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
 
   let text = "";
   let lastError: unknown = null;
   for (const modelName of websiteModels) {
     try {
       const model = genAI.getGenerativeModel(
-        { model: normalizeModelName(modelName) },
+        {
+          model: normalizeModelName(modelName),
+          generationConfig: { responseMimeType: "application/json" },
+        },
         GEMINI_MODEL_INIT_OPTIONS
       );
       const result = await model.generateContent(prompt, { timeout: 40000 });
@@ -182,10 +202,49 @@ ${pageText}`;
       if (text) break;
     } catch (e) {
       lastError = e;
+      console.warn("[fetch-site] primary prompt failed on model:", modelName, e);
     }
   }
   if (!text) {
-    return NextResponse.json({ error: "ai_generation_failed", details: String(lastError ?? "") }, { status: 502 });
+    for (const modelName of websiteModels) {
+      try {
+        const model = genAI.getGenerativeModel(
+          {
+            model: normalizeModelName(modelName),
+            generationConfig: { responseMimeType: "application/json" },
+          },
+          GEMINI_MODEL_INIT_OPTIONS
+        );
+        const result = await model.generateContent(compactPrompt, { timeout: 28000 });
+        text = result.response.text().trim();
+        if (text) break;
+      } catch (e) {
+        lastError = e;
+        console.warn("[fetch-site] compact prompt failed on model:", modelName, e);
+      }
+    }
+  }
+  if (!text) {
+    const fallbackHost = (() => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return "";
+      }
+    })();
+    const nicheGuess = guessNicheFromHost(fallbackHost);
+    return NextResponse.json({
+      niche: nicheGuess,
+      business_description: metaHints || `עסק בתחום ${nicheGuess}.`,
+      logo_url: logoCandidate,
+      schedule_text: "",
+      age_range: "",
+      gender: "הכול",
+      products: [],
+      warning: "ai_generation_failed_fallback_used",
+      message: "לא הצלחנו לחלץ הכל אוטומטית, מילאנו נתונים בסיסיים מהאתר.",
+      details: String(lastError ?? ""),
+    });
   }
   try {
     const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();

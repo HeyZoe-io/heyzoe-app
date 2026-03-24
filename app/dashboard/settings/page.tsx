@@ -492,10 +492,16 @@ export default function DashboardSettingsPage() {
           gender: j.gender === "זכר" || j.gender === "נקבה" || j.gender === "הכול" ? j.gender : prev.gender,
         }));
       }
-      setStatus("המידע נמשך מהאתר בהצלחה.");
+      if (typeof j.warning === "string") {
+        setStatus(typeof j.message === "string" ? j.message : "המידע נמשך חלקית מהאתר.");
+      } else {
+        setStatus("המידע נמשך מהאתר בהצלחה.");
+      }
     } else {
       if (typeof j.message === "string" && j.message.trim()) {
         setStatus(j.message);
+      } else if (j.error === "ai_generation_failed") {
+        setStatus("לא הצלחנו לקרוא את תוכן האתר כרגע, נסו שוב בעוד רגע.");
       } else {
         setStatus(`משיכה מהאתר נכשלה: ${j.error ?? "unknown"}`);
       }
