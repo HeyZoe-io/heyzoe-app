@@ -11,11 +11,11 @@ import {
   isQuotaOrRateLimitError,
   isRetryableGeminiError,
   normalizeModelName,
+  resolveGeminiApiKeyFromEnv,
   sleepMs,
 } from '@/lib/gemini';
 import { extractErrorCode, logMessage } from '@/lib/analytics';
 import { createSupabaseAdminClient } from '@/lib/supabase-admin';
-import { resolveGeminiApiKey } from '@/lib/server-env';
 import { CHAT_STREAM_META } from '@/lib/zoe-shared';
 
 /** הוראות נוספות לפי נתיב הדף — דף הבית נשאר כללי */
@@ -173,7 +173,7 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
 export async function POST(req: NextRequest) {
   try {
     console.log("Using API Key:", process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "EXISTS" : "MISSING");
-    const apiKey = resolveGeminiApiKey();
+    const apiKey = resolveGeminiApiKeyFromEnv();
     if (!apiKey) {
       return new Response(
         JSON.stringify({ error: 'Missing GEMINI_API_KEY (or GOOGLE_GENERATIVE_AI_API_KEY)' }),
@@ -336,7 +336,8 @@ ${String(message)}`;
       },
     });
   } catch (error: unknown) {
-    console.error('[Chat API Error]:', error);
+    const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error('[Chat API Error]:', msg, error);
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
   }
 }

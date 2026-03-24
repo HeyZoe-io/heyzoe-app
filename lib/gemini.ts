@@ -102,6 +102,22 @@ export function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Resolve Gemini API key from multiple env names.
+ * Priority order:
+ * 1) GOOGLE_GENERATIVE_AI_API_KEY
+ * 2) GEMINI_API_KEY
+ * 3) GOOGLE_API_KEY
+ */
+export function resolveGeminiApiKeyFromEnv(): string {
+  return (
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_API_KEY?.trim() ||
+    ""
+  );
+}
+
 /** פונקציית עזר שמנסה מודלים ברצף עם retry בסיסי לשגיאות עומס */
 export async function generateRawWithModelFallback<T>(
   modelNames: readonly string[],
