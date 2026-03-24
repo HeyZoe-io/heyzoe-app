@@ -494,7 +494,11 @@ export default function DashboardSettingsPage() {
       }
       setStatus("המידע נמשך מהאתר בהצלחה.");
     } else {
-      setStatus(`משיכה מהאתר נכשלה: ${j.error ?? "unknown"}`);
+      if (typeof j.message === "string" && j.message.trim()) {
+        setStatus(j.message);
+      } else {
+        setStatus(`משיכה מהאתר נכשלה: ${j.error ?? "unknown"}`);
+      }
     }
     setFetchingSite(false);
   }
@@ -772,14 +776,15 @@ export default function DashboardSettingsPage() {
                       />
                       <Input
                         dir="ltr"
-                        inputMode="latin"
+                        inputMode="text"
+                        pattern="[a-z0-9-]+"
                         className="text-left placeholder:text-left"
                         placeholder="product-slug"
                         value={s.service_slug}
                         onChange={(e) =>
                           setServices((prev) =>
                             prev.map((x, idx) =>
-                              idx === i ? { ...x, service_slug: sanitizeLatinSlug(toProductSlug(e.target.value)) } : x
+                              idx === i ? { ...x, service_slug: sanitizeLatinSlug(e.target.value) } : x
                             )
                           )
                         }

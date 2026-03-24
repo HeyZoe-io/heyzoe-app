@@ -6,6 +6,16 @@ import { GEMINI_MODEL_INIT_OPTIONS, normalizeModelName } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+};
+
 function stripHtmlToText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -30,6 +40,26 @@ function findLogoCandidate(html: string, pageUrl: string): string {
   return `${base.origin}/favicon.ico`;
 }
 
+function normalizeWebsiteUrl(input: string): string {
+  const raw = input.trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
+function extractMetaHints(html: string): string {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? "";
+  const description =
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ??
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i)?.[1]?.trim() ??
+    "";
+  const ogTitle =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+  const ogDescription =
+    html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+  return [title, description, ogTitle, ogDescription].filter(Boolean).join(" | ");
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -38,19 +68,71 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { website_url, business_name, niche } = await req.json();
-  const url = String(website_url ?? "").trim();
+  const url = normalizeWebsiteUrl(String(website_url ?? ""));
   if (!url) return NextResponse.json({ error: "missing_website_url" }, { status: 400 });
 
   let pageText = "";
   let logoCandidate = "";
+  let metaHints = "";
   try {
-    const res = await fetch(url, { redirect: "follow" });
-    if (!res.ok) return NextResponse.json({ error: `website_fetch_failed_${res.status}` }, { status: 400 });
-    const html = await res.text();
+    let res = await fetch(url, {
+      redirect: "follow",
+      headers: BROWSER_HEADERS,
+    });
+
+    // Fallback #1: retry with www subdomain for hosts that force it.
+    if (!res.ok) {
+      const withWww = (() => {
+        try {
+          const u = new URL(url);
+          if (u.hostname.startsWith("www.")) return "";
+          u.hostname = `www.${u.hostname}`;
+          return u.toString();
+        } catch {
+          return "";
+        }
+      })();
+      if (withWww) {
+        res = await fetch(withWww, {
+          redirect: "follow",
+          headers: BROWSER_HEADERS,
+        });
+      }
+    }
+
+    // Fallback #2: text mirror endpoint for partially blocked pages.
+    let html = "";
+    if (res.ok) {
+      html = await res.text();
+    } else {
+      const mirrorUrl = `https://r.jina.ai/http://${new URL(url).host}${new URL(url).pathname}${new URL(url).search}`;
+      const mirrorRes = await fetch(mirrorUrl, { headers: BROWSER_HEADERS });
+      if (mirrorRes.ok) {
+        html = await mirrorRes.text();
+      }
+    }
+
+    if (!html.trim()) {
+      return NextResponse.json(
+        {
+          error: "blocked_auto_scraping",
+          message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית",
+        },
+        { status: 400 }
+      );
+    }
+
     logoCandidate = findLogoCandidate(html, url);
+    metaHints = extractMetaHints(html);
     pageText = stripHtmlToText(html).slice(0, 12000);
   } catch {
-    return NextResponse.json({ error: "website_fetch_failed" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "blocked_auto_scraping",
+        message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית",
+      },
+      { status: 400 }
+    );
   }
 
   const apiKey = resolveGeminiApiKey();
@@ -59,7 +141,11 @@ export async function POST(req: NextRequest) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const websiteModels = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-latest"] as const;
 
+  const thinContent = pageText.length < 900;
   const prompt = `נתח את טקסט האתר הבא של העסק "${business_name ?? ""}" בתחום "${niche ?? ""}".
+כתובת אתר: ${url}
+רמזי מטא (אם קיימים): ${metaHints || "אין"}
+${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבירים על בסיס הדומיין, title/meta והקשר העסק.' : ""}
 החזר JSON בלבד במבנה:
 {
   "niche": "נישה קצרה ומדויקת",
