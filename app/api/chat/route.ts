@@ -8,6 +8,7 @@ import {
   GEMINI_MODEL_INIT_OPTIONS,
   GEMINI_RETRY_DELAYS_MS,
   formatUserFacingGeminiError,
+  isHardQuotaExhaustedError,
   isImmediateModelSwitchError,
   isQuotaOrRateLimitError,
   isRetryableGeminiError,
@@ -240,6 +241,7 @@ ${String(message)}`;
         let success = false;
         let usedModel: string | null = null;
         let assistantTextAcc = "";
+        let hardQuotaExhausted = false;
 
         const chatModels = GEMINI_CHAT_MODELS;
         for (const modelNameRaw of chatModels) {
@@ -272,6 +274,11 @@ ${String(message)}`;
             } catch (e: unknown) {
               console.error(`[Chat API] Failed with ${modelName}:`, e);
               lastError = e;
+              if (isHardQuotaExhaustedError(e)) {
+                hardQuotaExhausted = true;
+                console.error("[Chat API] Hard quota exhausted (limit=0). Skipping retries.");
+                break;
+              }
               if (isImmediateModelSwitchError(e)) {
                 leftModelFor404 = true;
                 console.warn(`[Chat API] Model unavailable on ${apiVersion}, trying next api/model: ${modelName}`);
@@ -292,8 +299,10 @@ ${String(message)}`;
             }
           }
           if (streamed || success) break;
+          if (hardQuotaExhausted) break;
         }
           if (success) break;
+          if (hardQuotaExhausted) break;
           if (!leftModelFor404 && lastError && isRetryableGeminiError(lastError)) {
             console.log(
               `[Chat API] Cooldown ${GEMINI_CHAT_COOLDOWN_BETWEEN_MODELS_MS}ms before next model`
@@ -308,12 +317,20 @@ ${String(message)}`;
           await logMessage({
             business_slug: String(slug),
             role: "assistant",
-            content: formatUserFacingGeminiError(lastError),
+            content: hardQuotaExhausted
+              ? "זואי לא זמינה כרגע בגלל מגבלת שימוש בשירות. נסו שוב מאוחר יותר."
+              : formatUserFacingGeminiError(lastError),
             model_used: usedModel,
             session_id: typeof session_id === "string" ? session_id : null,
             error_code: errCode,
           });
-          controller.enqueue(encoder.encode(formatUserFacingGeminiError(lastError)));
+          controller.enqueue(
+            encoder.encode(
+              hardQuotaExhausted
+                ? "זואי לא זמינה כרגע בגלל מגבלת שימוש בשירות. נסו שוב מאוחר יותר."
+                : formatUserFacingGeminiError(lastError)
+            )
+          );
         } else {
           await logMessage({
             business_slug: String(slug),
