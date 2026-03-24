@@ -4,6 +4,7 @@ import {
   GEMINI_CHAT_COOLDOWN_BETWEEN_MODELS_MS,
   GEMINI_CHAT_MODELS,
   GEMINI_CHAT_QUOTA_RETRY_DELAYS_MS,
+  GEMINI_API_VERSION_FALLBACKS,
   GEMINI_MODEL_INIT_OPTIONS,
   GEMINI_RETRY_DELAYS_MS,
   formatUserFacingGeminiError,
@@ -244,11 +245,16 @@ ${String(message)}`;
         for (const modelNameRaw of chatModels) {
           const modelName = normalizeModelName(modelNameRaw);
           let leftModelFor404 = false;
+          let streamed = false;
+          for (const apiVersion of GEMINI_API_VERSION_FALLBACKS) {
           for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {
             try {
-              console.log(`[Chat API] Attempting model: ${modelName} (try ${attempt + 1})`);
-              const model = genAI.getGenerativeModel({ model: modelName }, GEMINI_MODEL_INIT_OPTIONS);
-              console.log("Using model:", modelName);
+              console.log(`[Chat API] Attempting model: ${modelName} [${apiVersion}] (try ${attempt + 1})`);
+              const model = genAI.getGenerativeModel(
+                { model: modelName },
+                { ...GEMINI_MODEL_INIT_OPTIONS, apiVersion }
+              );
+              console.log("Using model:", modelName, "apiVersion:", apiVersion);
               const streamResult = await model.generateContentStream(fullPrompt);
 
               for await (const chunk of streamResult.stream) {
@@ -261,13 +267,14 @@ ${String(message)}`;
               
               success = true;
               usedModel = modelName;
+              streamed = true;
               break;
             } catch (e: unknown) {
               console.error(`[Chat API] Failed with ${modelName}:`, e);
               lastError = e;
               if (isImmediateModelSwitchError(e)) {
                 leftModelFor404 = true;
-                console.warn(`[Chat API] Model unavailable, trying next (no retry backoff): ${modelName}`);
+                console.warn(`[Chat API] Model unavailable on ${apiVersion}, trying next api/model: ${modelName}`);
                 break;
               }
               const canRetry = isRetryableGeminiError(e) && attempt < GEMINI_RETRY_DELAYS_MS.length;
@@ -284,6 +291,8 @@ ${String(message)}`;
               break;
             }
           }
+          if (streamed || success) break;
+        }
           if (success) break;
           if (!leftModelFor404 && lastError && isRetryableGeminiError(lastError)) {
             console.log(
