@@ -2,28 +2,24 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
 
 /**
  * מזהים יציבים — בלי קידומת `models/` (ה-SDK מוסיף אותה).
- * סדר fallback מועדף: 1.5-flash -> 1.5-flash-latest -> pro
+ * סדר fallback מועדף: 1.5-flash -> 2.0-flash
  */
 export const GEMINI_CHAT_MODELS = [
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
   "gemini-1.5-flash",
-  "gemini-1.5-flash-latest",
-  "gemini-pro",
+  "gemini-2.0-flash",
 ] as const;
 
 export const GEMINI_BOOTSTRAP_MODELS = [
-  "gemini-1.5-flash-latest",
   "gemini-1.5-flash",
   "gemini-2.0-flash",
 ] as const;
 
-/** חובה v1 — לא v1beta (ברירת מחדל SDK); מפחית 404/חוסר עקביות בשמות מודל */
-export const GEMINI_API_VERSION = "v1" as const;
+/** forced v1beta for current project model availability */
+export const GEMINI_API_VERSION = "v1beta" as const;
 
 /** ארגומנט שני ל-getGenerativeModel — אותה גרסת API בכל המודלים */
 export const GEMINI_MODEL_INIT_OPTIONS = { apiVersion: GEMINI_API_VERSION } as const;
-export const GEMINI_API_VERSION_FALLBACKS = ["v1", "v1beta"] as const;
+export const GEMINI_API_VERSION_FALLBACKS = ["v1beta"] as const;
 
 /** timeout ל-generateContent (bootstrap) — לא לסטרים ארוכים ב-chat */
 export const GEMINI_BOOTSTRAP_GENERATE_TIMEOUT_MS = 55_000 as const;
