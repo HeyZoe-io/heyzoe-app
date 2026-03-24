@@ -5,12 +5,10 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
  * סדר fallback מועדף: 1.5-flash -> 2.0-flash
  */
 export const GEMINI_CHAT_MODELS = [
-  "gemini-1.5-flash",
   "gemini-2.0-flash",
 ] as const;
 
 export const GEMINI_BOOTSTRAP_MODELS = [
-  "gemini-1.5-flash",
   "gemini-2.0-flash",
 ] as const;
 
@@ -57,8 +55,11 @@ export function isQuotaOrRateLimitError(error: unknown): boolean {
  * Hard quota exhaustion (e.g. daily/project limit = 0) where retries are pointless.
  */
 export function isHardQuotaExhaustedError(error: unknown): boolean {
+  if (error instanceof GoogleGenerativeAIFetchError && error.status === 429) {
+    return true;
+  }
   const msg = error instanceof Error ? error.message : String(error);
-  return /limit:\s*0|GenerateRequestsPerDayPerProjectPerModel-FreeTier|generate_content_free_tier_requests/i.test(
+  return /limit:\s*0|GenerateRequestsPerDayPerProjectPerModel-FreeTier|generate_content_free_tier_requests|check your plan and billing details|Too Many Requests/i.test(
     msg
   );
 }
