@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
+import { usePathname } from 'next/navigation';
 import {
   AnimatePresence,
   LayoutGroup,
@@ -34,6 +35,14 @@ const DEFAULT_FOLLOWUPS = [
 ] as const;
 
 const GRADIENT = 'from-[#ff85cf] to-[#bc74e9]';
+
+/** כפתור CTA — גרדיאנט בזווית קבועה + flex כדי שטקסט עברי יישב נכון ב-RTL */
+const CTA_PRIMARY_CLASS =
+  'flex w-full min-h-[3.25rem] items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-[15px] md:text-base font-semibold text-white shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity bg-[linear-gradient(105deg,#ff85cf_0%,#bc74e9_100%)]';
+
+/** כפתור משני (שלח / נסו שוב) */
+const CTA_COMPACT_CLASS =
+  'inline-flex min-h-[2.75rem] min-w-[4.5rem] shrink-0 items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white bg-[linear-gradient(105deg,#ff85cf_0%,#bc74e9_100%)] disabled:opacity-45 transition-opacity';
 
 /** משך תנועת הפוקוס (~0.4s) */
 const MOVE = { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const };
@@ -60,6 +69,17 @@ function ensureFourFollowUps(fu: string[]): string[] {
 
 function newId() {
   return crypto.randomUUID();
+}
+
+const SESSION_KEY = "heyzoe_session_id";
+
+function ensureSessionId(): string {
+  if (typeof window === "undefined") return crypto.randomUUID();
+  const existing = window.localStorage.getItem(SESSION_KEY)?.trim();
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  window.localStorage.setItem(SESSION_KEY, created);
+  return created;
 }
 
 function visibleChatPart(buffer: string) {
@@ -133,6 +153,7 @@ function useRevealToTarget(target: string, messageKey: string | undefined) {
 }
 
 export default function ChatZoe({ slug }: { slug: string }) {
+  const pathname = usePathname() ?? '';
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [followUps, setFollowUps] = useState<string[]>([...DEFAULT_FOLLOWUPS]);
   const [businessSnapshot, setBusinessSnapshot] = useState<BusinessSnapshot | null>(null);
@@ -141,6 +162,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const [bootRetryToken, setBootRetryToken] = useState(0);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string>("");
   const [lastSubmittedText, setLastSubmittedText] = useState('');
   /**
    * שאלה בלחיצה — לפני sendText, כדי לאפשר יציאה של צ'יפים אחרים ואז מעבר layout לכותרת.
@@ -155,6 +177,10 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const lastSendRef = useRef<{ text: string; at: number } | null>(null);
 
   useEffect(() => {
+    setSessionId(ensureSessionId());
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     bootstrapAbortRef.current?.abort();
     const ac = new AbortController();
@@ -164,21 +190,64 @@ export default function ChatZoe({ slug }: { slug: string }) {
     setBootError(null);
 
     async function bootstrap() {
+      let showedQuickUi = false;
+      const sid = sessionId || ensureSessionId();
       try {
-        const res = await fetch(`/api/business?slug=${encodeURIComponent(slug)}`, {
+        const quickRes = await fetch(
+          `/api/business/quick?slug=${encodeURIComponent(slug)}`,
+          { signal: ac.signal }
+        );
+        if (!cancelled && !ac.signal.aborted && quickRes.ok) {
+          const q = (await quickRes.json()) as Record<string, unknown>;
+          const name = typeof q.name === 'string' ? q.name.trim() : '';
+          const instantWelcome = `שלום, כאן זואי מ־${name || 'העסק'}. במה אוכל לעזור?`;
+          const fu = [...DEFAULT_FOLLOWUPS];
+          const ctaOk = q.cta_text && q.cta_link;
+          setBusinessSnapshot({
+            slug,
+            name,
+            service_name: (typeof q.service_name === 'string' && q.service_name.trim()) || name,
+            address: typeof q.address === 'string' ? q.address : '',
+            trial_class: typeof q.trial_class === 'string' ? q.trial_class : '',
+            cta_text: ctaOk ? (q.cta_text as string) : null,
+            cta_link: ctaOk ? (q.cta_link as string) : null,
+          });
+          setFollowUps(fu);
+          setMessages([
+            {
+              id: newId(),
+              role: 'assistant',
+              content: instantWelcome,
+              ctaText: ctaOk ? (q.cta_text as string) : null,
+              ctaLink: ctaOk ? (q.cta_link as string) : null,
+              followUps: fu,
+              showActions: true,
+            },
+          ]);
+          setReady(true);
+          showedQuickUi = true;
+        }
+
+        const res = await fetch(`/api/business?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(sid)}`, {
           signal: ac.signal,
         });
         const data = await res.json().catch(() => ({}));
         if (cancelled || ac.signal.aborted) return;
 
         if (!res.ok) {
-          const msg =
-            typeof (data as { error?: string }).error === 'string'
-              ? (data as { error: string }).error
-              : friendlyHttpErrorMessage(res.status);
-          setBusinessSnapshot(null);
-          setMessages([]);
-          setBootError(msg);
+          if (!showedQuickUi) {
+            const payload = data as { error?: string; missing?: string[] };
+            let msg =
+              typeof payload.error === 'string'
+                ? payload.error
+                : friendlyHttpErrorMessage(res.status);
+            if (Array.isArray(payload.missing) && payload.missing.length > 0) {
+              msg = `${msg}\n\nחסר: ${payload.missing.join(' · ')}`;
+            }
+            setBusinessSnapshot(null);
+            setMessages([]);
+            setBootError(msg);
+          }
           return;
         }
 
@@ -186,9 +255,11 @@ export default function ChatZoe({ slug }: { slug: string }) {
         const welcome = (data.welcome as string)?.trim();
         const rawFollowups = (data.followups as string[]) || [];
         if (!welcome) {
-          setBusinessSnapshot(null);
-          setMessages([]);
-          setBootError('לא התקבלה ברכה מהשרת. נסו שוב.');
+          if (!showedQuickUi) {
+            setBusinessSnapshot(null);
+            setMessages([]);
+            setBootError('לא התקבלה ברכה מהשרת. נסו שוב.');
+          }
           return;
         }
 
@@ -219,7 +290,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         console.error('Bootstrap:', e);
-        if (!cancelled && !ac.signal.aborted) {
+        if (!cancelled && !ac.signal.aborted && !showedQuickUi) {
           setBusinessSnapshot(null);
           setMessages([]);
           setBootError('לא הצלחנו לטעון את העמוד. בדקו חיבור ונסו שוב.');
@@ -233,7 +304,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
       cancelled = true;
       ac.abort();
     };
-  }, [slug, bootRetryToken]);
+  }, [slug, bootRetryToken, sessionId]);
 
   const retryBootstrap = useCallback(() => {
     setBootError(null);
@@ -303,7 +374,13 @@ export default function ChatZoe({ slug }: { slug: string }) {
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, slug, business: businessSnapshot }),
+          body: JSON.stringify({
+            message: text,
+            slug,
+            business: businessSnapshot,
+            pathname,
+            session_id: sessionId || ensureSessionId(),
+          }),
         });
 
         if (!response.ok) {
@@ -367,7 +444,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
         setLoading(false);
       }
     },
-    [loading, slug, businessSnapshot, followUps, patchAssistant]
+    [loading, slug, pathname, businessSnapshot, followUps, patchAssistant, sessionId]
   );
 
   useEffect(() => {
@@ -443,15 +520,30 @@ export default function ChatZoe({ slug }: { slug: string }) {
     !preSendFocus || preSendFocus === lastUser?.content;
 
   const chipSurfaceClass =
-    'w-full text-right rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
+    'w-full text-start rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
+
+  const logCtaClick = useCallback((ctaType: string) => {
+    const sid = sessionId || ensureSessionId();
+    void fetch("/api/conversions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        business_slug: slug,
+        session_id: sid,
+        type: ctaType,
+      }),
+    }).catch((e) => console.error("[ChatZoe] conversion logging failed:", e));
+  }, [sessionId, slug]);
 
   if (!ready) {
     return (
       <div
+        dir="rtl"
+        lang="he"
         className={`flex flex-col items-center justify-center min-h-[320px] gap-3 rounded-2xl border border-white/10 bg-[#120c18] text-white/50`}
       >
         <div
-          className={`h-9 w-9 rounded-full border-2 border-white/20 border-t-[#ff85cf] animate-spin`}
+          className="h-9 w-9 rounded-full border-2 border-white/20 border-t-[#ff85cf] animate-spin"
           aria-hidden
         />
         <p className="text-sm">טוענים את זואי…</p>
@@ -462,14 +554,17 @@ export default function ChatZoe({ slug }: { slug: string }) {
   if (bootError) {
     return (
       <div
-        className={`flex flex-col items-center justify-center min-h-[320px] gap-4 px-6 rounded-2xl border border-white/10 bg-[#120c18] text-center`}
+        className={`flex flex-col items-center justify-center min-h-[320px] gap-4 px-6 rounded-2xl border border-white/10 bg-[#120c18]`}
         dir="rtl"
+        lang="he"
       >
-        <p className="text-sm text-neutral-200 max-w-sm leading-relaxed">{bootError}</p>
+        <p className="text-sm text-neutral-200 max-w-sm leading-relaxed whitespace-pre-line text-start">
+          {bootError}
+        </p>
         <button
           type="button"
           onClick={retryBootstrap}
-          className={`rounded-xl px-6 py-3 text-sm font-semibold text-white bg-gradient-to-l ${GRADIENT} hover:opacity-95 transition-opacity`}
+          className={CTA_PRIMARY_CLASS}
         >
           נסו שוב
         </button>
@@ -478,7 +573,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
   }
 
   return (
-    <div className={shellClass}>
+    <div dir="rtl" lang="he" className={shellClass}>
       <div className={`h-1 w-full shrink-0 bg-gradient-to-l ${GRADIENT}`} aria-hidden />
 
       <LayoutGroup id="chat-zoe-layout">
@@ -499,7 +594,9 @@ export default function ChatZoe({ slug }: { slug: string }) {
                   <motion.div
                     layoutId="active-question"
                     transition={MOVE}
-                    className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                    dir="rtl"
+                    lang="he"
+                    className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-start text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
                   >
                     {preSendFocus}
                   </motion.div>
@@ -523,13 +620,17 @@ export default function ChatZoe({ slug }: { slug: string }) {
                     <motion.div
                       layoutId="active-question"
                       transition={MOVE}
-                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                      dir="rtl"
+                      lang="he"
+                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-start text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
                     >
                       {headerQuestionText}
                     </motion.div>
                   ) : (
                     <div
-                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                      dir="rtl"
+                      lang="he"
+                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-start text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
                     >
                       {headerQuestionText}
                     </div>
@@ -550,7 +651,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
                 >
                   <div
                     dir="rtl"
-                    className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-100/95 whitespace-pre-wrap"
+                    lang="he"
+                    className="text-[15px] md:text-[16px] leading-relaxed text-start text-neutral-100/95 whitespace-pre-wrap"
                   >
                     {welcomeAssistant.content}
                   </div>
@@ -560,7 +662,10 @@ export default function ChatZoe({ slug }: { slug: string }) {
                       href={welcomeAssistant.ctaLink}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`block w-full text-center rounded-xl text-[15px] md:text-base font-semibold py-3.5 px-6 text-white bg-gradient-to-l ${GRADIENT} shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity`}
+                      onClick={() => logCtaClick("cta_click_welcome")}
+                      dir="rtl"
+                      lang="he"
+                      className={CTA_PRIMARY_CLASS}
                     >
                       {welcomeAssistant.ctaText}
                     </a>
@@ -597,7 +702,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
                 <motion.div
                   layout
                   dir="rtl"
-                  className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-100/95 whitespace-pre-wrap min-h-[1.5rem]"
+                  lang="he"
+                  className="text-[15px] md:text-[16px] leading-relaxed text-start text-neutral-100/95 whitespace-pre-wrap min-h-[1.5rem]"
                 >
                   {lastAssistant.pending && displayedAnswer.length === 0 ? (
                     <span className="inline-flex items-center gap-2 justify-end w-full text-white/50 text-sm">
@@ -633,10 +739,13 @@ export default function ChatZoe({ slug }: { slug: string }) {
                       href={lastAssistant.ctaLink}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => logCtaClick("cta_click_reply")}
+                      dir="rtl"
+                      lang="he"
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={FADE}
-                      className={`block w-full text-center rounded-xl text-[15px] md:text-base font-semibold py-3.5 px-6 text-white bg-gradient-to-l ${GRADIENT} shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity`}
+                      className={CTA_PRIMARY_CLASS}
                     >
                       {lastAssistant.ctaText}
                     </motion.a>
@@ -687,22 +796,25 @@ export default function ChatZoe({ slug }: { slug: string }) {
             )}
           </div>
 
-          <div className="shrink-0 px-3 pb-3 md:px-4 md:pb-4 pt-2 border-t border-white/10">
-            <div className="flex gap-2 items-stretch">
+          <div className="shrink-0 px-3 pb-3 md:px-4 md:pb-4 pt-2 border-t border-white/10" dir="rtl" lang="he">
+            <div className="flex flex-row-reverse gap-2 items-stretch">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void sendText(input)}
                 placeholder="הקלידו כאן…"
-                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-right text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[#bc74e9]/40"
+                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-start text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[#bc74e9]/40"
                 dir="rtl"
+                lang="he"
                 aria-label="הודעה לזואי"
               />
               <button
                 type="button"
                 onClick={() => void sendText(input)}
                 disabled={loading}
-                className={`shrink-0 rounded-2xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-l ${GRADIENT} disabled:opacity-45 transition-opacity`}
+                dir="rtl"
+                lang="he"
+                className={CTA_COMPACT_CLASS}
               >
                 שלח
               </button>

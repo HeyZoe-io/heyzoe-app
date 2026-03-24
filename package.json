@@ -10,11 +10,16 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.3",
+    "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
+    "lucide-react": "^1.0.1",
     "next": "16.2.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "recharts": "^3.8.0",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

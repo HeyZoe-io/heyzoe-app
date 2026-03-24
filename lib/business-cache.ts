@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { resolveSupabaseAnonKey, resolveSupabaseUrl } from "@/lib/server-env";
 
 export type BusinessInfoRow = {
   name: string | null;
@@ -14,8 +15,8 @@ export type BusinessInfoRow = {
  * (הוסר unstable_cache — ב-API Routes + Turbopack זה עלול לזרוק ולשבור את /api/business.)
  */
 export async function getCachedBusinessBySlug(slug: string): Promise<BusinessInfoRow | null> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const supabaseUrl = resolveSupabaseUrl();
+  const supabaseAnonKey = resolveSupabaseAnonKey();
   if (!supabaseUrl || !supabaseAnonKey) return null;
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
