@@ -47,6 +47,40 @@ function decodeHtmlEntities(input: string): string {
 
 function findLogoCandidate(html: string, pageUrl: string): string {
   const base = new URL(pageUrl);
+  const ogImage =
+    html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ??
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1]?.trim() ??
+    "";
+  if (ogImage) {
+    try {
+      return new URL(ogImage, base.origin).toString();
+    } catch {
+      // continue
+    }
+  }
+
+  const logoImgs = [...html.matchAll(/<img[^>]+src=["']([^"']*logo[^"']*)["'][^>]*>/gi)];
+  if (logoImgs.length) {
+    let best = logoImgs[0][1];
+    let bestArea = 0;
+    for (const m of logoImgs) {
+      const tag = m[0];
+      const src = m[1];
+      const width = Number(tag.match(/\bwidth=["']?(\d+)/i)?.[1] ?? "0");
+      const height = Number(tag.match(/\bheight=["']?(\d+)/i)?.[1] ?? "0");
+      const area = width * height;
+      if (area >= bestArea) {
+        best = src;
+        bestArea = area;
+      }
+    }
+    try {
+      return new URL(best, base.origin).toString();
+    } catch {
+      // continue
+    }
+  }
+
   const iconMatch =
     html.match(/<link[^>]+rel=["'][^"']*(icon|shortcut icon|apple-touch-icon)[^"']*["'][^>]*>/i)?.[0] ?? "";
   const href = iconMatch.match(/href=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
@@ -178,6 +212,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" במקום להיכשל בבקשה.
 עצב את business_description בעברית תקינה, קריאה, קלילה ומקצועית (טון מזמין ולא שיווקי מדי).
 סכם את העסק ב-2 עד 3 משפטים נקיים ומזמינים בעברית. אל תעתיק טקסט גולמי מהאתר.
+חפש לוגו באופן מועדף כך: 1) og:image 2) התמונה הגדולה ביותר שהשם שלה כולל logo.
 ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר (למשל שיעורים שבועיים/סדנאות), כולל benefits מוסקים.
 החזר JSON בלבד במבנה:
 {

@@ -172,6 +172,7 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("Using API Key:", process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "EXISTS" : "MISSING");
     const apiKey = resolveGeminiApiKey();
     if (!apiKey) {
       return new Response(
@@ -237,7 +238,7 @@ ${String(message)}`;
         let usedModel: string | null = null;
         let assistantTextAcc = "";
 
-        const chatModels = ["gemini-1.5-flash", ...GEMINI_CHAT_MODELS.filter((m) => m !== "gemini-1.5-flash")];
+        const chatModels = ["gemini-1.5-flash"];
         for (const modelNameRaw of chatModels) {
           const modelName = normalizeModelName(modelNameRaw);
           let leftModelFor404 = false;
