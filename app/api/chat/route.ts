@@ -200,8 +200,8 @@ export async function POST(req: NextRequest) {
 
     const knowledge = await getBusinessKnowledgePack(String(slug));
 
-    const businessContext = business
-      ? `שם העסק: ${business.name}, שירות: ${business.service_name}, כתובת: ${business.address}, שיעור ניסיון: ${business.trial_class}`
+    const businessContext = knowledge
+      ? `שם העסק: ${knowledge.businessName}, נישה: ${knowledge.niche || "לא הוגדרה"}`
       : `Business Slug: ${slug}`;
 
     const pathInstructions = buildPathAwareInstructions(pathname);
