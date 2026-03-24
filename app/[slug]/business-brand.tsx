@@ -9,14 +9,24 @@ type BusinessBrandProps = {
 
 export default function BusinessBrand({ logoUrl, businessName }: BusinessBrandProps) {
   const [hideLogo, setHideLogo] = useState(false);
+  const safeLogoUrl = (() => {
+    if (!logoUrl) return null;
+    try {
+      const u = new URL(logoUrl);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      return logoUrl;
+    } catch {
+      return null;
+    }
+  })();
 
-  if (!logoUrl || hideLogo) {
+  if (!safeLogoUrl || hideLogo) {
     return <p className="text-center text-base font-semibold text-neutral-700">{businessName}</p>;
   }
 
   return (
     <img
-      src={logoUrl}
+      src={safeLogoUrl}
       alt={`${businessName} לוגו`}
       className="h-20 w-20 rounded-full object-contain border border-neutral-200 bg-white shadow-sm"
       style={{ imageRendering: "auto" }}
