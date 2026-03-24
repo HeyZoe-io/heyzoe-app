@@ -29,7 +29,17 @@ type ServiceItem = {
 type FaqItem = { service_slug: string; question: string; answer: string };
 
 const NICHE_SUGGESTIONS = ["Fitness", "Wellness", "Clinic", "Beauty", "Education", "Studio"];
-const VIBE_OPTIONS = ["חברי", "מקצועי", "מצחיק", "רוחני"];
+const VIBE_OPTIONS = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
+
+const PRODUCT_SLUG_MAP: Array<[RegExp, string]> = [
+  [/שיעור\s*יוגה/g, "yoga-class"],
+  [/יוגה/g, "yoga"],
+  [/פילאטיס/g, "pilates"],
+  [/אימון/g, "training"],
+  [/טיפול/g, "therapy"],
+  [/סדנה/g, "workshop"],
+  [/ייעוץ/g, "consulting"],
+];
 
 function slugify(raw: string) {
   return raw
@@ -39,6 +49,35 @@ function slugify(raw: string) {
     .replace(/[^a-z0-9\u0590-\u05ff]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
+}
+
+function toProductSlug(raw: string) {
+  let text = raw.toLowerCase().trim();
+  for (const [re, to] of PRODUCT_SLUG_MAP) text = text.replace(re, ` ${to} `);
+  text = text
+    .replace(/[א]/g, "a")
+    .replace(/[ב]/g, "b")
+    .replace(/[ג]/g, "g")
+    .replace(/[ד]/g, "d")
+    .replace(/[ה]/g, "h")
+    .replace(/[ו]/g, "v")
+    .replace(/[ז]/g, "z")
+    .replace(/[ח]/g, "ch")
+    .replace(/[ט]/g, "t")
+    .replace(/[י]/g, "y")
+    .replace(/[כך]/g, "k")
+    .replace(/[ל]/g, "l")
+    .replace(/[מם]/g, "m")
+    .replace(/[נן]/g, "n")
+    .replace(/[ס]/g, "s")
+    .replace(/[ע]/g, "a")
+    .replace(/[פף]/g, "p")
+    .replace(/[צץ]/g, "tz")
+    .replace(/[קר]/g, "k")
+    .replace(/[ר]/g, "r")
+    .replace(/[ש]/g, "sh")
+    .replace(/[ת]/g, "t");
+  return slugify(text);
 }
 
 function SocialInput({
@@ -138,6 +177,9 @@ export default function DashboardSettingsPage() {
   const [enableGradient, setEnableGradient] = useState(true);
   const [triedSave, setTriedSave] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [fetchingSite, setFetchingSite] = useState(false);
+  const [faqLoadingServiceSlug, setFaqLoadingServiceSlug] = useState<string | null>(null);
+  const [addressSuggestions, setAddressSuggestions] = useState<Record<number, string[]>>({});
 
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -160,7 +202,7 @@ export default function DashboardSettingsPage() {
     schedule_text: "",
     primary_color: "#ff85cf",
     secondary_color: "#bc74e9",
-    welcome_message: "שלום, כאן זואי. איך אפשר לעזור?",
+    welcome_message: "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.",
   });
 
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -203,7 +245,7 @@ export default function DashboardSettingsPage() {
             schedule_text: data.business.schedule_text ?? "",
             primary_color: data.business.primary_color ?? "#ff85cf",
             secondary_color: data.business.secondary_color ?? "#bc74e9",
-            welcome_message: data.business.welcome_message ?? "שלום, כאן זואי. איך אפשר לעזור?",
+            welcome_message: data.business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.",
           });
           setEnableGradient((data.business.secondary_color ?? "#bc74e9") !== (data.business.primary_color ?? "#ff85cf"));
         }
@@ -348,6 +390,39 @@ export default function DashboardSettingsPage() {
     }
   }
 
+  async function fetchFromWebsite() {
+    if (!business.website_url.trim()) {
+      setStatus("יש להזין כתובת אתר קודם.");
+      return;
+    }
+    setFetchingSite(true);
+    const res = await fetch("/api/dashboard/fetch-site", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        website_url: business.website_url,
+        business_name: business.name,
+        niche: business.niche,
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setBusiness((prev) => ({
+        ...prev,
+        business_description:
+          typeof j.business_description === "string" && j.business_description.trim()
+            ? j.business_description
+            : prev.business_description,
+        target_audience: Array.isArray(j.target_audience) ? j.target_audience : prev.target_audience,
+        benefits: Array.isArray(j.benefits) ? j.benefits : prev.benefits,
+      }));
+      setStatus("המידע נמשך מהאתר בהצלחה.");
+    } else {
+      setStatus(`משיכה מהאתר נכשלה: ${j.error ?? "unknown"}`);
+    }
+    setFetchingSite(false);
+  }
+
   async function parseScheduleFromFile(file: File | null) {
     if (!file) return;
     const fd = new FormData();
@@ -358,7 +433,7 @@ export default function DashboardSettingsPage() {
       setBusiness((b) => ({ ...b, schedule_text: String(j.schedule_text) }));
       setStatus("שעות הפעילות זוהו מהקובץ.");
     } else {
-      setStatus(`קריאת שעות נכשלה: ${j.error ?? "unknown"}`);
+      setStatus("לא הצלחנו לקרוא את הקובץ, אנא הזן שעות ידנית");
     }
   }
 
@@ -383,6 +458,7 @@ export default function DashboardSettingsPage() {
   }
 
   async function generateFaqForService(service: ServiceItem) {
+    setFaqLoadingServiceSlug(service.service_slug || "__new__");
     const res = await fetch("/api/dashboard/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -405,6 +481,30 @@ export default function DashboardSettingsPage() {
       }))
       .filter((x: FaqItem) => x.question && x.answer);
     setFaqs((prev) => [...prev.filter((f) => f.service_slug !== service.service_slug), ...mapped]);
+    setFaqLoadingServiceSlug(null);
+  }
+
+  async function lookupAddress(index: number, query: string) {
+    const q = query.trim();
+    if (q.length < 3) {
+      setAddressSuggestions((prev) => ({ ...prev, [index]: [] }));
+      return;
+    }
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&accept-language=he&q=${encodeURIComponent(q)}`
+      );
+      const rows = (await res.json()) as Array<{ display_name?: string }>;
+      setAddressSuggestions((prev) => ({
+        ...prev,
+        [index]: rows
+          .map((r) => r.display_name ?? "")
+          .filter(Boolean)
+          .slice(0, 5),
+      }));
+    } catch {
+      setAddressSuggestions((prev) => ({ ...prev, [index]: [] }));
+    }
   }
 
   if (loading) return <main className="p-8">טוען הגדרות...</main>;
@@ -419,7 +519,7 @@ export default function DashboardSettingsPage() {
               <CardDescription>מלאו את כל שדות החובה המסומנים בכוכבית אדומה.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <label className="text-sm font-medium">Business Name <span className="text-red-500">*</span></label>
+              <label className="text-sm font-medium">שם העסק <span className="text-red-500">*</span></label>
               <Input
                 dir="rtl"
                 className={`${triedSave && requiredBusinessNameMissing ? "border-red-500 focus-visible:ring-red-400" : ""} text-right placeholder:text-right`}
@@ -428,7 +528,7 @@ export default function DashboardSettingsPage() {
                 onChange={(e) => setBusiness({ ...business, name: e.target.value })}
               />
 
-              <label className="text-sm font-medium">Business Slug <span className="text-red-500">*</span></label>
+              <label className="text-sm font-medium">סלאג העסק <span className="text-red-500">*</span></label>
               <Input
                 dir="rtl"
                 className={`${triedSave && requiredSlugMissing ? "border-red-500 focus-visible:ring-red-400" : ""} text-right placeholder:text-right`}
@@ -441,14 +541,19 @@ export default function DashboardSettingsPage() {
               />
               <p className={`text-xs ${isSlugAvailable ? "text-emerald-600" : "text-amber-600"}`}>{slugMessage}</p>
 
-              <label className="text-sm font-medium">Website URL</label>
-              <Input
-                dir="rtl"
-                className="text-right placeholder:text-right"
-                placeholder="קישור לאתר..."
-                value={business.website_url}
-                onChange={(e) => setBusiness({ ...business, website_url: e.target.value })}
-              />
+              <label className="text-sm font-medium">כתובת אתר (אופציונלי)</label>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" onClick={fetchFromWebsite} disabled={fetchingSite}>
+                  {fetchingSite ? "מושך..." : "משוך מידע מהאתר"}
+                </Button>
+                <Input
+                  dir="rtl"
+                  className="text-right placeholder:text-right"
+                  placeholder="קישור לאתר..."
+                  value={business.website_url}
+                  onChange={(e) => setBusiness({ ...business, website_url: e.target.value })}
+                />
+              </div>
 
               <Input dir="rtl" className="text-right placeholder:text-right" placeholder="בחר נישה..." list="niche-suggestions" value={business.niche} onChange={(e) => setBusiness({ ...business, niche: e.target.value })} />
               <datalist id="niche-suggestions">{NICHE_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>
@@ -456,8 +561,34 @@ export default function DashboardSettingsPage() {
               <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={3} placeholder="תיאור העסק..." value={business.business_description} onChange={(e) => setBusiness({ ...business, business_description: e.target.value })} />
 
               <TagInput title="קהל יעד" tags={business.target_audience} suggestions={smartTagSuggestions.target_audience} onChange={(next) => setBusiness((prev) => ({ ...prev, target_audience: next }))} />
-              <TagInput title="יתרונות" tags={business.benefits} suggestions={smartTagSuggestions.benefits} onChange={(next) => setBusiness((prev) => ({ ...prev, benefits: next }))} />
-              <TagInput title="סגנון דיבור" tags={business.vibe} suggestions={[...new Set([...smartTagSuggestions.vibe, ...VIBE_OPTIONS])]} onChange={(next) => setBusiness((prev) => ({ ...prev, vibe: next }))} />
+              <TagInput title="מה משיגים מהשירות שלך?" tags={business.benefits} suggestions={smartTagSuggestions.benefits} onChange={(next) => setBusiness((prev) => ({ ...prev, benefits: next }))} />
+              <div className="space-y-2">
+                <label className="text-sm font-medium">סגנון דיבור</label>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {[...new Set([...VIBE_OPTIONS, ...smartTagSuggestions.vibe])].map((v) => {
+                    const active = business.vibe.includes(v);
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() =>
+                          setBusiness((prev) => ({
+                            ...prev,
+                            vibe: active ? prev.vibe.filter((x) => x !== v) : [...prev.vibe, v],
+                          }))
+                        }
+                        className={`rounded-full border px-3 py-1 text-xs transition ${
+                          active
+                            ? "border-fuchsia-500 bg-fuchsia-500 text-white"
+                            : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => void uploadLogo(e.target.files?.[0] ?? null)} />
               <Button type="button" variant="outline" className="w-full border-dashed py-6" onClick={() => logoInputRef.current?.click()}>
@@ -475,18 +606,57 @@ export default function DashboardSettingsPage() {
                   <details key={`${s.service_slug}-${i}`} className="rounded-xl border border-zinc-200 p-3">
                     <summary className="cursor-pointer text-sm font-medium text-right">{s.name || `מוצר ${i + 1}`}</summary>
                     <div className="mt-3 space-y-2">
-                      <label className="text-sm font-medium">Product Name <span className="text-red-500">*</span></label>
+                      <label className="text-sm font-medium">שם מוצר <span className="text-red-500">*</span></label>
                       <Input
                         dir="rtl"
                         className={`text-right placeholder:text-right ${triedSave && s.name.trim().length === 0 ? "border-red-500 focus-visible:ring-red-400" : ""}`}
                         placeholder="הכנס שם מוצר..."
                         value={s.name}
-                        onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, name: e.target.value } : x))}
+                        onChange={(e) =>
+                          setServices((prev) =>
+                            prev.map((x, idx) =>
+                              idx === i
+                                ? {
+                                    ...x,
+                                    name: e.target.value,
+                                    service_slug: x.service_slug || toProductSlug(e.target.value),
+                                  }
+                                : x
+                            )
+                          )
+                        }
                       />
-                      <Input dir="rtl" className="text-right placeholder:text-right" placeholder="הכנס סלאג מוצר..." value={s.service_slug} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, service_slug: slugify(e.target.value) } : x))} />
+                      <Input dir="rtl" className="text-right placeholder:text-right" placeholder="סלאג מוצר (לטיני)..." value={s.service_slug} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, service_slug: toProductSlug(e.target.value) } : x))} />
                       <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={2} placeholder="תיאור המוצר..." value={s.description} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, description: e.target.value } : x))} />
-                      <Input dir="rtl" className="text-right placeholder:text-right" placeholder="מיקום / אונליין..." value={s.location_text} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, location_text: e.target.value } : x))} />
-                      <label className="text-sm font-medium">Product Price <span className="text-red-500">*</span></label>
+                      <Input
+                        dir="rtl"
+                        className="text-right placeholder:text-right"
+                        placeholder="כתובת או מיקום..."
+                        value={s.location_text}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, location_text: value } : x));
+                          void lookupAddress(i, value);
+                        }}
+                      />
+                      {(addressSuggestions[i] ?? []).length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {addressSuggestions[i].map((addr) => (
+                            <button
+                              key={addr}
+                              type="button"
+                              className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-right hover:bg-zinc-100"
+                              onClick={() => {
+                                setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, location_text: addr } : x));
+                                setAddressSuggestions((prev) => ({ ...prev, [i]: [] }));
+                              }}
+                            >
+                              {addr}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <label className="text-sm font-medium">מחיר מוצר <span className="text-red-500">*</span></label>
                       <Input
                         dir="rtl"
                         className={`text-right placeholder:text-right ${triedSave && s.price_text.trim().length === 0 ? "border-red-500 focus-visible:ring-red-400" : ""}`}
@@ -494,14 +664,17 @@ export default function DashboardSettingsPage() {
                         value={s.price_text}
                         onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, price_text: e.target.value } : x))}
                       />
+                      <label className="text-sm font-medium">הנעה לפעולה</label>
                       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="טקסט CTA..." value={s.cta_text} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_text: e.target.value } : x))} />
-                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="קישור CTA..." value={s.cta_link} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_link: e.target.value } : x))} />
+                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="טקסט הנעה לפעולה..." value={s.cta_text} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_text: e.target.value } : x))} />
+                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="קישור הנעה לפעולה..." value={s.cta_link} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_link: e.target.value } : x))} />
                       </div>
-                      <Button variant="outline" onClick={() => generateFaqForService(s)}><Sparkles className="h-4 w-4" /> Generate Questions</Button>
+                      <Button variant="outline" onClick={() => generateFaqForService(s)}>
+                        <Sparkles className="h-4 w-4" /> יצירת שאלות חכמות
+                      </Button>
 
                       <div className="rounded-xl border border-zinc-200 p-3 space-y-2">
-                        <p className="text-sm font-medium">FAQ Manager</p>
+                        <p className="text-sm font-medium">מנהל שאלות נפוצות</p>
                         {serviceFaqs.map((f, fIdx) => (
                           <div key={`${f.service_slug}-${fIdx}`} className="rounded-lg border border-zinc-200 p-2 space-y-2">
                             <Input
@@ -548,7 +721,7 @@ export default function DashboardSettingsPage() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Visuals & Appearance</CardTitle></CardHeader>
+            <CardHeader><CardTitle>עיצוב ונראות</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <label className="text-sm font-medium">HEX צבע ראשי</label>
               <div className="flex items-center justify-end gap-2">
@@ -558,7 +731,7 @@ export default function DashboardSettingsPage() {
               </div>
               <label className="inline-flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={enableGradient} onChange={(e) => setEnableGradient(e.target.checked)} />
-                Enable Gradient
+                הפעל גרדיאנט
               </label>
               {enableGradient && (
                 <div className="flex items-center justify-end gap-2">
@@ -574,31 +747,31 @@ export default function DashboardSettingsPage() {
             <CardHeader><CardTitle>הודעת פתיחה חכמה</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={3} value={business.welcome_message} onChange={(e) => setBusiness({ ...business, welcome_message: e.target.value })} placeholder="הכנס הודעת פתיחה..." />
-              <Button variant="outline" onClick={generateWelcome}><Sparkles className="h-4 w-4" /> יצירה חכמה</Button>
+              <Button variant="outline" onClick={generateWelcome}><Sparkles className="h-4 w-4" /> יצירת פתיח חכם</Button>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader><CardTitle>שעות פעילות</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={6} placeholder={`יום שני: ...\nיום שלישי: ...\nיום רביעי: ...\nיום חמישי: ...\nיום שישי: ...\nשבת: ...\nראשון: ...`} value={business.schedule_text} onChange={(e) => setBusiness({ ...business, schedule_text: e.target.value })} />
               <div className="flex justify-end">
                 <label className="cursor-pointer rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-50">
                   העלאת קובץ שעות
                   <input type="file" className="hidden" accept="image/*,.pdf,.txt" onChange={(e) => void parseScheduleFromFile(e.target.files?.[0] ?? null)} />
                 </label>
               </div>
+              <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={6} placeholder={`יום שני: ...\nיום שלישי: ...\nיום רביעי: ...\nיום חמישי: ...\nיום שישי: ...\nשבת: ...\nראשון: ...`} value={business.schedule_text} onChange={(e) => setBusiness({ ...business, schedule_text: e.target.value })} />
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Social Media</CardTitle></CardHeader>
+            <CardHeader><CardTitle>רשתות חברתיות</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <SocialInput placeholder="Instagram URL..." value={business.instagram} onChange={(v) => setBusiness({ ...business, instagram: v })} icon={<AtSign className="h-4 w-4" />} />
-              <SocialInput placeholder="TikTok URL..." value={business.tiktok} onChange={(v) => setBusiness({ ...business, tiktok: v })} icon={<Music className="h-4 w-4" />} />
-              <SocialInput placeholder="Facebook URL..." value={business.facebook} onChange={(v) => setBusiness({ ...business, facebook: v })} icon={<Users className="h-4 w-4" />} />
-              <SocialInput placeholder="YouTube URL..." value={business.youtube} onChange={(v) => setBusiness({ ...business, youtube: v })} icon={<CirclePlay className="h-4 w-4" />} />
-              <SocialInput placeholder="WhatsApp URL..." value={business.whatsapp} onChange={(v) => setBusiness({ ...business, whatsapp: v })} icon={<MessageCircle className="h-4 w-4" />} />
+              <SocialInput placeholder="קישור לאינסטגרם..." value={business.instagram} onChange={(v) => setBusiness({ ...business, instagram: v })} icon={<AtSign className="h-4 w-4" />} />
+              <SocialInput placeholder="קישור לטיקטוק..." value={business.tiktok} onChange={(v) => setBusiness({ ...business, tiktok: v })} icon={<Music className="h-4 w-4" />} />
+              <SocialInput placeholder="קישור לפייסבוק..." value={business.facebook} onChange={(v) => setBusiness({ ...business, facebook: v })} icon={<Users className="h-4 w-4" />} />
+              <SocialInput placeholder="קישור ליוטיוב..." value={business.youtube} onChange={(v) => setBusiness({ ...business, youtube: v })} icon={<CirclePlay className="h-4 w-4" />} />
+              <SocialInput placeholder="קישור לוואטסאפ..." value={business.whatsapp} onChange={(v) => setBusiness({ ...business, whatsapp: v })} icon={<MessageCircle className="h-4 w-4" />} />
             </CardContent>
           </Card>
 
@@ -613,8 +786,13 @@ export default function DashboardSettingsPage() {
             <CardHeader><CardTitle>תצוגה חיה של Zoe</CardTitle></CardHeader>
             <CardContent>
               <div className="rounded-2xl border border-zinc-200 bg-[#120c18] p-4 text-white">
+                {faqLoadingServiceSlug ? (
+                  <div className="mb-2 text-xs text-white/70">מעדכן שאלות חכמות...</div>
+                ) : null}
                 <div className="h-1 rounded-full" style={gradientStyle} />
-                <p className="mt-3 text-sm text-white/90 text-right">{business.welcome_message || "שלום! איך אפשר לעזור?"}</p>
+                <p className="mt-3 text-sm text-white/90 text-right">
+                  {business.welcome_message || `נעים להכיר, אני ${business.bot_name || "זואי"} כאן ללוות אותך.`}
+                </p>
                 <button className="mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white" style={gradientStyle}>
                   {services.find((s) => s.cta_text.trim())?.cta_text || "הרשמה לשיעור ניסיון"}
                 </button>

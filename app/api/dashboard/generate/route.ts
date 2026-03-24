@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
 סגנון דיבור: ${(vibe ?? []).join(", ")}.
 שעות פעילות: "${schedule_text ?? ""}".
 אם חסר מידע השתמשי במה שיש והישארי עניינית.
-החזר משפט אחד בלבד.`;
+אסור להשתמש בניסוח "איך אפשר לעזור".
+החזר משפט אחד בלבד עם שם הבוט ונימה מותאמת לסגנון הדיבור.`;
 
   const result = await model.generateContent(prompt, { timeout: 30000 });
   const text = result.response.text().trim();

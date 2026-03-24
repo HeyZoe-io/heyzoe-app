@@ -52,7 +52,7 @@ export async function GET(req: Request) {
       trial_class: trial || "",
       cta_text: ctaTextRaw || null,
       cta_link: ctaLinkRaw || null,
-      welcome: `שלום, כאן זואי מ-${bizName}. איך אפשר לעזור?`,
+      welcome: `נעים להכיר, אני זואי של ${bizName} ואשמח ללוות אותך לבחירה הנכונה.`,
       followups: ["מה המחיר?", "איפה אתם נמצאים?", "איך נרשמים?", "למי זה מתאים?"],
       tone: null,
       bot_name: "זואי",

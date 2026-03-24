@@ -12,7 +12,7 @@ create table if not exists public.businesses (
   social_links jsonb not null default '[]'::jsonb,
   primary_color text not null default '#ff85cf',
   secondary_color text not null default '#bc74e9',
-  welcome_message text not null default 'שלום, כאן זואי. איך אפשר לעזור?',
+  welcome_message text not null default 'נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.',
   cta_text text,
   cta_link text
 );

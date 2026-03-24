@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
         : {},
     primary_color: String(business.primary_color ?? "#ff85cf"),
     secondary_color: String(business.secondary_color ?? "#bc74e9"),
-    welcome_message: String(business.welcome_message ?? "שלום, כאן זואי. איך אפשר לעזור?"),
+    welcome_message: String(business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך."),
     cta_text: String(firstServiceWithCta?.cta_text ?? business.cta_text ?? ""),
     cta_link: String(firstServiceWithCta?.cta_link ?? business.cta_link ?? ""),
   };

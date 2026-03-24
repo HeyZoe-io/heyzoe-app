@@ -45,7 +45,7 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
     trial_class: "",
     cta_text: (business.cta_text as string | null) ?? null,
     cta_link: (business.cta_link as string | null) ?? null,
-    welcome_message: String(business.welcome_message ?? "שלום, כאן זואי. איך אפשר לעזור?"),
+    welcome_message: String(business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך."),
     bot_name: String(business.bot_name ?? "זואי"),
     primary_color: String(business.primary_color ?? "#ff85cf"),
     secondary_color: String(business.secondary_color ?? "#bc74e9"),
