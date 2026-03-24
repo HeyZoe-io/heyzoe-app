@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Mail, ShieldCheck } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Button } from "@/components/ui/button";
@@ -8,25 +9,41 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 
 export default function AdminLoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const nextPath = useMemo(() => {
-    if (typeof window === "undefined") return "/admin/dashboard";
-    const params = new URLSearchParams(window.location.search);
-    return params.get("next") || "/admin/dashboard";
-  }, []);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  useEffect(() => {
+    let mounted = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (mounted && data.session) {
+        router.replace("/admin/dashboard");
+      }
+    });
+
+    const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        router.replace("/admin/dashboard");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      authSub.subscription.unsubscribe();
+    };
+  }, [router, supabase]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setMessage("");
     try {
-      const supabase = createSupabaseBrowserClient();
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {
-          emailRedirectTo: `${window.location.origin}${nextPath}`,
+          emailRedirectTo: `${window.location.origin}/admin/dashboard`,
         },
       });
       if (error) {
