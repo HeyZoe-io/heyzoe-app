@@ -5,6 +5,8 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
  * סדר fallback מועדף: 1.5-flash -> 1.5-flash-latest -> pro
  */
 export const GEMINI_CHAT_MODELS = [
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
   "gemini-1.5-flash",
   "gemini-1.5-flash-latest",
   "gemini-pro",
@@ -21,6 +23,7 @@ export const GEMINI_API_VERSION = "v1" as const;
 
 /** ארגומנט שני ל-getGenerativeModel — אותה גרסת API בכל המודלים */
 export const GEMINI_MODEL_INIT_OPTIONS = { apiVersion: GEMINI_API_VERSION } as const;
+export const GEMINI_API_VERSION_FALLBACKS = ["v1", "v1beta"] as const;
 
 /** timeout ל-generateContent (bootstrap) — לא לסטרים ארוכים ב-chat */
 export const GEMINI_BOOTSTRAP_GENERATE_TIMEOUT_MS = 55_000 as const;
