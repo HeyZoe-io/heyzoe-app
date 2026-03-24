@@ -2,15 +2,17 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
 
 /**
  * מזהים יציבים — בלי קידומת `models/` (ה-SDK מוסיף אותה).
- * סדר fallback מועדף: 1.5-flash -> 2.0-flash
+ * Primary: gemini-1.5-flash (Tier 1). Fallbacks: pro, then experimental 2.0.
+ * Order matters: try each model once per "failure to advance" except transient retries (429/503).
  */
 export const GEMINI_CHAT_MODELS = [
-  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+  "gemini-2.0-flash-exp",
 ] as const;
 
-export const GEMINI_BOOTSTRAP_MODELS = [
-  "gemini-2.0-flash",
-] as const;
+/** Same ordered list for bootstrap / one-shot generation callers */
+export const GEMINI_BOOTSTRAP_MODELS = GEMINI_CHAT_MODELS;
 
 /** forced v1beta for current project model availability */
 export const GEMINI_API_VERSION = "v1beta" as const;
@@ -138,34 +140,52 @@ export function resolveGeminiApiKeyWithSource(): { key: string; source: string }
   return { key: "", source: "MISSING" };
 }
 
-/** פונקציית עזר שמנסה מודלים ברצף עם retry בסיסי לשגיאות עומס */
+/** פונקציית עזר שמנסה מודלים ברצף; אחרי כשל שאינו retry-able עוברים למודל הבא (לא חוזרים על אותו מודל). */
 export async function generateRawWithModelFallback<T>(
   modelNames: readonly string[],
   handler: (modelName: string) => Promise<T>,
   retryDelays: readonly number[] = GEMINI_RETRY_DELAYS_MS
 ): Promise<T> {
   let lastError: unknown = null;
+  const total = modelNames.length;
 
-  for (const rawModelName of modelNames) {
-    const modelName = normalizeModelName(rawModelName);
+  for (let mi = 0; mi < modelNames.length; mi++) {
+    const modelName = normalizeModelName(modelNames[mi]!);
+    const nextLabel =
+      mi + 1 < modelNames.length
+        ? normalizeModelName(modelNames[mi + 1]!)
+        : "(end of list)";
+
+    console.info(
+      `[Gemini] Attempting model ${mi + 1}/${total}: "${modelName}" (apiVersion=${GEMINI_API_VERSION})`
+    );
+
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
       try {
-        console.log(`[Gemini] Attempting model: ${modelName} (try ${attempt + 1})`);
+        if (attempt > 0) {
+          console.info(
+            `[Gemini] Same-model retry ${attempt}/${retryDelays.length} for "${modelName}" (transient/quota only)`
+          );
+        }
         return await handler(modelName);
       } catch (err) {
         lastError = err;
         if (isImmediateModelSwitchError(err)) {
-          console.warn(
-            `[Gemini] Model unavailable, trying next (no retry backoff): ${modelName}`,
+          console.info(
+            `[Gemini] Model unavailable for "${modelName}" (e.g. 404); advancing to next: ${nextLabel}`,
             err instanceof Error ? err.message : err
           );
           break;
         }
-        const canRetry = isRetryableGeminiError(err) && attempt < retryDelays.length;
-        if (canRetry) {
+        const canRetrySameModel = isRetryableGeminiError(err) && attempt < retryDelays.length;
+        if (canRetrySameModel) {
           await sleepMs(retryDelays[attempt]);
           continue;
         }
+        console.info(
+          `[Gemini] Non-retryable or retries exhausted for "${modelName}"; advancing to next: ${nextLabel}`,
+          err instanceof Error ? err.message : err
+        );
         break;
       }
     }
