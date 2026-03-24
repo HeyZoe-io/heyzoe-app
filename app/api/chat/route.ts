@@ -12,6 +12,7 @@ import {
   isRetryableGeminiError,
   normalizeModelName,
   resolveGeminiApiKeyFromEnv,
+  resolveGeminiApiKeyWithSource,
   sleepMs,
 } from '@/lib/gemini';
 import { extractErrorCode, logMessage } from '@/lib/analytics';
@@ -172,7 +173,8 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
 
 export async function POST(req: NextRequest) {
   try {
-    console.log("Using API Key:", process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "EXISTS" : "MISSING");
+    const resolved = resolveGeminiApiKeyWithSource();
+    console.log("Using API Key:", resolved.key ? "EXISTS" : "MISSING", "| source:", resolved.source);
     const apiKey = resolveGeminiApiKeyFromEnv();
     if (!apiKey) {
       return new Response(
@@ -238,7 +240,7 @@ ${String(message)}`;
         let usedModel: string | null = null;
         let assistantTextAcc = "";
 
-        const chatModels = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+        const chatModels = GEMINI_CHAT_MODELS;
         for (const modelNameRaw of chatModels) {
           const modelName = normalizeModelName(modelNameRaw);
           let leftModelFor404 = false;
@@ -292,6 +294,7 @@ ${String(message)}`;
         }
 
         if (!success) {
+          console.error("[Chat API] All model attempts failed:", lastError);
           const errCode = extractErrorCode(lastError);
           await logMessage({
             business_slug: String(slug),
