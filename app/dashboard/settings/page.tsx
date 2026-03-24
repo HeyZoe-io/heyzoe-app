@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 type ServiceItem = {
   ui_id: string;
   name: string;
+  description: string;
   location_text: string;
   price_text: string;
   service_slug: string;
@@ -25,6 +26,8 @@ type ServiceItem = {
   cta_link: string;
   coming_for: string[];
   extra_goals: string[];
+  benefits: string[];
+  benefit_suggestions: string[];
 };
 
 type FaqItem = { service_slug: string; question: string; answer: string };
@@ -111,26 +114,24 @@ function SocialInput({
   );
 }
 
-function TagInput({
+function ProductTagInput({
   title,
   tags,
-  onChange,
   suggestions,
+  onChange,
 }: {
   title: string;
   tags: string[];
-  onChange: (next: string[]) => void;
   suggestions: string[];
+  onChange: (next: string[]) => void;
 }) {
   const [input, setInput] = useState("");
-
-  function addTag(raw: string) {
+  const addTag = (raw: string) => {
     const t = raw.trim();
     if (!t || tags.includes(t)) return;
     onChange([...tags, t]);
     setInput("");
-  }
-
+  };
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium">{title}</label>
@@ -147,23 +148,23 @@ function TagInput({
           }
         }}
       />
-      <div className="flex flex-wrap gap-2 justify-end">
-        {tags.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1 text-xs">
-            <button type="button" className="cursor-pointer" onClick={() => onChange(tags.filter((x) => x !== t))}>
+      <div className="flex flex-wrap justify-end gap-2">
+        {tags.map((tag) => (
+          <span key={tag} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1 text-xs">
+            <button type="button" className="cursor-pointer" onClick={() => onChange(tags.filter((x) => x !== tag))}>
               <X className="h-3 w-3" />
             </button>
-            {t}
+            {tag}
           </span>
         ))}
       </div>
-      <div className="flex flex-wrap gap-2 justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
         {suggestions.filter((s) => !tags.includes(s)).map((s) => (
           <button
             key={s}
             type="button"
+            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 cursor-pointer"
             onClick={() => addTag(s)}
-            className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs text-fuchsia-700 cursor-pointer"
           >
             {s}
           </button>
@@ -202,7 +203,6 @@ export default function DashboardSettingsPage() {
     facebook: "",
     youtube: "",
     whatsapp: "",
-    benefits: [] as string[],
     vibe: [] as string[],
     schedule_text: "",
     primary_color: "#ff85cf",
@@ -248,7 +248,6 @@ export default function DashboardSettingsPage() {
             facebook: data.business.facebook ?? "",
             youtube: data.business.youtube ?? "",
             whatsapp: data.business.whatsapp ?? "",
-            benefits: Array.isArray(data.business.benefits) ? data.business.benefits : [],
             vibe: Array.isArray(data.business.vibe) ? data.business.vibe : [],
             schedule_text: data.business.schedule_text ?? "",
             primary_color: data.business.primary_color ?? "#ff85cf",
@@ -268,12 +267,26 @@ export default function DashboardSettingsPage() {
         setServices(
           (data.services ?? []).map((s: Record<string, unknown>) => {
             const rawDescription = String(s.description ?? "");
-            const goals = rawDescription.startsWith("__GOALS__:")
-              ? rawDescription.replace("__GOALS__:", "").split("|").map((x) => x.trim()).filter(Boolean)
-              : [];
+            const metaPayload = rawDescription.startsWith("__META__:")
+              ? rawDescription.replace("__META__:", "")
+              : "";
+            let parsedMeta: Record<string, unknown> = {};
+            if (metaPayload) {
+              try {
+                parsedMeta = JSON.parse(metaPayload) as Record<string, unknown>;
+              } catch {
+                parsedMeta = {};
+              }
+            }
+            const goals = Array.isArray(parsedMeta.coming_for)
+              ? parsedMeta.coming_for.map((x) => String(x)).filter(Boolean)
+              : rawDescription.startsWith("__GOALS__:")
+                ? rawDescription.replace("__GOALS__:", "").split("|").map((x) => x.trim()).filter(Boolean)
+                : [];
             return {
               name: String(s.name ?? ""),
               ui_id: crypto.randomUUID(),
+              description: String(parsedMeta.description ?? ""),
               location_text: String(s.location_text ?? ""),
               price_text: String(s.price_text ?? ""),
               service_slug: String(s.service_slug ?? ""),
@@ -281,6 +294,10 @@ export default function DashboardSettingsPage() {
               cta_link: "",
               coming_for: goals,
               extra_goals: [],
+              benefits: Array.isArray(parsedMeta.benefits) ? parsedMeta.benefits.map((x) => String(x)) : [],
+              benefit_suggestions: Array.isArray(parsedMeta.benefit_suggestions)
+                ? parsedMeta.benefit_suggestions.map((x) => String(x))
+                : [],
             };
           })
         );
@@ -364,7 +381,6 @@ export default function DashboardSettingsPage() {
           whatsapp: business.whatsapp.trim(),
           age_range: demographics.age_range,
           gender: demographics.gender,
-          benefits: business.benefits,
           vibe: business.vibe,
           schedule_text: business.schedule_text,
         },
@@ -376,7 +392,12 @@ export default function DashboardSettingsPage() {
         service_slug: s.service_slug,
         cta_text: s.cta_text,
         cta_link: s.cta_link,
-        description: `__GOALS__:${s.coming_for.join("|")}`,
+        description: `__META__:${JSON.stringify({
+          description: s.description,
+          coming_for: s.coming_for,
+          benefits: s.benefits,
+          benefit_suggestions: s.benefit_suggestions,
+        })}`,
       })),
       faqs,
     };
@@ -434,8 +455,37 @@ export default function DashboardSettingsPage() {
           typeof j.business_description === "string" && j.business_description.trim()
             ? j.business_description
             : prev.business_description,
-        benefits: Array.isArray(j.benefits) ? j.benefits : prev.benefits,
+        niche: typeof j.niche === "string" && j.niche.trim() ? j.niche : prev.niche,
+        logo_url: typeof j.logo_url === "string" && j.logo_url.trim() ? j.logo_url : prev.logo_url,
+        schedule_text:
+          typeof j.schedule_text === "string" && j.schedule_text.trim() ? j.schedule_text : prev.schedule_text,
       }));
+      if (Array.isArray(j.products) && j.products.length > 0) {
+        const scraped = j.products
+          .slice(0, 8)
+          .map((p: Record<string, unknown>) => {
+            const name = String(p.name ?? "").trim();
+            if (!name) return null;
+            return {
+              ui_id: crypto.randomUUID(),
+              name,
+              description: String(p.description ?? ""),
+              location_text: String(p.location_text ?? ""),
+              price_text: String(p.price_text ?? ""),
+              service_slug: toProductSlug(name),
+              cta_text: "",
+              cta_link: "",
+              coming_for: [],
+              extra_goals: [],
+              benefits: Array.isArray(p.benefits) ? p.benefits.map((x) => String(x)).slice(0, 5) : [],
+              benefit_suggestions: Array.isArray(p.benefit_suggestions)
+                ? p.benefit_suggestions.map((x) => String(x)).slice(0, 6)
+                : [],
+            };
+          })
+          .filter(Boolean) as ServiceItem[];
+        if (scraped.length) setServices(scraped);
+      }
       if (typeof j.age_range === "string" || typeof j.gender === "string") {
         setDemographics((prev) => ({
           age_range: typeof j.age_range === "string" ? j.age_range : prev.age_range,
@@ -474,7 +524,7 @@ export default function DashboardSettingsPage() {
         website_url: business.website_url,
         business_description: business.business_description,
         target_audience: [demographics.age_range, demographics.gender].filter(Boolean),
-        benefits: business.benefits,
+        benefits: Array.from(new Set(services.flatMap((s) => s.benefits))).slice(0, 8),
         vibe: business.vibe,
         schedule_text: business.schedule_text,
       }),
@@ -599,7 +649,12 @@ export default function DashboardSettingsPage() {
               <label className="text-sm font-medium">כתובת אתר (אופציונלי)</label>
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" onClick={fetchFromWebsite} disabled={fetchingSite}>
-                  {fetchingSite ? "מושך..." : "משוך מידע מהאתר"}
+                  {fetchingSite ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-4 w-4 rounded-full border-2 border-zinc-300 border-t-fuchsia-500 animate-spin" />
+                      סורק את האתר ומחלץ נתונים...
+                    </span>
+                  ) : "משוך מידע מהאתר"}
                 </Button>
                 <Input
                   dir="rtl"
@@ -648,7 +703,6 @@ export default function DashboardSettingsPage() {
                   </select>
                 </div>
               </div>
-              <TagInput title="מה משיגים מהשירות שלך?" tags={business.benefits} suggestions={smartTagSuggestions.benefits} onChange={(next) => setBusiness((prev) => ({ ...prev, benefits: next }))} />
               <div className="space-y-2">
                 <label className="text-sm font-medium">סגנון דיבור</label>
                 <div className="flex flex-wrap justify-end gap-2">
@@ -769,6 +823,14 @@ export default function DashboardSettingsPage() {
                           })}
                         </div>
                       </div>
+                      <ProductTagInput
+                        title="מה משיגים מהשירות?"
+                        tags={s.benefits}
+                        suggestions={s.benefit_suggestions.length ? s.benefit_suggestions : smartTagSuggestions.benefits}
+                        onChange={(next) =>
+                          setServices((prev) => prev.map((x, idx) => (idx === i ? { ...x, benefits: next } : x)))
+                        }
+                      />
                       <Input
                         dir="rtl"
                         className="text-right placeholder:text-right"
@@ -854,7 +916,7 @@ export default function DashboardSettingsPage() {
                   </details>
                 );
               })}
-              <Button variant="outline" onClick={() => setServices((prev) => [...prev, { ui_id: crypto.randomUUID(), name: "", location_text: "", price_text: "", service_slug: "", cta_text: "", cta_link: "", coming_for: [], extra_goals: [] }])}>
+              <Button variant="outline" onClick={() => setServices((prev) => [...prev, { ui_id: crypto.randomUUID(), name: "", description: "", location_text: "", price_text: "", service_slug: "", cta_text: "", cta_link: "", coming_for: [], extra_goals: [], benefits: [], benefit_suggestions: [] }])}>
                 + הוספת מוצר
               </Button>
               {triedSave && requiredServiceMissing ? <p className="text-xs text-red-600">חובה לפחות מוצר אחד עם שם ומחיר.</p> : null}

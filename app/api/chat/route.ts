@@ -46,8 +46,16 @@ type KnowledgePack = {
   targetAudienceText: string;
   benefitsText: string;
   vibeText: string;
+  ageRangeText: string;
+  genderText: string;
   scheduleText: string;
 };
+
+function truncateText(value: string, max = 280): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, max)}...`;
+}
 
 async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | null> {
   try {
@@ -75,18 +83,25 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
     const servicesText =
       services?.length
         ? services
+            .slice(0, 6)
             .map(
               (s, i) =>
-                `${i + 1}. ${s.name ?? ""} | מחיר: ${s.price_text ?? "לא צוין"} | מיקום: ${
+                `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(
+                  String(s.price_text ?? "לא צוין"),
+                  40
+                )} | מיקום: ${
                   s.location_text ?? "לא צוין"
-                } | תיאור: ${s.description ?? ""}`
+                } | תיאור: ${truncateText(String(s.description ?? ""), 140)}`
             )
             .join("\n")
         : "אין שירותים מוגדרים.";
 
     const faqsText =
       faqs?.length
-        ? faqs.map((f, i) => `${i + 1}. ש: ${f.question ?? ""} | ת: ${f.answer ?? ""}`).join("\n")
+        ? faqs
+            .slice(0, 8)
+            .map((f, i) => `${i + 1}. ש: ${truncateText(String(f.question ?? ""), 110)} | ת: ${truncateText(String(f.answer ?? ""), 150)}`)
+            .join("\n")
         : "אין FAQ מוגדר.";
 
     const social =
@@ -106,6 +121,11 @@ async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | n
         : "",
       benefitsText: Array.isArray(social.benefits) ? social.benefits.join(", ") : "",
       vibeText: Array.isArray(social.vibe) ? social.vibe.join(", ") : "",
+      ageRangeText: typeof social.age_range === "string" ? social.age_range : "",
+      genderText:
+        social.gender === "זכר" || social.gender === "נקבה" || social.gender === "הכול"
+          ? social.gender
+          : "",
       scheduleText: typeof social.schedule_text === "string" ? social.schedule_text : "",
     };
   } catch (e) {
@@ -145,39 +165,31 @@ export async function POST(req: NextRequest) {
 
     const pathInstructions = buildPathAwareInstructions(pathname);
 
-    const fullPrompt = `את זואי (Zoe), נציגת שירות דיגיטלית עבור: ${businessContext}.${pathInstructions}
+    const fullPrompt = `את זואי, נציגת השירות של העסק.
+שם העסק: ${knowledge?.businessName || business?.name || slug}
+סגנון דיבור (Vibe): ${knowledge?.vibeText || "חם, מקצועי וקצר"}
+לוגו העסק: ${(business && typeof business.logo_url === "string" && business.logo_url) || "לא הוגדר"}
+הקשר: ${businessContext}. ${pathInstructions}
 
-כללים חובה:
-- עברית בלבד. אסור אנגלית או שפות אחרות.
-- קצרה בטירוף: לכל היותר משפט אחד או שניים, אלא אם המשתמש ביקש במפורש פירוט נרחב יותר.
-- טון: חמים ומקצועיים — ישירים, בלי סרק או פתיחים ארוכים.
+כללים:
+- עברית בלבד.
+- תשובה קצרה: 1-2 משפטים, אלא אם ביקשו פירוט.
+- בלי Markdown, בלי JSON.
+- אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.
 
-הודעת המשתמש: ${JSON.stringify(message)}
-
-הנחיות נוספות:
-- בלי רשימות ארוכות, בלי שאלות המשך ובלי "כפתורים" בטקסט (הממשק מציג המשך).
-- בלי מרקדאון (לא ** ולא #).
-- אל תכללי JSON או מפרידי מטא-נתונים — השרת מוסיף אותם אחרי הסטרים.
-- השתמשי בידע העסקי הבא כמקור אמת לפרטים, מחירים ושאלות נפוצות.
-- אם המשתמש שואל איך מצטרפים/נרשמים/משלמים, צייני במפורש את ה-CTA (טקסט + קישור) אם קיים.
-
-=== BUSINESS KNOWLEDGE ===
-שם עסק: ${knowledge?.businessName ?? ""}
-נישה: ${knowledge?.niche ?? ""}
+ידע עסקי:
+נישה: ${truncateText(knowledge?.niche ?? "", 90)}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
-
 FAQ:
 ${knowledge?.faqsText ?? "לא הוגדר"}
+CTA: ${truncateText(knowledge?.ctaText || "לא הוגדר", 90)} | ${truncateText(knowledge?.ctaLink || "לא הוגדר", 120)}
+קהל יעד: ${truncateText(knowledge?.targetAudienceText || "לא הוגדר", 90)} | גיל: ${knowledge?.ageRangeText || "לא הוגדר"} | מגדר: ${knowledge?.genderText || "לא הוגדר"}
+יתרונות: ${truncateText(knowledge?.benefitsText || "לא הוגדר", 120)}
+שעות פעילות: ${truncateText(knowledge?.scheduleText || "לא הוגדר", 220)}
 
-CTA:
-טקסט: ${knowledge?.ctaText || "לא הוגדר"}
-קישור: ${knowledge?.ctaLink || "לא הוגדר"}
-קהל יעד: ${knowledge?.targetAudienceText || "לא הוגדר"}
-יתרונות: ${knowledge?.benefitsText || "לא הוגדר"}
-סגנון דיבור רצוי: ${knowledge?.vibeText || "לא הוגדר"}
-שעות פעילות: ${knowledge?.scheduleText || "לא הוגדר"}
-=== END BUSINESS KNOWLEDGE ===`;
+הודעת המשתמש:
+${String(message)}`;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

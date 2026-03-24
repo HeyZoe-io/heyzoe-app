@@ -18,6 +18,7 @@ import {
   LayoutGroup,
   motion,
 } from 'framer-motion';
+import { Building2 } from 'lucide-react';
 import {
   formatUserFacingGeminiError,
   friendlyHttpErrorMessage,
@@ -187,6 +188,10 @@ export default function ChatZoe({ slug }: { slug: string }) {
   const gradientStyle = {
     backgroundImage: `linear-gradient(105deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
   };
+  const shellStyle = {
+    backgroundImage: `radial-gradient(120% 120% at 100% 0%, ${secondaryColor}33 0%, transparent 45%), radial-gradient(120% 120% at 0% 100%, ${primaryColor}33 0%, transparent 45%), linear-gradient(160deg, #140f1b 0%, #0f0a15 100%)`,
+  };
+  const inputRingStyle = { "--chat-accent": `${primaryColor}66` } as { [key: string]: string };
 
   useEffect(() => {
     let cancelled = false;
@@ -404,7 +409,11 @@ export default function ChatZoe({ slug }: { slug: string }) {
         });
 
         if (!response.ok) {
-          await response.json().catch(() => ({}));
+          const errorPayload = (await response.json().catch(() => ({}))) as { error?: string };
+          if (typeof errorPayload.error === 'string' && /GEMINI_API_KEY|GOOGLE_GENERATIVE_AI_API_KEY/i.test(errorPayload.error)) {
+            failFriendly('תקלת תצורה זמנית בשירות. נסו שוב בעוד רגע או פנו לתמיכה.');
+            return;
+          }
           failFriendly(friendlyHttpErrorMessage(response.status));
           return;
         }
@@ -594,16 +603,21 @@ export default function ChatZoe({ slug }: { slug: string }) {
   }
 
   return (
-    <div dir="rtl" lang="he" className={shellClass}>
-      {businessSnapshot?.logo_url ? (
-        <div className="pt-3 flex justify-center">
+    <div dir="rtl" lang="he" className={shellClass} style={shellStyle}>
+      <div className="pt-3 flex justify-center">
+        {businessSnapshot?.logo_url ? (
           <img
             src={businessSnapshot.logo_url}
             alt={`${businessSnapshot.name} logo`}
-            className="h-10 w-10 rounded-full object-cover border border-white/20"
+            className="h-12 w-12 max-h-[50px] rounded-full object-cover border border-white/25"
           />
-        </div>
-      ) : null}
+        ) : (
+          <div className="flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-white/85">
+            <Building2 className="h-4 w-4" />
+            <span className="text-xs font-medium">{businessSnapshot?.name || 'HeyZoe'}</span>
+          </div>
+        )}
+      </div>
       <div className="h-1 w-full shrink-0" style={gradientStyle} aria-hidden />
 
       <LayoutGroup id="chat-zoe-layout">
@@ -835,10 +849,11 @@ export default function ChatZoe({ slug }: { slug: string }) {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void sendText(input)}
                 placeholder="הקלידו כאן…"
-                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-start text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[#bc74e9]/40"
+                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-start text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[var(--chat-accent)]"
                 dir="rtl"
                 lang="he"
                 aria-label="הודעה לזואי"
+                style={inputRingStyle}
               />
               <button
                 type="button"
