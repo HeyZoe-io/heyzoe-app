@@ -753,9 +753,9 @@ export default function ChatZoe({ slug }: { slug: string }) {
                   {lastAssistant.pending && displayedAnswer.length === 0 ? (
                     <span className="inline-flex items-center gap-2 justify-end w-full text-white/50 text-sm">
                       <span className="flex gap-1" aria-hidden>
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#ff85cf] animate-pulse" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#bc74e9] animate-pulse [animation-delay:120ms]" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#ff85cf] animate-pulse [animation-delay:240ms]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#ff85cf] animate-bounce [animation-duration:900ms]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#bc74e9] animate-bounce [animation-delay:120ms] [animation-duration:900ms]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#ff85cf] animate-bounce [animation-delay:240ms] [animation-duration:900ms]" />
                       </span>
                       זואי מקלידה…
                     </span>

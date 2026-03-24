@@ -11,9 +11,11 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import ZoeLoader from "@/components/ZoeLoader";
 
 type ServiceItem = {
   ui_id: string;
@@ -31,6 +33,7 @@ type ServiceItem = {
 };
 
 type FaqItem = { service_slug: string; question: string; answer: string };
+type DaySchedule = { day: string; start: string; end: string };
 
 const NICHE_SUGGESTIONS = ["Fitness", "Wellness", "Clinic", "Beauty", "Education", "Studio"];
 const VIBE_OPTIONS = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
@@ -134,7 +137,7 @@ function ProductTagInput({
   };
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{title}</label>
+      <label className="text-sm font-medium">{title} (הקלד ואז לחיצה על Enter)</label>
       <Input
         dir="rtl"
         className="text-right placeholder:text-right"
@@ -174,6 +177,29 @@ function ProductTagInput({
   );
 }
 
+const WEEK_DAYS = ["יום שני", "יום שלישי", "יום רביעי", "יום חמישי", "יום שישי", "שבת", "ראשון"] as const;
+const TIME_OPTIONS = ["סגור", ...Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`)];
+
+function parseScheduleTextToGrid(text: string): DaySchedule[] {
+  const lines = text.split("\n").map((x) => x.trim()).filter(Boolean);
+  return WEEK_DAYS.map((day) => {
+    const line = lines.find((l) => l.startsWith(`${day}:`)) ?? "";
+    const payload = line.split(":").slice(1).join(":").trim();
+    if (!payload || /סגור/.test(payload)) return { day, start: "סגור", end: "סגור" };
+    const m = payload.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+    return { day, start: m?.[1] ?? "09:00", end: m?.[2] ?? "18:00" };
+  });
+}
+
+function scheduleGridToText(grid: DaySchedule[]): string {
+  return grid
+    .map((row) => {
+      if (row.start === "סגור" || row.end === "סגור") return `${row.day}: סגור`;
+      return `${row.day}: ${row.start} - ${row.end}`;
+    })
+    .join("\n");
+}
+
 export default function DashboardSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -186,7 +212,12 @@ export default function DashboardSettingsPage() {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [fetchingSite, setFetchingSite] = useState(false);
   const [faqLoadingServiceSlug, setFaqLoadingServiceSlug] = useState<string | null>(null);
+  const [welcomeLoading, setWelcomeLoading] = useState(false);
+  const [uploadedScheduleFileName, setUploadedScheduleFileName] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<Record<number, string[]>>({});
+  const [scheduleGrid, setScheduleGrid] = useState<DaySchedule[]>(
+    WEEK_DAYS.map((day) => ({ day, start: "סגור", end: "סגור" }))
+  );
 
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -220,7 +251,7 @@ export default function DashboardSettingsPage() {
   const [demographics, setDemographics] = useState<{
     age_range: string;
     gender: "זכר" | "נקבה" | "הכול";
-  }>({ age_range: "", gender: "הכול" });
+  }>({ age_range: "הכל", gender: "הכול" });
 
   const gradientStyle = useMemo(
     () =>
@@ -255,12 +286,13 @@ export default function DashboardSettingsPage() {
             welcome_message: data.business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.",
           });
           setDemographics({
-            age_range: typeof data.business.age_range === "string" ? data.business.age_range : "",
+            age_range: typeof data.business.age_range === "string" && data.business.age_range ? data.business.age_range : "הכל",
             gender:
               data.business.gender === "זכר" || data.business.gender === "נקבה" || data.business.gender === "הכול"
                 ? data.business.gender
                 : "הכול",
           });
+          setScheduleGrid(parseScheduleTextToGrid(String(data.business.schedule_text ?? "")));
           setEnableGradient((data.business.secondary_color ?? "#bc74e9") !== (data.business.primary_color ?? "#ff85cf"));
         }
 
@@ -356,7 +388,8 @@ export default function DashboardSettingsPage() {
   const requiredBusinessNameMissing = business.name.trim().length === 0;
   const requiredSlugMissing = business.slug.trim().length === 0;
   const requiredServiceMissing = !services.some((s) => s.name.trim().length > 0 && s.price_text.trim().length > 0);
-  const canSaveForm = isSlugAvailable && !requiredBusinessNameMissing && !requiredSlugMissing && !requiredServiceMissing;
+  const requiredCtaLinkMissing = services.some((s) => !s.cta_link.trim());
+  const canSaveForm = isSlugAvailable && !requiredBusinessNameMissing && !requiredSlugMissing && !requiredServiceMissing && !requiredCtaLinkMissing;
 
   async function saveAll() {
     setTriedSave(true);
@@ -511,12 +544,15 @@ export default function DashboardSettingsPage() {
 
   async function parseScheduleFromFile(file: File | null) {
     if (!file) return;
+    setUploadedScheduleFileName(file.name);
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch("/api/dashboard/parse-schedule", { method: "POST", body: fd });
     const j = await res.json().catch(() => ({}));
     if (res.ok && j.schedule_text) {
-      setBusiness((b) => ({ ...b, schedule_text: String(j.schedule_text) }));
+      const parsed = String(j.schedule_text);
+      setBusiness((b) => ({ ...b, schedule_text: parsed }));
+      setScheduleGrid(parseScheduleTextToGrid(parsed));
       setStatus("שעות הפעילות זוהו מהקובץ.");
     } else {
       setStatus("לא הצלחנו לקרוא את הקובץ, אנא הזן שעות ידנית");
@@ -524,6 +560,7 @@ export default function DashboardSettingsPage() {
   }
 
   async function generateWelcome() {
+    setWelcomeLoading(true);
     const res = await fetch("/api/dashboard/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -541,6 +578,8 @@ export default function DashboardSettingsPage() {
     });
     const j = await res.json();
     if (j.welcome_message) setBusiness((b) => ({ ...b, welcome_message: j.welcome_message }));
+    else setBusiness((b) => ({ ...b, welcome_message: b.welcome_message || "נעים להכיר, אני זואי! אני כאן לענות על כל שאלה!" }));
+    setWelcomeLoading(false);
   }
 
   async function generateFaqForService(service: ServiceItem) {
@@ -596,13 +635,20 @@ export default function DashboardSettingsPage() {
     }
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&accept-language=he&q=${encodeURIComponent(q)}`
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&accept-language=he&q=${encodeURIComponent(q)}`
       );
-      const rows = (await res.json()) as Array<{ display_name?: string }>;
+      const rows = (await res.json()) as Array<{ display_name?: string; address?: Record<string, string> }>;
       setAddressSuggestions((prev) => ({
         ...prev,
         [index]: rows
-          .map((r) => r.display_name ?? "")
+          .map((r) => {
+            const a = r.address ?? {};
+            const street = a.road || a.pedestrian || a.path || "";
+            const number = a.house_number || "";
+            const city = a.city || a.town || a.village || a.state || "";
+            const composed = [street, number, city].filter(Boolean).join(" ");
+            return composed || r.display_name || "";
+          })
           .filter(Boolean)
           .slice(0, 5),
       }));
@@ -611,10 +657,16 @@ export default function DashboardSettingsPage() {
     }
   }
 
-  if (loading) return <main className="p-8">טוען הגדרות...</main>;
+  if (loading) return <ZoeLoader color={business.primary_color || "#FFD646"} />;
 
   return (
-    <main dir="rtl" className="min-h-screen bg-zinc-50 p-4 md:p-8 text-right">
+    <motion.main
+      dir="rtl"
+      className="min-h-screen bg-zinc-50 p-4 md:p-8 text-right"
+      initial={{ opacity: 0, filter: "blur(2px)" }}
+      animate={{ opacity: 1, filter: "blur(0px)" }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
         <div className="space-y-4">
           <Card>
@@ -682,13 +734,13 @@ export default function DashboardSettingsPage() {
 
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium">טווח גיל</label>
+                  <label className="text-sm font-medium">טווח גילאים</label>
                   <select
                     className="w-full rounded-xl border border-zinc-300 bg-white p-2 text-right text-sm cursor-pointer"
                     value={demographics.age_range}
                     onChange={(e) => setDemographics((prev) => ({ ...prev, age_range: e.target.value }))}
                   >
-                    <option value="">לא צוין</option>
+                    <option value="הכל">הכל</option>
                     <option value="18-25">18-25</option>
                     <option value="25-40">25-40</option>
                     <option value="40-60">40-60</option>
@@ -780,6 +832,7 @@ export default function DashboardSettingsPage() {
                           )
                         }
                       />
+              {triedSave && requiredBusinessNameMissing ? <p className="text-xs text-red-600">יש להזין שם עסק.</p> : null}
                       <Input
                         dir="ltr"
                         inputMode="text"
@@ -795,17 +848,18 @@ export default function DashboardSettingsPage() {
                           )
                         }
                       />
+              {triedSave && requiredSlugMissing ? <p className="text-xs text-red-600">יש להזין סלאג עסק.</p> : null}
                       <p className="text-xs text-zinc-500 text-right">
                         הכתובת תהיה: heyzoe.io/{business.slug || "your-business"}/{s.service_slug || "product-slug"}
                       </p>
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-row-reverse items-center justify-between">
                           <Button type="button" variant="outline" onClick={() => void generateGoalChipsForService(i)}>
                             <Sparkles className="h-4 w-4" /> הצעות AI
                           </Button>
                           <label className="text-sm font-medium">באים בשביל...</label>
                         </div>
-                        <div className="flex flex-wrap justify-end gap-2">
+                        <div className="flex flex-wrap justify-end gap-2" dir="rtl">
                           {[...GOAL_OPTIONS, ...s.extra_goals].map((goal) => {
                             const active = s.coming_for.includes(goal);
                             return (
@@ -835,7 +889,7 @@ export default function DashboardSettingsPage() {
                         </div>
                       </div>
                       <ProductTagInput
-                        title="מה משיגים מהשירות?"
+                        title="באים בשביל..."
                         tags={s.benefits}
                         suggestions={s.benefit_suggestions.length ? s.benefit_suggestions : smartTagSuggestions.benefits}
                         onChange={(next) =>
@@ -881,8 +935,10 @@ export default function DashboardSettingsPage() {
                       <label className="text-sm font-medium">הנעה לפעולה</label>
                       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                         <Input dir="rtl" className="text-right placeholder:text-right" placeholder="לחצו להרשמה לשיעור ניסיון!" value={s.cta_text} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_text: e.target.value } : x))} />
-                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="לינק לדף סליקה / קביעת פגישה" value={s.cta_link} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_link: e.target.value } : x))} />
+                        <Input dir="rtl" className={`text-right placeholder:text-right ${triedSave && !s.cta_link.trim() ? "border-red-500 focus-visible:ring-red-400" : ""}`} placeholder="לינק לדף סליקה" value={s.cta_link} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_link: e.target.value } : x))} />
                       </div>
+                      <p className="text-xs text-right text-zinc-500">לינק לדף סליקה <span className="text-red-500">*</span></p>
+                      {triedSave && !s.cta_link.trim() ? <p className="text-xs text-red-600">יש להזין לינק לדף סליקה.</p> : null}
                       <Button type="button" variant="outline" onClick={() => void generateFaqForService(s)} disabled={faqLoadingServiceSlug === (s.service_slug || "__new__")}>
                         <Sparkles className="h-4 w-4" /> {faqLoadingServiceSlug === (s.service_slug || "__new__") ? "מייצר שאלות..." : "יצירת שאלות חכמות"}
                       </Button>
@@ -930,7 +986,6 @@ export default function DashboardSettingsPage() {
               <Button variant="outline" onClick={() => setServices((prev) => [...prev, { ui_id: crypto.randomUUID(), name: "", description: "", location_text: "", price_text: "", service_slug: "", cta_text: "", cta_link: "", coming_for: [], extra_goals: [], benefits: [], benefit_suggestions: [] }])}>
                 + הוספת מוצר
               </Button>
-              {triedSave && requiredServiceMissing ? <p className="text-xs text-red-600">חובה לפחות מוצר אחד עם שם ומחיר.</p> : null}
             </CardContent>
           </Card>
 
@@ -960,8 +1015,8 @@ export default function DashboardSettingsPage() {
           <Card>
             <CardHeader><CardTitle>הודעת פתיחה חכמה</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={3} value={business.welcome_message} onChange={(e) => setBusiness({ ...business, welcome_message: e.target.value })} placeholder="הכנס הודעת פתיחה..." />
-              <Button variant="outline" onClick={generateWelcome}><Sparkles className="h-4 w-4" /> יצירת פתיח חכם</Button>
+              <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={3} value={business.welcome_message} onChange={(e) => setBusiness({ ...business, welcome_message: e.target.value })} placeholder="נעים להכיר, אני זואי! אני כאן לענות על כל שאלה!" />
+              <Button variant="outline" onClick={generateWelcome} disabled={welcomeLoading}><Sparkles className="h-4 w-4" /> {welcomeLoading ? "מייצר..." : "יצירת פתיח חכם"}</Button>
             </CardContent>
           </Card>
 
@@ -974,7 +1029,43 @@ export default function DashboardSettingsPage() {
                   <input type="file" className="hidden" accept="image/*,.pdf,.txt" onChange={(e) => void parseScheduleFromFile(e.target.files?.[0] ?? null)} />
                 </label>
               </div>
-              <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={6} placeholder={`יום שני: ...\nיום שלישי: ...\nיום רביעי: ...\nיום חמישי: ...\nיום שישי: ...\nשבת: ...\nראשון: ...`} value={business.schedule_text} onChange={(e) => setBusiness({ ...business, schedule_text: e.target.value })} />
+              {uploadedScheduleFileName ? <p className="text-xs text-emerald-600 text-right">הקובץ הועלה: {uploadedScheduleFileName}</p> : null}
+              <div className="rounded-xl border border-zinc-200 p-3">
+                <div className="mb-2 grid grid-cols-[1fr,1fr,1fr] gap-2 text-xs font-semibold text-zinc-500">
+                  <span className="text-right">יום</span>
+                  <span className="text-right">שעת פתיחה</span>
+                  <span className="text-right">שעת סגירה</span>
+                </div>
+                <div className="space-y-2">
+                  {scheduleGrid.map((row, idx) => (
+                    <div key={row.day} className="grid grid-cols-[1fr,1fr,1fr] gap-2">
+                      <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-2 text-sm text-right">{row.day}</div>
+                      <select
+                        className="rounded-md border border-zinc-300 bg-white p-2 text-sm text-right cursor-pointer"
+                        value={row.start}
+                        onChange={(e) => {
+                          const next = scheduleGrid.map((x, i) => (i === idx ? { ...x, start: e.target.value } : x));
+                          setScheduleGrid(next);
+                          setBusiness((b) => ({ ...b, schedule_text: scheduleGridToText(next) }));
+                        }}
+                      >
+                        {TIME_OPTIONS.map((t) => <option key={`${row.day}-${t}-s`} value={t}>{t}</option>)}
+                      </select>
+                      <select
+                        className="rounded-md border border-zinc-300 bg-white p-2 text-sm text-right cursor-pointer"
+                        value={row.end}
+                        onChange={(e) => {
+                          const next = scheduleGrid.map((x, i) => (i === idx ? { ...x, end: e.target.value } : x));
+                          setScheduleGrid(next);
+                          setBusiness((b) => ({ ...b, schedule_text: scheduleGridToText(next) }));
+                        }}
+                      >
+                        {TIME_OPTIONS.map((t) => <option key={`${row.day}-${t}-e`} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -1010,8 +1101,13 @@ export default function DashboardSettingsPage() {
                 ) : null}
                 <div className="h-1 rounded-full" style={gradientStyle} />
                 <p className="mt-3 text-sm text-white/90 text-right">
-                  {business.welcome_message || `נעים להכיר, אני ${business.bot_name || "זואי"} כאן ללוות אותך.`}
+                  {business.welcome_message || "נעים להכיר, אני זואי! אני כאן לענות על כל שאלה!"}
                 </p>
+                {faqs.slice(0, 2).map((f, idx) => (
+                  <div key={`${f.service_slug}-preview-${idx}`} className="mt-2 rounded-lg bg-white/5 p-2 text-right">
+                    <p className="text-[11px] text-white/70">{f.question}</p>
+                  </div>
+                ))}
                 <button className="mt-4 w-full cursor-pointer rounded-xl px-4 py-3 text-sm font-semibold text-white" style={gradientStyle}>
                   {services.find((s) => s.cta_text.trim())?.cta_text || "הרשמה לשיעור ניסיון"}
                 </button>
@@ -1022,9 +1118,9 @@ export default function DashboardSettingsPage() {
       </div>
       {showSuccessToast ? (
         <div className="fixed bottom-4 right-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
-          ההגדרות נשמרו בהצלחה
+          ההגדרות נשמרו בהצלחה! ✨
         </div>
       ) : null}
-    </main>
+    </motion.main>
   );
 }
