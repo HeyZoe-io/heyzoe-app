@@ -57,6 +57,11 @@ function truncateText(value: string, max = 280): string {
   return `${clean.slice(0, max)}...`;
 }
 
+function clampPromptSize(prompt: string, maxChars = 7000): string {
+  if (prompt.length <= maxChars) return prompt;
+  return `${prompt.slice(0, maxChars)}\n\n[המשך הידע קוצר אוטומטית לשמירה על יציבות המודל]`;
+}
+
 async function getBusinessKnowledgePack(slug: string): Promise<KnowledgePack | null> {
   try {
     const admin = createSupabaseAdminClient();
@@ -165,7 +170,7 @@ export async function POST(req: NextRequest) {
 
     const pathInstructions = buildPathAwareInstructions(pathname);
 
-    const fullPrompt = `את זואי, נציגת השירות של העסק.
+    const rawPrompt = `את זואי, נציגת השירות של העסק.
 שם העסק: ${knowledge?.businessName || business?.name || slug}
 סגנון דיבור (Vibe): ${knowledge?.vibeText || "חם, מקצועי וקצר"}
 לוגו העסק: ${(business && typeof business.logo_url === "string" && business.logo_url) || "לא הוגדר"}
@@ -190,6 +195,7 @@ CTA: ${truncateText(knowledge?.ctaText || "לא הוגדר", 90)} | ${truncateTe
 
 הודעת המשתמש:
 ${String(message)}`;
+    const fullPrompt = clampPromptSize(rawPrompt, 7000);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

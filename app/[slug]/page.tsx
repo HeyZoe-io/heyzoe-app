@@ -17,7 +17,7 @@ export default async function Page({ params }: PageProps) {
       <main className="min-h-screen bg-[#f7f7f5] text-neutral-900 flex flex-col items-center justify-center px-4 py-10 md:py-14 antialiased">
         <div className="w-full max-w-md">
           <div className="bg-white/90 backdrop-blur-sm border border-neutral-200/60 rounded-[1.75rem] shadow-[0_2px_24px_rgba(0,0,0,0.04)] px-6 py-8 text-center">
-            <h1 className="text-xl font-semibold text-neutral-900">Business Not Found</h1>
+            <h1 className="text-xl font-semibold text-neutral-900">העסק לא נמצא</h1>
             <p className="mt-2 text-sm text-neutral-600">
               לא מצאנו עסק עם הסלאג הזה. בדקו את הכתובת או צרו קשר עם בעל העסק.
             </p>
@@ -30,9 +30,26 @@ export default async function Page({ params }: PageProps) {
     );
   }
 
+  const businessName =
+    fromBusinesses?.name?.trim() ||
+    (typeof fromLegacy?.name === "string" ? fromLegacy.name.trim() : "") ||
+    "HeyZoe";
+  const businessLogo = fromBusinesses?.logo_url || null;
+
   return (
     <main className="min-h-screen bg-[#f7f7f5] text-neutral-900 flex flex-col items-center justify-center px-4 py-10 md:py-14 antialiased">
       <div className="w-full max-w-md">
+        <div className="mb-3 flex justify-center">
+          {businessLogo ? (
+            <img
+              src={businessLogo}
+              alt={`${businessName} לוגו`}
+              className="h-20 w-20 rounded-full object-cover border border-neutral-200 bg-white"
+            />
+          ) : (
+            <p className="text-center text-base font-semibold text-neutral-700">{businessName}</p>
+          )}
+        </div>
         <div className="bg-white/90 backdrop-blur-sm border border-neutral-200/60 rounded-[1.75rem] shadow-[0_2px_24px_rgba(0,0,0,0.04)] px-4 pt-5 pb-4 md:px-6 md:pt-6 md:pb-5">
           <ChatZoe slug={slug} />
         </div>

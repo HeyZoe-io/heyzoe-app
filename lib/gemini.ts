@@ -5,8 +5,8 @@ import { GoogleGenerativeAIFetchError } from "@google/generative-ai";
  * סדר: 1.5-latest ראשון, אז 1.5, אז 2.0 (ללא gemini-2.5).
  */
 export const GEMINI_CHAT_MODELS = [
-  "gemini-1.5-flash-latest",
   "gemini-1.5-flash",
+  "gemini-1.5-flash-latest",
   "gemini-2.0-flash",
 ] as const;
 

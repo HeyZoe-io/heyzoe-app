@@ -18,7 +18,6 @@ import {
   LayoutGroup,
   motion,
 } from 'framer-motion';
-import { Building2 } from 'lucide-react';
 import {
   formatUserFacingGeminiError,
   friendlyHttpErrorMessage,
@@ -604,20 +603,6 @@ export default function ChatZoe({ slug }: { slug: string }) {
 
   return (
     <div dir="rtl" lang="he" className={shellClass} style={shellStyle}>
-      <div className="pt-3 flex justify-center">
-        {businessSnapshot?.logo_url ? (
-          <img
-            src={businessSnapshot.logo_url}
-            alt={`${businessSnapshot.name} logo`}
-            className="h-12 w-12 max-h-[50px] rounded-full object-cover border border-white/25"
-          />
-        ) : (
-          <div className="flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-white/85">
-            <Building2 className="h-4 w-4" />
-            <span className="text-xs font-medium">{businessSnapshot?.name || 'HeyZoe'}</span>
-          </div>
-        )}
-      </div>
       <div className="h-1 w-full shrink-0" style={gradientStyle} aria-hidden />
 
       <LayoutGroup id="chat-zoe-layout">
