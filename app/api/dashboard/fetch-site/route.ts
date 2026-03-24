@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { resolveGeminiApiKey } from "@/lib/server-env";
-import { GEMINI_MODEL_INIT_OPTIONS, normalizeModelName } from "@/lib/gemini";
+import { GEMINI_CHAT_MODELS, GEMINI_MODEL_INIT_OPTIONS, normalizeModelName } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 
@@ -202,7 +202,7 @@ export async function POST(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: "missing_gemini_key" }, { status: 500 });
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const websiteModels = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-latest"] as const;
+  const websiteModels = GEMINI_CHAT_MODELS;
 
   const thinContent = pageText.length < 900;
   const prompt = `נתח את טקסט האתר הבא של העסק "${business_name ?? ""}" בתחום "${niche ?? ""}".
