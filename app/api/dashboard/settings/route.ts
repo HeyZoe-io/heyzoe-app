@@ -47,6 +47,11 @@ export async function GET() {
       facebook: typeof social.facebook === "string" ? social.facebook : "",
       youtube: typeof social.youtube === "string" ? social.youtube : "",
       whatsapp: typeof social.whatsapp === "string" ? social.whatsapp : "",
+      age_range: typeof social.age_range === "string" ? social.age_range : "",
+      gender:
+        social.gender === "זכר" || social.gender === "נקבה" || social.gender === "הכול"
+          ? social.gender
+          : "הכול",
       target_audience: Array.isArray(social.target_audience) ? social.target_audience : [],
       benefits: Array.isArray(social.benefits) ? social.benefits : [],
       vibe: Array.isArray(social.vibe) ? social.vibe : [],

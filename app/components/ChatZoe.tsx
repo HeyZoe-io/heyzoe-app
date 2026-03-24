@@ -36,11 +36,11 @@ const DEFAULT_FOLLOWUPS = [
 
 /** כפתור CTA — גרדיאנט בזווית קבועה + flex כדי שטקסט עברי יישב נכון ב-RTL */
 const CTA_PRIMARY_CLASS =
-  'flex w-full min-h-[3.25rem] items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-[15px] md:text-base font-semibold text-white shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity';
+  'flex w-full min-h-[3.25rem] cursor-pointer items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-[15px] md:text-base font-semibold text-white shadow-lg shadow-fuchsia-500/20 hover:opacity-95 transition-opacity';
 
 /** כפתור משני (שלח / נסו שוב) */
 const CTA_COMPACT_CLASS =
-  'inline-flex min-h-[2.75rem] min-w-[4.5rem] shrink-0 items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:opacity-45 transition-opacity';
+  'inline-flex min-h-[2.75rem] min-w-[4.5rem] cursor-pointer shrink-0 items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:opacity-45 transition-opacity';
 
 /** משך תנועת הפוקוס (~0.4s) */
 const MOVE = { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const };
@@ -50,6 +50,7 @@ type BusinessSnapshot = {
   slug: string;
   name: string;
   bot_name: string;
+  logo_url: string | null;
   service_name: string;
   address: string;
   trial_class: string;
@@ -218,6 +219,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
             slug,
             name,
             bot_name: botName,
+            logo_url: typeof q.logo_url === "string" ? q.logo_url : null,
             service_name: (typeof q.service_name === 'string' && q.service_name.trim()) || name,
             address: typeof q.address === 'string' ? q.address : '',
             trial_class: typeof q.trial_class === 'string' ? q.trial_class : '',
@@ -284,6 +286,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
           slug,
           name,
           bot_name: ((data.bot_name as string) || "זואי").trim() || "זואי",
+          logo_url: typeof data.logo_url === "string" ? data.logo_url : null,
           service_name: (data.service_name as string) || name,
           address: (data.address as string) || '',
           trial_class: (data.trial_class as string) || '',
@@ -537,7 +540,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
     !preSendFocus || preSendFocus === lastUser?.content;
 
   const chipSurfaceClass =
-    'w-full text-start rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
+    'w-full cursor-pointer text-start rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
 
   const logCtaClick = useCallback((ctaType: string) => {
     const sid = sessionId || ensureSessionId();
@@ -592,6 +595,15 @@ export default function ChatZoe({ slug }: { slug: string }) {
 
   return (
     <div dir="rtl" lang="he" className={shellClass}>
+      {businessSnapshot?.logo_url ? (
+        <div className="pt-3 flex justify-center">
+          <img
+            src={businessSnapshot.logo_url}
+            alt={`${businessSnapshot.name} logo`}
+            className="h-10 w-10 rounded-full object-cover border border-white/20"
+          />
+        </div>
+      ) : null}
       <div className="h-1 w-full shrink-0" style={gradientStyle} aria-hidden />
 
       <LayoutGroup id="chat-zoe-layout">

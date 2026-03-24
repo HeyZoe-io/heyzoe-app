@@ -15,6 +15,7 @@ export async function GET(req: Request) {
       return NextResponse.json({
         slug,
         name: configured.name || "העסק שלנו",
+        logo_url: configured.logo_url || null,
         service_name: configured.service_name,
         address: configured.address || "",
         trial_class: configured.trial_class || "",
@@ -47,6 +48,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       slug,
       name: bizName,
+      logo_url: null,
       service_name: serviceName,
       address: address || "",
       trial_class: trial || "",

@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
       ? `צור בדיוק 3 זוגות שאלה-תשובה בעברית עבור השירות "${service_name}" של העסק "${business_name}".
 הקשר שירות: "${service_description ?? ""}".
 החזר JSON בלבד במבנה: [{"question":"","answer":""}]`
+      : mode === "goals"
+      ? `על בסיס הנישה "${niche}" והשירות "${service_name}", הצע 3 צ'יפים קצרים בעברית ל"באים בשביל...".
+החזר JSON בלבד במבנה: {"goals":["...","...","..."]}`
       : mode === "tags"
       ? `על בסיס העסק "${business_name}" בנישה "${niche}", החזר JSON בלבד במבנה:
 {"target_audience":["...","...","..."],"benefits":["...","...","..."],"vibe":["חברי","מקצועי","מצחיק"]}
@@ -80,6 +83,18 @@ export async function POST(req: NextRequest) {
       });
     } catch {
       return NextResponse.json({ target_audience: [], benefits: [], vibe: [] });
+    }
+  }
+
+  if (mode === "goals") {
+    try {
+      const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+      return NextResponse.json({
+        goals: Array.isArray(parsed.goals) ? parsed.goals.slice(0, 3) : [],
+      });
+    } catch {
+      return NextResponse.json({ goals: [] });
     }
   }
 

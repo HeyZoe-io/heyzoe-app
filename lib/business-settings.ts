@@ -7,6 +7,7 @@ import {
 export type PublicBusinessData = {
   slug: string;
   name: string;
+  logo_url: string | null;
   service_name: string;
   address: string;
   trial_class: string;
@@ -23,7 +24,7 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
 
   const { data: business, error } = await supabase
     .from("businesses")
-    .select("id, slug, name, niche, welcome_message, bot_name, primary_color, secondary_color, cta_text, cta_link")
+    .select("id, slug, name, niche, logo_url, welcome_message, bot_name, primary_color, secondary_color, cta_text, cta_link")
     .eq("slug", slug)
     .single();
 
@@ -40,6 +41,7 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
   return {
     slug: String(business.slug),
     name: String(business.name ?? ""),
+    logo_url: (business.logo_url as string | null) ?? null,
     service_name: String(firstService?.name ?? business.niche ?? business.name ?? ""),
     address: String(firstService?.location_text ?? ""),
     trial_class: "",

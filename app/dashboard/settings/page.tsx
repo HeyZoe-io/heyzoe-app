@@ -16,20 +16,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 
 type ServiceItem = {
+  ui_id: string;
   name: string;
-  description: string;
-  location_mode: "online" | "location";
   location_text: string;
   price_text: string;
   service_slug: string;
   cta_text: string;
   cta_link: string;
+  coming_for: string[];
+  extra_goals: string[];
 };
 
 type FaqItem = { service_slug: string; question: string; answer: string };
 
 const NICHE_SUGGESTIONS = ["Fitness", "Wellness", "Clinic", "Beauty", "Education", "Studio"];
 const VIBE_OPTIONS = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
+const GOAL_OPTIONS = ["להתחזק", "להירגע", "להתחבר עם אחרים", "להשקיע בעצמך", "לרדת במשקל"];
 
 const PRODUCT_SLUG_MAP: Array<[RegExp, string]> = [
   [/שיעור\s*יוגה/g, "yoga-class"],
@@ -78,6 +80,10 @@ function toProductSlug(raw: string) {
     .replace(/[ש]/g, "sh")
     .replace(/[ת]/g, "t");
   return slugify(text);
+}
+
+function sanitizeLatinSlug(input: string) {
+  return input.toLowerCase().replace(/[^a-z0-9-]/g, "");
 }
 
 function SocialInput({
@@ -144,7 +150,7 @@ function TagInput({
       <div className="flex flex-wrap gap-2 justify-end">
         {tags.map((t) => (
           <span key={t} className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-zinc-50 px-3 py-1 text-xs">
-            <button type="button" onClick={() => onChange(tags.filter((x) => x !== t))}>
+            <button type="button" className="cursor-pointer" onClick={() => onChange(tags.filter((x) => x !== t))}>
               <X className="h-3 w-3" />
             </button>
             {t}
@@ -157,7 +163,7 @@ function TagInput({
             key={s}
             type="button"
             onClick={() => addTag(s)}
-            className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs text-fuchsia-700"
+            className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-3 py-1 text-xs text-fuchsia-700 cursor-pointer"
           >
             {s}
           </button>
@@ -196,7 +202,6 @@ export default function DashboardSettingsPage() {
     facebook: "",
     youtube: "",
     whatsapp: "",
-    target_audience: [] as string[],
     benefits: [] as string[],
     vibe: [] as string[],
     schedule_text: "",
@@ -208,10 +213,14 @@ export default function DashboardSettingsPage() {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
   const [smartTagSuggestions, setSmartTagSuggestions] = useState<{
-    target_audience: string[];
     benefits: string[];
     vibe: string[];
-  }>({ target_audience: [], benefits: [], vibe: VIBE_OPTIONS });
+  }>({ benefits: [], vibe: VIBE_OPTIONS });
+
+  const [demographics, setDemographics] = useState<{
+    age_range: string;
+    gender: "זכר" | "נקבה" | "הכול";
+  }>({ age_range: "", gender: "הכול" });
 
   const gradientStyle = useMemo(
     () =>
@@ -239,7 +248,6 @@ export default function DashboardSettingsPage() {
             facebook: data.business.facebook ?? "",
             youtube: data.business.youtube ?? "",
             whatsapp: data.business.whatsapp ?? "",
-            target_audience: Array.isArray(data.business.target_audience) ? data.business.target_audience : [],
             benefits: Array.isArray(data.business.benefits) ? data.business.benefits : [],
             vibe: Array.isArray(data.business.vibe) ? data.business.vibe : [],
             schedule_text: data.business.schedule_text ?? "",
@@ -247,20 +255,34 @@ export default function DashboardSettingsPage() {
             secondary_color: data.business.secondary_color ?? "#bc74e9",
             welcome_message: data.business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.",
           });
+          setDemographics({
+            age_range: typeof data.business.age_range === "string" ? data.business.age_range : "",
+            gender:
+              data.business.gender === "זכר" || data.business.gender === "נקבה" || data.business.gender === "הכול"
+                ? data.business.gender
+                : "הכול",
+          });
           setEnableGradient((data.business.secondary_color ?? "#bc74e9") !== (data.business.primary_color ?? "#ff85cf"));
         }
 
         setServices(
-          (data.services ?? []).map((s: Record<string, unknown>) => ({
-            name: String(s.name ?? ""),
-            description: String(s.description ?? ""),
-            location_mode: String(s.location_mode ?? "online") as "online" | "location",
-            location_text: String(s.location_text ?? ""),
-            price_text: String(s.price_text ?? ""),
-            service_slug: String(s.service_slug ?? ""),
-            cta_text: "",
-            cta_link: "",
-          }))
+          (data.services ?? []).map((s: Record<string, unknown>) => {
+            const rawDescription = String(s.description ?? "");
+            const goals = rawDescription.startsWith("__GOALS__:")
+              ? rawDescription.replace("__GOALS__:", "").split("|").map((x) => x.trim()).filter(Boolean)
+              : [];
+            return {
+              name: String(s.name ?? ""),
+              ui_id: crypto.randomUUID(),
+              location_text: String(s.location_text ?? ""),
+              price_text: String(s.price_text ?? ""),
+              service_slug: String(s.service_slug ?? ""),
+              cta_text: "",
+              cta_link: "",
+              coming_for: goals,
+              extra_goals: [],
+            };
+          })
         );
         setFaqs(
           (data.faqs ?? []).map((f: Record<string, unknown>) => ({
@@ -274,17 +296,8 @@ export default function DashboardSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (manualSlugEdit) return;
-    setBusiness((prev) => ({ ...prev, slug: slugify(business.name) }));
-  }, [business.name, manualSlugEdit]);
-
-  useEffect(() => {
     const slug = slugify(business.slug);
-    if (!slug) {
-      setIsSlugAvailable(false);
-      setSlugMessage("הסלאג ריק");
-      return;
-    }
+    if (!slug) return;
     const t = window.setTimeout(() => {
       void fetch(`/api/dashboard/slug-check?slug=${encodeURIComponent(slug)}&current=${encodeURIComponent(business.slug)}`)
         .then((r) => r.json())
@@ -314,7 +327,6 @@ export default function DashboardSettingsPage() {
         .then((r) => r.json())
         .then((j) =>
           setSmartTagSuggestions({
-            target_audience: Array.isArray(j.target_audience) ? j.target_audience : [],
             benefits: Array.isArray(j.benefits) ? j.benefits : [],
             vibe: Array.isArray(j.vibe) ? j.vibe : VIBE_OPTIONS,
           })
@@ -350,13 +362,22 @@ export default function DashboardSettingsPage() {
           facebook: business.facebook.trim(),
           youtube: business.youtube.trim(),
           whatsapp: business.whatsapp.trim(),
-          target_audience: business.target_audience,
+          age_range: demographics.age_range,
+          gender: demographics.gender,
           benefits: business.benefits,
           vibe: business.vibe,
           schedule_text: business.schedule_text,
         },
       },
-      services,
+      services: services.map((s) => ({
+        name: s.name,
+        location_text: s.location_text,
+        price_text: s.price_text,
+        service_slug: s.service_slug,
+        cta_text: s.cta_text,
+        cta_link: s.cta_link,
+        description: `__GOALS__:${s.coming_for.join("|")}`,
+      })),
       faqs,
     };
 
@@ -413,9 +434,14 @@ export default function DashboardSettingsPage() {
           typeof j.business_description === "string" && j.business_description.trim()
             ? j.business_description
             : prev.business_description,
-        target_audience: Array.isArray(j.target_audience) ? j.target_audience : prev.target_audience,
         benefits: Array.isArray(j.benefits) ? j.benefits : prev.benefits,
       }));
+      if (typeof j.age_range === "string" || typeof j.gender === "string") {
+        setDemographics((prev) => ({
+          age_range: typeof j.age_range === "string" ? j.age_range : prev.age_range,
+          gender: j.gender === "זכר" || j.gender === "נקבה" || j.gender === "הכול" ? j.gender : prev.gender,
+        }));
+      }
       setStatus("המידע נמשך מהאתר בהצלחה.");
     } else {
       setStatus(`משיכה מהאתר נכשלה: ${j.error ?? "unknown"}`);
@@ -447,7 +473,7 @@ export default function DashboardSettingsPage() {
         niche: business.niche,
         website_url: business.website_url,
         business_description: business.business_description,
-        target_audience: business.target_audience,
+        target_audience: [demographics.age_range, demographics.gender].filter(Boolean),
         benefits: business.benefits,
         vibe: business.vibe,
         schedule_text: business.schedule_text,
@@ -467,7 +493,7 @@ export default function DashboardSettingsPage() {
         business_name: business.name,
         niche: business.niche,
         service_name: service.name,
-        service_description: service.description,
+        service_description: `באים בשביל: ${service.coming_for.join(", ")}`,
       }),
     });
     const j = await res.json();
@@ -482,6 +508,24 @@ export default function DashboardSettingsPage() {
       .filter((x: FaqItem) => x.question && x.answer);
     setFaqs((prev) => [...prev.filter((f) => f.service_slug !== service.service_slug), ...mapped]);
     setFaqLoadingServiceSlug(null);
+  }
+
+  async function generateGoalChipsForService(index: number) {
+    const service = services[index];
+    const res = await fetch("/api/dashboard/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "goals",
+        niche: business.niche,
+        service_name: service.name,
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    const goals = Array.isArray(j.goals) ? j.goals.slice(0, 3) : [];
+    setServices((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, extra_goals: goals } : s))
+    );
   }
 
   async function lookupAddress(index: number, query: string) {
@@ -525,7 +569,16 @@ export default function DashboardSettingsPage() {
                 className={`${triedSave && requiredBusinessNameMissing ? "border-red-500 focus-visible:ring-red-400" : ""} text-right placeholder:text-right`}
                 placeholder="הכנס שם עסק..."
                 value={business.name}
-                onChange={(e) => setBusiness({ ...business, name: e.target.value })}
+                onChange={(e) =>
+                  setBusiness((prev) => {
+                    const nextName = e.target.value;
+                    return {
+                      ...prev,
+                      name: nextName,
+                      slug: manualSlugEdit ? prev.slug : slugify(nextName),
+                    };
+                  })
+                }
               />
 
               <label className="text-sm font-medium">סלאג העסק <span className="text-red-500">*</span></label>
@@ -539,7 +592,9 @@ export default function DashboardSettingsPage() {
                   setBusiness({ ...business, slug: slugify(e.target.value) });
                 }}
               />
-              <p className={`text-xs ${isSlugAvailable ? "text-emerald-600" : "text-amber-600"}`}>{slugMessage}</p>
+              <p className={`text-xs ${business.slug.trim() ? (isSlugAvailable ? "text-emerald-600" : "text-amber-600") : "text-amber-600"}`}>
+                {business.slug.trim() ? slugMessage : "הסלאג ריק"}
+              </p>
 
               <label className="text-sm font-medium">כתובת אתר (אופציונלי)</label>
               <div className="flex items-center gap-2">
@@ -560,7 +615,39 @@ export default function DashboardSettingsPage() {
               <Input dir="rtl" className="text-right placeholder:text-right" placeholder="בחר שם לבוט (ברירת מחדל: זואי)" value={business.bot_name} onChange={(e) => setBusiness({ ...business, bot_name: e.target.value })} />
               <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={3} placeholder="תיאור העסק..." value={business.business_description} onChange={(e) => setBusiness({ ...business, business_description: e.target.value })} />
 
-              <TagInput title="קהל יעד" tags={business.target_audience} suggestions={smartTagSuggestions.target_audience} onChange={(next) => setBusiness((prev) => ({ ...prev, target_audience: next }))} />
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">טווח גיל</label>
+                  <select
+                    className="w-full rounded-xl border border-zinc-300 bg-white p-2 text-right text-sm cursor-pointer"
+                    value={demographics.age_range}
+                    onChange={(e) => setDemographics((prev) => ({ ...prev, age_range: e.target.value }))}
+                  >
+                    <option value="">לא צוין</option>
+                    <option value="18-25">18-25</option>
+                    <option value="25-40">25-40</option>
+                    <option value="40-60">40-60</option>
+                    <option value="60+">60+</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">מגדר</label>
+                  <select
+                    className="w-full rounded-xl border border-zinc-300 bg-white p-2 text-right text-sm cursor-pointer"
+                    value={demographics.gender}
+                    onChange={(e) =>
+                      setDemographics((prev) => ({
+                        ...prev,
+                        gender: (e.target.value as "זכר" | "נקבה" | "הכול") || "הכול",
+                      }))
+                    }
+                  >
+                    <option value="הכול">הכול</option>
+                    <option value="זכר">זכר</option>
+                    <option value="נקבה">נקבה</option>
+                  </select>
+                </div>
+              </div>
               <TagInput title="מה משיגים מהשירות שלך?" tags={business.benefits} suggestions={smartTagSuggestions.benefits} onChange={(next) => setBusiness((prev) => ({ ...prev, benefits: next }))} />
               <div className="space-y-2">
                 <label className="text-sm font-medium">סגנון דיבור</label>
@@ -593,6 +680,9 @@ export default function DashboardSettingsPage() {
               <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => void uploadLogo(e.target.files?.[0] ?? null)} />
               <Button type="button" variant="outline" className="w-full border-dashed py-6" onClick={() => logoInputRef.current?.click()}>
                 <Upload className="h-4 w-4" /> העלאת לוגו
+                {business.logo_url ? (
+                  <img src={business.logo_url} alt="לוגו עסק" className="h-8 w-8 rounded-full object-cover border border-zinc-300" />
+                ) : null}
               </Button>
             </CardContent>
           </Card>
@@ -603,7 +693,7 @@ export default function DashboardSettingsPage() {
               {services.map((s, i) => {
                 const serviceFaqs = faqs.filter((f) => f.service_slug === s.service_slug);
                 return (
-                  <details key={`${s.service_slug}-${i}`} className="rounded-xl border border-zinc-200 p-3">
+                  <details key={s.ui_id} className="rounded-xl border border-zinc-200 p-3">
                     <summary className="cursor-pointer text-sm font-medium text-right">{s.name || `מוצר ${i + 1}`}</summary>
                     <div className="mt-3 space-y-2">
                       <label className="text-sm font-medium">שם מוצר <span className="text-red-500">*</span></label>
@@ -626,8 +716,59 @@ export default function DashboardSettingsPage() {
                           )
                         }
                       />
-                      <Input dir="rtl" className="text-right placeholder:text-right" placeholder="סלאג מוצר (לטיני)..." value={s.service_slug} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, service_slug: toProductSlug(e.target.value) } : x))} />
-                      <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={2} placeholder="תיאור המוצר..." value={s.description} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, description: e.target.value } : x))} />
+                      <Input
+                        dir="ltr"
+                        inputMode="latin"
+                        className="text-left placeholder:text-left"
+                        placeholder="product-slug"
+                        value={s.service_slug}
+                        onChange={(e) =>
+                          setServices((prev) =>
+                            prev.map((x, idx) =>
+                              idx === i ? { ...x, service_slug: sanitizeLatinSlug(toProductSlug(e.target.value)) } : x
+                            )
+                          )
+                        }
+                      />
+                      <p className="text-xs text-zinc-500 text-right">
+                        הכתובת תהיה: heyzoe.io/{business.slug || "your-business"}/{s.service_slug || "product-slug"}
+                      </p>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Button type="button" variant="outline" onClick={() => void generateGoalChipsForService(i)}>
+                            <Sparkles className="h-4 w-4" /> הצעות AI
+                          </Button>
+                          <label className="text-sm font-medium">באים בשביל...</label>
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {[...GOAL_OPTIONS, ...s.extra_goals].map((goal) => {
+                            const active = s.coming_for.includes(goal);
+                            return (
+                              <button
+                                key={`${s.ui_id}-${goal}`}
+                                type="button"
+                                className={`rounded-full border px-3 py-1 text-xs cursor-pointer ${
+                                  active ? "border-fuchsia-500 bg-fuchsia-500 text-white" : "border-zinc-300 bg-white text-zinc-700"
+                                }`}
+                                onClick={() =>
+                                  setServices((prev) =>
+                                    prev.map((x, idx) =>
+                                      idx === i
+                                        ? {
+                                            ...x,
+                                            coming_for: active ? x.coming_for.filter((g) => g !== goal) : [...x.coming_for, goal],
+                                          }
+                                        : x
+                                    )
+                                  )
+                                }
+                              >
+                                {goal}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <Input
                         dir="rtl"
                         className="text-right placeholder:text-right"
@@ -666,11 +807,11 @@ export default function DashboardSettingsPage() {
                       />
                       <label className="text-sm font-medium">הנעה לפעולה</label>
                       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="טקסט הנעה לפעולה..." value={s.cta_text} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_text: e.target.value } : x))} />
-                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="קישור הנעה לפעולה..." value={s.cta_link} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_link: e.target.value } : x))} />
+                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="לחצו להרשמה לשיעור ניסיון!" value={s.cta_text} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_text: e.target.value } : x))} />
+                        <Input dir="rtl" className="text-right placeholder:text-right" placeholder="לינק לדף סליקה / קביעת פגישה" value={s.cta_link} onChange={(e) => setServices((prev) => prev.map((x, idx) => idx === i ? { ...x, cta_link: e.target.value } : x))} />
                       </div>
-                      <Button variant="outline" onClick={() => generateFaqForService(s)}>
-                        <Sparkles className="h-4 w-4" /> יצירת שאלות חכמות
+                      <Button type="button" variant="outline" onClick={() => void generateFaqForService(s)} disabled={faqLoadingServiceSlug === (s.service_slug || "__new__")}>
+                        <Sparkles className="h-4 w-4" /> {faqLoadingServiceSlug === (s.service_slug || "__new__") ? "מייצר שאלות..." : "יצירת שאלות חכמות"}
                       </Button>
 
                       <div className="rounded-xl border border-zinc-200 p-3 space-y-2">
@@ -713,7 +854,7 @@ export default function DashboardSettingsPage() {
                   </details>
                 );
               })}
-              <Button variant="outline" onClick={() => setServices((prev) => [...prev, { name: "", description: "", location_mode: "online", location_text: "", price_text: "", service_slug: "", cta_text: "", cta_link: "" }])}>
+              <Button variant="outline" onClick={() => setServices((prev) => [...prev, { ui_id: crypto.randomUUID(), name: "", location_text: "", price_text: "", service_slug: "", cta_text: "", cta_link: "", coming_for: [], extra_goals: [] }])}>
                 + הוספת מוצר
               </Button>
               {triedSave && requiredServiceMissing ? <p className="text-xs text-red-600">חובה לפחות מוצר אחד עם שם ומחיר.</p> : null}
@@ -725,17 +866,17 @@ export default function DashboardSettingsPage() {
             <CardContent className="space-y-3">
               <label className="text-sm font-medium">HEX צבע ראשי</label>
               <div className="flex items-center justify-end gap-2">
-                <button type="button" className="h-9 w-9 rounded-md border border-zinc-300" style={{ backgroundColor: business.primary_color }} onClick={() => (document.getElementById("primary-picker") as HTMLInputElement | null)?.click()} />
+                <button type="button" className="h-9 w-9 rounded-md border border-zinc-300 cursor-pointer" style={{ backgroundColor: business.primary_color }} onClick={() => (document.getElementById("primary-picker") as HTMLInputElement | null)?.click()} />
                 <Input dir="rtl" className="text-right placeholder:text-right" placeholder="#ff85cf" value={business.primary_color} onChange={(e) => setBusiness({ ...business, primary_color: e.target.value })} />
                 <input id="primary-picker" type="color" className="hidden" value={business.primary_color} onChange={(e) => setBusiness({ ...business, primary_color: e.target.value })} />
               </div>
               <label className="inline-flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={enableGradient} onChange={(e) => setEnableGradient(e.target.checked)} />
-                הפעל גרדיאנט
+                <input className="cursor-pointer" type="checkbox" checked={enableGradient} onChange={(e) => setEnableGradient(e.target.checked)} />
+                שני צבעים
               </label>
               {enableGradient && (
                 <div className="flex items-center justify-end gap-2">
-                  <button type="button" className="h-9 w-9 rounded-md border border-zinc-300" style={{ backgroundColor: business.secondary_color }} onClick={() => (document.getElementById("secondary-picker") as HTMLInputElement | null)?.click()} />
+                  <button type="button" className="h-9 w-9 rounded-md border border-zinc-300 cursor-pointer" style={{ backgroundColor: business.secondary_color }} onClick={() => (document.getElementById("secondary-picker") as HTMLInputElement | null)?.click()} />
                   <Input dir="rtl" className="text-right placeholder:text-right" placeholder="#bc74e9" value={business.secondary_color} onChange={(e) => setBusiness({ ...business, secondary_color: e.target.value })} />
                   <input id="secondary-picker" type="color" className="hidden" value={business.secondary_color} onChange={(e) => setBusiness({ ...business, secondary_color: e.target.value })} />
                 </div>
@@ -789,11 +930,16 @@ export default function DashboardSettingsPage() {
                 {faqLoadingServiceSlug ? (
                   <div className="mb-2 text-xs text-white/70">מעדכן שאלות חכמות...</div>
                 ) : null}
+                {business.logo_url ? (
+                  <div className="mb-2 flex justify-center">
+                    <img src={business.logo_url} alt="לוגו" className="h-10 w-10 rounded-full border border-white/25 object-cover" />
+                  </div>
+                ) : null}
                 <div className="h-1 rounded-full" style={gradientStyle} />
                 <p className="mt-3 text-sm text-white/90 text-right">
                   {business.welcome_message || `נעים להכיר, אני ${business.bot_name || "זואי"} כאן ללוות אותך.`}
                 </p>
-                <button className="mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white" style={gradientStyle}>
+                <button className="mt-4 w-full cursor-pointer rounded-xl px-4 py-3 text-sm font-semibold text-white" style={gradientStyle}>
                   {services.find((s) => s.cta_text.trim())?.cta_text || "הרשמה לשיעור ניסיון"}
                 </button>
               </div>

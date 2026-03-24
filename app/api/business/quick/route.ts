@@ -20,6 +20,7 @@ export async function GET(req: Request) {
         {
           slug: configured.slug,
           name: configured.name || "העסק שלנו",
+          logo_url: configured.logo_url || null,
           service_name: configured.service_name,
           address: configured.address,
           trial_class: configured.trial_class,
@@ -54,6 +55,7 @@ export async function GET(req: Request) {
       {
         slug,
         name: name || "העסק שלנו",
+        logo_url: null,
         service_name: serviceName,
         address,
         trial_class: trial,

@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
 החזר JSON בלבד במבנה:
 {
   "business_description": "תיאור קצר ומדויק בעברית",
-  "target_audience": ["3 תגיות ספציפיות: גיל/מיקום/תחומי עניין"],
+  "age_range": "18-25 או 25-40 או 40-60 או 60+ או ריק",
+  "gender": "זכר או נקבה או הכול",
   "benefits": ["3 תגיות על מה משיגים מהשירות"]
 }
 
@@ -64,7 +65,11 @@ ${pageText}`;
     return NextResponse.json({
       business_description:
         typeof parsed.business_description === "string" ? parsed.business_description : "",
-      target_audience: Array.isArray(parsed.target_audience) ? parsed.target_audience.slice(0, 3) : [],
+      age_range: typeof parsed.age_range === "string" ? parsed.age_range : "",
+      gender:
+        parsed.gender === "זכר" || parsed.gender === "נקבה" || parsed.gender === "הכול"
+          ? parsed.gender
+          : "הכול",
       benefits: Array.isArray(parsed.benefits) ? parsed.benefits.slice(0, 3) : [],
     });
   } catch {
