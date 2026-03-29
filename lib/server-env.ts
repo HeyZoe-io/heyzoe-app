@@ -1,10 +1,8 @@
 /**
  * משתני סביבה בצד שרת — סדר עדיפות (הראשון שנמצא מנצח):
  *
- * Gemini:
- *   1. GEMINI_API_KEY
- *   2. GOOGLE_GENERATIVE_AI_API_KEY
- *   3. GOOGLE_API_KEY
+ * Claude:
+ *   1. ANTHROPIC_API_KEY
  *
  * Supabase URL:
  *   1. NEXT_PUBLIC_SUPABASE_URL
@@ -17,13 +15,8 @@
  * Supabase service role — רק לשרת, לעולם לא ל-Client; לא נדרש ל-bootstrap של /api/business.
  */
 
-export function resolveGeminiApiKey(): string {
-  return (
-    process.env.GEMINI_API_KEY?.trim() ||
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
-    process.env.GOOGLE_API_KEY?.trim() ||
-    ""
-  );
+export function resolveClaudeApiKey(): string {
+  return process.env.ANTHROPIC_API_KEY?.trim() ?? "";
 }
 
 export function resolveSupabaseUrl(): string {
@@ -53,8 +46,8 @@ export function resolveAdminAllowedEmail(): string {
 
 export function listMissingBusinessBootstrapKeys(): string[] {
   const missing: string[] = [];
-  if (!resolveGeminiApiKey()) {
-    missing.push("GEMINI_API_KEY (או GOOGLE_GENERATIVE_AI_API_KEY)");
+  if (!resolveClaudeApiKey()) {
+    missing.push("ANTHROPIC_API_KEY");
   }
   if (!resolveSupabaseUrl()) {
     missing.push("NEXT_PUBLIC_SUPABASE_URL (או SUPABASE_URL)");

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { resolveGeminiApiKey } from "@/lib/server-env";
-import { GEMINI_CHAT_MODELS, GEMINI_MODEL_INIT_OPTIONS, normalizeModelName } from "@/lib/gemini";
+import Anthropic from "@anthropic-ai/sdk";
+import { resolveClaudeApiKey } from "@/lib/server-env";
+import { CLAUDE_CHAT_MODEL } from "@/lib/claude";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const apiKey = resolveGeminiApiKey();
-  if (!apiKey) return NextResponse.json({ error: "missing_gemini_key" }, { status: 500 });
+  const apiKey = resolveClaudeApiKey();
+  if (!apiKey) return NextResponse.json({ error: "missing_anthropic_key" }, { status: 500 });
 
   const {
     mode,
@@ -32,9 +32,6 @@ export async function POST(req: NextRequest) {
     vibe,
     schedule_text,
   } = await req.json();
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const modelName = normalizeModelName(GEMINI_CHAT_MODELS[0]);
-  const model = genAI.getGenerativeModel({ model: modelName }, GEMINI_MODEL_INIT_OPTIONS);
 
   const prompt =
     mode === "faq"
@@ -59,8 +56,14 @@ export async function POST(req: NextRequest) {
 אסור להשתמש בניסוח "איך אפשר לעזור".
 החזר משפט אחד בלבד עם שם הבוט ונימה מותאמת לסגנון הדיבור.`;
 
-  const result = await model.generateContent(prompt, { timeout: 30000 });
-  const text = result.response.text().trim();
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model: CLAUDE_CHAT_MODEL,
+    max_tokens: 512,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
 
   if (mode === "faq") {
     try {

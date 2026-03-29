@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { resolveGeminiApiKey } from "@/lib/server-env";
-import { GEMINI_CHAT_MODELS, GEMINI_MODEL_INIT_OPTIONS, normalizeModelName } from "@/lib/gemini";
+import { resolveClaudeApiKey } from "@/lib/server-env";
+import { CLAUDE_CHAT_MODEL } from "@/lib/claude";
 
 export const runtime = "nodejs";
 
@@ -28,14 +28,8 @@ function stripHtmlToText(html: string): string {
 
 function decodeHtmlEntities(input: string): string {
   const named: Record<string, string> = {
-    "&nbsp;": " ",
-    "&amp;": "&",
-    "&quot;": '"',
-    "&#39;": "'",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&ndash;": "-",
-    "&mdash;": "-",
+    "&nbsp;": " ", "&amp;": "&", "&quot;": '"', "&#39;": "'",
+    "&lt;": "<", "&gt;": ">", "&ndash;": "-", "&mdash;": "-",
   };
   return input
     .replace(/&(nbsp|amp|quot|#39|lt|gt|ndash|mdash);/g, (m) => named[m] ?? m)
@@ -52,11 +46,7 @@ function findLogoCandidate(html: string, pageUrl: string): string {
     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1]?.trim() ??
     "";
   if (ogImage) {
-    try {
-      return new URL(ogImage, base.origin).toString();
-    } catch {
-      // continue
-    }
+    try { return new URL(ogImage, base.origin).toString(); } catch { /* continue */ }
   }
 
   const logoImgs = [...html.matchAll(/<img[^>]+src=["']([^"']*logo[^"']*)["'][^>]*>/gi)];
@@ -69,27 +59,16 @@ function findLogoCandidate(html: string, pageUrl: string): string {
       const width = Number(tag.match(/\bwidth=["']?(\d+)/i)?.[1] ?? "0");
       const height = Number(tag.match(/\bheight=["']?(\d+)/i)?.[1] ?? "0");
       const area = width * height;
-      if (area >= bestArea) {
-        best = src;
-        bestArea = area;
-      }
+      if (area >= bestArea) { best = src; bestArea = area; }
     }
-    try {
-      return new URL(best, base.origin).toString();
-    } catch {
-      // continue
-    }
+    try { return new URL(best, base.origin).toString(); } catch { /* continue */ }
   }
 
   const iconMatch =
     html.match(/<link[^>]+rel=["'][^"']*(icon|shortcut icon|apple-touch-icon)[^"']*["'][^>]*>/i)?.[0] ?? "";
   const href = iconMatch.match(/href=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
   if (href) {
-    try {
-      return new URL(href, base.origin).toString();
-    } catch {
-      return `${base.origin}/favicon.ico`;
-    }
+    try { return new URL(href, base.origin).toString(); } catch { return `${base.origin}/favicon.ico`; }
   }
   return `${base.origin}/favicon.ico`;
 }
@@ -125,9 +104,7 @@ function guessNicheFromHost(hostname: string): string {
 
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { website_url, business_name, niche } = await req.json();
@@ -138,12 +115,8 @@ export async function POST(req: NextRequest) {
   let logoCandidate = "";
   let metaHints = "";
   try {
-    let res = await fetch(url, {
-      redirect: "follow",
-      headers: BROWSER_HEADERS,
-    });
+    let res = await fetch(url, { redirect: "follow", headers: BROWSER_HEADERS });
 
-    // Fallback #1: retry with www subdomain for hosts that force it.
     if (!res.ok) {
       const withWww = (() => {
         try {
@@ -151,36 +124,23 @@ export async function POST(req: NextRequest) {
           if (u.hostname.startsWith("www.")) return "";
           u.hostname = `www.${u.hostname}`;
           return u.toString();
-        } catch {
-          return "";
-        }
+        } catch { return ""; }
       })();
-      if (withWww) {
-        res = await fetch(withWww, {
-          redirect: "follow",
-          headers: BROWSER_HEADERS,
-        });
-      }
+      if (withWww) res = await fetch(withWww, { redirect: "follow", headers: BROWSER_HEADERS });
     }
 
-    // Fallback #2: text mirror endpoint for partially blocked pages.
     let html = "";
     if (res.ok) {
       html = await res.text();
     } else {
       const mirrorUrl = `https://r.jina.ai/http://${new URL(url).host}${new URL(url).pathname}${new URL(url).search}`;
       const mirrorRes = await fetch(mirrorUrl, { headers: BROWSER_HEADERS });
-      if (mirrorRes.ok) {
-        html = await mirrorRes.text();
-      }
+      if (mirrorRes.ok) html = await mirrorRes.text();
     }
 
     if (!html.trim()) {
       return NextResponse.json(
-        {
-          error: "blocked_auto_scraping",
-          message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית",
-        },
+        { error: "blocked_auto_scraping", message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית" },
         { status: 400 }
       );
     }
@@ -190,19 +150,13 @@ export async function POST(req: NextRequest) {
     pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, 10000);
   } catch {
     return NextResponse.json(
-      {
-        error: "blocked_auto_scraping",
-        message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית",
-      },
+      { error: "blocked_auto_scraping", message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית" },
       { status: 400 }
     );
   }
 
-  const apiKey = resolveGeminiApiKey();
-  if (!apiKey) return NextResponse.json({ error: "missing_gemini_key" }, { status: 500 });
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const websiteModels = GEMINI_CHAT_MODELS;
+  const apiKey = resolveClaudeApiKey();
+  if (!apiKey) return NextResponse.json({ error: "missing_anthropic_key" }, { status: 500 });
 
   const thinContent = pageText.length < 900;
   const prompt = `נתח את טקסט האתר הבא של העסק "${business_name ?? ""}" בתחום "${niche ?? ""}".
@@ -212,8 +166,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" במקום להיכשל בבקשה.
 עצב את business_description בעברית תקינה, קריאה, קלילה ומקצועית (טון מזמין ולא שיווקי מדי).
 סכם את העסק ב-2 עד 3 משפטים נקיים ומזמינים בעברית. אל תעתיק טקסט גולמי מהאתר.
-חפש לוגו באופן מועדף כך: 1) og:image 2) התמונה הגדולה ביותר שהשם שלה כולל logo.
-ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר (למשל שיעורים שבועיים/סדנאות), כולל benefits מוסקים.
+ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר, כולל benefits מוסקים.
 החזר JSON בלבד במבנה:
 {
   "niche": "נישה קצרה ומדויקת",
@@ -236,59 +189,44 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 
 טקסט אתר:
 ${pageText}`;
-  const compactPrompt = `החזר JSON בלבד. נתח בקצרה אתר עסקי.
+
+  let text = "";
+  let lastError: unknown = null;
+
+  const client = new Anthropic({ apiKey });
+  try {
+    const response = await client.messages.create({
+      model: CLAUDE_CHAT_MODEL,
+      max_tokens: 2048,
+      messages: [{ role: "user", content: prompt }],
+    });
+    text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  } catch (e) {
+    lastError = e;
+    console.warn("[fetch-site] Claude primary prompt failed:", e);
+
+    // Compact fallback
+    const compactPrompt = `החזר JSON בלבד. נתח בקצרה אתר עסקי.
 אתר: ${url}
 מטא: ${metaHints || "אין"}
 טקסט (מקוצר): ${pageText.slice(0, 2600)}
 מבנה:
 {"niche":"","business_description":"","logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
-
-  let text = "";
-  let lastError: unknown = null;
-  for (const modelName of websiteModels) {
     try {
-      const model = genAI.getGenerativeModel(
-        {
-          model: normalizeModelName(modelName),
-          generationConfig: { responseMimeType: "application/json" },
-        },
-        GEMINI_MODEL_INIT_OPTIONS
-      );
-      const result = await model.generateContent(prompt, { timeout: 40000 });
-      text = result.response.text().trim();
-      if (text) break;
-    } catch (e) {
-      lastError = e;
-      console.warn("[fetch-site] primary prompt failed on model:", modelName, e);
+      const fallbackResponse = await client.messages.create({
+        model: CLAUDE_CHAT_MODEL,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: compactPrompt }],
+      });
+      text = fallbackResponse.content[0]?.type === "text" ? fallbackResponse.content[0].text.trim() : "";
+    } catch (e2) {
+      lastError = e2;
+      console.warn("[fetch-site] Claude compact prompt failed:", e2);
     }
   }
+
   if (!text) {
-    for (const modelName of websiteModels) {
-      try {
-        const model = genAI.getGenerativeModel(
-          {
-            model: normalizeModelName(modelName),
-            generationConfig: { responseMimeType: "application/json" },
-          },
-          GEMINI_MODEL_INIT_OPTIONS
-        );
-        const result = await model.generateContent(compactPrompt, { timeout: 28000 });
-        text = result.response.text().trim();
-        if (text) break;
-      } catch (e) {
-        lastError = e;
-        console.warn("[fetch-site] compact prompt failed on model:", modelName, e);
-      }
-    }
-  }
-  if (!text) {
-    const fallbackHost = (() => {
-      try {
-        return new URL(url).hostname;
-      } catch {
-        return "";
-      }
-    })();
+    const fallbackHost = (() => { try { return new URL(url).hostname; } catch { return ""; } })();
     const nicheGuess = guessNicheFromHost(fallbackHost);
     return NextResponse.json({
       niche: nicheGuess,
@@ -303,13 +241,13 @@ ${pageText}`;
       details: String(lastError ?? ""),
     });
   }
+
   try {
     const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
     const parsed = JSON.parse(cleaned) as Record<string, unknown>;
     return NextResponse.json({
       niche: typeof parsed.niche === "string" ? parsed.niche : "",
-      business_description:
-        typeof parsed.business_description === "string" ? parsed.business_description : "",
+      business_description: typeof parsed.business_description === "string" ? parsed.business_description : "",
       logo_url:
         typeof parsed.logo_url === "string" && parsed.logo_url.trim()
           ? parsed.logo_url.trim()

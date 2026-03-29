@@ -19,9 +19,9 @@ import {
   motion,
 } from 'framer-motion';
 import {
-  formatUserFacingGeminiError,
+  formatUserFacingClaudeError as formatUserFacingGeminiError,
   friendlyHttpErrorMessage,
-} from '@/lib/gemini';
+} from '@/lib/claude';
 import { CHAT_STREAM_META, stripMarkdownDecorations } from '@/lib/zoe-shared';
 
 /** מניעת שליחות כפולות מהירות (לחיצה כפולה / Enter+לחיצה) */
