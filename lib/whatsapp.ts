@@ -1,36 +1,43 @@
 import { createHmac } from "crypto";
 
-export const WA_API_VERSION = "v21.0" as const;
-export const WA_BASE_URL = `https://graph.facebook.com/${WA_API_VERSION}`;
-
 // ─── Env resolvers ────────────────────────────────────────────────────────────
 
-export function resolveWaVerifyToken(): string {
-  return process.env.WHATSAPP_VERIFY_TOKEN?.trim() ?? "";
+export function resolveTwilioAccountSid(): string {
+  return process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
 }
 
-export function resolveWaAppSecret(): string {
-  return process.env.WHATSAPP_APP_SECRET?.trim() ?? "";
+export function resolveTwilioAuthToken(): string {
+  return process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
 }
 
-export function resolveWaSystemToken(): string {
-  return process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
-}
-
-// ─── Webhook signature verification ──────────────────────────────────────────
+// ─── Signature verification ───────────────────────────────────────────────────
 
 /**
- * Verifies the X-Hub-Signature-256 header from Meta.
- * Returns true if the payload matches the HMAC-SHA256 signature.
+ * Verifies X-Twilio-Signature.
+ * Twilio signs: HMAC-SHA1(authToken, url + sortedParams) → Base64
+ * https://www.twilio.com/docs/usage/webhooks/webhooks-security
  */
-export function verifyWebhookSignature(rawBody: string, signatureHeader: string | null, appSecret: string): boolean {
-  if (!signatureHeader || !appSecret) return false;
-  const expected = `sha256=${createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex")}`;
-  // Constant-time comparison to prevent timing attacks
-  if (expected.length !== signatureHeader.length) return false;
+export function verifyTwilioSignature(
+  authToken: string,
+  signature: string,
+  url: string,
+  params: Record<string, string>
+): boolean {
+  if (!authToken || !signature) return false;
+
+  const sortedKeys = Object.keys(params).sort();
+  let str = url;
+  for (const key of sortedKeys) {
+    str += key + (params[key] ?? "");
+  }
+
+  const expected = createHmac("sha1", authToken).update(str, "utf8").digest("base64");
+
+  // Constant-time comparison
+  if (expected.length !== signature.length) return false;
   let mismatch = 0;
   for (let i = 0; i < expected.length; i++) {
-    mismatch |= expected.charCodeAt(i) ^ signatureHeader.charCodeAt(i);
+    mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
   }
   return mismatch === 0;
 }
@@ -40,8 +47,8 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string 
 export type WaIncomingText = {
   type: "text";
   messageId: string;
-  from: string;          // sender's phone number e.g. "972501234567"
-  phoneNumberId: string; // business's Meta phone number ID
+  from: string;         // e.g. "+972501234567"
+  toNumber: string;     // Twilio number e.g. "+14155238886" — used for channel lookup
   text: string;
 };
 
@@ -49,119 +56,70 @@ export type WaIncomingUnsupported = {
   type: "unsupported";
   messageId: string;
   from: string;
-  phoneNumberId: string;
+  toNumber: string;
 };
 
 export type WaIncomingMessage = WaIncomingText | WaIncomingUnsupported;
 
 /**
- * Parses a raw Meta webhook payload and extracts all incoming messages.
- * Silently ignores status updates, read receipts, and malformed entries.
+ * Parses a Twilio form-encoded webhook payload.
+ * Twilio sends one message per request (unlike Meta which batches).
  */
-export function parseIncomingMessages(body: unknown): WaIncomingMessage[] {
-  const results: WaIncomingMessage[] = [];
+export function parseTwilioWebhook(params: Record<string, string>): WaIncomingMessage | null {
+  const messageSid = params.MessageSid ?? "";
+  const rawFrom    = params.From ?? "";  // "whatsapp:+972501234567"
+  const rawTo      = params.To ?? "";    // "whatsapp:+14155238886"
+  const body       = (params.Body ?? "").trim();
+  const numMedia   = Number(params.NumMedia ?? "0");
 
-  if (!body || typeof body !== "object") return results;
-  const root = body as Record<string, unknown>;
-  if (root.object !== "whatsapp_business_account") return results;
+  if (!messageSid || !rawFrom || !rawTo) return null;
 
-  const entries = Array.isArray(root.entry) ? root.entry : [];
-  for (const entry of entries) {
-    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
-    for (const change of changes) {
-      const value = change?.value;
-      if (!value || typeof value !== "object") continue;
+  // Strip "whatsapp:" prefix
+  const from     = rawFrom.replace(/^whatsapp:/i, "");
+  const toNumber = rawTo.replace(/^whatsapp:/i, "");
 
-      const metadata = (value as Record<string, unknown>).metadata;
-      const phoneNumberId = String(
-        (metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>).phone_number_id : null) ?? ""
-      );
-      if (!phoneNumberId) continue;
-
-      const messages = Array.isArray((value as Record<string, unknown>).messages)
-        ? (value as Record<string, unknown>).messages as unknown[]
-        : [];
-
-      for (const msg of messages) {
-        if (!msg || typeof msg !== "object") continue;
-        const m = msg as Record<string, unknown>;
-        const messageId = String(m.id ?? "");
-        const from = String(m.from ?? "");
-        if (!messageId || !from) continue;
-
-        if (m.type === "text" && m.text && typeof m.text === "object") {
-          const textBody = String((m.text as Record<string, unknown>).body ?? "").trim();
-          if (textBody) {
-            results.push({ type: "text", messageId, from, phoneNumberId, text: textBody });
-          }
-        } else {
-          results.push({ type: "unsupported", messageId, from, phoneNumberId });
-        }
-      }
-    }
+  if (body) {
+    return { type: "text", messageId: messageSid, from, toNumber, text: body };
+  }
+  if (numMedia > 0) {
+    return { type: "unsupported", messageId: messageSid, from, toNumber };
   }
 
-  return results;
+  return null;
 }
 
 // ─── Sending messages ─────────────────────────────────────────────────────────
 
 /**
- * Sends a WhatsApp text message via the Meta Cloud API.
- * phoneNumberId: the business's Meta phone number ID
- * to: recipient's phone number in E.164 format without "+" (e.g. "972501234567")
+ * Sends a WhatsApp text message via Twilio Messaging API.
+ * fromNumber: the Twilio WhatsApp number e.g. "+14155238886"
+ * to: recipient's number e.g. "+972501234567"
  */
 export async function sendWhatsAppMessage(
-  phoneNumberId: string,
+  fromNumber: string,
   to: string,
   text: string,
-  systemToken: string
+  accountSid: string,
+  authToken: string
 ): Promise<void> {
-  const url = `${WA_BASE_URL}/${phoneNumberId}/messages`;
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const body = new URLSearchParams({
+    From: `whatsapp:${fromNumber}`,
+    To:   `whatsapp:${to}`,
+    Body: text,
+  });
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${systemToken}`,
-      "Content-Type": "application/json",
+      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: text },
-    }),
+    body: body.toString(),
   });
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
-    throw new Error(`[WhatsApp send] ${res.status} ${res.statusText}: ${err}`);
-  }
-}
-
-/**
- * Marks an incoming message as read (removes the "delivered" double-tick).
- * Best-effort — failures are logged but not thrown.
- */
-export async function markMessageRead(
-  phoneNumberId: string,
-  messageId: string,
-  systemToken: string
-): Promise<void> {
-  const url = `${WA_BASE_URL}/${phoneNumberId}/messages`;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${systemToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        status: "read",
-        message_id: messageId,
-      }),
-    });
-  } catch (e) {
-    console.warn("[WhatsApp markRead] failed:", e);
+    throw new Error(`[Twilio send] ${res.status} ${res.statusText}: ${err}`);
   }
 }
