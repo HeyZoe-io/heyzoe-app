@@ -131,25 +131,38 @@ async function processIncoming(
     session_id: sessionId,
   });
 
-  // Build context & call Claude
-  const knowledge    = await getBusinessKnowledgePack(business_slug);
-  const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp");
+  // Build context
+  const knowledge = await getBusinessKnowledgePack(business_slug);
+
+  // ── Quick-reply match: static response, no Claude call ──────────────────────
+  const incomingNorm = msg.text.trim().toLowerCase();
+  const matched = knowledge?.quickReplies?.find(
+    qr => qr.label.trim().toLowerCase() === incomingNorm
+  );
 
   let replyText: string;
-  const client = new Anthropic({ apiKey: claudeApiKey });
-  try {
-    const response = await client.messages.create({
-      model: CLAUDE_CHAT_MODEL,
-      max_tokens: CLAUDE_MAX_TOKENS,
-      system: systemPrompt,
-      messages: [{ role: "user", content: msg.text }],
-    });
-    replyText = response.content[0]?.type === "text"
-      ? response.content[0].text.trim()
-      : formatUserFacingClaudeError(new Error("empty response"));
-  } catch (e) {
-    console.error(`[WA Webhook] Claude error for ${business_slug}:`, e);
-    replyText = formatUserFacingClaudeError(e);
+
+  if (matched && matched.reply) {
+    replyText = matched.reply;
+    console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
+  } else {
+    // Free-form message — call Claude
+    const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp");
+    const client = new Anthropic({ apiKey: claudeApiKey });
+    try {
+      const response = await client.messages.create({
+        model: CLAUDE_CHAT_MODEL,
+        max_tokens: CLAUDE_MAX_TOKENS,
+        system: systemPrompt,
+        messages: [{ role: "user", content: msg.text }],
+      });
+      replyText = response.content[0]?.type === "text"
+        ? response.content[0].text.trim()
+        : formatUserFacingClaudeError(new Error("empty response"));
+    } catch (e) {
+      console.error(`[WA Webhook] Claude error for ${business_slug}:`, e);
+      replyText = formatUserFacingClaudeError(e);
+    }
   }
 
   // Append CTA if available
@@ -171,7 +184,7 @@ async function processIncoming(
     business_slug,
     role: "assistant",
     content: replyText,
-    model_used: CLAUDE_CHAT_MODEL,
+    model_used: matched?.reply ? "static" : CLAUDE_CHAT_MODEL,
     session_id: sessionId,
   });
 }
