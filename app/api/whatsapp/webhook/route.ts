@@ -37,8 +37,21 @@ export async function POST(req: NextRequest) {
   // Verify Twilio signature (skip in dev if auth token not set)
   if (authToken) {
     const signature = req.headers.get("x-twilio-signature") ?? "";
+    const sortedParamKeys = Object.keys(params).sort();
+    const paramStr = sortedParamKeys.map(k => `${k}=${params[k]}`).join(" | ");
+    const { createHmac } = await import("crypto");
+    const strToSign = signingUrl + sortedParamKeys.map(k => k + (params[k] ?? "")).join("");
+    const computed = createHmac("sha1", authToken).update(strToSign, "utf8").digest("base64");
+    console.log("[WA Webhook] signature debug:", {
+      signingUrl,
+      receivedSig: signature,
+      computedSig: computed,
+      match: computed === signature,
+      paramKeys: sortedParamKeys,
+      paramStr,
+    });
     if (!verifyTwilioSignature(authToken, signature, signingUrl, params)) {
-      console.warn("[WA Webhook] Invalid Twilio signature — rejected | signing URL:", signingUrl);
+      console.warn("[WA Webhook] Invalid Twilio signature — rejected");
       return new Response("Unauthorized", { status: 401 });
     }
   }
