@@ -67,8 +67,7 @@ export async function POST(req: NextRequest) {
     return new Response("OK", { status: 200 });
   }
 
-  // Fire-and-forget: don't await so the response goes out immediately
-  processIncoming(body).catch((e) =>
+  await processIncoming(body).catch((e) =>
     console.error("[WA Webhook] processIncoming error:", e)
   );
 
