@@ -1,5 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
+export type QuickReplyEntry = { label: string; reply: string };
+
 export type BusinessKnowledgePack = {
   businessName: string;
   niche: string;
@@ -14,6 +16,7 @@ export type BusinessKnowledgePack = {
   ageRangeText: string;
   genderText: string;
   scheduleText: string;
+  quickReplies: QuickReplyEntry[];
 };
 
 function truncateText(value: string, max = 280): string {
@@ -74,6 +77,18 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         ? (business.social_links as Record<string, unknown>)
         : {};
 
+    const rawQR = Array.isArray(social.quick_replies) ? social.quick_replies : [];
+    const quickReplies: QuickReplyEntry[] = rawQR
+      .map((r: unknown) => {
+        if (typeof r === "string") return { label: r, reply: "" };
+        if (r && typeof r === "object") {
+          const rr = r as Record<string, unknown>;
+          return { label: String(rr.label ?? ""), reply: String(rr.reply ?? "") };
+        }
+        return null;
+      })
+      .filter((r): r is QuickReplyEntry => r !== null && r.label.length > 0);
+
     return {
       businessName: String(business.name ?? slug),
       niche: String(business.niche ?? ""),
@@ -88,6 +103,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       ageRangeText: typeof social.age_range === "string" ? social.age_range : "",
       genderText: social.gender === "זכר" || social.gender === "נקבה" || social.gender === "הכול" ? social.gender as string : "",
       scheduleText: typeof social.schedule_text === "string" ? social.schedule_text : "",
+      quickReplies,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);

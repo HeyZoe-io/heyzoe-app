@@ -15,6 +15,7 @@ import ZoeLoader from "@/components/ZoeLoader";
 
 type SegAnswer  = { id: string; text: string; service_slug: string };
 type SegQuestion = { id: string; question: string; answers: SegAnswer[] };
+type QuickReply  = { id: string; label: string; reply: string };
 type Objection   = { id: string; question: string; answer: string };
 type AutoMsgs    = { before_class: string; no_registration: string; business_hours: string };
 type ServiceItem = {
@@ -119,8 +120,9 @@ export default function SlugSettingsPage() {
   const [segQuestions, setSegQuestions] = useState<SegQuestion[]>([]);
 
   // ── Step 6: Quick replies
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-  const [newReply, setNewReply] = useState("");
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
+  const [newReplyLabel, setNewReplyLabel] = useState("");
+  const [newReplyText, setNewReplyText] = useState("");
 
   // ── Step 7: Services + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
@@ -165,7 +167,15 @@ export default function SlugSettingsPage() {
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
         setWelcomeMessage(String(business.welcome_message ?? ""));
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
-        setQuickReplies(Array.isArray(sl.quick_replies) ? (sl.quick_replies as string[]) : []);
+        setQuickReplies(
+          Array.isArray(sl.quick_replies)
+            ? (sl.quick_replies as QuickReply[]).map(r =>
+                typeof r === "string"
+                  ? { id: uid(), label: r, reply: "" }   // migrate old string format
+                  : { id: r.id ?? uid(), label: String(r.label ?? ""), reply: String(r.reply ?? "") }
+              )
+            : []
+        );
         setArboxLink(String(sl.arbox_link ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
         const am = (sl.automated_messages ?? {}) as Partial<AutoMsgs>;
@@ -248,7 +258,7 @@ export default function SlugSettingsPage() {
     }
   }, [slug, name, niche, botName, logoUrl, primaryColor, secondaryColor, welcomeMessage,
       websiteUrl, description, address, directions, vibe, openingMediaUrl, openingMediaType,
-      segQuestions, quickReplies, arboxLink, objections, autoMsgs, postRegMsg, services]);
+      segQuestions, quickReplies, arboxLink, objections, autoMsgs, postRegMsg, services]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Logo upload ───────────────────────────────────────────────────────────
 
@@ -653,52 +663,76 @@ export default function SlugSettingsPage() {
         {/* ════════════════════ STEP 6 ════════════════════ */}
         {step === 6 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={6} title="כפתורי תשובה מהירה" desc={'"שאלה אחרת" מתווסף אוטומטית בסוף'} /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={6} title="כפתורי תשובה מהירה" desc="כל כפתור מחזיר תשובה סטטית — ללא קריאה ל-AI" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {quickReplies.map((r, i) => (
-                  <div key={i} className="flex gap-2 items-center">
-                    <span className="text-xs text-zinc-400 w-5 shrink-0">{i + 1}.</span>
-                    <Input
-                      dir="rtl"
-                      value={r}
-                      onChange={e => { const arr = [...quickReplies]; arr[i] = e.target.value; setQuickReplies(arr); }}
-                      placeholder="כפתור תשובה..."
-                    />
-                    <button onClick={() => setQuickReplies(q => q.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  <div key={r.id} className="border border-zinc-200 rounded-xl p-3 space-y-2">
+                    <div className="flex gap-2 items-center">
+                      <span className="text-xs text-zinc-400 w-5 shrink-0 font-medium">{i + 1}.</span>
+                      <Input
+                        dir="rtl"
+                        value={r.label}
+                        onChange={e => setQuickReplies(q => q.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
+                        placeholder="טקסט הכפתור (מה המשתמש לוחץ)..."
+                        className="text-sm font-medium"
+                      />
+                      <button onClick={() => setQuickReplies(q => q.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400 shrink-0">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="flex gap-2 items-start pr-7">
+                      <textarea
+                        dir="rtl"
+                        value={r.reply}
+                        onChange={e => setQuickReplies(q => q.map((x, j) => j === i ? { ...x, reply: e.target.value } : x))}
+                        placeholder="התשובה הסטטית שתישלח אוטומטית..."
+                        rows={2}
+                        className="flex-1 resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                      />
+                    </div>
                   </div>
                 ))}
 
                 {/* Auto "other question" indicator */}
-                <div className="flex gap-2 items-center opacity-50">
+                <div className="flex gap-2 items-center opacity-40">
                   <span className="text-xs text-zinc-400 w-5 shrink-0">{quickReplies.length + 1}.</span>
                   <div className="flex-1 border border-dashed border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-400">
-                    שאלה אחרת ✨ (אוטומטי)
+                    שאלה אחרת ✨ (אוטומטי) → Claude
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              {/* Add new quick reply */}
+              <div className="border border-fuchsia-100 rounded-xl p-3 space-y-2 bg-fuchsia-50/40">
+                <p className="text-xs font-medium text-fuchsia-700">הוסף כפתור חדש</p>
                 <Input
                   dir="rtl"
-                  value={newReply}
-                  onChange={e => setNewReply(e.target.value)}
+                  value={newReplyLabel}
+                  onChange={e => setNewReplyLabel(e.target.value)}
                   placeholder="טקסט הכפתור..."
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && newReply.trim()) {
-                      setQuickReplies(q => [...q, newReply.trim()]);
-                      setNewReply("");
-                    }
-                  }}
+                  className="text-sm"
+                />
+                <textarea
+                  dir="rtl"
+                  value={newReplyText}
+                  onChange={e => setNewReplyText(e.target.value)}
+                  placeholder="תשובה סטטית..."
+                  rows={2}
+                  className="w-full resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
                 />
                 <Button
-                  onClick={() => { if (newReply.trim()) { setQuickReplies(q => [...q, newReply.trim()]); setNewReply(""); } }}
-                  disabled={!newReply.trim()}
-                  className="shrink-0 gap-1"
+                  onClick={() => {
+                    if (newReplyLabel.trim()) {
+                      setQuickReplies(q => [...q, { id: uid(), label: newReplyLabel.trim(), reply: newReplyText.trim() }]);
+                      setNewReplyLabel("");
+                      setNewReplyText("");
+                    }
+                  }}
+                  disabled={!newReplyLabel.trim()}
+                  className="gap-1 w-full"
                 >
-                  <Plus className="h-4 w-4" /> הוסף
+                  <Plus className="h-4 w-4" /> הוסף כפתור
                 </Button>
               </div>
             </CardContent>
