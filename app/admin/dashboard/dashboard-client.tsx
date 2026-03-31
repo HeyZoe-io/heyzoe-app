@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useMemo } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Activity, AlertTriangle, BarChart3, CalendarDays, CircleDollarSign, Users } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, FunnelChart, Funnel, LabelList, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
@@ -14,7 +14,7 @@ type DashboardPayload = {
   errors: { messagesError: string | null; conversionsError: string | null };
   kpis: { dailyActiveConversations: number; monthlyActiveConversations: number; annualActiveConversations: number };
   funnel: { visitors: number; engaged: number; clickedCta: number; conversionRate: number };
-  businessOverview: Array<{ slug: string; active: boolean; seniorityDays: number; firstAt: string; lastAt: string; sessions: number }>;
+  businessOverview: Array<{ slug: string; plan: "basic" | "premium"; active: boolean; seniorityDays: number; firstAt: string; lastAt: string; sessions: number }>;
   dropoffByMessageNumber: Array<{ step: string; count: number }>;
   dropoffByIntent: Array<{ intent: string; count: number }>;
   errorLogs: Array<{ at: string; slug: string; code: string; content: string }>;
@@ -24,6 +24,14 @@ type DashboardPayload = {
 export default function DashboardClient({ data }: { data: DashboardPayload }) {
   const router = useRouter();
   const search = useSearchParams();
+  const [planBySlug, setPlanBySlug] = useState<Record<string, "basic" | "premium">>(() => {
+    const rec: Record<string, "basic" | "premium"> = {};
+    data.businessOverview.forEach((b) => {
+      rec[b.slug] = b.plan === "premium" ? "premium" : "basic";
+    });
+    return rec;
+  });
+  const [savingSlug, setSavingSlug] = useState<string | null>(null);
 
   const funnelData = useMemo(
     () => [
@@ -33,6 +41,23 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
     ],
     [data.funnel]
   );
+
+  async function updatePlan(slug: string, plan: "basic" | "premium") {
+    setSavingSlug(slug);
+    setPlanBySlug((prev) => ({ ...prev, [slug]: plan }));
+    try {
+      const res = await fetch("/api/admin/businesses/plan", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, plan }),
+      });
+      if (!res.ok) {
+        setPlanBySlug((prev) => ({ ...prev, [slug]: data.businessOverview.find((b) => b.slug === slug)?.plan ?? "basic" }));
+      }
+    } finally {
+      setSavingSlug(null);
+    }
+  }
 
   function applyDateFilter(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -167,7 +192,21 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                       {b.active ? "Active" : "Inactive"}
                     </Badge>
                   </div>
-                  <p className="text-xs text-zinc-500 mt-1">Seniority: {b.seniorityDays} days · Sessions: {b.sessions}</p>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <p className="text-xs text-zinc-500">Seniority: {b.seniorityDays} days · Sessions: {b.sessions}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-zinc-500">Plan</span>
+                      <select
+                        value={planBySlug[b.slug] ?? "basic"}
+                        disabled={savingSlug === b.slug}
+                        onChange={(e) => updatePlan(b.slug, e.target.value === "premium" ? "premium" : "basic")}
+                        className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                      >
+                        <option value="basic">basic</option>
+                        <option value="premium">premium</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               ))}
             </CardContent>

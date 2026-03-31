@@ -39,6 +39,7 @@ export async function GET() {
   return NextResponse.json({
     business: {
       ...business,
+      plan: typeof (business as any).plan === "string" ? (business as any).plan : "basic",
       website_url: typeof social.website_url === "string" ? social.website_url : "",
       business_description:
         typeof social.business_description === "string" ? social.business_description : "",
