@@ -11,6 +11,7 @@ type Member = {
   name: string;
   email: string;
   role: "admin" | "employee";
+  status: "pending" | "active";
   is_primary: boolean;
 };
 
@@ -118,6 +119,15 @@ export default function AccountUsersPage() {
                           ראשי
                         </span>
                       ) : null}
+                      {m.status === "pending" ? (
+                        <span className="mr-2 text-[11px] rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                          ממתין לאישור
+                        </span>
+                      ) : (
+                        <span className="mr-2 text-[11px] rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                          פעיל
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-zinc-500">{m.email || "—"}</p>
                     <p className="text-[11px] text-zinc-500">
