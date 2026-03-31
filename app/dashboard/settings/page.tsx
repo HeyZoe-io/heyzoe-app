@@ -238,7 +238,9 @@ export default function DashboardSettingsPage() {
     schedule_text: "",
     primary_color: "#ff85cf",
     secondary_color: "#bc74e9",
-    welcome_message: "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.",
+    welcome_message: "נעים להכיר, אני זואי כאן לענות על כל שאלה!",
+    facebook_pixel_id: "",
+    conversions_api_token: "",
   });
 
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -283,7 +285,9 @@ export default function DashboardSettingsPage() {
             schedule_text: data.business.schedule_text ?? "",
             primary_color: data.business.primary_color ?? "#ff85cf",
             secondary_color: data.business.secondary_color ?? "#bc74e9",
-            welcome_message: data.business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.",
+            welcome_message: data.business.welcome_message ?? "נעים להכיר, אני זואי כאן לענות על כל שאלה!",
+            facebook_pixel_id: data.business.facebook_pixel_id ?? "",
+            conversions_api_token: data.business.conversions_api_token ?? "",
           });
           setDemographics({
             age_range: typeof data.business.age_range === "string" && data.business.age_range ? data.business.age_range : "הכל",
@@ -403,6 +407,8 @@ export default function DashboardSettingsPage() {
     const payload = {
       business: {
         ...business,
+        facebook_pixel_id: business.facebook_pixel_id.trim() || null,
+        conversions_api_token: business.conversions_api_token.trim() || null,
         secondary_color: enableGradient ? business.secondary_color : business.primary_color,
         social_links: {
           website_url: business.website_url.trim(),
@@ -990,29 +996,6 @@ export default function DashboardSettingsPage() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>עיצוב ונראות</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <label className="text-sm font-medium">HEX צבע ראשי</label>
-              <div className="flex items-center justify-end gap-2">
-                <button type="button" className="h-9 w-9 rounded-md border border-zinc-300 cursor-pointer" style={{ backgroundColor: business.primary_color }} onClick={() => (document.getElementById("primary-picker") as HTMLInputElement | null)?.click()} />
-                <Input dir="rtl" className="text-right placeholder:text-right" placeholder="#ff85cf" value={business.primary_color} onChange={(e) => setBusiness({ ...business, primary_color: e.target.value })} />
-                <input id="primary-picker" type="color" className="hidden" value={business.primary_color} onChange={(e) => setBusiness({ ...business, primary_color: e.target.value })} />
-              </div>
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input className="cursor-pointer" type="checkbox" checked={enableGradient} onChange={(e) => setEnableGradient(e.target.checked)} />
-                שני צבעים
-              </label>
-              {enableGradient && (
-                <div className="flex items-center justify-end gap-2">
-                  <button type="button" className="h-9 w-9 rounded-md border border-zinc-300 cursor-pointer" style={{ backgroundColor: business.secondary_color }} onClick={() => (document.getElementById("secondary-picker") as HTMLInputElement | null)?.click()} />
-                  <Input dir="rtl" className="text-right placeholder:text-right" placeholder="#bc74e9" value={business.secondary_color} onChange={(e) => setBusiness({ ...business, secondary_color: e.target.value })} />
-                  <input id="secondary-picker" type="color" className="hidden" value={business.secondary_color} onChange={(e) => setBusiness({ ...business, secondary_color: e.target.value })} />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
             <CardHeader><CardTitle>הודעת פתיחה חכמה</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <textarea className="w-full rounded-xl border border-zinc-300 p-3 text-sm text-right placeholder:text-right" rows={3} value={business.welcome_message} onChange={(e) => setBusiness({ ...business, welcome_message: e.target.value })} placeholder="נעים להכיר, אני זואי! אני כאן לענות על כל שאלה!" />
@@ -1087,41 +1070,53 @@ export default function DashboardSettingsPage() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader><CardTitle>חיבור לפייסבוק</CardTitle></CardHeader>
+            <CardContent className="space-y-4 text-right">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-zinc-900">חבילה 1 — חיבור בסיסי</p>
+                <p className="text-xs text-zinc-600">
+                  לשליחת Partner Request והקמת קמפיין: התחבר/י למנהל המודעות, הוסף את החשבון של HeyZoe כשותף,
+                  והזן את כתובת האתר של העסק כיעד. לאחר האישור, ניתן להפעיל קמפיין ל"הודעות לוואטסאפ".
+                </p>
+              </div>
+
+              <div className="space-y-2 border-t border-dashed border-zinc-200 pt-3">
+                <p className="text-sm font-medium text-zinc-900">חבילה 2 — פרימיום (Pixel + Conversions API)</p>
+                <p className="text-xs text-zinc-600">
+                  אם ברצונך שנדווח לפייסבוק על כל הרשמה כשיחת Server-to-Server, הזן כאן את פרטי ה-Pixel וה-API.
+                </p>
+                <label className="text-xs font-medium text-zinc-700">Facebook Pixel ID</label>
+                <Input
+                  dir="ltr"
+                  className="text-left placeholder:text-left"
+                  placeholder="למשל: 123456789012345"
+                  value={business.facebook_pixel_id}
+                  onChange={(e) => setBusiness({ ...business, facebook_pixel_id: e.target.value })}
+                />
+                <label className="text-xs font-medium text-zinc-700">Conversions API Access Token</label>
+                <Input
+                  dir="ltr"
+                  type="password"
+                  className="text-left placeholder:text-left"
+                  placeholder="הדבק כאן את הטוקן מפייסבוק"
+                  value={business.conversions_api_token}
+                  onChange={(e) => setBusiness({ ...business, conversions_api_token: e.target.value })}
+                />
+                <p className="text-[11px] text-zinc-500">
+                  כאשר שני השדות הללו מלאים, זואי תשלח אירוע Server-to-Server לפייסבוק על כל המרה (למשל רישום לשיעור ניסיון).
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex items-center gap-3">
             <Button onClick={saveAll} disabled={saving || !canSaveForm}>{saving ? "שומר..." : "שמירת הגדרות"}</Button>
             {status ? <p className="text-sm text-zinc-500">{status}</p> : null}
           </div>
         </div>
 
-        <div>
-          <Card className="sticky top-4">
-            <CardHeader><CardTitle>תצוגה חיה של Zoe</CardTitle></CardHeader>
-            <CardContent>
-              <div className="rounded-2xl border border-zinc-200 bg-[#120c18] p-4 text-white">
-                {faqLoadingServiceSlug ? (
-                  <div className="mb-2 text-xs text-white/70">מעדכן שאלות חכמות...</div>
-                ) : null}
-                {business.logo_url ? (
-                  <div className="mb-2 flex justify-center">
-                    <img src={business.logo_url} alt="לוגו" className="h-10 w-10 rounded-full border border-white/25 object-cover" />
-                  </div>
-                ) : null}
-                <div className="h-1 rounded-full" style={gradientStyle} />
-                <p className="mt-3 text-sm text-white/90 text-right">
-                  {business.welcome_message || "נעים להכיר, אני זואי! אני כאן לענות על כל שאלה!"}
-                </p>
-                {faqs.slice(0, 2).map((f, idx) => (
-                  <div key={`${f.service_slug}-preview-${idx}`} className="mt-2 rounded-lg bg-white/5 p-2 text-right">
-                    <p className="text-[11px] text-white/70">{f.question}</p>
-                  </div>
-                ))}
-                <button className="mt-4 w-full cursor-pointer rounded-xl px-4 py-3 text-sm font-semibold text-white" style={gradientStyle}>
-                  {services.find((s) => s.cta_text.trim())?.cta_text || "הרשמה לשיעור ניסיון"}
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* התצוגה החיה והצבעים הוסרו מהדשבורד לפי בקשת המערכת */}
       </div>
       {showSuccessToast ? (
         <div className="fixed bottom-4 right-4 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-lg">

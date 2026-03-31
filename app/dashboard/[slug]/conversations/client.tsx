@@ -1,0 +1,210 @@
+"use client";
+
+import { useState } from "react";
+
+type SessionMessage = {
+  role: string;
+  content: string;
+  created_at: string;
+};
+
+type SessionSummary = {
+  session_id: string;
+  lastAt: string;
+  count: number;
+  isOpen: boolean;
+  isPaused: boolean;
+  messages: SessionMessage[];
+};
+
+export default function ConversationsClient({
+  slug,
+  initialSessions,
+}: {
+  slug: string;
+  initialSessions: SessionSummary[];
+}) {
+  const [sessions, setSessions] = useState<SessionSummary[]>(initialSessions);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialSessions[0]?.session_id ?? null
+  );
+  const [manualText, setManualText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [pausing, setPausing] = useState<string | null>(null);
+
+  const selected = sessions.find((s) => s.session_id === selectedId) ?? null;
+
+  async function pauseBot(sessionId: string) {
+    setPausing(sessionId);
+    try {
+      await fetch("/api/whatsapp/pause", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ business_slug: slug, session_id: sessionId }),
+      });
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.session_id === sessionId ? { ...s, isPaused: true } : s
+        )
+      );
+    } finally {
+      setPausing(null);
+    }
+  }
+
+  async function sendManual() {
+    if (!selected || !manualText.trim()) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/manual-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          business_slug: slug,
+          session_id: selected.session_id,
+          text: manualText.trim(),
+        }),
+      });
+      if (res.ok) {
+        const nowIso = new Date().toISOString();
+        const msg: SessionMessage = {
+          role: "assistant",
+          content: manualText.trim(),
+          created_at: nowIso,
+        };
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.session_id === selected.session_id
+              ? {
+                  ...s,
+                  lastAt: nowIso,
+                  count: s.count + 1,
+                  isOpen: true,
+                  messages: [...s.messages, msg],
+                }
+              : s
+          )
+        );
+        setManualText("");
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3 max-h-[520px] overflow-auto">
+        {sessions.map((s) => (
+          <button
+            key={s.session_id}
+            type="button"
+            onClick={() => setSelectedId(s.session_id)}
+            className={`w-full text-right rounded-lg border px-3 py-2 flex items-center justify-between ${
+              selectedId === s.session_id
+                ? "border-fuchsia-300 bg-fuchsia-50/60"
+                : "border-zinc-200 bg-white hover:bg-zinc-50"
+            }`}
+          >
+            <div>
+              <p className="text-xs text-zinc-500">Session</p>
+              <p className="text-sm font-medium text-zinc-900 truncate max-w-[220px]">
+                {s.session_id}
+              </p>
+              <p className="text-[11px] text-zinc-500">
+                {s.count} הודעות · {new Date(s.lastAt).toLocaleString()}
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${
+                  s.isOpen
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-zinc-50 text-zinc-600 border border-zinc-200"
+                }`}
+              >
+                {s.isOpen ? "פתוחה" : "סגורה"}
+              </span>
+              {s.isPaused && (
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                  בוט מושהה
+                </span>
+              )}
+            </div>
+          </button>
+        ))}
+        {sessions.length === 0 && (
+          <p className="text-xs text-zinc-500 text-right">
+            טרם התקבלו שיחות לעסק זה.
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-3 flex flex-col gap-2 text-right">
+        {selected ? (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-medium text-zinc-900">
+                שיחה נבחרת: {selected.session_id}
+              </p>
+              <button
+                type="button"
+                onClick={() => pauseBot(selected.session_id)}
+                disabled={pausing === selected.session_id || selected.isPaused}
+                className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {selected.isPaused ? "הבוט מושהה" : pausing === selected.session_id ? "מושהה..." : "עצור בוט וענה ידנית"}
+              </button>
+            </div>
+
+            <div className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 p-2 max-h-72 overflow-auto">
+              {selected.messages.map((m, idx) => (
+                <div
+                  key={`${m.created_at}-${idx}`}
+                  className={`mb-1 text-xs ${
+                    m.role === "user" ? "text-zinc-800" : "text-fuchsia-800"
+                  }`}
+                >
+                  <span className="font-medium">
+                    {m.role === "user" ? "לקוח:" : "זואי / ידני:"}{" "}
+                  </span>
+                  <span>{m.content}</span>
+                </div>
+              ))}
+            </div>
+
+            {selected.isPaused && (
+              <div className="mt-2 space-y-2">
+                <textarea
+                  className="w-full rounded-xl border border-zinc-300 p-2 text-sm text-right placeholder:text-right"
+                  rows={3}
+                  placeholder="כתוב תשובה ידנית לוואטסאפ..."
+                  value={manualText}
+                  onChange={(e) => setManualText(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={sendManual}
+                  disabled={sending || !manualText.trim()}
+                  className="w-full rounded-xl bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-700 disabled:opacity-50"
+                >
+                  {sending ? "שולח..." : "שליחת הודעה ידנית"}
+                </button>
+              </div>
+            )}
+            {!selected.isPaused && (
+              <p className="mt-2 text-[11px] text-zinc-500">
+                כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על "עצור בוט וענה ידנית".
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-zinc-500">
+            בחר שיחה משמאל כדי לראות את ההודעות ולהפעיל עצירת בוט / מענה ידני.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+

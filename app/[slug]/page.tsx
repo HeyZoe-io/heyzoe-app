@@ -2,6 +2,7 @@ import ChatZoe from '../components/ChatZoe';
 import { getCachedBusinessBySlug } from "@/lib/business-cache";
 import { getPublicBusinessBySlug } from "@/lib/business-settings";
 import BusinessBrand from "./business-brand";
+import PwaInstallPrompt from "../components/PwaInstallPrompt";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -50,6 +51,7 @@ export default async function Page({ params }: PageProps) {
           © {new Date().getFullYear()} HeyZoe
         </p>
       </div>
+      <PwaInstallPrompt />
     </main>
   );
 }

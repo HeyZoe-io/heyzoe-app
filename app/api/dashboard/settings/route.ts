@@ -56,6 +56,8 @@ export async function GET() {
       benefits: Array.isArray(social.benefits) ? social.benefits : [],
       vibe: Array.isArray(social.vibe) ? social.vibe : [],
       schedule_text: typeof social.schedule_text === "string" ? social.schedule_text : "",
+      facebook_pixel_id: typeof business.facebook_pixel_id === "string" ? business.facebook_pixel_id : "",
+      conversions_api_token: typeof business.conversions_api_token === "string" ? business.conversions_api_token : "",
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -104,6 +106,8 @@ export async function POST(req: NextRequest) {
     welcome_message: String(business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך."),
     cta_text: String(firstServiceWithCta?.cta_text ?? business.cta_text ?? ""),
     cta_link: String(firstServiceWithCta?.cta_link ?? business.cta_link ?? ""),
+    facebook_pixel_id: String(business.facebook_pixel_id ?? ""),
+    conversions_api_token: String(business.conversions_api_token ?? ""),
   };
 
   const { data: savedBiz, error: bizErr } = await admin
