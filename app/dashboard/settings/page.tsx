@@ -225,6 +225,7 @@ export default function DashboardSettingsPage() {
     website_url: "",
     business_description: "",
     bot_name: "",
+    logo_url: "",
     instagram: "",
     tiktok: "",
     facebook: "",
@@ -261,6 +262,7 @@ export default function DashboardSettingsPage() {
             website_url: data.business.website_url ?? "",
             business_description: data.business.business_description ?? "",
             bot_name: data.business.bot_name ?? "",
+            logo_url: data.business.logo_url ?? "",
             instagram: data.business.instagram ?? "",
             tiktok: data.business.tiktok ?? "",
             facebook: data.business.facebook ?? "",
@@ -391,7 +393,6 @@ export default function DashboardSettingsPage() {
         ...business,
         facebook_pixel_id: business.facebook_pixel_id.trim() || null,
         conversions_api_token: business.conversions_api_token.trim() || null,
-        secondary_color: enableGradient ? business.secondary_color : business.primary_color,
         social_links: {
           website_url: business.website_url.trim(),
           business_description: business.business_description.trim(),
@@ -645,7 +646,7 @@ export default function DashboardSettingsPage() {
     }
   }
 
-  if (loading) return <ZoeLoader color={business.primary_color || "#FFD646"} />;
+  if (loading) return <ZoeLoader />;
 
   return (
     <motion.main
@@ -781,13 +782,7 @@ export default function DashboardSettingsPage() {
                 </div>
               </div>
 
-              <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => void uploadLogo(e.target.files?.[0] ?? null)} />
-              <Button type="button" variant="outline" className="w-full border-dashed py-6" onClick={() => logoInputRef.current?.click()}>
-                <Upload className="h-4 w-4" /> העלאת לוגו
-                {business.logo_url ? (
-                  <img src={business.logo_url} alt="לוגו עסק" className="h-8 w-8 rounded-full object-cover border border-zinc-300" />
-                ) : null}
-              </Button>
+              {/* ניהול לוגו הוסר מהדשבורד לפי הדרישה העדכנית */}
             </CardContent>
           </Card>
 

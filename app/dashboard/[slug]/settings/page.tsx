@@ -28,7 +28,7 @@ type ServiceItem = {
 
 const STEPS = [
   "ייבוא מהאתר", "פרטי עסק", "מדיה לפתיחה", "הודעת פתיחה",
-  "סגמנטציה", "תשובות מהירות", "שירותים", "Arbox",
+  "שאלות ותפריט", "שירותים", "Arbox",
   "התנגדויות", "הודעות אוטומטיות", "הרשמה",
 ];
 
@@ -614,8 +614,20 @@ export default function SlugSettingsPage() {
         {/* ════════════════════ STEP 5 ════════════════════ */}
         {step === 5 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={5} title="שאלות סגמנטציה" desc="שאלות שיעזרו לזואי לנתב לקוחות לשירות הנכון" /></CardTitle></CardHeader>
-            <CardContent className="space-y-6">
+            <CardHeader>
+              <CardTitle>
+                <StepHeader
+                  n={5}
+                  title="שאלות ותפריט"
+                  desc="שאלות סגמנטציה לניתוב לשירות הנכון + כפתורי תשובה מהירה כללית"
+                />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-zinc-900 text-right">
+                  שאלות סגמנטציה
+                </h3>
               {segQuestions.map((q, qi) => (
                 <div key={q.id} className="border border-zinc-200 rounded-2xl p-4 space-y-4">
                   <div className="flex gap-2 items-center">
@@ -656,16 +668,12 @@ export default function SlugSettingsPage() {
               <Button variant="outline" onClick={addSegQuestion} className="w-full gap-2">
                 <Plus className="h-4 w-4" /> הוסף שאלה
               </Button>
-            </CardContent>
-          </Card>
-        )}
+              </div>
 
-        {/* ════════════════════ STEP 6 ════════════════════ */}
-        {step === 6 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={6} title="כפתורי תשובה מהירה" desc="כל כפתור מחזיר תשובה סטטית — ללא קריאה ל-AI" /></CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
+              <div className="space-y-3 border-t border-dashed border-zinc-200 pt-4">
+                <h3 className="text-sm font-semibold text-zinc-900 text-right">
+                  כפתורי תשובה מהירה
+                </h3>
                 {quickReplies.map((r, i) => (
                   <div key={r.id} className="border border-zinc-200 rounded-xl p-3 space-y-2">
                     <div className="flex gap-2 items-center">
@@ -739,8 +747,8 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 7 ════════════════════ */}
-        {step === 7 && (
+        {/* ════════════════════ STEP 6 (שירותים) ════════════════════ */}
+        {step === 6 && (
           <Card>
             <CardHeader><CardTitle><StepHeader n={7} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
@@ -772,10 +780,10 @@ export default function SlugSettingsPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="מחיר">
-                      <Input dir="rtl" value={s.price_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, price_text: e.target.value }; setServices(arr); }} placeholder="₪ 80 לשיעור" />
+                  <Field label="מחיר שיעור">
+                    <Input dir="rtl" value={s.price_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, price_text: e.target.value }; setServices(arr); }} placeholder="₪ 80 לשיעור ניסיון" />
                     </Field>
-                    <Field label="משך">
+                  <Field label="משך שיעור">
                       <Input dir="rtl" value={s.duration} onChange={e => { const arr = [...services]; arr[i] = { ...s, duration: e.target.value }; setServices(arr); }} placeholder="60 דקות" />
                     </Field>
                   </div>
