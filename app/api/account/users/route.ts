@@ -62,18 +62,56 @@ async function requireAdminForBusiness(admin: ReturnType<typeof createSupabaseAd
   return row?.role === "admin";
 }
 
-async function getAuthUserInfo(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string) {
+async function getAuthUsersByIds(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userIds: string[]
+): Promise<Map<string, { email: string; name: string }>> {
+  const map = new Map<string, { email: string; name: string }>();
+  const ids = userIds.filter(Boolean);
+  if (!ids.length) return map;
+
+  // Prefer querying auth.users (fast, batch) using service role.
   try {
-    const { data, error } = await admin.auth.admin.getUserById(userId);
-    if (error || !data.user) return { email: "", name: "" };
-    const u: any = data.user;
-    const name =
-      (typeof u.user_metadata?.full_name === "string" ? u.user_metadata.full_name : "") ||
-      (typeof u.user_metadata?.name === "string" ? u.user_metadata.name : "");
-    return { email: String(u.email ?? ""), name: String(name ?? "") };
+    const { data, error } = await (admin as any)
+      .schema("auth")
+      .from("users")
+      .select("id, email, raw_user_meta_data")
+      .in("id", ids);
+
+    if (!error && Array.isArray(data)) {
+      for (const row of data as any[]) {
+        const meta = (row?.raw_user_meta_data && typeof row.raw_user_meta_data === "object")
+          ? (row.raw_user_meta_data as Record<string, unknown>)
+          : {};
+        const name =
+          (typeof meta.full_name === "string" ? meta.full_name : "") ||
+          (typeof meta.name === "string" ? meta.name : "");
+        map.set(String(row.id), { email: String(row.email ?? ""), name: String(name ?? "") });
+      }
+      return map;
+    }
   } catch {
-    return { email: "", name: "" };
+    // fall back below
   }
+
+  // Fallback: per-user admin API (slower)
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const { data, error } = await admin.auth.admin.getUserById(id);
+        if (error || !data.user) return;
+        const u: any = data.user;
+        const name =
+          (typeof u.user_metadata?.full_name === "string" ? u.user_metadata.full_name : "") ||
+          (typeof u.user_metadata?.name === "string" ? u.user_metadata.name : "");
+        map.set(String(u.id), { email: String(u.email ?? ""), name: String(name ?? "") });
+      } catch {
+        // ignore
+      }
+    })
+  );
+
+  return map;
 }
 
 export async function GET() {
@@ -95,18 +133,19 @@ export async function GET() {
     .order("is_primary", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const members = await Promise.all(
-    (rows ?? []).map(async (r: any) => {
-      const info = await getAuthUserInfo(admin, String(r.user_id));
-      return {
-        user_id: String(r.user_id),
-        role: r.role === "admin" ? "admin" : "employee",
-        is_primary: Boolean(r.is_primary),
-        email: info.email,
-        name: info.name,
-      };
-    })
-  );
+  const ids = (rows ?? []).map((r: any) => String(r.user_id));
+  const infoById = await getAuthUsersByIds(admin, ids);
+  const members = (rows ?? []).map((r: any) => {
+    const uid = String(r.user_id);
+    const info = infoById.get(uid) ?? { email: "", name: "" };
+    return {
+      user_id: uid,
+      role: r.role === "admin" ? "admin" : "employee",
+      is_primary: Boolean(r.is_primary),
+      email: info.email,
+      name: info.name,
+    };
+  });
 
   return NextResponse.json({ members });
 }
