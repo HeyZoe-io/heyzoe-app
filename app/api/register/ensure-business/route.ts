@@ -29,6 +29,23 @@ async function ensureUniqueSlug(admin: ReturnType<typeof createSupabaseAdminClie
   return `${cleanBase}-${Date.now().toString(36)}`;
 }
 
+async function ensurePrimaryBusinessUser(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  userId: string
+) {
+  const { error } = await admin.from("business_users").upsert(
+    {
+      business_id: businessId,
+      user_id: userId,
+      role: "admin",
+      is_primary: true,
+    },
+    { onConflict: "business_id,user_id" } as any
+  );
+  if (error) throw error;
+}
+
 export async function POST() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
@@ -51,7 +68,12 @@ export async function POST() {
     .limit(1)
     .maybeSingle();
 
-  if (existing?.slug) {
+  if (existing?.slug && existing.id) {
+    try {
+      await ensurePrimaryBusinessUser(admin, Number(existing.id), user.id);
+    } catch (e: any) {
+      console.error("[api/register/ensure-business] ensurePrimaryBusinessUser failed:", e?.message ?? e);
+    }
     return NextResponse.json({ ok: true, slug: existing.slug });
   }
 
@@ -65,20 +87,31 @@ export async function POST() {
   const baseSlug = toSlugBase(displayName);
   const slug = await ensureUniqueSlug(admin, baseSlug);
 
-  const { error } = await admin.from("businesses").insert({
+  const { data: insertedBiz, error } = await admin
+    .from("businesses")
+    .insert({
     user_id: user.id,
     slug,
     name: displayName,
     niche: "",
     bot_name: "זואי",
     social_links: {},
-  } as any);
+  } as any)
+    .select("id, slug")
+    .single();
 
   if (error) {
     console.error("[api/register/ensure-business] insert failed:", error.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, slug });
+  try {
+    await ensurePrimaryBusinessUser(admin, Number(insertedBiz.id), user.id);
+  } catch (e: any) {
+    console.error("[api/register/ensure-business] failed to create primary business_user:", e?.message ?? e);
+    return NextResponse.json({ error: "membership_create_failed" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, slug: insertedBiz.slug });
 }
 
