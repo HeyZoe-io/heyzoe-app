@@ -1,17 +1,29 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
-import UserMenu from "@/app/components/UserMenu";
+import { redirect } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import SlugDashboardNav from "@/app/[slug]/Nav";
 
-export default function AccountLayout({ children }: { children: ReactNode }) {
+export default async function AccountLayout({ children }: { children: ReactNode }) {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) redirect("/dashboard/login");
+
+  const admin = createSupabaseAdminClient();
+  const { data: biz } = await admin
+    .from("businesses")
+    .select("slug")
+    .eq("user_id", data.user.id)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const slug = biz?.slug ? String(biz.slug) : "";
+
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-6" dir="rtl">
       <div className="mx-auto max-w-4xl space-y-4">
-        <nav className="flex items-center justify-between">
-          <UserMenu />
-          <Link href="/dashboard/settings" className="text-sm text-zinc-600 hover:text-zinc-900">
-            חזרה לדשבורד
-          </Link>
-        </nav>
+        {slug ? <SlugDashboardNav slug={slug} /> : null}
         {children}
       </div>
     </main>
