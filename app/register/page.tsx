@@ -100,6 +100,7 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="שם מלא"
+                autoComplete="name"
                 required
               />
             </div>
@@ -108,6 +109,7 @@ export default function RegisterPage() {
               <Input
                 className="pl-9 text-right placeholder:text-right"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="אימייל"
@@ -119,6 +121,7 @@ export default function RegisterPage() {
               <Input
                 className="pl-9 text-right placeholder:text-right"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="סיסמה"
@@ -130,6 +133,7 @@ export default function RegisterPage() {
               <Input
                 className="pl-9 text-right placeholder:text-right"
                 type="password"
+                autoComplete="new-password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="אישור סיסמה"

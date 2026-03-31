@@ -107,13 +107,21 @@ export default function DashboardLoginPage() {
           <form className="space-y-4" onSubmit={signInWithPassword}>
             <div className="relative">
               <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-              <Input className="pl-9" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input
+                className="pl-9"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
               <Input
                 className="pl-9"
                 type="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
