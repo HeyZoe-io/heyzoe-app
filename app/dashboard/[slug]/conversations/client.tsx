@@ -95,7 +95,10 @@ export default function ConversationsClient({
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+    <div
+      className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
+      style={{ fontFamily: 'Calibri, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
+    >
             <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3 max-h-[520px] overflow-auto">
         {sessions.map((s) => (
           <button
