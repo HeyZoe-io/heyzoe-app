@@ -151,6 +151,7 @@ export async function getDashboardData(range: DateRange) {
       const active = now - data.lastAt.getTime() < 1000 * 60 * 60 * 24 * 7;
       return {
         slug,
+        plan: "basic" as "basic" | "premium",
         active,
         seniorityDays,
         firstAt: data.firstAt.toISOString(),
@@ -159,6 +160,25 @@ export async function getDashboardData(range: DateRange) {
       };
     })
     .sort((a, b) => b.sessions - a.sessions);
+
+  // Enrich with business plan
+  try {
+    const slugs = businessOverview.map((b) => b.slug).filter(Boolean);
+    if (slugs.length) {
+      const { data: plans } = await supabase
+        .from("businesses")
+        .select("slug, plan")
+        .in("slug", slugs);
+      const planBySlug = new Map<string, "basic" | "premium">(
+        (plans ?? []).map((p: any) => [String(p.slug), p.plan === "premium" ? "premium" : "basic"])
+      );
+      for (const b of businessOverview) {
+        b.plan = planBySlug.get(b.slug) ?? "basic";
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   const dropoffByMessageNumber = [...sessionLastUserIndex.values()].reduce<Record<string, number>>(
     (acc, n) => {

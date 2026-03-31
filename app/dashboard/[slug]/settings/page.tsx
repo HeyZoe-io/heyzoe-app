@@ -86,6 +86,7 @@ export default function SlugSettingsPage() {
   const { slug } = useParams() as { slug: string };
 
   const [step, setStep]     = useState(1);
+  const [plan, setPlan] = useState<"basic" | "premium">("basic");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -106,6 +107,7 @@ export default function SlugSettingsPage() {
   const [arboxLink, setArboxLink] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
+  const [showTokenHelp, setShowTokenHelp] = useState(false);
 
   // ── Step 2: Opening media
   const [openingMediaUrl, setOpeningMediaUrl]   = useState("");
@@ -180,6 +182,7 @@ export default function SlugSettingsPage() {
           ? business.social_links : {}) as Record<string, unknown>;
 
         setWebsiteUrl(String(sl.website_url ?? business.website_url ?? ""));
+        setPlan((business.plan === "premium" ? "premium" : "basic") as "basic" | "premium");
         setName(String(business.name ?? ""));
         setBotName(String(business.bot_name ?? "זואי"));
         setNiche(String(business.niche ?? ""));
@@ -399,6 +402,23 @@ export default function SlugSettingsPage() {
 
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
+  const isPremium = plan === "premium";
+
+  function nextStep() {
+    setStep((s) => {
+      const n = Math.min(STEPS.length, s + 1);
+      if (!isPremium && n === 6) return Math.min(STEPS.length, n + 1);
+      return n;
+    });
+  }
+
+  function prevStep() {
+    setStep((s) => {
+      const n = Math.max(1, s - 1);
+      if (!isPremium && n === 6) return Math.max(1, n - 1);
+      return n;
+    });
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50" dir="rtl">
@@ -418,6 +438,7 @@ export default function SlugSettingsPage() {
           <div className="flex gap-1 min-w-max">
             {STEPS.map((label, i) => {
               const n = i + 1;
+              if (!isPremium && label === "חיבור פייסבוק") return null;
               const active  = step === n;
               const done    = step > n;
               return (
@@ -824,6 +845,7 @@ export default function SlugSettingsPage() {
 
         {/* ════════════════════ STEP 6 ════════════════════ */}
         {step === 6 && (
+          isPremium ? (
           <Card>
             <CardHeader><CardTitle><StepHeader n={6} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
@@ -842,12 +864,22 @@ export default function SlugSettingsPage() {
                 <Field label="Conversions API Access Token">
                   <Input dir="ltr" type="password" value={conversionsApiToken} onChange={e => setConversionsApiToken(e.target.value)} placeholder="הדבק כאן את הטוקן" />
                 </Field>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowTokenHelp(true)}
+                    className="text-[11px] underline underline-offset-4 text-zinc-500 hover:text-zinc-700 cursor-pointer"
+                  >
+                    איך מוצאים את הטוקן?
+                  </button>
+                </div>
                 <p className="text-[11px] text-zinc-500">
                   כאשר שני השדות מלאים, נשלח אירוע Server-to-Server לפייסבוק על כל המרה.
                 </p>
               </div>
             </CardContent>
           </Card>
+          ) : null
         )}
 
         {/* ════════════════════ STEP 7 ════════════════════ */}
@@ -899,7 +931,7 @@ export default function SlugSettingsPage() {
         <div className="flex items-center justify-between mt-8 pt-4 border-t border-zinc-200">
           <Button
             variant="outline"
-            onClick={() => setStep(s => Math.max(1, s - 1))}
+            onClick={prevStep}
             disabled={isFirst}
             className="gap-2"
           >
@@ -915,12 +947,40 @@ export default function SlugSettingsPage() {
               {saving ? "שומר..." : "שמור הכל"}
             </Button>
           ) : (
-            <Button onClick={() => { saveAll(); setStep(s => Math.min(STEPS.length, s + 1)); }} className="gap-2">
+            <Button onClick={() => { saveAll(); nextStep(); }} className="gap-2">
               הבא
               <ArrowLeft className="h-4 w-4" />
             </Button>
           )}
         </div>
+
+        {showTokenHelp ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-zinc-900">איך מוצאים את הטוקן?</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">Conversions API Access Token</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTokenHelp(false)}
+                  className="rounded-full p-1 text-zinc-500 hover:text-zinc-800 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <ol className="mt-4 space-y-2 text-sm text-zinc-700 list-decimal pr-5">
+                <li>כנס ל־Events Manager.</li>
+                <li>בחר את ה־Dataset שלך.</li>
+                <li>לך ל־Settings והעתק את ה־Access Token.</li>
+              </ol>
+              <div className="mt-5 flex justify-start">
+                <Button onClick={() => setShowTokenHelp(false)} className="px-4">סגור</Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* ── Saved toast ── */}
         {savedOk && (

@@ -6,6 +6,7 @@ create table if not exists public.businesses (
   user_id uuid not null references auth.users(id) on delete cascade,
   slug text not null unique,
   name text not null,
+  plan text not null default 'basic' check (plan in ('basic', 'premium')),
   niche text,
   bot_name text not null default 'זואי',
   logo_url text,
