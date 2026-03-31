@@ -4,6 +4,7 @@ import {
   verifyTwilioSignature,
   parseTwilioWebhook,
   sendWhatsAppMessage,
+  sendWhatsAppMediaMessage,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
 } from "@/lib/whatsapp";
@@ -111,6 +112,19 @@ async function processIncoming(
   const { business_slug } = channel;
   const sessionId = `wa_${msg.toNumber}_${msg.from}`;
 
+  // Detect "new lead" (first message in this session)
+  let isNewLead = false;
+  try {
+    const { count } = await supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true } as any)
+      .eq("business_slug", business_slug)
+      .eq("session_id", sessionId);
+    isNewLead = (count ?? 0) === 0;
+  } catch (e) {
+    console.warn("[WA Webhook] new-lead check failed (continuing):", e);
+  }
+
   // Handle unsupported message types
   if (msg.type === "unsupported") {
     await sendWhatsAppMessage(
@@ -153,6 +167,61 @@ async function processIncoming(
 
   // Build context
   const knowledge = await getBusinessKnowledgePack(business_slug);
+
+  // New lead flow: optional media first, then a default opening message (no AI)
+  if (isNewLead) {
+    try {
+      const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
+      if (mediaUrl) {
+        await sendWhatsAppMediaMessage(msg.toNumber, msg.from, mediaUrl, accountSid, authToken);
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: `[media] ${mediaUrl}`,
+          model_used: "opening_media",
+          session_id: sessionId,
+        });
+      }
+    } catch (e) {
+      console.error("[WA Webhook] sending opening media failed (continuing):", e);
+    }
+
+    const bizName = knowledge?.businessName?.trim() || business_slug;
+    const address = knowledge?.addressText?.trim();
+    const services = knowledge?.servicesShortText?.trim();
+    const sportName = (knowledge?.niche?.trim() || "האימון").replace(/\s+/g, " ");
+
+    const openingLines: string[] = [];
+    openingLines.push(`היי! כאן ${bizName}.`);
+    if (address) openingLines.push(`כתובת: ${address}`);
+    if (services) {
+      openingLines.push(`שירותים ומחירים:`);
+      openingLines.push(services);
+    }
+    openingLines.push(`האם יצא לך לנסות ${sportName} בעבר?`);
+    openingLines.push(`1. לא יצא לי`);
+    openingLines.push(`2. יצא לי פעם-פעמיים`);
+    openingLines.push(`3. יצא לי לא מעט פעמים`);
+    openingLines.push(`\n(אפשר לענות רק עם 1/2/3)`);
+
+    const openingText = openingLines.join("\n");
+
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, openingText, accountSid, authToken);
+    } catch (e) {
+      console.error(`[WA Webhook] Send opening message failed to ${msg.from}:`, e);
+    }
+
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: openingText,
+      model_used: "default_opening",
+      session_id: sessionId,
+    });
+
+    return;
+  }
 
   const OTHER_LABEL = "שאלה אחרת";
 

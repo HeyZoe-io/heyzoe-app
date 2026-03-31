@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp,
@@ -91,7 +91,6 @@ export default function SlugSettingsPage() {
   const [savedOk, setSavedOk] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [fetchingUrl, setFetchingUrl]         = useState(false);
-  const [generatingWelcome, setGeneratingWelcome] = useState(false);
 
   // ── Step 1: Business details (includes optional website import)
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -128,6 +127,40 @@ export default function SlugSettingsPage() {
   // ── Step 4: Services + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
   const dragIdx = useRef<number | null>(null);
+
+  const defaultWelcomeMessage = useMemo(() => {
+    const cleanName = name.trim() || slug;
+    const cleanAddress = address.trim();
+    const cleanServices = services
+      .filter((s) => s.name.trim())
+      .slice(0, 3)
+      .map((s) => {
+        const title = s.name.trim();
+        const price = s.price_text.trim();
+        return price ? `- ${title} (${price})` : `- ${title}`;
+      })
+      .join("\n");
+    const sportName = (niche.trim() || "האימון").replace(/\s+/g, " ");
+
+    const lines: string[] = [];
+    lines.push(`היי! כאן ${cleanName}.`);
+    if (cleanAddress) lines.push(`כתובת: ${cleanAddress}`);
+    if (cleanServices) {
+      lines.push(`שירותים ומחירים:`);
+      lines.push(cleanServices);
+    }
+    lines.push(`האם יצא לך לנסות ${sportName} בעבר?`);
+    lines.push(`1. לא יצא לי`);
+    lines.push(`2. יצא לי פעם-פעמיים`);
+    lines.push(`3. יצא לי לא מעט פעמים`);
+    return lines.join("\n");
+  }, [address, name, niche, services, slug]);
+
+  useEffect(() => {
+    if (step !== 3) return;
+    if (welcomeMessage.trim()) return;
+    setWelcomeMessage(defaultWelcomeMessage);
+  }, [defaultWelcomeMessage, step, welcomeMessage]);
 
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
@@ -297,20 +330,7 @@ export default function SlugSettingsPage() {
     } finally { setFetchingUrl(false); }
   }
 
-  // ─── Generate welcome ──────────────────────────────────────────────────────
-
-  async function generateWelcome() {
-    setGeneratingWelcome(true);
-    try {
-      const res = await fetch("/api/dashboard/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "welcome", business_name: name, niche, vibe, website_url: websiteUrl, business_description: description }),
-      });
-      const j = await res.json();
-      if (j.welcome_message) setWelcomeMessage(j.welcome_message);
-    } finally { setGeneratingWelcome(false); }
-  }
+  // Welcome message is generated automatically on entering step 3.
 
   // ─── Services drag & drop ──────────────────────────────────────────────────
 
@@ -536,12 +556,19 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader><CardTitle><StepHeader n={3} title="הודעת פתיחה" desc="ההודעה הראשונה שזואי תשלח לכל לקוח חדש" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              {openingMediaUrl ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  {openingMediaType === "video" ? (
+                    <video src={openingMediaUrl} className="max-h-56 w-full rounded-xl" controls />
+                  ) : (
+                    <img src={openingMediaUrl} alt="opening media" className="max-h-56 w-full rounded-xl object-contain" />
+                  )}
+                </div>
+              ) : null}
               <Textarea value={welcomeMessage} onChange={setWelcomeMessage} placeholder="שלום! אני זואי מ..." rows={5} />
-              <Button variant="outline" onClick={generateWelcome} disabled={generatingWelcome || !name} className="gap-2 w-full">
-                {generatingWelcome ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 text-fuchsia-500" />}
-                {generatingWelcome ? "מייצר..." : "ייצר עם AI"}
-              </Button>
-              {!name && <p className="text-xs text-zinc-400 text-center">מלא שם עסק בשלב 1 לפני הייצור</p>}
+              <p className="text-[11px] text-zinc-500 text-center">
+                הודעת פתיחה דיפולטית נוצרת אוטומטית כשנכנסים לשלב הזה (ניתן לערוך ידנית).
+              </p>
             </CardContent>
           </Card>
         )}
