@@ -165,7 +165,9 @@ export default function SlugSettingsPage() {
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
   // ── Step 7: Follow-up
-  const [postRegMsg, setPostRegMsg] = useState("");
+  const [followupAfterRegistration, setFollowupAfterRegistration] = useState("");
+  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
+  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
 
   // ─── Load data ─────────────────────────────────────────────────────────────
 
@@ -202,7 +204,9 @@ export default function SlugSettingsPage() {
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
-        setPostRegMsg(String(sl.post_registration_message ?? ""));
+        setFollowupAfterRegistration(String(sl.followup_after_registration ?? sl.post_registration_message ?? ""));
+        setFollowupAfterHourNoRegistration(String(sl.followup_after_hour_no_registration ?? ""));
+        setFollowupDayAfterTrial(String(sl.followup_day_after_trial ?? ""));
 
         if (Array.isArray(svcs)) {
           setServices(svcs.map((s: Record<string, unknown>) => {
@@ -257,7 +261,9 @@ export default function SlugSettingsPage() {
               ],
               arbox_link: arboxLink,
               objections,
-              post_registration_message: postRegMsg,
+              followup_after_registration: followupAfterRegistration,
+              followup_after_hour_no_registration: followupAfterHourNoRegistration,
+              followup_day_after_trial: followupDayAfterTrial,
             },
           },
           services: services.filter(s => s.name).map(s => ({
@@ -281,7 +287,9 @@ export default function SlugSettingsPage() {
     }
   }, [slug, name, niche, botName, welcomeMessage, facebookPixelId, conversionsApiToken,
       websiteUrl, description, address, directions, vibe, openingMediaUrl, openingMediaType,
-      segQuestions, quickReplies, arboxLink, objections, postRegMsg, services]); // eslint-disable-line react-hooks/exhaustive-deps
+      segQuestions, quickReplies, arboxLink, objections,
+      followupAfterRegistration, followupAfterHourNoRegistration, followupDayAfterTrial,
+      services]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Logo upload ───────────────────────────────────────────────────────────
 
@@ -845,14 +853,41 @@ export default function SlugSettingsPage() {
         {/* ════════════════════ STEP 7 ════════════════════ */}
         {step === 7 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={7} title="פולואפ" desc="הודעה שתישלח לאחר שהלקוח ביצע פעולה (למשל הרשמה)" /></CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader n={7} title="פולואפ" desc="הודעות אוטומטיות לפי זמן/אירוע" />
+              </CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4">
-              <Textarea
-                value={postRegMsg}
-                onChange={setPostRegMsg}
-                placeholder={"כל הכבוד! נרשמת בהצלחה 🎉\n\nמה לצפות מהשיעור הראשון:\n- הגיעו 10 דקות לפני\n- לבשו בגדים נוחים\n- שתו מים לפני השיעור\n\nמחכים לכם!"}
-                rows={8}
-              />
+              <Field label="פולואפ לאחר הרשמה">
+                <Textarea
+                  value={followupAfterRegistration}
+                  onChange={setFollowupAfterRegistration}
+                  placeholder={"כל הכבוד! נרשמת בהצלחה 🎉\n\nמה לצפות מהשיעור הראשון:\n- הגיעו 10 דקות לפני\n- לבשו בגדים נוחים\n- שתו מים לפני השיעור\n\nמחכים לכם!"}
+                  rows={6}
+                />
+              </Field>
+
+              <Field label="פולואפ אחרי שעה אם לא נרשם">
+                <Textarea
+                  value={followupAfterHourNoRegistration}
+                  onChange={setFollowupAfterHourNoRegistration}
+                  placeholder={"רק מזכירה בעדינות — אם תרצו לשריין מקום לשיעור ניסיון, אפשר להירשם כאן 🙂"}
+                  rows={5}
+                />
+              </Field>
+
+              <Field label="פולואפ יום אחרי שיעור הניסיון">
+                <Textarea
+                  value={followupDayAfterTrial}
+                  onChange={setFollowupDayAfterTrial}
+                  placeholder={"היי! איך היה שיעור הניסיון? אשמח לשמוע איך היה ולהציע את המסלול שהכי מתאים לך."}
+                  rows={5}
+                />
+                <p className="text-[11px] text-zinc-500">
+                  הערה: בעתיד המועד (יום אחרי שיעור הניסיון) יישאב אוטומטית מארבוקס.
+                </p>
+              </Field>
             </CardContent>
           </Card>
         )}
