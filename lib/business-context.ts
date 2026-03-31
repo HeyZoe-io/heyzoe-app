@@ -112,11 +112,14 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 }
 
 export function buildSystemPrompt(knowledge: BusinessKnowledgePack | null, slug: string, channel: "web" | "whatsapp" = "web"): string {
-  const channelNote = channel === "whatsapp"
-    ? "\n- ערוץ: WhatsApp — תשובות קצרות במיוחד (משפט אחד עד שניים), ללא Markdown, ללא כוכביות."
+  const isWhatsApp = channel === "whatsapp";
+  const channelNote = isWhatsApp
+    ? `
+- ערוץ: WhatsApp — תשובות קצרות במיוחד (משפט אחד עד שניים), ללא Markdown, ללא כוכביות.
+- השתמשי בכפתורי התפריט (quick replies) שהוגדרו בדשבורד ולא בכתיבה חופשית עבור בחירת אפשרויות.`
     : "";
 
-  return `את זואי, נציגת השירות של העסק.
+  const base = `את זואי, נציגת השירות של העסק.
 שם העסק: ${knowledge?.businessName ?? slug}
 סגנון דיבור (Vibe): ${knowledge?.vibeText ?? "חם, מקצועי וקצר"}
 
@@ -137,4 +140,24 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}`;
+
+  if (!isWhatsApp) return base;
+
+  return `${base}
+
+הוראות ספציפיות לזרימת וואטסאפ:
+- ההודעה הראשונה ללקוח צריכה לכלול:
+  1) משפט פתיחה קצר שמציג את העסק בשורה אחת (שם העסק + תחום).
+  2) כתובת / אזור פעילות מרכזי אם ידוע.
+  3) רשימה קצרה מאוד של השירותים העיקריים עם מחירים (עד 3 שירותים בשורה נפרדת לכל שירות).
+  4) שאלה מסכמת: "האם יצא לך לנסות את התחום הזה בעבר?".
+  5) שלושה כפתורי בחירה לתשובה: "לא יצא לי", "יצא לי פעם-פעמיים", "יצא לי לא מעט פעמים".
+- לאחר בחירת אחת משלוש הרמות, התשובה הבאה צריכה:
+  1) להתייחס בקצרה לרמת הניסיון (ללא חקירה ארוכה).
+  2) להציג שני כפתורים:
+     - "צפה בלו״ז והירשם" — משויך ללינק Arbox / הרשמה מהדשבורד אם קיים.
+     - "שאלות נוספות" — פותח תפריט כפתורי תשובה מהירה (quick replies) שהוגדרו בדשבורד.
+- שאלות הסגמנטציה שהוגדרו בדשבורד (Segmentation Questions) יופיעו רק אחרי שאלת הפתיחה, ורק אם המשתמש בחר להמשיך לשיחה כללית ולא נרשם עדיין.
+- לעולם אל תשתמשי ב-Markdown או ברשימות תבליטים; בוואטסאפ הטקסט חייב להיות פשוט וברור.
+`;
 }
