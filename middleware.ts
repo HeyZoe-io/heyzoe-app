@@ -69,8 +69,9 @@ export async function middleware(req: NextRequest) {
 
   if (isOwnerDashboardPath || isOwnerAccountPath || isOwnerSlugPath) {
     const isLoginPath = pathname === "/dashboard/login";
+    const isResetPath = pathname === "/dashboard/reset";
     if (!user) {
-      if (isLoginPath) return res;
+      if (isLoginPath || isResetPath) return res;
       return redirectToDashboardLogin(req);
     }
     if (isLoginPath) {
