@@ -13,6 +13,7 @@ export default function DashboardResetPasswordPage() {
 
   const [ready, setReady] = useState(false);
   const [exchanged, setExchanged] = useState(false);
+  const [expired, setExpired] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,19 +23,56 @@ export default function DashboardResetPasswordPage() {
     async function run() {
       try {
         const url = new URL(window.location.href);
+        const type = url.searchParams.get("type") ?? "";
+        const tokenHash = url.searchParams.get("token_hash") ?? "";
         const code = url.searchParams.get("code") ?? "";
-        if (!code) {
-          setMessage("לינק האיפוס לא תקין או שפג תוקפו. בקשו לינק חדש.");
+
+        // Recovery links may arrive as token_hash&type=recovery
+        if (type === "recovery" && tokenHash) {
+          const { error } = await supabase.auth.verifyOtp({
+            type: "recovery",
+            token_hash: tokenHash,
+          } as any);
+          if (error) {
+            const msg = (error as any)?.message ? String((error as any).message) : "";
+            if (/expired/i.test(msg)) {
+              setExpired(true);
+              setMessage("הקישור פג תוקף");
+            } else {
+              setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
+            }
+            setReady(true);
+            return;
+          }
+
+          setExchanged(true);
           setReady(true);
           return;
         }
 
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) {
-          setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
+        // PKCE reset links may arrive as ?code=...
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            const msg = (error as any)?.message ? String((error as any).message) : "";
+            if (/expired/i.test(msg)) {
+              setExpired(true);
+              setMessage("הקישור פג תוקף");
+            } else {
+              setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
+            }
+            setReady(true);
+            return;
+          }
+
+          setExchanged(true);
           setReady(true);
           return;
         }
+
+        setMessage("לינק האיפוס לא תקין או שפג תוקפו. בקשו לינק חדש.");
+        setReady(true);
+        return;
 
         setExchanged(true);
         setReady(true);
@@ -117,9 +155,15 @@ export default function DashboardResetPasswordPage() {
               {message ? (
                 <p className="text-sm text-zinc-500 text-center">{message}</p>
               ) : null}
-              <Button className="w-full" onClick={() => router.replace("/dashboard/login")}>
-                חזרה להתחברות
-              </Button>
+              {expired ? (
+                <Button className="w-full" onClick={() => router.replace("/dashboard/login")}>
+                  שלח קישור חדש
+                </Button>
+              ) : (
+                <Button className="w-full" onClick={() => router.replace("/dashboard/login")}>
+                  חזרה להתחברות
+                </Button>
+              )}
             </div>
           )}
         </CardContent>
