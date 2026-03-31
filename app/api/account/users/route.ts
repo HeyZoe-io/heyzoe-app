@@ -48,6 +48,7 @@ async function ensurePrimaryMembership(admin: ReturnType<typeof createSupabaseAd
     business_id: businessId,
     user_id: ownerUserId,
     role: "admin",
+    status: "active",
     is_primary: true,
   } as any);
 }
@@ -65,8 +66,8 @@ async function requireAdminForBusiness(admin: ReturnType<typeof createSupabaseAd
 async function getAuthUsersByIds(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   userIds: string[]
-): Promise<Map<string, { email: string; name: string }>> {
-  const map = new Map<string, { email: string; name: string }>();
+): Promise<Map<string, { email: string; name: string; confirmed_at: string | null }>> {
+  const map = new Map<string, { email: string; name: string; confirmed_at: string | null }>();
   const ids = userIds.filter(Boolean);
   if (!ids.length) return map;
 
@@ -75,7 +76,7 @@ async function getAuthUsersByIds(
     const { data, error } = await (admin as any)
       .schema("auth")
       .from("users")
-      .select("id, email, raw_user_meta_data")
+      .select("id, email, raw_user_meta_data, confirmed_at")
       .in("id", ids);
 
     if (!error && Array.isArray(data)) {
@@ -86,7 +87,11 @@ async function getAuthUsersByIds(
         const name =
           (typeof meta.full_name === "string" ? meta.full_name : "") ||
           (typeof meta.name === "string" ? meta.name : "");
-        map.set(String(row.id), { email: String(row.email ?? ""), name: String(name ?? "") });
+        map.set(String(row.id), {
+          email: String(row.email ?? ""),
+          name: String(name ?? ""),
+          confirmed_at: row.confirmed_at ? String(row.confirmed_at) : null,
+        });
       }
       return map;
     }
@@ -104,7 +109,11 @@ async function getAuthUsersByIds(
         const name =
           (typeof u.user_metadata?.full_name === "string" ? u.user_metadata.full_name : "") ||
           (typeof u.user_metadata?.name === "string" ? u.user_metadata.name : "");
-        map.set(String(u.id), { email: String(u.email ?? ""), name: String(name ?? "") });
+        map.set(String(u.id), {
+          email: String(u.email ?? ""),
+          name: String(name ?? ""),
+          confirmed_at: u.confirmed_at ? String(u.confirmed_at) : null,
+        });
       } catch {
         // ignore
       }
@@ -128,19 +137,37 @@ export async function GET() {
 
   const { data: rows, error } = await admin
     .from("business_users")
-    .select("business_id, user_id, role, is_primary")
+    .select("business_id, user_id, role, status, is_primary")
     .eq("business_id", bizInfo.businessId)
     .order("is_primary", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const ids = (rows ?? []).map((r: any) => String(r.user_id));
   const infoById = await getAuthUsersByIds(admin, ids);
+  // Auto-activate pending users when they confirm the invite
+  const toActivate = (rows ?? [])
+    .filter((r: any) => String(r.status ?? "pending") === "pending")
+    .filter((r: any) => Boolean(infoById.get(String(r.user_id))?.confirmed_at))
+    .map((r: any) => String(r.user_id));
+  if (toActivate.length) {
+    await admin
+      .from("business_users")
+      .update({ status: "active" })
+      .eq("business_id", bizInfo.businessId)
+      .in("user_id", toActivate);
+  }
+
   const members = (rows ?? []).map((r: any) => {
     const uid = String(r.user_id);
-    const info = infoById.get(uid) ?? { email: "", name: "" };
+    const info = infoById.get(uid) ?? { email: "", name: "", confirmed_at: null };
+    const status =
+      String(r.status ?? "pending") === "active" || (toActivate.includes(uid) && Boolean(info.confirmed_at))
+        ? "active"
+        : "pending";
     return {
       user_id: uid,
       role: r.role === "admin" ? "admin" : "employee",
+      status,
       is_primary: Boolean(r.is_primary),
       email: info.email,
       name: info.name,
@@ -183,6 +210,7 @@ export async function POST(req: NextRequest) {
       business_id: bizInfo.businessId,
       user_id: invitedUserId,
       role,
+      status: "pending",
       is_primary: false,
     },
     { onConflict: "business_id,user_id" } as any

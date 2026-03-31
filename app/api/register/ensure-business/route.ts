@@ -39,6 +39,7 @@ async function ensurePrimaryBusinessUser(
       business_id: businessId,
       user_id: userId,
       role: "admin",
+      status: "active",
       is_primary: true,
     },
     { onConflict: "business_id,user_id" } as any
