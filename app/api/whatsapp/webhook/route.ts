@@ -131,22 +131,47 @@ async function processIncoming(
     session_id: sessionId,
   });
 
+  // Check if this session is currently paused (manual takeover by human).
+  try {
+    const nowIso = new Date().toISOString();
+    const { data: paused } = await supabase
+      .from("paused_sessions")
+      .select("id, paused_until")
+      .eq("business_slug", business_slug)
+      .eq("session_id", sessionId)
+      .gt("paused_until", nowIso)
+      .maybeSingle();
+    if (paused) {
+      console.info(
+        `[WA Webhook] Session ${sessionId} for ${business_slug} is paused until ${paused.paused_until}; skipping auto-reply.`
+      );
+      return;
+    }
+  } catch (e) {
+    console.error("[WA Webhook] pause-check failed (continuing anyway):", e);
+  }
+
   // Build context
   const knowledge = await getBusinessKnowledgePack(business_slug);
 
-  // ── Quick-reply match: static response, no Claude call ──────────────────────
-  const incomingNorm = msg.text.trim().toLowerCase();
+  const OTHER_LABEL = "שאלה אחרת";
+
+  // ── Quick-reply vs. "other question" routing ────────────────────────────────
+  const incomingRaw = msg.text.trim();
+  const incomingNorm = incomingRaw.toLowerCase();
+
   const matched = knowledge?.quickReplies?.find(
-    qr => qr.label.trim().toLowerCase() === incomingNorm
+    (qr) => qr.label.trim().toLowerCase() === incomingNorm
   );
 
-  let replyText: string;
+  let replyCore: string;
 
   if (matched && matched.reply) {
-    replyText = matched.reply;
+    // Static answer for a predefined quick-reply button
+    replyCore = matched.reply;
     console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
   } else {
-    // Free-form message — call Claude
+    // "שאלה אחרת" or any free-form question → Claude
     const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp");
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
@@ -156,14 +181,30 @@ async function processIncoming(
         system: systemPrompt,
         messages: [{ role: "user", content: msg.text }],
       });
-      replyText = response.content[0]?.type === "text"
-        ? response.content[0].text.trim()
-        : formatUserFacingClaudeError(new Error("empty response"));
+      replyCore =
+        response.content[0]?.type === "text"
+          ? response.content[0].text.trim()
+          : formatUserFacingClaudeError(new Error("empty response"));
     } catch (e) {
       console.error(`[WA Webhook] Claude error for ${business_slug}:`, e);
-      replyText = formatUserFacingClaudeError(e);
+      replyCore = formatUserFacingClaudeError(e);
     }
   }
+
+  // Build interactive-style menu from quick replies + "other question"
+  const quickLabels = (knowledge?.quickReplies ?? [])
+    .map((qr) => qr.label.trim())
+    .filter((lbl) => lbl.length > 0);
+  const buttons: string[] = [...quickLabels, OTHER_LABEL];
+
+  const buttonsBlock =
+    buttons.length > 0
+      ? `\n\nבחרו אחת מהאפשרויות:\n${buttons
+          .map((lbl, idx) => `${idx + 1}. ${lbl}`)
+          .join("\n")}`
+      : "";
+
+  let replyText = replyCore;
 
   // Append CTA if available
   const ctaText = knowledge?.ctaText?.trim();
@@ -171,6 +212,10 @@ async function processIncoming(
   if (ctaText && ctaLink) {
     replyText += `\n\n${ctaText}: ${ctaLink}`;
   }
+
+  // Append buttons and small footer note
+  replyText += buttonsBlock;
+  replyText += `\n\nניתן לכתוב לנו גם שאלה שאינה מופיעה`;
 
   // Send reply via Twilio
   try {

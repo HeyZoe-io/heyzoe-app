@@ -14,7 +14,9 @@ create table if not exists public.businesses (
   secondary_color text not null default '#bc74e9',
   welcome_message text not null default 'נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.',
   cta_text text,
-  cta_link text
+  cta_link text,
+  facebook_pixel_id text,
+  conversions_api_token text
 );
 
 create index if not exists idx_businesses_user_id on public.businesses(user_id);
