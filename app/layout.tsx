@@ -24,7 +24,8 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="he"
+      dir="rtl"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       {/* הוספנו כאן suppressHydrationWarning כדי לפתור את השגיאה של תוספי הדפדפן */}

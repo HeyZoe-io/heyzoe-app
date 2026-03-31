@@ -25,6 +25,24 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* RTL defaults (dashboard-heavy app).
+   LTR fields must explicitly set dir="ltr" in JSX. */
+input:not([dir="ltr"]),
+textarea:not([dir="ltr"]) {
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+}
+
+/* Better punctuation placement for RTL text blocks */
+p,
+li,
+div,
+span,
+label {
+  unicode-bidi: plaintext;
+}
+
 button,
 a,
 summary,
