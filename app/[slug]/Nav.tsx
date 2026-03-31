@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export default function DashboardSlugNav({ slug }: { slug: string }) {
+export default function SlugDashboardNav({ slug }: { slug: string }) {
   const pathname = usePathname();
-  const base = `/dashboard/${slug}`;
+  const base = `/${slug}`;
 
   const items: { href: string; label: string }[] = [
     { href: `${base}/analytics`, label: "אנליטיקס" },
