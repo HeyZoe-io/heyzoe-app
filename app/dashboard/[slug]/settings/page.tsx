@@ -202,7 +202,8 @@ export default function SlugSettingsPage() {
                   : { id: (r as any).id ?? uid(), label: String((r as any).label ?? ""), reply: String((r as any).reply ?? "") }
               )
             : [];
-        setQuickReplies(loadedQr.filter((r) => r.label !== "מה הכתובת שלכם?"));
+        // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
+        setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
@@ -258,10 +259,7 @@ export default function SlugSettingsPage() {
               opening_media_url: openingMediaUrl,
               opening_media_type: openingMediaType,
               segmentation_questions: segQuestions,
-              quick_replies: [
-                ...quickReplies,
-                { id: "__addr__", label: "מה הכתובת שלכם?", reply: address },
-              ],
+              quick_replies: quickReplies,
               arbox_link: arboxLink,
               objections,
               followup_after_registration: followupAfterRegistration,
@@ -293,6 +291,25 @@ export default function SlugSettingsPage() {
       segQuestions, quickReplies, arboxLink, objections,
       followupAfterRegistration, followupAfterHourNoRegistration, followupDayAfterTrial,
       services]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ensure there's a default "מה הכתובת שלכם?" quick reply (editable/removable like others).
+  useEffect(() => {
+    const addr = address.trim();
+    if (!addr) return;
+    setQuickReplies((prev) => {
+      const idx = prev.findIndex((r) => r.label.trim() === "מה הכתובת שלכם?");
+      if (idx === -1) {
+        return [...prev, { id: uid(), label: "מה הכתובת שלכם?", reply: addr }];
+      }
+      const existing = prev[idx];
+      if (!existing.reply.trim()) {
+        const next = [...prev];
+        next[idx] = { ...existing, reply: addr };
+        return next;
+      }
+      return prev;
+    });
+  }, [address]);
 
   // ─── Logo upload ───────────────────────────────────────────────────────────
 
@@ -701,14 +718,7 @@ export default function SlugSettingsPage() {
                   </div>
                 </div>
 
-              {/* Auto address quick reply */}
-              <div className="flex gap-2 items-center opacity-80">
-                <span className="text-xs text-zinc-400 w-5 shrink-0">{quickReplies.length + 2}.</span>
-                <div className="flex-1 border border-dashed border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-500">
-                  מה הכתובת שלכם? (אוטומטי)
-                  {address ? <span className="block text-xs text-zinc-400 mt-1">{address}</span> : null}
-                </div>
-              </div>
+              {/* "מה הכתובת שלכם?" is now a regular editable quick reply */}
               </div>
 
               {/* Add new quick reply */}
