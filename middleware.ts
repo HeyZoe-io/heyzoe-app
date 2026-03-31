@@ -24,9 +24,11 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
+  const isOwnerAccountPath = pathname.startsWith("/account");
   const isOwnerSlugPath =
     /^\/[^/]+\/(analytics|conversations|settings)\/?$/.test(pathname);
-  if (!isAdminPath && !isOwnerDashboardPath && !isOwnerSlugPath) return NextResponse.next();
+  if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
+    return NextResponse.next();
 
   const res = NextResponse.next({ request: { headers: req.headers } });
   const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
@@ -65,7 +67,7 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  if (isOwnerDashboardPath || isOwnerSlugPath) {
+  if (isOwnerDashboardPath || isOwnerAccountPath || isOwnerSlugPath) {
     const isLoginPath = pathname === "/dashboard/login";
     if (!user) {
       if (isLoginPath) return res;
@@ -83,5 +85,12 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/dashboard/:path*", "/:slug/analytics", "/:slug/conversations", "/:slug/settings"],
+  matcher: [
+    "/admin/:path*",
+    "/dashboard/:path*",
+    "/account/:path*",
+    "/:slug/analytics",
+    "/:slug/conversations",
+    "/:slug/settings",
+  ],
 };
