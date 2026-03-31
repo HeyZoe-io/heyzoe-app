@@ -16,15 +16,34 @@ export default function DashboardLoginPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  const nextPath = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const sp = new URLSearchParams(window.location.search);
+    const next = sp.get("next") ?? "";
+    return next.startsWith("/") ? next : "";
+  }, []);
+
+  async function redirectAfterLogin() {
+    if (nextPath) {
+      router.replace(nextPath);
+      return;
+    }
+    const res = await fetch("/api/dashboard/settings", { method: "GET" });
+    const j = await res.json().catch(() => ({}));
+    const slug =
+      j?.business && typeof j.business.slug === "string" ? String(j.business.slug).trim() : "";
+    router.replace(slug ? `/${encodeURIComponent(slug)}/analytics` : "/register");
+  }
+
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/dashboard/settings");
+      if (data.session) void redirectAfterLogin();
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_ev, session) => {
-      if (session) router.replace("/dashboard/settings");
+      if (session) void redirectAfterLogin();
     });
     return () => sub.subscription.unsubscribe();
-  }, [router, supabase]);
+  }, [supabase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function signInWithPassword(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +54,7 @@ export default function DashboardLoginPage() {
       password,
     });
     if (error) setMessage(error.message);
-    else router.replace("/dashboard/settings");
+    else await redirectAfterLogin();
     setLoading(false);
   }
 
@@ -45,7 +64,7 @@ export default function DashboardLoginPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/dashboard/settings`,
+        redirectTo: `${window.location.origin}/dashboard/login`,
       },
     });
     if (error) {
