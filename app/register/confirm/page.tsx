@@ -5,15 +5,30 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 export default function RegisterConfirmPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const [status, setStatus] = useState<"loading" | "need_verify" | "creating" | "done" | "error">("loading");
+  const [status, setStatus] = useState<
+    "loading" | "need_verify" | "invite_set_password" | "creating" | "done" | "error"
+  >("loading");
   const [message, setMessage] = useState("מאמת התחברות...");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     async function run() {
+      // Invite links use token_hash + type=invite (not code).
+      const url = new URL(window.location.href);
+      const type = url.searchParams.get("type") ?? "";
+      const tokenHash = url.searchParams.get("token_hash") ?? "";
+      if (type === "invite" && tokenHash) {
+        setStatus("invite_set_password");
+        setMessage("הוזמנת לעסק. כדי להמשיך, הגדירו סיסמה חדשה לחשבון.");
+        return;
+      }
+
       try {
         // Handles both email confirmation (code) and OAuth (code)
         await supabase.auth.exchangeCodeForSession(window.location.href);
@@ -57,6 +72,51 @@ export default function RegisterConfirmPage() {
     void run();
   }, [router, supabase]);
 
+  async function acceptInviteAndSetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setMessage("");
+    if (password.trim().length < 8) {
+      setMessage("הסיסמה חייבת להיות לפחות 8 תווים.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const url = new URL(window.location.href);
+      const tokenHash = url.searchParams.get("token_hash") ?? "";
+      if (!tokenHash) {
+        setMessage("לינק ההזמנה לא תקין או שפג תוקפו.");
+        return;
+      }
+
+      const { error: verifyErr } = await supabase.auth.verifyOtp({
+        type: "invite",
+        token_hash: tokenHash,
+      } as any);
+      if (verifyErr) {
+        setMessage("לא הצלחנו לאשר את ההזמנה. בקשו הזמנה חדשה.");
+        return;
+      }
+
+      const { error: passErr } = await supabase.auth.updateUser({ password: password.trim() });
+      if (passErr) {
+        setMessage(passErr.message);
+        return;
+      }
+
+      const res = await fetch("/api/register/resolve-membership");
+      const j = await res.json().catch(() => ({}));
+      const slug = typeof j?.business?.slug === "string" ? String(j.business.slug).trim() : "";
+      if (!slug) {
+        router.replace("/dashboard/login");
+        return;
+      }
+
+      router.replace(`/${encodeURIComponent(slug)}/analytics`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-zinc-50 flex items-center justify-center p-6" dir="rtl">
       <Card className="w-full max-w-md">
@@ -71,6 +131,24 @@ export default function RegisterConfirmPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-zinc-600 text-center">{message}</p>
+          {status === "invite_set_password" ? (
+            <form className="space-y-3" onSubmit={acceptInviteAndSetPassword}>
+              <p className="text-xs text-zinc-500 text-center">
+                בחרו סיסמה חזקה (לפחות 8 תווים).
+              </p>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                placeholder="סיסמה חדשה"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <Button className="w-full" disabled={saving}>
+                {saving ? "שומר..." : "שמירת סיסמה והמשך"}
+              </Button>
+            </form>
+          ) : null}
           {status === "need_verify" ? (
             <div className="space-y-2">
               <Button className="w-full" onClick={() => router.replace("/dashboard/login")}>
