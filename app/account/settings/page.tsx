@@ -17,6 +17,7 @@ export default function AccountSettingsPage() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [vatId, setVatId] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -32,10 +33,13 @@ export default function AccountSettingsPage() {
         (typeof u?.user_metadata?.picture === "string" ? u.user_metadata.picture : "");
       const ph =
         typeof u?.user_metadata?.phone === "string" ? u.user_metadata.phone : "";
+      const vat =
+        typeof u?.user_metadata?.vat_id === "string" ? u.user_metadata.vat_id : "";
       setFullName(String(name ?? ""));
       setAvatarUrl(String(avatar ?? ""));
       setNewEmail(u?.email ?? "");
       setPhone(String(ph ?? ""));
+      setVatId(String(vat ?? ""));
       setLoading(false);
     });
   }, [supabase]);
@@ -69,6 +73,7 @@ export default function AccountSettingsPage() {
           full_name: fullName.trim(),
           avatar_url: avatarUrl.trim(),
           phone: phone.trim(),
+          vat_id: vatId.trim(),
         },
       };
 
@@ -149,17 +154,45 @@ export default function AccountSettingsPage() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-zinc-700 block">שם מלא</label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="שם מלא" />
+            <Input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="שם מלא"
+              autoComplete="name"
+            />
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-zinc-700 block">אימייל</label>
-            <Input dir="ltr" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+            <Input
+              dir="ltr"
+              type="email"
+              autoComplete="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+            />
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-zinc-700 block">טלפון</label>
-            <Input dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0501234567" />
+            <Input
+              dir="ltr"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="0501234567"
+              autoComplete="tel"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-700 block">מספר ח.פ / ע.מ</label>
+            <Input
+              dir="ltr"
+              value={vatId}
+              onChange={(e) => setVatId(e.target.value)}
+              placeholder="לדוגמה: 512345678"
+              inputMode="numeric"
+            />
           </div>
 
           <Button onClick={save} disabled={saving}>
