@@ -42,7 +42,7 @@ export default async function AnalyticsPage({ params }: Props) {
 
   const started = sessionsStarted.size;
   const converted = sessionsConverted.size;
-  const dropoffRate = started ? Math.round(((started - converted) / started) * 100) : 0;
+  const conversionRate = started ? Math.round((converted / started) * 100) : 0;
 
   const estimatedRevenue = converted * 1; // ניתן לעדכן למחיר שיעור ניסיון אמיתי
 
@@ -68,10 +68,10 @@ export default async function AnalyticsPage({ params }: Props) {
 
       <section className="grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
-          <p className="text-sm font-medium text-zinc-900">שיעור נטישה</p>
-          <p className="mt-1 text-3xl font-semibold text-amber-600">{dropoffRate}%</p>
+          <p className="text-sm font-medium text-zinc-900">שיעור המרה</p>
+          <p className="mt-1 text-3xl font-semibold text-emerald-600">{conversionRate}%</p>
           <p className="mt-1 text-xs text-zinc-500">
-            נטישה = שיחות שהתחילו ולא הגיעו להמרה (Lead).
+            שיעור המרה = שיחות שהגיעו להמרה מתוך כלל השיחות.
           </p>
         </div>
         <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
@@ -79,7 +79,7 @@ export default async function AnalyticsPage({ params }: Props) {
           <p className="mt-2 text-sm text-zinc-700">
             {converted === 0
               ? "כדאי להוסיף כפתורי תשובה מהירה ברורים בתחילת השיחה ולחדד את ההנעה לפעולה."
-              : dropoffRate > 60
+              : conversionRate < 40
               ? "שקול לקצר את הזרימה לפני שליחת לינק הסליקה ולהוסיף תשובות מוכנות להתנגדויות נפוצות."
               : "הביצועים טובים – אפשר לנסות להעלות מעט את מחיר שיעור הניסיון או להרחיב את שעות הפעילות."}
           </p>
