@@ -207,7 +207,6 @@ export default function DashboardSettingsPage() {
   const [slugMessage, setSlugMessage] = useState("");
   const [isSlugAvailable, setIsSlugAvailable] = useState(true);
   const [manualSlugEdit, setManualSlugEdit] = useState(false);
-  const [enableGradient, setEnableGradient] = useState(true);
   const [triedSave, setTriedSave] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [fetchingSite, setFetchingSite] = useState(false);
@@ -219,8 +218,6 @@ export default function DashboardSettingsPage() {
     WEEK_DAYS.map((day) => ({ day, start: "סגור", end: "סגור" }))
   );
 
-  const logoInputRef = useRef<HTMLInputElement | null>(null);
-
   const [business, setBusiness] = useState({
     slug: "",
     name: "",
@@ -228,7 +225,6 @@ export default function DashboardSettingsPage() {
     website_url: "",
     business_description: "",
     bot_name: "",
-    logo_url: "",
     instagram: "",
     tiktok: "",
     facebook: "",
@@ -236,8 +232,6 @@ export default function DashboardSettingsPage() {
     whatsapp: "",
     vibe: [] as string[],
     schedule_text: "",
-    primary_color: "#ff85cf",
-    secondary_color: "#bc74e9",
     welcome_message: "נעים להכיר, אני זואי כאן לענות על כל שאלה!",
     facebook_pixel_id: "",
     conversions_api_token: "",
@@ -255,14 +249,6 @@ export default function DashboardSettingsPage() {
     gender: "זכר" | "נקבה" | "הכול";
   }>({ age_range: "הכל", gender: "הכול" });
 
-  const gradientStyle = useMemo(
-    () =>
-      enableGradient
-        ? { backgroundImage: `linear-gradient(105deg, ${business.primary_color} 0%, ${business.secondary_color} 100%)` }
-        : { backgroundColor: business.primary_color },
-    [business.primary_color, business.secondary_color, enableGradient]
-  );
-
   useEffect(() => {
     void fetch("/api/dashboard/settings")
       .then((r) => r.json())
@@ -275,7 +261,6 @@ export default function DashboardSettingsPage() {
             website_url: data.business.website_url ?? "",
             business_description: data.business.business_description ?? "",
             bot_name: data.business.bot_name ?? "",
-            logo_url: data.business.logo_url ?? "",
             instagram: data.business.instagram ?? "",
             tiktok: data.business.tiktok ?? "",
             facebook: data.business.facebook ?? "",
@@ -283,8 +268,6 @@ export default function DashboardSettingsPage() {
             whatsapp: data.business.whatsapp ?? "",
             vibe: Array.isArray(data.business.vibe) ? data.business.vibe : [],
             schedule_text: data.business.schedule_text ?? "",
-            primary_color: data.business.primary_color ?? "#ff85cf",
-            secondary_color: data.business.secondary_color ?? "#bc74e9",
             welcome_message: data.business.welcome_message ?? "נעים להכיר, אני זואי כאן לענות על כל שאלה!",
             facebook_pixel_id: data.business.facebook_pixel_id ?? "",
             conversions_api_token: data.business.conversions_api_token ?? "",
@@ -297,7 +280,6 @@ export default function DashboardSettingsPage() {
                 : "הכול",
           });
           setScheduleGrid(parseScheduleTextToGrid(String(data.business.schedule_text ?? "")));
-          setEnableGradient((data.business.secondary_color ?? "#bc74e9") !== (data.business.primary_color ?? "#ff85cf"));
         }
 
         setServices(

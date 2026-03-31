@@ -48,9 +48,7 @@ export default async function AnalyticsPage({ params }: Props) {
   const estimatedRevenue = converted * 1; // ניתן לעדכן למחיר שיעור ניסיון אמיתי
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-4 py-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <DashboardSlugNav slug={slug} />
+    <div className="space-y-6">
         <h1 className="text-2xl font-semibold text-zinc-900 text-right">אנליטיקס ל-{slug}</h1>
         <p className="text-sm text-zinc-600 text-right">שיחות, המרות והכנסה מוערכת</p>
 
@@ -88,8 +86,7 @@ export default async function AnalyticsPage({ params }: Props) {
             </p>
           </div>
         </section>
-      </div>
-    </main>
+    </div>
   );
 }
 

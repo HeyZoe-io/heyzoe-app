@@ -73,6 +73,15 @@ export default async function ConversationsPage({ params }: Props) {
     }
   });
 
+  function extractPhone(sessionId: string): string {
+    if (!sessionId.startsWith("wa_")) return "";
+    const rest = sessionId.slice(3);
+    const firstUnderscore = rest.indexOf("_");
+    if (firstUnderscore < 0) return "";
+    const fromNumber = rest.slice(firstUnderscore + 1);
+    return fromNumber || "";
+  }
+
   const sessions = [...bySession.entries()].map(([sid, data]) => {
     const isOpen =
       data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000;
@@ -83,6 +92,7 @@ export default async function ConversationsPage({ params }: Props) {
       count: data.count,
       isOpen,
       isPaused,
+      phone: extractPhone(sid),
       messages: data.messages,
     };
   });

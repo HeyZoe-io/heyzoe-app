@@ -14,6 +14,7 @@ type SessionSummary = {
   count: number;
   isOpen: boolean;
   isPaused: boolean;
+  phone: string;
   messages: SessionMessage[];
 };
 
@@ -34,17 +35,18 @@ export default function ConversationsClient({
 
   const selected = sessions.find((s) => s.session_id === selectedId) ?? null;
 
-  async function pauseBot(sessionId: string) {
+  async function toggleBot(sessionId: string, nextPaused: boolean) {
     setPausing(sessionId);
     try {
-      await fetch("/api/whatsapp/pause", {
+      const url = nextPaused ? "/api/whatsapp/pause" : "/api/whatsapp/unpause";
+      await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_slug: slug, session_id: sessionId }),
       });
       setSessions((prev) =>
         prev.map((s) =>
-          s.session_id === sessionId ? { ...s, isPaused: true } : s
+          s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s
         )
       );
     } finally {
@@ -94,7 +96,7 @@ export default function ConversationsClient({
 
   return (
     <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3 max-h-[520px] overflow-auto">
+            <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3 max-h-[520px] overflow-auto">
         {sessions.map((s) => (
           <button
             key={s.session_id}
@@ -106,10 +108,10 @@ export default function ConversationsClient({
                 : "border-zinc-200 bg-white hover:bg-zinc-50"
             }`}
           >
-            <div>
-              <p className="text-xs text-zinc-500">Session</p>
+            <div className="text-right">
+              <p className="text-xs text-zinc-500">מספר טלפון</p>
               <p className="text-sm font-medium text-zinc-900 truncate max-w-[220px]">
-                {s.session_id}
+                {s.phone || "לא זמין"}
               </p>
               <p className="text-[11px] text-zinc-500">
                 {s.count} הודעות · {new Date(s.lastAt).toLocaleString()}
@@ -143,17 +145,32 @@ export default function ConversationsClient({
       <div className="rounded-xl border border-zinc-200 bg-white p-3 flex flex-col gap-2 text-right">
         {selected ? (
           <>
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-sm font-medium text-zinc-900">
-                שיחה נבחרת: {selected.session_id}
-              </p>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-right">
+                <p className="text-xs text-zinc-500">מספר טלפון</p>
+                <p className="text-sm font-medium text-zinc-900">
+                  {selected.phone || "לא זמין"}
+                </p>
+                <p className="text-[11px] text-zinc-500">
+                  {selected.count} הודעות ·{" "}
+                  {new Date(selected.lastAt).toLocaleString()}
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={() => pauseBot(selected.session_id)}
-                disabled={pausing === selected.session_id || selected.isPaused}
-                className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                onClick={() => toggleBot(selected.session_id, !selected.isPaused)}
+                disabled={pausing === selected.session_id}
+                className={`rounded-full px-3 py-1 text-[11px] font-medium border ${
+                  selected.isPaused
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                    : "border-red-400 bg-red-50 text-red-800 hover:bg-red-100"
+                } disabled:opacity-50`}
               >
-                {selected.isPaused ? "הבוט מושהה" : pausing === selected.session_id ? "מושהה..." : "עצור בוט וענה ידנית"}
+                {pausing === selected.session_id
+                  ? "מעבד..."
+                  : selected.isPaused
+                  ? "הפעל בוט"
+                  : "עצור בוט"}
               </button>
             </div>
 
