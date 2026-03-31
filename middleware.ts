@@ -24,7 +24,9 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
-  if (!isAdminPath && !isOwnerDashboardPath) return NextResponse.next();
+  const isOwnerSlugPath =
+    /^\/[^/]+\/(analytics|conversations|settings)\/?$/.test(pathname);
+  if (!isAdminPath && !isOwnerDashboardPath && !isOwnerSlugPath) return NextResponse.next();
 
   const res = NextResponse.next({ request: { headers: req.headers } });
   const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
@@ -63,7 +65,7 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  if (isOwnerDashboardPath) {
+  if (isOwnerDashboardPath || isOwnerSlugPath) {
     const isLoginPath = pathname === "/dashboard/login";
     if (!user) {
       if (isLoginPath) return res;
@@ -71,7 +73,8 @@ export async function middleware(req: NextRequest) {
     }
     if (isLoginPath) {
       const url = req.nextUrl.clone();
-      url.pathname = "/dashboard/settings";
+      const next = req.nextUrl.searchParams.get("next");
+      url.pathname = next && next.startsWith("/") ? next : "/dashboard/settings";
       return NextResponse.redirect(url);
     }
   }
@@ -80,5 +83,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/dashboard/:path*"],
+  matcher: ["/admin/:path*", "/dashboard/:path*", "/:slug/analytics", "/:slug/conversations", "/:slug/settings"],
 };

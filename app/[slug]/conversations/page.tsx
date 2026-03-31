@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import ConversationsClient from "./client";
-import DashboardSlugNav from "../Nav";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -36,7 +35,9 @@ export default async function ConversationsPage({ params }: Props) {
       .gt("paused_until", new Date().toISOString()),
   ]);
 
-  const pausedSet = new Set<string>((pausedRows ?? []).map((p: any) => p.session_id as string));
+  const pausedSet = new Set<string>(
+    (pausedRows ?? []).map((p: any) => p.session_id as string)
+  );
 
   const bySession = new Map<
     string,
@@ -100,17 +101,14 @@ export default async function ConversationsPage({ params }: Props) {
   sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-4 py-8">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <DashboardSlugNav slug={slug} />
-        <h1 className="text-2xl font-semibold text-zinc-900 text-right">שיחות ל-{slug}</h1>
-        <p className="text-sm text-zinc-600 text-right">
-          רשימת השיחות, עצירת בוט ומענה ידני ללקוחות
-        </p>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold text-zinc-900 text-right">שיחות ל-{slug}</h1>
+      <p className="text-sm text-zinc-600 text-right">
+        רשימת השיחות, עצירת בוט ומענה ידני ללקוחות
+      </p>
 
-        <ConversationsClient slug={slug} initialSessions={sessions} />
-      </div>
-    </main>
+      <ConversationsClient slug={slug} initialSessions={sessions} />
+    </div>
   );
 }
 
