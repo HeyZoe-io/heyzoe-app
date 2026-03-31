@@ -15,12 +15,23 @@ export default async function ConversationsPage({ params }: Props) {
   const admin = createSupabaseAdminClient();
   const { data: biz } = await admin
     .from("businesses")
-    .select("id, slug")
+    .select("id, slug, user_id")
     .eq("slug", slug)
-    .eq("user_id", user.user.id)
     .maybeSingle();
 
   if (!biz) redirect("/dashboard/settings");
+
+  const isOwner = String(biz.user_id) === user.user.id;
+  if (!isOwner) {
+    const { data: bu } = await admin
+      .from("business_users")
+      .select("role")
+      .eq("business_id", biz.id)
+      .eq("user_id", user.user.id)
+      .maybeSingle();
+    const allowed = bu?.role === "admin" || bu?.role === "employee";
+    if (!allowed) redirect("/dashboard/settings");
+  }
 
   const [{ data: messages }, { data: pausedRows }] = await Promise.all([
     admin
