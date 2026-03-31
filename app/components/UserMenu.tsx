@@ -86,7 +86,7 @@ export default function UserMenu() {
               onClick={() => setOpen(false)}
               className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
-              הגדרות חשבון
+              פרטים אישיים
             </Link>
             <Link
               role="menuitem"
