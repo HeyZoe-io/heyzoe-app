@@ -12,26 +12,45 @@ export default function DashboardResetPasswordPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [ready, setReady] = useState(false);
+  const [exchanged, setExchanged] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    // If the reset link is using PKCE flow, it will include ?code=...
-    // This exchanges it into a session so updateUser works.
-    const url = window.location.href;
-    void supabase.auth
-      .exchangeCodeForSession(url)
-      .then(() => setReady(true))
-      .catch(() => setReady(true));
+    async function run() {
+      try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code") ?? "";
+        if (!code) {
+          setMessage("לינק האיפוס לא תקין או שפג תוקפו. בקשו לינק חדש.");
+          setReady(true);
+          return;
+        }
+
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
+          setReady(true);
+          return;
+        }
+
+        setExchanged(true);
+        setReady(true);
+      } catch {
+        setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
+        setReady(true);
+      }
+    }
+    void run();
   }, [supabase]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
-    if (password.length < 6) {
-      setMessage("הסיסמה חייבת להיות לפחות 6 תווים.");
+    if (password.length < 8) {
+      setMessage("הסיסמה חייבת להיות לפחות 8 תווים.");
       return;
     }
     if (password !== confirm) {
@@ -42,8 +61,8 @@ export default function DashboardResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) setMessage(error.message);
     else {
-      setMessage("הסיסמה עודכנה בהצלחה. מעביר להתחברות...");
-      window.setTimeout(() => router.replace("/dashboard/login"), 700);
+      setMessage("הסיסמה עודכנה בהצלחה. אפשר להתחבר מחדש.");
+      window.setTimeout(() => router.replace("/dashboard/login?reset=1"), 700);
     }
     setLoading(false);
   }
@@ -65,13 +84,17 @@ export default function DashboardResetPasswordPage() {
         <CardContent>
           {!ready ? (
             <p className="text-sm text-zinc-500 text-center">טוען...</p>
-          ) : (
+          ) : exchanged ? (
             <form className="space-y-3" onSubmit={onSubmit}>
+              <p className="text-xs text-zinc-500 text-center">
+                בחרו סיסמה חזקה (לפחות 8 תווים).
+              </p>
               <Input
                 type="password"
                 placeholder="סיסמה חדשה"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
                 required
               />
               <Input
@@ -79,6 +102,7 @@ export default function DashboardResetPasswordPage() {
                 placeholder="אישור סיסמה"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
                 required
               />
               <Button className="w-full" disabled={loading}>
@@ -88,6 +112,15 @@ export default function DashboardResetPasswordPage() {
                 <p className="text-sm text-zinc-500 text-center">{message}</p>
               ) : null}
             </form>
+          ) : (
+            <div className="space-y-3">
+              {message ? (
+                <p className="text-sm text-zinc-500 text-center">{message}</p>
+              ) : null}
+              <Button className="w-full" onClick={() => router.replace("/dashboard/login")}>
+                חזרה להתחברות
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>
