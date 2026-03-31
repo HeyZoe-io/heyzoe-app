@@ -17,7 +17,6 @@ type SegAnswer  = { id: string; text: string; service_slug: string };
 type SegQuestion = { id: string; question: string; answers: SegAnswer[] };
 type QuickReply  = { id: string; label: string; reply: string };
 type Objection   = { id: string; question: string; answer: string };
-type AutoMsgs    = { before_class: string; no_registration: string; business_hours: string };
 type ServiceItem = {
   ui_id: string; name: string; price_text: string;
   duration: string; payment_link: string;
@@ -27,9 +26,13 @@ type ServiceItem = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
-  "ייבוא מהאתר", "פרטי עסק", "מדיה לפתיחה", "הודעת פתיחה",
-  "שאלות ותפריט", "שירותים", "Arbox",
-  "התנגדויות", "הודעות אוטומטיות", "הרשמה",
+  "פרטי העסק",
+  "מדיה לפתיחה",
+  "הודעת פתיחה",
+  "שירותים",
+  "שאלות ותפריט",
+  "חיבור פייסבוק",
+  "פולואפ",
 ];
 
 const VIBES = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
@@ -90,56 +93,45 @@ export default function SlugSettingsPage() {
   const [fetchingUrl, setFetchingUrl]         = useState(false);
   const [generatingWelcome, setGeneratingWelcome] = useState(false);
 
-  // ── Step 1: Website import
+  // ── Step 1: Business details (includes optional website import)
   const [websiteUrl, setWebsiteUrl] = useState("");
 
-  // ── Step 2: Business details
+  // ── Business details
   const [name, setName]         = useState("");
   const [botName, setBotName]   = useState("זואי");
   const [niche, setNiche]       = useState("");
-  const [logoUrl, setLogoUrl]   = useState("");
   const [address, setAddress]   = useState("");
   const [directions, setDirections] = useState("");
   const [description, setDescription] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
-  const [primaryColor, setPrimaryColor]     = useState("#ff85cf");
-  const [secondaryColor, setSecondaryColor] = useState("#bc74e9");
-  const logoInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [arboxLink, setArboxLink] = useState("");
+  const [facebookPixelId, setFacebookPixelId] = useState("");
+  const [conversionsApiToken, setConversionsApiToken] = useState("");
 
-  // ── Step 3: Opening media
+  // ── Step 2: Opening media
   const [openingMediaUrl, setOpeningMediaUrl]   = useState("");
   const [openingMediaType, setOpeningMediaType] = useState<"image" | "video" | "">("");
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
-  // ── Step 4: Opening message
+  // ── Step 3: Opening message
   const [welcomeMessage, setWelcomeMessage] = useState("");
 
-  // ── Step 5: Segmentation
+  // ── Step 5: Questions & menu
   const [segQuestions, setSegQuestions] = useState<SegQuestion[]>([]);
 
-  // ── Step 6: Quick replies
+  // ── Quick replies
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   const [newReplyLabel, setNewReplyLabel] = useState("");
   const [newReplyText, setNewReplyText] = useState("");
 
-  // ── Step 7: Services + drag & drop
+  // ── Step 4: Services + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
   const dragIdx = useRef<number | null>(null);
 
-  // ── Step 8: Arbox
-  const [arboxLink, setArboxLink] = useState("");
-
-  // ── Step 9: Objections
+  // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
-
-  // ── Step 10: Automated messages
-  const [autoMsgs, setAutoMsgs] = useState<AutoMsgs>({
-    before_class: "", no_registration: "", business_hours: "",
-  });
-
-  // ── Step 11: Post-registration
+  // ── Step 7: Follow-up
   const [postRegMsg, setPostRegMsg] = useState("");
 
   // ─── Load data ─────────────────────────────────────────────────────────────
@@ -156,9 +148,6 @@ export default function SlugSettingsPage() {
         setName(String(business.name ?? ""));
         setBotName(String(business.bot_name ?? "זואי"));
         setNiche(String(business.niche ?? ""));
-        setLogoUrl(String(business.logo_url ?? ""));
-        setPrimaryColor(String(business.primary_color ?? "#ff85cf"));
-        setSecondaryColor(String(business.secondary_color ?? "#bc74e9"));
         setAddress(String(sl.address ?? ""));
         setDirections(String(sl.directions ?? ""));
         setDescription(String(sl.business_description ?? business.business_description ?? ""));
@@ -167,19 +156,19 @@ export default function SlugSettingsPage() {
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
         setWelcomeMessage(String(business.welcome_message ?? ""));
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
-        setQuickReplies(
+        const loadedQr =
           Array.isArray(sl.quick_replies)
-            ? (sl.quick_replies as QuickReply[]).map(r =>
+            ? (sl.quick_replies as QuickReply[]).map((r) =>
                 typeof r === "string"
-                  ? { id: uid(), label: r, reply: "" }   // migrate old string format
-                  : { id: r.id ?? uid(), label: String(r.label ?? ""), reply: String(r.reply ?? "") }
+                  ? { id: uid(), label: r, reply: "" } // migrate old string format
+                  : { id: (r as any).id ?? uid(), label: String((r as any).label ?? ""), reply: String((r as any).reply ?? "") }
               )
-            : []
-        );
+            : [];
+        setQuickReplies(loadedQr.filter((r) => r.label !== "מה הכתובת שלכם?"));
         setArboxLink(String(sl.arbox_link ?? ""));
+        setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
+        setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
-        const am = (sl.automated_messages ?? {}) as Partial<AutoMsgs>;
-        setAutoMsgs({ before_class: String(am.before_class ?? ""), no_registration: String(am.no_registration ?? ""), business_hours: String(am.business_hours ?? "") });
         setPostRegMsg(String(sl.post_registration_message ?? ""));
 
         if (Array.isArray(svcs)) {
@@ -217,10 +206,9 @@ export default function SlugSettingsPage() {
             name,
             niche,
             bot_name: botName,
-            logo_url: logoUrl,
-            primary_color: primaryColor,
-            secondary_color: secondaryColor,
             welcome_message: welcomeMessage,
+            facebook_pixel_id: facebookPixelId,
+            conversions_api_token: conversionsApiToken,
             social_links: {
               website_url: websiteUrl,
               business_description: description,
@@ -230,10 +218,12 @@ export default function SlugSettingsPage() {
               opening_media_url: openingMediaUrl,
               opening_media_type: openingMediaType,
               segmentation_questions: segQuestions,
-              quick_replies: quickReplies,
+              quick_replies: [
+                ...quickReplies,
+                { id: "__addr__", label: "מה הכתובת שלכם?", reply: address },
+              ],
               arbox_link: arboxLink,
               objections,
-              automated_messages: autoMsgs,
               post_registration_message: postRegMsg,
             },
           },
@@ -256,21 +246,11 @@ export default function SlugSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [slug, name, niche, botName, logoUrl, primaryColor, secondaryColor, welcomeMessage,
+  }, [slug, name, niche, botName, welcomeMessage, facebookPixelId, conversionsApiToken,
       websiteUrl, description, address, directions, vibe, openingMediaUrl, openingMediaType,
-      segQuestions, quickReplies, arboxLink, objections, autoMsgs, postRegMsg, services]); // eslint-disable-line react-hooks/exhaustive-deps
+      segQuestions, quickReplies, arboxLink, objections, postRegMsg, services]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Logo upload ───────────────────────────────────────────────────────────
-
-  async function uploadLogo(file: File) {
-    setUploadingLogo(true);
-    const fd = new FormData(); fd.append("file", file);
-    try {
-      const res = await fetch("/api/dashboard/upload-logo", { method: "POST", body: fd });
-      const j = await res.json();
-      if (j.url) setLogoUrl(j.url);
-    } finally { setUploadingLogo(false); }
-  }
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
@@ -301,7 +281,6 @@ export default function SlugSettingsPage() {
       const j = await res.json();
       if (j.niche) setNiche(j.niche);
       if (j.business_description) setDescription(j.business_description);
-      if (j.logo_url) setLogoUrl(j.logo_url);
       if (j.products?.length) {
         setServices(j.products.slice(0, 8).map((p: Record<string, unknown>) => ({
           ui_id: uid(),
@@ -310,11 +289,11 @@ export default function SlugSettingsPage() {
           duration: "",
           payment_link: "",
           service_slug: toSlug(String(p.name ?? "")),
-          location_text: String(p.location_text ?? ""),
+          location_text: String(p.location_text ?? "") || address,
           description: "",
         })));
       }
-      setStep(2);
+      setStep(1);
     } finally { setFetchingUrl(false); }
   }
 
@@ -404,15 +383,6 @@ export default function SlugSettingsPage() {
             <span className="text-zinc-300">/</span>
             <span>{slug}</span>
           </div>
-          <Button
-            variant="outline"
-            onClick={saveAll}
-            disabled={saving}
-            className="gap-2 text-xs"
-          >
-            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : savedOk ? <Check className="h-3 w-3 text-green-500" /> : null}
-            {saving ? "שומר..." : savedOk ? "נשמר!" : "שמור"}
-          </Button>
         </div>
 
         {/* Step indicator */}
@@ -449,9 +419,9 @@ export default function SlugSettingsPage() {
         {/* ════════════════════ STEP 1 ════════════════════ */}
         {step === 1 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={1} title="ייבוא מהאתר" desc="הזן את כתובת האתר שלך ונמשוך ממנו פרטים אוטומטית" /></CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <Field label="כתובת האתר">
+            <CardHeader><CardTitle><StepHeader n={1} title="פרטי העסק" /></CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              <Field label="כתובת האתר (אופציונלי)">
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
@@ -472,18 +442,7 @@ export default function SlugSettingsPage() {
                   מנתח את האתר — זה לוקח כמה שניות...
                 </p>
               )}
-              <p className="text-xs text-zinc-400">
-                אפשר גם לדלג ולמלא הכל ידנית בשלבים הבאים.
-              </p>
-            </CardContent>
-          </Card>
-        )}
 
-        {/* ════════════════════ STEP 2 ════════════════════ */}
-        {step === 2 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={2} title="פרטי העסק" /></CardTitle></CardHeader>
-            <CardContent className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="שם העסק *">
                   <Input dir="rtl" value={name} onChange={e => setName(e.target.value)} placeholder="Acro by Joe" />
@@ -505,6 +464,10 @@ export default function SlugSettingsPage() {
                 <Textarea value={description} onChange={setDescription} placeholder="ספר על העסק שלך..." rows={4} />
               </Field>
 
+              <Field label="לינק מערכת שעות / Arbox">
+                <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
+              </Field>
+
               <Field label="סגנון דיבור">
                 <div className="flex flex-wrap gap-2">
                   {VIBES.map(v => (
@@ -520,42 +483,14 @@ export default function SlugSettingsPage() {
                   ))}
                 </div>
               </Field>
-
-              {/* Logo */}
-              <Field label="לוגו">
-                <div className="flex items-center gap-3">
-                  {logoUrl && <img src={logoUrl} alt="logo" className="h-12 w-12 rounded-xl object-contain border border-zinc-200" />}
-                  <Button variant="outline" onClick={() => logoInputRef.current?.click()} disabled={uploadingLogo} className="gap-2 text-sm py-1.5 px-3">
-                    {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    {uploadingLogo ? "מעלה..." : "העלה לוגו"}
-                  </Button>
-                  <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); }} />
-                </div>
-              </Field>
-
-              {/* Colors */}
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="צבע ראשי">
-                  <div className="flex gap-2 items-center">
-                    <input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="h-9 w-9 rounded-lg border border-zinc-300 cursor-pointer p-0.5" />
-                    <Input dir="ltr" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} className="font-mono text-sm" />
-                  </div>
-                </Field>
-                <Field label="צבע משני">
-                  <div className="flex gap-2 items-center">
-                    <input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="h-9 w-9 rounded-lg border border-zinc-300 cursor-pointer p-0.5" />
-                    <Input dir="ltr" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="font-mono text-sm" />
-                  </div>
-                </Field>
-              </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ════════════════════ STEP 3 ════════════════════ */}
-        {step === 3 && (
+        {/* ════════════════════ STEP 2 ════════════════════ */}
+        {step === 2 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={3} title="מדיה לפתיחה" desc="תמונה או סרטון שיוצגו מעל הודעת הפתיחה" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={2} title="מדיה לפתיחה" desc="תמונה או סרטון שיוצגו מעל הודעת הפתיחה" /></CardTitle></CardHeader>
             <CardContent className="space-y-5">
               <div
                 onClick={() => mediaInputRef.current?.click()}
@@ -596,17 +531,17 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 4 ════════════════════ */}
-        {step === 4 && (
+        {/* ════════════════════ STEP 3 ════════════════════ */}
+        {step === 3 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={4} title="הודעת פתיחה" desc="ההודעה הראשונה שזואי תשלח לכל לקוח חדש" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={3} title="הודעת פתיחה" desc="ההודעה הראשונה שזואי תשלח לכל לקוח חדש" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <Textarea value={welcomeMessage} onChange={setWelcomeMessage} placeholder="שלום! אני זואי מ..." rows={5} />
               <Button variant="outline" onClick={generateWelcome} disabled={generatingWelcome || !name} className="gap-2 w-full">
                 {generatingWelcome ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 text-fuchsia-500" />}
                 {generatingWelcome ? "מייצר..." : "ייצר עם AI"}
               </Button>
-              {!name && <p className="text-xs text-zinc-400 text-center">מלא שם עסק בשלב 2 לפני הייצור</p>}
+              {!name && <p className="text-xs text-zinc-400 text-center">מלא שם עסק בשלב 1 לפני הייצור</p>}
             </CardContent>
           </Card>
         )}
@@ -709,6 +644,15 @@ export default function SlugSettingsPage() {
                     שאלה אחרת ✨ (אוטומטי) → Claude
                   </div>
                 </div>
+
+              {/* Auto address quick reply */}
+              <div className="flex gap-2 items-center opacity-80">
+                <span className="text-xs text-zinc-400 w-5 shrink-0">{quickReplies.length + 2}.</span>
+                <div className="flex-1 border border-dashed border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-500">
+                  מה הכתובת שלכם? (אוטומטי)
+                  {address ? <span className="block text-xs text-zinc-400 mt-1">{address}</span> : null}
+                </div>
+              </div>
               </div>
 
               {/* Add new quick reply */}
@@ -743,14 +687,45 @@ export default function SlugSettingsPage() {
                   <Plus className="h-4 w-4" /> הוסף כפתור
                 </Button>
               </div>
+
+              <div className="space-y-3 border-t border-dashed border-zinc-200 pt-4">
+                <h3 className="text-sm font-semibold text-zinc-900 text-right">
+                  התנגדויות נפוצות
+                </h3>
+                {objections.map((o) => (
+                  <div key={o.id} className="border border-zinc-200 rounded-2xl p-4 space-y-3">
+                    <div className="flex gap-2 items-start">
+                      <span className="text-xs font-medium text-zinc-400 mt-2 shrink-0">ש:</span>
+                      <Input
+                        dir="rtl"
+                        value={o.question}
+                        onChange={e => updateObjection(o.id, { question: e.target.value })}
+                        placeholder="זה לא יקר מדי?"
+                        className="flex-1"
+                      />
+                      <button onClick={() => removeObjection(o.id)} className="p-1 text-zinc-400 hover:text-red-400 mt-1">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="flex gap-2 items-start">
+                      <span className="text-xs font-medium text-zinc-400 mt-2 shrink-0">ת:</span>
+                      <Textarea value={o.answer} onChange={v => updateObjection(o.id, { answer: v })} placeholder="ההשקעה בשיעור שלנו מחזירה את עצמה..." rows={2} />
+                    </div>
+                  </div>
+                ))}
+
+                <Button variant="outline" onClick={addObjection} className="w-full gap-2">
+                  <Plus className="h-4 w-4" /> הוסף התנגדות
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ════════════════════ STEP 6 (שירותים) ════════════════════ */}
-        {step === 6 && (
+        {/* ════════════════════ STEP 4 (שירותים) ════════════════════ */}
+        {step === 4 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={7} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={4} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {services.map((s, i) => (
                 <div
@@ -803,7 +778,7 @@ export default function SlugSettingsPage() {
 
               <Button
                 variant="outline"
-                onClick={() => setServices(sv => [...sv, { ui_id: uid(), name: "", price_text: "", duration: "", payment_link: "", service_slug: "", location_text: "", description: "" }])}
+                onClick={() => setServices(sv => [...sv, { ui_id: uid(), name: "", price_text: "", duration: "", payment_link: "", service_slug: "", location_text: address, description: "" }])}
                 className="w-full gap-2"
               >
                 <Plus className="h-4 w-4" /> הוסף שירות
@@ -812,112 +787,45 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 8 ════════════════════ */}
-        {step === 8 && (
+        {/* ════════════════════ STEP 6 ════════════════════ */}
+        {step === 6 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={8} title="חיבור Arbox" desc="קישור מערכת ניהול השיעורים שלך" /></CardTitle></CardHeader>
-            <CardContent className="space-y-5">
-              <Field label="לינק Arbox">
-                <div className="flex gap-2 items-center">
-                  <Link className="h-4 w-4 text-zinc-400 shrink-0" />
-                  <Input
-                    dir="ltr"
-                    value={arboxLink}
-                    onChange={e => setArboxLink(e.target.value)}
-                    placeholder="https://app.arbox.me/..."
-                  />
-                </div>
-              </Field>
-              <div className="bg-fuchsia-50 rounded-2xl p-4 text-sm text-fuchsia-800">
-                <p className="font-medium mb-1">כיצד לקבל את הלינק?</p>
-                <ol className="list-decimal list-inside space-y-1 text-fuchsia-700">
-                  <li>היכנס ל-Arbox</li>
-                  <li>לך ל-Settings → Online Registration</li>
-                  <li>העתק את ה-Registration Link</li>
-                </ol>
+            <CardHeader><CardTitle><StepHeader n={6} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-zinc-900">חבילה 1 — חיבור בסיסי</p>
+                <p className="text-xs text-zinc-600">
+                  שלחו Partner Request והקימו קמפיין "הודעות לוואטסאפ" דרך מנהל המודעות. אין צורך בשדות טכניים בשלב זה.
+                </p>
+              </div>
+
+              <div className="space-y-2 border-t border-dashed border-zinc-200 pt-3">
+                <p className="text-sm font-medium text-zinc-900">חבילה 2 — פרימיום (Pixel + Conversions API)</p>
+                <Field label="Facebook Pixel ID">
+                  <Input dir="ltr" value={facebookPixelId} onChange={e => setFacebookPixelId(e.target.value)} placeholder="123456789012345" />
+                </Field>
+                <Field label="Conversions API Access Token">
+                  <Input dir="ltr" type="password" value={conversionsApiToken} onChange={e => setConversionsApiToken(e.target.value)} placeholder="הדבק כאן את הטוקן" />
+                </Field>
+                <p className="text-[11px] text-zinc-500">
+                  כאשר שני השדות מלאים, נשלח אירוע Server-to-Server לפייסבוק על כל המרה.
+                </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ════════════════════ STEP 9 ════════════════════ */}
-        {step === 9 && (
+        {/* ════════════════════ STEP 7 ════════════════════ */}
+        {step === 7 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={9} title="טיפול בהתנגדויות" desc="שאלות נפוצות שלקוחות מעלים ותשובות מוצעות" /></CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              {objections.map((o, i) => (
-                <div key={o.id} className="border border-zinc-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex gap-2 items-start">
-                    <span className="text-xs font-medium text-zinc-400 mt-2 shrink-0">ש:</span>
-                    <Input dir="rtl" value={o.question} onChange={e => updateObjection(o.id, { question: e.target.value })} placeholder="זה לא יקר מדי?" className="flex-1" />
-                    <button onClick={() => removeObjection(o.id)} className="p-1 text-zinc-400 hover:text-red-400 mt-1">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="flex gap-2 items-start">
-                    <span className="text-xs font-medium text-zinc-400 mt-2 shrink-0">ת:</span>
-                    <Textarea value={o.answer} onChange={v => updateObjection(o.id, { answer: v })} placeholder="ההשקעה בשיעור שלנו מחזירה את עצמה..." rows={2} />
-                  </div>
-                </div>
-              ))}
-
-              <Button variant="outline" onClick={addObjection} className="w-full gap-2">
-                <Plus className="h-4 w-4" /> הוסף התנגדות
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 10 ════════════════════ */}
-        {step === 10 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={10} title="הודעות אוטומטיות" /></CardTitle></CardHeader>
-            <CardContent className="space-y-6">
-              <Field label="פולואפ לפני שיעור">
-                <Textarea
-                  value={autoMsgs.before_class}
-                  onChange={v => setAutoMsgs(m => ({ ...m, before_class: v }))}
-                  placeholder="היי {שם}, מחר יש לנו שיעור ב-{שעה}. מחכים לך! 🙌"
-                  rows={3}
-                />
-              </Field>
-              <Field label="פולואפ אם לא נרשמו">
-                <Textarea
-                  value={autoMsgs.no_registration}
-                  onChange={v => setAutoMsgs(m => ({ ...m, no_registration: v }))}
-                  placeholder="היי {שם}, שמנו לב שעוד לא נרשמת לשיעור הבא. רוצה שנשמור לך מקום?"
-                  rows={3}
-                />
-              </Field>
-              <Field label="שעות פעילות (לתשובות אוטומטיות)">
-                <Textarea
-                  value={autoMsgs.business_hours}
-                  onChange={v => setAutoMsgs(m => ({ ...m, business_hours: v }))}
-                  placeholder={"ראשון–חמישי: 7:00–21:00\nשישי: 7:00–14:00\nשבת: סגור"}
-                  rows={4}
-                />
-              </Field>
-              <p className="text-xs text-zinc-400">
-                השתמשו ב-&#123;שם&#125;, &#123;שעה&#125;, &#123;תאריך&#125; לפרסונליזציה.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 11 ════════════════════ */}
-        {step === 11 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={11} title="הודעה לאחר הרשמה" desc="הודעה שתישלח אוטומטית לאחר שלקוח נרשם לשירות" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={7} title="פולואפ" desc="הודעה שתישלח לאחר שהלקוח ביצע פעולה (למשל הרשמה)" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <Textarea
                 value={postRegMsg}
                 onChange={setPostRegMsg}
-                placeholder={"כל הכבוד {שם}! נרשמת בהצלחה 🎉\n\nמה לצפות מהשיעור הראשון:\n• הגיעו 10 דקות לפני\n• לבשו בגדים נוחים\n• שתו מים לפני השיעור\n\nמחכים לכם!"}
+                placeholder={"כל הכבוד! נרשמת בהצלחה 🎉\n\nמה לצפות מהשיעור הראשון:\n- הגיעו 10 דקות לפני\n- לבשו בגדים נוחים\n- שתו מים לפני השיעור\n\nמחכים לכם!"}
                 rows={8}
               />
-              <p className="text-xs text-zinc-400">
-                השתמשו ב-&#123;שם&#125; לפרסונליזציה.
-              </p>
             </CardContent>
           </Card>
         )}
