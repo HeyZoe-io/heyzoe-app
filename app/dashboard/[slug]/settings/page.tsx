@@ -519,7 +519,13 @@ export default function SlugSettingsPage() {
               </div>
 
               <Field label="כתובת">
-                <Input dir="rtl" value={address} onChange={e => setAddress(e.target.value)} placeholder="רחוב הרצל 5, תל אביב" />
+                <Input
+                  dir="rtl"
+                  value={address}
+                  onChange={e => setAddress(e.target.value)}
+                  placeholder="רחוב הרצל 5, תל אביב"
+                  autoComplete="street-address"
+                />
               </Field>
 
               <Field label="הנחיות הגעה">

@@ -75,6 +75,7 @@ export default function AdminLoginPage() {
               <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
               <Input
                 type="email"
+                autoComplete="email"
                 required
                 className="pl-9"
                 placeholder="you@company.com"
