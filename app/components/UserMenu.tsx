@@ -57,7 +57,7 @@ export default function UserMenu() {
   }
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative z-[9999]" ref={menuRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -72,7 +72,7 @@ export default function UserMenu() {
       {open ? (
         <div
           role="menu"
-          className="absolute left-0 mt-2 w-64 rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden z-[9999]"
+          className="absolute left-0 mt-2 w-64 rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden z-[10000]"
         >
           <div className="px-4 py-3">
             <p className="text-xs text-zinc-500 truncate">מחובר/ת כ</p>
