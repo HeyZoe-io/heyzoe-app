@@ -12,8 +12,12 @@ export default function AccountContactPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-right">צור קשר</CardTitle>
-          <CardDescription className="text-right">נשמח לעזור במהירות</CardDescription>
+          <CardTitle className="text-right">
+            משהו לא מסתדר? לא לדאוג :) כתבו לנו מה הבעיה וניצור קשר בהקדם!
+          </CardTitle>
+          <CardDescription className="text-right">
+            בחרו דרך יצירת קשר
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-right">
           <a
@@ -22,13 +26,13 @@ export default function AccountContactPage() {
             rel="noreferrer"
             className="w-full inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
-            פתיחת WhatsApp (0508318162)
+            וואטסאפ
           </a>
           <a
             href={mailUrl}
             className="w-full inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400 border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50"
           >
-            שליחת מייל ל־{mail}
+            אימייל
           </a>
         </CardContent>
       </Card>
