@@ -52,3 +52,43 @@ create table if not exists public.faqs (
 
 create index if not exists idx_faqs_business on public.faqs(business_id);
 create index if not exists idx_faqs_service on public.faqs(service_id);
+
+-- Business members & roles
+create table if not exists public.business_users (
+  business_id bigint not null references public.businesses(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('admin', 'employee')),
+  is_primary boolean not null default false,
+  created_at timestamptz not null default now(),
+  primary key (business_id, user_id)
+);
+
+create index if not exists idx_business_users_user on public.business_users(user_id);
+create index if not exists idx_business_users_business on public.business_users(business_id);
+
+alter table public.business_users enable row level security;
+
+-- Members can see membership rows for businesses they belong to
+create policy if not exists "business_users_select_own_memberships"
+on public.business_users for select
+using (auth.uid() = user_id);
+
+-- Admin members can manage membership for their business
+create policy if not exists "business_users_admin_manage"
+on public.business_users for all
+using (
+  exists (
+    select 1 from public.business_users bu
+    where bu.business_id = business_users.business_id
+      and bu.user_id = auth.uid()
+      and bu.role = 'admin'
+  )
+)
+with check (
+  exists (
+    select 1 from public.business_users bu
+    where bu.business_id = business_users.business_id
+      and bu.user_id = auth.uid()
+      and bu.role = 'admin'
+  )
+);

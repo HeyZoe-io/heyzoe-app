@@ -79,6 +79,39 @@ export async function middleware(req: NextRequest) {
       url.pathname = next && next.startsWith("/") ? next : "/dashboard/settings";
       return NextResponse.redirect(url);
     }
+
+    // Role gating: employees can access conversations only
+    if (isOwnerSlugPath) {
+      const m = pathname.match(/^\/([^/]+)\/(analytics|conversations|settings)\/?$/);
+      const slug = m?.[1] ?? "";
+      const section = m?.[2] ?? "";
+      if (slug && section && section !== "conversations") {
+        try {
+          const { data: biz } = await supabase
+            .from("businesses")
+            .select("id, user_id")
+            .eq("slug", slug)
+            .maybeSingle();
+          const isOwner = biz?.user_id && String(biz.user_id) === user.id;
+          if (!isOwner && biz?.id) {
+            const { data: bu } = await supabase
+              .from("business_users")
+              .select("role")
+              .eq("business_id", biz.id)
+              .eq("user_id", user.id)
+              .maybeSingle();
+            const isAdminMember = bu?.role === "admin";
+            if (!isAdminMember) {
+              const url = req.nextUrl.clone();
+              url.pathname = `/${slug}/conversations`;
+              return NextResponse.redirect(url);
+            }
+          }
+        } catch {
+          // If we can't check role here, let page-level auth handle it.
+        }
+      }
+    }
   }
 
   return res;

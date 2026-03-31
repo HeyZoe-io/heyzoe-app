@@ -1,0 +1,200 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+export const runtime = "nodejs";
+
+async function requireUser() {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  return data.user ?? null;
+}
+
+async function resolveBusinessForUser(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string) {
+  const { data: owned } = await admin
+    .from("businesses")
+    .select("id, slug, user_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (owned) return { businessId: owned.id as number, slug: String(owned.slug), isOwner: true };
+
+  const { data: membership } = await admin
+    .from("business_users")
+    .select("business_id, role")
+    .eq("user_id", userId)
+    .order("is_primary", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!membership) return null;
+
+  const { data: biz } = await admin.from("businesses").select("id, slug, user_id").eq("id", membership.business_id).maybeSingle();
+  if (!biz) return null;
+  return { businessId: biz.id as number, slug: String(biz.slug), isOwner: false };
+}
+
+async function ensurePrimaryMembership(admin: ReturnType<typeof createSupabaseAdminClient>, businessId: number, ownerUserId: string) {
+  // Ensure the owner exists in business_users as primary admin
+  const { data: existing } = await admin
+    .from("business_users")
+    .select("user_id")
+    .eq("business_id", businessId)
+    .eq("user_id", ownerUserId)
+    .maybeSingle();
+  if (existing) return;
+
+  await admin.from("business_users").insert({
+    business_id: businessId,
+    user_id: ownerUserId,
+    role: "admin",
+    is_primary: true,
+  } as any);
+}
+
+async function requireAdminForBusiness(admin: ReturnType<typeof createSupabaseAdminClient>, businessId: number, userId: string) {
+  const { data: row } = await admin
+    .from("business_users")
+    .select("role, is_primary")
+    .eq("business_id", businessId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return row?.role === "admin";
+}
+
+async function getAuthUserInfo(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string) {
+  try {
+    const { data, error } = await admin.auth.admin.getUserById(userId);
+    if (error || !data.user) return { email: "", name: "" };
+    const u: any = data.user;
+    const name =
+      (typeof u.user_metadata?.full_name === "string" ? u.user_metadata.full_name : "") ||
+      (typeof u.user_metadata?.name === "string" ? u.user_metadata.name : "");
+    return { email: String(u.email ?? ""), name: String(name ?? "") };
+  } catch {
+    return { email: "", name: "" };
+  }
+}
+
+export async function GET() {
+  const user = await requireUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const admin = createSupabaseAdminClient();
+  const bizInfo = await resolveBusinessForUser(admin, user.id);
+  if (!bizInfo) return NextResponse.json({ members: [] });
+
+  // Ensure owner is present as primary admin membership for safety rules
+  const { data: biz } = await admin.from("businesses").select("user_id").eq("id", bizInfo.businessId).maybeSingle();
+  if (biz?.user_id) await ensurePrimaryMembership(admin, bizInfo.businessId, String(biz.user_id));
+
+  const { data: rows, error } = await admin
+    .from("business_users")
+    .select("business_id, user_id, role, is_primary")
+    .eq("business_id", bizInfo.businessId)
+    .order("is_primary", { ascending: false });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const members = await Promise.all(
+    (rows ?? []).map(async (r: any) => {
+      const info = await getAuthUserInfo(admin, String(r.user_id));
+      return {
+        user_id: String(r.user_id),
+        role: r.role === "admin" ? "admin" : "employee",
+        is_primary: Boolean(r.is_primary),
+        email: info.email,
+        name: info.name,
+      };
+    })
+  );
+
+  return NextResponse.json({ members });
+}
+
+export async function POST(req: NextRequest) {
+  const user = await requireUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const email = typeof body.email === "string" ? body.email.trim() : "";
+  const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
+  const role = body.role === "admin" ? "admin" : "employee";
+  if (!email || !fullName) return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+
+  const admin = createSupabaseAdminClient();
+  const bizInfo = await resolveBusinessForUser(admin, user.id);
+  if (!bizInfo) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+
+  const isAdmin = await requireAdminForBusiness(admin, bizInfo.businessId, user.id);
+  if (!isAdmin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const invite = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/dashboard/login`,
+    data: { full_name: fullName },
+  } as any);
+
+  if (invite.error || !invite.data.user) {
+    return NextResponse.json({ error: invite.error?.message ?? "invite_failed" }, { status: 500 });
+  }
+
+  const invitedUserId = String(invite.data.user.id);
+
+  const { error } = await admin.from("business_users").upsert(
+    {
+      business_id: bizInfo.businessId,
+      user_id: invitedUserId,
+      role,
+      is_primary: false,
+    },
+    { onConflict: "business_id,user_id" } as any
+  );
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(req: NextRequest) {
+  const user = await requireUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const userId = new URL(req.url).searchParams.get("user_id") ?? "";
+  if (!userId) return NextResponse.json({ error: "missing_user_id" }, { status: 400 });
+
+  const admin = createSupabaseAdminClient();
+  const bizInfo = await resolveBusinessForUser(admin, user.id);
+  if (!bizInfo) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+
+  const isAdmin = await requireAdminForBusiness(admin, bizInfo.businessId, user.id);
+  if (!isAdmin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const { data: target } = await admin
+    .from("business_users")
+    .select("user_id, role, is_primary")
+    .eq("business_id", bizInfo.businessId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  if (target.is_primary) {
+    // can’t delete primary unless there's another admin
+    const { data: otherAdmins } = await admin
+      .from("business_users")
+      .select("user_id")
+      .eq("business_id", bizInfo.businessId)
+      .eq("role", "admin");
+    const hasAnotherAdmin = (otherAdmins ?? []).some((x: any) => String(x.user_id) !== userId);
+    if (!hasAnotherAdmin) {
+      return NextResponse.json({ error: "cannot_delete_primary_without_another_admin" }, { status: 409 });
+    }
+  }
+
+  const { error } = await admin
+    .from("business_users")
+    .delete()
+    .eq("business_id", bizInfo.businessId)
+    .eq("user_id", userId);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
+}
+
