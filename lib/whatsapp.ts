@@ -102,11 +102,14 @@ export async function sendWhatsAppMessage(
   accountSid: string,
   authToken: string
 ): Promise<void> {
+  const hasHebrew = /[\u0590-\u05FF]/.test(text);
+  // Force RTL in WhatsApp to avoid punctuation drifting to the wrong edge
+  const bodyText = hasHebrew ? `\u200F${text}` : text;
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
     From: `whatsapp:${fromNumber}`,
     To:   `whatsapp:${to}`,
-    Body: text,
+    Body: bodyText,
   });
 
   const res = await fetch(url, {
