@@ -123,3 +123,37 @@ export async function sendWhatsAppMessage(
     throw new Error(`[Twilio send] ${res.status} ${res.statusText}: ${err}`);
   }
 }
+
+export async function sendWhatsAppMediaMessage(
+  fromNumber: string,
+  to: string,
+  mediaUrl: string,
+  accountSid: string,
+  authToken: string,
+  caption?: string
+): Promise<void> {
+  const cleanUrl = mediaUrl.trim();
+  if (!cleanUrl) return;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const body = new URLSearchParams({
+    From: `whatsapp:${fromNumber}`,
+    To: `whatsapp:${to}`,
+    MediaUrl: cleanUrl,
+  });
+  if (caption && caption.trim()) body.set("Body", caption.trim());
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`[Twilio send media] ${res.status} ${res.statusText}: ${err}`);
+  }
+}

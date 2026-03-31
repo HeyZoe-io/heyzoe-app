@@ -6,6 +6,11 @@ export type BusinessKnowledgePack = {
   businessName: string;
   niche: string;
   businessDescription: string;
+  addressText: string;
+  arboxLink: string;
+  openingMediaUrl: string;
+  openingMediaType: "image" | "video" | "";
+  servicesShortText: string;
   servicesText: string;
   faqsText: string;
   ctaText: string;
@@ -60,6 +65,19 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       admin.from("faqs").select("question, answer").eq("business_id", business.id).order("sort_order", { ascending: true }),
     ]);
 
+    const servicesShortText = services?.length
+      ? services
+          .slice(0, 3)
+          .map(
+            (s, i) =>
+              `${i + 1}. ${truncateText(String(s.name ?? ""), 46)} — ${truncateText(
+                String(s.price_text ?? "מחיר לא צוין"),
+                26
+              )}`
+          )
+          .join("\n")
+      : "";
+
     const servicesText = services?.length
       ? services.slice(0, 6).map((s, i) =>
           `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"} | תיאור: ${truncateText(String(s.description ?? ""), 140)}`
@@ -77,6 +95,15 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         ? (business.social_links as Record<string, unknown>)
         : {};
 
+    const addressText = typeof social.address === "string" ? String(social.address) : "";
+    const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link) : "";
+    const openingMediaUrl =
+      typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
+    const openingMediaType =
+      social.opening_media_type === "image" || social.opening_media_type === "video"
+        ? (social.opening_media_type as "image" | "video")
+        : "";
+
     const rawQR = Array.isArray(social.quick_replies) ? social.quick_replies : [];
     const quickReplies: QuickReplyEntry[] = rawQR
       .map((r: unknown) => {
@@ -93,6 +120,11 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       businessName: String(business.name ?? slug),
       niche: String(business.niche ?? ""),
       businessDescription: sanitizeText(String(social.business_description ?? ""), 350),
+      addressText,
+      arboxLink,
+      openingMediaUrl,
+      openingMediaType,
+      servicesShortText,
       servicesText,
       faqsText,
       ctaText: String(business.cta_text ?? ""),
