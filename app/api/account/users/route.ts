@@ -141,57 +141,88 @@ async function getAuthUsersByIds(
 }
 
 export async function GET() {
-  const user = await requireUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  try {
+    const user = await requireUser();
+    if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const admin = createSupabaseAdminClient();
-  const bizInfo = await resolveBusinessForUser(admin, user.id);
-  if (!bizInfo) return NextResponse.json({ members: [] });
+    const admin = createSupabaseAdminClient();
+    const bizInfo = await resolveBusinessForUser(admin, user.id);
+    if (!bizInfo) {
+      console.info("[api/account/users][GET] no_business", { user_id: user.id });
+      return NextResponse.json({ members: [] });
+    }
 
-  // Ensure owner is present as primary admin membership for safety rules
-  const { data: biz } = await admin.from("businesses").select("user_id").eq("id", bizInfo.businessId).maybeSingle();
-  if (biz?.user_id) await ensurePrimaryMembership(admin, bizInfo.businessId, String(biz.user_id));
+    // Ensure owner is present as primary admin membership for safety rules
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("user_id, slug")
+      .eq("id", bizInfo.businessId)
+      .maybeSingle();
+    if (biz?.user_id) await ensurePrimaryMembership(admin, bizInfo.businessId, String(biz.user_id));
 
-  const { data: rows, error } = await admin
-    .from("business_users")
-    .select("business_id, user_id, role, status, is_primary")
-    .eq("business_id", bizInfo.businessId)
-    .order("is_primary", { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const ids = (rows ?? []).map((r: any) => String(r.user_id));
-  const infoById = await getAuthUsersByIds(admin, ids);
-  // Auto-activate pending users when they confirm the invite
-  const toActivate = (rows ?? [])
-    .filter((r: any) => String(r.status ?? "pending") === "pending")
-    .filter((r: any) => Boolean(infoById.get(String(r.user_id))?.confirmed_at))
-    .map((r: any) => String(r.user_id));
-  if (toActivate.length) {
-    await admin
+    const { data: rows, error } = await admin
       .from("business_users")
-      .update({ status: "active" })
+      .select("business_id, user_id, role, status, is_primary")
       .eq("business_id", bizInfo.businessId)
-      .in("user_id", toActivate);
+      .order("is_primary", { ascending: false });
+    if (error) {
+      console.error("[api/account/users][GET] business_users_select_failed", {
+        user_id: user.id,
+        business_id: bizInfo.businessId,
+        error: error.message,
+      });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const ids = (rows ?? []).map((r: any) => String(r.user_id));
+    const infoById = await getAuthUsersByIds(admin, ids);
+    // Auto-activate pending users when they confirm the invite
+    const toActivate = (rows ?? [])
+      .filter((r: any) => String(r.status ?? "pending") === "pending")
+      .filter((r: any) => Boolean(infoById.get(String(r.user_id))?.confirmed_at))
+      .map((r: any) => String(r.user_id));
+    if (toActivate.length) {
+      await admin
+        .from("business_users")
+        .update({ status: "active" })
+        .eq("business_id", bizInfo.businessId)
+        .in("user_id", toActivate);
+    }
+
+    const members = (rows ?? []).map((r: any) => {
+      const uid = String(r.user_id);
+      const info = infoById.get(uid) ?? { email: "", name: "", confirmed_at: null };
+      const status =
+        String(r.status ?? "pending") === "active" || (toActivate.includes(uid) && Boolean(info.confirmed_at))
+          ? "active"
+          : "pending";
+      return {
+        user_id: uid,
+        role: r.role === "admin" ? "admin" : "employee",
+        status,
+        is_primary: Boolean(r.is_primary),
+        email: info.email,
+        name: info.name,
+      };
+    });
+
+    console.info("[api/account/users][GET] payload", {
+      user_id: user.id,
+      business_id: bizInfo.businessId,
+      business_slug: biz?.slug ? String(biz.slug) : "",
+      rows_count: Array.isArray(rows) ? rows.length : 0,
+      member_ids: ids,
+      members_count: members.length,
+      members_preview: members.slice(0, 5),
+    });
+
+    return NextResponse.json({ members });
+  } catch (e: any) {
+    console.error("[api/account/users][GET] failed", {
+      message: e?.message ? String(e.message) : String(e),
+    });
+    return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
-
-  const members = (rows ?? []).map((r: any) => {
-    const uid = String(r.user_id);
-    const info = infoById.get(uid) ?? { email: "", name: "", confirmed_at: null };
-    const status =
-      String(r.status ?? "pending") === "active" || (toActivate.includes(uid) && Boolean(info.confirmed_at))
-        ? "active"
-        : "pending";
-    return {
-      user_id: uid,
-      role: r.role === "admin" ? "admin" : "employee",
-      status,
-      is_primary: Boolean(r.is_primary),
-      email: info.email,
-      name: info.name,
-    };
-  });
-
-  return NextResponse.json({ members });
 }
 
 export async function POST(req: NextRequest) {
