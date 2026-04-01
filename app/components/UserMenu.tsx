@@ -61,7 +61,12 @@ export default function UserMenu() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="h-9 w-9 rounded-full border border-zinc-200 bg-white text-zinc-800 text-xs font-semibold flex items-center justify-center hover:bg-zinc-50 transition cursor-pointer select-none"
+        className={
+          "h-9 w-9 rounded-full text-xs font-semibold flex items-center justify-center transition cursor-pointer select-none " +
+          (open
+            ? "text-white shadow-sm bg-[linear-gradient(135deg,#7133da,#ff92ff)]"
+            : "border border-[rgba(113,51,218,0.18)] bg-white text-[#7133da] hover:bg-[#faf7ff]")
+        }
         aria-haspopup="menu"
         aria-expanded={open}
         title={email || "User"}
@@ -72,20 +77,20 @@ export default function UserMenu() {
       {open ? (
         <div
           role="menu"
-          className="absolute left-0 mt-2 w-64 rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden z-[10000]"
+          className="absolute left-0 mt-2 w-64 rounded-2xl border border-[rgba(113,51,218,0.14)] bg-white shadow-[0_18px_50px_rgba(113,51,218,0.18)] overflow-hidden z-[10000]"
         >
-          <div className="px-4 py-3">
+          <div className="px-4 py-3 bg-[linear-gradient(135deg,rgba(113,51,218,0.06),rgba(255,146,255,0.07))]">
             <p className="text-xs text-zinc-500 truncate">מחובר/ת כ</p>
             <p className="text-sm font-medium text-zinc-900 truncate">{email || "—"}</p>
           </div>
-          <div className="h-px bg-zinc-100" />
+          <div className="h-px bg-[rgba(113,51,218,0.10)]" />
           <div className="py-1">
             <Link
               role="menuitem"
               href="/account/settings"
               prefetch={true}
               onClick={() => setOpen(false)}
-              className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
             >
               פרטים אישיים
             </Link>
@@ -94,7 +99,7 @@ export default function UserMenu() {
               href="/account/billing"
               prefetch={true}
               onClick={() => setOpen(false)}
-              className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
             >
               חיוב וחבילות
             </Link>
@@ -103,7 +108,7 @@ export default function UserMenu() {
               href="/account/users"
               prefetch={true}
               onClick={() => setOpen(false)}
-              className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
             >
               משתמשים
             </Link>
@@ -112,12 +117,12 @@ export default function UserMenu() {
               href="/account/contact"
               prefetch={true}
               onClick={() => setOpen(false)}
-              className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
             >
               צור קשר
             </Link>
           </div>
-          <div className="h-px bg-zinc-100" />
+          <div className="h-px bg-[rgba(113,51,218,0.10)]" />
           <button
             role="menuitem"
             type="button"
