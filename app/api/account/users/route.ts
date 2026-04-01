@@ -61,13 +61,14 @@ async function ensurePrimaryMembership(admin: ReturnType<typeof createSupabaseAd
     .maybeSingle();
   if (existing) return;
 
-  await admin.from("business_users").insert({
+  const { error } = await admin.from("business_users").insert({
     business_id: businessId,
     user_id: ownerUserId,
     role: "admin",
     status: "active",
     is_primary: true,
   } as any);
+  if (error) throw error;
 }
 
 async function requireAdminForBusiness(admin: ReturnType<typeof createSupabaseAdminClient>, businessId: number, userId: string) {
@@ -140,7 +141,7 @@ async function getAuthUsersByIds(
   return map;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -153,11 +154,18 @@ export async function GET() {
     }
 
     // Ensure owner is present as primary admin membership for safety rules
-    const { data: biz } = await admin
+    const { data: biz, error: bizErr } = await admin
       .from("businesses")
       .select("user_id, slug")
       .eq("id", bizInfo.businessId)
       .maybeSingle();
+    if (bizErr) {
+      console.error("[api/account/users][GET] business_select_failed", {
+        user_id: user.id,
+        business_id: bizInfo.businessId,
+        error: bizErr.message,
+      });
+    }
     if (biz?.user_id) await ensurePrimaryMembership(admin, bizInfo.businessId, String(biz.user_id));
 
     const { data: rows, error } = await admin
@@ -216,7 +224,25 @@ export async function GET() {
       members_preview: members.slice(0, 5),
     });
 
-    return NextResponse.json({ members });
+    // Debug mode: return raw rows to quickly diagnose production data mismatches.
+    // Enable by calling /api/account/users?debug=1 (still requires auth).
+    const debug = req.nextUrl.searchParams.get("debug") === "1";
+
+    return NextResponse.json(
+      debug
+        ? {
+            members,
+            debug: {
+              resolved: {
+                user_id: user.id,
+                business_id: bizInfo.businessId,
+                business_slug: biz?.slug ? String(biz.slug) : "",
+              },
+              raw_business_users_rows: rows ?? [],
+            },
+          }
+        : { members }
+    );
   } catch (e: any) {
     console.error("[api/account/users][GET] failed", {
       message: e?.message ? String(e.message) : String(e),
