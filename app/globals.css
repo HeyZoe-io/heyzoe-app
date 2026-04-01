@@ -1,7 +1,13 @@
+@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&display=swap");
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --hz-purple: #7133da;
+  --hz-pink: #ff92ff;
+  --hz-green: #35ff70;
+  --hz-page: #f5f3ff;
+
+  --background: var(--hz-page);
   --foreground: #171717;
 }
 
@@ -22,7 +28,31 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Fredoka", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@keyframes hzFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hz-wave {
+  animation: hzFadeUp 0.25s ease-out both;
+}
+.hz-wave-1 {
+  animation-delay: 0s;
+}
+.hz-wave-2 {
+  animation-delay: 0.12s;
+}
+.hz-wave-3 {
+  animation-delay: 0.22s;
 }
 
 /* RTL defaults (dashboard-heavy app).
