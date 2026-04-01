@@ -48,7 +48,9 @@ function StepHeader({ n, title, desc }: { n: number; title: string; desc?: strin
   return (
     <div className="mb-6">
       <div className="flex items-center gap-3 mb-1">
-        <span className="w-8 h-8 rounded-full bg-fuchsia-100 text-fuchsia-700 text-sm font-bold flex items-center justify-center shrink-0">{n}</span>
+        <span className="w-8 h-8 rounded-full bg-[#f0eaff] text-[#7133da] text-sm font-bold flex items-center justify-center shrink-0">
+          {n}
+        </span>
         <h2 className="text-xl font-bold text-zinc-900">{title}</h2>
       </div>
       {desc && <p className="text-sm text-zinc-500 mr-11">{desc}</p>}
@@ -75,7 +77,7 @@ function Textarea({ value, onChange, placeholder, rows = 3 }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-400 resize-none"
+      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#7133da]/40 resize-none"
     />
   );
 }
@@ -438,13 +440,13 @@ export default function SlugSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50" dir="rtl">
+    <div className="min-h-screen bg-[#f5f3ff]" dir="rtl">
 
       {/* ── Top bar ── */}
       <div className="sticky top-0 z-40 bg-white border-b border-zinc-200 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-            <span className="text-fuchsia-500">HeyZoe</span>
+            <span className="text-[#7133da]">HeyZoe</span>
             <span className="text-zinc-300">/</span>
             <span>{slug}</span>
           </div>
@@ -463,13 +465,13 @@ export default function SlugSettingsPage() {
                   key={n}
                   onClick={() => setStep(n)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                    active  ? "bg-fuchsia-500 text-white shadow-sm" :
-                    done    ? "bg-fuchsia-100 text-fuchsia-700" :
+                    active  ? "text-white shadow-sm bg-[linear-gradient(135deg,#7133da,#ff92ff)]" :
+                    done    ? "bg-[#f0eaff] text-[#7133da]" :
                               "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
                   }`}
                 >
                   <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                    active ? "bg-white/30" : done ? "bg-fuchsia-200" : "bg-zinc-200"
+                    active ? "bg-white/30" : done ? "bg-[#e6dcff]" : "bg-zinc-200"
                   }`}>{done ? "✓" : n}</span>
                   <span className="hidden sm:inline">{label}</span>
                 </button>
@@ -503,7 +505,7 @@ export default function SlugSettingsPage() {
                 </div>
               </Field>
               {fetchingUrl && (
-                <p className="text-sm text-fuchsia-600 flex items-center gap-2">
+                <p className="text-sm text-[#7133da] flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   מנתח את האתר — זה לוקח כמה שניות...
                 </p>
@@ -548,8 +550,8 @@ export default function SlugSettingsPage() {
                       onClick={() => setVibe(curr => curr.includes(v) ? curr.filter(x => x !== v) : [...curr, v])}
                       className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
                         vibe.includes(v)
-                          ? "bg-fuchsia-500 text-white border-fuchsia-500 shadow-sm"
-                          : "bg-white text-zinc-600 border-zinc-300 hover:border-fuchsia-300"
+                          ? "text-white shadow-sm border-transparent bg-[linear-gradient(135deg,#7133da,#ff92ff)]"
+                          : "bg-[#f0eaff] text-[#7133da] border-transparent hover:opacity-90"
                       }`}
                     >{v}</button>
                   ))}
@@ -566,10 +568,10 @@ export default function SlugSettingsPage() {
             <CardContent className="space-y-5">
               <div
                 onClick={() => mediaInputRef.current?.click()}
-                className="border-2 border-dashed border-zinc-300 rounded-2xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-fuchsia-400 hover:bg-fuchsia-50 transition-all"
+                className="border-2 border-dashed border-zinc-300 rounded-2xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all"
               >
                 {uploadingMedia ? (
-                  <Loader2 className="h-8 w-8 animate-spin text-fuchsia-400" />
+                  <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
                 ) : openingMediaUrl ? (
                   openingMediaType === "video"
                     ? <video src={openingMediaUrl} className="max-h-48 rounded-xl" controls />
@@ -659,7 +661,7 @@ export default function SlugSettingsPage() {
                         <select
                           value={a.service_slug}
                           onChange={e => updateSegAnswer(q.id, a.id, { service_slug: e.target.value })}
-                          className="text-sm border border-zinc-300 rounded-xl px-2 py-2 text-zinc-700 focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                          className="text-sm border border-zinc-300 rounded-xl px-2 py-2 text-zinc-700 focus:outline-none focus:ring-2 focus:ring-[#7133da]/40"
                         >
                           <option value="">ניתוב...</option>
                           <option value="general">כללי</option>
@@ -672,7 +674,7 @@ export default function SlugSettingsPage() {
                         </button>
                       </div>
                     ))}
-                    <Button variant="ghost" onClick={() => addSegAnswer(q.id)} className="gap-1 text-xs text-fuchsia-600 py-1.5 px-2">
+                    <Button variant="ghost" onClick={() => addSegAnswer(q.id)} className="gap-1 text-xs text-[#7133da] py-1.5 px-2">
                       <Plus className="h-3 w-3" /> הוסף תשובה
                     </Button>
                   </div>
@@ -710,7 +712,7 @@ export default function SlugSettingsPage() {
                         onChange={e => setQuickReplies(q => q.map((x, j) => j === i ? { ...x, reply: e.target.value } : x))}
                         placeholder="התשובה הסטטית שתישלח אוטומטית..."
                         rows={2}
-                        className="flex-1 resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                        className="flex-1 resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#7133da]/40"
                       />
                     </div>
                   </div>
@@ -728,8 +730,8 @@ export default function SlugSettingsPage() {
               </div>
 
               {/* Add new quick reply */}
-              <div className="border border-fuchsia-100 rounded-xl p-3 space-y-2 bg-fuchsia-50/40">
-                <p className="text-xs font-medium text-fuchsia-700">הוסף כפתור חדש</p>
+              <div className="border border-[rgba(113,51,218,0.18)] rounded-xl p-3 space-y-2 bg-[rgba(113,51,218,0.06)]">
+                <p className="text-xs font-medium text-[#7133da]">הוסף כפתור חדש</p>
                 <Input
                   dir="rtl"
                   value={newReplyLabel}
@@ -743,7 +745,7 @@ export default function SlugSettingsPage() {
                   onChange={e => setNewReplyText(e.target.value)}
                   placeholder="תשובה סטטית..."
                   rows={2}
-                  className="w-full resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                  className="w-full resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#7133da]/40"
                 />
                 <Button
                   onClick={() => {
@@ -806,7 +808,7 @@ export default function SlugSettingsPage() {
                   onDragStart={() => onDragStart(i)}
                   onDragOver={e => onDragOver(e, i)}
                   onDragEnd={onDragEnd}
-                  className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white hover:border-fuchsia-200 transition-colors"
+                  className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
                 >
                   <div className="flex gap-2 items-center">
                     <GripVertical className="h-4 w-4 text-zinc-300 cursor-grab shrink-0" />
@@ -958,7 +960,7 @@ export default function SlugSettingsPage() {
           <span className="text-sm text-zinc-400">{step} / {STEPS.length}</span>
 
           {isLast ? (
-            <Button onClick={saveAll} disabled={saving} className="gap-2 bg-fuchsia-500 hover:bg-fuchsia-600 text-white">
+            <Button onClick={saveAll} disabled={saving} className="gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {saving ? "שומר..." : "שמור הכל"}
             </Button>
