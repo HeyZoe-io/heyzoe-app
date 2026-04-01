@@ -11,6 +11,23 @@ async function requireUser() {
 }
 
 async function resolveBusinessForUser(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string) {
+  // Prefer explicit primary membership (works for owners + invited users)
+  const { data: primaryMembership } = await admin
+    .from("business_users")
+    .select("business_id, role, is_primary")
+    .eq("user_id", userId)
+    .eq("is_primary", true)
+    .limit(1)
+    .maybeSingle();
+  if (primaryMembership?.business_id) {
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("id, slug, user_id")
+      .eq("id", primaryMembership.business_id)
+      .maybeSingle();
+    if (biz) return { businessId: biz.id as number, slug: String(biz.slug), isOwner: false };
+  }
+
   const { data: owned } = await admin
     .from("businesses")
     .select("id, slug, user_id")
