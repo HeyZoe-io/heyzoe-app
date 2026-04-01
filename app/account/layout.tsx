@@ -11,15 +11,35 @@ export default async function AccountLayout({ children }: { children: ReactNode 
   if (!data.user) redirect("/dashboard/login");
 
   const admin = createSupabaseAdminClient();
-  const { data: biz } = await admin
-    .from("businesses")
-    .select("slug")
+  // Prefer membership (works for invited users), then fall back to owned business.
+  const { data: membership } = await admin
+    .from("business_users")
+    .select("business_id, is_primary")
     .eq("user_id", data.user.id)
-    .order("created_at", { ascending: true })
+    .order("is_primary", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  const slug = biz?.slug ? String(biz.slug) : "";
+  let slug = "";
+  if (membership?.business_id) {
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("slug")
+      .eq("id", membership.business_id)
+      .maybeSingle();
+    slug = biz?.slug ? String(biz.slug) : "";
+  }
+
+  if (!slug) {
+    const { data: owned } = await admin
+      .from("businesses")
+      .select("slug")
+      .eq("user_id", data.user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    slug = owned?.slug ? String(owned.slug) : "";
+  }
 
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-6" dir="rtl">
