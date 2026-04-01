@@ -22,6 +22,8 @@ function redirectToDashboardLogin(req: NextRequest) {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  // Public auth callback pages (Supabase redirects here)
+  if (pathname === "/register/confirm") return NextResponse.next();
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
   const isOwnerAccountPath = pathname.startsWith("/account");
