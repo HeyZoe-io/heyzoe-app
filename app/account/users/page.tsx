@@ -144,23 +144,23 @@ export default function AccountUsersPage() {
                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 flex items-center justify-between gap-3"
                 >
                   <div className="text-right">
-                    <p className="text-sm font-medium text-zinc-900">
-                      {m.name || "—"}{" "}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {m.status === "pending" ? (
+                        <span className="text-[11px] rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                          ממתין לאישור
+                        </span>
+                      ) : (
+                        <span className="text-[11px] rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                          פעיל
+                        </span>
+                      )}
                       {m.is_primary ? (
                         <span className="text-[11px] rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2 py-0.5 text-fuchsia-700">
                           ראשי
                         </span>
                       ) : null}
-                      {m.status === "pending" ? (
-                        <span className="mr-2 text-[11px] rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
-                          ממתין לאישור
-                        </span>
-                      ) : (
-                        <span className="mr-2 text-[11px] rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                          פעיל
-                        </span>
-                      )}
-                    </p>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-zinc-900">{m.name || "—"}</p>
                     <p className="text-xs text-zinc-500">{m.email || "—"}</p>
                     <p className="text-[11px] text-zinc-500">
                       <span className="font-medium text-zinc-700">
@@ -181,7 +181,7 @@ export default function AccountUsersPage() {
                         {cancellingByUserId[m.user_id] ? "מבטל..." : "בטל בקשה"}
                       </button>
                     ) : null}
-                    {!m.is_primary ? (
+                    {!m.is_primary && m.status === "active" ? (
                       <button
                         type="button"
                         onClick={() => void removeMember(m.user_id)}
