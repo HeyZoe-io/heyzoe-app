@@ -26,6 +26,7 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={true}
               className={
                 "rounded-full border px-3 py-1.5 transition " +
                 (active

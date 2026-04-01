@@ -83,6 +83,7 @@ export default function UserMenu() {
             <Link
               role="menuitem"
               href="/account/settings"
+              prefetch={true}
               onClick={() => setOpen(false)}
               className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
@@ -91,6 +92,7 @@ export default function UserMenu() {
             <Link
               role="menuitem"
               href="/account/billing"
+              prefetch={true}
               onClick={() => setOpen(false)}
               className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
@@ -99,6 +101,7 @@ export default function UserMenu() {
             <Link
               role="menuitem"
               href="/account/users"
+              prefetch={true}
               onClick={() => setOpen(false)}
               className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
@@ -107,6 +110,7 @@ export default function UserMenu() {
             <Link
               role="menuitem"
               href="/account/contact"
+              prefetch={true}
               onClick={() => setOpen(false)}
               className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
