@@ -27,6 +27,7 @@ export default function AccountUsersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loadError, setLoadError] = useState("");
   const [message, setMessage] = useState("");
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
@@ -45,12 +46,15 @@ export default function AccountUsersPage() {
       if (!res.ok) {
         setLoadError("לא הצלחנו לטעון את המשתמשים. נסו לרענן את הדף.");
         setMessage(typeof data?.error === "string" ? data.error : "");
+        setLoadedOnce(true);
         return;
       }
       setMembers(Array.isArray(data?.members) ? data.members : []);
       setMeId(meRes.data.user?.id ?? "");
+      setLoadedOnce(true);
     } catch {
       setLoadError("לא הצלחנו לטעון את המשתמשים. נסו לרענן את הדף.");
+      setLoadedOnce(true);
     }
   }
 
@@ -144,6 +148,28 @@ export default function AccountUsersPage() {
               <p className="text-sm text-red-600">{loadError}</p>
             ) : null}
 
+            {!loadedOnce ? (
+              <div className="space-y-2 animate-pulse">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 flex items-center justify-between gap-3"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex justify-end gap-2">
+                        <div className="h-4 w-24 rounded bg-zinc-200" />
+                        <div className="h-4 w-14 rounded bg-zinc-200" />
+                      </div>
+                      <div className="h-4 w-40 rounded bg-zinc-200 ml-auto" />
+                      <div className="h-3 w-52 rounded bg-zinc-200 ml-auto" />
+                      <div className="h-3 w-64 rounded bg-zinc-200 ml-auto" />
+                    </div>
+                    <div className="h-3 w-20 rounded bg-zinc-200" />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             {members.map((m) => (
               <div
                 key={m.user_id}
@@ -204,7 +230,7 @@ export default function AccountUsersPage() {
               </div>
             ))}
 
-            {members.length === 0 ? (
+            {loadedOnce && members.length === 0 ? (
               <p className="text-sm text-zinc-500">אין משתמשים להצגה.</p>
             ) : null}
           </div>
