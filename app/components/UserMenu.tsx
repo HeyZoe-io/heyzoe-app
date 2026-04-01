@@ -98,6 +98,14 @@ export default function UserMenu() {
             </Link>
             <Link
               role="menuitem"
+              href="/account/users"
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+            >
+              משתמשים
+            </Link>
+            <Link
+              role="menuitem"
               href="/account/contact"
               onClick={() => setOpen(false)}
               className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
