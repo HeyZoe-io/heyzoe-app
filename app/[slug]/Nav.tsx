@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import UserMenu from "@/app/components/UserMenu";
 
@@ -17,11 +18,24 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
   return (
     <nav className="mb-4 flex items-center justify-between gap-3 text-sm hz-wave hz-wave-1">
       <div className="flex items-center gap-2">
-        <div className="hidden sm:flex items-center gap-1 font-semibold text-zinc-900 select-none">
-          <span>HeyZ</span>
-          <span className="text-[#35ff70]">O</span>
-          <span>e</span>
-        </div>
+        <Link
+          href={`${base}/analytics`}
+          prefetch={true}
+          className="hidden sm:flex items-center select-none"
+          aria-label="HeyZoe — לדשבורד"
+          onClick={() => {
+            // Close potential open dropdowns etc by forcing navigation; Link handles it.
+          }}
+        >
+          <Image
+            src="/heyzoe-logo.png"
+            alt="HeyZoe"
+            width={220}
+            height={48}
+            priority
+            className="h-8 w-auto"
+          />
+        </Link>
         <UserMenu />
       </div>
       <div className="flex justify-end gap-2">
