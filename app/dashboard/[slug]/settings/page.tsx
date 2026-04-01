@@ -417,7 +417,58 @@ export default function SlugSettingsPage() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><ZoeLoader /></div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#f5f3ff]" dir="rtl">
+        <div className="sticky top-0 z-40 bg-white border-b border-zinc-200 shadow-sm">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between animate-pulse">
+            <div className="h-4 w-40 rounded bg-zinc-200" />
+            <div className="h-4 w-24 rounded bg-zinc-200" />
+          </div>
+          <div className="max-w-2xl mx-auto px-4 pb-3 overflow-x-auto">
+            <div className="flex gap-2 min-w-max animate-pulse">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-8 w-24 rounded-[20px] bg-[#ede9fe]" />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+          <div className="rounded-2xl bg-white border border-[rgba(113,51,218,0.1)] p-5 animate-pulse space-y-4">
+            <div className="flex items-center justify-end gap-3">
+              <div className="h-8 w-8 rounded-full bg-[#f0eaff]" />
+              <div className="h-5 w-40 rounded bg-zinc-200" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="h-3 w-20 rounded bg-zinc-200 ml-auto" />
+                <div className="h-10 w-full rounded-xl bg-zinc-100" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 w-20 rounded bg-zinc-200 ml-auto" />
+                <div className="h-10 w-full rounded-xl bg-zinc-100" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-3 w-20 rounded bg-zinc-200 ml-auto" />
+              <div className="h-10 w-full rounded-xl bg-zinc-100" />
+            </div>
+            <div className="space-y-2">
+              <div className="h-3 w-24 rounded bg-zinc-200 ml-auto" />
+              <div className="h-24 w-full rounded-xl bg-zinc-100" />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-8 pt-4 border-t border-zinc-200 animate-pulse">
+            <div className="h-10 w-24 rounded-xl bg-zinc-200" />
+            <div className="h-4 w-16 rounded bg-zinc-200" />
+            <div className="h-10 w-28 rounded-xl bg-zinc-200" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
