@@ -32,6 +32,7 @@ export default function AccountUsersPage() {
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<Member["role"]>("employee");
   const [inviting, setInviting] = useState(false);
+  const [cancellingByUserId, setCancellingByUserId] = useState<Record<string, boolean>>({});
 
   async function load() {
     setLoading(true);
@@ -71,13 +72,44 @@ export default function AccountUsersPage() {
         setMessage(j.error ?? "invite_failed");
         return;
       }
+      const member: Member | null = j?.member && typeof j.member === "object" ? (j.member as Member) : null;
+      if (member?.user_id) {
+        setMembers((prev) => {
+          if (prev.some((m) => m.user_id === member.user_id)) return prev;
+          return [member, ...prev];
+        });
+      }
       setInviteEmail("");
       setInviteName("");
       setInviteRole("employee");
       setMessage("נשלחה הזמנה במייל.");
-      await load();
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function cancelInvite(userId: string) {
+    if (!confirm("לבטל את ההזמנה?")) return;
+    setMessage("");
+    const prev = members;
+    setMembers((p) => p.filter((m) => m.user_id !== userId));
+    setCancellingByUserId((m) => ({ ...m, [userId]: true }));
+    try {
+      const res = await fetch(
+        `/api/account/users?user_id=${encodeURIComponent(userId)}&cancel_invite=1`,
+        { method: "DELETE" }
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMembers(prev);
+        setMessage(j.error ?? "cancel_failed");
+      }
+    } finally {
+      setCancellingByUserId((m) => {
+        const next = { ...m };
+        delete next[userId];
+        return next;
+      });
     }
   }
 
@@ -138,6 +170,17 @@ export default function AccountUsersPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {m.status === "pending" && !m.is_primary ? (
+                      <button
+                        type="button"
+                        onClick={() => void cancelInvite(m.user_id)}
+                        className="text-xs text-zinc-700 hover:text-zinc-900 underline underline-offset-4 cursor-pointer"
+                        disabled={Boolean(cancellingByUserId[m.user_id])}
+                        title="בטל בקשה"
+                      >
+                        {cancellingByUserId[m.user_id] ? "מבטל..." : "בטל בקשה"}
+                      </button>
+                    ) : null}
                     {!m.is_primary ? (
                       <button
                         type="button"

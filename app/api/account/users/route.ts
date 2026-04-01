@@ -217,14 +217,25 @@ export async function POST(req: NextRequest) {
   );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    member: {
+      user_id: invitedUserId,
+      role: role === "admin" ? "admin" : "employee",
+      status: "pending",
+      is_primary: false,
+      email,
+      name: fullName,
+    },
+  });
 }
 
 export async function DELETE(req: NextRequest) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const userId = new URL(req.url).searchParams.get("user_id") ?? "";
+  const url = new URL(req.url);
+  const userId = url.searchParams.get("user_id") ?? "";
+  const cancelInvite = url.searchParams.get("cancel_invite") === "1";
   if (!userId) return NextResponse.json({ error: "missing_user_id" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
@@ -261,6 +272,25 @@ export async function DELETE(req: NextRequest) {
     .eq("business_id", bizInfo.businessId)
     .eq("user_id", userId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (cancelInvite) {
+    // Best-effort: delete the invited auth user only if it's still unconfirmed.
+    try {
+      const { data: authUser } = await (admin as any)
+        .schema("auth")
+        .from("users")
+        .select("id, confirmed_at, invited_at")
+        .eq("id", userId)
+        .maybeSingle();
+      const confirmedAt = authUser?.confirmed_at ? String(authUser.confirmed_at) : "";
+      const invitedAt = authUser?.invited_at ? String(authUser.invited_at) : "";
+      if (!confirmedAt && invitedAt) {
+        await admin.auth.admin.deleteUser(userId);
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }
