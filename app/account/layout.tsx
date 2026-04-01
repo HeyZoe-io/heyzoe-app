@@ -42,7 +42,7 @@ export default async function AccountLayout({ children }: { children: ReactNode 
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-4 py-6" dir="rtl">
+    <main className="min-h-screen bg-[#f5f3ff] px-4 py-6" dir="rtl">
       <div className="mx-auto max-w-4xl space-y-4">
         {slug ? <SlugDashboardNav slug={slug} /> : null}
         <div className="grid gap-4 md:grid-cols-[220px_1fr]" dir="ltr">

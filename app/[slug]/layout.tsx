@@ -12,7 +12,7 @@ export default async function SlugLayout({ children, params }: Props) {
 
   return (
     <>
-      <main className="min-h-screen bg-zinc-50 px-4 py-6">
+      <main className="min-h-screen bg-[#f5f3ff] px-4 py-6">
         <div className="mx-auto max-w-5xl space-y-4">
           <SlugDashboardNav slug={slug} />
           {children}

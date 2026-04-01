@@ -95,23 +95,17 @@ export default function ConversationsClient({
   }
 
   return (
-    <div
-      className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
-      style={{
-        fontFamily:
-          'Calibri, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}
-    >
-      <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3 max-h-[520px] overflow-auto">
+    <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="space-y-2 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 max-h-[520px] overflow-auto">
         {sessions.map((s) => (
           <button
             key={s.session_id}
             type="button"
             onClick={() => setSelectedId(s.session_id)}
-            className={`w-full text-right rounded-lg border px-3 py-2 flex items-center justify-between ${
+            className={`w-full text-right rounded-xl border px-3 py-2 flex items-center justify-between ${
               selectedId === s.session_id
-                ? "border-fuchsia-300 bg-fuchsia-50/60"
-                : "border-zinc-200 bg-white hover:bg-zinc-50"
+                ? "border-[rgba(113,51,218,0.35)] bg-[#f0eaff]"
+                : "border-[rgba(113,51,218,0.1)] bg-white hover:bg-[#faf7ff]"
             }`}
           >
             <div className="text-right">
@@ -148,7 +142,7 @@ export default function ConversationsClient({
         )}
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-3 flex flex-col gap-2 text-right">
+      <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 flex flex-col gap-2 text-right">
         {selected ? (
           <>
             <div className="flex items-center justify-between mb-2">
@@ -180,18 +174,25 @@ export default function ConversationsClient({
               </button>
             </div>
 
-            <div className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 p-2 max-h-72 overflow-auto">
+            <div className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-auto">
               {selected.messages.map((m, idx) => (
                 <div
                   key={`${m.created_at}-${idx}`}
-                  className={`mb-1 text-xs ${
-                    m.role === "user" ? "text-zinc-800" : "text-fuchsia-800"
-                  }`}
+                  className={`mb-2 text-xs flex ${m.role === "user" ? "justify-start" : "justify-end"}`}
                 >
-                  <span className="font-medium">
-                    {m.role === "user" ? "לקוח:" : "זואי / ידני:"}{" "}
-                  </span>
-                  <span>{m.content}</span>
+                  <div
+                    className={
+                      "max-w-[85%] rounded-2xl px-3 py-2 border " +
+                      (m.role === "user"
+                        ? "bg-white text-zinc-800 border-[rgba(113,51,218,0.1)]"
+                        : "text-white border-[rgba(113,51,218,0.18)] bg-[linear-gradient(135deg,#7133da,#ff92ff)]")
+                    }
+                  >
+                    <p className="text-[10px] opacity-80 mb-1">
+                      {m.role === "user" ? "לקוח" : "זואי"}
+                    </p>
+                    <p className="text-sm leading-snug">{m.content}</p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -209,7 +210,7 @@ export default function ConversationsClient({
                   type="button"
                   onClick={sendManual}
                   disabled={sending || !manualText.trim()}
-                  className="w-full rounded-xl bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-700 disabled:opacity-50"
+                  className="w-full rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50 bg-[linear-gradient(135deg,#7133da,#ff92ff)] hover:opacity-95"
                 >
                   {sending ? "שולח..." : "שליחת הודעה ידנית"}
                 </button>

@@ -59,34 +59,36 @@ export default async function AnalyticsPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-zinc-900 text-right">אנליטיקס ל-{slug}</h1>
-      <p className="text-sm text-zinc-600 text-right">שיחות, המרות והכנסה מוערכת</p>
+      <div className="hz-wave hz-wave-1">
+        <h1 className="text-2xl font-semibold text-zinc-900 text-right">אנליטיקס ל-{slug}</h1>
+        <p className="text-sm text-zinc-600 text-right">שיחות, המרות והכנסה מוערכת</p>
+      </div>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
+      <section className="grid gap-4 md:grid-cols-3 hz-wave hz-wave-2">
+        <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-4 text-right">
           <p className="text-xs text-zinc-500">שיחות שהתחילו</p>
           <p className="mt-1 text-2xl font-semibold text-zinc-900">{started}</p>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
+        <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-4 text-right">
           <p className="text-xs text-zinc-500">המרות (לחיצות על לינק סליקה)</p>
           <p className="mt-1 text-2xl font-semibold text-emerald-600">{converted}</p>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
+        <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-4 text-right">
           <p className="text-xs text-zinc-500">הכנסה מוערכת החודש</p>
           <p className="mt-1 text-2xl font-semibold text-zinc-900">₪{estimatedRevenue}</p>
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
+      <section className="grid gap-4 md:grid-cols-2 hz-wave hz-wave-3">
+        <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-4 text-right">
           <p className="text-sm font-medium text-zinc-900">שיעור המרה</p>
           <p className="mt-1 text-3xl font-semibold text-emerald-600">{conversionRate}%</p>
           <p className="mt-1 text-xs text-zinc-500">
             שיעור המרה = שיחות שהגיעו להמרה מתוך כלל השיחות.
           </p>
         </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 text-right">
-          <p className="text-sm font-medium text-zinc-900">הצעת שיפור</p>
+        <div className="rounded-2xl border border-[rgba(113,51,218,0.35)] bg-[linear-gradient(135deg,rgba(113,51,218,0.10),rgba(255,146,255,0.12))] p-4 text-right">
+          <p className="text-sm font-medium text-[#7133da]">הצעת שיפור</p>
           <p className="mt-2 text-sm text-zinc-700">
             {converted === 0
               ? "כדאי להוסיף כפתורי תשובה מהירה ברורים בתחילת השיחה ולחדד את ההנעה לפעולה."

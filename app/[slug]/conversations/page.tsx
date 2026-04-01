@@ -113,12 +113,16 @@ export default async function ConversationsPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-zinc-900 text-right">שיחות ל-{slug}</h1>
-      <p className="text-sm text-zinc-600 text-right">
-        רשימת השיחות, עצירת בוט ומענה ידני ללקוחות
-      </p>
+      <div className="hz-wave hz-wave-1">
+        <h1 className="text-2xl font-semibold text-zinc-900 text-right">שיחות ל-{slug}</h1>
+        <p className="text-sm text-zinc-600 text-right">
+          רשימת השיחות, עצירת בוט ומענה ידני ללקוחות
+        </p>
+      </div>
 
-      <ConversationsClient slug={slug} initialSessions={sessions} />
+      <div className="hz-wave hz-wave-2">
+        <ConversationsClient slug={slug} initialSessions={sessions} />
+      </div>
     </div>
   );
 }

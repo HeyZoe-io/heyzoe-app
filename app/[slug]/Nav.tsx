@@ -15,8 +15,13 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
   ];
 
   return (
-    <nav className="mb-4 flex items-center justify-between gap-3 text-sm">
+    <nav className="mb-4 flex items-center justify-between gap-3 text-sm hz-wave hz-wave-1">
       <div className="flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-1 font-semibold text-zinc-900 select-none">
+          <span>HeyZ</span>
+          <span className="text-[#35ff70]">O</span>
+          <span>e</span>
+        </div>
         <UserMenu />
       </div>
       <div className="flex justify-end gap-2">
@@ -28,10 +33,10 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
               href={item.href}
               prefetch={true}
               className={
-                "rounded-full border px-3 py-1.5 transition " +
+                "px-3 py-1.5 transition font-medium " +
                 (active
-                  ? "border-fuchsia-500 bg-fuchsia-600 text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  ? "rounded-[20px] text-white shadow-sm bg-[linear-gradient(135deg,#7133da,#ff92ff)]"
+                  : "rounded-[20px] bg-[#ede9fe] text-zinc-600 hover:bg-[#e9e5ff]")
               }
             >
               {item.label}
