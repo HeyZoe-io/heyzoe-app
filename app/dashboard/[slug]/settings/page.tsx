@@ -104,7 +104,9 @@ export default function SlugSettingsPage() {
   const [niche, setNiche]       = useState("");
   const [address, setAddress]   = useState("");
   const [directions, setDirections] = useState("");
-  const [description, setDescription] = useState("");
+  const [fact1, setFact1] = useState("");
+  const [fact2, setFact2] = useState("");
+  const [fact3, setFact3] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
@@ -190,7 +192,25 @@ export default function SlugSettingsPage() {
         setNiche(String(business.niche ?? ""));
         setAddress(String(sl.address ?? ""));
         setDirections(String(sl.directions ?? ""));
-        setDescription(String(sl.business_description ?? business.business_description ?? ""));
+        const f1 = typeof sl.fact1 === "string" ? sl.fact1 : "";
+        const f2 = typeof sl.fact2 === "string" ? sl.fact2 : "";
+        const f3 = typeof sl.fact3 === "string" ? sl.fact3 : "";
+        const legacy = String(sl.business_description ?? business.business_description ?? "");
+        const hasStoredFacts = f1.trim() || f2.trim() || f3.trim();
+        if (hasStoredFacts) {
+          setFact1(f1);
+          setFact2(f2);
+          setFact3(f3);
+        } else if (legacy.trim()) {
+          const lines = legacy.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+          setFact1(lines[0] ?? "");
+          setFact2(lines[1] ?? "");
+          setFact3(lines.slice(2).join(" ") || "");
+        } else {
+          setFact1("");
+          setFact2("");
+          setFact3("");
+        }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
@@ -254,7 +274,10 @@ export default function SlugSettingsPage() {
             conversions_api_token: conversionsApiToken,
             social_links: {
               website_url: websiteUrl,
-              business_description: description,
+              fact1: fact1.trim(),
+              fact2: fact2.trim(),
+              fact3: fact3.trim(),
+              business_description: [fact1, fact2, fact3].map((s) => s.trim()).filter(Boolean).join("\n"),
               address,
               directions,
               vibe,
@@ -289,7 +312,7 @@ export default function SlugSettingsPage() {
       setSaving(false);
     }
   }, [slug, name, niche, botName, welcomeMessage, facebookPixelId, conversionsApiToken,
-      websiteUrl, description, address, directions, vibe, openingMediaUrl, openingMediaType,
+      websiteUrl, fact1, fact2, fact3, address, directions, vibe, openingMediaUrl, openingMediaType,
       segQuestions, quickReplies, arboxLink, objections,
       followupAfterRegistration, followupAfterHourNoRegistration, followupDayAfterTrial,
       services]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -343,7 +366,12 @@ export default function SlugSettingsPage() {
       });
       const j = await res.json();
       if (j.niche) setNiche(j.niche);
-      if (j.business_description) setDescription(j.business_description);
+      if (j.business_description) {
+        const lines = String(j.business_description).split(/\n+/).map((s) => s.trim()).filter(Boolean);
+        setFact1(lines[0] ?? "");
+        setFact2(lines[1] ?? "");
+        setFact3(lines.slice(2).join(" ") || "");
+      }
       if (j.products?.length) {
         setServices(j.products.slice(0, 8).map((p: Record<string, unknown>) => ({
           ui_id: uid(),
@@ -585,9 +613,41 @@ export default function SlugSettingsPage() {
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
               </Field>
 
-              <Field label="תיאור העסק">
-                <Textarea value={description} onChange={setDescription} placeholder="ספר על העסק שלך..." rows={4} />
-              </Field>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-700 block">3 עובדות ששווה להגיע בגללן:</label>
+                <div className="space-y-2">
+                  <div className="flex gap-2 items-center">
+                    <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">1</span>
+                    <Input
+                      dir="rtl"
+                      value={fact1}
+                      onChange={(e) => setFact1(e.target.value)}
+                      placeholder="מתאים לשיקום פציעות"
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">2</span>
+                    <Input
+                      dir="rtl"
+                      value={fact2}
+                      onChange={(e) => setFact2(e.target.value)}
+                      placeholder="מתאים לכל הרמות החל מהצעד הראשון ועד מקצוענים"
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">3</span>
+                    <Input
+                      dir="rtl"
+                      value={fact3}
+                      onChange={(e) => setFact3(e.target.value)}
+                      placeholder="הסטודיו הגדול בגבעתיים עם מערכת שעות לאורך כל היום"
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+              </div>
 
               <Field label="לינק מערכת שעות / Arbox">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
