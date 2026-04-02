@@ -116,10 +116,17 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       })
       .filter((r): r is QuickReplyEntry => r !== null && r.label.length > 0);
 
+    const fact1 = typeof social.fact1 === "string" ? social.fact1.trim() : "";
+    const fact2 = typeof social.fact2 === "string" ? social.fact2.trim() : "";
+    const fact3 = typeof social.fact3 === "string" ? social.fact3.trim() : "";
+    const fromFacts = [fact1, fact2, fact3].filter(Boolean).join(" • ");
+    const legacyDesc = String(social.business_description ?? "").trim();
+    const businessDescriptionRaw = fromFacts || legacyDesc;
+
     return {
       businessName: String(business.name ?? slug),
       niche: String(business.niche ?? ""),
-      businessDescription: sanitizeText(String(social.business_description ?? ""), 350),
+      businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
       arboxLink,
       openingMediaUrl,
