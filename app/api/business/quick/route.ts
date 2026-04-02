@@ -27,6 +27,7 @@ export async function GET(req: Request) {
           cta_text: configured.cta_text,
           cta_link: configured.cta_link,
           welcome: configured.welcome_message,
+          followups: configured.opening_chips,
           bot_name: configured.bot_name,
           primary_color: configured.primary_color,
           secondary_color: configured.secondary_color,

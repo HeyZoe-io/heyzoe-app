@@ -217,7 +217,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
           const instantWelcome =
             (typeof q.welcome === "string" && q.welcome.trim()) ||
             `שלום, כאן ${botName} מ־${name || 'העסק'}. במה אוכל לעזור?`;
-          const fu = [...DEFAULT_FOLLOWUPS];
+          const quickFu = Array.isArray(q.followups) ? q.followups.map((x) => String(x ?? "").trim()).filter(Boolean) : [];
+          const fu = ensureFourFollowUps(quickFu);
           const ctaOk = q.cta_text && q.cta_link;
           setBusinessSnapshot({
             slug,

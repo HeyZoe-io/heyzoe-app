@@ -22,7 +22,10 @@ export async function GET(req: Request) {
         cta_text: configured.cta_text || null,
         cta_link: configured.cta_link || null,
         welcome: configured.welcome_message,
-        followups: ["מה המחיר?", "איפה אתם נמצאים?", "איך נרשמים?", "למי זה מתאים?"],
+        followups:
+          configured.opening_chips.length > 0
+            ? configured.opening_chips
+            : ["מה המחיר?", "איפה אתם נמצאים?", "איך נרשמים?", "למי זה מתאים?"],
         tone: null,
         bot_name: configured.bot_name,
         primary_color: configured.primary_color,

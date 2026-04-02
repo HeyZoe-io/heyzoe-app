@@ -3,6 +3,7 @@ import {
   resolveSupabaseAnonKey,
   resolveSupabaseUrl,
 } from "@/lib/server-env";
+import { splitWelcomeForChat } from "@/lib/welcome-message";
 
 export type PublicBusinessData = {
   slug: string;
@@ -13,7 +14,10 @@ export type PublicBusinessData = {
   trial_class: string;
   cta_text: string | null;
   cta_link: string | null;
+  /** טקסט בועת הפתיחה (ללא שורות ממוספרות) */
   welcome_message: string;
+  /** כפתורי תשובה מהירה להודעת הפתיחה */
+  opening_chips: string[];
   bot_name: string;
   primary_color: string;
   secondary_color: string;
@@ -35,7 +39,9 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
 
   const { data: business, error } = await supabase
     .from("businesses")
-    .select("id, slug, name, niche, logo_url, welcome_message, bot_name, primary_color, secondary_color, cta_text, cta_link")
+    .select(
+      "id, slug, name, niche, logo_url, welcome_message, bot_name, primary_color, secondary_color, cta_text, cta_link, social_links"
+    )
     .eq("slug", normalizedSlug)
     .single();
 
@@ -49,6 +55,14 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
     .limit(1);
 
   const firstService = services?.[0];
+  const fullWelcome = String(business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך.");
+  const socialRaw = business.social_links;
+  const social =
+    socialRaw && typeof socialRaw === "object" && !Array.isArray(socialRaw)
+      ? (socialRaw as Record<string, unknown>)
+      : null;
+  const { body, chips } = splitWelcomeForChat(fullWelcome, social);
+
   return {
     slug: String(business.slug),
     name: String(business.name ?? ""),
@@ -58,7 +72,8 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
     trial_class: "",
     cta_text: (business.cta_text as string | null) ?? null,
     cta_link: (business.cta_link as string | null) ?? null,
-    welcome_message: String(business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך."),
+    welcome_message: body || fullWelcome,
+    opening_chips: chips,
     bot_name: String(business.bot_name ?? "זואי"),
     primary_color: String(business.primary_color ?? "#ff85cf"),
     secondary_color: String(business.secondary_color ?? "#bc74e9"),

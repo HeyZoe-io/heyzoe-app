@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import ZoeLoader from "@/components/ZoeLoader";
+import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
+import { WhatsAppSettingsPreview } from "@/components/settings/WhatsAppSettingsPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,7 +29,6 @@ type ServiceItem = {
 
 const STEPS = [
   "פרטי העסק",
-  "מדיה לפתיחה",
   "הודעת פתיחה",
   "שירותים",
   "שאלות ותפריט",
@@ -36,6 +37,19 @@ const STEPS = [
 ];
 
 const VIBES = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
+
+const DEFAULT_FOLLOWUP_REGISTRATION = `כל הכבוד! נרשמת בהצלחה 🎉
+
+מה לצפות מהשיעור הראשון:
+- הגיעו 10 דקות לפני
+- לבשו בגדים נוחים
+- שתו מים לפני השיעור
+
+מחכים לכם!`;
+
+const DEFAULT_FOLLOWUP_HOUR = `רק מזכירה בעדינות — אם תרצו לשריין מקום לשיעור ניסיון, אפשר לענות בקצרה כאן 🙂`;
+
+const DEFAULT_FOLLOWUP_TRIAL = `היי! איך היה שיעור הניסיון? אשמח לשמוע איך היה ולהציע את המסלול שהכי מתאים לך.`;
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function toSlug(s: string) {
@@ -119,8 +133,10 @@ export default function SlugSettingsPage() {
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
-  // ── Step 3: Opening message
-  const [welcomeMessage, setWelcomeMessage] = useState("");
+  // ── Step 2: Opening message (text + quick buttons)
+  const [welcomeIntro, setWelcomeIntro] = useState("");
+  const [welcomeQuestion, setWelcomeQuestion] = useState("");
+  const [welcomeOptions, setWelcomeOptions] = useState<string[]>(["", "", ""]);
 
   // ── Step 5: Questions & menu
   const [segQuestions, setSegQuestions] = useState<SegQuestion[]>([]);
@@ -134,7 +150,7 @@ export default function SlugSettingsPage() {
   const [services, setServices]   = useState<ServiceItem[]>([]);
   const dragIdx = useRef<number | null>(null);
 
-  const defaultWelcomeMessage = useMemo(() => {
+  const defaultWelcomeParts = useMemo(() => {
     const cleanName = name.trim() || slug;
     const cleanAddress = address.trim();
     const cleanServices = services
@@ -148,32 +164,33 @@ export default function SlugSettingsPage() {
       .join("\n");
     const sportName = (niche.trim() || "האימון").replace(/\s+/g, " ");
 
-    const lines: string[] = [];
-    lines.push(`היי! כאן ${cleanName}.`);
-    if (cleanAddress) lines.push(`כתובת: ${cleanAddress}`);
+    const introLines: string[] = [];
+    introLines.push(`היי! כאן ${cleanName}.`);
+    if (cleanAddress) introLines.push(`כתובת: ${cleanAddress}`);
     if (cleanServices) {
-      lines.push(`שירותים ומחירים:`);
-      lines.push(cleanServices);
+      introLines.push(`שירותים ומחירים:`);
+      introLines.push(cleanServices);
     }
-    lines.push(`האם יצא לך לנסות ${sportName} בעבר?`);
-    lines.push(`1. לא יצא לי`);
-    lines.push(`2. יצא לי פעם-פעמיים`);
-    lines.push(`3. יצא לי לא מעט פעמים`);
-    return lines.join("\n");
+    const question = `האם יצא לך לנסות ${sportName} בעבר?`;
+    const options = ["לא יצא לי", "יצא לי פעם-פעמיים", "יצא לי לא מעט פעמים"];
+    return { intro: introLines.join("\n"), question, options };
   }, [address, name, niche, services, slug]);
 
   useEffect(() => {
-    if (step !== 3) return;
-    if (welcomeMessage.trim()) return;
-    setWelcomeMessage(defaultWelcomeMessage);
-  }, [defaultWelcomeMessage, step, welcomeMessage]);
+    if (step !== 2) return;
+    const optsEmpty = welcomeOptions.every((o) => !o.trim());
+    if (welcomeIntro.trim() || welcomeQuestion.trim() || !optsEmpty) return;
+    setWelcomeIntro(defaultWelcomeParts.intro);
+    setWelcomeQuestion(defaultWelcomeParts.question);
+    setWelcomeOptions([...defaultWelcomeParts.options]);
+  }, [step, defaultWelcomeParts, welcomeIntro, welcomeQuestion, welcomeOptions]);
 
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
   // ── Step 7: Follow-up
-  const [followupAfterRegistration, setFollowupAfterRegistration] = useState("");
-  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
-  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
+  const [followupAfterRegistration, setFollowupAfterRegistration] = useState(DEFAULT_FOLLOWUP_REGISTRATION);
+  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState(DEFAULT_FOLLOWUP_HOUR);
+  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState(DEFAULT_FOLLOWUP_TRIAL);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
 
@@ -214,7 +231,32 @@ export default function SlugSettingsPage() {
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
-        setWelcomeMessage(String(business.welcome_message ?? ""));
+        const fullWelcome = String(business.welcome_message ?? "");
+        const hasStructuredWelcome =
+          (typeof sl.welcome_intro === "string" && sl.welcome_intro.trim()) ||
+          (typeof sl.welcome_question === "string" && sl.welcome_question.trim()) ||
+          (Array.isArray(sl.welcome_options) && sl.welcome_options.some((x) => String(x ?? "").trim()));
+        if (hasStructuredWelcome) {
+          setWelcomeIntro(typeof sl.welcome_intro === "string" ? sl.welcome_intro : "");
+          setWelcomeQuestion(typeof sl.welcome_question === "string" ? sl.welcome_question : "");
+          const wo = Array.isArray(sl.welcome_options) ? sl.welcome_options.map((x) => String(x ?? "")) : [];
+          const pad = [...wo, "", "", ""].slice(0, 3);
+          setWelcomeOptions(pad);
+        } else {
+          const { body, chips } = splitWelcomeForChat(fullWelcome, null);
+          const lines = body.split("\n");
+          const last = lines[lines.length - 1]?.trim() ?? "";
+          const looksQ = last && (/\?/.test(last) || last.startsWith("האם") || last.startsWith("מה "));
+          if (looksQ) {
+            setWelcomeIntro(lines.slice(0, -1).join("\n").trim());
+            setWelcomeQuestion(last);
+          } else {
+            setWelcomeIntro(body.trim());
+            setWelcomeQuestion("");
+          }
+          const pad = [...chips, "", "", ""].slice(0, 3);
+          setWelcomeOptions(pad);
+        }
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
         const loadedQr =
           Array.isArray(sl.quick_replies)
@@ -230,9 +272,21 @@ export default function SlugSettingsPage() {
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
-        setFollowupAfterRegistration(String(sl.followup_after_registration ?? sl.post_registration_message ?? ""));
-        setFollowupAfterHourNoRegistration(String(sl.followup_after_hour_no_registration ?? ""));
-        setFollowupDayAfterTrial(String(sl.followup_day_after_trial ?? ""));
+        setFollowupAfterRegistration(
+          sl.followup_after_registration != null && typeof sl.followup_after_registration === "string"
+            ? sl.followup_after_registration
+            : DEFAULT_FOLLOWUP_REGISTRATION
+        );
+        setFollowupAfterHourNoRegistration(
+          sl.followup_after_hour_no_registration != null && typeof sl.followup_after_hour_no_registration === "string"
+            ? sl.followup_after_hour_no_registration
+            : DEFAULT_FOLLOWUP_HOUR
+        );
+        setFollowupDayAfterTrial(
+          sl.followup_day_after_trial != null && typeof sl.followup_day_after_trial === "string"
+            ? sl.followup_day_after_trial
+            : DEFAULT_FOLLOWUP_TRIAL
+        );
 
         if (Array.isArray(svcs)) {
           setServices(svcs.map((s: Record<string, unknown>) => {
@@ -269,7 +323,7 @@ export default function SlugSettingsPage() {
             name,
             niche,
             bot_name: botName,
-            welcome_message: welcomeMessage,
+            welcome_message: buildWelcomeMessageForStorage(welcomeIntro, welcomeQuestion, welcomeOptions),
             facebook_pixel_id: facebookPixelId,
             conversions_api_token: conversionsApiToken,
             social_links: {
@@ -283,6 +337,9 @@ export default function SlugSettingsPage() {
               vibe,
               opening_media_url: openingMediaUrl,
               opening_media_type: openingMediaType,
+              welcome_intro: welcomeIntro.trim(),
+              welcome_question: welcomeQuestion.trim(),
+              welcome_options: welcomeOptions.map((o) => o.trim()),
               segmentation_questions: segQuestions,
               quick_replies: quickReplies,
               arbox_link: arboxLink,
@@ -311,7 +368,7 @@ export default function SlugSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [slug, name, niche, botName, welcomeMessage, facebookPixelId, conversionsApiToken,
+  }, [slug, name, niche, botName, welcomeIntro, welcomeQuestion, welcomeOptions, facebookPixelId, conversionsApiToken,
       websiteUrl, fact1, fact2, fact3, address, directions, vibe, openingMediaUrl, openingMediaType,
       segQuestions, quickReplies, arboxLink, objections,
       followupAfterRegistration, followupAfterHourNoRegistration, followupDayAfterTrial,
@@ -388,8 +445,6 @@ export default function SlugSettingsPage() {
     } finally { setFetchingUrl(false); }
   }
 
-  // Welcome message is generated automatically on entering step 3.
-
   // ─── Services drag & drop ──────────────────────────────────────────────────
 
   function onDragStart(i: number) { dragIdx.current = i; }
@@ -453,9 +508,9 @@ export default function SlugSettingsPage() {
             <div className="h-4 w-40 rounded bg-zinc-200" />
             <div className="h-4 w-24 rounded bg-zinc-200" />
           </div>
-          <div className="max-w-2xl mx-auto px-4 pb-3 overflow-x-auto">
+          <div className="max-w-6xl mx-auto px-4 pb-3 overflow-x-auto">
             <div className="flex gap-2 min-w-max animate-pulse">
-              {Array.from({ length: 6 }).map((_, i) => (
+              {Array.from({ length: STEPS.length }).map((_, i) => (
                 <div key={i} className="h-8 w-24 rounded-[20px] bg-[#ede9fe]" />
               ))}
             </div>
@@ -504,16 +559,16 @@ export default function SlugSettingsPage() {
 
   function nextStep() {
     setStep((s) => {
-      const n = Math.min(STEPS.length, s + 1);
-      if (!isPremium && n === 6) return Math.min(STEPS.length, n + 1);
+      let n = Math.min(STEPS.length, s + 1);
+      if (!isPremium && n === 5) n = 6;
       return n;
     });
   }
 
   function prevStep() {
     setStep((s) => {
-      const n = Math.max(1, s - 1);
-      if (!isPremium && n === 6) return Math.max(1, n - 1);
+      let n = Math.max(1, s - 1);
+      if (!isPremium && s === 6 && n === 5) n = 4;
       return n;
     });
   }
@@ -523,7 +578,7 @@ export default function SlugSettingsPage() {
 
       {/* ── Top bar ── */}
       <div className="sticky top-0 z-40 bg-white border-b border-zinc-200 shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
             <span className="text-[#7133da]">HeyZoe</span>
             <span className="text-zinc-300">/</span>
@@ -532,7 +587,7 @@ export default function SlugSettingsPage() {
         </div>
 
         {/* Step indicator */}
-        <div className="max-w-2xl mx-auto px-4 pb-3 overflow-x-auto">
+        <div className="max-w-6xl mx-auto px-4 pb-3 overflow-x-auto">
           <div className="flex gap-1 min-w-max">
             {STEPS.map((label, i) => {
               const n = i + 1;
@@ -561,7 +616,9 @@ export default function SlugSettingsPage() {
       </div>
 
       {/* ── Step content ── */}
-      <div className="max-w-2xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="flex flex-col xl:flex-row gap-8 items-start justify-center">
+          <div className="flex-1 min-w-0 w-full max-w-2xl mx-auto xl:mx-0">
 
         {/* ════════════════════ STEP 1 ════════════════════ */}
         {step === 1 && (
@@ -672,79 +729,130 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 2 ════════════════════ */}
+        {/* ════════════════════ STEP 2 — מדיה + הודעת פתיחה ════════════════════ */}
         {step === 2 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={2} title="מדיה לפתיחה" desc="תמונה או סרטון שיוצגו מעל הודעת הפתיחה" /></CardTitle></CardHeader>
-            <CardContent className="space-y-5">
-              <div
-                onClick={() => mediaInputRef.current?.click()}
-                className="border-2 border-dashed border-zinc-300 rounded-2xl p-10 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all"
-              >
-                {uploadingMedia ? (
-                  <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
-                ) : openingMediaUrl ? (
-                  openingMediaType === "video"
-                    ? <video src={openingMediaUrl} className="max-h-48 rounded-xl" controls />
-                    : <img src={openingMediaUrl} alt="media" className="max-h-48 rounded-xl object-contain" />
-                ) : (
-                  <>
-                    <Upload className="h-8 w-8 text-zinc-400" />
-                    <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
-                    <p className="text-xs text-zinc-400">JPG, PNG, GIF, MP4 — עד 20MB</p>
-                  </>
-                )}
-              </div>
-              <input
-                ref={mediaInputRef} type="file" accept="image/*,video/*" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f); }}
-              />
-              {openingMediaUrl && (
-                <div className="flex gap-2 items-center">
-                  <Input dir="ltr" value={openingMediaUrl} onChange={e => setOpeningMediaUrl(e.target.value)} placeholder="או הדבק URL ישירות" />
-                  <Button variant="ghost" onClick={() => { setOpeningMediaUrl(""); setOpeningMediaType(""); }} className="px-2 py-1.5">
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-              {!openingMediaUrl && (
-                <Field label="או הדבק URL">
-                  <Input dir="ltr" value={openingMediaUrl} onChange={e => { setOpeningMediaUrl(e.target.value); if (e.target.value.match(/\.(mp4|mov|webm)/i)) setOpeningMediaType("video"); else setOpeningMediaType("image"); }} placeholder="https://..." />
-                </Field>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 3 ════════════════════ */}
-        {step === 3 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={3} title="הודעת פתיחה" desc="ההודעה הראשונה שזואי תשלח לכל לקוח חדש" /></CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              {openingMediaUrl ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  {openingMediaType === "video" ? (
-                    <video src={openingMediaUrl} className="max-h-56 w-full rounded-xl" controls />
-                  ) : (
-                    <img src={openingMediaUrl} alt="opening media" className="max-h-56 w-full rounded-xl object-contain" />
-                  )}
-                </div>
-              ) : null}
-              <Textarea value={welcomeMessage} onChange={setWelcomeMessage} placeholder="שלום! אני זואי מ..." rows={5} />
-              <p className="text-[11px] text-zinc-500 text-center">
-                הודעת פתיחה דיפולטית נוצרת אוטומטית כשנכנסים לשלב הזה (ניתן לערוך ידנית).
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 5 ════════════════════ */}
-        {step === 5 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={5}
+                  n={2}
+                  title="הודעת פתיחה"
+                  desc="העלו מדיה, ואז כתבו את הטקסט — השאלה והכפתורים בנפרד (כמו בווטסאפ)"
+                />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <p className="text-sm font-medium text-zinc-700 mb-2">מדיה לפתיחה (אופציונלי)</p>
+                <div
+                  onClick={() => mediaInputRef.current?.click()}
+                  className="border-2 border-dashed border-zinc-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all"
+                >
+                  {uploadingMedia ? (
+                    <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
+                  ) : openingMediaUrl ? (
+                    openingMediaType === "video" ? (
+                      <video src={openingMediaUrl} className="max-h-48 rounded-xl" controls />
+                    ) : (
+                      <img src={openingMediaUrl} alt="מדיה" className="max-h-48 rounded-xl object-contain" />
+                    )
+                  ) : (
+                    <>
+                      <Upload className="h-8 w-8 text-zinc-400" />
+                      <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
+                      <p className="text-xs text-zinc-400">JPG, PNG, GIF, MP4 — עד 20MB</p>
+                    </>
+                  )}
+                </div>
+                <input
+                  ref={mediaInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadMedia(f);
+                  }}
+                />
+                {openingMediaUrl ? (
+                  <div className="flex justify-end mt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-1 text-sm py-1.5 h-auto"
+                      onClick={() => {
+                        setOpeningMediaUrl("");
+                        setOpeningMediaType("");
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                      הסר מדיה
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="border-t border-dashed border-zinc-200 pt-5 space-y-4">
+                <Field label="טקסט לפני השאלה (ברכה, כתובת, שירותים…)">
+                  <Textarea
+                    value={welcomeIntro}
+                    onChange={setWelcomeIntro}
+                    placeholder="היי! כאן הסטודיו שלנו…"
+                    rows={5}
+                  />
+                </Field>
+                <Field label="השאלה">
+                  <Input
+                    dir="rtl"
+                    value={welcomeQuestion}
+                    onChange={(e) => setWelcomeQuestion(e.target.value)}
+                    placeholder="האם יצא לך לנסות…?"
+                  />
+                </Field>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-700 block">כפתורי תשובה (יופיעו ללקוח כמו בווטסאפ)</label>
+                  <div className="space-y-2">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <span className="text-xs text-zinc-400 w-5 shrink-0">{i + 1}</span>
+                        <Input
+                          dir="rtl"
+                          value={welcomeOptions[i] ?? ""}
+                          onChange={(e) =>
+                            setWelcomeOptions((prev) => {
+                              const next = [...prev];
+                              next[i] = e.target.value;
+                              return next;
+                            })
+                          }
+                          placeholder={
+                            i === 0
+                              ? "לא יצא לי"
+                              : i === 1
+                                ? "יצא לי פעם-פעמיים"
+                                : "יצא לי לא מעט פעמים"
+                          }
+                          className="flex-1"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  טקסט ברירת מחדל נוצר כשנכנסים לשלב הזה — אפשר לערוך הכל.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ════════════════════ STEP 4 ════════════════════ */}
+        {step === 4 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader
+                  n={4}
                   title="שאלות ותפריט"
                   desc="שאלות סגמנטציה לניתוב לשירות הנכון + כפתורי תשובה מהירה כללית"
                 />
@@ -907,10 +1015,10 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 4 (שירותים) ════════════════════ */}
-        {step === 4 && (
+        {/* ════════════════════ STEP 3 (שירותים) ════════════════════ */}
+        {step === 3 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={4} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={3} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {services.map((s, i) => (
                 <div
@@ -972,11 +1080,11 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 6 ════════════════════ */}
-        {step === 6 && (
+        {/* ════════════════════ STEP 5 ════════════════════ */}
+        {step === 5 && (
           isPremium ? (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={6} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={5} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-zinc-900">חבילה 1 — חיבור בסיסי</p>
@@ -1011,12 +1119,12 @@ export default function SlugSettingsPage() {
           ) : null
         )}
 
-        {/* ════════════════════ STEP 7 ════════════════════ */}
-        {step === 7 && (
+        {/* ════════════════════ STEP 6 ════════════════════ */}
+        {step === 6 && (
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={7} title="פולואפ" desc="הודעות אוטומטיות לפי זמן/אירוע" />
+                <StepHeader n={6} title="פולואפ" desc="הודעות אוטומטיות לפי זמן/אירוע" />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1024,8 +1132,7 @@ export default function SlugSettingsPage() {
                 <Textarea
                   value={followupAfterRegistration}
                   onChange={setFollowupAfterRegistration}
-                  placeholder={"כל הכבוד! נרשמת בהצלחה 🎉\n\nמה לצפות מהשיעור הראשון:\n- הגיעו 10 דקות לפני\n- לבשו בגדים נוחים\n- שתו מים לפני השיעור\n\nמחכים לכם!"}
-                  rows={6}
+                  rows={8}
                 />
               </Field>
 
@@ -1033,7 +1140,6 @@ export default function SlugSettingsPage() {
                 <Textarea
                   value={followupAfterHourNoRegistration}
                   onChange={setFollowupAfterHourNoRegistration}
-                  placeholder={"רק מזכירה בעדינות — אם תרצו לשריין מקום לשיעור ניסיון, אפשר להירשם כאן 🙂"}
                   rows={5}
                 />
               </Field>
@@ -1042,7 +1148,6 @@ export default function SlugSettingsPage() {
                 <Textarea
                   value={followupDayAfterTrial}
                   onChange={setFollowupDayAfterTrial}
-                  placeholder={"היי! איך היה שיעור הניסיון? אשמח לשמוע איך היה ולהציע את המסלול שהכי מתאים לך."}
                   rows={5}
                 />
                 <p className="text-[11px] text-zinc-500">
@@ -1053,11 +1158,35 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
+          </div>
+
+          <WhatsAppSettingsPreview
+            step={step as 1 | 2 | 3 | 4 | 5 | 6}
+            botName={botName}
+            businessName={name}
+            openingMediaUrl={openingMediaUrl}
+            openingMediaType={openingMediaType}
+            welcomeIntro={welcomeIntro}
+            welcomeQuestion={welcomeQuestion}
+            welcomeOptions={welcomeOptions}
+            services={services.map((s) => ({ name: s.name, price_text: s.price_text }))}
+            segQuestions={segQuestions}
+            quickReplies={quickReplies}
+            fact1={fact1}
+            fact2={fact2}
+            fact3={fact3}
+            address={address}
+            followupAfterRegistration={followupAfterRegistration}
+            followupAfterHourNoRegistration={followupAfterHourNoRegistration}
+            followupDayAfterTrial={followupDayAfterTrial}
+          />
+        </div>
+
         {/* ── Error ── */}
         {saveErr && <p className="text-sm text-red-500 text-center mt-4">{saveErr}</p>}
 
         {/* ── Navigation ── */}
-        <div className="flex items-center justify-between mt-8 pt-4 border-t border-zinc-200">
+        <div className="flex items-center justify-between mt-8 pt-4 border-t border-zinc-200 max-w-6xl mx-auto px-4">
           <Button
             variant="outline"
             onClick={prevStep}
