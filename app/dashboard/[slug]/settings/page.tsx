@@ -79,6 +79,13 @@ function toSlug(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
 }
 
+/** שם תצוגה מ־slug כשאין שם שמור בדאטהבייס */
+function displayNameFromSlug(s: string) {
+  const parts = s.trim().split("-").filter(Boolean);
+  if (parts.length === 0) return "";
+  return parts.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+
 function traitPlaceholder(index: number): string {
   if (index === 0) return "מתאים לשיקום פציעות";
   if (index === 1) return "מתאים לכל הרמות";
@@ -145,6 +152,9 @@ export default function SlugSettingsPage() {
   const [savedOk, setSavedOk] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [fetchingUrl, setFetchingUrl]         = useState(false);
+  const [fetchSiteError, setFetchSiteError]   = useState("");
+  const [fetchSiteNotice, setFetchSiteNotice] = useState("");
+  const [businessNameEditing, setBusinessNameEditing] = useState(false);
   const [canAutosave, setCanAutosave] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
@@ -252,7 +262,10 @@ export default function SlugSettingsPage() {
 
         setWebsiteUrl(String(sl.website_url ?? business.website_url ?? ""));
         setPlan((business.plan === "premium" ? "premium" : "basic") as "basic" | "premium");
-        setName(String(business.name ?? ""));
+        {
+          const loaded = String(business.name ?? "").trim();
+          setName(loaded || displayNameFromSlug(slug));
+        }
         setBotName(String(business.bot_name ?? "זואי"));
         setNiche(String(business.niche ?? ""));
         setAddress(String(sl.address ?? ""));
@@ -369,7 +382,7 @@ export default function SlugSettingsPage() {
       })
       .catch(() => null)
       .finally(() => setLoading(false));
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     if (loading) {
@@ -600,14 +613,62 @@ export default function SlugSettingsPage() {
   async function fetchSite() {
     if (!websiteUrl) return;
     setFetchingUrl(true);
+    setFetchSiteError("");
+    setFetchSiteNotice("");
     try {
       const res = await fetch("/api/dashboard/fetch-site", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ website_url: websiteUrl, business_name: name, niche }),
       });
-      const j = await res.json();
-      if (j.niche) setNiche(j.niche);
+      let j: Record<string, unknown> = {};
+      try {
+        j = (await res.json()) as Record<string, unknown>;
+      } catch {
+        setFetchSiteError("תשובת שרת לא תקינה.");
+        return;
+      }
+
+      const errStr = typeof j.error === "string" ? j.error : "";
+      const msgStr = typeof j.message === "string" ? j.message.trim() : "";
+
+      if (!res.ok) {
+        const friendly =
+          errStr === "unauthorized"
+            ? "נדרשת התחברות מחדש."
+            : errStr === "missing_website_url"
+              ? "חסרה כתובת אתר."
+              : errStr === "missing_anthropic_key"
+                ? "חסר מפתח AI בשרת — פנו לתמיכה."
+                : errStr === "ai_parse_failed"
+                  ? "לא ניתן לעבד את תוצאת הסריקה. נסו שוב."
+                  : msgStr ||
+                    (errStr === "blocked_auto_scraping"
+                      ? "האתר חוסם סריקה אוטומטית — מלאו את השדות ידנית."
+                      : `הסריקה נכשלה (${res.status}).`);
+        setFetchSiteError(friendly);
+        const hasPayload =
+          Boolean(j.niche) ||
+          Boolean(j.tagline) ||
+          Boolean(j.business_description) ||
+          (Array.isArray(j.business_traits) && j.business_traits.length > 0) ||
+          (Array.isArray(j.products) && j.products.length > 0);
+        if (!hasPayload) return;
+      }
+
+      if (typeof j.warning === "string" && j.warning && msgStr) {
+        setFetchSiteNotice(msgStr);
+      }
+
+      const bn =
+        (typeof j.business_name === "string" && j.business_name.trim()) ||
+        (typeof j.businessName === "string" && j.businessName.trim());
+      if (bn) {
+        setName(String(bn).trim());
+        setBusinessNameEditing(false);
+      }
+
+      if (typeof j.niche === "string" && j.niche.trim()) setNiche(j.niche.trim());
       const tag =
         (typeof j.tagline === "string" && j.tagline.trim()) ||
         (typeof j.business_description === "string" && j.business_description.trim()) ||
@@ -624,22 +685,26 @@ export default function SlugSettingsPage() {
         ? j.business_traits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
         : [];
       if (scannedTraits.length) setTraits(normalizeTraitsState(scannedTraits));
-      if (j.products?.length) {
-        setServices(j.products.slice(0, 8).map((p: Record<string, unknown>) => ({
-          ui_id: uid(),
-          name: String(p.name ?? ""),
-          price_text: String(p.price_text ?? ""),
-          duration: "",
-          payment_link: "",
-          service_slug: toSlug(String(p.name ?? "")),
-          location_text:
-            String(p.location_text ?? "").trim() ||
-            (typeof j.address === "string" && j.address.trim() ? j.address.trim() : address),
-          description: "",
-        })));
+      const addrFallback =
+        (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
+      if (Array.isArray(j.products) && j.products.length > 0) {
+        setServices(
+          j.products.slice(0, 8).map((p: Record<string, unknown>) => ({
+            ui_id: uid(),
+            name: String(p.name ?? "").trim(),
+            price_text: String(p.price_text ?? "").trim(),
+            duration: "",
+            payment_link: "",
+            service_slug: toSlug(String(p.name ?? "")),
+            location_text: String(p.location_text ?? "").trim() || addrFallback,
+            description: String(p.description ?? "").trim(),
+          }))
+        );
       }
       setStep(1);
-    } finally { setFetchingUrl(false); }
+    } finally {
+      setFetchingUrl(false);
+    }
   }
 
   // ─── Services drag & drop ──────────────────────────────────────────────────
@@ -819,10 +884,45 @@ export default function SlugSettingsPage() {
                   מנתח את האתר — זה לוקח כמה שניות...
                 </p>
               )}
+              {fetchSiteError ? (
+                <p className="text-sm text-red-600" role="alert">
+                  {fetchSiteError}
+                </p>
+              ) : null}
+              {fetchSiteNotice ? (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  {fetchSiteNotice}
+                </p>
+              ) : null}
 
               <div className="grid grid-cols-2 gap-4">
                 <Field label="שם העסק *">
-                  <Input dir="rtl" value={name} onChange={e => setName(e.target.value)} placeholder="Acro by Joe" />
+                  {name.trim() && !businessNameEditing ? (
+                    <div className="flex items-stretch gap-2 rounded-xl border border-zinc-300 bg-zinc-50 min-h-10">
+                      <div className="flex-1 px-3 py-2.5 text-sm font-semibold text-zinc-900 text-right leading-snug">
+                        {name}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setBusinessNameEditing(true)}
+                        className="shrink-0 px-3 text-xs font-medium text-[#7133da] hover:bg-[#f0eaff] rounded-l-xl border-r border-zinc-200"
+                      >
+                        עריכה
+                      </button>
+                    </div>
+                  ) : (
+                    <Input
+                      dir="rtl"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onBlur={() => {
+                        if (name.trim()) setBusinessNameEditing(false);
+                      }}
+                      placeholder="שם העסק"
+                      className="font-medium text-zinc-900"
+                      autoFocus={businessNameEditing}
+                    />
+                  )}
                 </Field>
                 <Field label="שם הבוט">
                   <Input dir="rtl" value={botName} onChange={e => setBotName(e.target.value)} placeholder="זואי" />

@@ -113,6 +113,41 @@ function extractMetaHints(html: string): string {
   return [title, description, ogTitle, ogDescription].filter(Boolean).join(" | ");
 }
 
+function tryParseSiteJson(text: string): Record<string, unknown> | null {
+  const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+  const tryParse = (s: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(s) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+  const direct = tryParse(cleaned);
+  if (direct) return direct;
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return tryParse(cleaned.slice(start, end + 1));
+  }
+  return null;
+}
+
+function guessBusinessNameFromMeta(metaHints: string, hostname: string): string {
+  const first = metaHints.split(" | ")[0]?.trim() ?? "";
+  if (first && first.length < 120) {
+    const short = first.split(/\s*[|\u2013\u2014-]\s*/)[0]?.trim() ?? "";
+    if (short.length >= 2 && short.length < 80) return short;
+  }
+  const h = hostname.replace(/^www\./i, "");
+  const seg = h.split(".")[0] ?? "";
+  if (seg && seg.length >= 2) {
+    return seg
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return "";
+}
+
 function guessNicheFromHost(hostname: string): string {
   const h = hostname.toLowerCase();
   if (/gym|fit|pilates|yoga|studio/.test(h)) return "Fitness";
@@ -185,6 +220,7 @@ export async function POST(req: NextRequest) {
 ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבירים על בסיס הדומיין, title/meta והקשר העסק.' : ""}
 אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" או מערך ריק [] במקום להיכשל בבקשה.
 חלץ מהאתר (או נחש בצורה סבירה אם חסר):
+- business_name: שם העסק כפי שמופיע בכותרת האתר או בלוגו — קצר, בלי "| אתר רשמי" ובלי סלוגן ארוך.
 - tagline: משפט תיאור עסק אחד קצר ומזמין בעברית (כמו תת-כותרת), עד ~20 מילים.
 - address: כתובת פיזית אם מופיעה.
 - directions: הנחיות הגעה/חניה/כניסה אם מופיעות (או ריק).
@@ -195,6 +231,7 @@ business_description: אותו תוכן כמו tagline או סיכום קצר מ
 החזר JSON בלבד במבנה:
 {
   "niche": "נישה קצרה ומדויקת",
+  "business_name": "שם העסק מהאתר",
   "tagline": "משפט תיאור עסק אחד בעברית",
   "address": "",
   "directions": "",
@@ -241,7 +278,7 @@ ${pageText}`;
 מטא: ${metaHints || "אין"}
 טקסט (מקוצר): ${pageText.slice(0, 2600)}
 מבנה:
-{"niche":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
+{"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
     try {
       const fallbackResponse = await client.messages.create({
         model: CLAUDE_FETCH_SITE_MODEL,
@@ -258,8 +295,10 @@ ${pageText}`;
   if (!text) {
     const fallbackHost = (() => { try { return new URL(url).hostname; } catch { return ""; } })();
     const nicheGuess = guessNicheFromHost(fallbackHost);
+    const nameGuess = guessBusinessNameFromMeta(metaHints, fallbackHost);
     return NextResponse.json({
       niche: nicheGuess,
+      business_name: nameGuess,
       tagline: metaHints || `עסק בתחום ${nicheGuess}.`,
       address: "",
       directions: "",
@@ -277,9 +316,12 @@ ${pageText}`;
     });
   }
 
+  const parsed = tryParseSiteJson(text);
+  if (!parsed) {
+    return NextResponse.json({ error: "ai_parse_failed" }, { status: 502 });
+  }
+
   try {
-    const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
     const traitsRaw = Array.isArray(parsed.business_traits)
       ? parsed.business_traits.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 12)
       : [];
@@ -289,8 +331,21 @@ ${pageText}`;
         : typeof parsed.business_description === "string"
           ? parsed.business_description.trim().split(/\n/)[0]?.trim() ?? ""
           : "";
+    const hostForName = (() => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return "";
+      }
+    })();
+    let businessName =
+      typeof parsed.business_name === "string" ? parsed.business_name.trim() : "";
+    if (!businessName) {
+      businessName = guessBusinessNameFromMeta(metaHints, hostForName);
+    }
     return NextResponse.json({
       niche: typeof parsed.niche === "string" ? parsed.niche : "",
+      business_name: businessName,
       tagline: taglineStr,
       address: typeof parsed.address === "string" ? parsed.address.trim() : "",
       directions: typeof parsed.directions === "string" ? parsed.directions.trim() : "",
@@ -317,3 +372,4 @@ ${pageText}`;
     return NextResponse.json({ error: "ai_parse_failed" }, { status: 502 });
   }
 }
+
