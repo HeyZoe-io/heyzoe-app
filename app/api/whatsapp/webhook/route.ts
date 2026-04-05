@@ -9,7 +9,13 @@ import {
   resolveTwilioAuthToken,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
-import { CLAUDE_CHAT_MODEL, CLAUDE_MAX_TOKENS, resolveClaudeApiKey, formatUserFacingClaudeError } from "@/lib/claude";
+import { formatWhatsAppOpeningText } from "@/lib/whatsapp-opening";
+import {
+  CLAUDE_WHATSAPP_MODEL,
+  CLAUDE_WHATSAPP_MAX_TOKENS,
+  resolveClaudeApiKey,
+  formatUserFacingClaudeError,
+} from "@/lib/claude";
 import { logMessage } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -186,25 +192,9 @@ async function processIncoming(
       console.error("[WA Webhook] sending opening media failed (continuing):", e);
     }
 
-    const bizName = knowledge?.businessName?.trim() || business_slug;
-    const address = knowledge?.addressText?.trim();
-    const services = knowledge?.servicesShortText?.trim();
-    const sportName = (knowledge?.niche?.trim() || "האימון").replace(/\s+/g, " ");
-
-    const openingLines: string[] = [];
-    openingLines.push(`היי! כאן ${bizName}.`);
-    if (address) openingLines.push(`כתובת: ${address}`);
-    if (services) {
-      openingLines.push(`שירותים ומחירים:`);
-      openingLines.push(services);
-    }
-    openingLines.push(`האם יצא לך לנסות ${sportName} בעבר?`);
-    openingLines.push(`1. לא יצא לי`);
-    openingLines.push(`2. יצא לי פעם-פעמיים`);
-    openingLines.push(`3. יצא לי לא מעט פעמים`);
-    openingLines.push(`\n(אפשר לענות רק עם 1/2/3)`);
-
-    const openingText = openingLines.join("\n");
+    const openingText = knowledge
+      ? formatWhatsAppOpeningText(knowledge)
+      : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
 
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, openingText, accountSid, authToken);
@@ -245,8 +235,8 @@ async function processIncoming(
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
       const response = await client.messages.create({
-        model: CLAUDE_CHAT_MODEL,
-        max_tokens: CLAUDE_MAX_TOKENS,
+        model: CLAUDE_WHATSAPP_MODEL,
+        max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
         system: systemPrompt,
         messages: [{ role: "user", content: msg.text }],
       });
@@ -298,7 +288,7 @@ async function processIncoming(
     business_slug,
     role: "assistant",
     content: replyText,
-    model_used: matched?.reply ? "static" : CLAUDE_CHAT_MODEL,
+    model_used: matched?.reply ? "static" : CLAUDE_WHATSAPP_MODEL,
     session_id: sessionId,
   });
 }

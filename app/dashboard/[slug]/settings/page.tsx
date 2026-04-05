@@ -3,38 +3,50 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp,
+  ArrowLeft, ArrowRight, Check, ChevronDown,
   GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import ZoeLoader from "@/components/ZoeLoader";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
+import { buildDefaultSaleWelcome } from "@/lib/default-welcome";
 import { WhatsAppSettingsPreview } from "@/components/settings/WhatsAppSettingsPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SegAnswer  = { id: string; text: string; service_slug: string };
-type SegQuestion = { id: string; question: string; answers: SegAnswer[] };
 type QuickReply  = { id: string; label: string; reply: string };
 type Objection   = { id: string; question: string; answer: string };
+type SegQuestion = { id: string; question: string; answers: { id: string; text: string; service_slug: string }[] };
 type ServiceItem = {
   ui_id: string; name: string; price_text: string;
   duration: string; payment_link: string;
   service_slug: string; location_text: string; description: string;
 };
+type SalesFlowBlockUI = { id: string; intro: string; question: string; options: string[] };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
   "פרטי העסק",
-  "הודעת פתיחה",
   "שירותים",
-  "שאלות ותפריט",
+  "מסלול מכירה",
   "חיבור פייסבוק",
   "פולואפ",
 ];
+
+async function readSaveErrorFromResponse(res: Response): Promise<string> {
+  try {
+    const j = (await res.json()) as { error?: string };
+    if (j.error === "unauthorized") return "נדרשת התחברות מחדש.";
+    if (j.error === "slug_required") return "חסר מזהה עסק.";
+    if (j.error === "slug_taken") return "כתובת העסק תפוסה.";
+    if (typeof j.error === "string" && j.error.trim()) return j.error.trim();
+  } catch {
+    /* not json */
+  }
+  return `שגיאת שרת (${res.status})`;
+}
 
 const VIBES = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
 
@@ -50,6 +62,17 @@ const DEFAULT_FOLLOWUP_REGISTRATION = `כל הכבוד! נרשמת בהצלחה 
 const DEFAULT_FOLLOWUP_HOUR = `רק מזכירה בעדינות — אם תרצו לשריין מקום לשיעור ניסיון, אפשר לענות בקצרה כאן 🙂`;
 
 const DEFAULT_FOLLOWUP_TRIAL = `היי! איך היה שיעור הניסיון? אשמח לשמוע איך היה ולהציע את המסלול שהכי מתאים לך.`;
+
+const AUTOSAVE_DEBOUNCE_MS = 1600;
+const AUTOSAVE_ENABLE_DELAY_MS = 500;
+/** תואם למגבלת גוף בקשה ב-Vercel — גם בצד לקוח כדי להציג הודעה לפני העלאה */
+const MAX_OPENING_MEDIA_BYTES = 4 * 1024 * 1024;
+
+function videoUrlForPreview(url: string) {
+  if (!url) return url;
+  const base = url.split("#")[0];
+  return `${base}#t=0.001`;
+}
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function toSlug(s: string) {
@@ -122,6 +145,9 @@ export default function SlugSettingsPage() {
   const [savedOk, setSavedOk] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [fetchingUrl, setFetchingUrl]         = useState(false);
+  const [canAutosave, setCanAutosave] = useState(false);
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [autoSaveErr, setAutoSaveErr] = useState("");
 
   // ── Step 1: Business details (includes optional website import)
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -145,57 +171,60 @@ export default function SlugSettingsPage() {
   const [openingMediaType, setOpeningMediaType] = useState<"image" | "video" | "">("");
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaUploadError, setMediaUploadError] = useState("");
 
-  // ── Step 2: Opening message (text + quick buttons)
+  // ── מסלול מכירה: פתיחה + כפתורים
   const [welcomeIntro, setWelcomeIntro] = useState("");
   const [welcomeQuestion, setWelcomeQuestion] = useState("");
   const [welcomeOptions, setWelcomeOptions] = useState<string[]>(["", "", ""]);
+  const [salesFlowBlocks, setSalesFlowBlocks] = useState<SalesFlowBlockUI[]>([]);
+  const [expandedFlowBlockId, setExpandedFlowBlockId] = useState<string | null>(null);
 
-  // ── Step 5: Questions & menu
+  // ── נשמר ב־DB ללא עריכה במסך (טאב הוסר)
   const [segQuestions, setSegQuestions] = useState<SegQuestion[]>([]);
 
   // ── Quick replies
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
-  const [newReplyLabel, setNewReplyLabel] = useState("");
-  const [newReplyText, setNewReplyText] = useState("");
 
   // ── Step 4: Services + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
   const dragIdx = useRef<number | null>(null);
 
-  const defaultWelcomeParts = useMemo(() => {
-    const cleanName = name.trim() || slug;
-    const cleanAddress = address.trim();
-    const cleanServices = services
-      .filter((s) => s.name.trim())
-      .slice(0, 3)
-      .map((s) => {
-        const title = s.name.trim();
-        const price = s.price_text.trim();
-        return price ? `- ${title} (${price})` : `- ${title}`;
-      })
-      .join("\n");
-    const sportName = (niche.trim() || "האימון").replace(/\s+/g, " ");
+  const defaultWelcomeParts = useMemo(
+    () =>
+      buildDefaultSaleWelcome({
+        botName: botName.trim() || "זואי",
+        businessName: name.trim() || slug,
+        address: address.trim(),
+        services: services.filter((s) => s.name.trim()).map((s) => ({ name: s.name })),
+        niche: niche.trim(),
+        vibeLabels: vibe,
+      }),
+    [address, botName, name, niche, services, slug, vibe]
+  );
 
-    const introLines: string[] = [];
-    introLines.push(`היי! כאן ${cleanName}.`);
-    if (cleanAddress) introLines.push(`כתובת: ${cleanAddress}`);
-    if (cleanServices) {
-      introLines.push(`שירותים ומחירים:`);
-      introLines.push(cleanServices);
-    }
-    const question = `האם יצא לך לנסות ${sportName} בעבר?`;
-    const options = ["לא יצא לי", "יצא לי פעם-פעמיים", "יצא לי לא מעט פעמים"];
-    return { intro: introLines.join("\n"), question, options };
-  }, [address, name, niche, services, slug]);
+  const applyWelcomeTemplate = useCallback(() => {
+    const p = buildDefaultSaleWelcome({
+      botName: botName.trim() || "זואי",
+      businessName: name.trim() || slug,
+      address: address.trim(),
+      services: services.filter((s) => s.name.trim()).map((s) => ({ name: s.name })),
+      niche: niche.trim(),
+      vibeLabels: vibe,
+    });
+    setWelcomeIntro(p.intro);
+    setWelcomeQuestion(p.question);
+    setWelcomeOptions(p.options.length ? p.options : [""]);
+  }, [address, botName, name, niche, services, slug, vibe]);
 
   useEffect(() => {
-    if (step !== 2) return;
+    if (step !== 3) return;
     const optsEmpty = welcomeOptions.every((o) => !o.trim());
     if (welcomeIntro.trim() || welcomeQuestion.trim() || !optsEmpty) return;
     setWelcomeIntro(defaultWelcomeParts.intro);
     setWelcomeQuestion(defaultWelcomeParts.question);
-    setWelcomeOptions([...defaultWelcomeParts.options]);
+    const o = defaultWelcomeParts.options;
+    setWelcomeOptions(o.length ? [...o] : ["", "", ""]);
   }, [step, defaultWelcomeParts, welcomeIntro, welcomeQuestion, welcomeOptions]);
 
   // ── Objections (will live inside "Questions & menu")
@@ -208,7 +237,7 @@ export default function SlugSettingsPage() {
   const isPremium = plan === "premium";
 
   useEffect(() => {
-    if (!isPremium && step === 5) setStep(6);
+    if (!isPremium && step === 4) setStep(5);
   }, [isPremium, step]);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
@@ -285,6 +314,22 @@ export default function SlugSettingsPage() {
             : [];
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
+        const sfb = Array.isArray(sl.sales_flow_blocks) ? sl.sales_flow_blocks : [];
+        setSalesFlowBlocks(
+          sfb.map((b: unknown) => {
+            if (!b || typeof b !== "object")
+              return { id: uid(), intro: "", question: "", options: ["", "", ""] };
+            const o = b as Record<string, unknown>;
+            const opts = Array.isArray(o.options) ? o.options.map((x) => String(x ?? "")) : [];
+            const base = opts.length ? [...opts, ""] : ["", "", ""];
+            return {
+              id: uid(),
+              intro: typeof o.intro === "string" ? o.intro : "",
+              question: typeof o.question === "string" ? o.question : "",
+              options: base.slice(0, Math.max(3, base.length)),
+            };
+          })
+        );
         setArboxLink(String(sl.arbox_link ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
@@ -326,107 +371,228 @@ export default function SlugSettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // ─── Save ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (loading) {
+      setCanAutosave(false);
+      return;
+    }
+    const t = window.setTimeout(() => setCanAutosave(true), AUTOSAVE_ENABLE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [loading]);
+
+  // ─── Save payload (ידני + אוטומטי) ─────────────────────────────────────────
+
+  const getSavePayload = useCallback(
+    () => ({
+      business: {
+        slug,
+        name,
+        niche,
+        bot_name: botName,
+        welcome_message: buildWelcomeMessageForStorage(welcomeIntro, welcomeQuestion, welcomeOptions),
+        facebook_pixel_id: facebookPixelId,
+        conversions_api_token: conversionsApiToken,
+        social_links: {
+          website_url: websiteUrl,
+          tagline: businessTagline.trim(),
+          traits: traits.map((s) => s.trim()).filter(Boolean),
+          fact1: (traits[0] ?? "").trim(),
+          fact2: (traits[1] ?? "").trim(),
+          fact3: (traits[2] ?? "").trim(),
+          business_description: traits.map((s) => s.trim()).filter(Boolean).join("\n"),
+          address,
+          directions,
+          vibe,
+          opening_media_url: openingMediaUrl,
+          opening_media_type: openingMediaType,
+          welcome_intro: welcomeIntro.trim(),
+          welcome_question: welcomeQuestion.trim(),
+          welcome_options: welcomeOptions.map((o) => o.trim()),
+          sales_flow_blocks: salesFlowBlocks
+            .map(({ intro, question, options }) => ({
+              intro: intro.trim(),
+              question: question.trim(),
+              options: options.map((x) => x.trim()).filter(Boolean),
+            }))
+            .filter((b) => b.intro || b.question || b.options.length > 0),
+          segmentation_questions: segQuestions,
+          quick_replies: quickReplies,
+          arbox_link: arboxLink,
+          objections,
+          followup_after_registration: followupAfterRegistration,
+          followup_after_hour_no_registration: followupAfterHourNoRegistration,
+          followup_day_after_trial: followupDayAfterTrial,
+        },
+      },
+      services: services.filter((s) => s.name).map((s) => ({
+        name: s.name,
+        service_slug: s.service_slug || toSlug(s.name),
+        price_text: s.price_text,
+        location_text: s.location_text,
+        location_mode: "location",
+        description: JSON.stringify({ duration: s.duration, payment_link: s.payment_link }),
+      })),
+      faqs: [] as unknown[],
+    }),
+    [
+      slug,
+      name,
+      niche,
+      botName,
+      welcomeIntro,
+      welcomeQuestion,
+      welcomeOptions,
+      facebookPixelId,
+      conversionsApiToken,
+      websiteUrl,
+      businessTagline,
+      traits,
+      address,
+      directions,
+      vibe,
+      openingMediaUrl,
+      openingMediaType,
+      salesFlowBlocks,
+      segQuestions,
+      quickReplies,
+      arboxLink,
+      objections,
+      followupAfterRegistration,
+      followupAfterHourNoRegistration,
+      followupDayAfterTrial,
+      services,
+    ]
+  );
+
+  const postSettings = useCallback(async () => {
+    return fetch("/api/dashboard/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getSavePayload()),
+    });
+  }, [getSavePayload]);
+
+  const getSavePayloadRef = useRef(getSavePayload);
+  getSavePayloadRef.current = getSavePayload;
+
+  useEffect(() => {
+    if (!canAutosave) return;
+    const flush = () => {
+      try {
+        const body = JSON.stringify(getSavePayloadRef.current());
+        void fetch("/api/dashboard/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        });
+      } catch {
+        /* noop */
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [canAutosave]);
+
+  useEffect(() => {
+    if (!canAutosave) return;
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      void (async () => {
+        setAutosaveStatus("saving");
+        setAutoSaveErr("");
+        try {
+          const res = await postSettings();
+          if (cancelled) return;
+          if (!res.ok) {
+            const msg = await readSaveErrorFromResponse(res);
+            if (!cancelled) {
+              setAutosaveStatus("error");
+              setAutoSaveErr(msg);
+            }
+            return;
+          }
+          if (!cancelled) {
+            setAutoSaveErr("");
+            setAutosaveStatus("saved");
+            window.setTimeout(() => {
+              setAutosaveStatus((s) => (s === "saved" ? "idle" : s));
+            }, 2500);
+          }
+        } catch {
+          if (!cancelled) {
+            setAutosaveStatus("error");
+            setAutoSaveErr("בעיית רשת בשמירה אוטומטית.");
+          }
+        }
+      })();
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [canAutosave, postSettings]);
 
   const saveAll = useCallback(async () => {
-    setSaving(true); setSaveErr("");
+    setSaving(true);
+    setSaveErr("");
+    setAutoSaveErr("");
     try {
-      const res = await fetch("/api/dashboard/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          business: {
-            slug,
-            name,
-            niche,
-            bot_name: botName,
-            welcome_message: buildWelcomeMessageForStorage(welcomeIntro, welcomeQuestion, welcomeOptions),
-            facebook_pixel_id: facebookPixelId,
-            conversions_api_token: conversionsApiToken,
-            social_links: {
-              website_url: websiteUrl,
-              tagline: businessTagline.trim(),
-              traits: traits.map((s) => s.trim()).filter(Boolean),
-              fact1: (traits[0] ?? "").trim(),
-              fact2: (traits[1] ?? "").trim(),
-              fact3: (traits[2] ?? "").trim(),
-              business_description: traits.map((s) => s.trim()).filter(Boolean).join("\n"),
-              address,
-              directions,
-              vibe,
-              opening_media_url: openingMediaUrl,
-              opening_media_type: openingMediaType,
-              welcome_intro: welcomeIntro.trim(),
-              welcome_question: welcomeQuestion.trim(),
-              welcome_options: welcomeOptions.map((o) => o.trim()),
-              segmentation_questions: segQuestions,
-              quick_replies: quickReplies,
-              arbox_link: arboxLink,
-              objections,
-              followup_after_registration: followupAfterRegistration,
-              followup_after_hour_no_registration: followupAfterHourNoRegistration,
-              followup_day_after_trial: followupDayAfterTrial,
-            },
-          },
-          services: services.filter(s => s.name).map(s => ({
-            name: s.name,
-            service_slug: s.service_slug || toSlug(s.name),
-            price_text: s.price_text,
-            location_text: s.location_text,
-            location_mode: "location",
-            description: JSON.stringify({ duration: s.duration, payment_link: s.payment_link }),
-          })),
-          faqs: [],
-        }),
-      });
-      if (!res.ok) throw new Error("שגיאה בשמירה");
+      const res = await postSettings();
+      if (!res.ok) {
+        setSaveErr(await readSaveErrorFromResponse(res));
+        return false;
+      }
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
-    } catch (e) {
-      setSaveErr(e instanceof Error ? e.message : "שגיאה בשמירה");
+      setAutosaveStatus("idle");
+      setAutoSaveErr("");
+      return true;
+    } catch {
+      setSaveErr("לא ניתן להתחבר לשרת.");
+      return false;
     } finally {
       setSaving(false);
     }
-  }, [slug, name, niche, botName, welcomeIntro, welcomeQuestion, welcomeOptions, facebookPixelId, conversionsApiToken,
-      websiteUrl, businessTagline, traits, address, directions, vibe, openingMediaUrl, openingMediaType,
-      segQuestions, quickReplies, arboxLink, objections,
-      followupAfterRegistration, followupAfterHourNoRegistration, followupDayAfterTrial,
-      services]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Ensure there's a default "מה הכתובת שלכם?" quick reply (editable/removable like others).
-  useEffect(() => {
-    const addr = address.trim();
-    if (!addr) return;
-    setQuickReplies((prev) => {
-      const idx = prev.findIndex((r) => r.label.trim() === "מה הכתובת שלכם?");
-      if (idx === -1) {
-        return [...prev, { id: uid(), label: "מה הכתובת שלכם?", reply: addr }];
-      }
-      const existing = prev[idx];
-      if (!existing.reply.trim()) {
-        const next = [...prev];
-        next[idx] = { ...existing, reply: addr };
-        return next;
-      }
-      return prev;
-    });
-  }, [address]);
-
-  // ─── Logo upload ───────────────────────────────────────────────────────────
+  }, [postSettings]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
   async function uploadMedia(file: File) {
+    setMediaUploadError("");
+    if (file.size > MAX_OPENING_MEDIA_BYTES) {
+      setMediaUploadError(
+        "הקובץ גדול מדי (מקסימום 4MB). נסו לכווץ את הסרטון או להעלות תמונה."
+      );
+      return;
+    }
     setUploadingMedia(true);
-    const fd = new FormData(); fd.append("file", file);
+    const fd = new FormData();
+    fd.append("file", file);
     try {
       const res = await fetch("/api/dashboard/upload-logo", { method: "POST", body: fd });
-      const j = await res.json();
+      let j: { url?: string; error?: string } = {};
+      try {
+        j = await res.json();
+      } catch {
+        setMediaUploadError("תשובת שרת לא תקינה.");
+        return;
+      }
+      if (!res.ok) {
+        setMediaUploadError(j.error?.trim() || `העלאה נכשלה (${res.status}).`);
+        return;
+      }
       if (j.url) {
         setOpeningMediaUrl(j.url);
         setOpeningMediaType(file.type.startsWith("video") ? "video" : "image");
+      } else {
+        setMediaUploadError("לא התקבל קישור לקובץ — נסו שוב או קובץ קטן יותר.");
       }
-    } finally { setUploadingMedia(false); }
+    } catch {
+      setMediaUploadError("בעיית רשת בהעלאה.");
+    } finally {
+      setUploadingMedia(false);
+    }
   }
 
   // ─── Fetch site ────────────────────────────────────────────────────────────
@@ -490,45 +656,6 @@ export default function SlugSettingsPage() {
   }
   function onDragEnd() { dragIdx.current = null; }
 
-  // ─── Segmentation helpers ──────────────────────────────────────────────────
-
-  function addSegQuestion() {
-    setSegQuestions(q => [...q, { id: uid(), question: "", answers: [] }]);
-  }
-  function updateSegQuestion(id: string, question: string) {
-    setSegQuestions(q => q.map(x => x.id === id ? { ...x, question } : x));
-  }
-  function removeSegQuestion(id: string) {
-    setSegQuestions(q => q.filter(x => x.id !== id));
-  }
-  function addSegAnswer(qid: string) {
-    setSegQuestions(q => q.map(x => x.id === qid
-      ? { ...x, answers: [...x.answers, { id: uid(), text: "", service_slug: "" }] }
-      : x));
-  }
-  function updateSegAnswer(qid: string, aid: string, patch: Partial<SegAnswer>) {
-    setSegQuestions(q => q.map(x => x.id === qid
-      ? { ...x, answers: x.answers.map(a => a.id === aid ? { ...a, ...patch } : a) }
-      : x));
-  }
-  function removeSegAnswer(qid: string, aid: string) {
-    setSegQuestions(q => q.map(x => x.id === qid
-      ? { ...x, answers: x.answers.filter(a => a.id !== aid) }
-      : x));
-  }
-
-  // ─── Objection helpers ────────────────────────────────────────────────────
-
-  function addObjection() {
-    setObjections(o => [...o, { id: uid(), question: "", answer: "" }]);
-  }
-  function updateObjection(id: string, patch: Partial<Omit<Objection, "id">>) {
-    setObjections(o => o.map(x => x.id === id ? { ...x, ...patch } : x));
-  }
-  function removeObjection(id: string) {
-    setObjections(o => o.filter(x => x.id !== id));
-  }
-
   // ─── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -590,7 +717,7 @@ export default function SlugSettingsPage() {
   function nextStep() {
     setStep((s) => {
       let n = Math.min(STEPS.length, s + 1);
-      if (!isPremium && n === 5) n = 6;
+      if (!isPremium && n === 4) n = 5;
       return n;
     });
   }
@@ -598,7 +725,7 @@ export default function SlugSettingsPage() {
   function prevStep() {
     setStep((s) => {
       let n = Math.max(1, s - 1);
-      if (!isPremium && s === 6 && n === 5) n = 4;
+      if (!isPremium && s === 5 && n === 4) n = 3;
       return n;
     });
   }
@@ -608,12 +735,28 @@ export default function SlugSettingsPage() {
 
       {/* ── Top bar ── */}
       <div className="sticky top-0 z-40 bg-white border-b border-zinc-200 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
             <span className="text-[#7133da]">HeyZoe</span>
             <span className="text-zinc-300">/</span>
             <span>{slug}</span>
           </div>
+          {canAutosave ? (
+            <div className="text-xs text-zinc-500 flex items-center gap-1.5 shrink-0 min-h-[1.25rem]" aria-live="polite">
+              {autosaveStatus === "saving" && (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
+                  <span>שומר…</span>
+                </>
+              )}
+              {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
+              {autosaveStatus === "error" && (
+                <span className="text-amber-600 max-w-[min(20rem,55vw)] text-right" title={autoSaveErr || undefined}>
+                  שמירה אוטומטית נכשלה{autoSaveErr ? ` — ${autoSaveErr}` : ""}
+                </span>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {/* Step indicator */}
@@ -777,296 +920,10 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 2 — מדיה + הודעת פתיחה ════════════════════ */}
+        {/* ════════════════════ STEP 2 — שירותים ════════════════════ */}
         {step === 2 && (
           <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader
-                  n={2}
-                  title="הודעת פתיחה"
-                  desc="העלו מדיה, ואז כתבו את הטקסט — השאלה והכפתורים בנפרד (כמו בווטסאפ)"
-                />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <p className="text-sm font-medium text-zinc-700 mb-2">מדיה לפתיחה (אופציונלי)</p>
-                <div
-                  onClick={() => mediaInputRef.current?.click()}
-                  className="border-2 border-dashed border-zinc-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all"
-                >
-                  {uploadingMedia ? (
-                    <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
-                  ) : openingMediaUrl ? (
-                    openingMediaType === "video" ? (
-                      <video src={openingMediaUrl} className="max-h-48 rounded-xl" controls />
-                    ) : (
-                      <img src={openingMediaUrl} alt="מדיה" className="max-h-48 rounded-xl object-contain" />
-                    )
-                  ) : (
-                    <>
-                      <Upload className="h-8 w-8 text-zinc-400" />
-                      <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
-                      <p className="text-xs text-zinc-400">JPG, PNG, GIF, MP4 — עד 20MB</p>
-                    </>
-                  )}
-                </div>
-                <input
-                  ref={mediaInputRef}
-                  type="file"
-                  accept="image/*,video/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) uploadMedia(f);
-                  }}
-                />
-                {openingMediaUrl ? (
-                  <div className="flex justify-end mt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="gap-1 text-sm py-1.5 h-auto"
-                      onClick={() => {
-                        setOpeningMediaUrl("");
-                        setOpeningMediaType("");
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                      הסר מדיה
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="border-t border-dashed border-zinc-200 pt-5 space-y-4">
-                <Field label="טקסט לפני השאלה (ברכה, כתובת, שירותים…)">
-                  <Textarea
-                    value={welcomeIntro}
-                    onChange={setWelcomeIntro}
-                    placeholder="היי! כאן הסטודיו שלנו…"
-                    rows={5}
-                  />
-                </Field>
-                <Field label="השאלה">
-                  <Input
-                    dir="rtl"
-                    value={welcomeQuestion}
-                    onChange={(e) => setWelcomeQuestion(e.target.value)}
-                    placeholder="האם יצא לך לנסות…?"
-                  />
-                </Field>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 block">כפתורי תשובה (יופיעו ללקוח כמו בווטסאפ)</label>
-                  <div className="space-y-2">
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="flex gap-2 items-center">
-                        <span className="text-xs text-zinc-400 w-5 shrink-0">{i + 1}</span>
-                        <Input
-                          dir="rtl"
-                          value={welcomeOptions[i] ?? ""}
-                          onChange={(e) =>
-                            setWelcomeOptions((prev) => {
-                              const next = [...prev];
-                              next[i] = e.target.value;
-                              return next;
-                            })
-                          }
-                          placeholder={
-                            i === 0
-                              ? "לא יצא לי"
-                              : i === 1
-                                ? "יצא לי פעם-פעמיים"
-                                : "יצא לי לא מעט פעמים"
-                          }
-                          className="flex-1"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-[11px] text-zinc-500">
-                  טקסט ברירת מחדל נוצר כשנכנסים לשלב הזה — אפשר לערוך הכל.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 4 ════════════════════ */}
-        {step === 4 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader
-                  n={4}
-                  title="שאלות ותפריט"
-                  desc="שאלות סגמנטציה לניתוב לשירות הנכון + כפתורי תשובה מהירה כללית"
-                />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-zinc-900 text-right">
-                  שאלות סגמנטציה
-                </h3>
-              {segQuestions.map((q, qi) => (
-                <div key={q.id} className="border border-zinc-200 rounded-2xl p-4 space-y-4">
-                  <div className="flex gap-2 items-center">
-                    <span className="text-xs text-zinc-400 shrink-0">שאלה {qi + 1}</span>
-                    <Input dir="rtl" value={q.question} onChange={e => updateSegQuestion(q.id, e.target.value)} placeholder="לאיזה שיעור את/ה מחפש/ת?" className="flex-1" />
-                    <button onClick={() => removeSegQuestion(q.id)} className="p-1 text-zinc-400 hover:text-red-400 transition-colors">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 pr-4">
-                    {q.answers.map(a => (
-                      <div key={a.id} className="flex gap-2 items-center">
-                        <Input dir="rtl" value={a.text} onChange={e => updateSegAnswer(q.id, a.id, { text: e.target.value })} placeholder="תשובה..." className="flex-1" />
-                        <select
-                          value={a.service_slug}
-                          onChange={e => updateSegAnswer(q.id, a.id, { service_slug: e.target.value })}
-                          className="text-sm border border-zinc-300 rounded-xl px-2 py-2 text-zinc-700 focus:outline-none focus:ring-2 focus:ring-[#7133da]/40"
-                        >
-                          <option value="">ניתוב...</option>
-                          <option value="general">כללי</option>
-                          {services.filter(s => s.name).map(s => (
-                            <option key={s.ui_id} value={s.service_slug || toSlug(s.name)}>{s.name}</option>
-                          ))}
-                        </select>
-                        <button onClick={() => removeSegAnswer(q.id, a.id)} className="p-1 text-zinc-400 hover:text-red-400">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                    <Button variant="ghost" onClick={() => addSegAnswer(q.id)} className="gap-1 text-xs text-[#7133da] py-1.5 px-2">
-                      <Plus className="h-3 w-3" /> הוסף תשובה
-                    </Button>
-                  </div>
-                </div>
-              ))}
-
-              <Button variant="outline" onClick={addSegQuestion} className="w-full gap-2">
-                <Plus className="h-4 w-4" /> הוסף שאלה
-              </Button>
-              </div>
-
-              <div className="space-y-3 border-t border-dashed border-zinc-200 pt-4">
-                <h3 className="text-sm font-semibold text-zinc-900 text-right">
-                  כפתורי תשובה מהירה
-                </h3>
-                {quickReplies.map((r, i) => (
-                  <div key={r.id} className="border border-zinc-200 rounded-xl p-3 space-y-2">
-                    <div className="flex gap-2 items-center">
-                      <span className="text-xs text-zinc-400 w-5 shrink-0 font-medium">{i + 1}.</span>
-                      <Input
-                        dir="rtl"
-                        value={r.label}
-                        onChange={e => setQuickReplies(q => q.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
-                        placeholder="טקסט הכפתור (מה המשתמש לוחץ)..."
-                        className="text-sm font-medium"
-                      />
-                      <button onClick={() => setQuickReplies(q => q.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400 shrink-0">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="flex gap-2 items-start pr-7">
-                      <textarea
-                        dir="rtl"
-                        value={r.reply}
-                        onChange={e => setQuickReplies(q => q.map((x, j) => j === i ? { ...x, reply: e.target.value } : x))}
-                        placeholder="התשובה הסטטית שתישלח אוטומטית..."
-                        rows={2}
-                        className="flex-1 resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#7133da]/40"
-                      />
-                    </div>
-                  </div>
-                ))}
-
-                {/* Auto "other question" indicator */}
-                <div className="flex gap-2 items-center opacity-40">
-                  <span className="text-xs text-zinc-400 w-5 shrink-0">{quickReplies.length + 1}.</span>
-                  <div className="flex-1 border border-dashed border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-400">
-                    שאלה אחרת ✨ (אוטומטי) → Claude
-                  </div>
-                </div>
-
-              {/* "מה הכתובת שלכם?" is now a regular editable quick reply */}
-              </div>
-
-              {/* Add new quick reply */}
-              <div className="border border-[rgba(113,51,218,0.18)] rounded-xl p-3 space-y-2 bg-[rgba(113,51,218,0.06)]">
-                <p className="text-xs font-medium text-[#7133da]">הוסף כפתור חדש</p>
-                <Input
-                  dir="rtl"
-                  value={newReplyLabel}
-                  onChange={e => setNewReplyLabel(e.target.value)}
-                  placeholder="טקסט הכפתור..."
-                  className="text-sm"
-                />
-                <textarea
-                  dir="rtl"
-                  value={newReplyText}
-                  onChange={e => setNewReplyText(e.target.value)}
-                  placeholder="תשובה סטטית..."
-                  rows={2}
-                  className="w-full resize-none rounded-xl border border-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#7133da]/40"
-                />
-                <Button
-                  onClick={() => {
-                    if (newReplyLabel.trim()) {
-                      setQuickReplies(q => [...q, { id: uid(), label: newReplyLabel.trim(), reply: newReplyText.trim() }]);
-                      setNewReplyLabel("");
-                      setNewReplyText("");
-                    }
-                  }}
-                  disabled={!newReplyLabel.trim()}
-                  className="gap-1 w-full"
-                >
-                  <Plus className="h-4 w-4" /> הוסף כפתור
-                </Button>
-              </div>
-
-              <div className="space-y-3 border-t border-dashed border-zinc-200 pt-4">
-                <h3 className="text-sm font-semibold text-zinc-900 text-right">
-                  התנגדויות נפוצות
-                </h3>
-                {objections.map((o) => (
-                  <div key={o.id} className="border border-zinc-200 rounded-2xl p-4 space-y-3">
-                    <div className="flex gap-2 items-start">
-                      <span className="text-xs font-medium text-zinc-400 mt-2 shrink-0">ש:</span>
-                      <Input
-                        dir="rtl"
-                        value={o.question}
-                        onChange={e => updateObjection(o.id, { question: e.target.value })}
-                        placeholder="זה לא יקר מדי?"
-                        className="flex-1"
-                      />
-                      <button onClick={() => removeObjection(o.id)} className="p-1 text-zinc-400 hover:text-red-400 mt-1">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="flex gap-2 items-start">
-                      <span className="text-xs font-medium text-zinc-400 mt-2 shrink-0">ת:</span>
-                      <Textarea value={o.answer} onChange={v => updateObjection(o.id, { answer: v })} placeholder="ההשקעה בשיעור שלנו מחזירה את עצמה..." rows={2} />
-                    </div>
-                  </div>
-                ))}
-
-                <Button variant="outline" onClick={addObjection} className="w-full gap-2">
-                  <Plus className="h-4 w-4" /> הוסף התנגדות
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 3 (שירותים) ════════════════════ */}
-        {step === 3 && (
-          <Card>
-            <CardHeader><CardTitle><StepHeader n={3} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
+            <CardHeader><CardTitle><StepHeader n={2} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {services.map((s, i) => (
                 <div
@@ -1128,11 +985,334 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 5 ════════════════════ */}
-        {step === 5 && (
-          isPremium ? (
+        {/* ════════════════════ STEP 3 — מסלול מכירה ════════════════════ */}
+        {step === 3 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={5} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader
+                  n={3}
+                  title="מסלול מכירה"
+                  desc="מדיה וטקסט פתיחה לווטסאפ, ואז שלבים נוספים באקורדיון — זואי תשתמש בזה בשיחה"
+                />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <p className="text-sm font-medium text-zinc-700 mb-2">מדיה לפתיחה (אופציונלי)</p>
+                {!openingMediaUrl ? (
+                  <button
+                    type="button"
+                    disabled={uploadingMedia}
+                    onClick={() => !uploadingMedia && mediaInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-zinc-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all disabled:opacity-60 disabled:pointer-events-none"
+                  >
+                    {uploadingMedia ? (
+                      <>
+                        <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
+                        <p className="text-sm text-zinc-500">מעלה…</p>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-8 w-8 text-zinc-400" />
+                        <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
+                        <p className="text-xs text-zinc-400">עד 4MB (מגבלת שרת). JPG, PNG, GIF, MP4</p>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
+                    {openingMediaType === "video" ? (
+                      <div className="relative w-full max-w-sm mx-auto">
+                        <video
+                          src={videoUrlForPreview(openingMediaUrl)}
+                          className="max-h-48 w-full rounded-xl object-cover bg-black"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          controls
+                        />
+                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">
+                          הווידאו הועלה — תצוגה מקדימה (אפשר להפעיל)
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="relative w-full max-w-sm mx-auto">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={openingMediaUrl} alt="מדיה לפתיחה" className="max-h-48 w-full rounded-xl object-contain mx-auto" />
+                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה</p>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto"
+                        disabled={uploadingMedia}
+                        onClick={() => mediaInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        החלף קובץ
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => {
+                          setOpeningMediaUrl("");
+                          setOpeningMediaType("");
+                          setMediaUploadError("");
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                        הסר מדיה
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {mediaUploadError ? (
+                  <p className="text-sm text-red-600 mt-2 text-right" role="alert">
+                    {mediaUploadError}
+                  </p>
+                ) : null}
+                <input
+                  ref={mediaInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) uploadMedia(f);
+                  }}
+                />
+              </div>
+
+              <div className="border-t border-dashed border-zinc-200 pt-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-zinc-800">שלב ראשון במסלול (פתיחה)</p>
+                  <Button type="button" variant="outline" className="shrink-0 gap-1 text-xs py-1.5 px-3 h-auto" onClick={applyWelcomeTemplate}>
+                    <Sparkles className="h-3.5 w-3.5" />
+                    יישום טמפלייט
+                  </Button>
+                </div>
+                <Field label="טקסט לפני השאלה (ברכה, כתובת…)">
+                  <Textarea
+                    value={welcomeIntro}
+                    onChange={setWelcomeIntro}
+                    placeholder={`היי! כאן ${botName || "זואי"} מ־${name || slug}…`}
+                    rows={5}
+                  />
+                </Field>
+                <Field label="השאלה">
+                  <Input
+                    dir="rtl"
+                    value={welcomeQuestion}
+                    onChange={(e) => setWelcomeQuestion(e.target.value)}
+                    placeholder="אשמח להבין ראשית מה מעניין אותך?"
+                  />
+                </Field>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-700 block">כפתורי תשובה</label>
+                  <div className="space-y-2">
+                    {welcomeOptions.map((opt, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <span className="text-xs text-zinc-400 w-5 shrink-0">{i + 1}</span>
+                        <Input
+                          dir="rtl"
+                          value={opt}
+                          onChange={(e) =>
+                            setWelcomeOptions((prev) => {
+                              const next = [...prev];
+                              next[i] = e.target.value;
+                              return next;
+                            })
+                          }
+                          placeholder={`כפתור ${i + 1}`}
+                          className="flex-1"
+                        />
+                        {welcomeOptions.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setWelcomeOptions((prev) => prev.filter((_, j) => j !== i))
+                            }
+                            className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
+                            aria-label="הסר כפתור"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <span className="w-8 shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-1 text-sm"
+                    onClick={() => setWelcomeOptions((prev) => [...prev, ""])}
+                  >
+                    <Plus className="h-4 w-4" />
+                    הוסף כפתור
+                  </Button>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  ברירת המחדל נוצרת לפי שם הבוט, שם העסק, הכתובת והשירותים (שלב 2) — ניתן לערוך הכל. סגנון הדיבור בשלב 1 משפיע על ניסוח השיחה בזואי.
+                </p>
+              </div>
+
+              <div className="border-t border-dashed border-zinc-200 pt-5 space-y-3">
+                <p className="text-sm font-medium text-zinc-800">המשך מסלול (אחרי תשובת הלקוח לפתיחה)</p>
+                <p className="text-xs text-zinc-500">כל שלב: טקסט לפני שאלה, שאלה וכפתורים — יפתח בלחיצה.</p>
+                {salesFlowBlocks.map((b, bi) => {
+                  const open = expandedFlowBlockId === b.id;
+                  return (
+                    <div key={b.id} className="border border-zinc-200 rounded-2xl overflow-hidden bg-white">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedFlowBlockId(open ? null : b.id)}
+                        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-right bg-zinc-50 hover:bg-zinc-100/80 transition-colors"
+                      >
+                        <span className="text-sm font-medium text-zinc-800">
+                          שלב {bi + 2} במסלול
+                          {(b.question.trim() || b.intro.trim()) && (
+                            <span className="font-normal text-zinc-500 mr-2">
+                              — {b.question.trim() || b.intro.trim().slice(0, 36)}
+                              {(b.question.trim() || b.intro.trim()).length > 36 ? "…" : ""}
+                            </span>
+                          )}
+                        </span>
+                        <ChevronDown className={`h-4 w-4 text-zinc-500 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+                      </button>
+                      {open ? (
+                        <div className="p-4 space-y-4 border-t border-zinc-100">
+                          <Field label="טקסט לפני השאלה">
+                            <Textarea
+                              value={b.intro}
+                              onChange={(v) =>
+                                setSalesFlowBlocks((prev) =>
+                                  prev.map((x) => (x.id === b.id ? { ...x, intro: v } : x))
+                                )
+                              }
+                              rows={3}
+                              placeholder="קצר לפני השאלה…"
+                            />
+                          </Field>
+                          <Field label="השאלה">
+                            <Input
+                              dir="rtl"
+                              value={b.question}
+                              onChange={(e) =>
+                                setSalesFlowBlocks((prev) =>
+                                  prev.map((x) => (x.id === b.id ? { ...x, question: e.target.value } : x))
+                                )
+                              }
+                              placeholder="מה תרצו לעשות הלאה?"
+                            />
+                          </Field>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-700 block">כפתורים</label>
+                            {b.options.map((opt, oi) => (
+                              <div key={oi} className="flex gap-2 items-center">
+                                <span className="text-xs text-zinc-400 w-5 shrink-0">{oi + 1}</span>
+                                <Input
+                                  dir="rtl"
+                                  value={opt}
+                                  onChange={(e) =>
+                                    setSalesFlowBlocks((prev) =>
+                                      prev.map((x) => {
+                                        if (x.id !== b.id) return x;
+                                        const opts = [...x.options];
+                                        opts[oi] = e.target.value;
+                                        return { ...x, options: opts };
+                                      })
+                                    )
+                                  }
+                                  className="flex-1"
+                                />
+                                {b.options.length > 1 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSalesFlowBlocks((prev) =>
+                                        prev.map((x) =>
+                                          x.id === b.id
+                                            ? { ...x, options: x.options.filter((_, j) => j !== oi) }
+                                            : x
+                                        )
+                                      )
+                                    }
+                                    className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                ) : (
+                                  <span className="w-8 shrink-0" />
+                                )}
+                              </div>
+                            ))}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="gap-1 text-sm py-1.5 h-auto"
+                              onClick={() =>
+                                setSalesFlowBlocks((prev) =>
+                                  prev.map((x) =>
+                                    x.id === b.id ? { ...x, options: [...x.options, ""] } : x
+                                  )
+                                )
+                              }
+                            >
+                              <Plus className="h-3 w-3" />
+                              הוסף כפתור
+                            </Button>
+                          </div>
+                          <div className="flex justify-end pt-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 gap-1"
+                              onClick={() => {
+                                setSalesFlowBlocks((prev) => prev.filter((x) => x.id !== b.id));
+                                setExpandedFlowBlockId((cur) => (cur === b.id ? null : cur));
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              מחק שלב
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => {
+                    const id = uid();
+                    setSalesFlowBlocks((prev) => [
+                      ...prev,
+                      { id, intro: "", question: "", options: ["", "", ""] },
+                    ]);
+                    setExpandedFlowBlockId(id);
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף שלב במסלול
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ════════════════════ STEP 4 — פייסבוק ════════════════════ */}
+        {step === 4 && isPremium ? (
+          <Card>
+            <CardHeader><CardTitle><StepHeader n={4} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-zinc-900">חבילה 1 — חיבור בסיסי</p>
@@ -1164,15 +1344,14 @@ export default function SlugSettingsPage() {
               </div>
             </CardContent>
           </Card>
-          ) : null
-        )}
+        ) : null}
 
-        {/* ════════════════════ STEP 6 — פולואפ (גם אם נתקעו על שלב 5 בלי פרימיום) ════════════════════ */}
-        {(step === 6 || (step === 5 && !isPremium)) && (
+        {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
+        {step === 5 && (
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={6} title="פולואפ" desc="הודעות אוטומטיות לפי זמן/אירוע" />
+                <StepHeader n={5} title="פולואפ" desc="הודעות אוטומטיות לפי זמן/אירוע" />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1209,7 +1388,7 @@ export default function SlugSettingsPage() {
           </div>
 
           <WhatsAppSettingsPreview
-            step={step as 1 | 2 | 3 | 4 | 5 | 6}
+            step={step as 1 | 2 | 3 | 4 | 5}
             botName={botName}
             businessName={name}
             openingMediaUrl={openingMediaUrl}
@@ -1217,9 +1396,12 @@ export default function SlugSettingsPage() {
             welcomeIntro={welcomeIntro}
             welcomeQuestion={welcomeQuestion}
             welcomeOptions={welcomeOptions}
+            salesFlowBlocks={salesFlowBlocks.map((b) => ({
+              intro: b.intro,
+              question: b.question,
+              options: b.options,
+            }))}
             services={services.map((s) => ({ name: s.name, price_text: s.price_text }))}
-            segQuestions={segQuestions}
-            quickReplies={quickReplies}
             businessTagline={businessTagline}
             traits={traits}
             address={address}
@@ -1247,12 +1429,22 @@ export default function SlugSettingsPage() {
           <span className="text-sm text-zinc-400">{step} / {STEPS.length}</span>
 
           {isLast ? (
-            <Button onClick={saveAll} disabled={saving} className="gap-2">
+            <Button onClick={() => void saveAll()} disabled={saving} className="gap-2">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {saving ? "שומר..." : "שמור הכל"}
             </Button>
           ) : (
-            <Button onClick={() => { saveAll(); nextStep(); }} className="gap-2">
+            <Button
+              disabled={saving}
+              onClick={() => {
+                void (async () => {
+                  const ok = await saveAll();
+                  if (ok) nextStep();
+                })();
+              }}
+              className="gap-2"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               הבא
               <ArrowLeft className="h-4 w-4" />
             </Button>

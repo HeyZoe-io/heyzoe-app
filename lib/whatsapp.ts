@@ -90,6 +90,16 @@ export function parseTwilioWebhook(params: Record<string, string>): WaIncomingMe
 
 // ─── Sending messages ─────────────────────────────────────────────────────────
 
+/** עטיפת טקסט לכיוון RTL בבועת ווטסאפ (אין API רשמי ליישור — רק בידי). */
+export function formatWhatsAppRtlBody(text: string): string {
+  const t = text ?? "";
+  if (!t.trim()) return t;
+  if (!/[\u0590-\u05FF]/.test(t)) return t;
+  if (t.startsWith("\u2067") && t.endsWith("\u2069")) return t;
+  // RLI … PDI: בידוד כיוון ימין-לשמאל לכל ההודעה (מעורב עברית, מספרים, קישורים)
+  return `\u2067${t}\u2069`;
+}
+
 /**
  * Sends a WhatsApp text message via Twilio Messaging API.
  * fromNumber: the Twilio WhatsApp number e.g. "+14155238886"
@@ -102,9 +112,7 @@ export async function sendWhatsAppMessage(
   accountSid: string,
   authToken: string
 ): Promise<void> {
-  const hasHebrew = /[\u0590-\u05FF]/.test(text);
-  // Force RTL in WhatsApp to avoid punctuation drifting to the wrong edge
-  const bodyText = hasHebrew ? `\u200F${text}` : text;
+  const bodyText = formatWhatsAppRtlBody(text);
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
     From: `whatsapp:${fromNumber}`,
@@ -144,7 +152,7 @@ export async function sendWhatsAppMediaMessage(
     To: `whatsapp:${to}`,
     MediaUrl: cleanUrl,
   });
-  if (caption && caption.trim()) body.set("Body", caption.trim());
+  if (caption && caption.trim()) body.set("Body", formatWhatsAppRtlBody(caption.trim()));
 
   const res = await fetch(url, {
     method: "POST",

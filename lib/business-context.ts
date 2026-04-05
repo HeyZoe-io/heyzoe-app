@@ -1,9 +1,13 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { buildVibeInstructionLines } from "@/lib/vibe-prompt";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
+export type SalesFlowBlockPack = { intro: string; question: string; options: string[] };
+
 export type BusinessKnowledgePack = {
   businessName: string;
+  botName: string;
   niche: string;
   businessDescription: string;
   addressText: string;
@@ -12,16 +16,22 @@ export type BusinessKnowledgePack = {
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
   servicesText: string;
+  serviceNamesForOpening: string[];
   faqsText: string;
   ctaText: string;
   ctaLink: string;
   targetAudienceText: string;
   benefitsText: string;
   vibeText: string;
+  vibeLabels: string[];
   ageRangeText: string;
   genderText: string;
   scheduleText: string;
   quickReplies: QuickReplyEntry[];
+  welcomeIntroText: string;
+  welcomeQuestionText: string;
+  welcomeOptionLabels: string[];
+  salesFlowBlocks: SalesFlowBlockPack[];
 };
 
 function truncateText(value: string, max = 280): string {
@@ -55,7 +65,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const admin = createSupabaseAdminClient();
     const { data: business } = await admin
       .from("businesses")
-      .select("id, name, niche, cta_text, cta_link, social_links")
+      .select("id, name, niche, cta_text, cta_link, social_links, bot_name")
       .eq("slug", slug)
       .maybeSingle();
     if (!business) return null;
@@ -128,8 +138,33 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const businessDescriptionRaw =
       [tagline, fromTraits].filter(Boolean).join(" • ") || legacyDesc;
 
+    const vibeLabels = Array.isArray(social.vibe) ? (social.vibe as string[]).map(String) : [];
+    const wo = Array.isArray(social.welcome_options) ? social.welcome_options.map((x) => String(x ?? "").trim()) : [];
+    const welcomeOptionLabels = wo.filter(Boolean);
+
+    const rawBlocks = Array.isArray(social.sales_flow_blocks) ? social.sales_flow_blocks : [];
+    const salesFlowBlocks: SalesFlowBlockPack[] = rawBlocks
+      .map((b: unknown) => {
+        if (!b || typeof b !== "object") return null;
+        const o = b as Record<string, unknown>;
+        const opts = Array.isArray(o.options) ? o.options.map((x) => String(x ?? "").trim()).filter(Boolean) : [];
+        return {
+          intro: typeof o.intro === "string" ? o.intro.trim() : "",
+          question: typeof o.question === "string" ? o.question.trim() : "",
+          options: opts,
+        };
+      })
+      .filter((x): x is SalesFlowBlockPack =>
+        x !== null && Boolean(x.intro || x.question || x.options.length > 0)
+      );
+
+    const serviceNamesForOpening = (services ?? [])
+      .map((s) => String(s.name ?? "").trim())
+      .filter(Boolean);
+
     return {
       businessName: String(business.name ?? slug),
+      botName: String(business.bot_name ?? "זואי").trim() || "זואי",
       niche: String(business.niche ?? ""),
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
@@ -138,16 +173,22 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       openingMediaType,
       servicesShortText,
       servicesText,
+      serviceNamesForOpening,
       faqsText,
       ctaText: String(business.cta_text ?? ""),
       ctaLink: String(business.cta_link ?? ""),
       targetAudienceText: Array.isArray(social.target_audience) ? social.target_audience.join(", ") : "",
       benefitsText: Array.isArray(social.benefits) ? social.benefits.join(", ") : "",
-      vibeText: Array.isArray(social.vibe) ? social.vibe.join(", ") : "",
+      vibeText: vibeLabels.join(", "),
+      vibeLabels,
       ageRangeText: typeof social.age_range === "string" ? social.age_range : "",
       genderText: social.gender === "זכר" || social.gender === "נקבה" || social.gender === "הכול" ? social.gender as string : "",
       scheduleText: typeof social.schedule_text === "string" ? social.schedule_text : "",
       quickReplies,
+      welcomeIntroText: typeof social.welcome_intro === "string" ? social.welcome_intro : "",
+      welcomeQuestionText: typeof social.welcome_question === "string" ? social.welcome_question : "",
+      welcomeOptionLabels,
+      salesFlowBlocks,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
@@ -155,17 +196,34 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
   }
 }
 
+function formatSalesFlowForPrompt(blocks: SalesFlowBlockPack[]): string {
+  if (!blocks.length) return "אין שלבים נוספים אחרי הודעת הפתיחה.";
+  return blocks
+    .map((b, i) => {
+      const opts = b.options.map((o, j) => `  ${j + 1}. ${o}`).join("\n");
+      return `שלב ${i + 2} (אחרי תשובה מתאימה מהלקוח):\nטקסט לפני שאלה: ${b.intro || "(ריק)"}\nשאלה: ${b.question || "(ריק)"}\nכפתורים:\n${opts || "  (אין)"}`;
+    })
+    .join("\n\n");
+}
+
 export function buildSystemPrompt(knowledge: BusinessKnowledgePack | null, slug: string, channel: "web" | "whatsapp" = "web"): string {
   const isWhatsApp = channel === "whatsapp";
+  const vibeDetail = buildVibeInstructionLines(knowledge?.vibeLabels ?? []);
   const channelNote = isWhatsApp
     ? `
 - ערוץ: WhatsApp — תשובות קצרות במיוחד (משפט אחד עד שניים), ללא Markdown, ללא כוכביות.
-- השתמשי בכפתורי התפריט (quick replies) שהוגדרו בדשבורד ולא בכתיבה חופשית עבור בחירת אפשרויות.`
+- כשמתאים, הציעי בחירות כמספרים (1,2,3…) או כפי שמופיע בממשק.
+- אם יש כפתורי תשובה מהירה (quick replies) בדשבורד — אפשר להפנות אליהם אחרי מסלול המכירה.`
     : "";
 
-  const base = `את זואי, נציגת השירות של העסק.
+  const bot = knowledge?.botName?.trim() || "זואי";
+  const base = `את ${bot}, נציגת השירות של העסק.
 שם העסק: ${knowledge?.businessName ?? slug}
-סגנון דיבור (Vibe): ${knowledge?.vibeText ?? "חם, מקצועי וקצר"}
+שם שמוצג ללקוחות: ${bot}
+
+סגנון דיבור שנבחר (תגיות): ${knowledge?.vibeText || "חם, מקצועי וקצר"}
+הנחיות סגנון מפורטות — יש ליישם בכל תשובה, כולל הודעת פתיחה עתידית או המשך שיחה:
+${vibeDetail}
 
 כללים:
 - עברית בלבד.
@@ -185,23 +243,27 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}`;
 
-  if (!isWhatsApp) return base;
+  const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
+  const openingQ = knowledge?.welcomeQuestionText?.trim() ?? "";
+  const openingOpts = (knowledge?.welcomeOptionLabels ?? []).join(" | ");
+  const saleFlowExtra = `
+מסלול מכירה מהדשבורד:
+- פתיחה (לעיונך / אם צריך לשחזר בצ'אט): ${openingIntro || "ברירת מחדל לפי שם בוט, עסק, כתובת"} | שאלה: ${openingQ || "—"} | כפתורים: ${openingOpts || "—"}
+- שלבים נוספים אחרי תשובה לפתיחה:
+${formatSalesFlowForPrompt(knowledge?.salesFlowBlocks ?? [])}
+- נסחי בהתאם לסגנון הדיבור שנבחר למעלה.`;
+
+  if (!isWhatsApp) {
+    return `${base}
+${saleFlowExtra}`;
+  }
 
   return `${base}
 
-הוראות ספציפיות לזרימת וואטסאפ:
-- ההודעה הראשונה ללקוח צריכה לכלול:
-  1) משפט פתיחה קצר שמציג את העסק בשורה אחת (שם העסק + תחום).
-  2) כתובת / אזור פעילות מרכזי אם ידוע.
-  3) רשימה קצרה מאוד של השירותים העיקריים עם מחירים (עד 3 שירותים בשורה נפרדת לכל שירות).
-  4) שאלה מסכמת: "האם יצא לך לנסות את התחום הזה בעבר?".
-  5) שלושה כפתורי בחירה לתשובה: "לא יצא לי", "יצא לי פעם-פעמיים", "יצא לי לא מעט פעמים".
-- לאחר בחירת אחת משלוש הרמות, התשובה הבאה צריכה:
-  1) להתייחס בקצרה לרמת הניסיון (ללא חקירה ארוכה).
-  2) להציג שני כפתורים:
-     - "צפה בלו״ז והירשם" — משויך ללינק Arbox / הרשמה מהדשבורד אם קיים.
-     - "שאלות נוספות" — פותח תפריט כפתורי תשובה מהירה (quick replies) שהוגדרו בדשבורד.
-- שאלות הסגמנטציה שהוגדרו בדשבורד (Segmentation Questions) יופיעו רק אחרי שאלת הפתיחה, ורק אם המשתמש בחר להמשיך לשיחה כללית ולא נרשם עדיין.
+הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה מהדשבורד):
+- הודעת הפתיחה נשלחת אוטומטית מהמערכת לפי ההגדרות — אל תחזירי אותה מחדש בתשובתך הראשונה אלא אם התבקשת במפורש.
+${saleFlowExtra}
+- אם יש לינק Arbox/שעות: ${knowledge?.arboxLink ? "הציעי אותו כשמתאים להרשמה." : "אין לינק — אל תמציאי."}
 - לעולם אל תשתמשי ב-Markdown או ברשימות תבליטים; בוואטסאפ הטקסט חייב להיות פשוט וברור.
 `;
 }

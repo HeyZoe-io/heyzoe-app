@@ -2,9 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { resolveClaudeApiKey } from "@/lib/server-env";
-import { CLAUDE_CHAT_MODEL } from "@/lib/claude";
+import {
+  CLAUDE_FETCH_SITE_MODEL,
+  CLAUDE_FETCH_SITE_MAX_TOKENS,
+  CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS,
+} from "@/lib/claude";
 
 export const runtime = "nodejs";
+
+const PAGE_TEXT_MAX_CHARS = 8000;
+const FETCH_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(
+  input: string,
+  init?: RequestInit
+): Promise<Response> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 const BROWSER_HEADERS: Record<string, string> = {
   "User-Agent":
@@ -115,7 +135,7 @@ export async function POST(req: NextRequest) {
   let logoCandidate = "";
   let metaHints = "";
   try {
-    let res = await fetch(url, { redirect: "follow", headers: BROWSER_HEADERS });
+    let res = await fetchWithTimeout(url, { redirect: "follow", headers: BROWSER_HEADERS });
 
     if (!res.ok) {
       const withWww = (() => {
@@ -126,7 +146,7 @@ export async function POST(req: NextRequest) {
           return u.toString();
         } catch { return ""; }
       })();
-      if (withWww) res = await fetch(withWww, { redirect: "follow", headers: BROWSER_HEADERS });
+      if (withWww) res = await fetchWithTimeout(withWww, { redirect: "follow", headers: BROWSER_HEADERS });
     }
 
     let html = "";
@@ -134,7 +154,7 @@ export async function POST(req: NextRequest) {
       html = await res.text();
     } else {
       const mirrorUrl = `https://r.jina.ai/http://${new URL(url).host}${new URL(url).pathname}${new URL(url).search}`;
-      const mirrorRes = await fetch(mirrorUrl, { headers: BROWSER_HEADERS });
+      const mirrorRes = await fetchWithTimeout(mirrorUrl, { headers: BROWSER_HEADERS });
       if (mirrorRes.ok) html = await mirrorRes.text();
     }
 
@@ -147,7 +167,7 @@ export async function POST(req: NextRequest) {
 
     logoCandidate = findLogoCandidate(html, url);
     metaHints = extractMetaHints(html);
-    pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, 10000);
+    pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, PAGE_TEXT_MAX_CHARS);
   } catch {
     return NextResponse.json(
       { error: "blocked_auto_scraping", message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית" },
@@ -206,8 +226,8 @@ ${pageText}`;
   const client = new Anthropic({ apiKey });
   try {
     const response = await client.messages.create({
-      model: CLAUDE_CHAT_MODEL,
-      max_tokens: 2048,
+      model: CLAUDE_FETCH_SITE_MODEL,
+      max_tokens: CLAUDE_FETCH_SITE_MAX_TOKENS,
       messages: [{ role: "user", content: prompt }],
     });
     text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
@@ -224,8 +244,8 @@ ${pageText}`;
 {"niche":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
     try {
       const fallbackResponse = await client.messages.create({
-        model: CLAUDE_CHAT_MODEL,
-        max_tokens: 1024,
+        model: CLAUDE_FETCH_SITE_MODEL,
+        max_tokens: CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS,
         messages: [{ role: "user", content: compactPrompt }],
       });
       text = fallbackResponse.content[0]?.type === "text" ? fallbackResponse.content[0].text.trim() : "";
