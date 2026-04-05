@@ -32,6 +32,9 @@ export type BusinessKnowledgePack = {
   welcomeQuestionText: string;
   welcomeOptionLabels: string[];
   salesFlowBlocks: SalesFlowBlockPack[];
+  followupAfterRegistration: string;
+  followupAfterHourNoRegistration: string;
+  followupDayAfterTrial: string;
 };
 
 function truncateText(value: string, max = 280): string {
@@ -158,6 +161,15 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         x !== null && Boolean(x.intro || x.question || x.options.length > 0)
       );
 
+    const followupAfterRegistration =
+      typeof social.followup_after_registration === "string" ? social.followup_after_registration.trim() : "";
+    const followupAfterHourNoRegistration =
+      typeof social.followup_after_hour_no_registration === "string"
+        ? social.followup_after_hour_no_registration.trim()
+        : "";
+    const followupDayAfterTrial =
+      typeof social.followup_day_after_trial === "string" ? social.followup_day_after_trial.trim() : "";
+
     const serviceNamesForOpening = (services ?? [])
       .map((s) => String(s.name ?? "").trim())
       .filter(Boolean);
@@ -189,6 +201,9 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       welcomeQuestionText: typeof social.welcome_question === "string" ? social.welcome_question : "",
       welcomeOptionLabels,
       salesFlowBlocks,
+      followupAfterRegistration,
+      followupAfterHourNoRegistration,
+      followupDayAfterTrial,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
@@ -206,12 +221,38 @@ function formatSalesFlowForPrompt(blocks: SalesFlowBlockPack[]): string {
     .join("\n\n");
 }
 
+function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
+  if (!k) return "";
+  const parts: string[] = [];
+  if (k.followupAfterRegistration) parts.push(`אחרי הרשמה:\n${k.followupAfterRegistration.slice(0, 400)}`);
+  if (k.followupAfterHourNoRegistration)
+    parts.push(`אחרי שעה בלי הרשמה:\n${k.followupAfterHourNoRegistration.slice(0, 350)}`);
+  if (k.followupDayAfterTrial) parts.push(`אחרי שיעור ניסיון:\n${k.followupDayAfterTrial.slice(0, 350)}`);
+  if (!parts.length) return "";
+  return `\nדוגמאות טון מהודעות פולואפ שהוגדרו במערכת (שמרי על שפה עקבית; אל תחזירי את הטקסט הזה כולו כתשובה שגרתית):\n${parts.join("\n---\n")}\n`;
+}
+
+const RESPONSE_SHAPE_BLOCK_WEB = `
+מבנה תשובה — ברירת מחדל של זואי (חובה כמעט תמיד):
+1) מענה — השתמשי בידע מההגדרות למעלה (שירותים, מחירים, כתובת, FAQ, מסלול מכירה, לינק שעות אם קיים). אל תמציאי מחיר, מיקום או מדיניות שלא מופיעים.
+2) שאלת המשך — שאלה אחת קצרה שמקדמת את השיחה (התאמה, ניסיון, זמינות).
+3) אפשרויות בחירה (כמו כפתורי ווטסאפ) — מיד אחרי השאלה, 2–4 שורות; כל שורה מתחילה במספר ונקודה (1. 2. 3.) ואז טקסט קצר בעברית. לפחות אפשרות אחת מקדמת הרשמה או שריון לשיעור ניסיון / שירות המקביל בעסק; השאר רלוונטיות (מחיר, מיקום, שאלה נוספת).
+גם כשהלקוח שואל שאלה פתוחה או לא לפי כפתורים — עני קודם על השאלה מהידע, ואז הוסיפי שלבים (2) ו־(3).
+חריג נדיר: אם ביקשו במפורש רק תשובה חד־משמעית מינימלית בלי המשך — עדיין נסי להוסיף שאלה + לפחות שתי אפשרויות ממוספרות, אלא אם נאסר במפורש.`;
+
+const RESPONSE_SHAPE_BLOCK_WA = `
+מבנה תשובה — ברירת מחדל של זואי (חובה כמעט תמיד):
+1) מענה קצר מהידע (שירותים, מחירים, כתובת, FAQ, מסלול מכירה, לינק שעות).
+2) שאלת המשך אחת שמקדמת לעבר שריון ניסיון או התאמה.
+3) הציעי 2–4 תשובות אפשריות כשורות נפרדות, ממוספרות 1. 2. 3. — הלקוח יכול לענות במספר או לפי הטקסט. לפחות מסלול אחד מוביל לשיעור ניסיון / הרשמה.
+גם לשאלות פתוחות: עני מהידע, ואז (2)+(3). בלי Markdown.`;
+
 export function buildSystemPrompt(knowledge: BusinessKnowledgePack | null, slug: string, channel: "web" | "whatsapp" = "web"): string {
   const isWhatsApp = channel === "whatsapp";
   const vibeDetail = buildVibeInstructionLines(knowledge?.vibeLabels ?? []);
   const channelNote = isWhatsApp
     ? `
-- ערוץ: WhatsApp — תשובות קצרות במיוחד (משפט אחד עד שניים), ללא Markdown, ללא כוכביות.
+- ערוץ: WhatsApp — תשובות קצרות במיוחד (משפט אחד עד שניים לכל חלק), ללא Markdown, ללא כוכביות.
 - כשמתאים, הציעי בחירות כמספרים (1,2,3…) או כפי שמופיע בממשק.
 - אם יש כפתורי תשובה מהירה (quick replies) בדשבורד — אפשר להפנות אליהם אחרי מסלול המכירה.`
     : "";
@@ -227,9 +268,11 @@ ${vibeDetail}
 
 כללים:
 - עברית בלבד.
-- תשובה קצרה: 1-2 משפטים, אלא אם ביקשו פירוט.
+- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות).${isWhatsApp ? " הקפידי על קצרנות בכל חלק." : " בצ'אט האתר מותר להרחיב במענה הראשון אם ביקשו פירוט."}
 - בלי Markdown, בלי JSON.
 - אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.${channelNote}
+${isWhatsApp ? RESPONSE_SHAPE_BLOCK_WA : RESPONSE_SHAPE_BLOCK_WEB}
+${formatFollowupSnippets(knowledge)}
 
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
