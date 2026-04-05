@@ -40,5 +40,5 @@ export const CLAUDE_WHATSAPP_MAX_TOKENS = 512 as const;
 /** סריקת אתר בדשבורד — Haiku מהיר וזול מספיק לחילוץ JSON מובנה */
 export const CLAUDE_FETCH_SITE_MODEL = CLAUDE_WHATSAPP_MODEL;
 /** JSON ארוך (מוצרים + traits) — מניעת קטיעה שגורמת ל־ai_parse_failed */
-export const CLAUDE_FETCH_SITE_MAX_TOKENS = 2048 as const;
-export const CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS = 1024 as const;
+export const CLAUDE_FETCH_SITE_MAX_TOKENS = 4096 as const;
+export const CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS = 1536 as const;

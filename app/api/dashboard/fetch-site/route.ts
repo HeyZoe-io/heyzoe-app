@@ -182,8 +182,52 @@ function extractMetaHints(html: string): string {
   return [title, description, ogTitle, ogDescription].filter(Boolean).join(" | ");
 }
 
+function stripJsonTrailingCommas(s: string): string {
+  return s.replace(/,(\s*[}\]])/g, "$1");
+}
+
+/** אובייקט JSON מאוזן לפי סוגריים — עדיף על lastIndexOf כשיש טקסט אחרי ה-JSON */
+function extractBalancedJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c === "\\") {
+        escape = true;
+        continue;
+      }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 function tryParseSiteJson(text: string): Record<string, unknown> | null {
-  const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+  const cleaned = text
+    .replace(/^\uFEFF/, "")
+    .replace(/^```json\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim()
+    .replace(/[\u201c\u201d\u201e]/g, '"');
+
   const tryParse = (s: string): Record<string, unknown> | null => {
     try {
       return JSON.parse(s) as Record<string, unknown>;
@@ -191,14 +235,64 @@ function tryParseSiteJson(text: string): Record<string, unknown> | null {
       return null;
     }
   };
-  const direct = tryParse(cleaned);
-  if (direct) return direct;
+
+  const candidates: string[] = [];
+  const balanced = extractBalancedJsonObject(cleaned);
+  if (balanced) candidates.push(balanced);
+  candidates.push(cleaned);
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start >= 0 && end > start) {
-    return tryParse(cleaned.slice(start, end + 1));
+    const slice = cleaned.slice(start, end + 1);
+    if (!candidates.includes(slice)) candidates.push(slice);
+  }
+
+  for (const raw of candidates) {
+    const repaired = stripJsonTrailingCommas(raw);
+    const p = tryParse(repaired);
+    if (p) return p;
   }
   return null;
+}
+
+function heuristicScanPayload(params: {
+  url: string;
+  metaHints: string;
+  bookingCandidates: string[];
+  logoCandidate: string;
+  rawAiText?: string;
+}): Record<string, unknown> {
+  const host = (() => {
+    try {
+      return new URL(params.url).hostname;
+    } catch {
+      return "";
+    }
+  })();
+  const nicheGuess = guessNicheFromHost(host);
+  const nameGuess = guessBusinessNameFromMeta(params.metaHints, host);
+  const scheduleUrl = (params.bookingCandidates[0] ?? "").trim();
+  const tag =
+    params.metaHints.split(" | ")[0]?.trim() || `עסק בתחום ${nicheGuess}.`;
+  return {
+    niche: nicheGuess,
+    business_name: nameGuess,
+    tagline: tag,
+    address: "",
+    directions: "",
+    schedule_booking_url: scheduleUrl,
+    business_description: tag,
+    business_traits: [] as string[],
+    logo_url: params.logoCandidate,
+    schedule_text: "",
+    age_range: "",
+    gender: "הכול",
+    products: [] as unknown[],
+    warning: "ai_parse_failed_heuristic_used",
+    message:
+      "תוצאת הניתוח לא נפרסה במלואה; מילאנו לפי כותרת, תיאור וקישורים מהדף. מומלץ לעבור על השדות ולערוך.",
+    details: params.rawAiText ? String(params.rawAiText).slice(0, 500) : "",
+  };
 }
 
 function guessBusinessNameFromMeta(metaHints: string, hostname: string): string {
@@ -299,7 +393,8 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 - business_traits: מערך של 3–8 משפטים קצרים בעברית, כל משפט עד 5–6 מילים — מאפיינים ששווה לציין (רמות, גודל מקום, מתאים ל…).
 ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר, כולל benefits מוסקים.
 business_description: אותו תוכן כמו tagline או סיכום קצר מאוד (לתאימות).
-החזר JSON בלבד במבנה:
+חשוב: החזר אובייקט JSON תקף בלבד — בלי טקסט לפני או אחרי, בלי markdown. אם אין מספיק מקום — החזר "products": [] ו-"business_traits": [].
+החזר JSON במבנה:
 {
   "niche": "נישה קצרה ומדויקת",
   "business_name": "שם העסק מהאתר",
@@ -393,7 +488,15 @@ ${pageText}`;
 
   const parsed = tryParseSiteJson(text);
   if (!parsed) {
-    return NextResponse.json({ error: "ai_parse_failed" }, { status: 502 });
+    return NextResponse.json(
+      heuristicScanPayload({
+        url,
+        metaHints,
+        bookingCandidates,
+        logoCandidate,
+        rawAiText: text,
+      })
+    );
   }
 
   try {
@@ -447,7 +550,15 @@ ${pageText}`;
       products: Array.isArray(parsed.products) ? parsed.products.slice(0, 8) : [],
     });
   } catch {
-    return NextResponse.json({ error: "ai_parse_failed" }, { status: 502 });
+    return NextResponse.json(
+      heuristicScanPayload({
+        url,
+        metaHints,
+        bookingCandidates,
+        logoCandidate,
+        rawAiText: text,
+      })
+    );
   }
 }
 
