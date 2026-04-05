@@ -10,18 +10,27 @@ async function requireUser() {
   return data.user ?? null;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  const slugFilter = req.nextUrl.searchParams.get("slug")?.trim().toLowerCase() ?? "";
+
   const admin = createSupabaseAdminClient();
-  const { data: business } = await admin
-    .from("businesses")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const { data: business } = slugFilter
+    ? await admin
+        .from("businesses")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("slug", slugFilter)
+        .maybeSingle()
+    : await admin
+        .from("businesses")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
 
   if (!business) return NextResponse.json({ business: null, services: [], faqs: [] });
 

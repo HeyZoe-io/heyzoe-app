@@ -148,6 +148,9 @@ export default function SlugSettingsPage() {
   const [step, setStep]     = useState(1);
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
   const [loading, setLoading] = useState(true);
+  /** נכון רק אחרי GET מוצלח לעסק שתואם ל־slug — מונע אוטו־שמירה שדורסת נתונים */
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState("");
   const [saving, setSaving]   = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -253,10 +256,35 @@ export default function SlugSettingsPage() {
   // ─── Load data ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetch("/api/dashboard/settings")
-      .then(r => r.json())
-      .then(({ business, services: svcs }) => {
-        if (!business) return;
+    let cancelled = false;
+    setSettingsHydrated(false);
+    setSettingsLoadError("");
+    fetch(`/api/dashboard/settings?slug=${encodeURIComponent(slug)}`)
+      .then(async (r) => {
+        const data = (await r.json()) as {
+          error?: string;
+          business?: Record<string, unknown> | null;
+          services?: unknown[];
+        };
+        if (cancelled) return;
+        if (!r.ok) {
+          setSettingsLoadError(
+            data.error === "unauthorized"
+              ? "נדרשת התחברות מחדש."
+              : "לא ניתן לטעון את הגדרות העסק."
+          );
+          return;
+        }
+        const business = data.business;
+        const svcs = data.services;
+        if (!business) {
+          setSettingsLoadError("לא נמצא עסק עבור כתובת זו. בדקו את הכתובת או התחברו מחדש.");
+          return;
+        }
+        if (String(business.slug ?? "").toLowerCase() !== slug.toLowerCase()) {
+          setSettingsLoadError("אי-התאמה בין העסק לכתובת. רעננו את הדף.");
+          return;
+        }
         const sl = (business.social_links && typeof business.social_links === "object"
           ? business.social_links : {}) as Record<string, unknown>;
 
@@ -364,7 +392,7 @@ export default function SlugSettingsPage() {
         );
 
         if (Array.isArray(svcs)) {
-          setServices(svcs.map((s: Record<string, unknown>) => {
+          setServices((svcs as Record<string, unknown>[]).map((s) => {
             let meta: Record<string, unknown> = {};
             try { meta = JSON.parse(String(s.description ?? "{}")); } catch { /* empty */ }
             return {
@@ -379,19 +407,27 @@ export default function SlugSettingsPage() {
             };
           }));
         }
+        setSettingsHydrated(true);
       })
-      .catch(() => null)
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) setSettingsLoadError("שגיאת רשת בטעינת ההגדרות.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [slug]);
 
   useEffect(() => {
-    if (loading) {
+    if (loading || !settingsHydrated) {
       setCanAutosave(false);
       return;
     }
     const t = window.setTimeout(() => setCanAutosave(true), AUTOSAVE_ENABLE_DELAY_MS);
     return () => clearTimeout(t);
-  }, [loading]);
+  }, [loading, settingsHydrated]);
 
   // ─── Save payload (ידני + אוטומטי) ─────────────────────────────────────────
 
@@ -852,6 +888,12 @@ export default function SlugSettingsPage() {
           </div>
         </div>
       </div>
+
+      {settingsLoadError ? (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-sm text-red-800 text-center" role="alert">
+          {settingsLoadError}
+        </div>
+      ) : null}
 
       {/* ── Step content ── */}
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -1529,13 +1571,17 @@ export default function SlugSettingsPage() {
           <span className="text-sm text-zinc-400">{step} / {STEPS.length}</span>
 
           {isLast ? (
-            <Button onClick={() => void saveAll()} disabled={saving} className="gap-2">
+            <Button
+              onClick={() => void saveAll()}
+              disabled={saving || !settingsHydrated}
+              className="gap-2"
+            >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {saving ? "שומר..." : "שמור הכל"}
             </Button>
           ) : (
             <Button
-              disabled={saving}
+              disabled={saving || !settingsHydrated}
               onClick={() => {
                 void (async () => {
                   const ok = await saveAll();
