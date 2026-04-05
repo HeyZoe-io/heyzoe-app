@@ -33,3 +33,11 @@ export function friendlyHttpErrorMessage(status: number): string {
 export function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export const CLAUDE_WHATSAPP_MODEL = "claude-haiku-4-5-20251001" as const;
+export const CLAUDE_WHATSAPP_MAX_TOKENS = 512 as const;
+
+/** סריקת אתר בדשבורד — Haiku מהיר וזול מספיק לחילוץ JSON מובנה */
+export const CLAUDE_FETCH_SITE_MODEL = CLAUDE_WHATSAPP_MODEL;
+export const CLAUDE_FETCH_SITE_MAX_TOKENS = 1024 as const;
+export const CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS = 768 as const;

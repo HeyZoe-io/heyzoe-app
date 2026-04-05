@@ -29,7 +29,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       {/* הוספנו כאן suppressHydrationWarning כדי לפתור את השגיאה של תוספי הדפדפן */}
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col text-right" suppressHydrationWarning>
         {children}
       </body>
     </html>

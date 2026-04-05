@@ -1,6 +1,8 @@
 "use client";
 
-type PreviewStep = 1 | 2 | 3 | 4 | 5 | 6;
+type PreviewStep = 1 | 2 | 3 | 4 | 5;
+
+export type SalesFlowBlockPreview = { intro: string; question: string; options: string[] };
 
 type Props = {
   step: PreviewStep;
@@ -11,9 +13,8 @@ type Props = {
   welcomeIntro: string;
   welcomeQuestion: string;
   welcomeOptions: string[];
+  salesFlowBlocks: SalesFlowBlockPreview[];
   services: { name: string; price_text: string }[];
-  segQuestions: { question: string; answers: { text: string }[] }[];
-  quickReplies: { label: string }[];
   businessTagline: string;
   traits: string[];
   address: string;
@@ -36,7 +37,7 @@ function Bubble({
     <div className={`flex w-full ${isBot ? "justify-start" : "justify-end"}`}>
       <div
         dir="rtl"
-        className={`max-w-[92%] rounded-lg px-2.5 py-1.5 text-[12px] leading-snug shadow-sm ${isBot ? "bg-white text-zinc-900 rounded-tl-none" : "bg-[#dcf8c6] text-zinc-900 rounded-tr-none"} ${className}`}
+        className={`max-w-[92%] rounded-lg px-2.5 py-1.5 text-[12px] leading-snug shadow-sm text-right ${isBot ? "bg-white text-zinc-900 rounded-tl-none" : "bg-[#dcf8c6] text-zinc-900 rounded-tr-none"} ${className}`}
       >
         {children}
       </div>
@@ -48,7 +49,7 @@ function WaButton({ children }: { children: React.ReactNode }) {
   return (
     <div
       dir="rtl"
-      className="w-full rounded-md border border-[#d1d7db] bg-white px-2 py-1.5 text-center text-[11px] font-medium text-[#027eb5]"
+      className="w-full rounded-md border border-[#d1d7db] bg-white px-2 py-1.5 text-right text-[11px] font-medium text-[#027eb5]"
     >
       {children}
     </div>
@@ -64,9 +65,8 @@ export function WhatsAppSettingsPreview({
   welcomeIntro,
   welcomeQuestion,
   welcomeOptions,
+  salesFlowBlocks,
   services,
-  segQuestions,
-  quickReplies,
   businessTagline,
   traits,
   address,
@@ -78,8 +78,8 @@ export function WhatsAppSettingsPreview({
   const tag = businessTagline.trim();
 
   return (
-    <div className="w-full max-w-[280px] mx-auto shrink-0">
-      <p className="text-[11px] font-medium text-zinc-500 text-center mb-2">תצוגה מקדימה (ווטסאפ)</p>
+    <div className="w-full max-w-[280px] mx-auto shrink-0" dir="rtl">
+      <p className="text-[11px] font-medium text-zinc-500 text-right mb-2">תצוגה מקדימה (ווטסאפ)</p>
       <div className="rounded-[20px] overflow-hidden border border-zinc-300 shadow-lg bg-[#e5ddd5]">
         <div className="bg-[#075e54] px-2 py-2 flex items-center gap-2">
           <div className="w-7 h-7 rounded-full bg-white/20 shrink-0" />
@@ -94,16 +94,16 @@ export function WhatsAppSettingsPreview({
             <>
               {tag || facts.length > 0 || address.trim() ? (
                 <Bubble from="bot">
-                  <p className="font-medium text-[11px] text-[#075e54] mb-0.5">{businessName || "העסק"}</p>
-                  {tag ? <p className="text-zinc-800 mb-1">{tag}</p> : null}
+                  <p className="font-medium text-[11px] text-[#075e54] mb-0.5 text-right">{businessName || "העסק"}</p>
+                  {tag ? <p className="text-zinc-800 mb-1 text-right">{tag}</p> : null}
                   {facts.length > 0 ? (
-                    <ul className="list-disc list-inside space-y-0.5 text-zinc-800">
+                    <ul className="list-disc list-inside space-y-0.5 text-zinc-800 text-right pr-1">
                       {facts.map((f, i) => (
                         <li key={i}>{f}</li>
                       ))}
                     </ul>
                   ) : null}
-                  {address.trim() ? <p className="mt-1 text-zinc-600">📍 {address.trim()}</p> : null}
+                  {address.trim() ? <p className="mt-1 text-zinc-600 text-right">📍 {address.trim()}</p> : null}
                 </Bubble>
               ) : (
                 <Bubble from="bot">
@@ -115,53 +115,9 @@ export function WhatsAppSettingsPreview({
 
           {step === 2 && (
             <>
-              {openingMediaUrl ? (
-                <div className="flex justify-start">
-                  <div className="rounded-lg overflow-hidden max-w-[85%] border border-white/80 shadow-sm bg-black/5">
-                    {openingMediaType === "video" ? (
-                      <video src={openingMediaUrl} className="max-h-32 w-full object-cover" muted playsInline />
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={openingMediaUrl} alt="" className="max-h-32 w-full object-cover" />
-                    )}
-                  </div>
-                </div>
-              ) : null}
-              {(welcomeIntro.trim() || welcomeQuestion.trim()) && (
-                <Bubble from="bot">
-                  {welcomeIntro.trim() ? (
-                    <p className="whitespace-pre-wrap text-zinc-900">{welcomeIntro.trim()}</p>
-                  ) : null}
-                  {welcomeQuestion.trim() ? (
-                    <p className={`whitespace-pre-wrap text-zinc-900 ${welcomeIntro.trim() ? "mt-1.5 pt-1.5 border-t border-zinc-200" : ""}`}>
-                      {welcomeQuestion.trim()}
-                    </p>
-                  ) : null}
-                </Bubble>
-              )}
-              {welcomeOptions.some((o) => o.trim()) && (
-                <div className="space-y-1 pt-0.5">
-                  {welcomeOptions.map(
-                    (o, i) =>
-                      o.trim() && (
-                        <WaButton key={i}>{o.trim()}</WaButton>
-                      )
-                  )}
-                </div>
-              )}
-              {!welcomeIntro.trim() && !welcomeQuestion.trim() && !openingMediaUrl && (
-                <Bubble from="bot">
-                  <span className="text-zinc-500">העלו מדיה והזינו הודעת פתיחה</span>
-                </Bubble>
-              )}
-            </>
-          )}
-
-          {step === 3 && (
-            <>
               <Bubble from="bot">
                 {services.filter((s) => s.name.trim()).length ? (
-                  <ul className="space-y-1">
+                  <ul className="space-y-1 text-right">
                     {services
                       .filter((s) => s.name.trim())
                       .slice(0, 5)
@@ -179,50 +135,82 @@ export function WhatsAppSettingsPreview({
             </>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <>
-              {segQuestions[0]?.question.trim() ? (
-                <>
-                  <Bubble from="bot">{segQuestions[0].question.trim()}</Bubble>
-                  <div className="space-y-1">
-                    {segQuestions[0].answers
-                      .filter((a) => a.text.trim())
-                      .slice(0, 4)
-                      .map((a, i) => (
-                        <WaButton key={i}>{a.text.trim()}</WaButton>
-                      ))}
+              {openingMediaUrl ? (
+                <div className="flex justify-start">
+                  <div className="rounded-lg overflow-hidden max-w-[85%] border border-white/80 shadow-sm bg-black/5">
+                    {openingMediaType === "video" ? (
+                      <video src={openingMediaUrl} className="max-h-32 w-full object-cover" muted playsInline />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={openingMediaUrl} alt="" className="max-h-32 w-full object-cover" />
+                    )}
                   </div>
-                </>
-              ) : (
+                </div>
+              ) : null}
+              {(welcomeIntro.trim() || welcomeQuestion.trim()) && (
                 <Bubble from="bot">
-                  <span className="text-zinc-500">שאלות סגמנטציה יופיעו כאן</span>
+                  {welcomeIntro.trim() ? (
+                    <p className="whitespace-pre-wrap text-zinc-900 text-right">{welcomeIntro.trim()}</p>
+                  ) : null}
+                  {welcomeQuestion.trim() ? (
+                    <p className={`whitespace-pre-wrap text-zinc-900 text-right ${welcomeIntro.trim() ? "mt-1.5 pt-1.5 border-t border-zinc-200" : ""}`}>
+                      {welcomeQuestion.trim()}
+                    </p>
+                  ) : null}
                 </Bubble>
               )}
-              {quickReplies.filter((r) => r.label.trim()).length > 0 && (
-                <>
-                  <Bubble from="bot" className="mt-1">
-                    <span className="text-zinc-500 text-[10px]">תפריט מהיר</span>
-                  </Bubble>
-                  <div className="space-y-1">
-                    {quickReplies
-                      .filter((r) => r.label.trim())
-                      .slice(0, 5)
-                      .map((r, i) => (
-                        <WaButton key={i}>{r.label.trim()}</WaButton>
-                      ))}
+              {welcomeOptions.some((o) => o.trim()) && (
+                <div className="space-y-1 pt-0.5">
+                  {welcomeOptions.map(
+                    (o, i) =>
+                      o.trim() && (
+                        <WaButton key={i}>{o.trim()}</WaButton>
+                      )
+                  )}
+                </div>
+              )}
+              {salesFlowBlocks.map((b, bi) =>
+                b.intro.trim() || b.question.trim() || b.options.some((o) => o.trim()) ? (
+                  <div key={bi} className="space-y-1 pt-1 border-t border-zinc-300/50">
+                    <p className="text-[9px] text-zinc-500 text-right">המשך מסלול — שלב {bi + 2}</p>
+                    <Bubble from="bot">
+                      {b.intro.trim() ? <p className="whitespace-pre-wrap text-zinc-900 text-right">{b.intro.trim()}</p> : null}
+                      {b.question.trim() ? (
+                        <p className={`whitespace-pre-wrap text-zinc-900 text-right ${b.intro.trim() ? "mt-1 pt-1 border-t border-zinc-200" : ""}`}>
+                          {b.question.trim()}
+                        </p>
+                      ) : null}
+                    </Bubble>
+                    {b.options.some((o) => o.trim()) ? (
+                      <div className="space-y-1">
+                        {b.options.map(
+                          (o, i) =>
+                            o.trim() && (
+                              <WaButton key={i}>{o.trim()}</WaButton>
+                            )
+                        )}
+                      </div>
+                    ) : null}
                   </div>
-                </>
+                ) : null
+              )}
+              {!welcomeIntro.trim() && !welcomeQuestion.trim() && !openingMediaUrl && !salesFlowBlocks.some((b) => b.intro.trim() || b.question.trim()) && (
+                <Bubble from="bot">
+                  <span className="text-zinc-500">הגדירו מסלול מכירה — מדיה, פתיחה ושאלה</span>
+                </Bubble>
               )}
             </>
           )}
 
-          {step === 5 && (
+          {step === 4 && (
             <Bubble from="bot">
               <span className="text-zinc-600">חיבור פייסבוק ופיקסל — אין הודעת צ׳אט כאן</span>
             </Bubble>
           )}
 
-          {step === 6 && (
+          {step === 5 && (
             <>
               {followupAfterRegistration.trim() && <Bubble from="bot">{followupAfterRegistration.trim()}</Bubble>}
               {followupAfterHourNoRegistration.trim() && (

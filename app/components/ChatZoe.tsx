@@ -549,7 +549,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
     !preSendFocus || preSendFocus === lastUser?.content;
 
   const chipSurfaceClass =
-    'w-full cursor-pointer text-start rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
+    'w-full cursor-pointer text-right rounded-xl border-[0.5px] border-white/15 bg-white/5 text-neutral-100 text-[15px] font-medium leading-snug py-3 px-4 hover:bg-white/10 disabled:opacity-45';
 
   const logCtaClick = useCallback((ctaType: string) => {
     const sid = sessionId || ensureSessionId();
@@ -587,7 +587,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
         dir="rtl"
         lang="he"
       >
-        <p className="text-sm text-neutral-200 max-w-sm leading-relaxed whitespace-pre-line text-start">
+        <p className="text-sm text-neutral-200 max-w-sm leading-relaxed whitespace-pre-line text-right">
           {bootError}
         </p>
         <button
@@ -626,7 +626,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                     transition={MOVE}
                     dir="rtl"
                     lang="he"
-                    className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-start text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                    className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-right text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
                   >
                     {preSendFocus}
                   </motion.div>
@@ -652,7 +652,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                       transition={MOVE}
                       dir="rtl"
                       lang="he"
-                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-start text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-right text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
                     >
                       {headerQuestionText}
                     </motion.div>
@@ -660,7 +660,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                     <div
                       dir="rtl"
                       lang="he"
-                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-start text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
+                      className={`max-w-[88%] md:max-w-[85%] px-4 py-2.5 rounded-2xl text-[15px] leading-snug text-right text-white bg-white/10 border border-white/15 backdrop-blur-sm`}
                     >
                       {headerQuestionText}
                     </div>
@@ -682,7 +682,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                   <div
                     dir="rtl"
                     lang="he"
-                    className="text-[15px] md:text-[16px] leading-relaxed text-start text-neutral-100/95 whitespace-pre-wrap"
+                    className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-100/95 whitespace-pre-wrap"
                   >
                     {welcomeAssistant.content}
                   </div>
@@ -734,7 +734,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                   layout
                   dir="rtl"
                   lang="he"
-                  className="text-[15px] md:text-[16px] leading-relaxed text-start text-neutral-100/95 whitespace-pre-wrap min-h-[1.5rem]"
+                  className="text-[15px] md:text-[16px] leading-relaxed text-right text-neutral-100/95 whitespace-pre-wrap min-h-[1.5rem]"
                 >
                   {lastAssistant.pending && displayedAnswer.length === 0 ? (
                     <span className="inline-flex items-center gap-2 justify-end w-full text-white/50 text-sm">
@@ -835,7 +835,7 @@ export default function ChatZoe({ slug }: { slug: string }) {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void sendText(input)}
                 placeholder="הקלידו כאן…"
-                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-start text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[var(--chat-accent)]"
+                className="flex-1 min-w-0 py-3 px-4 rounded-2xl text-[15px] text-right text-white placeholder:text-white/35 bg-white/5 border border-white/15 focus:outline-none focus:ring-2 focus:ring-[var(--chat-accent)]"
                 dir="rtl"
                 lang="he"
                 aria-label="הודעה לזואי"

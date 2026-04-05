@@ -19,6 +19,17 @@ export async function POST(req: NextRequest) {
 
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
+  /** מגבלת גוף בקשה טיפוסית ב-Vercel ~4.5MB — מונעים העלאה שתיכשל בשקט */
+  const MAX_BYTES = 4 * 1024 * 1024;
+  if (buffer.length > MAX_BYTES) {
+    return NextResponse.json(
+      {
+        error:
+          "הקובץ גדול מדי (מקסימום 4MB בהעלאה מהדפדפן). נסו סרטון קצר יותר, כיווץ, או תמונה.",
+      },
+      { status: 413 }
+    );
+  }
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `${user.id}/${Date.now()}-${safeName}`;
 
