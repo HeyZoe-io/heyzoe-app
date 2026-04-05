@@ -14,9 +14,8 @@ type Props = {
   services: { name: string; price_text: string }[];
   segQuestions: { question: string; answers: { text: string }[] }[];
   quickReplies: { label: string }[];
-  fact1: string;
-  fact2: string;
-  fact3: string;
+  businessTagline: string;
+  traits: string[];
   address: string;
   followupAfterRegistration: string;
   followupAfterHourNoRegistration: string;
@@ -68,15 +67,15 @@ export function WhatsAppSettingsPreview({
   services,
   segQuestions,
   quickReplies,
-  fact1,
-  fact2,
-  fact3,
+  businessTagline,
+  traits,
   address,
   followupAfterRegistration,
   followupAfterHourNoRegistration,
   followupDayAfterTrial,
 }: Props) {
-  const facts = [fact1, fact2, fact3].map((f) => f.trim()).filter(Boolean);
+  const facts = traits.map((f) => f.trim()).filter(Boolean);
+  const tag = businessTagline.trim();
 
   return (
     <div className="w-full max-w-[280px] mx-auto shrink-0">
@@ -93,18 +92,20 @@ export function WhatsAppSettingsPreview({
         <div className="p-2 space-y-1.5 min-h-[280px] max-h-[420px] overflow-y-auto">
           {step === 1 && (
             <>
-              {facts.length > 0 && (
+              {tag || facts.length > 0 || address.trim() ? (
                 <Bubble from="bot">
                   <p className="font-medium text-[11px] text-[#075e54] mb-0.5">{businessName || "העסק"}</p>
-                  <ul className="list-disc list-inside space-y-0.5 text-zinc-800">
-                    {facts.map((f, i) => (
-                      <li key={i}>{f}</li>
-                    ))}
-                  </ul>
+                  {tag ? <p className="text-zinc-800 mb-1">{tag}</p> : null}
+                  {facts.length > 0 ? (
+                    <ul className="list-disc list-inside space-y-0.5 text-zinc-800">
+                      {facts.map((f, i) => (
+                        <li key={i}>{f}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {address.trim() ? <p className="mt-1 text-zinc-600">📍 {address.trim()}</p> : null}
                 </Bubble>
-              )}
-              {!facts.length && !address.trim() && (
+              ) : (
                 <Bubble from="bot">
                   <span className="text-zinc-500">מלאו פרטי עסק — כאן תופיע הדמיה</span>
                 </Bubble>

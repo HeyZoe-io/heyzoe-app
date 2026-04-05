@@ -163,14 +163,24 @@ export async function POST(req: NextRequest) {
 כתובת אתר: ${url}
 רמזי מטא (אם קיימים): ${metaHints || "אין"}
 ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבירים על בסיס הדומיין, title/meta והקשר העסק.' : ""}
-אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" במקום להיכשל בבקשה.
-עצב את business_description בעברית תקינה, קריאה, קלילה ומקצועית (טון מזמין ולא שיווקי מדי).
-סכם את העסק ב-2 עד 3 משפטים נקיים ומזמינים בעברית. אל תעתיק טקסט גולמי מהאתר.
+אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" או מערך ריק [] במקום להיכשל בבקשה.
+חלץ מהאתר (או נחש בצורה סבירה אם חסר):
+- tagline: משפט תיאור עסק אחד קצר ומזמין בעברית (כמו תת-כותרת), עד ~20 מילים.
+- address: כתובת פיזית אם מופיעה.
+- directions: הנחיות הגעה/חניה/כניסה אם מופיעות (או ריק).
+- schedule_booking_url: קישור ישיר למערכת שעות/הרשמה אם נמצא (Arbox, Mindbody, Acuity, Calendly וכו׳) או ריק.
+- business_traits: מערך של 3–8 משפטים קצרים בעברית, כל משפט עד 5–6 מילים — מאפיינים ששווה לציין (רמות, גודל מקום, מתאים ל…).
 ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר, כולל benefits מוסקים.
+business_description: אותו תוכן כמו tagline או סיכום קצר מאוד (לתאימות).
 החזר JSON בלבד במבנה:
 {
   "niche": "נישה קצרה ומדויקת",
-  "business_description": "תיאור קצר ומדויק בעברית",
+  "tagline": "משפט תיאור עסק אחד בעברית",
+  "address": "",
+  "directions": "",
+  "schedule_booking_url": "",
+  "business_description": "כמו tagline או ריק",
+  "business_traits": ["מאפיין קצר 1", "מאפיין קצר 2", "מאפיין קצר 3"],
   "logo_url": "URL ללוגו או favicon אם קיים",
   "schedule_text": "שעות בפורמט: יום שני: ... \\nיום שלישי: ... (או ריק)",
   "age_range": "18-25 או 25-40 או 40-60 או 60+ או ריק",
@@ -211,7 +221,7 @@ ${pageText}`;
 מטא: ${metaHints || "אין"}
 טקסט (מקוצר): ${pageText.slice(0, 2600)}
 מבנה:
-{"niche":"","business_description":"","logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
+{"niche":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
     try {
       const fallbackResponse = await client.messages.create({
         model: CLAUDE_CHAT_MODEL,
@@ -230,7 +240,12 @@ ${pageText}`;
     const nicheGuess = guessNicheFromHost(fallbackHost);
     return NextResponse.json({
       niche: nicheGuess,
+      tagline: metaHints || `עסק בתחום ${nicheGuess}.`,
+      address: "",
+      directions: "",
+      schedule_booking_url: "",
       business_description: metaHints || `עסק בתחום ${nicheGuess}.`,
+      business_traits: [] as string[],
       logo_url: logoCandidate,
       schedule_text: "",
       age_range: "",
@@ -245,9 +260,27 @@ ${pageText}`;
   try {
     const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
     const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const traitsRaw = Array.isArray(parsed.business_traits)
+      ? parsed.business_traits.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 12)
+      : [];
+    const taglineStr =
+      typeof parsed.tagline === "string" && parsed.tagline.trim()
+        ? parsed.tagline.trim()
+        : typeof parsed.business_description === "string"
+          ? parsed.business_description.trim().split(/\n/)[0]?.trim() ?? ""
+          : "";
     return NextResponse.json({
       niche: typeof parsed.niche === "string" ? parsed.niche : "",
-      business_description: typeof parsed.business_description === "string" ? parsed.business_description : "",
+      tagline: taglineStr,
+      address: typeof parsed.address === "string" ? parsed.address.trim() : "",
+      directions: typeof parsed.directions === "string" ? parsed.directions.trim() : "",
+      schedule_booking_url:
+        typeof parsed.schedule_booking_url === "string" ? parsed.schedule_booking_url.trim() : "",
+      business_description:
+        typeof parsed.business_description === "string" && parsed.business_description.trim()
+          ? parsed.business_description.trim()
+          : taglineStr,
+      business_traits: traitsRaw,
       logo_url:
         typeof parsed.logo_url === "string" && parsed.logo_url.trim()
           ? parsed.logo_url.trim()
