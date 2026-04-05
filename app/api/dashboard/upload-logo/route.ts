@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { resolveSupabaseStorageBucket } from "@/lib/server-env";
 
 export const runtime = "nodejs";
+
+function isBucketMissingError(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("bucket not found") || m.includes("not found") && m.includes("bucket");
+}
+
+async function ensurePublicBucket(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  bucketId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await admin.storage.createBucket(bucketId, {
+    public: true,
+    fileSizeLimit: 5 * 1024 * 1024,
+  });
+  if (!error) return { ok: true };
+  const msg = error.message ?? "";
+  if (/already exists|duplicate|exists/i.test(msg)) return { ok: true };
+  return { ok: false, error: msg };
+}
 
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
@@ -34,12 +54,40 @@ export async function POST(req: NextRequest) {
   const path = `${user.id}/${Date.now()}-${safeName}`;
 
   const admin = createSupabaseAdminClient();
-  const bucket = "business-assets";
-  const { error } = await admin.storage.from(bucket).upload(path, buffer, {
-    contentType: file.type || "application/octet-stream",
-    upsert: true,
-  });
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  const bucket = resolveSupabaseStorageBucket();
+
+  const uploadOnce = () =>
+    admin.storage.from(bucket).upload(path, buffer, {
+      contentType: file.type || "application/octet-stream",
+      upsert: true,
+    });
+
+  let { error } = await uploadOnce();
+
+  if (error && isBucketMissingError(error.message)) {
+    const ensured = await ensurePublicBucket(admin, bucket);
+    if (ensured.ok) {
+      ({ error } = await uploadOnce());
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            `דלי Storage "${bucket}" לא קיים ולא ניתן ליצור אותו: ${ensured.error ?? "שגיאה לא ידועה"}. ` +
+            "הריצו את supabase/storage_business_assets.sql ב-SQL Editor או הגדירו SUPABASE_STORAGE_BUCKET לשם דלי קיים.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (error) {
+    const msg = error.message ?? "upload_failed";
+    const friendly =
+      isBucketMissingError(msg) || msg.toLowerCase().includes("bucket not found")
+        ? `דלי "${bucket}" לא נמצא ב-Supabase. צרו דלי ציבורי בשם זה (או הגדירו SUPABASE_STORAGE_BUCKET) והריצו את supabase/storage_business_assets.sql.`
+        : msg;
+    return NextResponse.json({ error: friendly }, { status: 400 });
+  }
 
   const { data } = admin.storage.from(bucket).getPublicUrl(path);
   return NextResponse.json({ url: data.publicUrl });

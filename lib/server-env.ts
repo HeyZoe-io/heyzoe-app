@@ -40,6 +40,15 @@ export function resolveSupabaseServiceRoleKey(): string {
   return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
 }
 
+/** דלי Storage להעלאות (לוגו, מדיה לפתיחה) — חייב להתקיים ב-Supabase או להיווצר אוטומטית */
+export function resolveSupabaseStorageBucket(): string {
+  return (
+    process.env.SUPABASE_STORAGE_BUCKET?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET?.trim() ||
+    "business-assets"
+  );
+}
+
 export function resolveAdminAllowedEmail(): string {
   return process.env.ADMIN_ALLOWED_EMAIL?.trim().toLowerCase() || "liornativ@hotmail.com";
 }
