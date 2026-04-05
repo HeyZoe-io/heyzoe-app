@@ -10,27 +10,78 @@ async function requireUser() {
   return data.user ?? null;
 }
 
+function normSlug(s: unknown): string {
+  return String(s ?? "").trim().toLowerCase();
+}
+
+type BizRow = Record<string, unknown> & {
+  id?: number;
+  slug?: string;
+  created_at?: string;
+  user_id?: string;
+};
+
+/** עסקים שהמשתמש רשאי לראות: בעלות + חברות ב-business_users */
+async function loadAccessibleBusinesses(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string
+): Promise<BizRow[]> {
+  const [{ data: owned }, { data: memberships }] = await Promise.all([
+    admin.from("businesses").select("*").eq("user_id", userId),
+    admin.from("business_users").select("business_id").eq("user_id", userId),
+  ]);
+
+  const byId = new Map<string, BizRow>();
+  for (const b of owned ?? []) {
+    if (b && typeof b === "object" && (b as BizRow).id != null) {
+      byId.set(String((b as BizRow).id), b as BizRow);
+    }
+  }
+
+  const memberIds = [
+    ...new Set(
+      (memberships ?? [])
+        .map((m: { business_id?: number }) => m.business_id)
+        .filter((id): id is number => id != null && Number.isFinite(Number(id)))
+        .map((id) => Number(id))
+    ),
+  ];
+
+  if (memberIds.length > 0) {
+    const { data: memberBiz } = await admin.from("businesses").select("*").in("id", memberIds);
+    for (const b of memberBiz ?? []) {
+      if (b && typeof b === "object" && (b as BizRow).id != null && !byId.has(String((b as BizRow).id))) {
+        byId.set(String((b as BizRow).id), b as BizRow);
+      }
+    }
+  }
+
+  return [...byId.values()];
+}
+
+function pickBusinessBySlug(accessible: BizRow[], slugNorm: string): BizRow | null {
+  return accessible.find((b) => normSlug(b.slug) === slugNorm) ?? null;
+}
+
+function pickFirstBusiness(accessible: BizRow[]): BizRow | null {
+  if (accessible.length === 0) return null;
+  return [...accessible].sort(
+    (a, b) =>
+      new Date(String(a.created_at ?? 0)).getTime() - new Date(String(b.created_at ?? 0)).getTime()
+  )[0];
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const slugFilter = req.nextUrl.searchParams.get("slug")?.trim().toLowerCase() ?? "";
+  const slugFilter = normSlug(req.nextUrl.searchParams.get("slug") ?? "");
 
   const admin = createSupabaseAdminClient();
-  const { data: business } = slugFilter
-    ? await admin
-        .from("businesses")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("slug", slugFilter)
-        .maybeSingle()
-    : await admin
-        .from("businesses")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+  const accessible = await loadAccessibleBusinesses(admin, user.id);
+  const business = slugFilter
+    ? pickBusinessBySlug(accessible, slugFilter)
+    : pickFirstBusiness(accessible);
 
   if (!business) return NextResponse.json({ business: null, services: [], faqs: [] });
 
@@ -92,22 +143,26 @@ export async function POST(req: NextRequest) {
   if (!slug) return NextResponse.json({ error: "slug_required" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const { data: existingSlug } = await admin
-    .from("businesses")
-    .select("id, user_id")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (existingSlug && existingSlug.user_id !== user.id) {
+  const accessible = await loadAccessibleBusinesses(admin, user.id);
+  const existingForUser = pickBusinessBySlug(accessible, slug);
+
+  const { data: rowExactSlug } = await admin.from("businesses").select("id, user_id, slug").eq("slug", slug).maybeSingle();
+
+  if (rowExactSlug && (!existingForUser || Number(rowExactSlug.id) !== Number(existingForUser.id))) {
     return NextResponse.json({ error: "slug_taken" }, { status: 403 });
   }
+
+  /** שמירה על slug כפי שב-DB (רישיות) ועל בעלות — חשוב לחברי צוות ול-URL */
+  const canonicalSlug = existingForUser ? String(existingForUser.slug ?? slug) : slug;
+  const ownerUserId = existingForUser ? String(existingForUser.user_id ?? user.id) : user.id;
 
   const firstServiceWithCta = services.find(
     (s) => String(s.cta_text ?? "").trim() && String(s.cta_link ?? "").trim()
   );
 
   const upsertBusiness = {
-    user_id: user.id,
-    slug,
+    user_id: ownerUserId,
+    slug: canonicalSlug,
     name: String(business.name ?? ""),
     niche: String(business.niche ?? ""),
     bot_name: String(business.bot_name ?? "זואי"),
@@ -131,6 +186,10 @@ export async function POST(req: NextRequest) {
     .select("id, slug")
     .single();
   if (bizErr || !savedBiz) return NextResponse.json({ error: bizErr?.message ?? "business_save_failed" }, { status: 400 });
+
+  if (existingForUser && Number(savedBiz.id) !== Number(existingForUser.id)) {
+    return NextResponse.json({ error: "business_save_failed" }, { status: 400 });
+  }
 
   await admin.from("services").delete().eq("business_id", savedBiz.id);
   await admin.from("faqs").delete().eq("business_id", savedBiz.id);
