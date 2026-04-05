@@ -187,24 +187,49 @@ export default function SlugSettingsPage() {
   // ── Quick replies
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
 
+  // ── Objections (will live inside "Questions & menu")
+  const [objections, setObjections] = useState<Objection[]>([]);
+  // ── Step 7: Follow-up
+  const [followupAfterRegistration, setFollowupAfterRegistration] = useState("");
+  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
+  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
+
   // ── Step 4: Services + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
   const dragIdx = useRef<number | null>(null);
+  /** true = יש פתיחה שמורה בשרת או שכבר מילאנו טמפלייט — לא לדרוס אוטומטית */
+  const welcomeOpeningLockedRef = useRef(false);
+  const welcomePrevStepRef = useRef(step);
+  const servicesSignatureRef = useRef("");
 
-  const defaultWelcomeParts = useMemo(
-    () =>
-      buildDefaultSaleWelcome({
-        botName: botName.trim() || "זואי",
-        businessName: name.trim() || slug,
-        address: address.trim(),
-        services: services.filter((s) => s.name.trim()).map((s) => ({ name: s.name })),
-        niche: niche.trim(),
-        vibeLabels: vibe,
-      }),
-    [address, botName, name, niche, services, slug, vibe]
+  const servicesSignature = useMemo(
+    () => services.map((s) => s.name.trim()).filter(Boolean).join("\0"),
+    [services]
   );
 
-  const applyWelcomeTemplate = useCallback(() => {
+  const prevStepForServicesRef = useRef(step);
+  useEffect(() => {
+    const prev = prevStepForServicesRef.current;
+    prevStepForServicesRef.current = step;
+    if (step === 2 && prev === 2 && servicesSignatureRef.current !== servicesSignature) {
+      welcomeOpeningLockedRef.current = false;
+    }
+    servicesSignatureRef.current = servicesSignature;
+  }, [step, servicesSignature]);
+
+  useEffect(() => {
+    const prev = welcomePrevStepRef.current;
+    welcomePrevStepRef.current = step;
+    if (!settingsHydrated || step !== 3) return;
+    if (welcomeOpeningLockedRef.current) return;
+
+    const optsEmpty = welcomeOptions.every((o) => !o.trim());
+    const shouldSeed =
+      prev === 2 ||
+      (!welcomeIntro.trim() && !welcomeQuestion.trim() && optsEmpty);
+
+    if (!shouldSeed) return;
+
     const p = buildDefaultSaleWelcome({
       botName: botName.trim() || "זואי",
       businessName: name.trim() || slug,
@@ -212,28 +237,29 @@ export default function SlugSettingsPage() {
       services: services.filter((s) => s.name.trim()).map((s) => ({ name: s.name })),
       niche: niche.trim(),
       vibeLabels: vibe,
+      tagline: businessTagline.trim(),
+      traits,
     });
     setWelcomeIntro(p.intro);
     setWelcomeQuestion(p.question);
     setWelcomeOptions(p.options.length ? p.options : [""]);
-  }, [address, botName, name, niche, services, slug, vibe]);
-
-  useEffect(() => {
-    if (step !== 3) return;
-    const optsEmpty = welcomeOptions.every((o) => !o.trim());
-    if (welcomeIntro.trim() || welcomeQuestion.trim() || !optsEmpty) return;
-    setWelcomeIntro(defaultWelcomeParts.intro);
-    setWelcomeQuestion(defaultWelcomeParts.question);
-    const o = defaultWelcomeParts.options;
-    setWelcomeOptions(o.length ? [...o] : ["", "", ""]);
-  }, [step, defaultWelcomeParts, welcomeIntro, welcomeQuestion, welcomeOptions]);
-
-  // ── Objections (will live inside "Questions & menu")
-  const [objections, setObjections] = useState<Objection[]>([]);
-  // ── Step 7: Follow-up
-  const [followupAfterRegistration, setFollowupAfterRegistration] = useState("");
-  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
-  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
+    welcomeOpeningLockedRef.current = true;
+  }, [
+    settingsHydrated,
+    step,
+    welcomeIntro,
+    welcomeQuestion,
+    welcomeOptions,
+    botName,
+    name,
+    slug,
+    address,
+    niche,
+    services,
+    vibe,
+    businessTagline,
+    traits,
+  ]);
 
   const isPremium = plan === "premium";
 
@@ -332,6 +358,8 @@ export default function SlugSettingsPage() {
           const pad = [...chips, "", "", ""].slice(0, 3);
           setWelcomeOptions(pad);
         }
+        welcomeOpeningLockedRef.current =
+          Boolean(hasStructuredWelcome) || fullWelcome.trim().length > 0;
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
         const loadedQr =
           Array.isArray(sl.quick_replies)
@@ -1247,13 +1275,7 @@ export default function SlugSettingsPage() {
               </div>
 
               <div className="border-t border-dashed border-zinc-200 pt-5 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-zinc-800">שלב ראשון במסלול (פתיחה)</p>
-                  <Button type="button" variant="outline" className="shrink-0 gap-1 text-xs py-1.5 px-3 h-auto" onClick={applyWelcomeTemplate}>
-                    <Sparkles className="h-3.5 w-3.5" />
-                    יישום טמפלייט
-                  </Button>
-                </div>
+                <p className="text-sm font-medium text-zinc-800">שלב ראשון במסלול (פתיחה)</p>
                 <Field label="טקסט לפני השאלה (ברכה, כתובת…)">
                   <Textarea
                     value={welcomeIntro}
@@ -1317,7 +1339,7 @@ export default function SlugSettingsPage() {
                   </Button>
                 </div>
                 <p className="text-[11px] text-zinc-500">
-                  ברירת המחדל נוצרת לפי שם הבוט, שם העסק, הכתובת והשירותים (שלב 2) — ניתן לערוך הכל. סגנון הדיבור בשלב 1 משפיע על ניסוח השיחה בזואי.
+                  הטמפלייט מתעדכן אוטומטית כשנכנסים לשלב הזה אחרי «שירותים» (או כשהשדות ריקים), לפי שם הבוט, שם העסק, תגית ומאפיינים (שלב 1), כתובת ושירותים (שלב 2). שירות יחיד — שאלה וכפתורי ניסיון קודם כברירת מחדל. ניתן לערוך הכל. סגנון הדיבור בשלב 1 משפיע על ניסוח השיחה בזואי.
                 </p>
               </div>
 
