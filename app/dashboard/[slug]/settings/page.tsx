@@ -56,6 +56,20 @@ function toSlug(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
 }
 
+function traitPlaceholder(index: number): string {
+  if (index === 0) return "מתאים לשיקום פציעות";
+  if (index === 1) return "מתאים לכל הרמות";
+  if (index === 2) return "הסטודיו הגדול בעיר";
+  return "מאפיין נוסף";
+}
+
+function normalizeTraitsState(arr: string[]): string[] {
+  const t = arr.map((s) => String(s ?? ""));
+  if (t.length === 0) return ["", "", ""];
+  if (t.length < 3) return [...t, ...Array(3 - t.length).fill("")];
+  return t;
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
@@ -118,9 +132,8 @@ export default function SlugSettingsPage() {
   const [niche, setNiche]       = useState("");
   const [address, setAddress]   = useState("");
   const [directions, setDirections] = useState("");
-  const [fact1, setFact1] = useState("");
-  const [fact2, setFact2] = useState("");
-  const [fact3, setFact3] = useState("");
+  const [businessTagline, setBusinessTagline] = useState("");
+  const [traits, setTraits] = useState<string[]>(["", "", ""]);
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
@@ -192,6 +205,12 @@ export default function SlugSettingsPage() {
   const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState(DEFAULT_FOLLOWUP_HOUR);
   const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState(DEFAULT_FOLLOWUP_TRIAL);
 
+  const isPremium = plan === "premium";
+
+  useEffect(() => {
+    if (!isPremium && step === 5) setStep(6);
+  }, [isPremium, step]);
+
   // ─── Load data ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -209,24 +228,22 @@ export default function SlugSettingsPage() {
         setNiche(String(business.niche ?? ""));
         setAddress(String(sl.address ?? ""));
         setDirections(String(sl.directions ?? ""));
+        setBusinessTagline(typeof sl.tagline === "string" ? sl.tagline : "");
         const f1 = typeof sl.fact1 === "string" ? sl.fact1 : "";
         const f2 = typeof sl.fact2 === "string" ? sl.fact2 : "";
         const f3 = typeof sl.fact3 === "string" ? sl.fact3 : "";
         const legacy = String(sl.business_description ?? business.business_description ?? "");
-        const hasStoredFacts = f1.trim() || f2.trim() || f3.trim();
-        if (hasStoredFacts) {
-          setFact1(f1);
-          setFact2(f2);
-          setFact3(f3);
+        const fromArr = Array.isArray(sl.traits) ? sl.traits.map((x) => String(x ?? "")) : null;
+        const hasLegacyFacts = f1.trim() || f2.trim() || f3.trim();
+        if (fromArr) {
+          setTraits(normalizeTraitsState(fromArr));
+        } else if (hasLegacyFacts) {
+          setTraits(normalizeTraitsState([f1, f2, f3]));
         } else if (legacy.trim()) {
           const lines = legacy.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-          setFact1(lines[0] ?? "");
-          setFact2(lines[1] ?? "");
-          setFact3(lines.slice(2).join(" ") || "");
+          setTraits(normalizeTraitsState(lines.length ? lines : ["", "", ""]));
         } else {
-          setFact1("");
-          setFact2("");
-          setFact3("");
+          setTraits(["", "", ""]);
         }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
@@ -328,10 +345,12 @@ export default function SlugSettingsPage() {
             conversions_api_token: conversionsApiToken,
             social_links: {
               website_url: websiteUrl,
-              fact1: fact1.trim(),
-              fact2: fact2.trim(),
-              fact3: fact3.trim(),
-              business_description: [fact1, fact2, fact3].map((s) => s.trim()).filter(Boolean).join("\n"),
+              tagline: businessTagline.trim(),
+              traits: traits.map((s) => s.trim()).filter(Boolean),
+              fact1: (traits[0] ?? "").trim(),
+              fact2: (traits[1] ?? "").trim(),
+              fact3: (traits[2] ?? "").trim(),
+              business_description: traits.map((s) => s.trim()).filter(Boolean).join("\n"),
               address,
               directions,
               vibe,
@@ -369,7 +388,7 @@ export default function SlugSettingsPage() {
       setSaving(false);
     }
   }, [slug, name, niche, botName, welcomeIntro, welcomeQuestion, welcomeOptions, facebookPixelId, conversionsApiToken,
-      websiteUrl, fact1, fact2, fact3, address, directions, vibe, openingMediaUrl, openingMediaType,
+      websiteUrl, businessTagline, traits, address, directions, vibe, openingMediaUrl, openingMediaType,
       segQuestions, quickReplies, arboxLink, objections,
       followupAfterRegistration, followupAfterHourNoRegistration, followupDayAfterTrial,
       services]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -423,12 +442,22 @@ export default function SlugSettingsPage() {
       });
       const j = await res.json();
       if (j.niche) setNiche(j.niche);
-      if (j.business_description) {
-        const lines = String(j.business_description).split(/\n+/).map((s) => s.trim()).filter(Boolean);
-        setFact1(lines[0] ?? "");
-        setFact2(lines[1] ?? "");
-        setFact3(lines.slice(2).join(" ") || "");
-      }
+      const tag =
+        (typeof j.tagline === "string" && j.tagline.trim()) ||
+        (typeof j.business_description === "string" && j.business_description.trim()) ||
+        "";
+      if (tag) setBusinessTagline(tag.split("\n")[0].trim());
+      if (typeof j.address === "string" && j.address.trim()) setAddress(j.address.trim());
+      if (typeof j.directions === "string" && j.directions.trim()) setDirections(j.directions.trim());
+      const book =
+        (typeof j.schedule_booking_url === "string" && j.schedule_booking_url.trim()) ||
+        (typeof j.schedule_url === "string" && j.schedule_url.trim()) ||
+        "";
+      if (book) setArboxLink(book);
+      const scannedTraits = Array.isArray(j.business_traits)
+        ? j.business_traits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+        : [];
+      if (scannedTraits.length) setTraits(normalizeTraitsState(scannedTraits));
       if (j.products?.length) {
         setServices(j.products.slice(0, 8).map((p: Record<string, unknown>) => ({
           ui_id: uid(),
@@ -437,7 +466,9 @@ export default function SlugSettingsPage() {
           duration: "",
           payment_link: "",
           service_slug: toSlug(String(p.name ?? "")),
-          location_text: String(p.location_text ?? "") || address,
+          location_text:
+            String(p.location_text ?? "").trim() ||
+            (typeof j.address === "string" && j.address.trim() ? j.address.trim() : address),
           description: "",
         })));
       }
@@ -555,7 +586,6 @@ export default function SlugSettingsPage() {
 
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
-  const isPremium = plan === "premium";
 
   function nextStep() {
     setStep((s) => {
@@ -656,6 +686,15 @@ export default function SlugSettingsPage() {
                 </Field>
               </div>
 
+              <Field label="תיאור העסק">
+                <Input
+                  dir="rtl"
+                  value={businessTagline}
+                  onChange={(e) => setBusinessTagline(e.target.value)}
+                  placeholder="סטודיו לפילאטיס מכשירים לחיטוב ובריאות הגוף"
+                />
+              </Field>
+
               <Field label="כתובת">
                 <Input
                   dir="rtl"
@@ -671,39 +710,48 @@ export default function SlugSettingsPage() {
               </Field>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-zinc-700 block">3 עובדות ששווה להגיע בגללן:</label>
+                <label className="text-sm font-medium text-zinc-700 block">מאפיינים שווה לציין</label>
                 <div className="space-y-2">
-                  <div className="flex gap-2 items-center">
-                    <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">1</span>
-                    <Input
-                      dir="rtl"
-                      value={fact1}
-                      onChange={(e) => setFact1(e.target.value)}
-                      placeholder="מתאים לשיקום פציעות"
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">2</span>
-                    <Input
-                      dir="rtl"
-                      value={fact2}
-                      onChange={(e) => setFact2(e.target.value)}
-                      placeholder="מתאים לכל הרמות החל מהצעד הראשון ועד מקצוענים"
-                      className="flex-1"
-                    />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">3</span>
-                    <Input
-                      dir="rtl"
-                      value={fact3}
-                      onChange={(e) => setFact3(e.target.value)}
-                      placeholder="הסטודיו הגדול בגבעתיים עם מערכת שעות לאורך כל היום"
-                      className="flex-1"
-                    />
-                  </div>
+                  {traits.map((row, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">{i + 1}</span>
+                      <Input
+                        dir="rtl"
+                        value={row}
+                        onChange={(e) =>
+                          setTraits((prev) => {
+                            const next = [...prev];
+                            next[i] = e.target.value;
+                            return next;
+                          })
+                        }
+                        placeholder={traitPlaceholder(i)}
+                        className="flex-1"
+                      />
+                      {traits.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
+                          className="p-1.5 text-zinc-400 hover:text-red-500 shrink-0"
+                          aria-label="הסר שורה"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <span className="w-8 shrink-0" />
+                      )}
+                    </div>
+                  ))}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-1"
+                  onClick={() => setTraits((prev) => [...prev, ""])}
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף
+                </Button>
               </div>
 
               <Field label="לינק מערכת שעות / Arbox">
@@ -1119,8 +1167,8 @@ export default function SlugSettingsPage() {
           ) : null
         )}
 
-        {/* ════════════════════ STEP 6 ════════════════════ */}
-        {step === 6 && (
+        {/* ════════════════════ STEP 6 — פולואפ (גם אם נתקעו על שלב 5 בלי פרימיום) ════════════════════ */}
+        {(step === 6 || (step === 5 && !isPremium)) && (
           <Card>
             <CardHeader>
               <CardTitle>
@@ -1172,9 +1220,8 @@ export default function SlugSettingsPage() {
             services={services.map((s) => ({ name: s.name, price_text: s.price_text }))}
             segQuestions={segQuestions}
             quickReplies={quickReplies}
-            fact1={fact1}
-            fact2={fact2}
-            fact3={fact3}
+            businessTagline={businessTagline}
+            traits={traits}
             address={address}
             followupAfterRegistration={followupAfterRegistration}
             followupAfterHourNoRegistration={followupAfterHourNoRegistration}

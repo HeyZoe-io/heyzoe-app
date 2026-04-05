@@ -43,6 +43,8 @@ export async function GET() {
       website_url: typeof social.website_url === "string" ? social.website_url : "",
       business_description:
         typeof social.business_description === "string" ? social.business_description : "",
+      tagline: typeof social.tagline === "string" ? social.tagline : "",
+      traits: Array.isArray(social.traits) ? social.traits.map(String) : [],
       fact1: typeof social.fact1 === "string" ? social.fact1 : "",
       fact2: typeof social.fact2 === "string" ? social.fact2 : "",
       fact3: typeof social.fact3 === "string" ? social.fact3 : "",
