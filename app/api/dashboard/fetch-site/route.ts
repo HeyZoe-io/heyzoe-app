@@ -100,6 +100,75 @@ function normalizeWebsiteUrl(input: string): string {
   return `https://${raw}`;
 }
 
+function scoreBookingUrl(url: string): number {
+  const u = url.toLowerCase();
+  if (u.includes("arbox")) return 100;
+  if (u.includes("mindbody")) return 90;
+  if (u.includes("calendly")) return 85;
+  if (u.includes("acuityscheduling") || u.includes("acuity")) return 82;
+  if (u.includes("booksy")) return 80;
+  if (u.includes("simplybook")) return 75;
+  if (u.includes("setmore")) return 72;
+  if (u.includes("youcanbook")) return 70;
+  if (u.includes("10to8")) return 68;
+  return 50;
+}
+
+function isBookingSchedulingUrl(fullUrl: string): boolean {
+  try {
+    const u = new URL(fullUrl);
+    const h = u.hostname.toLowerCase();
+    const hay = `${h}${u.pathname}`.toLowerCase();
+    return (
+      hay.includes("arbox") ||
+      hay.includes("mindbody") ||
+      hay.includes("calendly") ||
+      hay.includes("acuity") ||
+      hay.includes("booksy") ||
+      hay.includes("simplybook") ||
+      hay.includes("setmore") ||
+      hay.includes("youcanbook") ||
+      hay.includes("10to8")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** חילוץ קישורי מערכות שעות/הזמנה מה-HTML (ארבוקס, Mindbody, Calendly וכו׳) */
+function extractBookingUrlCandidates(html: string, pageUrl: string): string[] {
+  const base = new URL(pageUrl);
+  const found = new Set<string>();
+  const tryAdd = (raw: string) => {
+    const v = raw.trim();
+    if (!v || v.startsWith("#") || /^javascript:/i.test(v) || /^mailto:/i.test(v)) return;
+    try {
+      const abs =
+        v.startsWith("//")
+          ? new URL(`https:${v}`)
+          : v.startsWith("/")
+            ? new URL(v, base.origin)
+            : new URL(v, base.origin);
+      if (abs.protocol !== "http:" && abs.protocol !== "https:") return;
+      if (!isBookingSchedulingUrl(abs.href)) return;
+      found.add(abs.href);
+    } catch {
+      /* skip */
+    }
+  };
+
+  for (const m of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
+    tryAdd(m[1]);
+  }
+  for (const m of html.matchAll(/https?:\/\/[^\s"'<>)\]}]+/gi)) {
+    let s = m[0];
+    s = s.replace(/[),.;]+$/g, "");
+    tryAdd(s);
+  }
+
+  return [...found].sort((a, b) => scoreBookingUrl(b) - scoreBookingUrl(a));
+}
+
 function extractMetaHints(html: string): string {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? "";
   const description =
@@ -169,6 +238,7 @@ export async function POST(req: NextRequest) {
   let pageText = "";
   let logoCandidate = "";
   let metaHints = "";
+  let bookingCandidates: string[] = [];
   try {
     let res = await fetchWithTimeout(url, { redirect: "follow", headers: BROWSER_HEADERS });
 
@@ -202,6 +272,7 @@ export async function POST(req: NextRequest) {
 
     logoCandidate = findLogoCandidate(html, url);
     metaHints = extractMetaHints(html);
+    bookingCandidates = extractBookingUrlCandidates(html, url);
     pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, PAGE_TEXT_MAX_CHARS);
   } catch {
     return NextResponse.json(
@@ -224,7 +295,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 - tagline: משפט תיאור עסק אחד קצר ומזמין בעברית (כמו תת-כותרת), עד ~20 מילים.
 - address: כתובת פיזית אם מופיעה.
 - directions: הנחיות הגעה/חניה/כניסה אם מופיעות (או ריק).
-- schedule_booking_url: קישור ישיר למערכת שעות/הרשמה אם נמצא (Arbox, Mindbody, Acuity, Calendly וכו׳) או ריק.
+- schedule_booking_url: קישור https מלא למערכת שעות/הרשמה (Arbox, Mindbody, Acuity, Calendly וכו׳). אם יש רשימת "קישורים גולמיים" למטה — העתק אחד מהם בדיוק (עדיפות לראשון ברשימה אם זה ארבוקס/Mindbody).
 - business_traits: מערך של 3–8 משפטים קצרים בעברית, כל משפט עד 5–6 מילים — מאפיינים ששווה לציין (רמות, גודל מקום, מתאים ל…).
 ב-products החזר שירותים/מוצרים אמיתיים ככל הניתן מתוך האתר, כולל benefits מוסקים.
 business_description: אותו תוכן כמו tagline או סיכום קצר מאוד (לתאימות).
@@ -254,6 +325,9 @@ business_description: אותו תוכן כמו tagline או סיכום קצר מ
   ]
 }
 
+קישורים גולמיים שנחלצו מקוד הדף למערכות הזמנה (השתמש באחד ל-schedule_booking_url אם רלוונטי):
+${bookingCandidates.length ? bookingCandidates.slice(0, 10).join("\n") : "לא אותרו — חפש בטקסט האתר למטה."}
+
 טקסט אתר:
 ${pageText}`;
 
@@ -276,6 +350,7 @@ ${pageText}`;
     const compactPrompt = `החזר JSON בלבד. נתח בקצרה אתר עסקי.
 אתר: ${url}
 מטא: ${metaHints || "אין"}
+קישורי הזמנה מהדף: ${bookingCandidates.slice(0, 5).join(" | ") || "אין"}
 טקסט (מקוצר): ${pageText.slice(0, 2600)}
 מבנה:
 {"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
@@ -302,7 +377,7 @@ ${pageText}`;
       tagline: metaHints || `עסק בתחום ${nicheGuess}.`,
       address: "",
       directions: "",
-      schedule_booking_url: "",
+      schedule_booking_url: bookingCandidates[0] ?? "",
       business_description: metaHints || `עסק בתחום ${nicheGuess}.`,
       business_traits: [] as string[],
       logo_url: logoCandidate,
@@ -343,14 +418,17 @@ ${pageText}`;
     if (!businessName) {
       businessName = guessBusinessNameFromMeta(metaHints, hostForName);
     }
+    const fromAiSchedule =
+      typeof parsed.schedule_booking_url === "string" ? parsed.schedule_booking_url.trim() : "";
+    /** עדיפות לקישור שחולץ מ-HTML (ארבוקס וכו׳) — המודל לפעמים מפספס */
+    const scheduleUrl = (bookingCandidates[0] || fromAiSchedule).trim();
     return NextResponse.json({
       niche: typeof parsed.niche === "string" ? parsed.niche : "",
       business_name: businessName,
       tagline: taglineStr,
       address: typeof parsed.address === "string" ? parsed.address.trim() : "",
       directions: typeof parsed.directions === "string" ? parsed.directions.trim() : "",
-      schedule_booking_url:
-        typeof parsed.schedule_booking_url === "string" ? parsed.schedule_booking_url.trim() : "",
+      schedule_booking_url: scheduleUrl,
       business_description:
         typeof parsed.business_description === "string" && parsed.business_description.trim()
           ? parsed.business_description.trim()
