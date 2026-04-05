@@ -23,6 +23,8 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
     services: k.serviceNamesForOpening.map((name) => ({ name })),
     niche: k.niche,
     vibeLabels: k.vibeLabels,
+    tagline: k.businessDescription,
+    traits: [],
   });
   const lines: string[] = [];
   if (built.intro) lines.push(built.intro);

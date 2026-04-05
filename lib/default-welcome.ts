@@ -10,6 +10,15 @@ function isTrainingContext(niche: string, serviceNames: string[]): boolean {
   return serviceNames.some((s) => TRAINING_HINT.test(s));
 }
 
+/** שורת תיאור אחרי «כאן ___ מ־___» — תגית, או מאפיינים מחוברים */
+function descriptionFromProfile(tagline: string, traits: string[]): string {
+  const t = tagline.trim();
+  if (t) return t;
+  const parts = traits.map((x) => x.trim()).filter(Boolean);
+  if (!parts.length) return "";
+  return parts.join(". ");
+}
+
 function openingSalutation(vibeLabels: string[]): string {
   const v = new Set(vibeLabels);
   if (v.has("יוקרתי") || v.has("מקצועי")) return "שלום,";
@@ -26,6 +35,10 @@ export function buildDefaultSaleWelcome(params: {
   services: ServiceLike[];
   niche?: string;
   vibeLabels?: string[];
+  /** תגית העסק (שלב 1) */
+  tagline?: string;
+  /** עד שלושה מאפיינים (שלב 1) */
+  traits?: string[];
 }): { intro: string; question: string; options: string[] } {
   const bot = params.botName.trim() || "זואי";
   const rawBiz = params.businessName.trim() || "העסק";
@@ -34,11 +47,20 @@ export function buildDefaultSaleWelcome(params: {
   const names = params.services.map((s) => s.name.trim()).filter(Boolean);
   const vibes = Array.isArray(params.vibeLabels) ? params.vibeLabels : [];
   const training = isTrainingContext(params.niche ?? "", names);
+  const traitsArr = Array.isArray(params.traits) ? params.traits : [];
+  const descLine = descriptionFromProfile(params.tagline ?? "", traitsArr);
 
   const sal = openingSalutation(vibes);
   const line1 = `${sal} כאן ${bot} מ־${biz}!`;
-  const line2 = addr ? `אנחנו יושבים ב־${addr}.` : "";
-  const intro = [line1, line2].filter(Boolean).join("\n");
+  const lineAddr = addr ? `אנחנו יושבים ב־${addr}.` : "";
+  const intro = [line1, descLine, lineAddr].filter(Boolean).join("\n");
+
+  if (names.length === 1) {
+    const svc = names[0];
+    const question = `האם יצא לך לנסות ${svc} בעבר?`;
+    const options = ["עוד לא :)", "פעם פעמיים...", "כן! יצא לי לא מעט!"];
+    return { intro, question, options };
+  }
 
   const question =
     names.length >= 2
@@ -52,8 +74,6 @@ export function buildDefaultSaleWelcome(params: {
   let options: string[];
   if (names.length >= 2) {
     options = names.slice(0, 5);
-  } else if (names.length === 1) {
-    options = [names[0], "משהו אחר"];
   } else {
     options = ["לא יצא לי", "יצא לי פעם-פעמיים", "יצא לי לא מעט פעמים"];
   }
