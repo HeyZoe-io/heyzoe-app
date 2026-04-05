@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
 import { buildDefaultSaleWelcome } from "@/lib/default-welcome";
+import { buildDefaultFollowupPack } from "@/lib/default-followups";
 import { WhatsAppSettingsPreview } from "@/components/settings/WhatsAppSettingsPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -49,19 +50,6 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 }
 
 const VIBES = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
-
-const DEFAULT_FOLLOWUP_REGISTRATION = `כל הכבוד! נרשמת בהצלחה 🎉
-
-מה לצפות מהשיעור הראשון:
-- הגיעו 10 דקות לפני
-- לבשו בגדים נוחים
-- שתו מים לפני השיעור
-
-מחכים לכם!`;
-
-const DEFAULT_FOLLOWUP_HOUR = `רק מזכירה בעדינות — אם תרצו לשריין מקום לשיעור ניסיון, אפשר לענות בקצרה כאן 🙂`;
-
-const DEFAULT_FOLLOWUP_TRIAL = `היי! איך היה שיעור הניסיון? אשמח לשמוע איך היה ולהציע את המסלול שהכי מתאים לך.`;
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
@@ -243,9 +231,9 @@ export default function SlugSettingsPage() {
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
   // ── Step 7: Follow-up
-  const [followupAfterRegistration, setFollowupAfterRegistration] = useState(DEFAULT_FOLLOWUP_REGISTRATION);
-  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState(DEFAULT_FOLLOWUP_HOUR);
-  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState(DEFAULT_FOLLOWUP_TRIAL);
+  const [followupAfterRegistration, setFollowupAfterRegistration] = useState("");
+  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
+  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
 
   const isPremium = plan === "premium";
 
@@ -375,21 +363,33 @@ export default function SlugSettingsPage() {
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
-        setFollowupAfterRegistration(
-          sl.followup_after_registration != null && typeof sl.followup_after_registration === "string"
-            ? sl.followup_after_registration
-            : DEFAULT_FOLLOWUP_REGISTRATION
-        );
-        setFollowupAfterHourNoRegistration(
-          sl.followup_after_hour_no_registration != null && typeof sl.followup_after_hour_no_registration === "string"
-            ? sl.followup_after_hour_no_registration
-            : DEFAULT_FOLLOWUP_HOUR
-        );
-        setFollowupDayAfterTrial(
-          sl.followup_day_after_trial != null && typeof sl.followup_day_after_trial === "string"
-            ? sl.followup_day_after_trial
-            : DEFAULT_FOLLOWUP_TRIAL
-        );
+
+        const svcNamesForFollowup = Array.isArray(svcs)
+          ? (svcs as Record<string, unknown>[])
+              .map((s) => String(s.name ?? "").trim())
+              .filter(Boolean)
+          : [];
+        const defaultFollow = buildDefaultFollowupPack({
+          botName: String(business.bot_name ?? "זואי"),
+          businessName: String(business.name ?? "").trim() || displayNameFromSlug(slug),
+          niche: String(business.niche ?? ""),
+          vibeLabels: Array.isArray(sl.vibe) ? (sl.vibe as string[]) : [],
+          serviceNames: svcNamesForFollowup,
+          address: String(sl.address ?? ""),
+          tagline: typeof sl.tagline === "string" ? sl.tagline.trim() : "",
+          hasBookingLink: Boolean(String(sl.arbox_link ?? "").trim()),
+        });
+        const regSaved =
+          typeof sl.followup_after_registration === "string" ? sl.followup_after_registration.trim() : "";
+        const hourSaved =
+          typeof sl.followup_after_hour_no_registration === "string"
+            ? sl.followup_after_hour_no_registration.trim()
+            : "";
+        const trialSaved =
+          typeof sl.followup_day_after_trial === "string" ? sl.followup_day_after_trial.trim() : "";
+        setFollowupAfterRegistration(regSaved || defaultFollow.followupAfterRegistration);
+        setFollowupAfterHourNoRegistration(hourSaved || defaultFollow.followupAfterHourNoRegistration);
+        setFollowupDayAfterTrial(trialSaved || defaultFollow.followupDayAfterTrial);
 
         if (Array.isArray(svcs)) {
           setServices((svcs as Record<string, unknown>[]).map((s) => {
@@ -604,6 +604,22 @@ export default function SlugSettingsPage() {
       setSaving(false);
     }
   }, [postSettings]);
+
+  const applyFollowupTemplate = useCallback(() => {
+    const pack = buildDefaultFollowupPack({
+      botName: botName.trim() || "זואי",
+      businessName: name.trim() || displayNameFromSlug(slug),
+      niche: niche.trim(),
+      vibeLabels: vibe,
+      serviceNames: services.map((s) => s.name.trim()).filter(Boolean),
+      address: address.trim(),
+      tagline: businessTagline.trim(),
+      hasBookingLink: Boolean(arboxLink.trim()),
+    });
+    setFollowupAfterRegistration(pack.followupAfterRegistration);
+    setFollowupAfterHourNoRegistration(pack.followupAfterHourNoRegistration);
+    setFollowupDayAfterTrial(pack.followupDayAfterTrial);
+  }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
@@ -1493,10 +1509,25 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={5} title="פולואפ" desc="הודעות אוטומטיות לפי זמן/אירוע" />
+                <StepHeader
+                  n={5}
+                  title="פולואפ"
+                  desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, שירותים וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהידע בהגדרות, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
+                />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex flex-wrap justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1 text-xs py-1.5 px-3 h-auto"
+                  onClick={applyFollowupTemplate}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  חידוש טקסטים לפי העסק וסגנון
+                </Button>
+              </div>
               <Field label="פולואפ לאחר הרשמה">
                 <Textarea
                   value={followupAfterRegistration}

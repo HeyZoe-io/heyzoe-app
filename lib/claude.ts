@@ -1,6 +1,7 @@
 export const CLAUDE_CHAT_MODEL = "claude-sonnet-4-6" as const;
 
-export const CLAUDE_MAX_TOKENS = 1024 as const;
+/** מענה + שאלה + 2–4 אפשרויות ממוספרות — דורש מעט יותר מקום */
+export const CLAUDE_MAX_TOKENS = 1536 as const;
 
 export function resolveClaudeApiKey(): string {
   return process.env.ANTHROPIC_API_KEY?.trim() ?? "";
@@ -35,7 +36,7 @@ export function sleepMs(ms: number): Promise<void> {
 }
 
 export const CLAUDE_WHATSAPP_MODEL = "claude-haiku-4-5-20251001" as const;
-export const CLAUDE_WHATSAPP_MAX_TOKENS = 512 as const;
+export const CLAUDE_WHATSAPP_MAX_TOKENS = 768 as const;
 
 /** סריקת אתר בדשבורד — Haiku מהיר וזול מספיק לחילוץ JSON מובנה */
 export const CLAUDE_FETCH_SITE_MODEL = CLAUDE_WHATSAPP_MODEL;
