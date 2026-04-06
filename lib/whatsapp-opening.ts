@@ -1,8 +1,20 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import { buildDefaultSaleWelcome } from "@/lib/default-welcome";
+import { buildWhatsAppOpeningBody } from "@/lib/sales-flow";
 
 /** טקסט הודעת פתיחה לווטסאפ — לפי ההגדרות בדשבורד, או טמפלייט */
 export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
+  if (k.salesFlowConfig) {
+    const body = buildWhatsAppOpeningBody(
+      k.salesFlowConfig,
+      k.serviceNamesForOpening.map((name) => ({ name })),
+      k.botName,
+      k.businessName,
+      k.businessDescription
+    );
+    return body.trim();
+  }
+
   const intro = k.welcomeIntroText?.trim() ?? "";
   const q = k.welcomeQuestionText?.trim() ?? "";
   const opts = (k.welcomeOptionLabels ?? []).map((o) => o.trim()).filter(Boolean);

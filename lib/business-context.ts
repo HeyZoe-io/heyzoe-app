@@ -1,5 +1,10 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildVibeInstructionLines } from "@/lib/vibe-prompt";
+import {
+  type SalesFlowConfig,
+  formatSalesFlowForPrompt,
+  parseSalesFlowFromSocial,
+} from "@/lib/sales-flow";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -36,6 +41,8 @@ export type BusinessKnowledgePack = {
   followupAfterHourNoRegistration: string;
   followupDayAfterTrial: string;
   membershipsAndCardsText: string;
+  salesFlowConfig: SalesFlowConfig | null;
+  salesFlowPromptSection: string;
 };
 
 function formatMembershipsAndCardsBlock(
@@ -237,6 +244,26 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const membershipsAndCardsText = formatMembershipsAndCardsBlock(social, services ?? []);
 
+    const benefitByName = new Map<string, string>();
+    for (const s of services ?? []) {
+      const n = String(s.name ?? "").trim();
+      if (!n) continue;
+      let benefit = "";
+      try {
+        const raw = String((s as { description?: string }).description ?? "");
+        const meta = JSON.parse(raw || "{}") as Record<string, unknown>;
+        benefit = String(meta.benefit_line ?? "").trim();
+      } catch {
+        /* legacy plain description */
+      }
+      benefitByName.set(n, benefit);
+    }
+
+    const salesFlowConfig = parseSalesFlowFromSocial(social.sales_flow);
+    const salesFlowPromptSection = salesFlowConfig
+      ? formatSalesFlowForPrompt(salesFlowConfig, serviceNamesForOpening, benefitByName)
+      : "";
+
     return {
       businessName: String(business.name ?? slug),
       botName: String(business.bot_name ?? "זואי").trim() || "זואי",
@@ -268,6 +295,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       followupAfterHourNoRegistration,
       followupDayAfterTrial,
       membershipsAndCardsText,
+      salesFlowConfig,
+      salesFlowPromptSection,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
@@ -275,7 +304,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
   }
 }
 
-function formatSalesFlowForPrompt(blocks: SalesFlowBlockPack[]): string {
+function formatSalesFlowBlocksForPrompt(blocks: SalesFlowBlockPack[]): string {
   if (!blocks.length) return "אין שלבים נוספים אחרי הודעת הפתיחה.";
   return blocks
     .map((b, i) => {
@@ -353,11 +382,13 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
   const openingQ = knowledge?.welcomeQuestionText?.trim() ?? "";
   const openingOpts = (knowledge?.welcomeOptionLabels ?? []).join(" | ");
-  const saleFlowExtra = `
-מסלול מכירה מהדשבורד:
+  const saleFlowExtra = knowledge?.salesFlowPromptSection?.trim()
+    ? `${knowledge.salesFlowPromptSection}\n\nנסחי בהתאם לסגנון הדיבור שנבחר למעלה.`
+    : `
+מסלול מכירה מהדשבורד (מבנה ישן):
 - פתיחה (לעיונך / אם צריך לשחזר בצ'אט): ${openingIntro || "ברירת מחדל לפי שם בוט, עסק, כתובת"} | שאלה: ${openingQ || "—"} | כפתורים: ${openingOpts || "—"}
 - שלבים נוספים אחרי תשובה לפתיחה:
-${formatSalesFlowForPrompt(knowledge?.salesFlowBlocks ?? [])}
+${formatSalesFlowBlocksForPrompt(knowledge?.salesFlowBlocks ?? [])}
 - נסחי בהתאם לסגנון הדיבור שנבחר למעלה.`;
 
   if (!isWhatsApp) {

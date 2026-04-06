@@ -1,8 +1,11 @@
 "use client";
 
-type PreviewStep = 1 | 2 | 3 | 4 | 5 | 6;
+import {
+  buildWhatsAppOpeningBody,
+  type SalesFlowConfig,
+} from "@/lib/sales-flow";
 
-export type SalesFlowBlockPreview = { intro: string; question: string; options: string[] };
+type PreviewStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 type Props = {
   step: PreviewStep;
@@ -10,10 +13,7 @@ type Props = {
   businessName: string;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
-  welcomeIntro: string;
-  welcomeQuestion: string;
-  welcomeOptions: string[];
-  salesFlowBlocks: SalesFlowBlockPreview[];
+  salesFlowConfig: SalesFlowConfig;
   services: { name: string; price_text: string }[];
   businessTagline: string;
   traits: string[];
@@ -62,10 +62,7 @@ export function WhatsAppSettingsPreview({
   businessName,
   openingMediaUrl,
   openingMediaType,
-  welcomeIntro,
-  welcomeQuestion,
-  welcomeOptions,
-  salesFlowBlocks,
+  salesFlowConfig,
   services,
   businessTagline,
   traits,
@@ -76,6 +73,37 @@ export function WhatsAppSettingsPreview({
 }: Props) {
   const facts = traits.map((f) => f.trim()).filter(Boolean);
   const tag = businessTagline.trim();
+
+  const trialServices = services
+    .filter((s) => s.name.trim())
+    .map((s) => ({ name: s.name.trim() }));
+
+  const openingBody =
+    step === 4
+      ? buildWhatsAppOpeningBody(
+          salesFlowConfig,
+          trialServices,
+          botName.trim() || "זואי",
+          businessName.trim() || "העסק",
+          businessTagline
+        )
+      : "";
+
+  const hasOpeningExtras = salesFlowConfig.opening_extra_steps.some(
+    (st) => st.question.trim() || st.options.some((o) => o.trim())
+  );
+  const hasCtaPreview =
+    salesFlowConfig.cta_body.trim() ||
+    salesFlowConfig.cta_buttons.some((b) => b.label.trim()) ||
+    salesFlowConfig.cta_extra_steps.some(
+      (st) => st.question.trim() || st.options.some((o) => o.trim())
+    );
+
+  const step4HasContent =
+    !!openingMediaUrl ||
+    openingBody.trim().length > 0 ||
+    hasOpeningExtras ||
+    hasCtaPreview;
 
   return (
     <div className="w-full max-w-[280px] mx-auto shrink-0" dir="rtl">
@@ -89,7 +117,9 @@ export function WhatsAppSettingsPreview({
           </div>
         </div>
 
-        <div className="p-2 space-y-1.5 min-h-[280px] max-h-[420px] overflow-y-auto">
+        <div
+          className={`p-2 space-y-1.5 min-h-[280px] overflow-y-auto ${step === 4 ? "max-h-[520px]" : "max-h-[420px]"}`}
+        >
           {step === 1 && (
             <>
               {tag || facts.length > 0 || address.trim() ? (
@@ -155,58 +185,100 @@ export function WhatsAppSettingsPreview({
                   </div>
                 </div>
               ) : null}
-              {(welcomeIntro.trim() || welcomeQuestion.trim()) && (
+
+              {openingBody.trim() ? (
                 <Bubble from="bot">
-                  {welcomeIntro.trim() ? (
-                    <p className="whitespace-pre-wrap text-zinc-900 text-right">{welcomeIntro.trim()}</p>
-                  ) : null}
-                  {welcomeQuestion.trim() ? (
-                    <p className={`whitespace-pre-wrap text-zinc-900 text-right ${welcomeIntro.trim() ? "mt-1.5 pt-1.5 border-t border-zinc-200" : ""}`}>
-                      {welcomeQuestion.trim()}
-                    </p>
-                  ) : null}
+                  <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
+                    {openingBody.trim()}
+                  </p>
                 </Bubble>
-              )}
-              {welcomeOptions.some((o) => o.trim()) && (
-                <div className="space-y-1 pt-0.5">
-                  {welcomeOptions.map(
-                    (o, i) =>
-                      o.trim() && (
-                        <WaButton key={i}>{o.trim()}</WaButton>
-                      )
-                  )}
-                </div>
-              )}
-              {salesFlowBlocks.map((b, bi) =>
-                b.intro.trim() || b.question.trim() || b.options.some((o) => o.trim()) ? (
-                  <div key={bi} className="space-y-1 pt-1 border-t border-zinc-300/50">
-                    <p className="text-[9px] text-zinc-500 text-right">המשך מסלול — שלב {bi + 2}</p>
-                    <Bubble from="bot">
-                      {b.intro.trim() ? <p className="whitespace-pre-wrap text-zinc-900 text-right">{b.intro.trim()}</p> : null}
-                      {b.question.trim() ? (
-                        <p className={`whitespace-pre-wrap text-zinc-900 text-right ${b.intro.trim() ? "mt-1 pt-1 border-t border-zinc-200" : ""}`}>
-                          {b.question.trim()}
-                        </p>
-                      ) : null}
-                    </Bubble>
-                    {b.options.some((o) => o.trim()) ? (
-                      <div className="space-y-1">
-                        {b.options.map(
-                          (o, i) =>
-                            o.trim() && (
-                              <WaButton key={i}>{o.trim()}</WaButton>
-                            )
-                        )}
-                      </div>
+              ) : null}
+
+              {trialServices.length > 3 ? (
+                <p className="text-[9px] text-amber-900/90 text-right px-1 leading-snug bg-amber-50/90 rounded-md py-1 border border-amber-200/80">
+                  מעל 3 אימונים: ברשימה האמיתית נשלחת הוראה לכתיבת ספרה — כאן רק דוגמה לפי ההגדרות.
+                </p>
+              ) : null}
+
+              {salesFlowConfig.opening_extra_steps.map((st) =>
+                st.question.trim() || st.options.some((o) => o.trim()) ? (
+                  <div key={st.id} className="space-y-1 pt-0.5 border-t border-dashed border-zinc-300/60">
+                    <p className="text-[9px] text-zinc-500 text-right">שאלת פתיחה נוספת</p>
+                    {st.question.trim() ? (
+                      <Bubble from="bot">
+                        <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px]">{st.question.trim()}</p>
+                      </Bubble>
                     ) : null}
+                    <div className="space-y-1">
+                      {st.options.map(
+                        (o, j) =>
+                          o.trim() && (
+                            <WaButton key={j}>
+                              {j + 1}. {o.trim()}
+                            </WaButton>
+                          )
+                      )}
+                    </div>
                   </div>
                 ) : null
               )}
-              {!welcomeIntro.trim() && !welcomeQuestion.trim() && !openingMediaUrl && !salesFlowBlocks.some((b) => b.intro.trim() || b.question.trim()) && (
+
+              <div className="space-y-1.5 pt-1 border-t border-zinc-400/50">
+                <p className="text-[9px] text-[#075e54] text-right font-medium">הנעה לפעולה (דוגמה אחרי הפלואו)</p>
+                {salesFlowConfig.cta_body.trim() ? (
+                  <Bubble from="bot">
+                    <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
+                      {salesFlowConfig.cta_body.trim()}
+                    </p>
+                  </Bubble>
+                ) : null}
+                {salesFlowConfig.cta_buttons.some((b) => b.label.trim()) ? (
+                  <div className="space-y-1">
+                    {salesFlowConfig.cta_buttons.map(
+                      (b, i) =>
+                        b.label.trim() && (
+                          <WaButton key={b.id}>
+                            {i + 1}. {b.label.trim()}
+                          </WaButton>
+                        )
+                    )}
+                    <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
+                      סוגי כפתור: מערכת שעות · הרשמה לניסיון · מחירי מנויים (לפי ההגדרות בפועל)
+                    </p>
+                  </div>
+                ) : null}
+                {salesFlowConfig.cta_extra_steps.map((st) =>
+                  st.question.trim() || st.options.some((o) => o.trim()) ? (
+                    <div key={st.id} className="space-y-1 pt-0.5 border-t border-dotted border-zinc-300/70">
+                      <p className="text-[9px] text-zinc-500 text-right">שאלה בהנעה לפעולה</p>
+                      {st.question.trim() ? (
+                        <Bubble from="bot">
+                          <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px]">{st.question.trim()}</p>
+                        </Bubble>
+                      ) : null}
+                      <div className="space-y-1">
+                        {st.options.map(
+                          (o, j) =>
+                            o.trim() && (
+                              <WaButton key={j}>
+                                {j + 1}. {o.trim()}
+                              </WaButton>
+                            )
+                        )}
+                      </div>
+                    </div>
+                  ) : null
+                )}
+                {!hasCtaPreview && (
+                  <p className="text-[9px] text-zinc-500 text-right">מלאו גוף וכפתורי הנעה לפעולה בהגדרות</p>
+                )}
+              </div>
+
+              {!step4HasContent ? (
                 <Bubble from="bot">
-                  <span className="text-zinc-500">הגדירו מסלול מכירה — מדיה, פתיחה ושאלה</span>
+                  <span className="text-zinc-500">הגדירו מסלול מכירה — מדיה, טקסטים ואימוני ניסיון</span>
                 </Bubble>
-              )}
+              ) : null}
             </>
           )}
 

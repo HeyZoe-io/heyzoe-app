@@ -11,6 +11,35 @@ type MessageLogInput = {
   error_code?: string | null;
 };
 
+export async function fetchRecentSessionMessages(input: {
+  business_slug: string;
+  session_id: string;
+  limit?: number;
+}): Promise<{ role: "user" | "assistant"; content: string }[]> {
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .select("role, content")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", input.session_id)
+      .order("created_at", { ascending: true })
+      .limit(input.limit ?? 28);
+    if (error || !data?.length) return [];
+    const out: { role: "user" | "assistant"; content: string }[] = [];
+    for (const row of data) {
+      if (row.role !== "user" && row.role !== "assistant") continue;
+      const c = String(row.content ?? "").trim();
+      if (!c || c.startsWith("[media]")) continue;
+      out.push({ role: row.role, content: c.slice(0, 12_000) });
+    }
+    return out;
+  } catch (e) {
+    console.error("[analytics] fetchRecentSessionMessages failed:", e);
+    return [];
+  }
+}
+
 export async function logMessage(input: MessageLogInput) {
   try {
     const supabase = createSupabaseAdminClient();
