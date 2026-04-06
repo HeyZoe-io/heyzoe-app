@@ -53,8 +53,8 @@ const VIBES = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקר
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
-/** תואם למגבלת גוף בקשה ב-Vercel — גם בצד לקוח כדי להציג הודעה לפני העלאה */
-const MAX_OPENING_MEDIA_BYTES = 4 * 1024 * 1024;
+/** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
+const MAX_OPENING_MEDIA_BYTES = 16 * 1024 * 1024;
 
 function videoUrlForPreview(url: string) {
   if (!url) return url;
@@ -655,32 +655,67 @@ export default function SlugSettingsPage() {
     setMediaUploadError("");
     if (file.size > MAX_OPENING_MEDIA_BYTES) {
       setMediaUploadError(
-        "הקובץ גדול מדי (מקסימום 4MB). נסו לכווץ את הסרטון או להעלות תמונה."
+        "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
       );
       return;
     }
     setUploadingMedia(true);
-    const fd = new FormData();
-    fd.append("file", file);
     try {
-      const res = await fetch("/api/dashboard/upload-logo", { method: "POST", body: fd });
-      let j: { url?: string; error?: string } = {};
+      const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          fileSize: file.size,
+        }),
+      });
+      let signJson: {
+        signedUrl?: string;
+        publicUrl?: string;
+        error?: string;
+      } = {};
       try {
-        j = await res.json();
+        signJson = (await signRes.json()) as typeof signJson;
       } catch {
         setMediaUploadError("תשובת שרת לא תקינה.");
         return;
       }
-      if (!res.ok) {
-        setMediaUploadError(j.error?.trim() || `העלאה נכשלה (${res.status}).`);
+      if (!signRes.ok) {
+        setMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
         return;
       }
-      if (j.url) {
-        setOpeningMediaUrl(j.url);
-        setOpeningMediaType(file.type.startsWith("video") ? "video" : "image");
-      } else {
-        setMediaUploadError("לא התקבל קישור לקובץ — נסו שוב או קובץ קטן יותר.");
+      const signedUrl = signJson.signedUrl?.trim();
+      const publicUrl = signJson.publicUrl?.trim();
+      if (!signedUrl || !publicUrl) {
+        setMediaUploadError("לא התקבל קישור חתום להעלאה — נסו שוב.");
+        return;
       }
+
+      const uploadBody = new FormData();
+      uploadBody.append("cacheControl", "3600");
+      uploadBody.append("", file);
+
+      const putRes = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "x-upsert": "true" },
+        body: uploadBody,
+      });
+
+      if (!putRes.ok) {
+        let errText = "";
+        try {
+          const errJson = (await putRes.json()) as { message?: string; error?: string };
+          errText = (errJson.message || errJson.error || "").trim();
+        } catch {
+          errText = putRes.statusText || "";
+        }
+        setMediaUploadError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+        return;
+      }
+
+      setOpeningMediaUrl(publicUrl);
+      setOpeningMediaType(file.type.startsWith("video") ? "video" : "image");
     } catch {
       setMediaUploadError("בעיית רשת בהעלאה.");
     } finally {
@@ -1202,7 +1237,7 @@ export default function SlugSettingsPage() {
                       <>
                         <Upload className="h-8 w-8 text-zinc-400" />
                         <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
-                        <p className="text-xs text-zinc-400">עד 4MB (מגבלת שרת). JPG, PNG, GIF, MP4</p>
+                        <p className="text-xs text-zinc-400">עד 16MB. JPG, PNG, GIF, MP4 (העלאה ישירה ל-Storage)</p>
                       </>
                     )}
                   </button>
