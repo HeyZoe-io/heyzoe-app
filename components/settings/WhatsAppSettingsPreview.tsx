@@ -1,6 +1,6 @@
 "use client";
 
-type PreviewStep = 1 | 2 | 3 | 4 | 5;
+type PreviewStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type SalesFlowBlockPreview = { intro: string; question: string; options: string[] };
 
@@ -129,13 +129,19 @@ export function WhatsAppSettingsPreview({
                       ))}
                   </ul>
                 ) : (
-                  <span className="text-zinc-500">הוסיפו שירותים</span>
+                  <span className="text-zinc-500">הוסיפו אימוני ניסיון</span>
                 )}
               </Bubble>
             </>
           )}
 
           {step === 3 && (
+            <Bubble from="bot">
+              <span className="text-zinc-600">מנויים וכרטיסיות — יופיעו בהנחיות לזואי מההגדרות</span>
+            </Bubble>
+          )}
+
+          {step === 4 && (
             <>
               {openingMediaUrl ? (
                 <div className="flex justify-start">
@@ -204,13 +210,13 @@ export function WhatsAppSettingsPreview({
             </>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <Bubble from="bot">
               <span className="text-zinc-600">חיבור פייסבוק ופיקסל — אין הודעת צ׳אט כאן</span>
             </Bubble>
           )}
 
-          {step === 5 && (
+          {step === 6 && (
             <>
               {followupAfterRegistration.trim() && <Bubble from="bot">{followupAfterRegistration.trim()}</Bubble>}
               {followupAfterHourNoRegistration.trim() && (

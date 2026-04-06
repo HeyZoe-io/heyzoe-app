@@ -35,7 +35,64 @@ export type BusinessKnowledgePack = {
   followupAfterRegistration: string;
   followupAfterHourNoRegistration: string;
   followupDayAfterTrial: string;
+  membershipsAndCardsText: string;
 };
+
+function formatMembershipsAndCardsBlock(
+  social: Record<string, unknown>,
+  servicesList: { name: string; service_slug: string | null }[]
+): string {
+  const slugToName = new Map<string, string>();
+  for (const s of servicesList) {
+    const name = String(s.name ?? "").trim();
+    if (!name) continue;
+    const slug = String(s.service_slug ?? "").trim() || name;
+    slugToName.set(slug, name);
+  }
+
+  const excludedLine = (slugs: string[]): string => {
+    if (!slugs.length) return "כל אימוני הניסיון כלולים";
+    const labels = slugs.map((x) => slugToName.get(x) || x).filter(Boolean);
+    return `לא כלול באפשרות זו: ${labels.join(", ")}`;
+  };
+
+  const tiers = Array.isArray(social.membership_tiers) ? social.membership_tiers : [];
+  const tierLines: string[] = [];
+  for (const t of tiers) {
+    if (!t || typeof t !== "object") continue;
+    const o = t as Record<string, unknown>;
+    const name = String(o.name ?? "").trim();
+    if (!name) continue;
+    const price = String(o.price ?? "").trim();
+    const monthly = String(o.monthly_sessions ?? "").trim();
+    const notes = String(o.notes ?? "").trim();
+    const ex = Array.isArray(o.excluded_service_slugs) ? o.excluded_service_slugs.map(String) : [];
+    tierLines.push(
+      `- ${name}${price ? ` | מחיר: ${truncateText(price, 40)}` : ""}${monthly ? ` | אימונים חודשיים: ${truncateText(monthly, 24)}` : ""} | ${excludedLine(ex)}${notes ? ` | הערות: ${truncateText(notes, 120)}` : ""}`
+    );
+  }
+
+  const cards = Array.isArray(social.punch_cards) ? social.punch_cards : [];
+  const cardLines: string[] = [];
+  for (const c of cards) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as Record<string, unknown>;
+    const count = String(o.session_count ?? "").trim();
+    const validity = String(o.validity ?? "").trim();
+    if (!count && !validity) continue;
+    const notes = String(o.notes ?? "").trim();
+    const ex = Array.isArray(o.excluded_service_slugs) ? o.excluded_service_slugs.map(String) : [];
+    cardLines.push(
+      `- כמות אימונים: ${count || "—"} | תוקף: ${validity || "—"} | ${excludedLine(ex)}${notes ? ` | הערות: ${truncateText(notes, 120)}` : ""}`
+    );
+  }
+
+  if (!tierLines.length && !cardLines.length) return "";
+  const parts: string[] = [];
+  if (tierLines.length) parts.push(`מנויים:\n${tierLines.join("\n")}`);
+  if (cardLines.length) parts.push(`כרטיסיות:\n${cardLines.join("\n")}`);
+  return parts.join("\n\n");
+}
 
 function truncateText(value: string, max = 280): string {
   const clean = value.replace(/\s+/g, " ").trim();
@@ -74,7 +131,11 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     if (!business) return null;
 
     const [{ data: services }, { data: faqs }] = await Promise.all([
-      admin.from("services").select("name, description, price_text, location_text").eq("business_id", business.id).order("created_at", { ascending: true }),
+      admin
+        .from("services")
+        .select("name, description, price_text, location_text, service_slug")
+        .eq("business_id", business.id)
+        .order("created_at", { ascending: true }),
       admin.from("faqs").select("question, answer").eq("business_id", business.id).order("sort_order", { ascending: true }),
     ]);
 
@@ -174,6 +235,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       .map((s) => String(s.name ?? "").trim())
       .filter(Boolean);
 
+    const membershipsAndCardsText = formatMembershipsAndCardsBlock(social, services ?? []);
+
     return {
       businessName: String(business.name ?? slug),
       botName: String(business.bot_name ?? "זואי").trim() || "זואי",
@@ -204,6 +267,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       followupAfterRegistration,
       followupAfterHourNoRegistration,
       followupDayAfterTrial,
+      membershipsAndCardsText,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
@@ -279,7 +343,7 @@ ${formatFollowupSnippets(knowledge)}
 תיאור עסק: ${knowledge?.businessDescription ?? "לא הוגדר"}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
-FAQ:
+${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${knowledge.membershipsAndCardsText}\n` : ""}FAQ:
 ${knowledge?.faqsText ?? "לא הוגדר"}
 CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא הוגדר"}
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}

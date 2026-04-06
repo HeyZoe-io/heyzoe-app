@@ -26,11 +26,29 @@ type ServiceItem = {
 };
 type SalesFlowBlockUI = { id: string; intro: string; question: string; options: string[] };
 
+type MembershipTierUI = {
+  id: string;
+  name: string;
+  price: string;
+  monthlySessions: string;
+  notes: string;
+  excludedServiceSlugs: string[];
+};
+
+type PunchCardUI = {
+  id: string;
+  sessionCount: string;
+  validity: string;
+  notes: string;
+  excludedServiceSlugs: string[];
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
   "פרטי העסק",
-  "שירותים",
+  "אימון ניסיון",
+  "כרטיסיות ומנויים",
   "מסלול מכירה",
   "חיבור פייסבוק",
   "פולואפ",
@@ -88,6 +106,54 @@ function normalizeTraitsState(arr: string[]): string[] {
   return t;
 }
 
+function parseMembershipTier(raw: unknown): MembershipTierUI {
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    const ex = Array.isArray(o.excluded_service_slugs)
+      ? o.excluded_service_slugs.map(String)
+      : [];
+    return {
+      id: typeof o.id === "string" ? o.id : uid(),
+      name: String(o.name ?? ""),
+      price: String(o.price ?? ""),
+      monthlySessions: String(o.monthly_sessions ?? ""),
+      notes: String(o.notes ?? ""),
+      excludedServiceSlugs: ex,
+    };
+  }
+  return {
+    id: uid(),
+    name: "",
+    price: "",
+    monthlySessions: "",
+    notes: "",
+    excludedServiceSlugs: [],
+  };
+}
+
+function parsePunchCard(raw: unknown): PunchCardUI {
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    const ex = Array.isArray(o.excluded_service_slugs)
+      ? o.excluded_service_slugs.map(String)
+      : [];
+    return {
+      id: typeof o.id === "string" ? o.id : uid(),
+      sessionCount: String(o.session_count ?? ""),
+      validity: String(o.validity ?? ""),
+      notes: String(o.notes ?? ""),
+      excludedServiceSlugs: ex,
+    };
+  }
+  return {
+    id: uid(),
+    sessionCount: "",
+    validity: "",
+    notes: "",
+    excludedServiceSlugs: [],
+  };
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
@@ -128,6 +194,64 @@ function Textarea({ value, onChange, placeholder, rows = 3 }: {
   );
 }
 
+function InstagramGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden
+    >
+      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+    </svg>
+  );
+}
+
+function ServiceExcludePicker({
+  services,
+  excludedSlugs,
+  onChange,
+}: {
+  services: ServiceItem[];
+  excludedSlugs: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const opts = services
+    .filter((s) => s.name.trim())
+    .map((s) => ({ slug: (s.service_slug || toSlug(s.name)).trim(), name: s.name.trim() }));
+
+  if (opts.length === 0) {
+    return (
+      <p className="text-xs text-zinc-500 text-right">
+        הוסיפו אימוני ניסיון בטאב «אימון ניסיון» כדי לסמן אימונים שאינם כלולים.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 border border-zinc-100 rounded-xl p-3 bg-zinc-50/80">
+      <p className="text-xs font-medium text-zinc-700">חריגות מאימונים (ברירת מחדל: כל האימונים כלולים)</p>
+      <p className="text-[11px] text-zinc-500">סמנו אימונים שלא נכללים במנוי או בכרטיסיה זו.</p>
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+        {opts.map(({ slug, name }) => (
+          <label key={slug} className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-zinc-300"
+              checked={excludedSlugs.includes(slug)}
+              onChange={(e) => {
+                if (e.target.checked) onChange([...excludedSlugs, slug]);
+                else onChange(excludedSlugs.filter((x) => x !== slug));
+              }}
+            />
+            <span>{name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SlugSettingsPage() {
@@ -152,6 +276,7 @@ export default function SlugSettingsPage() {
 
   // ── Step 1: Business details (includes optional website import)
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [instagramUrl, setInstagramUrl] = useState("");
 
   // ── Business details
   const [name, setName]         = useState("");
@@ -194,7 +319,10 @@ export default function SlugSettingsPage() {
   const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
   const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
 
-  // ── Step 4: Services + drag & drop
+  const [membershipTiers, setMembershipTiers] = useState<MembershipTierUI[]>([]);
+  const [punchCards, setPunchCards] = useState<PunchCardUI[]>([]);
+
+  // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
   const dragIdx = useRef<number | null>(null);
   /** true = יש פתיחה שמורה בשרת או שכבר מילאנו טמפלייט — לא לדרוס אוטומטית */
@@ -220,12 +348,12 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     const prev = welcomePrevStepRef.current;
     welcomePrevStepRef.current = step;
-    if (!settingsHydrated || step !== 3) return;
+    if (!settingsHydrated || step !== 4) return;
     if (welcomeOpeningLockedRef.current) return;
 
     const optsEmpty = welcomeOptions.every((o) => !o.trim());
     const shouldSeed =
-      prev === 2 ||
+      prev === 3 ||
       (!welcomeIntro.trim() && !welcomeQuestion.trim() && optsEmpty);
 
     if (!shouldSeed) return;
@@ -264,7 +392,7 @@ export default function SlugSettingsPage() {
   const isPremium = plan === "premium";
 
   useEffect(() => {
-    if (!isPremium && step === 4) setStep(5);
+    if (!isPremium && step === 5) setStep(6);
   }, [isPremium, step]);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
@@ -303,6 +431,12 @@ export default function SlugSettingsPage() {
           ? business.social_links : {}) as Record<string, unknown>;
 
         setWebsiteUrl(String(sl.website_url ?? business.website_url ?? ""));
+        setInstagramUrl(
+          String(
+            (business as { instagram?: string }).instagram ??
+              (typeof sl.instagram === "string" ? sl.instagram : "")
+          )
+        );
         setPlan((business.plan === "premium" ? "premium" : "basic") as "basic" | "premium");
         {
           const loaded = String(business.name ?? "").trim();
@@ -330,6 +464,12 @@ export default function SlugSettingsPage() {
           setTraits(["", "", ""]);
         }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
+        {
+          const mt = Array.isArray(sl.membership_tiers) ? sl.membership_tiers : [];
+          setMembershipTiers(mt.length ? mt.map(parseMembershipTier) : []);
+          const pc = Array.isArray(sl.punch_cards) ? sl.punch_cards : [];
+          setPunchCards(pc.length ? pc.map(parsePunchCard) : []);
+        }
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
         const fullWelcome = String(business.welcome_message ?? "");
@@ -471,6 +611,7 @@ export default function SlugSettingsPage() {
         conversions_api_token: conversionsApiToken,
         social_links: {
           website_url: websiteUrl,
+          instagram: instagramUrl.trim(),
           tagline: businessTagline.trim(),
           traits: traits.map((s) => s.trim()).filter(Boolean),
           fact1: (traits[0] ?? "").trim(),
@@ -499,6 +640,31 @@ export default function SlugSettingsPage() {
           followup_after_registration: followupAfterRegistration,
           followup_after_hour_no_registration: followupAfterHourNoRegistration,
           followup_day_after_trial: followupDayAfterTrial,
+          membership_tiers: membershipTiers
+            .filter(
+              (m) =>
+                m.name.trim() ||
+                m.price.trim() ||
+                m.monthlySessions.trim() ||
+                m.notes.trim()
+            )
+            .map((m) => ({
+              id: m.id,
+              name: m.name.trim(),
+              price: m.price.trim(),
+              monthly_sessions: m.monthlySessions.trim(),
+              notes: m.notes.trim(),
+              excluded_service_slugs: m.excludedServiceSlugs,
+            })),
+          punch_cards: punchCards
+            .filter((c) => c.sessionCount.trim() || c.validity.trim() || c.notes.trim())
+            .map((c) => ({
+              id: c.id,
+              session_count: c.sessionCount.trim(),
+              validity: c.validity.trim(),
+              notes: c.notes.trim(),
+              excluded_service_slugs: c.excludedServiceSlugs,
+            })),
         },
       },
       services: services.filter((s) => s.name).map((s) => ({
@@ -522,6 +688,7 @@ export default function SlugSettingsPage() {
       facebookPixelId,
       conversionsApiToken,
       websiteUrl,
+      instagramUrl,
       businessTagline,
       traits,
       address,
@@ -537,6 +704,8 @@ export default function SlugSettingsPage() {
       followupAfterRegistration,
       followupAfterHourNoRegistration,
       followupDayAfterTrial,
+      membershipTiers,
+      punchCards,
       services,
     ]
   );
@@ -897,7 +1066,7 @@ export default function SlugSettingsPage() {
   function nextStep() {
     setStep((s) => {
       let n = Math.min(STEPS.length, s + 1);
-      if (!isPremium && n === 4) n = 5;
+      if (!isPremium && n === 5) n = 6;
       return n;
     });
   }
@@ -905,7 +1074,7 @@ export default function SlugSettingsPage() {
   function prevStep() {
     setStep((s) => {
       let n = Math.max(1, s - 1);
-      if (!isPremium && s === 5 && n === 4) n = 3;
+      if (!isPremium && s === 6 && n === 5) n = 4;
       return n;
     });
   }
@@ -1069,6 +1238,24 @@ export default function SlugSettingsPage() {
                 />
               </Field>
 
+              <Field label="אינסטגרם">
+                <div className="flex flex-row-reverse gap-2 items-stretch">
+                  <span
+                    className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
+                    aria-hidden
+                  >
+                    <InstagramGlyph className="h-5 w-5" />
+                  </span>
+                  <Input
+                    dir="ltr"
+                    className="flex-1 min-w-0"
+                    placeholder="https://instagram.com/..."
+                    value={instagramUrl}
+                    onChange={(e) => setInstagramUrl(e.target.value)}
+                  />
+                </div>
+              </Field>
+
               <Field label="הנחיות הגעה">
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
               </Field>
@@ -1141,10 +1328,14 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 2 — שירותים ════════════════════ */}
+        {/* ════════════════════ STEP 2 — אימון ניסיון ════════════════════ */}
         {step === 2 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={2} title="שירותים" desc="גרור לשינוי סדר עדיפויות" /></CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader n={2} title="אימון ניסיון" desc="סוגי אימונים לשיעור ניסיון — גרור לשינוי סדר" />
+              </CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4">
               {services.map((s, i) => (
                 <div
@@ -1165,7 +1356,7 @@ export default function SlugSettingsPage() {
                         arr[i] = { ...s, name: e.target.value, service_slug: toSlug(e.target.value) };
                         setServices(arr);
                       }}
-                      placeholder="שם השירות *"
+                      placeholder="שם האימון / שיעור הניסיון *"
                       className="flex-1 font-medium"
                     />
                     <button onClick={() => setServices(sv => sv.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400">
@@ -1200,19 +1391,237 @@ export default function SlugSettingsPage() {
                 onClick={() => setServices(sv => [...sv, { ui_id: uid(), name: "", price_text: "", duration: "", payment_link: "", service_slug: "", location_text: address, description: "" }])}
                 className="w-full gap-2"
               >
-                <Plus className="h-4 w-4" /> הוסף שירות
+                <Plus className="h-4 w-4" /> הוסף אימון ניסיון
               </Button>
             </CardContent>
           </Card>
         )}
 
-        {/* ════════════════════ STEP 3 — מסלול מכירה ════════════════════ */}
+        {/* ════════════════════ STEP 3 — כרטיסיות ומנויים ════════════════════ */}
         {step === 3 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
                   n={3}
+                  title="כרטיסיות ומנויים"
+                  desc="מנויים חודשיים וכרטיסיות — זואי תשתמש בזה בתשובות על מחירים והרשמה"
+                />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
+                <p className="text-sm font-semibold text-zinc-900">מנויים</p>
+                <p className="text-xs text-zinc-500">
+                  לכל מנוי: שם, מחיר, כמות אימונים חודשית והערות. ברירת מחדל — כל אימוני הניסיון כלולים; אפשר לסמן חריגות.
+                </p>
+                {membershipTiers.map((m, i) => (
+                  <div
+                    key={m.id}
+                    className="border border-dashed border-zinc-200 rounded-xl p-4 space-y-3 bg-zinc-50/50"
+                  >
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-xs font-medium text-zinc-500">מנוי {i + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => setMembershipTiers((prev) => prev.filter((x) => x.id !== m.id))}
+                        className="p-1 text-zinc-400 hover:text-red-500"
+                        aria-label="הסר מנוי"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <Field label="שם המנוי">
+                      <Input
+                        dir="rtl"
+                        value={m.name}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setMembershipTiers((prev) =>
+                            prev.map((x) => (x.id === m.id ? { ...x, name: v } : x))
+                          );
+                        }}
+                        placeholder="למשל: מנוי בוקר"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="מחיר">
+                        <Input
+                          dir="rtl"
+                          value={m.price}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setMembershipTiers((prev) =>
+                              prev.map((x) => (x.id === m.id ? { ...x, price: v } : x))
+                            );
+                          }}
+                          placeholder="₪ 390 לחודש"
+                        />
+                      </Field>
+                      <Field label="כמות אימונים חודשית">
+                        <Input
+                          dir="rtl"
+                          value={m.monthlySessions}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setMembershipTiers((prev) =>
+                              prev.map((x) => (x.id === m.id ? { ...x, monthlySessions: v } : x))
+                            );
+                          }}
+                          placeholder="8"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="הערות">
+                      <Textarea
+                        value={m.notes}
+                        onChange={(v) =>
+                          setMembershipTiers((prev) =>
+                            prev.map((x) => (x.id === m.id ? { ...x, notes: v } : x))
+                          )
+                        }
+                        rows={2}
+                        placeholder="תנאים, התחייבות, מה כלול…"
+                      />
+                    </Field>
+                    <ServiceExcludePicker
+                      services={services}
+                      excludedSlugs={m.excludedServiceSlugs}
+                      onChange={(next) =>
+                        setMembershipTiers((prev) =>
+                          prev.map((x) => (x.id === m.id ? { ...x, excludedServiceSlugs: next } : x))
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() =>
+                    setMembershipTiers((prev) => [
+                      ...prev,
+                      {
+                        id: uid(),
+                        name: "",
+                        price: "",
+                        monthlySessions: "",
+                        notes: "",
+                        excludedServiceSlugs: [],
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף מנוי
+                </Button>
+              </div>
+
+              <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
+                <p className="text-sm font-semibold text-zinc-900">כרטיסיות</p>
+                <p className="text-xs text-zinc-500">
+                  כמות אימונים, תוקף והערות לכל כרטיסיה. ברירת מחדל — כל אימוני הניסיון כלולים; אפשר לסמן חריגות.
+                </p>
+                {punchCards.map((c, i) => (
+                  <div
+                    key={c.id}
+                    className="border border-dashed border-zinc-200 rounded-xl p-4 space-y-3 bg-zinc-50/50"
+                  >
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-xs font-medium text-zinc-500">כרטיסיה {i + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPunchCards((prev) => prev.filter((x) => x.id !== c.id))}
+                        className="p-1 text-zinc-400 hover:text-red-500"
+                        aria-label="הסר כרטיסיה"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="כמות אימונים">
+                        <Input
+                          dir="rtl"
+                          value={c.sessionCount}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPunchCards((prev) =>
+                              prev.map((x) => (x.id === c.id ? { ...x, sessionCount: v } : x))
+                            );
+                          }}
+                          placeholder="10"
+                        />
+                      </Field>
+                      <Field label="תוקף הכרטיסיה">
+                        <Input
+                          dir="rtl"
+                          value={c.validity}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPunchCards((prev) =>
+                              prev.map((x) => (x.id === c.id ? { ...x, validity: v } : x))
+                            );
+                          }}
+                          placeholder="3 חודשים ממועד הרכישה"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="הערות">
+                      <Textarea
+                        value={c.notes}
+                        onChange={(v) =>
+                          setPunchCards((prev) =>
+                            prev.map((x) => (x.id === c.id ? { ...x, notes: v } : x))
+                          )
+                        }
+                        rows={2}
+                        placeholder="מדיניות ביטול, הרחבות…"
+                      />
+                    </Field>
+                    <ServiceExcludePicker
+                      services={services}
+                      excludedSlugs={c.excludedServiceSlugs}
+                      onChange={(next) =>
+                        setPunchCards((prev) =>
+                          prev.map((x) => (x.id === c.id ? { ...x, excludedServiceSlugs: next } : x))
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() =>
+                    setPunchCards((prev) => [
+                      ...prev,
+                      {
+                        id: uid(),
+                        sessionCount: "",
+                        validity: "",
+                        notes: "",
+                        excludedServiceSlugs: [],
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף כרטיסיה
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
+        {step === 4 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader
+                  n={4}
                   title="מסלול מכירה"
                   desc="מדיה וטקסט פתיחה לווטסאפ, ואז שלבים נוספים באקורדיון — זואי תשתמש בזה בשיחה"
                 />
@@ -1374,7 +1783,7 @@ export default function SlugSettingsPage() {
                   </Button>
                 </div>
                 <p className="text-[11px] text-zinc-500">
-                  הטמפלייט מתעדכן אוטומטית כשנכנסים לשלב הזה אחרי «שירותים» (או כשהשדות ריקים), לפי שם הבוט, שם העסק, תגית ומאפיינים (שלב 1), כתובת ושירותים (שלב 2). שירות יחיד — שאלה וכפתורי ניסיון קודם כברירת מחדל. ניתן לערוך הכל. סגנון הדיבור בשלב 1 משפיע על ניסוח השיחה בזואי.
+                  הטמפלייט מתעדכן אוטומטית כשנכנסים לשלב הזה אחרי «כרטיסיות ומנויים» (או כשהשדות ריקים), לפי שם הבוט, שם העסק, תגית ומאפיינים (שלב 1), כתובת ואימוני ניסיון (שלב 2). אימון ניסיון יחיד — שאלה וכפתורי ניסיון קודם כברירת מחדל. ניתן לערוך הכל. סגנון הדיבור בשלב 1 משפיע על ניסוח השיחה בזואי.
                 </p>
               </div>
 
@@ -1524,10 +1933,14 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 4 — פייסבוק ════════════════════ */}
-        {step === 4 && isPremium ? (
+        {/* ════════════════════ STEP 5 — פייסבוק ════════════════════ */}
+        {step === 5 && isPremium ? (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={4} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" /></CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader n={5} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" />
+              </CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-zinc-900">חבילה 1 — חיבור בסיסי</p>
@@ -1561,15 +1974,15 @@ export default function SlugSettingsPage() {
           </Card>
         ) : null}
 
-        {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
-        {step === 5 && (
+        {/* ════════════════════ STEP 6 — פולואפ ════════════════════ */}
+        {step === 6 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={5}
+                  n={6}
                   title="פולואפ"
-                  desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, שירותים וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהידע בהגדרות, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
+                  desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, אימוני ניסיון וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהידע בהגדרות, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
                 />
               </CardTitle>
             </CardHeader>
@@ -1618,7 +2031,7 @@ export default function SlugSettingsPage() {
           </div>
 
           <WhatsAppSettingsPreview
-            step={step as 1 | 2 | 3 | 4 | 5}
+            step={step as 1 | 2 | 3 | 4 | 5 | 6}
             botName={botName}
             businessName={name}
             openingMediaUrl={openingMediaUrl}
