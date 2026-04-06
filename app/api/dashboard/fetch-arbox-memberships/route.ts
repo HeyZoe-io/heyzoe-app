@@ -224,6 +224,76 @@ async function loadPageText(url: string): Promise<string> {
   return text.slice(0, PAGE_TEXT_MAX_CHARS);
 }
 
+/** כשהמודל מחזיר מערכים ריקים — חילוץ גס משורות עם ₪ (פורמט Jina מארבוקס) */
+function heuristicExtractArboxPlans(pageText: string): {
+  membership_tiers: Array<{
+    name: string;
+    price: string;
+    monthly_sessions: string;
+    notes: string;
+  }>;
+  punch_cards: Array<{
+    session_count: string;
+    validity: string;
+    notes: string;
+  }>;
+} {
+  const lines = pageText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const tiers: Array<{
+    name: string;
+    price: string;
+    monthly_sessions: string;
+    notes: string;
+  }> = [];
+  const cards: Array<{
+    session_count: string;
+    validity: string;
+    notes: string;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/(?:₪|NIS)\s*[\d,]+/i.test(line)) continue;
+    const prev = lines[i - 1];
+    if (!prev || prev.length > 160) continue;
+    const dedupeKey = `${prev.slice(0, 72)}|${line.slice(0, 48)}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const priceMatch = line.match(/(?:₪|NIS)\s*[\d,]+/i);
+    const price = priceMatch ? priceMatch[0].trim() : "";
+    const afterPrice = priceMatch
+      ? line.slice(line.indexOf(priceMatch[0]) + priceMatch[0].length).trim()
+      : line;
+    const hay = `${prev} ${line}`.toLowerCase();
+
+    const looksPack =
+      /\bpass\b|packs?|session\s*packs?|\(x\d+\)/i.test(hay) ||
+      /for\s+\d+\s+sessions?/i.test(line) ||
+      /for\s+1\s+session/i.test(line);
+
+    if (looksPack) {
+      const sm = line.match(/(\d+)\s*sessions?/i);
+      cards.push({
+        session_count: sm ? sm[1] : "1",
+        validity: afterPrice.replace(/^[,.\s-]+/g, "").slice(0, 130) || line.slice(0, 120),
+        notes: prev,
+      });
+    } else {
+      const cm = line.match(/(\d+)\s*classes?\s*\/?\s*month/i);
+      tiers.push({
+        name: prev,
+        price: price || line.trim(),
+        monthly_sessions: cm ? cm[1] : /unlimited/i.test(line) ? "ללא הגבלה" : "",
+        notes: afterPrice.slice(0, 180),
+      });
+    }
+  }
+
+  return { membership_tiers: tiers.slice(0, 24), punch_cards: cards.slice(0, 24) };
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -264,6 +334,7 @@ export async function POST(req: NextRequest) {
 
 חלץ מנויים חודשיים/מנויים מתמשכים וכרטיסיות/חבילות כניסות. אם סוג מסוים לא מופיע — החזר מערך ריק.
 שמות ומחירים כפי שמופיעים בטקסט (אפשר בעברית או באנגלית). monthly_sessions = מספר אימונים/כניסות לחודש אם מצוין, אחרת "".
+הטקסט עלול להגיע כמרקדאון מ־Jina: כותרת שורה, שורת שם מנוי, שורת מחיר עם ₪ ו־"per Month" או "for N sessions" — חלץ הכל לפריטים במערכים.
 
 החזר אובייקט JSON תקף בלבד — בלי טקסט לפני או אחרי, בלי markdown.
 
@@ -387,7 +458,15 @@ ${pageText.slice(0, 6000)}`;
     )
     .slice(0, 24);
 
-  if (!membership_tiers.length && !punch_cards.length) {
+  let finalTiers = membership_tiers;
+  let finalCards = punch_cards;
+  if (!finalTiers.length && !finalCards.length) {
+    const h = heuristicExtractArboxPlans(pageText);
+    finalTiers = h.membership_tiers;
+    finalCards = h.punch_cards;
+  }
+
+  if (!finalTiers.length && !finalCards.length) {
     return NextResponse.json({
       membership_tiers: [],
       punch_cards: [],
@@ -397,5 +476,16 @@ ${pageText.slice(0, 6000)}`;
     });
   }
 
-  return NextResponse.json({ membership_tiers, punch_cards });
+  const usedHeuristic = finalTiers.length + finalCards.length > 0 && !membership_tiers.length && !punch_cards.length;
+  return NextResponse.json({
+    membership_tiers: finalTiers,
+    punch_cards: finalCards,
+    ...(usedHeuristic
+      ? {
+          warning: "heuristic_extract",
+          message:
+            "הושלמו נתונים לפי מחירים ושורות בטקסט (ללא מודל). מומלץ לעבור על השדות ולדייק.",
+        }
+      : {}),
+  });
 }

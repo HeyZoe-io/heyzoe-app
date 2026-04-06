@@ -41,8 +41,9 @@ const FRIENDLY: SalesFlowConfig = {
   greeting_line_tagline: "{tagline}",
   greeting_closer: "נשמח מאוד לארח אותך אצלנו!",
   multi_service_question:
-    "כדי שאוכל לך בול מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
-  after_service_pick: "אוקיי מדהים, {serviceName} — {benefitLine}",
+    "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
+  after_service_pick:
+    "אוקיי מדהים! {serviceName}. {benefitLine} — דרך נעימה להתקדם, להרגיש את הגוף ולהיות חלק מקהילה תומכת.",
   experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
   experience_options: [
     "כן, לא מעט פעמים!",
@@ -138,8 +139,17 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     greeting_line_tagline:
       typeof o.greeting_line_tagline === "string" ? o.greeting_line_tagline : base.greeting_line_tagline,
     greeting_closer: typeof o.greeting_closer === "string" ? o.greeting_closer : base.greeting_closer,
-    multi_service_question:
-      typeof o.multi_service_question === "string" ? o.multi_service_question : base.multi_service_question,
+    multi_service_question: (() => {
+      const raw =
+        typeof o.multi_service_question === "string" ? o.multi_service_question : base.multi_service_question;
+      if (raw.includes("כדי שאוכל לך בול מה שמעניין אותך")) {
+        return raw.replace(
+          "כדי שאוכל לך בול מה שמעניין אותך",
+          "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך"
+        );
+      }
+      return raw;
+    })(),
     after_service_pick:
       typeof o.after_service_pick === "string" ? o.after_service_pick : base.after_service_pick,
     experience_question:
@@ -348,13 +358,16 @@ export function formatSalesFlowForPrompt(
 - אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude), ואז חזרי מיד לשאלה הבאה בפלואו עם אותן אפשרויות בחירה.
 - משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה (כשורות ממוספרות) — לפחות צפייה במערכת שעות, הרשמה לניסיון, מחירי מנויים — לפי התוויות והלינקים/ידע למטה.
 
-שלבי פתיחה (אחרי הודעת המערכת הראשונה שכבר נשלחה):
-1) אם מספר אימונים > 1: אחרי שבחרו אימון — מענה לפי התבנית (עם שם אימון + יתרון), ואז שאלת ניסיון קודם + 3 אפשרויות מהגדרות.
-   תבנית מענה אחרי בחירת אימון: ${c.after_service_pick}
-   שאלה: ${c.experience_question}
-   אפשרויות: ${c.experience_options.join(" | ")}
-2) מענה אחרי בחירה בשאלת הניסיון: ${c.after_experience}
-${formatExtraSteps("שאלות נוספות לסשן פתיחה (חובה לשאול לפי הסדר אחרי השלבים למעלה)", c.opening_extra_steps)}
+סשן פתיחה (אחרי הודעת המערכת הראשונה):
+- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובשורת היתרון המדויקת מהטבלה למטה; אל תחליפי בניסוח גנרי כמו "חוזק, גמישות, קהילה" במקום התוכן מההגדרות.
+  תבנית מענה אחרי בחירת אימון: ${c.after_service_pick}
+
+סשן חימום (מומלץ לא יותר מ־2–3 שאלות בסך הכול):
+- שאלת ניסיון קודם + שלוש האפשרויות מהגדרות (בלי מספור, כמו כפתורים).
+  שאלה: ${c.experience_question}
+  אפשרויות: ${c.experience_options.join(" | ")}
+- מענה אחרי בחירה בשאלת הניסיון: ${c.after_experience}
+${formatExtraSteps("שאלות נוספות לסשן חימום (לפי הסדר אחרי השלבים למעלה)", c.opening_extra_steps)}
 
 שלב הנעה לפעולה:
 גוף הודעה מוצע: ${c.cta_body}
