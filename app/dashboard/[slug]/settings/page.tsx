@@ -1496,14 +1496,26 @@ export default function SlugSettingsPage() {
               {services.map((s, i) => (
                 <div
                   key={s.ui_id}
-                  draggable
-                  onDragStart={() => onDragStart(i)}
-                  onDragOver={e => onDragOver(e, i)}
-                  onDragEnd={onDragEnd}
+                  onDragOver={(e) => onDragOver(e, i)}
                   className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
                 >
                   <div className="flex gap-2 items-center">
-                    <GripVertical className="h-4 w-4 text-zinc-300 cursor-grab shrink-0" />
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        onDragStart(i);
+                      }}
+                      onDragEnd={(e) => {
+                        e.stopPropagation();
+                        onDragEnd();
+                      }}
+                      className="inline-flex items-center justify-center p-1 -m-1 rounded-lg cursor-grab active:cursor-grabbing text-zinc-300 hover:text-zinc-500 shrink-0 touch-none select-none"
+                      aria-label="גרירה לשינוי סדר"
+                      title="גררו מהאייקון כדי לסדר מחדש"
+                    >
+                      <GripVertical className="h-4 w-4 pointer-events-none" />
+                    </span>
                     <Input
                       dir="rtl"
                       value={s.name}
@@ -1529,7 +1541,7 @@ export default function SlugSettingsPage() {
                     </Field>
                   </div>
 
-                  <Field label="לינק סליקה (אופציונלי)">
+                  <Field label="לינק סליקה *">
                     <div className="flex gap-2 items-center">
                       <Link className="h-4 w-4 text-zinc-400 shrink-0" />
                       <Input dir="ltr" value={s.payment_link} onChange={e => { const arr = [...services]; arr[i] = { ...s, payment_link: e.target.value }; setServices(arr); }} placeholder="https://..." />
