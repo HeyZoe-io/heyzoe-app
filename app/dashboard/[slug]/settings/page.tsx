@@ -277,6 +277,9 @@ export default function SlugSettingsPage() {
   const [fetchingUrl, setFetchingUrl]         = useState(false);
   const [fetchSiteError, setFetchSiteError]   = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
+  const [fetchingArbox, setFetchingArbox] = useState(false);
+  const [fetchArboxError, setFetchArboxError] = useState("");
+  const [fetchArboxNotice, setFetchArboxNotice] = useState("");
   const [businessNameEditing, setBusinessNameEditing] = useState(false);
   const [canAutosave, setCanAutosave] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -296,6 +299,8 @@ export default function SlugSettingsPage() {
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
+  /** דף מנויים/חבילות בארבוקס — סריקה לטאב כרטיסיות ומנויים */
+  const [arboxMembershipsUrl, setArboxMembershipsUrl] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
   const [showTokenHelp, setShowTokenHelp] = useState(false);
@@ -535,6 +540,7 @@ export default function SlugSettingsPage() {
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
+        setArboxMembershipsUrl(String(sl.arbox_memberships_url ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -552,7 +558,9 @@ export default function SlugSettingsPage() {
           serviceNames: svcNamesForFollowup,
           address: String(sl.address ?? ""),
           tagline: typeof sl.tagline === "string" ? sl.tagline.trim() : "",
-          hasBookingLink: Boolean(String(sl.arbox_link ?? "").trim()),
+          hasBookingLink: Boolean(
+            String(sl.arbox_link ?? "").trim() || String(sl.arbox_memberships_url ?? "").trim()
+          ),
         });
         const regSaved =
           typeof sl.followup_after_registration === "string" ? sl.followup_after_registration.trim() : "";
@@ -650,6 +658,7 @@ export default function SlugSettingsPage() {
           segmentation_questions: segQuestions,
           quick_replies: quickReplies,
           arbox_link: arboxLink,
+          arbox_memberships_url: arboxMembershipsUrl.trim(),
           objections,
           followup_after_registration: followupAfterRegistration,
           followup_after_hour_no_registration: followupAfterHourNoRegistration,
@@ -715,6 +724,7 @@ export default function SlugSettingsPage() {
       segQuestions,
       quickReplies,
       arboxLink,
+      arboxMembershipsUrl,
       objections,
       followupAfterRegistration,
       followupAfterHourNoRegistration,
@@ -825,12 +835,12 @@ export default function SlugSettingsPage() {
       serviceNames: services.map((s) => s.name.trim()).filter(Boolean),
       address: address.trim(),
       tagline: businessTagline.trim(),
-      hasBookingLink: Boolean(arboxLink.trim()),
+      hasBookingLink: Boolean(arboxLink.trim() || arboxMembershipsUrl.trim()),
     });
     setFollowupAfterRegistration(pack.followupAfterRegistration);
     setFollowupAfterHourNoRegistration(pack.followupAfterHourNoRegistration);
     setFollowupDayAfterTrial(pack.followupDayAfterTrial);
-  }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
+  }, [arboxLink, arboxMembershipsUrl, botName, businessTagline, name, niche, services, slug, vibe, address]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
@@ -987,22 +997,101 @@ export default function SlugSettingsPage() {
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
       if (Array.isArray(j.products) && j.products.length > 0) {
         setServices(
-          j.products.slice(0, 8).map((p: Record<string, unknown>) => ({
-            ui_id: uid(),
-            name: String(p.name ?? "").trim(),
-            price_text: String(p.price_text ?? "").trim(),
-            duration: "",
-            payment_link: "",
-            service_slug: toSlug(String(p.name ?? "")),
-            location_text: String(p.location_text ?? "").trim() || addrFallback,
-            description: String(p.description ?? "").trim(),
-            benefit_line: "",
-          }))
+          j.products.slice(0, 8).map((p: Record<string, unknown>) => {
+            const benefits = Array.isArray(p.benefits)
+              ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+              : [];
+            const sugg = Array.isArray(p.benefit_suggestions)
+              ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+              : [];
+            const benefit_line = benefits.join(" · ") || sugg[0] || "";
+            return {
+              ui_id: uid(),
+              name: String(p.name ?? "").trim(),
+              price_text: String(p.price_text ?? "").trim(),
+              duration: "",
+              payment_link: "",
+              service_slug: toSlug(String(p.name ?? "")),
+              location_text: String(p.location_text ?? "").trim() || addrFallback,
+              description: String(p.description ?? "").trim(),
+              benefit_line,
+            };
+          })
         );
       }
       setStep(1);
     } finally {
       setFetchingUrl(false);
+    }
+  }
+
+  async function fetchArboxMemberships() {
+    const u = arboxMembershipsUrl.trim() || arboxLink.trim();
+    if (!u) {
+      setFetchArboxError("הזינו קישור לדף מנויים בארבוקס.");
+      return;
+    }
+    setFetchingArbox(true);
+    setFetchArboxError("");
+    setFetchArboxNotice("");
+    try {
+      const res = await fetch("/api/dashboard/fetch-arbox-memberships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u }),
+      });
+      const j = (await res.json()) as Record<string, unknown>;
+      const msgStr = typeof j.message === "string" ? j.message.trim() : "";
+      if (!res.ok) {
+        setFetchArboxError(
+          msgStr ||
+            (j.error === "unauthorized"
+              ? "נדרשת התחברות מחדש."
+              : j.error === "missing_anthropic_key"
+                ? "חסר מפתח AI בשרת."
+                : "המשיכה מארבוקס נכשלה. נסו שוב או מלאו ידנית.")
+        );
+        return;
+      }
+      if (typeof j.warning === "string" && j.warning && msgStr) {
+        setFetchArboxNotice(msgStr);
+      }
+      const mt = Array.isArray(j.membership_tiers) ? j.membership_tiers : [];
+      const pc = Array.isArray(j.punch_cards) ? j.punch_cards : [];
+      if (mt.length) {
+        setMembershipTiers(
+          mt
+            .filter((row): row is Record<string, unknown> => row !== null && typeof row === "object")
+            .map((row) => ({
+              id: uid(),
+              name: String(row.name ?? "").trim(),
+              price: String(row.price ?? "").trim(),
+              monthlySessions: String(row.monthly_sessions ?? "").trim(),
+              notes: String(row.notes ?? "").trim(),
+              excludedServiceSlugs: [] as string[],
+            }))
+        );
+      }
+      if (pc.length) {
+        setPunchCards(
+          pc
+            .filter((row): row is Record<string, unknown> => row !== null && typeof row === "object")
+            .map((row) => ({
+              id: uid(),
+              sessionCount: String(row.session_count ?? "").trim(),
+              validity: String(row.validity ?? "").trim(),
+              notes: String(row.notes ?? "").trim(),
+              excludedServiceSlugs: [] as string[],
+            }))
+        );
+      }
+      if (!mt.length && !pc.length && !msgStr) {
+        setFetchArboxNotice("לא נמצאו מנויים או כרטיסיות — בדקו את הקישור או מלאו ידנית.");
+      }
+    } catch {
+      setFetchArboxError("בעיית רשת במשיכת ארבוקס.");
+    } finally {
+      setFetchingArbox(false);
     }
   }
 
@@ -1348,10 +1437,32 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={2} title="אימון ניסיון" desc="סוגי אימונים לשיעור ניסיון — גרור לשינוי סדר" />
+                <StepHeader
+                  n={2}
+                  title="אימון ניסיון"
+                  desc="רשימת סוגי האימונים/שירותים — ממולאת אוטומטית מסריקת האתר ב«פרטי העסק». אפשר לערוך, לגרור לסדר או לסרוק שוב."
+                />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center sm:justify-between rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 shrink-0 h-9 text-sm"
+                  onClick={() => void fetchSite()}
+                  disabled={!websiteUrl.trim() || fetchingUrl}
+                >
+                  {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {fetchingUrl ? "סורק..." : "סרוק שוב מהאתר"}
+                </Button>
+                <p className="text-xs text-zinc-600 text-right leading-snug">
+                  {!websiteUrl.trim()
+                    ? "הוסיפו כתובת אתר בטאב «פרטי העסק» ולחצו «סרוק» כדי למלא את הרשימה."
+                    : "הסריקה מעדכנת גם שדות בפרטי העסק — רק אם רוצים לרענן את השירותים מהאתר."}
+                </p>
+              </div>
+
               {services.map((s, i) => (
                 <div
                   key={s.ui_id}
@@ -1371,7 +1482,7 @@ export default function SlugSettingsPage() {
                         arr[i] = { ...s, name: e.target.value, service_slug: toSlug(e.target.value) };
                         setServices(arr);
                       }}
-                      placeholder="שם האימון / שיעור הניסיון *"
+                      placeholder="שם השירות / סוג האימון *"
                       className="flex-1 font-medium"
                     />
                     <button onClick={() => setServices(sv => sv.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400">
@@ -1380,37 +1491,38 @@ export default function SlugSettingsPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                  <Field label="מחיר שיעור">
-                    <Input dir="rtl" value={s.price_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, price_text: e.target.value }; setServices(arr); }} placeholder="₪ 80 לשיעור ניסיון" />
+                    <Field label="מחיר">
+                      <Input dir="rtl" value={s.price_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, price_text: e.target.value }; setServices(arr); }} placeholder="₪ 80" />
                     </Field>
-                  <Field label="משך שיעור">
-                      <Input dir="rtl" value={s.duration} onChange={e => { const arr = [...services]; arr[i] = { ...s, duration: e.target.value }; setServices(arr); }} placeholder="60 דקות" />
+                    <Field label="משך">
+                      <Input dir="rtl" value={s.duration} onChange={e => { const arr = [...services]; arr[i] = { ...s, duration: e.target.value }; setServices(arr); }} placeholder="60 דק׳" />
                     </Field>
                   </div>
 
-                  <Field label="לינק סליקה">
+                  <Field label="לינק סליקה (אופציונלי)">
                     <div className="flex gap-2 items-center">
                       <Link className="h-4 w-4 text-zinc-400 shrink-0" />
-                      <Input dir="ltr" value={s.payment_link} onChange={e => { const arr = [...services]; arr[i] = { ...s, payment_link: e.target.value }; setServices(arr); }} placeholder="https://payment.link/..." />
+                      <Input dir="ltr" value={s.payment_link} onChange={e => { const arr = [...services]; arr[i] = { ...s, payment_link: e.target.value }; setServices(arr); }} placeholder="https://..." />
                     </div>
                   </Field>
 
-                  <Field label="יתרון קצר אחרי בחירת האימון (בפלואו)">
-                    <Input
-                      dir="rtl"
-                      value={s.benefit_line}
-                      onChange={(e) => {
-                        const arr = [...services];
-                        arr[i] = { ...s, benefit_line: e.target.value };
-                        setServices(arr);
-                      }}
-                      placeholder="למשל: חיזוק ליבה, גמישות ושחרור מתח"
-                    />
-                  </Field>
-
-                  <Field label="מיקום">
-                    <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder="תל אביב / אונליין" />
-                  </Field>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="שורת יתרון בפלואו">
+                      <Input
+                        dir="rtl"
+                        value={s.benefit_line}
+                        onChange={(e) => {
+                          const arr = [...services];
+                          arr[i] = { ...s, benefit_line: e.target.value };
+                          setServices(arr);
+                        }}
+                        placeholder="למשל: חיזוק ליבה וגמישות"
+                      />
+                    </Field>
+                    <Field label="מיקום">
+                      <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder={address || "תל אביב"} />
+                    </Field>
+                  </div>
                 </div>
               ))}
 
@@ -1434,7 +1546,7 @@ export default function SlugSettingsPage() {
                 }
                 className="w-full gap-2"
               >
-                <Plus className="h-4 w-4" /> הוסף אימון ניסיון
+                <Plus className="h-4 w-4" /> הוסף שורה
               </Button>
             </CardContent>
           </Card>
@@ -1453,6 +1565,45 @@ export default function SlugSettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-8">
+              <div className="space-y-3 border border-[rgba(113,51,218,0.15)] rounded-2xl p-4 bg-[#faf8ff]">
+                <Field label="קישור לדף מנויים / חבילות בארבוקס">
+                  <Input
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    placeholder="https://....web.arboxapp.com/membership?..."
+                    value={arboxMembershipsUrl}
+                    onChange={(e) => setArboxMembershipsUrl(e.target.value)}
+                  />
+                </Field>
+                <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                  זואי משתמשת בקישור בהקשר מחירים והרשמה. אפשר למשוך מנויים וכרטיסיות אוטומטית מהדף (טקסט שנסרק) — אם הדף ריק, מלאו ידנית למטה.
+                </p>
+                <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
+                  <Button
+                    type="button"
+                    className="gap-2 shrink-0"
+                    disabled={fetchingArbox || (!arboxMembershipsUrl.trim() && !arboxLink.trim())}
+                    onClick={() => void fetchArboxMemberships()}
+                  >
+                    {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {fetchingArbox ? "מושך מארבוקס..." : "משוך מנויים וכרטיסיות מהדף"}
+                  </Button>
+                  {!arboxMembershipsUrl.trim() && arboxLink.trim() ? (
+                    <p className="text-xs text-zinc-500 text-right">אין קישור כאן — ייעשה שימוש בלינק מערכת השעות מפרטי העסק.</p>
+                  ) : null}
+                </div>
+                {fetchArboxError ? (
+                  <p className="text-sm text-red-600" role="alert">
+                    {fetchArboxError}
+                  </p>
+                ) : null}
+                {fetchArboxNotice ? (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    {fetchArboxNotice}
+                  </p>
+                ) : null}
+              </div>
+
               <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
                 <p className="text-sm font-semibold text-zinc-900">מנויים</p>
                 <p className="text-xs text-zinc-500">
