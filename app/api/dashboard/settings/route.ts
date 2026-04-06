@@ -14,6 +14,27 @@ function normSlug(s: unknown): string {
   return String(s ?? "").trim().toLowerCase();
 }
 
+function latinSlugPart(input: string): string {
+  return String(input ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/** שמות שירות בעברית בלבד נתנו slug ריק — לפני כן השורות לא נשמרו בכלל */
+function ensureServiceInsertSlug(name: string, provided: string, rowIndex: number): string {
+  let s = latinSlugPart(provided);
+  if (s.length >= 2) return s.slice(0, 80);
+  s = latinSlugPart(name);
+  if (s.length >= 2) return s.slice(0, 80);
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return `trial-${rowIndex}-${Math.abs(h).toString(36)}`.slice(0, 80);
+}
+
 type BizRow = Record<string, unknown> & {
   id?: number;
   slug?: string;
@@ -194,15 +215,27 @@ export async function POST(req: NextRequest) {
   await admin.from("services").delete().eq("business_id", savedBiz.id);
   await admin.from("faqs").delete().eq("business_id", savedBiz.id);
 
-  const servicesPayload = services.map((s) => ({
-    business_id: savedBiz.id,
-    name: String(s.name ?? ""),
-    description: String(s.description ?? ""),
-    location_mode: String(s.location_mode ?? "online"),
-    location_text: String(s.location_text ?? ""),
-    price_text: String(s.price_text ?? ""),
-    service_slug: String(s.service_slug ?? ""),
-  })).filter((s) => s.name && s.service_slug);
+  const namedRows = services.filter((s) => String(s.name ?? "").trim());
+  const usedServiceSlugs = new Set<string>();
+  const servicesPayload = namedRows.map((s, index) => {
+    const name = String(s.name ?? "").trim();
+    let slug = ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index);
+    let bump = 0;
+    while (usedServiceSlugs.has(slug)) {
+      bump += 1;
+      slug = `${ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index)}-${bump}`.slice(0, 80);
+    }
+    usedServiceSlugs.add(slug);
+    return {
+      business_id: savedBiz.id,
+      name,
+      description: String(s.description ?? ""),
+      location_mode: String(s.location_mode ?? "online"),
+      location_text: String(s.location_text ?? ""),
+      price_text: String(s.price_text ?? ""),
+      service_slug: slug,
+    };
+  });
 
   let insertedServices: Array<{ id: number; service_slug: string }> = [];
   if (servicesPayload.length) {
