@@ -16,7 +16,8 @@ async function ensurePublicBucket(
 ): Promise<{ ok: boolean; error?: string }> {
   const { error } = await admin.storage.createBucket(bucketId, {
     public: true,
-    fileSizeLimit: 5 * 1024 * 1024,
+    /** תואם מדיה לפתיחה (Signed URL) עד 16MB — לוגו עדיין קטן בפרקטיקה */
+    fileSizeLimit: 16 * 1024 * 1024,
   });
   if (!error) return { ok: true };
   const msg = error.message ?? "";

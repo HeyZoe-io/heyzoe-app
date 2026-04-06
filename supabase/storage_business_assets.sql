@@ -1,6 +1,7 @@
--- דלי ציבורי להעלאת מדיה (פתיחת ווטסאפ, לוגו). הרצה ב-Supabase → SQL Editor אם אין יצירה אוטומטית מהאפליקציה.
+-- דלי ציבורי להעלאת מדיה (פתיחת ווטסאפ, לוגו). מגבלת קובץ 16MB (העלאת מדיה מהדפדפן דרך Signed URL).
+-- אם הדלי כבר קיים: Storage → business-assets → Edit → File size limit → 16MB.
 insert into storage.buckets (id, name, public, file_size_limit)
-values ('business-assets', 'business-assets', true, 5242880)
+values ('business-assets', 'business-assets', true, 16777216)
 on conflict (id) do nothing;
 
 -- קריאה ציבורית לקבצים (getPublicUrl)
