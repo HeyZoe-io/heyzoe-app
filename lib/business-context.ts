@@ -17,6 +17,8 @@ export type BusinessKnowledgePack = {
   businessDescription: string;
   addressText: string;
   arboxLink: string;
+  /** דף מנויים/חבילות בארבוקס (אם הוגדר בנפרד מלינק השעות) */
+  arboxMembershipsUrl: string;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
@@ -178,6 +180,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const addressText = typeof social.address === "string" ? String(social.address) : "";
     const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link) : "";
+    const arboxMembershipsUrl =
+      typeof social.arbox_memberships_url === "string" ? String(social.arbox_memberships_url).trim() : "";
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
     const openingMediaType =
@@ -271,6 +275,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
       arboxLink,
+      arboxMembershipsUrl,
       openingMediaUrl,
       openingMediaType,
       servicesShortText,
@@ -377,7 +382,8 @@ ${knowledge?.faqsText ?? "לא הוגדר"}
 CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא הוגדר"}
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
-שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}`;
+שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
+${knowledge?.arboxMembershipsUrl ? `קישור דף מנויים/חבילות (ארבוקס): ${knowledge.arboxMembershipsUrl}` : ""}`;
 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
   const openingQ = knowledge?.welcomeQuestionText?.trim() ?? "";
@@ -401,7 +407,7 @@ ${saleFlowExtra}`;
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה מהדשבורד):
 - הודעת הפתיחה נשלחת אוטומטית מהמערכת לפי ההגדרות — אל תחזירי אותה מחדש בתשובתך הראשונה אלא אם התבקשת במפורש.
 ${saleFlowExtra}
-- אם יש לינק Arbox/שעות: ${knowledge?.arboxLink ? "הציעי אותו כשמתאים להרשמה." : "אין לינק — אל תמציאי."}
+- אם יש לינק Arbox/שעות או דף מנויים: ${knowledge?.arboxLink || knowledge?.arboxMembershipsUrl ? "הציעי את הקישור המתאים (הרשמה / מחירים) כשזה עוזר ללקוח — בלי למציא קישורים." : "אין לינק — אל תמציאי."}
 - לעולם אל תשתמשי ב-Markdown או ברשימות תבליטים; בוואטסאפ הטקסט חייב להיות פשוט וברור.
 `;
 }
