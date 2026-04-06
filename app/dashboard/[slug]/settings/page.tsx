@@ -1262,7 +1262,7 @@ export default function SlugSettingsPage() {
               </Field>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-zinc-700 block">מאפיינים שווה לציין</label>
+                <label className="text-sm font-medium text-zinc-700 block">כל העובדות שכדאי לציין על העסק</label>
                 <div className="space-y-2">
                   {traits.map((row, i) => (
                     <div key={i} className="flex gap-2 items-center">
