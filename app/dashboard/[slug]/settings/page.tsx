@@ -107,6 +107,21 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
   return typed.split(serviceName).join("{serviceName}");
 }
 
+function afterPickForDisplay(stored: string, serviceName: string, benefit: string): string {
+  return stored
+    .replace(/\{serviceName\}/g, serviceName.trim() || "שם האימון שנבחר")
+    .replace(/\{benefitLine\}/g, benefit.trim() || "שורת יתרון מההגדרות");
+}
+
+function afterPickToStore(typed: string, serviceName: string, benefit: string): string {
+  let s = typed;
+  const ben = benefit.trim();
+  const sn = serviceName.trim();
+  if (ben && s.includes(ben)) s = s.split(ben).join("{benefitLine}");
+  if (sn && s.includes(sn)) s = s.split(sn).join("{serviceName}");
+  return s;
+}
+
 /** שם תצוגה מ־slug כשאין שם שמור בדאטהבייס */
 function displayNameFromSlug(s: string) {
   const parts = s.trim().split("-").filter(Boolean);
@@ -378,6 +393,14 @@ export default function SlugSettingsPage() {
     () => services.map((s) => s.name.trim()).filter(Boolean),
     [services]
   );
+
+  /** דוגמה לתבניות שמכילות שם אימון ויתרון — לפי האימון הראשון ברשימה */
+  const firstTrialForTemplates = useMemo(() => {
+    const n = trialServiceNames[0];
+    if (!n) return { name: "", benefit: "" };
+    const row = services.find((s) => s.name.trim() === n);
+    return { name: n, benefit: (row?.benefit_line ?? "").trim() };
+  }, [trialServiceNames, services]);
 
   const prevStepForServicesRef = useRef(step);
   useEffect(() => {
@@ -2000,20 +2023,6 @@ export default function SlugSettingsPage() {
                   >
                     חזרה לטקסט אוטומטי משלב 1
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() =>
-                      setSalesFlowConfig((c) => ({
-                        ...c,
-                        greeting_body_override: salesOpeningAutoText,
-                      }))
-                    }
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    עדכן מהשמות והתיאור הנוכחיים
-                  </Button>
                 </div>
 
                 {trialServiceNames.length > 1 ? (
@@ -2029,14 +2038,90 @@ export default function SlugSettingsPage() {
                       />
                     </Field>
                     <p className="text-xs text-zinc-500 text-right">
-                      כפתורי הבחירה יוצגו לפי שמות האימונים שהגדרת ב«אימון ניסיון» (ברשימה ממוספרת).
+                      עד שלושה אימונים — כל אימון מוצג ככפתור בווטסאפ; מעל שלושה תופיע רשימה ממוספרת.
                     </p>
+
+                    <Field label="מענה אחרי שבחירת האימון">
+                      <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
+                        המערכת מחליפה אוטומטית את שם האימון שנבחר ואת שורת היתרון שלו מהגדרות «אימון ניסיון».
+                        כאן מוצגת דוגמה לפי האימון הראשון ברשימה — אפשר לערוך את הניסוח הכללי.
+                      </p>
+                      <Input
+                        dir="rtl"
+                        value={afterPickForDisplay(
+                          salesFlowConfig.after_service_pick,
+                          firstTrialForTemplates.name,
+                          firstTrialForTemplates.benefit
+                        )}
+                        onChange={(e) =>
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            after_service_pick: afterPickToStore(
+                              e.target.value,
+                              firstTrialForTemplates.name,
+                              firstTrialForTemplates.benefit
+                            ),
+                          }))
+                        }
+                        placeholder="אוקיי מדהים, …"
+                      />
+                    </Field>
+
+                    <Field label="שאלת ניסיון קודם">
+                      <Input
+                        dir="rtl"
+                        value={experienceQuestionForDisplay(
+                          salesFlowConfig.experience_question,
+                          firstTrialForTemplates.name
+                        )}
+                        onChange={(e) =>
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            experience_question: experienceQuestionToStore(
+                              e.target.value,
+                              firstTrialForTemplates.name
+                            ),
+                          }))
+                        }
+                        placeholder="למשל: יצא לך לנסות בעבר?"
+                      />
+                    </Field>
+                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([0, 1, 2] as const).map((i) => (
+                        <Field key={i} label={`כפתור ${i + 1}`}>
+                          <Input
+                            dir="rtl"
+                            value={salesFlowConfig.experience_options[i]}
+                            onChange={(e) => {
+                              const next = [...salesFlowConfig.experience_options] as [
+                                string,
+                                string,
+                                string,
+                              ];
+                              next[i] = e.target.value;
+                              setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
+                            }}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                    <Field label="מענה אחרי בחירה בשאלת הניסיון">
+                      <Textarea
+                        value={salesFlowConfig.after_experience}
+                        onChange={(v) =>
+                          setSalesFlowConfig((c) => ({ ...c, after_experience: v }))
+                        }
+                        rows={2}
+                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
+                      />
+                    </Field>
                   </>
                 ) : null}
 
                 {trialServiceNames.length === 1 ? (
                   <>
-                    <Field label="שאלה (אחרי הפתיחה)">
+                    <Field label="שאלת ניסיון קודם (אחרי הפתיחה)">
                       <Input
                         dir="rtl"
                         value={experienceQuestionForDisplay(
@@ -2058,7 +2143,7 @@ export default function SlugSettingsPage() {
                     <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {([0, 1, 2] as const).map((i) => (
-                        <Field key={i} label={`אפשרות ${i + 1}`}>
+                        <Field key={i} label={`כפתור ${i + 1}`}>
                           <Input
                             dir="rtl"
                             value={salesFlowConfig.experience_options[i]}
@@ -2075,6 +2160,16 @@ export default function SlugSettingsPage() {
                         </Field>
                       ))}
                     </div>
+                    <Field label="מענה אחרי בחירה בשאלת הניסיון">
+                      <Textarea
+                        value={salesFlowConfig.after_experience}
+                        onChange={(v) =>
+                          setSalesFlowConfig((c) => ({ ...c, after_experience: v }))
+                        }
+                        rows={2}
+                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
+                      />
+                    </Field>
                   </>
                 ) : null}
 

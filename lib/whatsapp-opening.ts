@@ -23,8 +23,8 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
     const lines: string[] = [];
     if (intro) lines.push(intro);
     if (q) lines.push(q);
-    opts.forEach((o, i) => lines.push(`${i + 1}. ${o}`));
-    lines.push("\nניתן לענות במספר או לפי שם הכפתור.");
+    opts.forEach((o) => lines.push(o));
+    lines.push("\nניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.");
     return lines.join("\n");
   }
 
@@ -41,7 +41,7 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
   const lines: string[] = [];
   if (built.intro) lines.push(built.intro);
   if (built.question) lines.push(built.question);
-  built.options.forEach((o, i) => lines.push(`${i + 1}. ${o}`));
-  lines.push("\nניתן לענות במספר או לפי שם הכפתור.");
+  built.options.forEach((o) => lines.push(o));
+  lines.push("\nניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.");
   return lines.join("\n");
 }
