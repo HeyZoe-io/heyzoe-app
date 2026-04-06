@@ -2014,8 +2014,9 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-[#faf9ff]">
-                <p className="text-sm font-semibold text-zinc-900">סשן פתיחה</p>
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                 <p className="text-xs text-zinc-600 leading-relaxed text-right">
                   טקסט הפתיחה נשען על שם העסק, שם הבוט והתיאור מ«פרטי העסק». עורכים כאן את הטקסט שיישלח ללקוח — בלי סוגריים או קוד, רק משפטים מוכנים.
                 </p>
@@ -2099,7 +2100,7 @@ export default function SlugSettingsPage() {
                             ),
                           }))
                         }
-                        placeholder="אוקיי מדהים! …"
+                        placeholder="למשל: אוקיי מדהים! שיעורי האקרו אצלנו הם דרך כיפית להתחזק, להתגמש, ולהיות חלק מקהילה…"
                       />
                     </Field>
                   </>
@@ -2110,11 +2111,13 @@ export default function SlugSettingsPage() {
                     הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר שאלה וכפתורים בפתיחה.
                   </p>
                 ) : null}
+                </div>
               </div>
 
               {trialServiceNames.length > 0 ? (
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-                  <p className="text-sm font-semibold text-zinc-900">סשן חימום</p>
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
+                  <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
                     מומלץ לא יותר מ־2–3 שאלות בסך הכול אחרי הפתיחה (כולל שאלת הניסיון). שמרו על זרימה קצרה לפני שלב ההנעה לפעולה.
                   </p>
@@ -2181,12 +2184,14 @@ export default function SlugSettingsPage() {
                       placeholder="משפט מעודד קצר לפני המשך הפלואו…"
                     />
                   </Field>
+                  </div>
                 </div>
               ) : null}
 
-              <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
-                <p className="text-sm font-semibold text-zinc-900">סשן הנעה לפעולה</p>
-                <p className="text-xs text-zinc-500">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
+                <p className="text-xs text-zinc-500 text-right">
                   מכאן בכל תשובה מציגים גם את כפתורי ההנעה (מערכת שעות, הרשמה לניסיון, מחירי מנויים) — לפי התוויות והידע במערכת.
                 </p>
                 <Field label="גוף ההודעה">
@@ -2241,7 +2246,7 @@ export default function SlugSettingsPage() {
                 {salesFlowConfig.cta_extra_steps.map((st, si) => (
                   <div
                     key={st.id}
-                    className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/80"
+                    className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-white"
                   >
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-medium text-zinc-500">שאלה {si + 1} (הנעה)</span>
@@ -2346,6 +2351,7 @@ export default function SlugSettingsPage() {
                   <Plus className="h-4 w-4" />
                   הוסף שאלה לסשן הנעה לפעולה
                 </Button>
+                </div>
               </div>
 
               <p className="text-[11px] text-zinc-500 text-right">
@@ -2459,7 +2465,11 @@ export default function SlugSettingsPage() {
             openingMediaUrl={openingMediaUrl}
             openingMediaType={openingMediaType}
             salesFlowConfig={salesFlowConfig}
-            services={services.map((s) => ({ name: s.name, price_text: s.price_text }))}
+            services={services.map((s) => ({
+              name: s.name,
+              price_text: s.price_text,
+              benefit_line: s.benefit_line,
+            }))}
             businessTagline={businessTagline}
             traits={traits}
             address={address}

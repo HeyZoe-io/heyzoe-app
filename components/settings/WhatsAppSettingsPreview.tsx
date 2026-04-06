@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  fillAfterServicePickTemplate,
   getWhatsAppOpeningPreviewSections,
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
@@ -14,7 +15,7 @@ type Props = {
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   salesFlowConfig: SalesFlowConfig;
-  services: { name: string; price_text: string }[];
+  services: { name: string; price_text: string; benefit_line?: string }[];
   businessTagline: string;
   traits: string[];
   address: string;
@@ -76,7 +77,10 @@ export function WhatsAppSettingsPreview({
 
   const trialServices = services
     .filter((s) => s.name.trim())
-    .map((s) => ({ name: s.name.trim() }));
+    .map((s) => ({
+      name: s.name.trim(),
+      benefit_line: (s.benefit_line ?? "").trim(),
+    }));
 
   const openingSections =
     step === 4
@@ -206,6 +210,27 @@ export function WhatsAppSettingsPreview({
                       </div>
                     )
                   )}
+                  {trialServices.length > 1 && salesFlowConfig.after_service_pick.trim() ? (
+                    <>
+                      <Bubble from="user">
+                        <span className="text-zinc-900 text-[11px]">
+                          {trialServices[0]?.name ?? "בחירת אימון"}
+                        </span>
+                      </Bubble>
+                      <Bubble from="bot">
+                        <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
+                          {fillAfterServicePickTemplate(
+                            salesFlowConfig.after_service_pick,
+                            trialServices[0]?.name ?? "",
+                            trialServices[0]?.benefit_line ?? ""
+                          )}
+                        </p>
+                      </Bubble>
+                      <p className="text-[8px] text-zinc-500 text-right px-0.5 leading-tight">
+                        דוגמה אחרי בחירת אימון (שם ויתרון מהאימון הראשון בהגדרות)
+                      </p>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
 
