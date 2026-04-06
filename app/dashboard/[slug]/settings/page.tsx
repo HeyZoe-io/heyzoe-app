@@ -94,6 +94,15 @@ function toSlug(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
 }
 
+/** סלאג לשמירה — שמות בעברית בלבד נותנים toSlug ריק והשרת היה מדלג על השירות */
+function serviceSlugForPersistence(serviceSlugField: string, name: string, uiId: string): string {
+  const fromField = toSlug(serviceSlugField);
+  if (fromField) return fromField;
+  const fromName = toSlug(name);
+  if (fromName) return fromName;
+  return `trial-${uiId}`;
+}
+
 /** תצוגה בשדה — ללא {serviceName} */
 function experienceQuestionForDisplay(stored: string, serviceName: string): string {
   if (!serviceName.trim()) return stored.replace(/\{serviceName\}/g, "האימון");
@@ -743,9 +752,9 @@ export default function SlugSettingsPage() {
             })),
         },
       },
-      services: services.filter((s) => s.name).map((s) => ({
-        name: s.name,
-        service_slug: s.service_slug || toSlug(s.name),
+      services: services.filter((s) => s.name.trim()).map((s) => ({
+        name: s.name.trim(),
+        service_slug: serviceSlugForPersistence(s.service_slug, s.name, s.ui_id),
         price_text: s.price_text,
         location_text: s.location_text,
         location_mode: "location",
@@ -1051,6 +1060,8 @@ export default function SlugSettingsPage() {
       if (Array.isArray(j.products) && j.products.length > 0) {
         setServices(
           j.products.slice(0, 8).map((p: Record<string, unknown>) => {
+            const rowId = uid();
+            const pname = String(p.name ?? "").trim();
             const benefits = Array.isArray(p.benefits)
               ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
               : [];
@@ -1059,12 +1070,12 @@ export default function SlugSettingsPage() {
               : [];
             const benefit_line = benefits.join(" · ") || sugg[0] || "";
             return {
-              ui_id: uid(),
-              name: String(p.name ?? "").trim(),
+              ui_id: rowId,
+              name: pname,
               price_text: String(p.price_text ?? "").trim(),
               duration: "",
               payment_link: "",
-              service_slug: toSlug(String(p.name ?? "")),
+              service_slug: serviceSlugForPersistence("", pname, rowId),
               location_text: String(p.location_text ?? "").trim() || addrFallback,
               description: String(p.description ?? "").trim(),
               benefit_line,
@@ -1544,7 +1555,13 @@ export default function SlugSettingsPage() {
                       value={s.name}
                       onChange={e => {
                         const arr = [...services];
-                        arr[i] = { ...s, name: e.target.value, service_slug: toSlug(e.target.value) };
+                        const newName = e.target.value;
+                        const slugFromName = toSlug(newName);
+                        arr[i] = {
+                          ...s,
+                          name: newName,
+                          service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
+                        };
                         setServices(arr);
                       }}
                       placeholder="שם השירות / סוג האימון *"
