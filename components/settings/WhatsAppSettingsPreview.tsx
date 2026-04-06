@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  buildWhatsAppOpeningBody,
+  getWhatsAppOpeningPreviewSections,
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
 
@@ -78,16 +78,16 @@ export function WhatsAppSettingsPreview({
     .filter((s) => s.name.trim())
     .map((s) => ({ name: s.name.trim() }));
 
-  const openingBody =
+  const openingSections =
     step === 4
-      ? buildWhatsAppOpeningBody(
+      ? getWhatsAppOpeningPreviewSections(
           salesFlowConfig,
           trialServices,
           botName.trim() || "זואי",
           businessName.trim() || "העסק",
           businessTagline
         )
-      : "";
+      : [];
 
   const hasOpeningExtras = salesFlowConfig.opening_extra_steps.some(
     (st) => st.question.trim() || st.options.some((o) => o.trim())
@@ -101,7 +101,7 @@ export function WhatsAppSettingsPreview({
 
   const step4HasContent =
     !!openingMediaUrl ||
-    openingBody.trim().length > 0 ||
+    openingSections.length > 0 ||
     hasOpeningExtras ||
     hasCtaPreview;
 
@@ -186,17 +186,32 @@ export function WhatsAppSettingsPreview({
                 </div>
               ) : null}
 
-              {openingBody.trim() ? (
-                <Bubble from="bot">
-                  <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
-                    {openingBody.trim()}
-                  </p>
-                </Bubble>
+              {openingSections.length > 0 ? (
+                <div className="space-y-1.5">
+                  {openingSections.map((sec, idx) =>
+                    sec.kind === "text" ? (
+                      <Bubble key={`t-${idx}`} from="bot">
+                        <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
+                          {sec.text}
+                        </p>
+                      </Bubble>
+                    ) : (
+                      <div key={`b-${idx}`} className="space-y-1">
+                        {sec.labels
+                          .map((lbl) => lbl.trim())
+                          .filter(Boolean)
+                          .map((lbl, j) => (
+                            <WaButton key={j}>{lbl}</WaButton>
+                          ))}
+                      </div>
+                    )
+                  )}
+                </div>
               ) : null}
 
               {trialServices.length > 3 ? (
                 <p className="text-[9px] text-amber-900/90 text-right px-1 leading-snug bg-amber-50/90 rounded-md py-1 border border-amber-200/80">
-                  מעל 3 אימונים: ברשימה האמיתית נשלחת הוראה לכתיבת ספרה — כאן רק דוגמה לפי ההגדרות.
+                  מעל 3 אימונים: בפועל נשלחת רשימה ממוספרת — כאן מוצגת דוגמה לפי ההגדרות.
                 </p>
               ) : null}
 
@@ -213,9 +228,7 @@ export function WhatsAppSettingsPreview({
                       {st.options.map(
                         (o, j) =>
                           o.trim() && (
-                            <WaButton key={j}>
-                              {j + 1}. {o.trim()}
-                            </WaButton>
+                            <WaButton key={j}>{o.trim()}</WaButton>
                           )
                       )}
                     </div>

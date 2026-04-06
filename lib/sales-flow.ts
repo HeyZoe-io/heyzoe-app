@@ -240,18 +240,65 @@ export function buildWhatsAppOpeningBody(
   lines.push(composeGreeting(c, botName, businessName, taglineText));
   if (named.length > 1) {
     lines.push("", c.multi_service_question);
-    named.forEach((n, i) => lines.push(`${i + 1}. ${n}`));
-    if (named.length > 3) {
-      lines.push("", "כתבו את מספר האימון שמתאים לכם (ספרה אחת).");
+    if (named.length <= 3) {
+      named.forEach((n) => lines.push(n));
+      lines.push("", "בחרו את סוג האימון המתאים או כתבו את שמו בקצרה.");
     } else {
-      lines.push("", "ניתן לענות במספר או לפי שם האימון.");
+      named.forEach((n, i) => lines.push(`${i + 1}. ${n}`));
+      lines.push("", "כתבו את מספר האימון שמתאים לכם (ספרה אחת).");
     }
   } else if (named.length === 1) {
     lines.push("", c.experience_question.replace(/\{serviceName\}/g, named[0]));
-    c.experience_options.forEach((o, i) => lines.push(`${i + 1}. ${o}`));
-    lines.push("", "ניתן לענות במספר או לפי הטקסט.");
+    c.experience_options.forEach((o) => lines.push(o));
+    lines.push("", "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.");
   }
   return lines.join("\n");
+}
+
+export type WhatsAppOpeningPreviewSection =
+  | { kind: "text"; text: string }
+  | { kind: "buttons"; labels: string[] };
+
+/** מקטעים לתצוגה מקדימה — טקסט ו״כפתורים״ בלי מספור (עד 3 אימונים) */
+export function getWhatsAppOpeningPreviewSections(
+  c: SalesFlowConfig,
+  services: ServiceLike[],
+  botName: string,
+  businessName: string,
+  taglineText: string
+): WhatsAppOpeningPreviewSection[] {
+  const named = services.map((s) => s.name.trim()).filter(Boolean);
+  const sections: WhatsAppOpeningPreviewSection[] = [];
+  sections.push({
+    kind: "text",
+    text: composeGreeting(c, botName, businessName, taglineText),
+  });
+  if (named.length > 1) {
+    sections.push({ kind: "text", text: c.multi_service_question });
+    sections.push({ kind: "buttons", labels: [...named].slice(0, 12) });
+    if (named.length > 3) {
+      sections.push({
+        kind: "text",
+        text: "כתבו את מספר האימון שמתאים לכם (ספרה אחת).",
+      });
+    } else {
+      sections.push({
+        kind: "text",
+        text: "בחרו את סוג האימון המתאים או כתבו את שמו בקצרה.",
+      });
+    }
+  } else if (named.length === 1) {
+    sections.push({
+      kind: "text",
+      text: c.experience_question.replace(/\{serviceName\}/g, named[0]),
+    });
+    sections.push({ kind: "buttons", labels: [...c.experience_options] });
+    sections.push({
+      kind: "text",
+      text: "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.",
+    });
+  }
+  return sections;
 }
 
 function formatExtraSteps(title: string, steps: SalesFlowExtraStep[]): string {
@@ -293,11 +340,12 @@ export function formatSalesFlowForPrompt(
 מסלול מכירה מובנה (חובה לעקוב אחרי הסדר הלוגי; התאימי ניסוח לסגנון הדיבור):
 
 כללים כלליים:
-- בכל הודעה: מענה קצר לשלב הנוכחי + השאלה הבאה בפלואו + אפשרויות ממוספרות (1. 2. 3.) אלא אם הוגדר אחרת למטה.
-- אם יש יותר מ־3 אימוני ניסיון — בשלב בחירת האימון השתמשי ברשימה ממוספרת ובקשי מהלקוח לכתוב מספר (ספרה) בלבד, בלי כפתורי טקסט נפרדים לכל אימון.
-- אם יש לכל היותר 3 אימונים — אפשר לנסח כמו כפתורים (שורה לכל אפשרות ממוספרת).
-- אם יש רק אימון ניסיון אחד — דלגי על שאלת "איזה אימון מעניין" ועברי ישר לשאלת הניסיון הקודם עם שלוש האפשרויות מהגדרות.
-- אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude), ואז חזרי מיד לשאלה הבאה בפלואו עם אפשרויות ממוספרות.
+- בכל הודעה: מענה קצר לשלב הנוכחי + השאלה הבאה בפלואו + אפשרויות בחירה.
+- אם יש עד 3 אימוני ניסיון — הציגי כל אימון בשורה נפרדת בלי מספרים, בנוסח כפתורי תשובה מהירה (רק הטקסט, בלי "1.").
+- אם יש יותר מ־3 אימוני ניסיון — בשלב בחירת האימון השתמשי ברשימה ממוספרת ובקשי מהלקוח לכתוב מספר (ספרה) בלבד.
+- שלוש אפשרויות שאלת הניסיון הקודם: תמיד שורה לכל אפשרות בלי מספור, כמו כפתורים.
+- אם יש רק אימון ניסיון אחד — דלגי על שאלת "איזה אימון מעניין" ועברי ישר לשאלת הניסיון עם שלוש האפשרויות מהגדרות.
+- אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude), ואז חזרי מיד לשאלה הבאה בפלואו עם אותן אפשרויות בחירה.
 - משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה (כשורות ממוספרות) — לפחות צפייה במערכת שעות, הרשמה לניסיון, מחירי מנויים — לפי התוויות והלינקים/ידע למטה.
 
 שלבי פתיחה (אחרי הודעת המערכת הראשונה שכבר נשלחה):
