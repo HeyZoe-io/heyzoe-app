@@ -43,7 +43,7 @@ const FRIENDLY: SalesFlowConfig = {
   multi_service_question:
     "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
   after_service_pick:
-    "אוקיי מדהים! {serviceName}. {benefitLine} — דרך נעימה להתקדם, להרגיש את הגוף ולהיות חלק מקהילה תומכת.",
+    "אוקיי מדהים! שיעורי {serviceName} אצלנו הם דרך סופר נעימה לקחת את מה שחשוב לך מהאימון — במיוחד {benefitLine} — ולהמשיך באווירה חמה ומקצועית, חלק מקהילה שאוהבת את מה שעושים.",
   experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
   experience_options: [
     "כן, לא מעט פעמים!",
@@ -150,8 +150,14 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       }
       return raw;
     })(),
-    after_service_pick:
-      typeof o.after_service_pick === "string" ? o.after_service_pick : base.after_service_pick,
+    after_service_pick: (() => {
+      const raw =
+        typeof o.after_service_pick === "string" ? o.after_service_pick : base.after_service_pick;
+      const legacy =
+        "אוקיי מדהים! {serviceName}. {benefitLine} — דרך נעימה להתקדם, להרגיש את הגוף ולהיות חלק מקהילה תומכת.";
+      if (raw.trim() === legacy) return base.after_service_pick;
+      return raw;
+    })(),
     experience_question:
       typeof o.experience_question === "string" ? o.experience_question : base.experience_question,
     experience_options: ex(o.experience_options),
@@ -270,6 +276,17 @@ export type WhatsAppOpeningPreviewSection =
   | { kind: "buttons"; labels: string[] };
 
 /** מקטעים לתצוגה מקדימה — טקסט ו״כפתורים״ בלי מספור (עד 3 אימונים) */
+/** מילוי תבנית מענה אחרי בחירת אימון (ווטסאפ / תצוגה מקדימה) */
+export function fillAfterServicePickTemplate(
+  template: string,
+  serviceName: string,
+  benefitLine: string
+): string {
+  return template
+    .replace(/\{serviceName\}/g, serviceName.trim() || "האימון")
+    .replace(/\{benefitLine\}/g, benefitLine.trim() || "מה שמייחד את האימון אצלנו");
+}
+
 export function getWhatsAppOpeningPreviewSections(
   c: SalesFlowConfig,
   services: ServiceLike[],
@@ -331,7 +348,10 @@ export function formatSalesFlowForPrompt(
 ): string {
   const named = serviceNames.map((n) => n.trim()).filter(Boolean);
   const benefitLines = named
-    .map((n) => `  - ${n}: יתרון אחרי בחירה (למענה "אחרי בחירת אימון"): ${benefitByName.get(n)?.trim() || "(השלימי מהידע או מתיאור האימון)"}`)
+    .map((n) => {
+      const b = benefitByName.get(n)?.trim() || "(השלימי מהידע או מתיאור האימון)";
+      return `  - ${n}: שורת יתרון מההגדרות (שלבי בפסקה זורמת, לא כרשימת מילים): ${b}`;
+    })
     .join("\n");
 
   const ctaDesc = c.cta_buttons
@@ -359,8 +379,9 @@ export function formatSalesFlowForPrompt(
 - משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה (כשורות ממוספרות) — לפחות צפייה במערכת שעות, הרשמה לניסיון, מחירי מנויים — לפי התוויות והלינקים/ידע למטה.
 
 סשן פתיחה (אחרי הודעת המערכת הראשונה):
-- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובשורת היתרון המדויקת מהטבלה למטה; אל תחליפי בניסוח גנרי כמו "חוזק, גמישות, קהילה" במקום התוכן מההגדרות.
-  תבנית מענה אחרי בחירת אימון: ${c.after_service_pick}
+- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובתוכן שורת היתרון שלו מהטבלה למטה.
+- במענה אחרי בחירת אימון: אסור להחזיר רשימת מילים או תכונות מופרדות בפסיקים (למשל "חוזק, גמישות, קהילה"). חובה פסקה זורמת של משפט אחד עד שניים, עם פעלים וחיבורים טבעיים; שלבי את הרעיון משורת היתרון בתוך המשפטים — לא כהעתקה יבשה של מילות מפתח.
+  תבנית מענה אחרי בחירת אימון (התאימי ניסוח לסגנון, שמרי על המשמעות והמידע מההגדרות): ${c.after_service_pick}
 
 סשן חימום (מומלץ לא יותר מ־2–3 שאלות בסך הכול):
 - שאלת ניסיון קודם + שלוש האפשרויות מהגדרות (בלי מספור, כמו כפתורים).
