@@ -16,7 +16,7 @@ import {
   resolveClaudeApiKey,
   formatUserFacingClaudeError,
 } from "@/lib/claude";
-import { logMessage } from "@/lib/analytics";
+import { fetchRecentSessionMessages, logMessage } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -230,15 +230,24 @@ async function processIncoming(
     replyCore = matched.reply;
     console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
   } else {
-    // "שאלה אחרת" or any free-form question → Claude
+    // "שאלה אחרת" or any free-form question → Claude (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
     const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp");
+    const history = await fetchRecentSessionMessages({
+      business_slug,
+      session_id: sessionId,
+      limit: 28,
+    });
+    const claudeMessages =
+      history.length > 0
+        ? history.map((m) => ({ role: m.role, content: m.content }))
+        : [{ role: "user" as const, content: msg.text }];
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
       const response = await client.messages.create({
         model: CLAUDE_WHATSAPP_MODEL,
         max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
         system: systemPrompt,
-        messages: [{ role: "user", content: msg.text }],
+        messages: claudeMessages,
       });
       replyCore =
         response.content[0]?.type === "text"

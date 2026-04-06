@@ -3,15 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  ArrowLeft, ArrowRight, Check, ChevronDown,
+  ArrowLeft, ArrowRight, Check,
   GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
-import { buildDefaultSaleWelcome } from "@/lib/default-welcome";
 import { buildDefaultFollowupPack } from "@/lib/default-followups";
+import {
+  type SalesFlowConfig,
+  type SalesFlowCtaButton,
+  type SalesFlowExtraStep,
+  defaultSalesFlowConfig,
+  parseSalesFlowFromSocial,
+  serializeSalesFlowConfig,
+  syncWelcomeFromSalesFlow,
+} from "@/lib/sales-flow";
 import { WhatsAppSettingsPreview } from "@/components/settings/WhatsAppSettingsPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -23,9 +31,9 @@ type ServiceItem = {
   ui_id: string; name: string; price_text: string;
   duration: string; payment_link: string;
   service_slug: string; location_text: string; description: string;
+  /** שורה קצרה אחרי בחירת האימון בפלואו (יתרון לגוף / נפש) */
+  benefit_line: string;
 };
-type SalesFlowBlockUI = { id: string; intro: string; question: string; options: string[] };
-
 type MembershipTierUI = {
   id: string;
   name: string;
@@ -303,8 +311,9 @@ export default function SlugSettingsPage() {
   const [welcomeIntro, setWelcomeIntro] = useState("");
   const [welcomeQuestion, setWelcomeQuestion] = useState("");
   const [welcomeOptions, setWelcomeOptions] = useState<string[]>(["", "", ""]);
-  const [salesFlowBlocks, setSalesFlowBlocks] = useState<SalesFlowBlockUI[]>([]);
-  const [expandedFlowBlockId, setExpandedFlowBlockId] = useState<string | null>(null);
+  const [salesFlowConfig, setSalesFlowConfig] = useState<SalesFlowConfig>(() =>
+    defaultSalesFlowConfig([])
+  );
 
   // ── נשמר ב־DB ללא עריכה במסך (טאב הוסר)
   const [segQuestions, setSegQuestions] = useState<SegQuestion[]>([]);
@@ -350,43 +359,36 @@ export default function SlugSettingsPage() {
     welcomePrevStepRef.current = step;
     if (!settingsHydrated || step !== 4) return;
     if (welcomeOpeningLockedRef.current) return;
+    if (prev !== 3) return;
 
-    const optsEmpty = welcomeOptions.every((o) => !o.trim());
-    const shouldSeed =
-      prev === 3 ||
-      (!welcomeIntro.trim() && !welcomeQuestion.trim() && optsEmpty);
-
-    if (!shouldSeed) return;
-
-    const p = buildDefaultSaleWelcome({
-      botName: botName.trim() || "זואי",
-      businessName: name.trim() || slug,
-      address: address.trim(),
-      services: services.filter((s) => s.name.trim()).map((s) => ({ name: s.name })),
-      niche: niche.trim(),
-      vibeLabels: vibe,
-      tagline: businessTagline.trim(),
-      traits,
-    });
-    setWelcomeIntro(p.intro);
-    setWelcomeQuestion(p.question);
-    setWelcomeOptions(p.options.length ? p.options : [""]);
+    setSalesFlowConfig(defaultSalesFlowConfig(vibe));
     welcomeOpeningLockedRef.current = true;
+  }, [settingsHydrated, step, vibe]);
+
+  useEffect(() => {
+    if (!settingsHydrated) return;
+    const wf = syncWelcomeFromSalesFlow(
+      salesFlowConfig,
+      services.filter((s) => s.name.trim()).map((s) => ({
+        name: s.name,
+        benefit_line: s.benefit_line,
+        service_slug: s.service_slug,
+      })),
+      botName.trim() || "זואי",
+      name.trim() || slug,
+      businessTagline.trim()
+    );
+    setWelcomeIntro(wf.intro);
+    setWelcomeQuestion(wf.question);
+    setWelcomeOptions(wf.options.length ? [...wf.options] : ["", "", ""]);
   }, [
     settingsHydrated,
-    step,
-    welcomeIntro,
-    welcomeQuestion,
-    welcomeOptions,
+    salesFlowConfig,
+    services,
     botName,
     name,
     slug,
-    address,
-    niche,
-    services,
-    vibe,
     businessTagline,
-    traits,
   ]);
 
   const isPremium = plan === "premium";
@@ -477,8 +479,16 @@ export default function SlugSettingsPage() {
           (typeof sl.welcome_intro === "string" && sl.welcome_intro.trim()) ||
           (typeof sl.welcome_question === "string" && sl.welcome_question.trim()) ||
           (Array.isArray(sl.welcome_options) && sl.welcome_options.some((x) => String(x ?? "").trim()));
+        const hasSalesFlowSaved =
+          Boolean(sl.sales_flow) &&
+          typeof sl.sales_flow === "object" &&
+          !Array.isArray(sl.sales_flow) &&
+          Object.keys(sl.sales_flow as object).length > 0;
+
+        let loadedWelcomeIntro = "";
         if (hasStructuredWelcome) {
-          setWelcomeIntro(typeof sl.welcome_intro === "string" ? sl.welcome_intro : "");
+          loadedWelcomeIntro = typeof sl.welcome_intro === "string" ? sl.welcome_intro : "";
+          setWelcomeIntro(loadedWelcomeIntro);
           setWelcomeQuestion(typeof sl.welcome_question === "string" ? sl.welcome_question : "");
           const wo = Array.isArray(sl.welcome_options) ? sl.welcome_options.map((x) => String(x ?? "")) : [];
           const pad = [...wo, "", "", ""].slice(0, 3);
@@ -489,17 +499,30 @@ export default function SlugSettingsPage() {
           const last = lines[lines.length - 1]?.trim() ?? "";
           const looksQ = last && (/\?/.test(last) || last.startsWith("האם") || last.startsWith("מה "));
           if (looksQ) {
-            setWelcomeIntro(lines.slice(0, -1).join("\n").trim());
+            loadedWelcomeIntro = lines.slice(0, -1).join("\n").trim();
+            setWelcomeIntro(loadedWelcomeIntro);
             setWelcomeQuestion(last);
           } else {
-            setWelcomeIntro(body.trim());
+            loadedWelcomeIntro = body.trim();
+            setWelcomeIntro(loadedWelcomeIntro);
             setWelcomeQuestion("");
           }
           const pad = [...chips, "", "", ""].slice(0, 3);
           setWelcomeOptions(pad);
         }
         welcomeOpeningLockedRef.current =
-          Boolean(hasStructuredWelcome) || fullWelcome.trim().length > 0;
+          Boolean(hasStructuredWelcome) ||
+          fullWelcome.trim().length > 0 ||
+          hasSalesFlowSaved;
+
+        if (hasSalesFlowSaved) {
+          const parsed = parseSalesFlowFromSocial(sl.sales_flow);
+          if (parsed) setSalesFlowConfig(parsed);
+        } else {
+          const def = defaultSalesFlowConfig(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
+          if (loadedWelcomeIntro.trim()) def.greeting_body_override = loadedWelcomeIntro.trim();
+          setSalesFlowConfig(def);
+        }
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
         const loadedQr =
           Array.isArray(sl.quick_replies)
@@ -511,22 +534,6 @@ export default function SlugSettingsPage() {
             : [];
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
-        const sfb = Array.isArray(sl.sales_flow_blocks) ? sl.sales_flow_blocks : [];
-        setSalesFlowBlocks(
-          sfb.map((b: unknown) => {
-            if (!b || typeof b !== "object")
-              return { id: uid(), intro: "", question: "", options: ["", "", ""] };
-            const o = b as Record<string, unknown>;
-            const opts = Array.isArray(o.options) ? o.options.map((x) => String(x ?? "")) : [];
-            const base = opts.length ? [...opts, ""] : ["", "", ""];
-            return {
-              id: uid(),
-              intro: typeof o.intro === "string" ? o.intro : "",
-              question: typeof o.question === "string" ? o.question : "",
-              options: base.slice(0, Math.max(3, base.length)),
-            };
-          })
-        );
         setArboxLink(String(sl.arbox_link ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
@@ -572,6 +579,7 @@ export default function SlugSettingsPage() {
               service_slug: String(s.service_slug ?? ""),
               location_text: String(s.location_text ?? ""),
               description: String(s.description ?? ""),
+              benefit_line: String(meta.benefit_line ?? ""),
             };
           }));
         }
@@ -599,14 +607,25 @@ export default function SlugSettingsPage() {
 
   // ─── Save payload (ידני + אוטומטי) ─────────────────────────────────────────
 
-  const getSavePayload = useCallback(
-    () => ({
+  const getSavePayload = useCallback(() => {
+    const wf = syncWelcomeFromSalesFlow(
+      salesFlowConfig,
+      services.filter((s) => s.name.trim()).map((s) => ({
+        name: s.name,
+        benefit_line: s.benefit_line,
+        service_slug: s.service_slug,
+      })),
+      botName.trim() || "זואי",
+      name.trim() || slug,
+      businessTagline.trim()
+    );
+    return {
       business: {
         slug,
         name,
         niche,
         bot_name: botName,
-        welcome_message: buildWelcomeMessageForStorage(welcomeIntro, welcomeQuestion, welcomeOptions),
+        welcome_message: buildWelcomeMessageForStorage(wf.intro, wf.question, wf.options),
         facebook_pixel_id: facebookPixelId,
         conversions_api_token: conversionsApiToken,
         social_links: {
@@ -623,16 +642,11 @@ export default function SlugSettingsPage() {
           vibe,
           opening_media_url: openingMediaUrl,
           opening_media_type: openingMediaType,
-          welcome_intro: welcomeIntro.trim(),
-          welcome_question: welcomeQuestion.trim(),
-          welcome_options: welcomeOptions.map((o) => o.trim()),
-          sales_flow_blocks: salesFlowBlocks
-            .map(({ intro, question, options }) => ({
-              intro: intro.trim(),
-              question: question.trim(),
-              options: options.map((x) => x.trim()).filter(Boolean),
-            }))
-            .filter((b) => b.intro || b.question || b.options.length > 0),
+          welcome_intro: wf.intro.trim(),
+          welcome_question: wf.question.trim(),
+          welcome_options: wf.options.map((o) => o.trim()),
+          sales_flow: serializeSalesFlowConfig(salesFlowConfig),
+          sales_flow_blocks: [],
           segmentation_questions: segQuestions,
           quick_replies: quickReplies,
           arbox_link: arboxLink,
@@ -673,18 +687,20 @@ export default function SlugSettingsPage() {
         price_text: s.price_text,
         location_text: s.location_text,
         location_mode: "location",
-        description: JSON.stringify({ duration: s.duration, payment_link: s.payment_link }),
+        description: JSON.stringify({
+          duration: s.duration,
+          payment_link: s.payment_link,
+          benefit_line: s.benefit_line,
+        }),
       })),
       faqs: [] as unknown[],
-    }),
-    [
+    };
+  }, [
       slug,
       name,
       niche,
       botName,
-      welcomeIntro,
-      welcomeQuestion,
-      welcomeOptions,
+      salesFlowConfig,
       facebookPixelId,
       conversionsApiToken,
       websiteUrl,
@@ -696,7 +712,6 @@ export default function SlugSettingsPage() {
       vibe,
       openingMediaUrl,
       openingMediaType,
-      salesFlowBlocks,
       segQuestions,
       quickReplies,
       arboxLink,
@@ -707,8 +722,7 @@ export default function SlugSettingsPage() {
       membershipTiers,
       punchCards,
       services,
-    ]
-  );
+  ]);
 
   const postSettings = useCallback(async () => {
     return fetch("/api/dashboard/settings", {
@@ -982,6 +996,7 @@ export default function SlugSettingsPage() {
             service_slug: toSlug(String(p.name ?? "")),
             location_text: String(p.location_text ?? "").trim() || addrFallback,
             description: String(p.description ?? "").trim(),
+            benefit_line: "",
           }))
         );
       }
@@ -1238,22 +1253,8 @@ export default function SlugSettingsPage() {
                 />
               </Field>
 
-              <Field label="אינסטגרם">
-                <div className="flex flex-row-reverse gap-2 items-stretch">
-                  <span
-                    className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
-                    aria-hidden
-                  >
-                    <InstagramGlyph className="h-5 w-5" />
-                  </span>
-                  <Input
-                    dir="ltr"
-                    className="flex-1 min-w-0"
-                    placeholder="https://instagram.com/..."
-                    value={instagramUrl}
-                    onChange={(e) => setInstagramUrl(e.target.value)}
-                  />
-                </div>
+              <Field label="לינק מערכת שעות / Arbox">
+                <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
               </Field>
 
               <Field label="הנחיות הגעה">
@@ -1305,8 +1306,22 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <Field label="לינק מערכת שעות / Arbox">
-                <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
+              <Field label="אינסטגרם">
+                <div className="flex flex-row-reverse gap-2 items-stretch">
+                  <span
+                    className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
+                    aria-hidden
+                  >
+                    <InstagramGlyph className="h-5 w-5" />
+                  </span>
+                  <Input
+                    dir="ltr"
+                    className="flex-1 min-w-0"
+                    placeholder="https://instagram.com/..."
+                    value={instagramUrl}
+                    onChange={(e) => setInstagramUrl(e.target.value)}
+                  />
+                </div>
               </Field>
 
               <Field label="סגנון דיבור">
@@ -1380,6 +1395,19 @@ export default function SlugSettingsPage() {
                     </div>
                   </Field>
 
+                  <Field label="יתרון קצר אחרי בחירת האימון (בפלואו)">
+                    <Input
+                      dir="rtl"
+                      value={s.benefit_line}
+                      onChange={(e) => {
+                        const arr = [...services];
+                        arr[i] = { ...s, benefit_line: e.target.value };
+                        setServices(arr);
+                      }}
+                      placeholder="למשל: חיזוק ליבה, גמישות ושחרור מתח"
+                    />
+                  </Field>
+
                   <Field label="מיקום">
                     <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder="תל אביב / אונליין" />
                   </Field>
@@ -1388,7 +1416,22 @@ export default function SlugSettingsPage() {
 
               <Button
                 variant="outline"
-                onClick={() => setServices(sv => [...sv, { ui_id: uid(), name: "", price_text: "", duration: "", payment_link: "", service_slug: "", location_text: address, description: "" }])}
+                onClick={() =>
+                  setServices((sv) => [
+                    ...sv,
+                    {
+                      ui_id: uid(),
+                      name: "",
+                      price_text: "",
+                      duration: "",
+                      payment_link: "",
+                      service_slug: "",
+                      location_text: address,
+                      description: "",
+                      benefit_line: "",
+                    },
+                  ])
+                }
                 className="w-full gap-2"
               >
                 <Plus className="h-4 w-4" /> הוסף אימון ניסיון
@@ -1623,7 +1666,7 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={4}
                   title="מסלול מכירה"
-                  desc="מדיה וטקסט פתיחה לווטסאפ, ואז שלבים נוספים באקורדיון — זואי תשתמש בזה בשיחה"
+                  desc="פלואו שיחה: כל תשובה יחד עם השאלה הבאה והמספרים/כפתורים. מעל 3 אימונים — רשימה ממוספרת ובקשת ספרה. צ'אט חופשי באמצע — זואי עונה וחוזרת לשאלה הבאה בפלואו."
                 />
               </CardTitle>
             </CardHeader>
@@ -1718,217 +1761,413 @@ export default function SlugSettingsPage() {
                 />
               </div>
 
-              <div className="border-t border-dashed border-zinc-200 pt-5 space-y-4">
-                <p className="text-sm font-medium text-zinc-800">שלב ראשון במסלול (פתיחה)</p>
-                <Field label="טקסט לפני השאלה (ברכה, כתובת…)">
-                  <Textarea
-                    value={welcomeIntro}
-                    onChange={setWelcomeIntro}
-                    placeholder={`היי! כאן ${botName || "זואי"} מ־${name || slug}…`}
-                    rows={5}
-                  />
-                </Field>
-                <Field label="השאלה">
-                  <Input
-                    dir="rtl"
-                    value={welcomeQuestion}
-                    onChange={(e) => setWelcomeQuestion(e.target.value)}
-                    placeholder="אשמח להבין ראשית מה מעניין אותך?"
-                  />
-                </Field>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 block">כפתורי תשובה</label>
-                  <div className="space-y-2">
-                    {welcomeOptions.map((opt, i) => (
-                      <div key={i} className="flex gap-2 items-center">
-                        <span className="text-xs text-zinc-400 w-5 shrink-0">{i + 1}</span>
-                        <Input
-                          dir="rtl"
-                          value={opt}
-                          onChange={(e) =>
-                            setWelcomeOptions((prev) => {
-                              const next = [...prev];
-                              next[i] = e.target.value;
-                              return next;
-                            })
-                          }
-                          placeholder={`כפתור ${i + 1}`}
-                          className="flex-1"
-                        />
-                        {welcomeOptions.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setWelcomeOptions((prev) => prev.filter((_, j) => j !== i))
-                            }
-                            className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
-                            aria-label="הסר כפתור"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        ) : (
-                          <span className="w-8 shrink-0" />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full gap-1 text-sm"
-                    onClick={() => setWelcomeOptions((prev) => [...prev, ""])}
-                  >
-                    <Plus className="h-4 w-4" />
-                    הוסף כפתור
-                  </Button>
-                </div>
-                <p className="text-[11px] text-zinc-500">
-                  הטמפלייט מתעדכן אוטומטית כשנכנסים לשלב הזה אחרי «כרטיסיות ומנויים» (או כשהשדות ריקים), לפי שם הבוט, שם העסק, תגית ומאפיינים (שלב 1), כתובת ואימוני ניסיון (שלב 2). אימון ניסיון יחיד — שאלה וכפתורי ניסיון קודם כברירת מחדל. ניתן לערוך הכל. סגנון הדיבור בשלב 1 משפיע על ניסוח השיחה בזואי.
-                </p>
-              </div>
-
-              <div className="border-t border-dashed border-zinc-200 pt-5 space-y-3">
-                <p className="text-sm font-medium text-zinc-800">המשך מסלול (אחרי תשובת הלקוח לפתיחה)</p>
-                <p className="text-xs text-zinc-500">כל שלב: טקסט לפני שאלה, שאלה וכפתורים — יפתח בלחיצה.</p>
-                {salesFlowBlocks.map((b, bi) => {
-                  const open = expandedFlowBlockId === b.id;
-                  return (
-                    <div key={b.id} className="border border-zinc-200 rounded-2xl overflow-hidden bg-white">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedFlowBlockId(open ? null : b.id)}
-                        className="w-full flex items-center justify-between gap-2 px-4 py-3 text-right bg-zinc-50 hover:bg-zinc-100/80 transition-colors"
-                      >
-                        <span className="text-sm font-medium text-zinc-800">
-                          שלב {bi + 2} במסלול
-                          {(b.question.trim() || b.intro.trim()) && (
-                            <span className="font-normal text-zinc-500 mr-2">
-                              — {b.question.trim() || b.intro.trim().slice(0, 36)}
-                              {(b.question.trim() || b.intro.trim()).length > 36 ? "…" : ""}
-                            </span>
-                          )}
-                        </span>
-                        <ChevronDown className={`h-4 w-4 text-zinc-500 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
-                      </button>
-                      {open ? (
-                        <div className="p-4 space-y-4 border-t border-zinc-100">
-                          <Field label="טקסט לפני השאלה">
-                            <Textarea
-                              value={b.intro}
-                              onChange={(v) =>
-                                setSalesFlowBlocks((prev) =>
-                                  prev.map((x) => (x.id === b.id ? { ...x, intro: v } : x))
-                                )
-                              }
-                              rows={3}
-                              placeholder="קצר לפני השאלה…"
-                            />
-                          </Field>
-                          <Field label="השאלה">
-                            <Input
-                              dir="rtl"
-                              value={b.question}
-                              onChange={(e) =>
-                                setSalesFlowBlocks((prev) =>
-                                  prev.map((x) => (x.id === b.id ? { ...x, question: e.target.value } : x))
-                                )
-                              }
-                              placeholder="מה תרצו לעשות הלאה?"
-                            />
-                          </Field>
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium text-zinc-700 block">כפתורים</label>
-                            {b.options.map((opt, oi) => (
-                              <div key={oi} className="flex gap-2 items-center">
-                                <span className="text-xs text-zinc-400 w-5 shrink-0">{oi + 1}</span>
-                                <Input
-                                  dir="rtl"
-                                  value={opt}
-                                  onChange={(e) =>
-                                    setSalesFlowBlocks((prev) =>
-                                      prev.map((x) => {
-                                        if (x.id !== b.id) return x;
-                                        const opts = [...x.options];
-                                        opts[oi] = e.target.value;
-                                        return { ...x, options: opts };
-                                      })
-                                    )
-                                  }
-                                  className="flex-1"
-                                />
-                                {b.options.length > 1 ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setSalesFlowBlocks((prev) =>
-                                        prev.map((x) =>
-                                          x.id === b.id
-                                            ? { ...x, options: x.options.filter((_, j) => j !== oi) }
-                                            : x
-                                        )
-                                      )
-                                    }
-                                    className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                ) : (
-                                  <span className="w-8 shrink-0" />
-                                )}
-                              </div>
-                            ))}
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="gap-1 text-sm py-1.5 h-auto"
-                              onClick={() =>
-                                setSalesFlowBlocks((prev) =>
-                                  prev.map((x) =>
-                                    x.id === b.id ? { ...x, options: [...x.options, ""] } : x
-                                  )
-                                )
-                              }
-                            >
-                              <Plus className="h-3 w-3" />
-                              הוסף כפתור
-                            </Button>
-                          </div>
-                          <div className="flex justify-end pt-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="text-red-600 hover:text-red-700 gap-1"
-                              onClick={() => {
-                                setSalesFlowBlocks((prev) => prev.filter((x) => x.id !== b.id));
-                                setExpandedFlowBlockId((cur) => (cur === b.id ? null : cur));
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              מחק שלב
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+              <div className="flex flex-wrap justify-end gap-2 border-t border-dashed border-zinc-200 pt-5">
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full gap-2"
-                  onClick={() => {
-                    const id = uid();
-                    setSalesFlowBlocks((prev) => [
-                      ...prev,
-                      { id, intro: "", question: "", options: ["", "", ""] },
-                    ]);
-                    setExpandedFlowBlockId(id);
-                  }}
+                  className="gap-1 text-xs py-1.5 px-3 h-auto"
+                  onClick={() => setSalesFlowConfig(defaultSalesFlowConfig(vibe))}
                 >
-                  <Plus className="h-4 w-4" />
-                  הוסף שלב במסלול
+                  <Sparkles className="h-3.5 w-3.5" />
+                  החל טקסטים לפי סגנון דיבור (שלב 1)
                 </Button>
               </div>
+
+              <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-[#faf9ff]">
+                <p className="text-sm font-semibold text-zinc-900">סשן פתיחה</p>
+                <p className="text-xs text-zinc-600 leading-relaxed">
+                  {salesFlowConfig.opening_note ||
+                    "פתיחה ופרטים לפני שיעור ניסיון. שם בוט, עסק ותיאור מגיעים משלב 1 ומאימוני ניסיון; ניתן לדרוס ברכה מלאה למטה."}
+                </p>
+                <Field label="הסבר פנימי לצוות (אופציונלי)">
+                  <Textarea
+                    value={salesFlowConfig.opening_note}
+                    onChange={(v) => setSalesFlowConfig((c) => ({ ...c, opening_note: v }))}
+                    rows={2}
+                    placeholder="מה חשוב לכם שיקרה לפני שמשריינים ניסיון…"
+                  />
+                </Field>
+                <Field label="שורת פתיחה (חברי / דוגמה)">
+                  <Input
+                    dir="rtl"
+                    value={salesFlowConfig.greeting_opener}
+                    onChange={(e) =>
+                      setSalesFlowConfig((c) => ({ ...c, greeting_opener: e.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="שורת שם (מציינים: {botName} {businessName})">
+                  <Input
+                    dir="rtl"
+                    value={salesFlowConfig.greeting_line_name}
+                    onChange={(e) =>
+                      setSalesFlowConfig((c) => ({ ...c, greeting_line_name: e.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="שורת תיאור (מציינים: {tagline})">
+                  <Input
+                    dir="rtl"
+                    value={salesFlowConfig.greeting_line_tagline}
+                    onChange={(e) =>
+                      setSalesFlowConfig((c) => ({ ...c, greeting_line_tagline: e.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="סיום ברכה">
+                  <Input
+                    dir="rtl"
+                    value={salesFlowConfig.greeting_closer}
+                    onChange={(e) =>
+                      setSalesFlowConfig((c) => ({ ...c, greeting_closer: e.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="דריסת ברכה מלאה (אופציונלי — מבטלת את השורות למעלה)">
+                  <Textarea
+                    value={salesFlowConfig.greeting_body_override ?? ""}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({ ...c, greeting_body_override: v || undefined }))
+                    }
+                    rows={3}
+                    placeholder="השאר ריק כדי להרכיב מן השורות + תגית העסק"
+                  />
+                </Field>
+                <Field label="שאלת בחירת אימון (רק כשיש יותר מאימון אחד)">
+                  <Textarea
+                    value={salesFlowConfig.multi_service_question}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({ ...c, multi_service_question: v }))
+                    }
+                    rows={2}
+                  />
+                </Field>
+                <Field label="מענה אחרי בחירת אימון ({serviceName} {benefitLine})">
+                  <Input
+                    dir="rtl"
+                    value={salesFlowConfig.after_service_pick}
+                    onChange={(e) =>
+                      setSalesFlowConfig((c) => ({ ...c, after_service_pick: e.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="שאלת ניסיון קודם ({serviceName})">
+                  <Input
+                    dir="rtl"
+                    value={salesFlowConfig.experience_question}
+                    onChange={(e) =>
+                      setSalesFlowConfig((c) => ({ ...c, experience_question: e.target.value }))
+                    }
+                  />
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([0, 1, 2] as const).map((i) => (
+                    <Field key={i} label={`אפשרות ${i + 1}`}>
+                      <Input
+                        dir="rtl"
+                        value={salesFlowConfig.experience_options[i]}
+                        onChange={(e) => {
+                          const next = [...salesFlowConfig.experience_options] as [
+                            string,
+                            string,
+                            string,
+                          ];
+                          next[i] = e.target.value;
+                          setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
+                        }}
+                      />
+                    </Field>
+                  ))}
+                </div>
+                <Field label="מענה אחרי בחירה בשאלת הניסיון">
+                  <Textarea
+                    value={salesFlowConfig.after_experience}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({ ...c, after_experience: v }))
+                    }
+                    rows={2}
+                  />
+                </Field>
+
+                {salesFlowConfig.opening_extra_steps.map((st, si) => (
+                  <div
+                    key={st.id}
+                    className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-white"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-medium text-zinc-500">שאלת חובה {si + 1}</span>
+                      <button
+                        type="button"
+                        className="p-1 text-zinc-400 hover:text-red-500"
+                        onClick={() =>
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            opening_extra_steps: c.opening_extra_steps.filter((x) => x.id !== st.id),
+                          }))
+                        }
+                        aria-label="הסר"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <Field label="שאלה">
+                      <Input
+                        dir="rtl"
+                        value={st.question}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            opening_extra_steps: c.opening_extra_steps.map((x) =>
+                              x.id === st.id ? { ...x, question: v } : x
+                            ),
+                          }));
+                        }}
+                      />
+                    </Field>
+                    <label className="text-xs font-medium text-zinc-600 block">כפתורי תשובה</label>
+                    {st.options.map((o, oi) => (
+                      <div key={oi} className="flex gap-2 items-center">
+                        <Input
+                          dir="rtl"
+                          className="flex-1"
+                          value={o}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              opening_extra_steps: c.opening_extra_steps.map((x) =>
+                                x.id === st.id
+                                  ? {
+                                      ...x,
+                                      options: x.options.map((t, j) => (j === oi ? v : t)),
+                                    }
+                                  : x
+                              ),
+                            }));
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="p-1 text-zinc-400 hover:text-red-500"
+                          onClick={() =>
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              opening_extra_steps: c.opening_extra_steps.map((x) =>
+                                x.id === st.id
+                                  ? { ...x, options: x.options.filter((_, j) => j !== oi) }
+                                  : x
+                              ),
+                            }))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full text-xs h-8"
+                      onClick={() =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          opening_extra_steps: c.opening_extra_steps.map((x) =>
+                            x.id === st.id ? { ...x, options: [...x.options, ""] } : x
+                          ),
+                        }))
+                      }
+                    >
+                      <Plus className="h-3 w-3" /> הוסף כפתור
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-1 text-sm"
+                  onClick={() =>
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      opening_extra_steps: [
+                        ...c.opening_extra_steps,
+                        { id: uid(), question: "", options: ["", ""] },
+                      ],
+                    }))
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף שאלת חובה לסשן פתיחה
+                </Button>
+              </div>
+
+              <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
+                <p className="text-sm font-semibold text-zinc-900">סשן הנעה לפעולה</p>
+                <p className="text-xs text-zinc-500">
+                  מכאן בכל תשובה מציגים גם את כפתורי ההנעה (מערכת שעות, הרשמה לניסיון, מחירי מנויים) — לפי התוויות והידע במערכת.
+                </p>
+                <Field label="גוף ההודעה">
+                  <Textarea
+                    value={salesFlowConfig.cta_body}
+                    onChange={(v) => setSalesFlowConfig((c) => ({ ...c, cta_body: v }))}
+                    rows={3}
+                  />
+                </Field>
+                {salesFlowConfig.cta_buttons.map((b, bi) => (
+                  <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
+                    <Field label={`כפתור ${bi + 1} — תווית`}>
+                      <Input
+                        dir="rtl"
+                        className="min-w-[12rem]"
+                        value={b.label}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            cta_buttons: c.cta_buttons.map((x) =>
+                              x.id === b.id ? { ...x, label: v } : x
+                            ),
+                          }));
+                        }}
+                      />
+                    </Field>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-zinc-600 block">סוג</label>
+                      <select
+                        dir="rtl"
+                        className="rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[11rem]"
+                        value={b.kind}
+                        onChange={(e) => {
+                          const kind = e.target.value as SalesFlowCtaButton["kind"];
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            cta_buttons: c.cta_buttons.map((x) =>
+                              x.id === b.id ? { ...x, kind } : x
+                            ),
+                          }));
+                        }}
+                      >
+                        <option value="schedule">מערכת שעות (לינק Arbox)</option>
+                        <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
+                        <option value="memberships">מחירי מנויים (מתוך הגדרות)</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+
+                {salesFlowConfig.cta_extra_steps.map((st, si) => (
+                  <div
+                    key={st.id}
+                    className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/80"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-medium text-zinc-500">שאלה {si + 1} (הנעה)</span>
+                      <button
+                        type="button"
+                        className="p-1 text-zinc-400 hover:text-red-500"
+                        onClick={() =>
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            cta_extra_steps: c.cta_extra_steps.filter((x) => x.id !== st.id),
+                          }))
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <Field label="שאלה">
+                      <Input
+                        dir="rtl"
+                        value={st.question}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            cta_extra_steps: c.cta_extra_steps.map((x) =>
+                              x.id === st.id ? { ...x, question: v } : x
+                            ),
+                          }));
+                        }}
+                      />
+                    </Field>
+                    {st.options.map((o, oi) => (
+                      <div key={oi} className="flex gap-2">
+                        <Input
+                          dir="rtl"
+                          className="flex-1"
+                          value={o}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              cta_extra_steps: c.cta_extra_steps.map((x) =>
+                                x.id === st.id
+                                  ? {
+                                      ...x,
+                                      options: x.options.map((t, j) => (j === oi ? v : t)),
+                                    }
+                                  : x
+                              ),
+                            }));
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="p-1 text-zinc-400 hover:text-red-500"
+                          onClick={() =>
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              cta_extra_steps: c.cta_extra_steps.map((x) =>
+                                x.id === st.id
+                                  ? { ...x, options: x.options.filter((_, j) => j !== oi) }
+                                  : x
+                              ),
+                            }))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full text-xs h-8"
+                      onClick={() =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          cta_extra_steps: c.cta_extra_steps.map((x) =>
+                            x.id === st.id ? { ...x, options: [...x.options, ""] } : x
+                          ),
+                        }))
+                      }
+                    >
+                      <Plus className="h-3 w-3" /> הוסף כפתור
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-1 text-sm"
+                  onClick={() =>
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      cta_extra_steps: [
+                        ...c.cta_extra_steps,
+                        { id: uid(), question: "", options: ["", ""] },
+                      ],
+                    }))
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף שאלה לסשן הנעה לפעולה
+                </Button>
+              </div>
+
+              <p className="text-[11px] text-zinc-500">
+                טמפלייט ראשון מתעדכן אוטומטית כשנכנסים לשלב אחרי «כרטיסיות ומנויים». מעל 3 אימוני ניסיון — בהודעת הפתיחה נשלחת רשימה ממוספרת ובקשה לכתוב ספרה.
+              </p>
             </CardContent>
           </Card>
         )}
@@ -2036,14 +2275,7 @@ export default function SlugSettingsPage() {
             businessName={name}
             openingMediaUrl={openingMediaUrl}
             openingMediaType={openingMediaType}
-            welcomeIntro={welcomeIntro}
-            welcomeQuestion={welcomeQuestion}
-            welcomeOptions={welcomeOptions}
-            salesFlowBlocks={salesFlowBlocks.map((b) => ({
-              intro: b.intro,
-              question: b.question,
-              options: b.options,
-            }))}
+            salesFlowConfig={salesFlowConfig}
             services={services.map((s) => ({ name: s.name, price_text: s.price_text }))}
             businessTagline={businessTagline}
             traits={traits}
