@@ -2114,79 +2114,85 @@ export default function SlugSettingsPage() {
                 </div>
               </div>
 
-              {trialServiceNames.length > 0 ? (
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
-                  <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
                     מומלץ לא יותר מ־2–3 שאלות בסך הכול אחרי הפתיחה (כולל שאלת הניסיון). שמרו על זרימה קצרה לפני שלב ההנעה לפעולה.
                   </p>
 
-                  <Field
-                    label={
-                      trialServiceNames.length > 1
-                        ? "שאלת ניסיון קודם"
-                        : "שאלת ניסיון קודם (אחרי הפתיחה)"
-                    }
-                  >
-                    <Input
-                      dir="rtl"
-                      value={experienceQuestionForDisplay(
-                        salesFlowConfig.experience_question,
-                        trialServiceNames.length > 1
-                          ? firstTrialForTemplates.name
-                          : trialServiceNames[0] ?? ""
-                      )}
-                      onChange={(e) => {
-                        const sn =
+                  {trialServiceNames.length === 0 ? (
+                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+                      כדי לערוך כאן את שאלת הניסיון והכפתורים — הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 2).
+                    </p>
+                  ) : (
+                    <>
+                      <Field
+                        label={
                           trialServiceNames.length > 1
-                            ? firstTrialForTemplates.name
-                            : trialServiceNames[0] ?? "";
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question: experienceQuestionToStore(e.target.value, sn),
-                        }));
-                      }}
-                      placeholder={
-                        trialServiceNames.length > 1
-                          ? "למשל: יצא לך לנסות בעבר?"
-                          : "למשל: יש לך כבר ניסיון בפילאטיס?"
-                      }
-                    />
-                  </Field>
-                  <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {([0, 1, 2] as const).map((i) => (
-                      <Field key={i} label={`כפתור ${i + 1}`}>
+                            ? "שאלת ניסיון קודם"
+                            : "שאלת ניסיון קודם (אחרי הפתיחה)"
+                        }
+                      >
                         <Input
                           dir="rtl"
-                          value={salesFlowConfig.experience_options[i]}
+                          value={experienceQuestionForDisplay(
+                            salesFlowConfig.experience_question,
+                            trialServiceNames.length > 1
+                              ? firstTrialForTemplates.name
+                              : trialServiceNames[0] ?? ""
+                          )}
                           onChange={(e) => {
-                            const next = [...salesFlowConfig.experience_options] as [
-                              string,
-                              string,
-                              string,
-                            ];
-                            next[i] = e.target.value;
-                            setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
+                            const sn =
+                              trialServiceNames.length > 1
+                                ? firstTrialForTemplates.name
+                                : trialServiceNames[0] ?? "";
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              experience_question: experienceQuestionToStore(e.target.value, sn),
+                            }));
                           }}
+                          placeholder={
+                            trialServiceNames.length > 1
+                              ? "למשל: יצא לך לנסות בעבר?"
+                              : "למשל: יש לך כבר ניסיון בפילאטיס?"
+                          }
                         />
                       </Field>
-                    ))}
-                  </div>
-                  <Field label="מענה אחרי בחירה בשאלת הניסיון">
-                    <Textarea
-                      value={salesFlowConfig.after_experience}
-                      onChange={(v) =>
-                        setSalesFlowConfig((c) => ({ ...c, after_experience: v }))
-                      }
-                      rows={2}
-                      placeholder="משפט מעודד קצר לפני המשך הפלואו…"
-                    />
-                  </Field>
-                  </div>
+                      <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {([0, 1, 2] as const).map((i) => (
+                          <Field key={i} label={`כפתור ${i + 1}`}>
+                            <Input
+                              dir="rtl"
+                              value={salesFlowConfig.experience_options[i]}
+                              onChange={(e) => {
+                                const next = [...salesFlowConfig.experience_options] as [
+                                  string,
+                                  string,
+                                  string,
+                                ];
+                                next[i] = e.target.value;
+                                setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
+                              }}
+                            />
+                          </Field>
+                        ))}
+                      </div>
+                      <Field label="מענה אחרי בחירה בשאלת הניסיון">
+                        <Textarea
+                          value={salesFlowConfig.after_experience}
+                          onChange={(v) =>
+                            setSalesFlowConfig((c) => ({ ...c, after_experience: v }))
+                          }
+                          rows={2}
+                          placeholder="משפט מעודד קצר לפני המשך הפלואו…"
+                        />
+                      </Field>
+                    </>
+                  )}
                 </div>
-              ) : null}
+              </div>
 
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
