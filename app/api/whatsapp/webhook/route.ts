@@ -418,12 +418,23 @@ async function processIncoming(
         }
       }
 
-      replyCore =
-        response?.content[0]?.type === "text"
-          ? response.content[0].text.trim()
-          : formatUserFacingClaudeError(new Error("empty response"));
-      if (replyCore === formatUserFacingClaudeError(new Error("empty response"))) {
+      const textBlocks =
+        Array.isArray((response as any)?.content)
+          ? (response as any).content
+              .filter((b: any) => b && typeof b === "object" && b.type === "text" && typeof b.text === "string")
+              .map((b: any) => String(b.text).trim())
+              .filter(Boolean)
+          : [];
+      const combinedText = textBlocks.join("\n").trim();
+
+      replyCore = combinedText || formatUserFacingClaudeError(new Error("empty response"));
+      if (!combinedText) {
         isFallbackErrorReply = true;
+        const types =
+          Array.isArray((response as any)?.content)
+            ? (response as any).content.map((b: any) => String(b?.type ?? "unknown")).join(",")
+            : "no_content";
+        console.warn("[WA Webhook] Claude empty_response content types:", types);
         replyErrorCode = replyErrorCode ?? "empty_response";
       }
     } catch (e) {
