@@ -424,12 +424,14 @@ async function processIncoming(
           : formatUserFacingClaudeError(new Error("empty response"));
       if (replyCore === formatUserFacingClaudeError(new Error("empty response"))) {
         isFallbackErrorReply = true;
+        replyErrorCode = replyErrorCode ?? "empty_response";
       }
     } catch (e) {
       console.error(`[WA Webhook] Claude error for ${business_slug}:`, e);
       replyCore = formatUserFacingClaudeError(e);
       replyErrorCode = extractErrorCode(e);
       isFallbackErrorReply = true;
+      replyErrorCode = replyErrorCode ?? "claude_failed";
     }
   }
 
