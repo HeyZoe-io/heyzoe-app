@@ -272,7 +272,12 @@ function ServiceExcludePicker({
 }) {
   const opts = services
     .filter((s) => s.name.trim())
-    .map((s) => ({ slug: (s.service_slug || toSlug(s.name)).trim(), name: s.name.trim() }));
+    .map((s) => {
+      // `toSlug` returns empty for Hebrew-only names which caused multiple rows to share "".
+      // Always derive a stable, unique slug for toggling.
+      const slug = serviceSlugForPersistence(s.service_slug ?? "", s.name, s.ui_id).trim();
+      return { slug, name: s.name.trim() };
+    });
 
   if (opts.length === 0) {
     return (
@@ -283,19 +288,20 @@ function ServiceExcludePicker({
   }
 
   return (
-    <div className="space-y-2 border border-zinc-100 rounded-xl p-3 bg-zinc-50/80">
-      <p className="text-xs font-medium text-zinc-700">חריגות מאימונים (ברירת מחדל: כל האימונים כלולים)</p>
-      <p className="text-[11px] text-zinc-500">סמנו אימונים שלא נכללים במנוי או בכרטיסיה זו.</p>
+    <div className="space-y-2 border border-zinc-100 rounded-xl p-3 bg-white">
+      <p className="text-xs font-medium text-zinc-700 text-right">אימונים שנכללים במנוי או בכרטיסיה זו</p>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
         {opts.map(({ slug, name }) => (
           <label key={slug} className="flex items-center gap-2 text-sm cursor-pointer">
             <input
               type="checkbox"
               className="rounded border-zinc-300"
-              checked={excludedSlugs.includes(slug)}
+              // Default: included (checked). If unchecked — it becomes excluded.
+              checked={!excludedSlugs.includes(slug)}
               onChange={(e) => {
-                if (e.target.checked) onChange([...excludedSlugs, slug]);
-                else onChange(excludedSlugs.filter((x) => x !== slug));
+                const isIncluded = e.target.checked;
+                if (isIncluded) onChange(excludedSlugs.filter((x) => x !== slug));
+                else onChange([...excludedSlugs, slug]);
               }}
             />
             <span>{name}</span>
