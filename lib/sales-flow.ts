@@ -43,7 +43,7 @@ const FRIENDLY: SalesFlowConfig = {
   multi_service_question:
     "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
   after_service_pick:
-    "אוקיי מדהים! שיעורי {serviceName} אצלנו הם דרך סופר נעימה לקחת את מה שחשוב לך מהאימון — במיוחד {benefitLine} — ולהמשיך באווירה חמה ומקצועית, חלק מקהילה שאוהבת את מה שעושים.",
+    "אוקיי מדהים! {serviceName} אצלנו זה בדיוק המקום לקחת את מה שמעניין אותך מהאימון — במיוחד {benefitLine} — ולהתקדם בצורה נעימה, ברורה ומקצועית.",
   experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
   experience_options: [
     "כן, לא מעט פעמים!",
@@ -155,7 +155,10 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
         typeof o.after_service_pick === "string" ? o.after_service_pick : base.after_service_pick;
       const legacy =
         "אוקיי מדהים! {serviceName}. {benefitLine} — דרך נעימה להתקדם, להרגיש את הגוף ולהיות חלק מקהילה תומכת.";
+      const legacy2 =
+        "אוקיי מדהים! שיעורי {serviceName} אצלנו הם דרך סופר נעימה לקחת את מה שחשוב לך מהאימון — במיוחד {benefitLine} — ולהמשיך באווירה חמה ומקצועית, חלק מקהילה שאוהבת את מה שעושים.";
       if (raw.trim() === legacy) return base.after_service_pick;
+      if (raw.trim() === legacy2) return base.after_service_pick;
       return raw;
     })(),
     experience_question:
@@ -282,8 +285,11 @@ export function fillAfterServicePickTemplate(
   serviceName: string,
   benefitLine: string
 ): string {
+  const sn = serviceName.trim();
+  // Avoid awkward duplicates like "שיעורי שיעורי אקרו" by using a neutral fallback.
+  const safeName = sn || "האימון";
   return template
-    .replace(/\{serviceName\}/g, serviceName.trim() || "האימון")
+    .replace(/\{serviceName\}/g, safeName)
     .replace(/\{benefitLine\}/g, benefitLine.trim() || "מה שמייחד את האימון אצלנו");
 }
 
