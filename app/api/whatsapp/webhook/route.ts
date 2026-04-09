@@ -382,6 +382,44 @@ async function processIncoming(
   }
 
   // ───────────────────── Priority routing (no Claude first) ───────────────────
+  // 0) Greeting messages (deterministic) — don't send to Claude.
+  if (msg.type === "text") {
+    const greet = msg.text.trim().toLowerCase().replace(/\s+/g, " ");
+    const GREETINGS = new Set(["שלום", "היי", "הי", "hello", "hi"]);
+    if (GREETINGS.has(greet)) {
+      const cfg = knowledge?.salesFlowConfig;
+      const names = (knowledge?.serviceNamesForOpening ?? []).map((x) => x.trim()).filter(Boolean);
+
+      let out = "היי! איך אפשר לעזור?";
+      if (cfg && names.length > 1) {
+        out = cfg.multi_service_question?.trim() || "איזה אימון מעניין אותך?";
+        if (names.length <= 3) {
+          out += `\n\n${names.join("\n")}\n\nבחרו את סוג האימון המתאים או כתבו את שמו בקצרה.`;
+        } else {
+          out += `\n\n${names.map((n, i) => `${i + 1}. ${n}`).join("\n")}\n\nכתבו את מספר האימון שמתאים לכם (ספרה אחת).`;
+        }
+      } else if (cfg && names.length === 1) {
+        const q = (cfg.experience_question || "").replace(/\{serviceName\}/g, names[0]);
+        const opts = Array.isArray(cfg.experience_options) ? cfg.experience_options : [];
+        out = [q.trim() || "יצא לך להתאמן בעבר?", ...opts, "", "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה."]
+          .filter(Boolean)
+          .join("\n");
+      }
+
+      await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] Send greeting reply failed:", e)
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: out,
+        model_used: "greeting",
+        session_id: sessionId,
+      });
+      return;
+    }
+  }
+
   // 1) FAQ exact-ish match (dashboard data)
   if (msg.type === "text" && businessId) {
     try {

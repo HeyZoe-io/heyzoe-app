@@ -35,7 +35,7 @@ export function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const CLAUDE_WHATSAPP_MODEL = "claude-sonnet-4-5-20251022" as const;
+export const CLAUDE_WHATSAPP_MODEL = "claude-sonnet-4-5" as const;
 export const CLAUDE_WHATSAPP_MAX_TOKENS = 768 as const;
 
 /** סריקת אתר בדשבורד — Haiku מהיר וזול מספיק לחילוץ JSON מובנה */
