@@ -3,10 +3,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   verifyTwilioSignature,
   parseTwilioWebhook,
+  parseMetaWebhook,
   sendWhatsAppMessage,
   sendWhatsAppMediaMessage,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
+  resolveMetaAppSecret,
+  resolveMetaVerifyToken,
+  verifyMetaSignature256,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
 import { formatWhatsAppOpeningText } from "@/lib/whatsapp-opening";
@@ -27,15 +31,27 @@ export const runtime = "nodejs";
 // In-process dedup: prevents double-processing when Twilio retries the webhook
 const processedMessageIds = new Set<string>();
 
-// ─── POST — incoming messages from Twilio ─────────────────────────────────────
+// ─── GET — Meta webhook verification ─────────────────────────────────────────
+
+export async function GET(req: NextRequest) {
+  const sp = req.nextUrl.searchParams;
+  const mode = sp.get("hub.mode") ?? "";
+  const token = sp.get("hub.verify_token") ?? "";
+  const challenge = sp.get("hub.challenge") ?? "";
+  const expected = resolveMetaVerifyToken();
+  if (mode === "subscribe" && expected && token === expected && challenge) {
+    return new Response(challenge, { status: 200, headers: { "Content-Type": "text/plain" } });
+  }
+  return new Response("Unauthorized", { status: 401 });
+}
+
+// ─── POST — incoming messages from Twilio or Meta ─────────────────────────────
 
 export async function POST(req: NextRequest) {
   const accountSid = resolveTwilioAccountSid();
   const authToken  = resolveTwilioAuthToken();
 
-  // Parse form-encoded body
   const rawBody = await req.text();
-  const params  = Object.fromEntries(new URLSearchParams(rawBody));
 
   // Reconstruct the public URL — req.url on Vercel is an internal address.
   // Twilio signs using the exact URL configured in its console.
@@ -44,38 +60,58 @@ export async function POST(req: NextRequest) {
   const signingUrl = `${proto}://${host}/api/whatsapp/webhook`;
   console.log("[WA Webhook] signing URL:", signingUrl, "| req.url:", req.url);
 
-  // Verify Twilio signature (skip in dev if auth token not set)
-  if (authToken) {
-    const signature = req.headers.get("x-twilio-signature") ?? "";
-    const sortedParamKeys = Object.keys(params).sort();
-    const paramStr = sortedParamKeys.map(k => `${k}=${params[k]}`).join(" | ");
-    const { createHmac } = await import("crypto");
-    const strToSign = signingUrl + sortedParamKeys.map(k => k + (params[k] ?? "")).join("");
-    const computed = createHmac("sha1", authToken).update(strToSign, "utf8").digest("base64");
-    console.log("[WA Webhook] signature debug:", {
-      signingUrl,
-      receivedSig: signature,
-      computedSig: computed,
-      match: computed === signature,
-      paramKeys: sortedParamKeys,
-      paramStr,
-    });
-    if (!verifyTwilioSignature(authToken, signature, signingUrl, params)) {
-      console.warn("[WA Webhook] Invalid Twilio signature — rejected");
-      return new Response("Unauthorized", { status: 401 });
+  const isProbablyMeta = rawBody.trim().startsWith("{") && rawBody.includes('"whatsapp_business_account"');
+  let msg: ReturnType<typeof parseTwilioWebhook> | ReturnType<typeof parseMetaWebhook> | null = null;
+
+  if (isProbablyMeta) {
+    const appSecret = resolveMetaAppSecret();
+    const sig = req.headers.get("x-hub-signature-256") ?? "";
+    if (appSecret) {
+      if (!verifyMetaSignature256(appSecret, sig, rawBody)) {
+        console.warn("[WA Webhook] Invalid Meta signature — rejected");
+        return new Response("Unauthorized", { status: 401 });
+      }
+    } else {
+      console.warn("[WA Webhook] META_APP_SECRET missing — skipping Meta signature verification");
     }
+    const payload = JSON.parse(rawBody || "{}");
+    msg = parseMetaWebhook(payload);
+  } else {
+    // Twilio: Parse form-encoded body
+    const params = Object.fromEntries(new URLSearchParams(rawBody));
+
+    // Verify Twilio signature (skip in dev if auth token not set)
+    if (authToken) {
+      const signature = req.headers.get("x-twilio-signature") ?? "";
+      const sortedParamKeys = Object.keys(params).sort();
+      const paramStr = sortedParamKeys.map(k => `${k}=${params[k]}`).join(" | ");
+      const { createHmac } = await import("crypto");
+      const strToSign = signingUrl + sortedParamKeys.map(k => k + (params[k] ?? "")).join("");
+      const computed = createHmac("sha1", authToken).update(strToSign, "utf8").digest("base64");
+      console.log("[WA Webhook] signature debug:", {
+        signingUrl,
+        receivedSig: signature,
+        computedSig: computed,
+        match: computed === signature,
+        paramKeys: sortedParamKeys,
+        paramStr,
+      });
+      if (!verifyTwilioSignature(authToken, signature, signingUrl, params)) {
+        console.warn("[WA Webhook] Invalid Twilio signature — rejected");
+        return new Response("Unauthorized", { status: 401 });
+      }
+    }
+    msg = parseTwilioWebhook(params);
   }
 
-  // Return 200 immediately — Twilio expects a fast response
   // Process the message (awaited — webhook keeps connection open for up to 10s)
-  const msg = parseTwilioWebhook(params);
   if (msg) {
     await processIncoming(msg, accountSid, authToken).catch((e) =>
       console.error("[WA Webhook] processIncoming error:", e)
     );
   }
 
-  // Twilio expects empty 200 (or TwiML) — we use empty 200
+  // Meta expects 200 quickly as well.
   return new Response("", { status: 200 });
 }
 

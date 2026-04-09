@@ -10,6 +10,18 @@ export function resolveTwilioAuthToken(): string {
   return process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
 }
 
+export function resolveMetaAccessToken(): string {
+  return process.env.META_ACCESS_TOKEN?.trim() ?? "";
+}
+
+export function resolveMetaAppSecret(): string {
+  return process.env.META_APP_SECRET?.trim() ?? "";
+}
+
+export function resolveMetaVerifyToken(): string {
+  return process.env.META_VERIFY_TOKEN?.trim() ?? "";
+}
+
 // ─── Signature verification ───────────────────────────────────────────────────
 
 /**
@@ -38,6 +50,27 @@ export function verifyTwilioSignature(
   let mismatch = 0;
   for (let i = 0; i < expected.length; i++) {
     mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/**
+ * Verifies Meta X-Hub-Signature-256 header:
+ * sha256=HMAC_SHA256(appSecret, rawBody)
+ */
+export function verifyMetaSignature256(
+  appSecret: string,
+  signatureHeader: string,
+  rawBody: string
+): boolean {
+  const sig = String(signatureHeader ?? "").trim();
+  if (!appSecret || !sig.startsWith("sha256=")) return false;
+  const received = sig.slice("sha256=".length);
+  const expected = createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+  if (expected.length !== received.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) {
+    mismatch |= expected.charCodeAt(i) ^ received.charCodeAt(i);
   }
   return mismatch === 0;
 }
@@ -106,6 +139,52 @@ export function parseTwilioWebhook(params: Record<string, string>): WaIncomingMe
   return null;
 }
 
+/**
+ * Parses Meta Cloud API webhook payload (WhatsApp Business Account).
+ * Meta batches messages; we only take the first message in the first change.
+ */
+export function parseMetaWebhook(payload: unknown): WaIncomingMessage | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as any;
+  if (root.object !== "whatsapp_business_account") return null;
+  const entry = Array.isArray(root.entry) ? root.entry[0] : null;
+  const change = entry && Array.isArray(entry.changes) ? entry.changes[0] : null;
+  const value = change?.value ?? null;
+  if (!value || typeof value !== "object") return null;
+  const msgs = Array.isArray(value.messages) ? value.messages : [];
+  if (msgs.length === 0) return null;
+  const m = msgs[0] ?? {};
+  const phoneNumberId = String(value?.metadata?.phone_number_id ?? "").trim();
+  const fromRaw = String(m.from ?? "").trim();
+  const from = fromRaw ? (fromRaw.startsWith("+") ? fromRaw : `+${fromRaw}`) : "";
+  const messageId = String(m.id ?? "").trim() || `meta_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const profileName = String(value?.contacts?.[0]?.profile?.name ?? "").trim();
+  const type = String(m.type ?? "").trim();
+
+  if (!from || !phoneNumberId) return null;
+
+  if (type === "text") {
+    const text = String(m?.text?.body ?? "").trim();
+    if (!text) return null;
+    return {
+      type: "text",
+      messageId,
+      from,
+      toNumber: phoneNumberId, // reuse existing field for channel lookup
+      text,
+      profileName: profileName || undefined,
+    };
+  }
+
+  return {
+    type: "unsupported",
+    messageId,
+    from,
+    toNumber: phoneNumberId,
+    profileName: profileName || undefined,
+  };
+}
+
 // ─── Sending messages ─────────────────────────────────────────────────────────
 
 /** עטיפת טקסט לכיוון RTL בבועת ווטסאפ (אין API רשמי ליישור — רק בידי). */
@@ -131,6 +210,32 @@ export async function sendWhatsAppMessage(
   authToken: string
 ): Promise<void> {
   const bodyText = formatWhatsAppRtlBody(text);
+
+  // If `fromNumber` is a Meta phone_number_id (digits), prefer Meta Cloud API.
+  const metaToken = resolveMetaAccessToken();
+  const fromIsMetaId = /^[0-9]{6,}$/.test(fromNumber.trim());
+  if (fromIsMetaId && metaToken) {
+    const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(fromNumber.trim())}/messages`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${metaToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: to.replace(/^\+/, ""),
+        type: "text",
+        text: { body: bodyText },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`[Meta WA send] ${res.status} ${res.statusText}: ${err}`);
+    }
+    return;
+  }
+
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
     From: `whatsapp:${fromNumber}`,
