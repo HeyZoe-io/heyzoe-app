@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -98,6 +99,7 @@ function ModalShell({
 }
 
 export default function ContactsClient({ businessSlug, totalCount, activeCount, initialContacts }: Props) {
+  const router = useRouter();
   const [contacts, setContacts] = useState<Contact[]>(initialContacts);
   const [msg, setMsg] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -167,6 +169,10 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
     setSingleContact(c);
     setSingleMsg(msg); // reuse broadcast text if already typed
     setSingleOpen(true);
+  }
+
+  function viewConversations(phone: string) {
+    router.push(`/${encodeURIComponent(businessSlug)}/conversations?phone=${encodeURIComponent(phone)}`);
   }
 
   async function onSendSingle() {
@@ -298,14 +304,24 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
                           )}
                         </td>
                         <td className="py-3 px-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => openSingle(c)}
-                            disabled={sending || optedOut || !c.phone}
-                          >
-                            שלח הודעה
-                          </Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => (c.phone ? viewConversations(c.phone) : null)}
+                              disabled={!c.phone}
+                            >
+                              צפה בשיחות
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => openSingle(c)}
+                              disabled={sending || optedOut || !c.phone}
+                            >
+                              שלח הודעה
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
