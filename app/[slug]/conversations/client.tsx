@@ -7,6 +7,7 @@ type SessionMessage = {
   role: string;
   content: string;
   created_at: string;
+  error_code?: string | null;
 };
 
 type SessionSummary = {
@@ -261,6 +262,11 @@ export default function ConversationsClient({
                       {m.role === "user" ? "לקוח" : "זואי"}
                     </p>
                     <p className="text-sm leading-snug">{m.content}</p>
+                    {m.role !== "user" && m.error_code ? (
+                      <p className="mt-1 text-[10px] opacity-80">
+                        קוד שגיאה: {m.error_code}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               ))}

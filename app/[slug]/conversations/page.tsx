@@ -36,7 +36,7 @@ export default async function ConversationsPage({ params }: Props) {
   const [{ data: messages }, { data: pausedRows }] = await Promise.all([
     admin
       .from("messages")
-      .select("session_id, role, content, created_at")
+      .select("session_id, role, content, created_at, error_code")
       .eq("business_slug", slug)
       .order("created_at", { ascending: true }),
     admin
@@ -56,7 +56,7 @@ export default async function ConversationsPage({ params }: Props) {
       lastAt: Date;
       count: number;
       lastFromUser: boolean;
-      messages: { role: string; content: string; created_at: string }[];
+      messages: { role: string; content: string; created_at: string; error_code?: string | null }[];
     }
   >();
 
@@ -69,6 +69,7 @@ export default async function ConversationsPage({ params }: Props) {
       role: m.role as string,
       content: (m.content as string) ?? "",
       created_at: m.created_at as string,
+      error_code: (m.error_code as string | null) ?? null,
     };
     if (!existing) {
       bySession.set(sid, {
