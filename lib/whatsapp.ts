@@ -11,7 +11,11 @@ export function resolveTwilioAuthToken(): string {
 }
 
 export function resolveMetaAccessToken(): string {
-  return process.env.META_ACCESS_TOKEN?.trim() ?? "";
+  return (
+    process.env.META_ACCESS_TOKEN?.trim() ||
+    process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ||
+    ""
+  );
 }
 
 export function resolveMetaAppSecret(): string {
