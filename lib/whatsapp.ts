@@ -50,6 +50,8 @@ export type WaIncomingText = {
   from: string;         // e.g. "+972501234567"
   toNumber: string;     // Twilio number e.g. "+14155238886" — used for channel lookup
   text: string;
+  /** WhatsApp profile name (Twilio: ProfileName) if available */
+  profileName?: string;
 };
 
 export type WaIncomingUnsupported = {
@@ -57,6 +59,8 @@ export type WaIncomingUnsupported = {
   messageId: string;
   from: string;
   toNumber: string;
+  /** WhatsApp profile name (Twilio: ProfileName) if available */
+  profileName?: string;
 };
 
 export type WaIncomingMessage = WaIncomingText | WaIncomingUnsupported;
@@ -71,6 +75,7 @@ export function parseTwilioWebhook(params: Record<string, string>): WaIncomingMe
   const rawTo      = params.To ?? "";    // "whatsapp:+14155238886"
   const body       = (params.Body ?? "").trim();
   const numMedia   = Number(params.NumMedia ?? "0");
+  const profileName = (params.ProfileName ?? "").trim();
 
   if (!messageSid || !rawFrom || !rawTo) return null;
 
@@ -79,10 +84,23 @@ export function parseTwilioWebhook(params: Record<string, string>): WaIncomingMe
   const toNumber = rawTo.replace(/^whatsapp:/i, "");
 
   if (body) {
-    return { type: "text", messageId: messageSid, from, toNumber, text: body };
+    return {
+      type: "text",
+      messageId: messageSid,
+      from,
+      toNumber,
+      text: body,
+      profileName: profileName || undefined,
+    };
   }
   if (numMedia > 0) {
-    return { type: "unsupported", messageId: messageSid, from, toNumber };
+    return {
+      type: "unsupported",
+      messageId: messageSid,
+      from,
+      toNumber,
+      profileName: profileName || undefined,
+    };
   }
 
   return null;

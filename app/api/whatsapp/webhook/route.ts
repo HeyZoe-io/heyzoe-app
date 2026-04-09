@@ -105,7 +105,7 @@ async function processIncoming(
   // Route: look up business by Twilio "To" number
   const { data: channel } = await supabase
     .from("whatsapp_channels")
-    .select("business_slug, phone_number_id")
+    .select("business_slug, business_id, phone_number_id")
     .eq("phone_number_id", msg.toNumber)
     .eq("is_active", true)
     .maybeSingle();
@@ -116,6 +116,155 @@ async function processIncoming(
   }
 
   const { business_slug } = channel;
+
+  const nowIso = new Date().toISOString();
+
+  // Resolve business_id (needed for contacts upsert)
+  let businessId: string | null = (channel as any).business_id ?? null;
+  if (!businessId) {
+    try {
+      const { data: biz } = await supabase
+        .from("businesses")
+        .select("id")
+        .eq("slug", business_slug)
+        .maybeSingle();
+      businessId = (biz as any)?.id ?? null;
+    } catch (e) {
+      console.warn("[WA Webhook] failed to resolve business_id (continuing):", e);
+      businessId = null;
+    }
+  }
+
+  // ── SAVE CONTACT (upsert) + OPT-IN/OPT-OUT gating ───────────────────────────
+  // Always try to save/update the contact on any inbound message.
+  // If contact is opted out, we may early-return before reaching any automated flow.
+  let contactOptedOut: boolean | null = null;
+  if (businessId) {
+    try {
+      const phone = msg.from;
+      const fullName =
+        typeof (msg as any).profileName === "string" ? (msg as any).profileName.trim() : "";
+
+      const upsertPayload: Record<string, unknown> = {
+        phone,
+        business_id: businessId,
+        source: "whatsapp",
+        last_contact_at: nowIso,
+      };
+      if (fullName) upsertPayload.full_name = fullName;
+
+      const { data: contactRow, error: upsertErr } = await supabase
+        .from("contacts")
+        .upsert(
+          upsertPayload,
+          { onConflict: "business_id,phone" }
+        )
+        .select("opted_out")
+        .maybeSingle();
+
+      if (upsertErr) {
+        console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
+      }
+
+      contactOptedOut =
+        typeof (contactRow as any)?.opted_out === "boolean" ? (contactRow as any).opted_out : null;
+    } catch (e) {
+      console.warn("[WA Webhook] contacts upsert threw (continuing):", e);
+    }
+  } else {
+    console.warn("[WA Webhook] missing business_id; skipping contacts upsert");
+  }
+
+  // Helper: normalize inbound text for matching
+  const incomingTextRaw = msg.type === "text" ? msg.text : "";
+  const incomingText = incomingTextRaw.trim().toLowerCase();
+
+  const matchesAny = (hay: string, needles: string[]) => {
+    const h = hay.trim().toLowerCase();
+    if (!h) return false;
+    return needles.some((n) => h === n || h.includes(n));
+  };
+
+  const OPT_OUT = [
+    "הסר",
+    "הסרה",
+    "הפסק",
+    "בטל",
+    "לא רוצה",
+    "לא מעוניין",
+    "עצור",
+    "stop",
+    "unsubscribe",
+    "remove",
+    "cancel",
+    "opt out",
+    "optout",
+  ];
+  const OPT_IN = [
+    "הצטרף",
+    "כן",
+    "חזור",
+    "רוצה לקבל",
+    "start",
+    "join",
+    "subscribe",
+    "yes",
+  ];
+
+  let optedInThisMessage = false;
+
+  // 2) OPT-OUT DETECTION (only for text)
+  if (msg.type === "text" && matchesAny(incomingText, OPT_OUT)) {
+    if (businessId) {
+      await supabase
+        .from("contacts")
+        .update({ opted_out: true, opted_out_at: nowIso })
+        .eq("business_id", businessId)
+        .eq("phone", msg.from);
+    }
+    await sendWhatsAppMessage(
+      msg.toNumber,
+      msg.from,
+      "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
+      accountSid,
+      authToken
+    ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+    return;
+  }
+
+  // 3) OPT-IN DETECTION (for users who previously opted out)
+  if (msg.type === "text" && contactOptedOut === true && matchesAny(incomingText, OPT_IN)) {
+    if (businessId) {
+      await supabase
+        .from("contacts")
+        .update({ opted_out: false, opted_in_at: nowIso, opted_out_at: null })
+        .eq("business_id", businessId)
+        .eq("phone", msg.from);
+    }
+    await sendWhatsAppMessage(
+      msg.toNumber,
+      msg.from,
+      "ברוך שובך! 🎉 נשמח לעדכן אותך שוב בהמשך",
+      accountSid,
+      authToken
+    ).catch((e) => console.error("[WA Webhook] Send opt-in reply failed:", e));
+    // Continue to Zoe normally (don't early-return)
+    contactOptedOut = false;
+    optedInThisMessage = true;
+  }
+
+  // 1) If currently opted out, do not pass to Zoe (or any automated flow)
+  if (contactOptedOut === true) {
+    await sendWhatsAppMessage(
+      msg.toNumber,
+      msg.from,
+      "שלום! כרגע הסרת את עצמך מרשימת ההתראות שלנו. אם תרצה לחזור שלח *הצטרף* או *כן*",
+      accountSid,
+      authToken
+    ).catch((e) => console.error("[WA Webhook] Send opted-out gating reply failed:", e));
+    return;
+  }
+
   const sessionId = `wa_${msg.toNumber}_${msg.from}`;
 
   // Detect "new lead" (first message in this session)
@@ -175,7 +324,8 @@ async function processIncoming(
   const knowledge = await getBusinessKnowledgePack(business_slug);
 
   // New lead flow: optional media first, then a default opening message (no AI)
-  if (isNewLead) {
+  // If the user just opted back in, continue to Zoe instead of stopping on default opening.
+  if (isNewLead && !optedInThisMessage) {
     try {
       const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
       if (mediaUrl) {
