@@ -15,8 +15,10 @@ import {
   CLAUDE_WHATSAPP_MAX_TOKENS,
   resolveClaudeApiKey,
   formatUserFacingClaudeError,
+  isRetryableClaudeError,
+  sleepMs,
 } from "@/lib/claude";
-import { fetchRecentSessionMessages, logMessage } from "@/lib/analytics";
+import { extractErrorCode, fetchRecentSessionMessages, logMessage } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -374,6 +376,8 @@ async function processIncoming(
   );
 
   let replyCore: string;
+  let replyErrorCode: string | null = null;
+  let isFallbackErrorReply = false;
 
   if (matched && matched.reply) {
     // Static answer for a predefined quick-reply button
@@ -393,47 +397,70 @@ async function processIncoming(
         : [{ role: "user" as const, content: msg.text }];
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
-      const response = await client.messages.create({
-        model: CLAUDE_WHATSAPP_MODEL,
-        max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
-        system: systemPrompt,
-        messages: claudeMessages,
-      });
+      const runClaude = async () =>
+        client.messages.create({
+          model: CLAUDE_WHATSAPP_MODEL,
+          max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
+          system: systemPrompt,
+          messages: claudeMessages,
+        });
+
+      let response: Awaited<ReturnType<typeof runClaude>> | null = null;
+      try {
+        response = await runClaude();
+      } catch (e) {
+        // One quick retry on transient errors (Twilio webhook must stay fast)
+        if (isRetryableClaudeError(e)) {
+          await sleepMs(900);
+          response = await runClaude();
+        } else {
+          throw e;
+        }
+      }
+
       replyCore =
-        response.content[0]?.type === "text"
+        response?.content[0]?.type === "text"
           ? response.content[0].text.trim()
           : formatUserFacingClaudeError(new Error("empty response"));
+      if (replyCore === formatUserFacingClaudeError(new Error("empty response"))) {
+        isFallbackErrorReply = true;
+      }
     } catch (e) {
       console.error(`[WA Webhook] Claude error for ${business_slug}:`, e);
       replyCore = formatUserFacingClaudeError(e);
+      replyErrorCode = extractErrorCode(e);
+      isFallbackErrorReply = true;
     }
   }
 
-  // Build interactive-style menu from quick replies + "other question"
-  const quickLabels = (knowledge?.quickReplies ?? [])
-    .map((qr) => qr.label.trim())
-    .filter((lbl) => lbl.length > 0);
-  const buttons: string[] = [...quickLabels, OTHER_LABEL];
-
-  const buttonsBlock =
-    buttons.length > 0
-      ? `\n\nבחרו אחת מהאפשרויות:\n${buttons
-          .map((lbl, idx) => `${idx + 1}. ${lbl}`)
-          .join("\n")}`
-      : "";
-
   let replyText = replyCore;
 
-  // Append CTA if available
-  const ctaText = knowledge?.ctaText?.trim();
-  const ctaLink = knowledge?.ctaLink?.trim();
-  if (ctaText && ctaLink) {
-    replyText += `\n\n${ctaText}: ${ctaLink}`;
-  }
+  // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
+  if (!isFallbackErrorReply) {
+    // Build interactive-style menu from quick replies + "other question"
+    const quickLabels = (knowledge?.quickReplies ?? [])
+      .map((qr) => qr.label.trim())
+      .filter((lbl) => lbl.length > 0);
+    const buttons: string[] = [...quickLabels, OTHER_LABEL];
 
-  // Append buttons and small footer note
-  replyText += buttonsBlock;
-  replyText += `\n\nניתן לכתוב לנו גם שאלה שאינה מופיעה`;
+    const buttonsBlock =
+      buttons.length > 0
+        ? `\n\nבחרו אחת מהאפשרויות:\n${buttons
+            .map((lbl, idx) => `${idx + 1}. ${lbl}`)
+            .join("\n")}`
+        : "";
+
+    // Append CTA if available
+    const ctaText = knowledge?.ctaText?.trim();
+    const ctaLink = knowledge?.ctaLink?.trim();
+    if (ctaText && ctaLink) {
+      replyText += `\n\n${ctaText}: ${ctaLink}`;
+    }
+
+    // Append buttons and small footer note
+    replyText += buttonsBlock;
+    replyText += `\n\nניתן לכתוב לנו גם שאלה שאינה מופיעה`;
+  }
 
   // Send reply via Twilio
   try {
@@ -449,5 +476,6 @@ async function processIncoming(
     content: replyText,
     model_used: matched?.reply ? "static" : CLAUDE_WHATSAPP_MODEL,
     session_id: sessionId,
+    error_code: replyErrorCode,
   });
 }
