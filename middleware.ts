@@ -28,7 +28,7 @@ export async function middleware(req: NextRequest) {
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
   const isOwnerAccountPath = pathname.startsWith("/account");
   const isOwnerSlugPath =
-    /^\/[^/]+\/(analytics|conversations|settings)\/?$/.test(pathname);
+    /^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname);
   if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
     return NextResponse.next();
 
@@ -85,7 +85,7 @@ export async function middleware(req: NextRequest) {
 
     // Role gating: employees can access conversations only
     if (isOwnerSlugPath) {
-      const m = pathname.match(/^\/([^/]+)\/(analytics|conversations|settings)\/?$/);
+      const m = pathname.match(/^\/([^/]+)\/(analytics|conversations|contacts|settings)\/?$/);
       const slug = m?.[1] ?? "";
       const section = m?.[2] ?? "";
       if (slug && section && section !== "conversations") {
@@ -127,6 +127,7 @@ export const config = {
     "/account/:path*",
     "/:slug/analytics",
     "/:slug/conversations",
+    "/:slug/contacts",
     "/:slug/settings",
   ],
 };
