@@ -434,7 +434,10 @@ async function processIncoming(
           Array.isArray((response as any)?.content)
             ? (response as any).content.map((b: any) => String(b?.type ?? "unknown")).join(",")
             : "no_content";
-        console.warn("[WA Webhook] Claude empty_response content types:", types);
+        const stopReason = String((response as any)?.stop_reason ?? "");
+        const model = String((response as any)?.model ?? "");
+        const id = String((response as any)?.id ?? "");
+        console.warn("[WA Webhook] Claude empty_response", { id, model, stopReason, types });
         replyErrorCode = replyErrorCode ?? "empty_response";
       }
     } catch (e) {
