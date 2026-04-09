@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type SessionMessage = {
   role: string;
@@ -25,6 +26,10 @@ export default function ConversationsClient({
   slug: string;
   initialSessions: SessionSummary[];
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [sessions, setSessions] = useState<SessionSummary[]>(initialSessions);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialSessions[0]?.session_id ?? null
@@ -33,7 +38,55 @@ export default function ConversationsClient({
   const [sending, setSending] = useState(false);
   const [pausing, setPausing] = useState<string | null>(null);
 
-  const selected = sessions.find((s) => s.session_id === selectedId) ?? null;
+  function normalizePhoneForMatch(raw: string): string {
+    const digits = String(raw ?? "").replace(/\D/g, "");
+    if (!digits) return "";
+    // +9725XXXXXXXX -> 05XXXXXXXX
+    if (digits.startsWith("972") && digits.length >= 12) {
+      const local = digits.slice(3);
+      return local.startsWith("0") ? local : `0${local}`;
+    }
+    if (digits.startsWith("0")) return digits;
+    // fallback: last 9 digits (e.g. 521234567)
+    if (digits.length >= 9) return digits.slice(-9);
+    return digits;
+  }
+
+  const phoneParam = (searchParams.get("phone") ?? "").trim();
+  const normalizedFilter = useMemo(
+    () => (phoneParam ? normalizePhoneForMatch(phoneParam) : ""),
+    [phoneParam]
+  );
+
+  const visibleSessions = useMemo(() => {
+    if (!normalizedFilter) return sessions;
+    return sessions.filter((s) => {
+      const a = normalizePhoneForMatch(s.phone);
+      if (!a) return false;
+      if (a === normalizedFilter) return true;
+      // Compare last 9 digits if both have enough digits
+      const a9 = a.replace(/\D/g, "").slice(-9);
+      const f9 = normalizedFilter.replace(/\D/g, "").slice(-9);
+      return a9 && f9 && a9 === f9;
+    });
+  }, [sessions, normalizedFilter]);
+
+  const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!normalizedFilter) return;
+    // If current selection is not in the filtered list, pick first filtered session.
+    if (selectedId && visibleSessions.some((s) => s.session_id === selectedId)) return;
+    setSelectedId(visibleSessions[0]?.session_id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizedFilter, visibleSessions.length]);
+
+  function clearPhoneFilter() {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete("phone");
+    const q = sp.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname);
+  }
 
   async function toggleBot(sessionId: string, nextPaused: boolean) {
     setPausing(sessionId);
@@ -97,7 +150,23 @@ export default function ConversationsClient({
   return (
     <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <div className="space-y-2 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 max-h-[520px] overflow-auto">
-        {sessions.map((s) => (
+        {normalizedFilter ? (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-[rgba(113,51,218,0.12)] bg-[#faf7ff] px-3 py-2">
+            <p className="text-xs text-zinc-700 text-right">
+              מסונן לפי:{" "}
+              <span className="font-semibold text-zinc-900">{phoneParam}</span>
+            </p>
+            <button
+              type="button"
+              onClick={clearPhoneFilter}
+              className="rounded-full px-3 py-1 text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
+
+        {visibleSessions.map((s) => (
           <button
             key={s.session_id}
             type="button"
@@ -135,9 +204,9 @@ export default function ConversationsClient({
             </div>
           </button>
         ))}
-        {sessions.length === 0 && (
+        {visibleSessions.length === 0 && (
           <p className="text-xs text-zinc-500 text-right">
-            טרם התקבלו שיחות לעסק זה.
+            {normalizedFilter ? "אין שיחות שתואמות למסנן זה." : "טרם התקבלו שיחות לעסק זה."}
           </p>
         )}
       </div>
