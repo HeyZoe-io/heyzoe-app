@@ -418,14 +418,29 @@ async function processIncoming(
         }
       }
 
-      const textBlocks =
-        Array.isArray((response as any)?.content)
-          ? (response as any).content
-              .filter((b: any) => b && typeof b === "object" && b.type === "text" && typeof b.text === "string")
-              .map((b: any) => String(b.text).trim())
-              .filter(Boolean)
-          : [];
-      const combinedText = textBlocks.join("\n").trim();
+      const extractCombinedText = (resObj: any) => {
+        const textBlocks =
+          Array.isArray(resObj?.content)
+            ? resObj.content
+                .filter(
+                  (b: any) =>
+                    b && typeof b === "object" && b.type === "text" && typeof b.text === "string"
+                )
+                .map((b: any) => String(b.text).trim())
+                .filter(Boolean)
+            : [];
+        return textBlocks.join("\n").trim();
+      };
+
+      // Some rare Anthropic responses return end_turn with empty content.
+      // Retry once even if no error was thrown.
+      let combinedText = extractCombinedText(response as any);
+      if (!combinedText) {
+        await sleepMs(700);
+        const retryResp = await runClaude();
+        combinedText = extractCombinedText(retryResp as any);
+        response = retryResp;
+      }
 
       replyCore = combinedText || formatUserFacingClaudeError(new Error("empty response"));
       if (!combinedText) {
