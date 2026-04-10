@@ -9,6 +9,7 @@ import {
   sendWhatsAppTextOrMenu,
   sendWhatsAppMediaMessage,
   resolveMetaInteractiveLabel,
+  stripTrailingNumberedChoiceLines,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
   resolveMetaAppSecret,
@@ -624,7 +625,14 @@ async function processIncoming(
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
     .filter((lbl) => lbl.length > 0);
-  const buttons: string[] = [...quickLabels, OTHER_LABEL];
+  const ctaMenuLabels = (knowledge?.salesFlowConfig?.cta_buttons ?? [])
+    .map((b) => String((b as { label?: string }).label ?? "").trim())
+    .filter((l) => l.length > 0);
+  const buttons: string[] = [
+    ...quickLabels,
+    ...ctaMenuLabels.filter((l) => !quickLabels.some((q) => q === l)),
+    OTHER_LABEL,
+  ];
 
   const incomingRaw =
     msg.type === "text" && msg.metaInteractiveReplyId
@@ -754,7 +762,13 @@ async function processIncoming(
     }
   }
 
-  let replyText = replyCore;
+  const shouldStripModelNumberedChoices =
+    !isFallbackErrorReply && (quickLabels.length > 0 || ctaMenuLabels.length > 0);
+  const replyCoreForMenu = shouldStripModelNumberedChoices
+    ? stripTrailingNumberedChoiceLines(replyCore)
+    : replyCore;
+
+  let replyText = replyCoreForMenu;
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
@@ -783,7 +797,7 @@ async function processIncoming(
     } else {
       const ctaText = knowledge?.ctaText?.trim();
       const ctaLink = knowledge?.ctaLink?.trim();
-      let body = replyCore;
+      let body = replyCoreForMenu;
       if (ctaText && ctaLink) {
         body += `\n\n${ctaText}: ${ctaLink}`;
       }
