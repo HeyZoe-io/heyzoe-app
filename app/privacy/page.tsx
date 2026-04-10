@@ -17,23 +17,13 @@ export default function PrivacyPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
             Privacy Policy
           </h1>
-          <p className="text-sm text-zinc-600">
-            Last updated for Meta / WhatsApp Cloud API compliance. For questions, contact{" "}
-            <a
-              className="text-zinc-900 underline decoration-zinc-400 underline-offset-2 hover:decoration-zinc-600"
-              href="mailto:office@heyzoe.io"
-            >
-              office@heyzoe.io
-            </a>
-            .
-          </p>
+          <p className="text-sm text-zinc-600">Last updated: April 2026</p>
         </header>
 
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-zinc-900">Who We Are</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
-            Hey Zoe is a smart WhatsApp-based messaging system for businesses. We help businesses
-            receive customer messages and send helpful replies through WhatsApp.
+            Hey Zoe is a smart WhatsApp-based messaging system for businesses.
           </p>
         </section>
 
@@ -50,44 +40,35 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-zinc-900">Why We Collect Data</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
-            We process this information to enable businesses to communicate with their customers
-            via WhatsApp, including automated and assisted replies from Zoe.
+            To enable businesses to communicate with their customers via WhatsApp.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-zinc-900">Data Sharing</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
-            Data is never sold to third parties. We use service providers (such as hosting and
-            messaging infrastructure) only as needed to operate the product, under appropriate
-            agreements.
+            Data is never sold to third parties.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-zinc-900">Data Deletion</h2>
-          <p className="text-sm leading-relaxed text-zinc-700">You may request deletion by:</p>
           <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-zinc-700">
             <li>
-              Emailing{" "}
+              Send a deletion request to{" "}
               <a
                 className="text-zinc-900 underline decoration-zinc-400 underline-offset-2 hover:decoration-zinc-600"
                 href="mailto:office@heyzoe.io"
               >
                 office@heyzoe.io
-              </a>{" "}
-              with your request
+              </a>
             </li>
             <li>
-              Sending the word <span className="font-medium text-zinc-900">הסר</span> in your
-              WhatsApp conversation (opt-out / removal flow)
+              Or send the word <span className="font-medium text-zinc-900">&quot;הסר&quot;</span> in
+              your WhatsApp conversation
             </li>
+            <li>Data will be deleted within 30 days</li>
           </ul>
-          <p className="text-sm leading-relaxed text-zinc-700">
-            We will complete deletion within <span className="font-medium text-zinc-900">30 days</span>{" "}
-            of a verified request, subject to legal or security retention requirements where
-            applicable.
-          </p>
         </section>
 
         <section className="space-y-3">
