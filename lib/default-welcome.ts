@@ -10,15 +10,6 @@ function isTrainingContext(niche: string, serviceNames: string[]): boolean {
   return serviceNames.some((s) => TRAINING_HINT.test(s));
 }
 
-/** שורת תיאור אחרי «כאן ___ מ־___» — תגית, או מאפיינים מחוברים */
-function descriptionFromProfile(tagline: string, traits: string[]): string {
-  const t = tagline.trim();
-  if (t) return t;
-  const parts = traits.map((x) => x.trim()).filter(Boolean);
-  if (!parts.length) return "";
-  return parts.join(". ");
-}
-
 function openingSalutation(vibeLabels: string[]): string {
   const v = new Set(vibeLabels);
   if (v.has("יוקרתי") || v.has("מקצועי")) return "שלום,";
@@ -47,13 +38,11 @@ export function buildDefaultSaleWelcome(params: {
   const names = params.services.map((s) => s.name.trim()).filter(Boolean);
   const vibes = Array.isArray(params.vibeLabels) ? params.vibeLabels : [];
   const training = isTrainingContext(params.niche ?? "", names);
-  const traitsArr = Array.isArray(params.traits) ? params.traits : [];
-  const descLine = descriptionFromProfile(params.tagline ?? "", traitsArr);
-
   const sal = openingSalutation(vibes);
   const line1 = `${sal} כאן ${bot} מ־${biz}!`;
   const lineAddr = addr ? `אנחנו יושבים ב־${addr}.` : "";
-  const intro = [line1, descLine, lineAddr].filter(Boolean).join("\n");
+  /** רק טקסט מוגדר בדשבורד — בלי תגית/מאפיינים אוטומטיים */
+  const intro = [line1, lineAddr].filter(Boolean).join("\n");
 
   if (names.length === 1) {
     const svc = names[0];

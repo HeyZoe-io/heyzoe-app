@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { truncateTrialServiceName } from "@/lib/trial-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest) {
   const namedRows = services.filter((s) => String(s.name ?? "").trim());
   const usedServiceSlugs = new Set<string>();
   const servicesPayload = namedRows.map((s, index) => {
-    const name = String(s.name ?? "").trim();
+    const name = truncateTrialServiceName(String(s.name ?? ""));
     let slug = ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index);
     let bump = 0;
     while (usedServiceSlugs.has(slug)) {

@@ -22,6 +22,7 @@ import {
   syncWelcomeFromSalesFlow,
 } from "@/lib/sales-flow";
 import { WhatsAppSettingsPreview } from "@/components/settings/WhatsAppSettingsPreview";
+import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ type ServiceItem = {
   ui_id: string; name: string; price_text: string;
   duration: string; payment_link: string;
   service_slug: string; location_text: string; description: string;
-  /** שורה קצרה אחרי בחירת האימון בפלואו (יתרון לגוף / נפש) */
+  /** משפט מאפיינים אחרי בחירת האימון בפלואו (לא רשימת נקודות) */
   benefit_line: string;
 };
 type MembershipTierUI = {
@@ -119,7 +120,7 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
 function afterPickForDisplay(stored: string, serviceName: string, benefit: string): string {
   return stored
     .replace(/\{serviceName\}/g, serviceName.trim() || "שם האימון שנבחר")
-    .replace(/\{benefitLine\}/g, benefit.trim() || "שורת יתרון מההגדרות");
+    .replace(/\{benefitLine\}/g, benefit.trim() || "מאפיינים מההגדרות");
 }
 
 function afterPickToStore(typed: string, serviceName: string, benefit: string): string {
@@ -417,7 +418,7 @@ export default function SlugSettingsPage() {
     [services]
   );
 
-  /** דוגמה לתבניות שמכילות שם אימון ויתרון — לפי האימון הראשון ברשימה */
+  /** דוגמה לתבניות שמכילות שם אימון ומאפיינים — לפי האימון הראשון ברשימה */
   const firstTrialForTemplates = useMemo(() => {
     const n = trialServiceNames[0];
     if (!n) return { name: "", benefit: "" };
@@ -767,8 +768,12 @@ export default function SlugSettingsPage() {
         },
       },
       services: services.filter((s) => s.name.trim()).map((s) => ({
-        name: s.name.trim(),
-        service_slug: serviceSlugForPersistence(s.service_slug, s.name, s.ui_id),
+        name: truncateTrialServiceName(s.name.trim()),
+        service_slug: serviceSlugForPersistence(
+          s.service_slug,
+          truncateTrialServiceName(s.name.trim()),
+          s.ui_id
+        ),
         price_text: s.price_text,
         location_text: s.location_text,
         location_mode: "location",
@@ -1075,14 +1080,16 @@ export default function SlugSettingsPage() {
         setServices(
           j.products.slice(0, 8).map((p: Record<string, unknown>) => {
             const rowId = uid();
-            const pname = String(p.name ?? "").trim();
+            const pname = truncateTrialServiceName(String(p.name ?? ""));
             const benefits = Array.isArray(p.benefits)
               ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
               : [];
             const sugg = Array.isArray(p.benefit_suggestions)
               ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
               : [];
-            const benefit_line = benefits.join(" · ") || sugg[0] || "";
+            const flowFeatures =
+              typeof p.flow_features === "string" ? p.flow_features.trim() : "";
+            const benefit_line = flowFeatures || benefits.join(" · ") || sugg[0] || "";
             return {
               ui_id: rowId,
               name: pname,
@@ -1564,23 +1571,29 @@ export default function SlugSettingsPage() {
                     >
                       <GripVertical className="h-4 w-4 pointer-events-none" />
                     </span>
-                    <Input
-                      dir="rtl"
-                      value={s.name}
-                      onChange={e => {
-                        const arr = [...services];
-                        const newName = e.target.value;
-                        const slugFromName = toSlug(newName);
-                        arr[i] = {
-                          ...s,
-                          name: newName,
-                          service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
-                        };
-                        setServices(arr);
-                      }}
-                      placeholder="שם השירות / סוג האימון *"
-                      className="flex-1 font-medium"
-                    />
+                    <div className="flex-1 space-y-1">
+                      <Input
+                        dir="rtl"
+                        value={s.name}
+                        maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
+                        onChange={(e) => {
+                          const arr = [...services];
+                          const newName = [...e.target.value].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
+                          const slugFromName = toSlug(newName);
+                          arr[i] = {
+                            ...s,
+                            name: newName,
+                            service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
+                          };
+                          setServices(arr);
+                        }}
+                        placeholder="שם קצר לכפתור (עד 15 תווים) *"
+                        className="font-medium w-full"
+                      />
+                      <p className="text-[11px] text-zinc-500 text-right leading-snug pr-0.5">
+                        קצר יותר = כפתור ברור יותר (עד 3 מילים)
+                      </p>
+                    </div>
                     <button onClick={() => setServices(sv => sv.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400">
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -1603,7 +1616,7 @@ export default function SlugSettingsPage() {
                   </Field>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="שורת יתרון בפלואו">
+                    <Field label="מאפיינים">
                       <Input
                         dir="rtl"
                         value={s.benefit_line}
@@ -1612,7 +1625,7 @@ export default function SlugSettingsPage() {
                           arr[i] = { ...s, benefit_line: e.target.value };
                           setServices(arr);
                         }}
-                        placeholder="למשל: חיזוק ליבה וגמישות"
+                        placeholder="משפט אחד מושך — לא רשימת נקודות"
                       />
                     </Field>
                     <Field label="מיקום">
@@ -2087,7 +2100,7 @@ export default function SlugSettingsPage() {
 
                     <Field label="מענה אחרי בחירת האימון">
                       <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
-                        זואי ממלאה את שם האימון שנבחר ואת שורת היתרון מ«אימון ניסיון». הטקסט כאן מוצג עם דוגמה מהאימון הראשון — כתבו פסקה טבעית לפי העסק (לא רשימת מילים גנרית).
+                        זואי ממלאה את שם האימון שנבחר ואת שדה «מאפיינים» מ«אימון ניסיון». הטקסט כאן מוצג עם דוגמה מהאימון הראשון — משפט שיווקי אחד זורם (לא רשימת מילים).
                       </p>
                       <Textarea
                         rows={4}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { truncateTrialServiceName } from "@/lib/trial-service";
 import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { resolveClaudeApiKey } from "@/lib/server-env";
@@ -391,7 +392,12 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 - directions: הנחיות הגעה/חניה/כניסה אם מופיעות (או ריק).
 - schedule_booking_url: קישור https מלא למערכת שעות/הרשמה (Arbox, Mindbody, Acuity, Calendly וכו׳). אם יש רשימת "קישורים גולמיים" למטה — העתק אחד מהם בדיוק (עדיפות לראשון ברשימה אם זה ארבוקס/Mindbody).
 - business_traits: מערך של 3–8 משפטים קצרים בעברית, כל משפט עד 5–6 מילים — מאפיינים ששווה לציין (רמות, גודל מקום, מתאים ל…).
-ב-products החזר את סוגי השירותים/אימונים שהעסק מציע (שיעורים, סוגי אימון, שיעור ניסיון וכו׳) — כל פריט שם אחד ברור; ככל הניתן כולל מחיר ומיקום מטקסט האתר. benefits = עד 4 תגיות קצרות בעברית למה השירות מועיל.
+ב-products לכל פריט:
+- name: שם קצר לכפתור WhatsApp — עד 15 תווים, 2–3 מילים בלבד. רע: "שיעורי אקרו יוגה שבועיים". טוב: "אקרו יוגה" או "שיעורי אקרו".
+- flow_features: משפט שיווקי אחד בלבד בעברית (לא רשימת נקודות, לא בולטים, לא " · ") — סינתז מנישת העסק + תיאור + benefits אם יש. גם אם אין אתר או המידע דל — התבסס על הנישה והקשר. דוגמה קלט: תגיות כמו "חוזק · קהילה · כיף" → דוגמה פלט: "בואו להתחזק ולהצטרף לקהילה תומכת באווירה חיה".
+- benefits: עד 4 תגיות קצרות (חומר עזר לסינתזת flow_features; השדה החשוב לפלואו הוא flow_features).
+- benefit_suggestions: אופציונלי, הצעות קצרות.
+ככל הניתן כלול מחיר ומיקום מטקסט האתר.
 business_description: אותו תוכן כמו tagline או סיכום קצר מאוד (לתאימות).
 חשוב: החזר אובייקט JSON תקף בלבד — בלי טקסט לפני או אחרי, בלי markdown. אם אין מספיק מקום — החזר "products": [] ו-"business_traits": [].
 החזר JSON במבנה:
@@ -410,12 +416,13 @@ business_description: אותו תוכן כמו tagline או סיכום קצר מ
   "gender": "זכר או נקבה או הכול",
   "products": [
     {
-      "name": "שם שירות",
+      "name": "עד 15 תווים",
       "description": "תיאור קצר",
       "price_text": "מחיר אם נמצא",
       "location_text": "מיקום אם נמצא",
-      "benefits": ["עד 4 תגיות מה משיגים מהשירות"],
-      "benefit_suggestions": ["3-5 בועות הצעה רלוונטיות"]
+      "flow_features": "משפט שיווקי אחד זורם — לא רשימה",
+      "benefits": ["תגיות עזר"],
+      "benefit_suggestions": ["הצעות"]
     }
   ]
 }
@@ -448,7 +455,7 @@ ${pageText}`;
 קישורי הזמנה מהדף: ${bookingCandidates.slice(0, 5).join(" | ") || "אין"}
 טקסט (מקוצר): ${pageText.slice(0, 2600)}
 מבנה:
-{"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","benefits":[],"benefit_suggestions":[]}]}`;
+{"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","flow_features":"","benefits":[],"benefit_suggestions":[]}]}`;
     try {
       const fallbackResponse = await client.messages.create({
         model: CLAUDE_FETCH_SITE_MODEL,
@@ -547,7 +554,15 @@ ${pageText}`;
         parsed.gender === "זכר" || parsed.gender === "נקבה" || parsed.gender === "הכול"
           ? parsed.gender
           : "הכול",
-      products: Array.isArray(parsed.products) ? parsed.products.slice(0, 8) : [],
+      products: Array.isArray(parsed.products)
+        ? parsed.products.slice(0, 8).map((raw: unknown) => {
+            const p = raw as Record<string, unknown>;
+            return {
+              ...p,
+              name: truncateTrialServiceName(String(p.name ?? "")),
+            };
+          })
+        : [],
     });
   } catch {
     return NextResponse.json(

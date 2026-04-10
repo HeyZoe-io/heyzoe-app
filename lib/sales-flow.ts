@@ -261,7 +261,6 @@ export function buildWhatsAppOpeningBody(
     lines.push("", c.multi_service_question);
     if (named.length <= 3) {
       named.forEach((n) => lines.push(n));
-      lines.push("", "בחרו את סוג האימון המתאים או כתבו את שמו בקצרה.");
     } else {
       named.forEach((n, i) => lines.push(`${i + 1}. ${n}`));
       lines.push("", "כתבו את מספר האימון שמתאים לכם (ספרה אחת).");
@@ -269,7 +268,6 @@ export function buildWhatsAppOpeningBody(
   } else if (named.length === 1) {
     lines.push("", c.experience_question.replace(/\{serviceName\}/g, named[0]));
     c.experience_options.forEach((o) => lines.push(o));
-    lines.push("", "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.");
   }
   return lines.join("\n");
 }
@@ -290,7 +288,7 @@ export function fillAfterServicePickTemplate(
   const safeName = sn || "האימון";
   return template
     .replace(/\{serviceName\}/g, safeName)
-    .replace(/\{benefitLine\}/g, benefitLine.trim() || "מה שמייחד את האימון אצלנו");
+    .replace(/\{benefitLine\}/g, benefitLine.trim() || "מאפיינים מההגדרות");
 }
 
 export function getWhatsAppOpeningPreviewSections(
@@ -314,11 +312,6 @@ export function getWhatsAppOpeningPreviewSections(
         kind: "text",
         text: "כתבו את מספר האימון שמתאים לכם (ספרה אחת).",
       });
-    } else {
-      sections.push({
-        kind: "text",
-        text: "בחרו את סוג האימון המתאים או כתבו את שמו בקצרה.",
-      });
     }
   } else if (named.length === 1) {
     sections.push({
@@ -326,10 +319,6 @@ export function getWhatsAppOpeningPreviewSections(
       text: c.experience_question.replace(/\{serviceName\}/g, named[0]),
     });
     sections.push({ kind: "buttons", labels: [...c.experience_options] });
-    sections.push({
-      kind: "text",
-      text: "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.",
-    });
   }
   return sections;
 }
@@ -356,7 +345,7 @@ export function formatSalesFlowForPrompt(
   const benefitLines = named
     .map((n) => {
       const b = benefitByName.get(n)?.trim() || "(השלימי מהידע או מתיאור האימון)";
-      return `  - ${n}: שורת יתרון מההגדרות (שלבי בפסקה זורמת, לא כרשימת מילים): ${b}`;
+      return `  - ${n}: מאפיינים מההגדרות (משפט שיווקי אחד זורם — לא רשימת נקודות): ${b}`;
     })
     .join("\n");
 
@@ -376,6 +365,7 @@ export function formatSalesFlowForPrompt(
 מסלול מכירה מובנה (חובה לעקוב אחרי הסדר הלוגי; התאימי ניסוח לסגנון הדיבור):
 
 כללים כלליים:
+- שמות אימוני הניסיון מההגדרות חייבים להישאר קצרים (עד ~15 תווים, 2–3 מילים) — מתאים לכפתורי WhatsApp. רע: "שיעורי אקרו יוגה שבועיים". טוב: "אקרו יוגה" או "שיעורי אקרו".
 - בכל הודעה: מענה קצר לשלב הנוכחי + השאלה הבאה בפלואו + אפשרויות בחירה.
 - אם יש עד 3 אימוני ניסיון — הציגי כל אימון בשורה נפרדת בלי מספרים, בנוסח כפתורי תשובה מהירה (רק הטקסט, בלי "1.").
 - אם יש יותר מ־3 אימוני ניסיון — בשלב בחירת האימון השתמשי ברשימה ממוספרת ובקשי מהלקוח לכתוב מספר (ספרה) בלבד.
@@ -385,8 +375,8 @@ export function formatSalesFlowForPrompt(
 - משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה (כשורות ממוספרות) — לפחות צפייה במערכת שעות, הרשמה לניסיון, מחירי מנויים — לפי התוויות והלינקים/ידע למטה.
 
 סשן פתיחה (אחרי הודעת המערכת הראשונה):
-- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובתוכן שורת היתרון שלו מהטבלה למטה.
-- במענה אחרי בחירת אימון: אסור להחזיר רשימת מילים או תכונות מופרדות בפסיקים (למשל "חוזק, גמישות, קהילה"). חובה פסקה זורמת של משפט אחד עד שניים, עם פעלים וחיבורים טבעיים; שלבי את הרעיון משורת היתרון בתוך המשפטים — לא כהעתקה יבשה של מילות מפתח.
+- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובמשפט המאפיינים שלו מהטבלה למטה.
+- במענה אחרי בחירת אימון: אסור להחזיר רשימת מילים או תכונות מופרדות בפסיקים. חובה פסקה זורמת של משפט אחד עד שניים; שלבי את הרעיון ממשפט המאפיינים מההגדרות — לא כהעתקה יבשה של מילות מפתח.
   תבנית מענה אחרי בחירת אימון (התאימי ניסוח לסגנון, שמרי על המשמעות והמידע מההגדרות): ${c.after_service_pick}
 
 סשן חימום (מומלץ לא יותר מ־2–3 שאלות בסך הכול):
@@ -402,7 +392,7 @@ ${formatExtraSteps("שאלות נוספות לסשן חימום (לפי הסדר
 ${ctaDesc}
 ${formatExtraSteps("שאלות נוספות לסשן הנעה לפעולה", c.cta_extra_steps)}
 
-אימוני ניסיון ויתרונות אחרי בחירה (מההגדרות):
+אימוני ניסיון ומאפיינים אחרי בחירה (מההגדרות):
 ${benefitLines || "  (אין אימונים מוגדרים)"}
 `.trim();
 }

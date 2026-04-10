@@ -167,11 +167,16 @@ const META_LIST_SECTION_TITLE_MAX = 24;
 const META_LIST_ACTION_BUTTON_MAX = 20;
 const META_INTERACTIVE_BODY_MAX = 1024;
 const META_LIST_ROWS_MAX = 10;
+const META_INTERACTIVE_FOOTER_MAX = 60;
 
 function truncateMetaByCodePoints(s: string, maxChars: number): string {
   const chars = [...(s ?? "")];
   if (chars.length <= maxChars) return s;
   return chars.slice(0, Math.max(0, maxChars - 1)).join("") + "…";
+}
+
+function truncateMetaFooterText(s: string): string {
+  return truncateMetaByCodePoints(s.trim(), META_INTERACTIVE_FOOTER_MAX);
 }
 
 /** Stable id for interactive reply; decode with {@link metaInteractiveDecodeReplyId} or {@link resolveMetaInteractiveLabel}. */
@@ -419,13 +424,18 @@ function truncateInteractiveBody(text: string): string {
  */
 export function buildMetaInteractivePayload(
   bodyText: string,
-  optionLabels: string[]
+  optionLabels: string[],
+  footerText?: string
 ): { type: "interactive"; interactive: Record<string, unknown> } | null {
   const labels = optionLabels.map((l) => l.trim()).filter(Boolean);
   if (labels.length < 2) return null;
 
   const capped = labels.slice(0, META_LIST_ROWS_MAX);
   const body = formatWhatsAppRtlBody(truncateInteractiveBody(bodyText.trim() || "\u200e"));
+  const footer =
+    footerText?.trim() ?
+      { text: formatWhatsAppRtlBody(truncateMetaFooterText(footerText)) }
+    : undefined;
 
   if (capped.length <= 3) {
     return {
@@ -433,6 +443,7 @@ export function buildMetaInteractivePayload(
       interactive: {
         type: "button",
         body: { text: body },
+        ...(footer ? { footer } : {}),
         action: {
           buttons: capped.map((label) => ({
             type: "reply",
@@ -451,6 +462,7 @@ export function buildMetaInteractivePayload(
     interactive: {
       type: "list",
       body: { text: body },
+      ...(footer ? { footer } : {}),
       action: {
         button: truncateMetaByCodePoints("בחר אפשרות", META_LIST_ACTION_BUTTON_MAX),
         sections: [
@@ -525,15 +537,15 @@ export async function sendWhatsAppTextOrMenu(
 ): Promise<void> {
   const labels = menuOptionLabels.map((l) => l.trim()).filter(Boolean);
   const footer = (opts?.footerHint ?? "").trim();
-  const withFooter = (base: string) => {
+  const withFooterPlain = (base: string) => {
     const b = base.trim();
     return footer ? `${b}\n\n${footer}` : b;
   };
 
   if (isMetaCloudPhoneNumberId(fromNumber) && resolveMetaAccessToken()) {
-    const combined = withFooter(bodyText.trim());
+    const baseBody = bodyText.trim();
     if (labels.length >= 2) {
-      const interactive = buildMetaInteractivePayload(combined, labels);
+      const interactive = buildMetaInteractivePayload(baseBody, labels, footer || undefined);
       if (interactive) {
         try {
           await sendMetaWhatsAppMessage(fromNumber, to, interactive);
@@ -543,7 +555,10 @@ export async function sendWhatsAppTextOrMenu(
         }
       }
     }
-    await sendMetaWhatsAppMessage(fromNumber, to, { type: "text", text: combined });
+    await sendMetaWhatsAppMessage(fromNumber, to, {
+      type: "text",
+      text: withFooterPlain(baseBody),
+    });
     return;
   }
 
@@ -551,7 +566,7 @@ export async function sendWhatsAppTextOrMenu(
   if (labels.length > 0) {
     text += `\n\nבחרו אחת מהאפשרויות:\n${labels.map((lbl, idx) => `${idx + 1}. ${lbl}`).join("\n")}`;
   }
-  text = withFooter(text);
+  text = withFooterPlain(text);
   await sendWhatsAppMessage(fromNumber, to, text, accountSid, authToken);
 }
 
@@ -603,10 +618,46 @@ export async function sendWhatsAppMediaMessage(
   mediaUrl: string,
   accountSid: string,
   authToken: string,
-  caption?: string
+  caption?: string,
+  mediaKind?: "image" | "video"
 ): Promise<void> {
   const cleanUrl = mediaUrl.trim();
   if (!cleanUrl) return;
+
+  const metaToken = resolveMetaAccessToken();
+  if (isMetaCloudPhoneNumberId(fromNumber) && metaToken) {
+    const toDigits = to.replace(/^\+/, "");
+    const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(fromNumber.trim())}/messages`;
+    const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
+    const isVideo =
+      mediaKind === "video" ||
+      /\.(mp4|mov|webm)(\?|$)/i.test(cleanUrl) ||
+      /video\//i.test(cleanUrl);
+    const payload: Record<string, unknown> = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: toDigits,
+      type: isVideo ? "video" : "image",
+    };
+    if (isVideo) {
+      payload.video = cap ? { link: cleanUrl, caption: cap } : { link: cleanUrl };
+    } else {
+      payload.image = cap ? { link: cleanUrl, caption: cap } : { link: cleanUrl };
+    }
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${metaToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`[Meta WA send media] ${res.status} ${res.statusText}: ${err}`);
+    }
+    return;
+  }
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
