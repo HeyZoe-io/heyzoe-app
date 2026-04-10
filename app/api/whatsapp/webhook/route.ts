@@ -6,15 +6,22 @@ import {
   parseMetaWebhook,
   explainMetaWebhookSkip,
   sendWhatsAppMessage,
+  sendWhatsAppTextOrMenu,
   sendWhatsAppMediaMessage,
+  resolveMetaInteractiveLabel,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
   resolveMetaAppSecret,
   resolveMetaVerifyToken,
   verifyMetaSignature256,
+  type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
-import { formatWhatsAppOpeningText } from "@/lib/whatsapp-opening";
+import {
+  formatWhatsAppOpeningText,
+  getWhatsAppOpeningBodyAndMenuLabels,
+  OPENING_MENU_FOOTER,
+} from "@/lib/whatsapp-opening";
 import { fillAfterServicePickTemplate } from "@/lib/sales-flow";
 import {
   CLAUDE_WHATSAPP_MODEL,
@@ -164,7 +171,7 @@ export async function POST(req: NextRequest) {
 // ─── Core processing ──────────────────────────────────────────────────────────
 
 async function processIncoming(
-  msg: ReturnType<typeof parseTwilioWebhook> & object,
+  msg: WaIncomingMessage,
   accountSid: string,
   authToken: string
 ): Promise<void> {
@@ -447,7 +454,14 @@ async function processIncoming(
       : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
 
     try {
-      await sendWhatsAppMessage(msg.toNumber, msg.from, openingText, accountSid, authToken);
+      if (knowledge) {
+        const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
+          footerHint: menuLabels.length > 0 ? OPENING_MENU_FOOTER : "",
+        });
+      } else {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, openingText, accountSid, authToken);
+      }
     } catch (e) {
       console.error(`[WA Webhook] Send opening message failed to ${msg.from}:`, e);
     }
@@ -475,9 +489,16 @@ async function processIncoming(
         ? formatWhatsAppOpeningText(knowledge)
         : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
 
-      await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
-        console.error("[WA Webhook] Send greeting reply failed:", e)
-      );
+      if (knowledge) {
+        const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
+          footerHint: menuLabels.length > 0 ? OPENING_MENU_FOOTER : "",
+        }).catch((e) => console.error("[WA Webhook] Send greeting reply failed:", e));
+      } else {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send greeting reply failed:", e)
+        );
+      }
       await logMessage({
         business_slug,
         role: "assistant",
@@ -577,10 +598,11 @@ async function processIncoming(
 
           const outLines = [afterPick, "", q, ...opts, "", "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה."];
           const out = outLines.filter((x) => x !== undefined).join("\n").trim();
+          const bodyOnly = [afterPick, "", q].filter(Boolean).join("\n").trim();
 
-          await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
-            console.error("[WA Webhook] Send sales-flow pick reply failed:", e)
-          );
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
+            footerHint: "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.",
+          }).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
           await logMessage({
             business_slug,
             role: "assistant",
@@ -599,13 +621,18 @@ async function processIncoming(
   const OTHER_LABEL = "שאלה אחרת";
 
   // ── Quick-reply vs. "other question" routing ────────────────────────────────
-  const incomingRaw = msg.text.trim();
-  const incomingNorm = incomingRaw.toLowerCase();
-
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
     .filter((lbl) => lbl.length > 0);
   const buttons: string[] = [...quickLabels, OTHER_LABEL];
+
+  const incomingRaw =
+    msg.type === "text" && msg.metaInteractiveReplyId
+      ? resolveMetaInteractiveLabel(msg.metaInteractiveReplyId, msg.text, buttons)
+      : msg.type === "text"
+        ? msg.text.trim()
+        : "";
+  const incomingNorm = incomingRaw.toLowerCase();
 
   // Allow numeric answers (1/2/3...) to map to the displayed buttons list.
   let incomingAsLabel = incomingRaw;
@@ -731,12 +758,6 @@ async function processIncoming(
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
-    // Build interactive-style menu from quick replies + "other question"
-    const quickLabels = (knowledge?.quickReplies ?? [])
-      .map((qr) => qr.label.trim())
-      .filter((lbl) => lbl.length > 0);
-    const buttons: string[] = [...quickLabels, OTHER_LABEL];
-
     const buttonsBlock =
       buttons.length > 0
         ? `\n\nבחרו אחת מהאפשרויות:\n${buttons
@@ -744,21 +765,32 @@ async function processIncoming(
             .join("\n")}`
         : "";
 
-    // Append CTA if available
     const ctaText = knowledge?.ctaText?.trim();
     const ctaLink = knowledge?.ctaLink?.trim();
     if (ctaText && ctaLink) {
       replyText += `\n\n${ctaText}: ${ctaLink}`;
     }
 
-    // Append buttons and small footer note
     replyText += buttonsBlock;
     replyText += `\n\nניתן לכתוב לנו גם שאלה שאינה מופיעה`;
   }
 
-  // Send reply via Twilio
+  const MENU_FOOTER = "ניתן לכתוב לנו גם שאלה שאינה מופיעה";
+
   try {
-    await sendWhatsAppMessage(msg.toNumber, msg.from, replyText, accountSid, authToken);
+    if (isFallbackErrorReply) {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
+    } else {
+      const ctaText = knowledge?.ctaText?.trim();
+      const ctaLink = knowledge?.ctaLink?.trim();
+      let body = replyCore;
+      if (ctaText && ctaLink) {
+        body += `\n\n${ctaText}: ${ctaLink}`;
+      }
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, buttons, accountSid, authToken, {
+        footerHint: MENU_FOOTER,
+      });
+    }
   } catch (e) {
     console.error(`[WA Webhook] Send failed to ${msg.from}:`, e);
   }
