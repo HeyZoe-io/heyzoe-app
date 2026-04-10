@@ -7,6 +7,13 @@ export const runtime = "nodejs";
 
 const PRIVACY_URL = "https://heyzoe.io/privacy";
 
+export async function GET() {
+  return Response.json({
+    status: "ok",
+    description: "Hey Zoe data deletion endpoint. Send a POST request to delete your data.",
+  });
+}
+
 /** Base64url → Buffer (adds padding for Node). */
 function base64UrlToBuffer(segment: string): Buffer {
   const b64 = segment.replace(/-/g, "+").replace(/_/g, "/");
