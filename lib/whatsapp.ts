@@ -375,6 +375,28 @@ export function explainMetaWebhookSkip(payload: unknown): string {
 
 // ─── Sending messages ─────────────────────────────────────────────────────────
 
+/**
+ * Strips trailing blank lines and lines shaped like "1. …" / "2. …" from the model
+ * so we do not duplicate choice lists when sending Meta interactive or Twilio numbered menus.
+ */
+export function stripTrailingNumberedChoiceLines(text: string): string {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let end = lines.length;
+  while (end > 0) {
+    const t = lines[end - 1].trim();
+    if (t === "") {
+      end--;
+      continue;
+    }
+    if (/^\d+\.\s+\S/.test(t)) {
+      end--;
+      continue;
+    }
+    break;
+  }
+  return lines.slice(0, end).join("\n").trimEnd();
+}
+
 /** עטיפת טקסט לכיוון RTL בבועת ווטסאפ (אין API רשמי ליישור — רק בידי). */
 export function formatWhatsAppRtlBody(text: string): string {
   const t = text ?? "";
