@@ -18,8 +18,13 @@ export function resolveMetaAccessToken(): string {
   );
 }
 
+/** App secret for X-Hub-Signature-256 (Meta WhatsApp webhooks). Prefer WHATSAPP_APP_SECRET; META_APP_SECRET kept as fallback. */
 export function resolveMetaAppSecret(): string {
-  return process.env.META_APP_SECRET?.trim() ?? "";
+  return (
+    process.env.WHATSAPP_APP_SECRET?.trim() ||
+    process.env.META_APP_SECRET?.trim() ||
+    ""
+  );
 }
 
 export function resolveMetaVerifyToken(): string {
@@ -143,38 +148,35 @@ export function parseTwilioWebhook(params: Record<string, string>): WaIncomingMe
   return null;
 }
 
-/**
- * Parses Meta Cloud API webhook payload (WhatsApp Business Account).
- * Meta batches messages; we only take the first message in the first change.
- */
-export function parseMetaWebhook(payload: unknown): WaIncomingMessage | null {
-  if (!payload || typeof payload !== "object") return null;
-  const root = payload as any;
-  if (root.object !== "whatsapp_business_account") return null;
-  const entry = Array.isArray(root.entry) ? root.entry[0] : null;
-  const change = entry && Array.isArray(entry.changes) ? entry.changes[0] : null;
-  const value = change?.value ?? null;
-  if (!value || typeof value !== "object") return null;
-  const msgs = Array.isArray(value.messages) ? value.messages : [];
-  if (msgs.length === 0) return null;
-  const m = msgs[0] ?? {};
-  const phoneNumberId = String(value?.metadata?.phone_number_id ?? "").trim();
+function normalizeMetaE164(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  return t.startsWith("+") ? t : `+${t}`;
+}
+
+function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, unknown>): WaIncomingMessage | null {
+  const phoneNumberId = String((value.metadata as Record<string, unknown> | undefined)?.phone_number_id ?? "").trim();
   const fromRaw = String(m.from ?? "").trim();
-  const from = fromRaw ? (fromRaw.startsWith("+") ? fromRaw : `+${fromRaw}`) : "";
-  const messageId = String(m.id ?? "").trim() || `meta_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const profileName = String(value?.contacts?.[0]?.profile?.name ?? "").trim();
+  const from = normalizeMetaE164(fromRaw);
+  const messageId =
+    String(m.id ?? "").trim() || `meta_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const contacts = Array.isArray(value.contacts) ? value.contacts : [];
+  const firstContact = contacts[0] as Record<string, unknown> | undefined;
+  const profileName = String(
+    (firstContact?.profile as Record<string, unknown> | undefined)?.name ?? ""
+  ).trim();
   const type = String(m.type ?? "").trim();
 
   if (!from || !phoneNumberId) return null;
 
   if (type === "text") {
-    const text = String(m?.text?.body ?? "").trim();
+    const text = String((m.text as Record<string, unknown> | undefined)?.body ?? "").trim();
     if (!text) return null;
     return {
       type: "text",
       messageId,
       from,
-      toNumber: phoneNumberId, // reuse existing field for channel lookup
+      toNumber: phoneNumberId,
       text,
       profileName: profileName || undefined,
     };
@@ -187,6 +189,92 @@ export function parseMetaWebhook(payload: unknown): WaIncomingMessage | null {
     toNumber: phoneNumberId,
     profileName: profileName || undefined,
   };
+}
+
+/**
+ * Parses Meta Cloud API webhook payload (WhatsApp Business Account).
+ * Meta may batch multiple entry/changes/messages; we return the first inbound message we can handle.
+ */
+export function parseMetaWebhook(payload: unknown): WaIncomingMessage | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  if (root.object !== "whatsapp_business_account") return null;
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  for (const entry of entries) {
+    const ent = entry as Record<string, unknown>;
+    const changes = Array.isArray(ent.changes) ? ent.changes : [];
+    for (const change of changes) {
+      const ch = change as Record<string, unknown>;
+      const value = ch.value;
+      if (!value || typeof value !== "object") continue;
+      const v = value as Record<string, unknown>;
+      const msgs = Array.isArray(v.messages) ? v.messages : [];
+      for (const rawMsg of msgs) {
+        if (!rawMsg || typeof rawMsg !== "object") continue;
+        const parsed = parseOneMetaMessage(v, rawMsg as Record<string, unknown>);
+        if (parsed) return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+/** Why {@link parseMetaWebhook} returned null (for logs; avoids silent drops). */
+export function explainMetaWebhookSkip(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "payload is not a JSON object";
+  const root = payload as Record<string, unknown>;
+  if (root.object !== "whatsapp_business_account") {
+    const o = root.object;
+    return `object is not whatsapp_business_account (${typeof o === "string" ? `"${o}"` : String(o)})`;
+  }
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  if (entries.length === 0) return "entry array missing or empty";
+
+  let sawValue = false;
+  let messageCount = 0;
+  let statusCount = 0;
+  let sawAnyChange = false;
+
+  for (const entry of entries) {
+    const ent = entry as Record<string, unknown>;
+    const changes = Array.isArray(ent.changes) ? ent.changes : [];
+    if (changes.length === 0) continue;
+    sawAnyChange = true;
+    for (const change of changes) {
+      const ch = change as Record<string, unknown>;
+      const value = ch.value;
+      if (!value || typeof value !== "object") continue;
+      sawValue = true;
+      const v = value as Record<string, unknown>;
+      const msgs = Array.isArray(v.messages) ? v.messages : [];
+      const statuses = Array.isArray(v.statuses) ? v.statuses : [];
+      messageCount += msgs.length;
+      statusCount += statuses.length;
+      for (const rawMsg of msgs) {
+        if (!rawMsg || typeof rawMsg !== "object") continue;
+        const m = rawMsg as Record<string, unknown>;
+        const phoneNumberId = String(
+          (v.metadata as Record<string, unknown> | undefined)?.phone_number_id ?? ""
+        ).trim();
+        const from = normalizeMetaE164(String(m.from ?? ""));
+        const typ = String(m.type ?? "").trim();
+        if (!phoneNumberId) return "message missing metadata.phone_number_id";
+        if (!from) return "message missing from";
+        if (typ === "text") {
+          const body = String((m.text as Record<string, unknown> | undefined)?.body ?? "").trim();
+          if (!body) return "text message with empty body";
+        }
+      }
+    }
+  }
+
+  if (!sawAnyChange) return "no changes in any entry";
+  if (!sawValue) return "no change.value objects in payload";
+  if (messageCount === 0 && statusCount > 0) {
+    return `status-only webhook (${statusCount} status(es), no messages — normal for delivery receipts)`;
+  }
+  if (messageCount === 0) return "no messages in webhook payload";
+  return "messages present but none matched parser (unexpected shape?)";
 }
 
 // ─── Sending messages ─────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import {
   verifyTwilioSignature,
   parseTwilioWebhook,
   parseMetaWebhook,
+  explainMetaWebhookSkip,
   sendWhatsAppMessage,
   sendWhatsAppMediaMessage,
   resolveTwilioAccountSid,
@@ -60,10 +61,35 @@ export async function POST(req: NextRequest) {
   const signingUrl = `${proto}://${host}/api/whatsapp/webhook`;
   console.log("[WA Webhook] signing URL:", signingUrl, "| req.url:", req.url);
 
-  const isProbablyMeta = rawBody.trim().startsWith("{") && rawBody.includes('"whatsapp_business_account"');
+  // Meta sends JSON; Twilio sends form-urlencoded. Detect via parsed object (substring match missed some payloads).
+  const rawStripped = rawBody.replace(/^\uFEFF/, "");
+  const trimmedBody = rawStripped.trim();
+  let metaPayload: Record<string, unknown> | null = null;
+  if (trimmedBody.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmedBody);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        (parsed as { object?: string }).object === "whatsapp_business_account"
+      ) {
+        metaPayload = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Not valid JSON — treat as Twilio form body below.
+    }
+  }
+
   let msg: ReturnType<typeof parseTwilioWebhook> | ReturnType<typeof parseMetaWebhook> | null = null;
 
-  if (isProbablyMeta) {
+  if (metaPayload) {
+    const maxLog = 8192;
+    const bodyForLog =
+      rawStripped.length > maxLog
+        ? `${rawStripped.slice(0, maxLog)}… (${rawStripped.length} bytes total)`
+        : rawStripped;
+    console.log("[WA Webhook] Meta raw body:", bodyForLog);
+
     const appSecret = resolveMetaAppSecret();
     const sig = req.headers.get("x-hub-signature-256") ?? "";
     if (appSecret) {
@@ -72,11 +98,31 @@ export async function POST(req: NextRequest) {
         return new Response("Unauthorized", { status: 401 });
       }
     } else {
-      console.warn("[WA Webhook] META_APP_SECRET missing — skipping Meta signature verification");
+      console.warn(
+        "[WA Webhook] WHATSAPP_APP_SECRET (or META_APP_SECRET) missing — skipping Meta signature verification"
+      );
     }
-    const payload = JSON.parse(rawBody || "{}");
-    msg = parseMetaWebhook(payload);
+    msg = parseMetaWebhook(metaPayload);
+    if (!msg) {
+      console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
+    }
   } else {
+    if (trimmedBody.startsWith("{")) {
+      try {
+        const parsed: unknown = JSON.parse(trimmedBody);
+        if (parsed && typeof parsed === "object") {
+          console.warn("[WA Webhook] JSON POST is not Meta WABA webhook; ignoring.", {
+            object: (parsed as { object?: string }).object,
+          });
+          return new Response("", { status: 200 });
+        }
+      } catch {
+        console.warn(
+          "[WA Webhook] Body starts with { but JSON.parse failed; attempting Twilio form parser"
+        );
+      }
+    }
+
     // Twilio: Parse form-encoded body
     const params = Object.fromEntries(new URLSearchParams(rawBody));
 
