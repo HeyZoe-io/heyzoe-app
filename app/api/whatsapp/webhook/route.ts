@@ -18,11 +18,8 @@ import {
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
-import {
-  formatWhatsAppOpeningText,
-  getWhatsAppOpeningBodyAndMenuLabels,
-  OPENING_MENU_FOOTER,
-} from "@/lib/whatsapp-opening";
+import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
+import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import { fillAfterServicePickTemplate } from "@/lib/sales-flow";
 import {
   CLAUDE_WHATSAPP_MODEL,
@@ -437,7 +434,15 @@ async function processIncoming(
     try {
       const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
       if (mediaUrl) {
-        await sendWhatsAppMediaMessage(msg.toNumber, msg.from, mediaUrl, accountSid, authToken);
+        await sendWhatsAppMediaMessage(
+          msg.toNumber,
+          msg.from,
+          mediaUrl,
+          accountSid,
+          authToken,
+          undefined,
+          knowledge?.openingMediaType === "video" ? "video" : knowledge?.openingMediaType === "image" ? "image" : undefined
+        );
         await logMessage({
           business_slug,
           role: "assistant",
@@ -458,7 +463,7 @@ async function processIncoming(
       if (knowledge) {
         const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
-          footerHint: menuLabels.length > 0 ? OPENING_MENU_FOOTER : "",
+          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
         });
       } else {
         await sendWhatsAppMessage(msg.toNumber, msg.from, openingText, accountSid, authToken);
@@ -493,7 +498,7 @@ async function processIncoming(
       if (knowledge) {
         const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
-          footerHint: menuLabels.length > 0 ? OPENING_MENU_FOOTER : "",
+          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
         }).catch((e) => console.error("[WA Webhook] Send greeting reply failed:", e));
       } else {
         await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
@@ -597,12 +602,13 @@ async function processIncoming(
           const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, picked.name);
           const opts = Array.isArray(cfg.experience_options) ? cfg.experience_options : [];
 
-          const outLines = [afterPick, "", q, ...opts, "", "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה."];
-          const out = outLines.filter((x) => x !== undefined).join("\n").trim();
+          const outLines = [afterPick, "", q, ...opts];
+          const out =
+            outLines.filter((x) => x !== undefined).join("\n").trim() + `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
           const bodyOnly = [afterPick, "", q].filter(Boolean).join("\n").trim();
 
           await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
-            footerHint: "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.",
+            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
           }).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
           await logMessage({
             business_slug,
@@ -786,10 +792,8 @@ async function processIncoming(
     }
 
     replyText += buttonsBlock;
-    replyText += `\n\nניתן לכתוב לנו גם שאלה שאינה מופיעה`;
+    replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
   }
-
-  const MENU_FOOTER = "ניתן לכתוב לנו גם שאלה שאינה מופיעה";
 
   try {
     if (isFallbackErrorReply) {
@@ -802,7 +806,7 @@ async function processIncoming(
         body += `\n\n${ctaText}: ${ctaLink}`;
       }
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, buttons, accountSid, authToken, {
-        footerHint: MENU_FOOTER,
+        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
       });
     }
   } catch (e) {

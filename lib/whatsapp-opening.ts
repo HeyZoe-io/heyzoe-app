@@ -1,10 +1,7 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import { buildDefaultSaleWelcome } from "@/lib/default-welcome";
 import { buildWhatsAppOpeningBody, getWhatsAppOpeningPreviewSections } from "@/lib/sales-flow";
-
-/** Shown under opening menus (Meta interactive footer or plain text). */
-export const OPENING_MENU_FOOTER =
-  "ניתן לבחור לפי אחת מהאפשרויות למעלה או לכתוב בקצרה.";
+import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 
 /**
  * Opening message as plain body + menu labels (for Meta interactive / Twilio numbered lists).
@@ -67,11 +64,10 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
       k.businessName,
       k.businessDescription
     );
-    return body.trim();
+    return `${body.trim()}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
   }
 
   const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(k);
-  if (menuLabels.length === 0) return body.trim();
-  const lines = [body, ...menuLabels, "", OPENING_MENU_FOOTER];
-  return lines.filter(Boolean).join("\n");
+  const core = menuLabels.length ? [body, ...menuLabels].filter(Boolean).join("\n") : body.trim();
+  return core ? `${core}\n\n${ZOE_WHATSAPP_MENU_FOOTER}` : ZOE_WHATSAPP_MENU_FOOTER;
 }
