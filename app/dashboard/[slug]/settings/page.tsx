@@ -33,7 +33,7 @@ type ServiceItem = {
   ui_id: string; name: string; price_text: string;
   duration: string; payment_link: string;
   service_slug: string; location_text: string; description: string;
-  /** משפט מאפיינים אחרי בחירת האימון בפלואו (לא רשימת נקודות) */
+  /** תיאור קצר אחרי בחירת האימון בפלואו (משפט אחד) */
   benefit_line: string;
 };
 type MembershipTierUI = {
@@ -120,7 +120,7 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
 function afterPickForDisplay(stored: string, serviceName: string, benefit: string): string {
   return stored
     .replace(/\{serviceName\}/g, serviceName.trim() || "שם האימון שנבחר")
-    .replace(/\{benefitLine\}/g, benefit.trim() || "מאפיינים מההגדרות");
+    .replace(/\{benefitLine\}/g, benefit.trim() || "תיאור מההגדרות");
 }
 
 function afterPickToStore(typed: string, serviceName: string, benefit: string): string {
@@ -418,7 +418,7 @@ export default function SlugSettingsPage() {
     [services]
   );
 
-  /** דוגמה לתבניות שמכילות שם אימון ומאפיינים — לפי האימון הראשון ברשימה */
+  /** דוגמה לתבניות שמכילות שם אימון ותיאור — לפי האימון הראשון ברשימה */
   const firstTrialForTemplates = useMemo(() => {
     const n = trialServiceNames[0];
     if (!n) return { name: "", benefit: "" };
@@ -1616,7 +1616,7 @@ export default function SlugSettingsPage() {
                   </Field>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="מאפיינים">
+                    <Field label="תיאור">
                       <Input
                         dir="rtl"
                         value={s.benefit_line}
@@ -1625,7 +1625,7 @@ export default function SlugSettingsPage() {
                           arr[i] = { ...s, benefit_line: e.target.value };
                           setServices(arr);
                         }}
-                        placeholder="משפט אחד מושך — לא רשימת נקודות"
+                        placeholder="למשל: שיעורים לכל הרמות באווירה הכי כיפית שיש"
                       />
                     </Field>
                     <Field label="מיקום">
@@ -2100,7 +2100,7 @@ export default function SlugSettingsPage() {
 
                     <Field label="מענה אחרי בחירת האימון">
                       <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
-                        זואי ממלאה את שם האימון שנבחר ואת שדה «מאפיינים» מ«אימון ניסיון». הטקסט כאן מוצג עם דוגמה מהאימון הראשון — משפט שיווקי אחד זורם (לא רשימת מילים).
+                        זואי ממלאה את שם האימון שנבחר ואת שדה «תיאור» מ«אימון ניסיון». כתבו משפט קצר וחי (למשל: שיעורים לכל הרמות באווירה הכי כיפית שיש) — לא רשימת נקודות.
                       </p>
                       <Textarea
                         rows={4}

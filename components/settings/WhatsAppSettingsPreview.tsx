@@ -227,7 +227,7 @@ export function WhatsAppSettingsPreview({
                         </p>
                       </Bubble>
                       <p className="text-[8px] text-zinc-500 text-right px-0.5 leading-tight">
-                        דוגמה אחרי בחירת אימון (שם ומאפיינים מהאימון הראשון בהגדרות)
+                        דוגמה אחרי בחירת אימון (שם ותיאור מהאימון הראשון בהגדרות)
                       </p>
                     </>
                   ) : null}
