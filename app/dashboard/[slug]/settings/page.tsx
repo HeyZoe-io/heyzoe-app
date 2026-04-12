@@ -2561,15 +2561,15 @@ export default function SlugSettingsPage() {
                 </p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    הנחיה לזואי לשלב שבו הלקוח כבר השלים הרשמה או תשלום לאימון ניסיון — למשל חיזוק, מה לצפות, או המשך שיחה עם אפשרויות ממוספרות.
+                    כאן כותבים מידע רלוונטי לאחר הרשמה לאימון ניסיון.
                   </p>
-                  <Field label="תוכן / הנחיות לזואי">
+                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
                     <Textarea
                       value={salesFlowConfig.after_trial_registration_body}
                       onChange={(v) =>
                         setSalesFlowConfig((c) => ({ ...c, after_trial_registration_body: v }))
                       }
-                      rows={5}
+                      rows={12}
                     />
                   </Field>
                 </div>
