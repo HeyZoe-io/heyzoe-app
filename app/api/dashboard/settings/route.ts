@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
 
   const mergedSocial: Record<string, unknown> = { ...prevSocial, ...incomingSocial };
   delete mergedSocial.arbox_memberships_url;
+  delete mergedSocial.arbox_integration_notes;
 
   const incomingArboxKey = String(incomingSocial.arbox_api_key ?? "").trim();
   if (

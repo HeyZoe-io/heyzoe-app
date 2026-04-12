@@ -17,8 +17,6 @@ export type BusinessKnowledgePack = {
   businessDescription: string;
   addressText: string;
   arboxLink: string;
-  /** הערות חיבור API/Webhook — מהדשבורד */
-  arboxIntegrationNotes: string;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
@@ -180,8 +178,6 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const addressText = typeof social.address === "string" ? String(social.address) : "";
     const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link) : "";
-    const arboxIntegrationNotes =
-      typeof social.arbox_integration_notes === "string" ? String(social.arbox_integration_notes).trim() : "";
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
     const openingMediaType =
@@ -275,7 +271,6 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
       arboxLink,
-      arboxIntegrationNotes,
       openingMediaUrl,
       openingMediaType,
       servicesShortText,
@@ -383,7 +378,7 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
-${knowledge?.arboxIntegrationNotes ? `הערות חיבור ארבוקס / API (מהעסק): ${knowledge.arboxIntegrationNotes}` : ""}`;
+`;
 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
   const openingQ = knowledge?.welcomeQuestionText?.trim() ?? "";

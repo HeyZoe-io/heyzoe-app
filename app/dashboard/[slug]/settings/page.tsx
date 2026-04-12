@@ -486,8 +486,6 @@ export default function SlugSettingsPage() {
   const arboxApiKeyDraftRef = useRef("");
   const [arboxApiKeyDraft, setArboxApiKeyDraft] = useState("");
   const [arboxApiKeySaved, setArboxApiKeySaved] = useState(false);
-  /** הערות חיבור API / Webhook ארבוקס — טקסט חופשי */
-  const [arboxIntegrationNotes, setArboxIntegrationNotes] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
   const [showTokenHelp, setShowTokenHelp] = useState(false);
@@ -758,9 +756,6 @@ export default function SlugSettingsPage() {
         arboxApiKeyStoredRef.current = String(sl.arbox_api_key ?? "").trim();
         setArboxApiKeySaved(Boolean(arboxApiKeyStoredRef.current));
         setArboxApiKeyDraft("");
-        setArboxIntegrationNotes(
-          typeof sl.arbox_integration_notes === "string" ? sl.arbox_integration_notes : ""
-        );
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -877,7 +872,6 @@ export default function SlugSettingsPage() {
           quick_replies: quickReplies,
           arbox_link: arboxLink,
           arbox_api_key: arboxApiKeyDraft.trim() || arboxApiKeyStoredRef.current,
-          arbox_integration_notes: arboxIntegrationNotes.trim(),
           objections,
           followup_after_registration: followupAfterRegistration,
           followup_after_hour_no_registration: followupAfterHourNoRegistration,
@@ -948,7 +942,6 @@ export default function SlugSettingsPage() {
       quickReplies,
       arboxLink,
       arboxApiKeyDraft,
-      arboxIntegrationNotes,
       objections,
       followupAfterRegistration,
       followupAfterHourNoRegistration,
@@ -1684,14 +1677,51 @@ export default function SlugSettingsPage() {
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
               </Field>
 
-              <Field label="חיבור API / Webhook לארבוקס (אופציונלי)">
-                <Textarea
-                  value={arboxIntegrationNotes}
-                  onChange={setArboxIntegrationNotes}
-                  rows={3}
-                  placeholder="למשל: מפתח API, Webhook, הוראות מהממשק בארבוקס…"
-                />
-              </Field>
+              <div className="space-y-3 border border-[rgba(113,51,218,0.15)] rounded-2xl p-4 bg-[#faf8ff]">
+                <Field label="מפתח API ארבוקס">
+                  <Input
+                    dir="ltr"
+                    type="password"
+                    autoComplete="off"
+                    className="font-mono text-sm"
+                    placeholder={arboxApiKeySaved ? "הושאר ריק אם אין שינוי" : "מהגדרות ארבוקס → אינטגרציות"}
+                    value={arboxApiKeyDraft}
+                    onChange={(e) => setArboxApiKeyDraft(e.target.value)}
+                  />
+                </Field>
+                <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                  לשלב כרטיסיות ומנויים: המנויים נמשכים בבקשת GET ל-API (לפי נתיב בשרת: ARBOX_MEMBERSHIP_API_URL או
+                  ARBOX_MEMBERSHIP_API_PATHS). נדרש גם קישור מערכת השעות למעלה — משם נגזר מזהה המועדון.
+                </p>
+                <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
+                  <Button
+                    type="button"
+                    className="gap-2 shrink-0"
+                    disabled={
+                      fetchingArbox ||
+                      !arboxLink.trim() ||
+                      (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)
+                    }
+                    onClick={() => void fetchArboxMemberships()}
+                  >
+                    {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {fetchingArbox ? "מושך מארבוקס..." : "משוך מנויים וכרטיסיות מ-API"}
+                  </Button>
+                  {!arboxLink.trim() ? (
+                    <p className="text-xs text-zinc-500 text-right">הזינו קישור ארבוקס למעלה כדי לאפשר משיכה.</p>
+                  ) : null}
+                </div>
+                {fetchArboxError ? (
+                  <p className="text-sm text-red-600" role="alert">
+                    {fetchArboxError}
+                  </p>
+                ) : null}
+                {fetchArboxNotice ? (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    {fetchArboxNotice}
+                  </p>
+                ) : null}
+              </div>
 
               <Field label="הנחיות הגעה">
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
@@ -1936,52 +1966,6 @@ export default function SlugSettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-8">
-              <div className="space-y-3 border border-[rgba(113,51,218,0.15)] rounded-2xl p-4 bg-[#faf8ff]">
-                <Field label="מפתח API ארבוקס">
-                  <Input
-                    dir="ltr"
-                    type="password"
-                    autoComplete="off"
-                    className="font-mono text-sm"
-                    placeholder={arboxApiKeySaved ? "הושאר ריק אם אין שינוי" : "מהגדרות ארבוקס → אינטגרציות"}
-                    value={arboxApiKeyDraft}
-                    onChange={(e) => setArboxApiKeyDraft(e.target.value)}
-                  />
-                </Field>
-                <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  המנויים והכרטיסיות נמשכים בבקשת GET ל-API (לפי נתיב שהוגדר בשרת: ARBOX_MEMBERSHIP_API_URL או
-                  ARBOX_MEMBERSHIP_API_PATHS). נדרש גם קישור מערכת השעות בפרטי העסק — משם נגזר מזהה המועדון.
-                </p>
-                <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
-                  <Button
-                    type="button"
-                    className="gap-2 shrink-0"
-                    disabled={
-                      fetchingArbox ||
-                      !arboxLink.trim() ||
-                      (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)
-                    }
-                    onClick={() => void fetchArboxMemberships()}
-                  >
-                    {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {fetchingArbox ? "מושך מארבוקס..." : "משוך מנויים וכרטיסיות מ-API"}
-                  </Button>
-                  {!arboxLink.trim() ? (
-                    <p className="text-xs text-zinc-500 text-right">הזינו קישור ארבוקס בשלב &quot;פרטי העסק&quot; כדי לאפשר משיכה.</p>
-                  ) : null}
-                </div>
-                {fetchArboxError ? (
-                  <p className="text-sm text-red-600" role="alert">
-                    {fetchArboxError}
-                  </p>
-                ) : null}
-                {fetchArboxNotice ? (
-                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                    {fetchArboxNotice}
-                  </p>
-                ) : null}
-              </div>
-
               <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
                 <p className="text-sm font-semibold text-zinc-900">מנויים</p>
                 <p className="text-xs text-zinc-500">
