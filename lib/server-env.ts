@@ -59,10 +59,31 @@ export function resolveAdminAllowedEmail(): string {
 }
 
 /**
- * Arbox — משיכת מנויים מ-API (דשבורד):
- *   ARBOX_MEMBERSHIP_API_URL — URL מלא ל-GET; אפשר `{origin}` שמוחלף במקור מקישור השעות (למשל https://club.web.arboxapp.com).
+ * Arbox — Public API (מומלץ, מפתח per-business ב-social_links):
+ *   ARBOX_PUBLIC_API_BASE — ברירת מחדל https://arboxserver.arboxapp.com/api/public
+ *   ARBOX_SCHEDULE_FROM_PARAM / ARBOX_SCHEDULE_TO_PARAM — שמות query ל-/v3/schedule (ברירת מחדל fromDate, toDate)
+ *   ARBOX_SEARCH_USER_PHONE_PARAMS — רשימה מופרדת בפסיק של שמות פרמטרים לנסות ב-/v3/users/searchUser
+ *   ARBOX_LEADS_CONVERTED_PHONE_PARAM — פרמטר טלפון ל-/v3/leads/converted (ברירת מחדל phone)
+ *   ARBOX_TRIAL_PHONE_PARAM — פרמטר טלפון ל-/v3/schedule/booking/trial (ברירת מחדל phone)
+ *   ARBOX_LEAD_POST_BODY_TEMPLATE — JSON עם placeholders {phone}, {fullName}, {source} ל-POST /v3/leads
+ *
+ * Arbox — משיכת מנויים legacy (מקור מקישור מועדון):
+ *   ARBOX_MEMBERSHIP_API_URL — URL מלא ל-GET; אפשר `{origin}` שמוחלף במקור מקישור השעות.
  *   ARBOX_MEMBERSHIP_API_PATHS — נתיבים יחסיים מופרדים בפסיק, אם לא הוגדר URL מלא.
  */
+export function resolveArboxPublicApiBase(): string {
+  return (
+    process.env.ARBOX_PUBLIC_API_BASE?.trim() || "https://arboxserver.arboxapp.com/api/public"
+  );
+}
+
+export function resolveArboxScheduleQueryKeys(): { fromKey: string; toKey: string } {
+  return {
+    fromKey: process.env.ARBOX_SCHEDULE_FROM_PARAM?.trim() || "fromDate",
+    toKey: process.env.ARBOX_SCHEDULE_TO_PARAM?.trim() || "toDate",
+  };
+}
+
 export function resolveArboxMembershipApiFullUrl(): string {
   return process.env.ARBOX_MEMBERSHIP_API_URL?.trim() ?? "";
 }
