@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { truncateTrialServiceName } from "@/lib/trial-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  loadAccessibleBusinesses,
+  normDashboardSlug,
+  pickBusinessBySlug,
+  pickFirstBusiness,
+  type DashboardBizRow,
+} from "@/lib/dashboard-business-access";
 
 export const runtime = "nodejs";
 
@@ -12,7 +19,7 @@ async function requireUser() {
 }
 
 function normSlug(s: unknown): string {
-  return String(s ?? "").trim().toLowerCase();
+  return normDashboardSlug(s);
 }
 
 function latinSlugPart(input: string): string {
@@ -36,62 +43,7 @@ function ensureServiceInsertSlug(name: string, provided: string, rowIndex: numbe
   return `trial-${rowIndex}-${Math.abs(h).toString(36)}`.slice(0, 80);
 }
 
-type BizRow = Record<string, unknown> & {
-  id?: number;
-  slug?: string;
-  created_at?: string;
-  user_id?: string;
-};
-
-/** עסקים שהמשתמש רשאי לראות: בעלות + חברות ב-business_users */
-async function loadAccessibleBusinesses(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  userId: string
-): Promise<BizRow[]> {
-  const [{ data: owned }, { data: memberships }] = await Promise.all([
-    admin.from("businesses").select("*").eq("user_id", userId),
-    admin.from("business_users").select("business_id").eq("user_id", userId),
-  ]);
-
-  const byId = new Map<string, BizRow>();
-  for (const b of owned ?? []) {
-    if (b && typeof b === "object" && (b as BizRow).id != null) {
-      byId.set(String((b as BizRow).id), b as BizRow);
-    }
-  }
-
-  const memberIds = [
-    ...new Set(
-      (memberships ?? [])
-        .map((m: { business_id?: number }) => m.business_id)
-        .filter((id): id is number => id != null && Number.isFinite(Number(id)))
-        .map((id) => Number(id))
-    ),
-  ];
-
-  if (memberIds.length > 0) {
-    const { data: memberBiz } = await admin.from("businesses").select("*").in("id", memberIds);
-    for (const b of memberBiz ?? []) {
-      if (b && typeof b === "object" && (b as BizRow).id != null && !byId.has(String((b as BizRow).id))) {
-        byId.set(String((b as BizRow).id), b as BizRow);
-      }
-    }
-  }
-
-  return [...byId.values()];
-}
-
-function pickBusinessBySlug(accessible: BizRow[], slugNorm: string): BizRow | null {
-  return accessible.find((b) => normSlug(b.slug) === slugNorm) ?? null;
-}
-
-function pickFirstBusiness(accessible: BizRow[]): BizRow | null {
-  if (accessible.length === 0) return null;
-  return [...accessible].sort(
-    (a, b) =>
-      new Date(String(a.created_at ?? 0)).getTime() - new Date(String(b.created_at ?? 0)).getTime()
-  )[0];
-}
+type BizRow = DashboardBizRow;
 
 export async function GET(req: NextRequest) {
   const user = await requireUser();
@@ -182,6 +134,32 @@ export async function POST(req: NextRequest) {
     (s) => String(s.cta_text ?? "").trim() && String(s.cta_link ?? "").trim()
   );
 
+  const incomingSocial =
+    business.social_links &&
+    typeof business.social_links === "object" &&
+    !Array.isArray(business.social_links)
+      ? ({ ...(business.social_links as Record<string, unknown>) } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+
+  const prevSocial =
+    existingForUser?.social_links &&
+    typeof existingForUser.social_links === "object" &&
+    !Array.isArray(existingForUser.social_links)
+      ? (existingForUser.social_links as Record<string, unknown>)
+      : {};
+
+  const mergedSocial: Record<string, unknown> = { ...prevSocial, ...incomingSocial };
+  delete mergedSocial.arbox_memberships_url;
+
+  const incomingArboxKey = String(incomingSocial.arbox_api_key ?? "").trim();
+  if (
+    !incomingArboxKey &&
+    typeof prevSocial.arbox_api_key === "string" &&
+    prevSocial.arbox_api_key.trim()
+  ) {
+    mergedSocial.arbox_api_key = prevSocial.arbox_api_key;
+  }
+
   const upsertBusiness = {
     user_id: ownerUserId,
     slug: canonicalSlug,
@@ -189,10 +167,7 @@ export async function POST(req: NextRequest) {
     niche: String(business.niche ?? ""),
     bot_name: String(business.bot_name ?? "זואי"),
     logo_url: String(business.logo_url ?? ""),
-    social_links:
-      business.social_links && typeof business.social_links === "object"
-        ? business.social_links
-        : {},
+    social_links: mergedSocial,
     primary_color: String(business.primary_color ?? "#ff85cf"),
     secondary_color: String(business.secondary_color ?? "#bc74e9"),
     welcome_message: String(business.welcome_message ?? "נעים להכיר, אני זואי כאן ללוות אותך בדרך שלך."),

@@ -53,6 +53,30 @@ export function resolveAdminAllowedEmail(): string {
   return process.env.ADMIN_ALLOWED_EMAIL?.trim().toLowerCase() || "liornativ@hotmail.com";
 }
 
+/**
+ * Arbox — משיכת מנויים מ-API (דשבורד):
+ *   ARBOX_MEMBERSHIP_API_URL — URL מלא ל-GET; אפשר `{origin}` שמוחלף במקור מקישור השעות (למשל https://club.web.arboxapp.com).
+ *   ARBOX_MEMBERSHIP_API_PATHS — נתיבים יחסיים מופרדים בפסיק, אם לא הוגדר URL מלא.
+ */
+export function resolveArboxMembershipApiFullUrl(): string {
+  return process.env.ARBOX_MEMBERSHIP_API_URL?.trim() ?? "";
+}
+
+export function resolveArboxMembershipApiPathCandidates(): string[] {
+  const raw = process.env.ARBOX_MEMBERSHIP_API_PATHS?.trim();
+  if (raw) {
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return [
+    "/api/v1/membership-plans",
+    "/api/v1/memberships",
+    "/api/v1/plans",
+    "/api/v1/subscription-plans",
+    "/api/v1/products",
+    "/api/external/v1/membership-plans",
+  ];
+}
+
 export function listMissingBusinessBootstrapKeys(): string[] {
   const missing: string[] = [];
   if (!resolveClaudeApiKey()) {

@@ -481,8 +481,11 @@ export default function SlugSettingsPage() {
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
-  /** דף מנויים/חבילות בארבוקס — סריקה לטאב כרטיסיות ומנויים */
-  const [arboxMembershipsUrl, setArboxMembershipsUrl] = useState("");
+  /** מפתח API ארבוקס (הגדרות → אינטגרציות) — למשיכת מנויים מ-API */
+  const arboxApiKeyStoredRef = useRef("");
+  const arboxApiKeyDraftRef = useRef("");
+  const [arboxApiKeyDraft, setArboxApiKeyDraft] = useState("");
+  const [arboxApiKeySaved, setArboxApiKeySaved] = useState(false);
   /** הערות חיבור API / Webhook ארבוקס — טקסט חופשי */
   const [arboxIntegrationNotes, setArboxIntegrationNotes] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
@@ -532,6 +535,10 @@ export default function SlugSettingsPage() {
     () => services.map((s) => s.name.trim()).filter(Boolean).join("\0"),
     [services]
   );
+
+  useEffect(() => {
+    arboxApiKeyDraftRef.current = arboxApiKeyDraft;
+  }, [arboxApiKeyDraft]);
 
   const salesOpeningAutoText = useMemo(
     () =>
@@ -748,7 +755,9 @@ export default function SlugSettingsPage() {
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
-        setArboxMembershipsUrl(String(sl.arbox_memberships_url ?? ""));
+        arboxApiKeyStoredRef.current = String(sl.arbox_api_key ?? "").trim();
+        setArboxApiKeySaved(Boolean(arboxApiKeyStoredRef.current));
+        setArboxApiKeyDraft("");
         setArboxIntegrationNotes(
           typeof sl.arbox_integration_notes === "string" ? sl.arbox_integration_notes : ""
         );
@@ -769,9 +778,7 @@ export default function SlugSettingsPage() {
           serviceNames: svcNamesForFollowup,
           address: String(sl.address ?? ""),
           tagline: typeof sl.tagline === "string" ? sl.tagline.trim() : "",
-          hasBookingLink: Boolean(
-            String(sl.arbox_link ?? "").trim() || String(sl.arbox_memberships_url ?? "").trim()
-          ),
+          hasBookingLink: Boolean(String(sl.arbox_link ?? "").trim()),
         });
         const regSaved =
           typeof sl.followup_after_registration === "string" ? sl.followup_after_registration.trim() : "";
@@ -869,7 +876,7 @@ export default function SlugSettingsPage() {
           segmentation_questions: segQuestions,
           quick_replies: quickReplies,
           arbox_link: arboxLink,
-          arbox_memberships_url: arboxMembershipsUrl.trim(),
+          arbox_api_key: arboxApiKeyDraft.trim() || arboxApiKeyStoredRef.current,
           arbox_integration_notes: arboxIntegrationNotes.trim(),
           objections,
           followup_after_registration: followupAfterRegistration,
@@ -940,7 +947,7 @@ export default function SlugSettingsPage() {
       segQuestions,
       quickReplies,
       arboxLink,
-      arboxMembershipsUrl,
+      arboxApiKeyDraft,
       arboxIntegrationNotes,
       objections,
       followupAfterRegistration,
@@ -1002,6 +1009,12 @@ export default function SlugSettingsPage() {
           if (!cancelled) {
             setAutoSaveErr("");
             setAutosaveStatus("saved");
+            const d = arboxApiKeyDraftRef.current.trim();
+            if (d) {
+              arboxApiKeyStoredRef.current = d;
+              setArboxApiKeyDraft("");
+              setArboxApiKeySaved(true);
+            }
             window.setTimeout(() => {
               setAutosaveStatus((s) => (s === "saved" ? "idle" : s));
             }, 2500);
@@ -1030,6 +1043,12 @@ export default function SlugSettingsPage() {
         setSaveErr(await readSaveErrorFromResponse(res));
         return false;
       }
+      const d = arboxApiKeyDraftRef.current.trim();
+      if (d) {
+        arboxApiKeyStoredRef.current = d;
+        setArboxApiKeyDraft("");
+        setArboxApiKeySaved(true);
+      }
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
       setAutosaveStatus("idle");
@@ -1052,12 +1071,12 @@ export default function SlugSettingsPage() {
       serviceNames: services.map((s) => s.name.trim()).filter(Boolean),
       address: address.trim(),
       tagline: businessTagline.trim(),
-      hasBookingLink: Boolean(arboxLink.trim() || arboxMembershipsUrl.trim()),
+      hasBookingLink: Boolean(arboxLink.trim()),
     });
     setFollowupAfterRegistration(pack.followupAfterRegistration);
     setFollowupAfterHourNoRegistration(pack.followupAfterHourNoRegistration);
     setFollowupDayAfterTrial(pack.followupDayAfterTrial);
-  }, [arboxLink, arboxMembershipsUrl, botName, businessTagline, name, niche, services, slug, vibe, address]);
+  }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
@@ -1340,19 +1359,25 @@ export default function SlugSettingsPage() {
   }
 
   async function fetchArboxMemberships() {
-    const u = arboxMembershipsUrl.trim() || arboxLink.trim();
-    if (!u) {
-      setFetchArboxError("הזינו קישור לדף מנויים בארבוקס.");
+    if (!arboxLink.trim()) {
+      setFetchArboxError("הזינו קישור למערכת שעות ארבוקס (שלב פרטי העסק).");
+      return;
+    }
+    if (!arboxApiKeyDraft.trim() && !arboxApiKeyStoredRef.current.trim()) {
+      setFetchArboxError("הזינו מפתח API ארבוקס (הגדרות → אינטגרציות בארבוקס).");
       return;
     }
     setFetchingArbox(true);
     setFetchArboxError("");
     setFetchArboxNotice("");
     try {
-      const res = await fetch("/api/dashboard/fetch-arbox-memberships", {
+      const res = await fetch("/api/dashboard/sync-arbox-memberships", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: u }),
+        body: JSON.stringify({
+          slug,
+          ...(arboxApiKeyDraft.trim() ? { arbox_api_key: arboxApiKeyDraft.trim() } : {}),
+        }),
       });
       const j = (await res.json()) as Record<string, unknown>;
       const msgStr = typeof j.message === "string" ? j.message.trim() : "";
@@ -1361,8 +1386,8 @@ export default function SlugSettingsPage() {
           msgStr ||
             (j.error === "unauthorized"
               ? "נדרשת התחברות מחדש."
-              : j.error === "missing_anthropic_key"
-                ? "חסר מפתח AI בשרת."
+              : j.error === "forbidden"
+                ? "אין הרשאה לעסק זה."
                 : "המשיכה מארבוקס נכשלה. נסו שוב או מלאו ידנית.")
         );
         return;
@@ -1400,7 +1425,7 @@ export default function SlugSettingsPage() {
         );
       }
       if (!mt.length && !pc.length && !msgStr) {
-        setFetchArboxNotice("לא נמצאו מנויים או כרטיסיות — בדקו את הקישור או מלאו ידנית.");
+        setFetchArboxNotice("לא נמצאו מנויים או כרטיסיות — בדקו את המפתח ואת נתיב ה-API בשרת, או מלאו ידנית.");
       }
     } catch {
       setFetchArboxError("בעיית רשת במשיכת ארבוקס.");
@@ -1915,30 +1940,37 @@ export default function SlugSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-8">
               <div className="space-y-3 border border-[rgba(113,51,218,0.15)] rounded-2xl p-4 bg-[#faf8ff]">
-                <Field label="קישור לדף מנויים / חבילות בארבוקס">
+                <Field label="מפתח API ארבוקס">
                   <Input
                     dir="ltr"
+                    type="password"
+                    autoComplete="off"
                     className="font-mono text-sm"
-                    placeholder="https://....web.arboxapp.com/membership?..."
-                    value={arboxMembershipsUrl}
-                    onChange={(e) => setArboxMembershipsUrl(e.target.value)}
+                    placeholder={arboxApiKeySaved ? "הושאר ריק אם אין שינוי" : "מהגדרות ארבוקס → אינטגרציות"}
+                    value={arboxApiKeyDraft}
+                    onChange={(e) => setArboxApiKeyDraft(e.target.value)}
                   />
                 </Field>
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  זואי משתמשת בקישור בהקשר מחירים והרשמה. אפשר למשוך מנויים וכרטיסיות אוטומטית מהדף (טקסט שנסרק) — אם הדף ריק, מלאו ידנית למטה.
+                  המנויים והכרטיסיות נמשכים בבקשת GET ל-API (לפי נתיב שהוגדר בשרת: ARBOX_MEMBERSHIP_API_URL או
+                  ARBOX_MEMBERSHIP_API_PATHS). נדרש גם קישור מערכת השעות בפרטי העסק — משם נגזר מזהה המועדון.
                 </p>
                 <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
                   <Button
                     type="button"
                     className="gap-2 shrink-0"
-                    disabled={fetchingArbox || (!arboxMembershipsUrl.trim() && !arboxLink.trim())}
+                    disabled={
+                      fetchingArbox ||
+                      !arboxLink.trim() ||
+                      (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)
+                    }
                     onClick={() => void fetchArboxMemberships()}
                   >
                     {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {fetchingArbox ? "מושך מארבוקס..." : "משוך מנויים וכרטיסיות מהדף"}
+                    {fetchingArbox ? "מושך מארבוקס..." : "משוך מנויים וכרטיסיות מ-API"}
                   </Button>
-                  {!arboxMembershipsUrl.trim() && arboxLink.trim() ? (
-                    <p className="text-xs text-zinc-500 text-right">אין קישור כאן — ייעשה שימוש בלינק מערכת השעות מפרטי העסק.</p>
+                  {!arboxLink.trim() ? (
+                    <p className="text-xs text-zinc-500 text-right">הזינו קישור ארבוקס בשלב &quot;פרטי העסק&quot; כדי לאפשר משיכה.</p>
                   ) : null}
                 </div>
                 {fetchArboxError ? (
