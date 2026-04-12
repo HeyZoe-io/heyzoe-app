@@ -241,6 +241,7 @@ async function processIncoming(
         business_id: businessId,
         source: "whatsapp",
         last_contact_at: nowIso,
+        followup_sent: false,
       };
       if (fullName) upsertPayload.full_name = fullName;
 

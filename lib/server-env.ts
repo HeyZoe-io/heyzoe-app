@@ -40,6 +40,11 @@ export function resolveSupabaseServiceRoleKey(): string {
   return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
 }
 
+/** אם מוגדר — נתיבי cron (למשל /api/cron/followup) דורשים `Authorization: Bearer …`. */
+export function resolveCronSecret(): string {
+  return process.env.CRON_SECRET?.trim() ?? "";
+}
+
 /** דלי Storage להעלאות (לוגו, מדיה לפתיחה) — חייב להתקיים ב-Supabase או להיווצר אוטומטית */
 export function resolveSupabaseStorageBucket(): string {
   return (
