@@ -1,9 +1,6 @@
+import { resolveArboxMembershipApiPathCandidates } from "@/lib/server-env";
 import {
-  resolveArboxMembershipApiFullUrl,
-  resolveArboxMembershipApiPathCandidates,
-  resolveArboxPublicApiBase,
-} from "@/lib/server-env";
-import {
+  ARBOX_PUBLIC_API_BASE_FIXED,
   arboxFetchMembershipTypes,
   type ArboxMembershipTier,
   type ArboxPunchCard,
@@ -44,14 +41,10 @@ function clubOriginFromArboxLink(arboxLink: string): string | null {
   }
 }
 
+/**
+ * נתיב legacy בלבד (אחרי כישלון Public API). ARBOX_MEMBERSHIP_API_URL לא בשימוש — ניסיון רק מול מקור מקישור המועדון.
+ */
 function buildCandidateUrls(origin: string): string[] {
-  const full = resolveArboxMembershipApiFullUrl();
-  if (full) {
-    if (full.includes("{origin}")) {
-      return [full.replace(/\{origin\}/g, origin.replace(/\/$/, ""))];
-    }
-    return [full];
-  }
   const paths = resolveArboxMembershipApiPathCandidates();
   const base = origin.replace(/\/$/, "");
   return paths.map((p) => `${base}${p.startsWith("/") ? p : `/${p}`}`);
@@ -77,11 +70,11 @@ type AuthMode =
   | { type: "query"; param: string };
 
 const LEGACY_AUTH_MODES: AuthMode[] = [
-  { type: "header", headers: { Authorization: "" } },
-  { type: "header", headers: { "X-Api-Key": "" } },
-  { type: "header", headers: { "x-api-key": "" } },
   { type: "header", headers: { "api-key": "" } },
+  { type: "header", headers: { "x-api-key": "" } },
+  { type: "header", headers: { "X-Api-Key": "" } },
   { type: "header", headers: { "X-Arbox-Api-Key": "" } },
+  { type: "header", headers: { Authorization: "" } },
   { type: "query", param: "api_key" },
   { type: "query", param: "token" },
 ];
@@ -100,6 +93,8 @@ function extractItemsFromJson(json: unknown): Record<string, unknown>[] {
       "plans",
       "membership_plans",
       "memberships",
+      "membershipTypes",
+      "membership_types",
       "items",
       "results",
       "rows",
@@ -212,15 +207,33 @@ async function tryOneUrl(url: string, apiKey: string): Promise<ArboxApiSyncResul
       }
     }
 
+    const headerLog = { ...headers };
+    for (const k of Object.keys(headerLog)) {
+      if (/api|key|auth/i.test(k) && headerLog[k]) {
+        headerLog[k] = headerLog[k].length > 12 ? `${headerLog[k].slice(0, 4)}…` : "***";
+      }
+    }
+    console.info("[Arbox membership legacy] request", { url: finalUrl, headers: headerLog, authMode: mode.type });
+
     let res: Response;
     try {
       res = await fetchWithTimeout(finalUrl, { method: "GET", headers });
-    } catch {
+    } catch (e) {
+      console.warn("[Arbox membership legacy] fetch error", {
+        url: finalUrl,
+        error: e instanceof Error ? e.message : String(e),
+      });
       continue;
     }
 
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     const text = await res.text();
+    console.info("[Arbox membership legacy] response", {
+      url: finalUrl,
+      status: res.status,
+      contentType: ct || "(none)",
+      bodyPreview: text.length > 600 ? `${text.slice(0, 600)}… (${text.length} bytes)` : text,
+    });
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         continue;
@@ -277,8 +290,11 @@ async function legacySyncFromClubUrl(arboxLink: string, apiKey: string): Promise
 }
 
 /**
- * משיכת מנויים/כרטיסיות: קודם Arbox Public API ‎GET /v3/membershipTypes‎ (מפתח בלבד),
- * ואם נכשל — ניסיון legacy דרך מקור מקישור השעות (אם הועבר).
+ * משיכת מנויים/כרטיסיות: קודם Arbox Public API, ואם נכשל — legacy מול מקור מקישור השעות.
+ *
+ * **נתיב Public (העיקרי)** — ממומש ב־`arboxPublicFetch` ב־`lib/arbox-public-api.ts`:
+ * - URL: `https://arboxserver.arboxapp.com/api/public/v3/membershipTypes` (GET; base קבוע בקוד)
+ * - כותרות: `{ "Accept": "application/json", "api-key": "<מפתח>" }` (לא Bearer, לא Authorization)
  */
 export async function syncArboxMembershipsFromApi(
   apiKey: string,
@@ -289,9 +305,14 @@ export async function syncArboxMembershipsFromApi(
     return { ok: false, code: "missing_api_key", message: "חסר מפתח API ארבוקס — הזינו אותו בהגדרות (הגדרות → אינטגרציות)." };
   }
 
+  console.info("[Arbox membership sync] calling public API membershipTypes", {
+    url: `${ARBOX_PUBLIC_API_BASE_FIXED.replace(/\/$/, "")}/v3/membershipTypes`,
+    headerKeys: ["Accept", "api-key"],
+  });
+
   const pub = await arboxFetchMembershipTypes(key, { useCache: false });
   if (pub.ok) {
-    const base = resolveArboxPublicApiBase().replace(/\/$/, "");
+    const base = ARBOX_PUBLIC_API_BASE_FIXED.replace(/\/$/, "");
     return {
       ok: true,
       membership_tiers: pub.membership_tiers,
@@ -300,6 +321,8 @@ export async function syncArboxMembershipsFromApi(
       source: "public_api",
     };
   }
+
+  console.warn("[Arbox membership sync] public API failed", { message: pub.message, status: pub.status });
 
   const link = arboxLink.trim();
   if (link) {

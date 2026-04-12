@@ -8,7 +8,17 @@
  */
 
 import { createHash } from "node:crypto";
-import { resolveArboxPublicApiBase, resolveArboxScheduleQueryKeys } from "@/lib/server-env";
+import { resolveArboxScheduleQueryKeys } from "@/lib/server-env";
+
+/** Base קבוע ל-Public API (זמנית ללא ARBOX_PUBLIC_API_BASE — לפי אישור ארבוקס). */
+export const ARBOX_PUBLIC_API_BASE_FIXED = "https://arboxserver.arboxapp.com/api/public";
+
+function redactArboxApiKeyForLog(key: string): string {
+  const t = key.trim();
+  if (!t) return "(empty)";
+  if (t.length <= 10) return "***";
+  return `${t.slice(0, 4)}…${t.slice(-4)} (len=${t.length})`;
+}
 
 const FETCH_TIMEOUT_MS = 18_000;
 export const ARBOX_CACHE_TTL_MS = 30 * 60 * 1000;
@@ -74,6 +84,10 @@ function extractItemsFromJson(json: unknown): Record<string, unknown>[] {
       "schedule",
       "data",
       "list",
+      "membershipTypes",
+      "membership_types",
+      "memberships",
+      "plans",
     ]) {
       const v = o[k];
       const nested = extractItemsFromJson(v);
@@ -99,7 +113,7 @@ export async function arboxPublicFetch<T = unknown>(
     return { ok: false, status: 0, message: "missing_api_key" };
   }
 
-  const base = resolveArboxPublicApiBase().replace(/\/$/, "");
+  const base = ARBOX_PUBLIC_API_BASE_FIXED.replace(/\/$/, "");
   const p = path.startsWith("/") ? path : `/${path}`;
   let urlStr = `${base}${p}`;
   const q = init?.query ?? {};
@@ -132,6 +146,10 @@ export async function arboxPublicFetch<T = unknown>(
     headers["Content-Type"] = "application/json";
   }
 
+  const logPrefix = "[Arbox public]";
+  const safeHeaderLog = { Accept: headers.Accept, "api-key": redactArboxApiKeyForLog(key) };
+  console.info(`${logPrefix} request`, { method, url: urlStr, headers: safeHeaderLog });
+
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
   let res: Response;
@@ -145,18 +163,41 @@ export async function arboxPublicFetch<T = unknown>(
   } catch (e) {
     clearTimeout(t);
     const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`${logPrefix} fetch error`, { url: urlStr, error: msg });
     return { ok: false, status: 0, message: `network:${msg}` };
   } finally {
     clearTimeout(t);
   }
 
   const text = await res.text();
+  const ct = (res.headers.get("content-type") || "").trim();
+  const bodyPreview = text.length > 800 ? `${text.slice(0, 800)}… (${text.length} bytes)` : text;
+  console.info(`${logPrefix} response`, {
+    url: urlStr,
+    status: res.status,
+    contentType: ct || "(none)",
+    bodyPreview,
+  });
+
   let json: unknown = null;
-  if (text && (text.trim().startsWith("{") || text.trim().startsWith("["))) {
-    try {
-      json = JSON.parse(text) as unknown;
-    } catch {
-      json = null;
+  const trimmed = text.trim();
+  if (trimmed) {
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        json = JSON.parse(trimmed) as unknown;
+      } catch (parseErr) {
+        console.warn(`${logPrefix} JSON parse failed (leading brace)`, {
+          url: urlStr,
+          status: res.status,
+          parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
+        });
+      }
+    } else if (res.ok) {
+      try {
+        json = JSON.parse(text) as unknown;
+      } catch {
+        /* leave null */
+      }
     }
   }
 
