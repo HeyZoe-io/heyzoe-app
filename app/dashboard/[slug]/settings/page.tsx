@@ -1595,7 +1595,7 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader><CardTitle><StepHeader n={1} title="פרטי העסק" /></CardTitle></CardHeader>
             <CardContent className="space-y-5">
-              <Field label="כתובת האתר (אופציונלי)">
+              <Field label="כתובת האתר (מומלץ! מלאו והמתינו ליצירת תוכן אוטומטית)">
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
@@ -1691,9 +1691,6 @@ export default function SlugSettingsPage() {
                   rows={3}
                   placeholder="למשל: מפתח API, Webhook, הוראות מהממשק בארבוקס…"
                 />
-                <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  הלינקים בשדות למעלה שייכים לסטודיו/חשבון ארבוקס של העסק הזה. אם יש לכם חיבור נוסף לארבוקס (סטודיו אחר) — אין התנגשות טכנית: כל עסק ב-HeyZoe משתמש בקישורים ובהערות שהוגדרו כאן בלבד.
-                </p>
               </Field>
 
               <Field label="הנחיות הגעה">
@@ -2293,18 +2290,7 @@ export default function SlugSettingsPage() {
                 />
               </div>
 
-              <div className="flex flex-wrap justify-end gap-2 border-t border-dashed border-zinc-200 pt-5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-1 text-xs py-1.5 px-3 h-auto"
-                  onClick={() => setSalesFlowConfig(defaultSalesFlowConfig(vibe))}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  החל טקסטים לפי סגנון דיבור (שלב 1)
-                </Button>
-              </div>
-              <div className="flex justify-start pt-1">
+              <div className="flex justify-start border-t border-dashed border-zinc-200 pt-5">
                 <Button
                   type="button"
                   variant="outline"
