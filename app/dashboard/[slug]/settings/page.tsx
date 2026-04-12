@@ -1706,9 +1706,6 @@ export default function SlugSettingsPage() {
                     {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     {fetchingArbox ? "מחבר..." : "חבר בין זואי לארבוקס"}
                   </Button>
-                  {!arboxLink.trim() ? (
-                    <p className="text-xs text-zinc-500 text-right">הזינו קישור ארבוקס למעלה כדי לאפשר משיכה.</p>
-                  ) : null}
                 </div>
                 {fetchArboxError ? (
                   <p className="text-sm text-red-600" role="alert">
