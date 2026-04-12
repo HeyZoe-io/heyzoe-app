@@ -2301,7 +2301,7 @@ export default function SlugSettingsPage() {
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
                   <p className="text-xs text-zinc-600 leading-relaxed text-right">
-                    אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳… מתחילים בטקסט הפתיחה; אפשר להוסיף שאלות עם כפתורי תשובה מיד אחריו.
+                    אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳…
                   </p>
 
                   <Field label="טקסט פתיחה ללקוח">
@@ -2318,21 +2318,6 @@ export default function SlugSettingsPage() {
                       placeholder={salesOpeningAutoText}
                     />
                   </Field>
-                  <div className="flex flex-wrap justify-end gap-2 pb-0.5">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="gap-1 text-xs py-1.5 px-3 h-auto"
-                      onClick={() =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          greeting_body_override: undefined,
-                        }))
-                      }
-                    >
-                      חזרה לטקסט אוטומטי משלב 1
-                    </Button>
-                  </div>
 
                   <SalesFlowExtraStepsEditor
                     steps={salesFlowConfig.greeting_extra_steps}
