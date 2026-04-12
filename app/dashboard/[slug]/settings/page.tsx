@@ -1690,7 +1690,7 @@ export default function SlugSettingsPage() {
                   />
                 </Field>
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  לשאיבת מידע רלוונטי סנכרון המערכות
+                  לשאיבת מידע רלוונטי לדשבורד + המשך השיחה בהתאם להרשמה לאימון ניסיון.
                 </p>
                 <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
                   <Button
@@ -1704,7 +1704,7 @@ export default function SlugSettingsPage() {
                     onClick={() => void fetchArboxMemberships()}
                   >
                     {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {fetchingArbox ? "מושך מארבוקס..." : "משוך מנויים וכרטיסיות מ-API"}
+                    {fetchingArbox ? "מחבר..." : "חבר בין זואי לארבוקס"}
                   </Button>
                   {!arboxLink.trim() ? (
                     <p className="text-xs text-zinc-500 text-right">הזינו קישור ארבוקס למעלה כדי לאפשר משיכה.</p>
