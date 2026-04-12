@@ -1689,7 +1689,7 @@ export default function SlugSettingsPage() {
                   autoComplete="tel"
                 />
                 <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  במידה וזואי לא תדע לענות — תופיע הפניה לטלפון הזה.
+                  במידה וזואי לא תדע לענות.
                 </p>
               </Field>
 
