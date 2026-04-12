@@ -22,7 +22,6 @@ import {
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
 } from "@/lib/sales-flow";
-import { WhatsAppSettingsPreview } from "@/components/settings/WhatsAppSettingsPreview";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -159,6 +158,104 @@ function afterPickToStore(typed: string, serviceName: string, benefit: string): 
   if (ben && s.includes(ben)) s = s.split(ben).join("{benefitLine}");
   if (sn && s.includes(sn)) s = s.split(sn).join("{serviceName}");
   return s;
+}
+
+function SalesFlowExtraStepsEditor({
+  steps,
+  onChange,
+  addButtonLabel,
+}: {
+  steps: SalesFlowExtraStep[];
+  onChange: (next: SalesFlowExtraStep[]) => void;
+  addButtonLabel: string;
+}) {
+  return (
+    <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
+      {steps.map((st, si) => (
+        <div
+          key={st.id}
+          className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/60"
+        >
+          <div className="flex justify-between items-center gap-2">
+            <span className="text-xs font-medium text-zinc-500">שאלה {si + 1}</span>
+            <button
+              type="button"
+              className="p-1 text-zinc-400 hover:text-red-500"
+              onClick={() => onChange(steps.filter((x) => x.id !== st.id))}
+              aria-label="הסר שאלה"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+          <Field label="ניסוח השאלה">
+            <Input
+              dir="rtl"
+              value={st.question}
+              onChange={(e) => {
+                const v = e.target.value;
+                onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
+              }}
+            />
+          </Field>
+          <p className="text-[11px] text-zinc-500 text-right">כפתורי תשובה</p>
+          {st.options.map((o, oi) => (
+            <div key={oi} className="flex gap-2">
+              <Input
+                dir="rtl"
+                className="flex-1"
+                value={o}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  onChange(
+                    steps.map((x) =>
+                      x.id === st.id
+                        ? { ...x, options: x.options.map((t, j) => (j === oi ? v : t)) }
+                        : x
+                    )
+                  );
+                }}
+              />
+              <button
+                type="button"
+                className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
+                onClick={() =>
+                  onChange(
+                    steps.map((x) =>
+                      x.id === st.id ? { ...x, options: x.options.filter((_, j) => j !== oi) } : x
+                    )
+                  )
+                }
+                aria-label="הסר כפתור"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full text-xs h-8"
+            onClick={() =>
+              onChange(
+                steps.map((x) => (x.id === st.id ? { ...x, options: [...x.options, ""] } : x))
+              )
+            }
+          >
+            <Plus className="h-3 w-3" /> הוסף כפתור תשובה
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full gap-1 text-sm"
+        onClick={() => onChange([...steps, { id: uid(), question: "", options: ["", ""] }])}
+      >
+        <Plus className="h-4 w-4" />
+        {addButtonLabel}
+      </Button>
+    </div>
+  );
 }
 
 /** שם תצוגה מ־slug כשאין שם שמור בדאטהבייס */
@@ -386,6 +483,8 @@ export default function SlugSettingsPage() {
   const [arboxLink, setArboxLink] = useState("");
   /** דף מנויים/חבילות בארבוקס — סריקה לטאב כרטיסיות ומנויים */
   const [arboxMembershipsUrl, setArboxMembershipsUrl] = useState("");
+  /** הערות חיבור API / Webhook ארבוקס — טקסט חופשי */
+  const [arboxIntegrationNotes, setArboxIntegrationNotes] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
   const [showTokenHelp, setShowTokenHelp] = useState(false);
@@ -650,6 +749,9 @@ export default function SlugSettingsPage() {
         setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
         setArboxMembershipsUrl(String(sl.arbox_memberships_url ?? ""));
+        setArboxIntegrationNotes(
+          typeof sl.arbox_integration_notes === "string" ? sl.arbox_integration_notes : ""
+        );
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -768,6 +870,7 @@ export default function SlugSettingsPage() {
           quick_replies: quickReplies,
           arbox_link: arboxLink,
           arbox_memberships_url: arboxMembershipsUrl.trim(),
+          arbox_integration_notes: arboxIntegrationNotes.trim(),
           objections,
           followup_after_registration: followupAfterRegistration,
           followup_after_hour_no_registration: followupAfterHourNoRegistration,
@@ -838,6 +941,7 @@ export default function SlugSettingsPage() {
       quickReplies,
       arboxLink,
       arboxMembershipsUrl,
+      arboxIntegrationNotes,
       objections,
       followupAfterRegistration,
       followupAfterHourNoRegistration,
@@ -1459,8 +1563,7 @@ export default function SlugSettingsPage() {
 
       {/* ── Step content ── */}
       <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex flex-col xl:flex-row gap-8 items-start justify-center">
-          <div className="flex-1 min-w-0 w-full max-w-2xl mx-auto xl:mx-0">
+        <div className="max-w-2xl mx-auto w-full">
 
         {/* ════════════════════ STEP 1 ════════════════════ */}
         {step === 1 && (
@@ -1554,6 +1657,18 @@ export default function SlugSettingsPage() {
 
               <Field label="לינק מערכת שעות / Arbox">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
+              </Field>
+
+              <Field label="חיבור API / Webhook לארבוקס (אופציונלי)">
+                <Textarea
+                  value={arboxIntegrationNotes}
+                  onChange={setArboxIntegrationNotes}
+                  rows={3}
+                  placeholder="למשל: מפתח API, Webhook, הוראות מהממשק בארבוקס…"
+                />
+                <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  הלינקים בשדות למעלה שייכים לסטודיו/חשבון ארבוקס של העסק הזה. אם יש לכם חיבור נוסף לארבוקס (סטודיו אחר) — אין התנגשות טכנית: כל עסק ב-HeyZoe משתמש בקישורים ובהערות שהוגדרו כאן בלבד.
+                </p>
               </Field>
 
               <Field label="הנחיות הגעה">
@@ -1650,26 +1765,26 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={2}
                   title="אימון ניסיון"
-                  desc="רשימת סוגי האימונים/שירותים — ממולאת אוטומטית מסריקת האתר ב«פרטי העסק». אפשר לערוך, לגרור לסדר או לסרוק שוב."
+                  desc="אילו אימוני ניסיון אתם מציעים? ניתן לסרוק מהאתר, לערוך ולכתוב עצמאית."
                 />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center sm:justify-between rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2.5">
+              <div className="rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-5 text-center space-y-3">
                 <Button
                   type="button"
                   variant="outline"
-                  className="gap-2 shrink-0 h-9 text-sm"
+                  className="gap-2 h-10 text-sm mx-auto shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
                   onClick={() => void fetchSite()}
                   disabled={!websiteUrl.trim() || fetchingUrl}
                 >
                   {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {fetchingUrl ? "סורק..." : "סרוק שוב מהאתר"}
                 </Button>
-                <p className="text-xs text-zinc-600 text-right leading-snug">
+                <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
                   {!websiteUrl.trim()
                     ? "הוסיפו כתובת אתר בטאב «פרטי העסק» ולחצו «סרוק» כדי למלא את הרשימה."
-                    : "הסריקה מעדכנת גם שדות בפרטי העסק — רק אם רוצים לרענן את השירותים מהאתר."}
+                    : "הסריקה יכולה לעדכן גם שדות ב«פרטי העסק» — השתמשו בכפתור כשמעדכנים את האתר."}
                 </p>
               </div>
 
@@ -2051,7 +2166,7 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={4}
                   title="מסלול מכירה"
-                  desc="פתיחה, שאלה וכפתורים; הנעה לפעולה למטה. זואי ממשיכה לפי הכללים במערכת (מעל שלושה אימונים — רשימה ממוספרת)."
+                  desc="כאן נוצר תהליך המכירה של זואי. במידה והליד ישאל שאלה פתוחה, זואי תוכל לענות על פי כל המידע שהזנת בטאבים הקודמים."
                 />
               </CardTitle>
             </CardHeader>
@@ -2182,44 +2297,58 @@ export default function SlugSettingsPage() {
 
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-                <p className="text-xs text-zinc-600 leading-relaxed text-right">
-                  טקסט הפתיחה נשען על שם העסק, שם הבוט והתיאור מ«פרטי העסק». עורכים כאן את הטקסט שיישלח ללקוח — בלי סוגריים או קוד, רק משפטים מוכנים.
-                </p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
+                  <p className="text-xs text-zinc-600 leading-relaxed text-right">
+                    אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳… מתחילים בטקסט הפתיחה; אפשר להוסיף שאלות עם כפתורי תשובה מיד אחריו.
+                  </p>
 
-                <Field label="טקסט פתיחה ללקוח">
-                  <Textarea
-                    value={
-                      salesFlowConfig.greeting_body_override !== undefined
-                        ? salesFlowConfig.greeting_body_override
-                        : salesOpeningAutoText
+                  <Field label="טקסט פתיחה ללקוח">
+                    <Textarea
+                      value={
+                        salesFlowConfig.greeting_body_override !== undefined
+                          ? salesFlowConfig.greeting_body_override
+                          : salesOpeningAutoText
+                      }
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({ ...c, greeting_body_override: v }))
+                      }
+                      rows={5}
+                      placeholder={salesOpeningAutoText}
+                    />
+                  </Field>
+                  <div className="flex flex-wrap justify-end gap-2 pb-0.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-1 text-xs py-1.5 px-3 h-auto"
+                      onClick={() =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          greeting_body_override: undefined,
+                        }))
+                      }
+                    >
+                      חזרה לטקסט אוטומטי משלב 1
+                    </Button>
+                  </div>
+
+                  <SalesFlowExtraStepsEditor
+                    steps={salesFlowConfig.greeting_extra_steps}
+                    onChange={(next) =>
+                      setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
                     }
-                    onChange={(v) =>
-                      setSalesFlowConfig((c) => ({ ...c, greeting_body_override: v }))
-                    }
-                    rows={5}
-                    placeholder={salesOpeningAutoText}
+                    addButtonLabel="הוסף שאלה אחרי הפתיחה"
                   />
-                </Field>
-                <div className="flex flex-wrap justify-end gap-2 pb-0.5">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() =>
-                      setSalesFlowConfig((c) => ({
-                        ...c,
-                        greeting_body_override: undefined,
-                      }))
-                    }
-                  >
-                    חזרה לטקסט אוטומטי משלב 1
-                  </Button>
                 </div>
+              </div>
 
-                {trialServiceNames.length > 1 ? (
-                  <>
-                    <div className="pt-2 border-t border-zinc-200/80 space-y-2">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-900 text-right">
+                  לפני בחירת אימון ניסיון
+                </p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
+                  {trialServiceNames.length > 1 ? (
+                    <>
                       <Field label="שאלה לפני בחירת אימון" className="space-y-1">
                         <Textarea
                           value={salesFlowConfig.multi_service_question}
@@ -2230,8 +2359,9 @@ export default function SlugSettingsPage() {
                           placeholder="למשל: איזה אימון הכי מדבר אליך?"
                         />
                       </Field>
+                      <p className="text-xs font-medium text-zinc-700 text-right">כפתורי בחירה (מהגדרות)</p>
                       <p className="text-xs text-zinc-500 text-right leading-snug">
-                        אחרי השאלה יוצגו ללקוח שמות האימונים מהגדרות — עד שלושה ככפתורי בחירה, מעל שלושה כרשימה ממוספרת.
+                        עד שלושה אימונים — כפתורים; מעל שלושה — רשימה ממוספרת בווטסאפ.
                       </p>
                       <div className="flex flex-wrap gap-2 justify-end">
                         {trialServiceNames.map((n) => (
@@ -2243,40 +2373,41 @@ export default function SlugSettingsPage() {
                           </span>
                         ))}
                       </div>
-                    </div>
 
-                    <Field label="מענה אחרי בחירת האימון">
-                      <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
-                        זואי ממלאה את שם האימון שנבחר ואת שדה «תיאור» מ«אימון ניסיון». כתבו משפט קצר וחי (למשל: שיעורים לכל הרמות באווירה הכי כיפית שיש) — לא רשימת נקודות.
-                      </p>
-                      <Textarea
-                        rows={4}
-                        value={afterPickForDisplay(
-                          salesFlowConfig.after_service_pick,
-                          firstTrialForTemplates.name,
-                          firstTrialForTemplates.benefit
-                        )}
-                        onChange={(v) =>
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            after_service_pick: afterPickToStore(
-                              v,
-                              firstTrialForTemplates.name,
-                              firstTrialForTemplates.benefit
-                            ),
-                          }))
-                        }
-                        placeholder="למשל: אוקיי מדהים! שיעורי האקרו אצלנו הם דרך כיפית להתחזק, להתגמש, ולהיות חלק מקהילה…"
-                      />
-                    </Field>
-                  </>
-                ) : null}
-
-                {trialServiceNames.length === 0 ? (
-                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                    הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר שאלה וכפתורים בפתיחה.
-                  </p>
-                ) : null}
+                      <Field label="מענה אחרי בחירת האימון">
+                        <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
+                          זואי ממלאה את שם האימון שנבחר ואת שדה «תיאור» מ«אימון ניסיון». כתבו משפט קצר וחי — לא רשימת נקודות.
+                        </p>
+                        <Textarea
+                          rows={4}
+                          value={afterPickForDisplay(
+                            salesFlowConfig.after_service_pick,
+                            firstTrialForTemplates.name,
+                            firstTrialForTemplates.benefit
+                          )}
+                          onChange={(v) =>
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              after_service_pick: afterPickToStore(
+                                v,
+                                firstTrialForTemplates.name,
+                                firstTrialForTemplates.benefit
+                              ),
+                            }))
+                          }
+                          placeholder="למשל: אוקיי מדהים! שיעורי האקרו אצלנו הם דרך כיפית להתחזק, להתגמש, ולהיות חלק מקהילה…"
+                        />
+                      </Field>
+                    </>
+                  ) : trialServiceNames.length === 1 ? (
+                    <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                      מוגדר אימון ניסיון אחד — אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
+                    </p>
+                  ) : (
+                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+                      הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -2284,7 +2415,7 @@ export default function SlugSettingsPage() {
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    מומלץ לא יותר מ־2–3 שאלות בסך הכול אחרי הפתיחה (כולל שאלת הניסיון). שמרו על זרימה קצרה לפני שלב ההנעה לפעולה.
+                    מומלץ לא יותר מ־1–3 שאלות. בתום סשן החימום זואי תעבור אוטומטית לסשן הנעה לפעולה.
                   </p>
 
                   {trialServiceNames.length === 0 ? (
@@ -2355,6 +2486,13 @@ export default function SlugSettingsPage() {
                           placeholder="משפט מעודד קצר לפני המשך הפלואו…"
                         />
                       </Field>
+                      <SalesFlowExtraStepsEditor
+                        steps={salesFlowConfig.opening_extra_steps}
+                        onChange={(next) =>
+                          setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))
+                        }
+                        addButtonLabel="הוסף שאלה בסשן חימום"
+                      />
                     </>
                   )}
                 </div>
@@ -2363,8 +2501,8 @@ export default function SlugSettingsPage() {
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
-                <p className="text-xs text-zinc-500 text-right">
-                  מכאן בכל תשובה מציגים גם את כפתורי ההנעה (מערכת שעות, הרשמה לניסיון, מחירי מנויים) — לפי התוויות והידע במערכת.
+                <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                  זו ההודעה שמזמינה את המשתמש לבצע פעולה משמעותית. מומלץ — הרשמה לשיעור ניסיון, צפייה במערכת השעות, צפייה במחירי מנויים וכרטיסיות.
                 </p>
                 <Field label="גוף ההודעה">
                   <Textarea
@@ -2414,121 +2552,28 @@ export default function SlugSettingsPage() {
                     </div>
                   </div>
                 ))}
-
-                {salesFlowConfig.cta_extra_steps.map((st, si) => (
-                  <div
-                    key={st.id}
-                    className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-white"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-medium text-zinc-500">שאלה {si + 1} (הנעה)</span>
-                      <button
-                        type="button"
-                        className="p-1 text-zinc-400 hover:text-red-500"
-                        onClick={() =>
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            cta_extra_steps: c.cta_extra_steps.filter((x) => x.id !== st.id),
-                          }))
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <Field label="שאלה">
-                      <Input
-                        dir="rtl"
-                        value={st.question}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            cta_extra_steps: c.cta_extra_steps.map((x) =>
-                              x.id === st.id ? { ...x, question: v } : x
-                            ),
-                          }));
-                        }}
-                      />
-                    </Field>
-                    {st.options.map((o, oi) => (
-                      <div key={oi} className="flex gap-2">
-                        <Input
-                          dir="rtl"
-                          className="flex-1"
-                          value={o}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setSalesFlowConfig((c) => ({
-                              ...c,
-                              cta_extra_steps: c.cta_extra_steps.map((x) =>
-                                x.id === st.id
-                                  ? {
-                                      ...x,
-                                      options: x.options.map((t, j) => (j === oi ? v : t)),
-                                    }
-                                  : x
-                              ),
-                            }));
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="p-1 text-zinc-400 hover:text-red-500"
-                          onClick={() =>
-                            setSalesFlowConfig((c) => ({
-                              ...c,
-                              cta_extra_steps: c.cta_extra_steps.map((x) =>
-                                x.id === st.id
-                                  ? { ...x, options: x.options.filter((_, j) => j !== oi) }
-                                  : x
-                              ),
-                            }))
-                          }
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full text-xs h-8"
-                      onClick={() =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          cta_extra_steps: c.cta_extra_steps.map((x) =>
-                            x.id === st.id ? { ...x, options: [...x.options, ""] } : x
-                          ),
-                        }))
-                      }
-                    >
-                      <Plus className="h-3 w-3" /> הוסף כפתור
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-1 text-sm"
-                  onClick={() =>
-                    setSalesFlowConfig((c) => ({
-                      ...c,
-                      cta_extra_steps: [
-                        ...c.cta_extra_steps,
-                        { id: uid(), question: "", options: ["", ""] },
-                      ],
-                    }))
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  הוסף שאלה לסשן הנעה לפעולה
-                </Button>
                 </div>
               </div>
 
-              <p className="text-[11px] text-zinc-500 text-right">
-                כשנכנסים לטאב זה אחרי «כרטיסיות ומנויים» נטען לעיתים טקסט ברירת מחדל לפי סגנון הדיבור. מעל שלושה אימוני ניסיון — בווטסאפ נשלחת רשימה ממוספרת.
-              </p>
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-900 text-right">
+                  אחרי הרשמה לשיעור ניסיון
+                </p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
+                  <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                    הנחיה לזואי לשלב שבו הלקוח כבר השלים הרשמה או תשלום לאימון ניסיון — למשל חיזוק, מה לצפות, או המשך שיחה עם אפשרויות ממוספרות.
+                  </p>
+                  <Field label="תוכן / הנחיות לזואי">
+                    <Textarea
+                      value={salesFlowConfig.after_trial_registration_body}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({ ...c, after_trial_registration_body: v }))
+                      }
+                      rows={5}
+                    />
+                  </Field>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -2628,27 +2673,6 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-          </div>
-
-          <WhatsAppSettingsPreview
-            step={step as 1 | 2 | 3 | 4 | 5 | 6}
-            botName={botName}
-            businessName={name}
-            openingMediaUrl={openingMediaUrl}
-            openingMediaType={openingMediaType}
-            salesFlowConfig={salesFlowConfig}
-            services={services.map((s) => ({
-              name: s.name,
-              price_text: s.price_text,
-              benefit_line: s.benefit_line,
-            }))}
-            businessTagline={businessTagline}
-            traits={traits}
-            address={address}
-            followupAfterRegistration={followupAfterRegistration}
-            followupAfterHourNoRegistration={followupAfterHourNoRegistration}
-            followupDayAfterTrial={followupDayAfterTrial}
-          />
         </div>
 
         {/* ── Error ── */}
