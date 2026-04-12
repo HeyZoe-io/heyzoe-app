@@ -476,6 +476,7 @@ export default function SlugSettingsPage() {
   const [botName, setBotName]   = useState("זואי");
   const [niche, setNiche]       = useState("");
   const [address, setAddress]   = useState("");
+  const [customerServicePhone, setCustomerServicePhone] = useState("");
   const [directions, setDirections] = useState("");
   const [businessTagline, setBusinessTagline] = useState("");
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
@@ -665,6 +666,9 @@ export default function SlugSettingsPage() {
         setBotName(String(business.bot_name ?? "זואי"));
         setNiche(String(business.niche ?? ""));
         setAddress(String(sl.address ?? ""));
+        setCustomerServicePhone(
+          typeof sl.customer_service_phone === "string" ? sl.customer_service_phone.trim() : ""
+        );
         setDirections(String(sl.directions ?? ""));
         setBusinessTagline(typeof sl.tagline === "string" ? sl.tagline : "");
         const f1 = typeof sl.fact1 === "string" ? sl.fact1 : "";
@@ -859,6 +863,7 @@ export default function SlugSettingsPage() {
           fact3: (traits[2] ?? "").trim(),
           business_description: traits.map((s) => s.trim()).filter(Boolean).join("\n"),
           address,
+          customer_service_phone: customerServicePhone.trim(),
           directions,
           vibe,
           opening_media_url: openingMediaUrl,
@@ -934,6 +939,7 @@ export default function SlugSettingsPage() {
       businessTagline,
       traits,
       address,
+      customerServicePhone,
       directions,
       vibe,
       openingMediaUrl,
@@ -1671,6 +1677,20 @@ export default function SlugSettingsPage() {
                   placeholder="רחוב הרצל 5, תל אביב"
                   autoComplete="street-address"
                 />
+              </Field>
+
+              <Field label="טלפון לשירות לקוחות">
+                <Input
+                  dir="ltr"
+                  className="font-mono text-sm"
+                  value={customerServicePhone}
+                  onChange={(e) => setCustomerServicePhone(e.target.value)}
+                  placeholder="972-5X-XXX-XXXX או 05X-XXX-XXXX"
+                  autoComplete="tel"
+                />
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  במידה וזואי לא תדע לענות — תופיע הפניה לטלפון הזה.
+                </p>
               </Field>
 
               <Field label="לינק מערכת שעות / Arbox">
