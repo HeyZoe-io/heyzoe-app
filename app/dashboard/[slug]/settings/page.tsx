@@ -1588,7 +1588,7 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader><CardTitle><StepHeader n={1} title="פרטי העסק" /></CardTitle></CardHeader>
             <CardContent className="space-y-5">
-              <Field label="כתובת האתר (מומלץ! מלאו והמתינו ליצירת תוכן אוטומטית)">
+              <Field label="כתובת האתר (מומלץ! סרקו והמתינו ליצירת תוכן אוטומטית)">
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
