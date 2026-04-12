@@ -1690,8 +1690,7 @@ export default function SlugSettingsPage() {
                   />
                 </Field>
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  לשלב כרטיסיות ומנויים: המנויים נמשכים בבקשת GET ל-API (לפי נתיב בשרת: ARBOX_MEMBERSHIP_API_URL או
-                  ARBOX_MEMBERSHIP_API_PATHS). נדרש גם קישור מערכת השעות למעלה — משם נגזר מזהה המועדון.
+                  לשאיבת מידע רלוונטי סנכרון המערכות
                 </p>
                 <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
                   <Button
@@ -1958,11 +1957,7 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader
-                  n={3}
-                  title="כרטיסיות ומנויים"
-                  desc="מנויים חודשיים וכרטיסיות — זואי תשתמש בזה בתשובות על מחירים והרשמה"
-                />
+                <StepHeader n={3} title="כרטיסיות ומנויים" />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-8">
