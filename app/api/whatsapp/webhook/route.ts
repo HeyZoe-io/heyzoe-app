@@ -19,7 +19,7 @@ import {
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
 import { getArboxWhatsappPromptAppend } from "@/lib/arbox-whatsapp-context";
-import { arboxBuildNextClassWhatsAppAppendix } from "@/lib/arbox-public-api";
+import { arboxNextTrialClassHebrewLineOnly } from "@/lib/arbox-public-api";
 import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import { fillAfterServicePickTemplate } from "@/lib/sales-flow";
@@ -31,13 +31,52 @@ import {
   isRetryableClaudeError,
   sleepMs,
 } from "@/lib/claude";
-import { extractErrorCode, fetchRecentSessionMessages, logMessage } from "@/lib/analytics";
+import {
+  extractErrorCode,
+  fetchLastAssistantModelUsed,
+  fetchLastSfServiceEventName,
+  fetchRecentSessionMessages,
+  HEYZOE_SF_SERVICE_PREFIX,
+  logMessage,
+} from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 
 // In-process dedup: prevents double-processing when Twilio retries the webhook
 const processedMessageIds = new Set<string>();
+
+function waNormLabel(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function resolveWaMenuChoice(
+  raw: string,
+  metaInteractiveReplyId: string | undefined,
+  candidates: string[],
+  /** לתשובה מספרית בלבד — מניעת בלבול בין תפריט ראשי לתפריט המשך */
+  numericScope?: string[]
+): string {
+  const trimmed = raw.trim();
+  if (/^[1-9]$/.test(trimmed) && numericScope && numericScope.length) {
+    const idx = Number(trimmed);
+    if (idx >= 1 && idx <= numericScope.length) return numericScope[idx - 1]!;
+  }
+  const base = metaInteractiveReplyId?.trim()
+    ? resolveMetaInteractiveLabel(metaInteractiveReplyId, raw, candidates)
+    : raw.trim();
+  let label = base.trim();
+  const n = waNormLabel(label);
+  const asNum = Number(n);
+  if (Number.isFinite(asNum) && asNum >= 1 && asNum <= candidates.length) {
+    label = candidates[asNum - 1] ?? label;
+  }
+  return label;
+}
+
+function waLabelMatches(a: string, b: string): boolean {
+  return waNormLabel(a) === waNormLabel(b);
+}
 
 // ─── GET — Meta webhook verification ─────────────────────────────────────────
 
@@ -431,6 +470,35 @@ async function processIncoming(
   // Build context
   const knowledge = await getBusinessKnowledgePack(business_slug);
 
+  type SfServiceRow = { name: string; benefit: string };
+  let salesFlowServices: SfServiceRow[] = [];
+  if (knowledge?.salesFlowConfig && businessId) {
+    try {
+      const { data: services } = await supabase
+        .from("services")
+        .select("name, description, service_slug")
+        .eq("business_id", Number(businessId))
+        .order("created_at", { ascending: true })
+        .limit(24);
+      salesFlowServices = (services ?? [])
+        .map((s: { name?: unknown; description?: unknown }) => ({
+          name: String(s.name ?? "").trim(),
+          benefit: (() => {
+            try {
+              const raw = String(s.description ?? "");
+              const meta = JSON.parse(raw || "{}") as Record<string, unknown>;
+              return String(meta.benefit_line ?? "").trim();
+            } catch {
+              return "";
+            }
+          })(),
+        }))
+        .filter((s: SfServiceRow) => s.name);
+    } catch (e) {
+      console.warn("[WA Webhook] sales-flow services load failed:", e);
+    }
+  }
+
   const shouldRunArboxSide =
     msg.type === "text" &&
     businessId &&
@@ -545,7 +613,272 @@ async function processIncoming(
     }
   }
 
-  // 1) FAQ exact-ish match (dashboard data)
+  // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון (בלי בלוק Arbox בכאן)
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
+    try {
+      const named = salesFlowServices;
+      const raw = msg.text.trim();
+      const rawLower = raw.toLowerCase();
+      const num = Number(rawLower);
+      const picked =
+        Number.isFinite(num) && num >= 1 && num <= named.length
+          ? named[num - 1]
+          : named.find((s) => s.name.toLowerCase() === rawLower) ??
+            named.find((s) => rawLower && s.name.toLowerCase().includes(rawLower));
+
+      if (picked) {
+        const cfg = knowledge.salesFlowConfig;
+        const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit);
+        const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, picked.name);
+        const opts = Array.isArray(cfg.experience_options) ? [...cfg.experience_options] : [];
+
+        const out =
+          [afterPick, "", q, ...opts]
+            .filter((x) => x !== undefined && String(x).trim().length > 0)
+            .join("\n")
+            .trim() + `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+        const bodyOnly = [afterPick, "", q]
+          .filter((x) => String(x ?? "").trim().length > 0)
+          .join("\n\n")
+          .trim();
+
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
+          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        }).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: out,
+          model_used: "sales_flow",
+          session_id: sessionId,
+        });
+        await logMessage({
+          business_slug,
+          role: "event",
+          content: `${HEYZOE_SF_SERVICE_PREFIX}${picked.name}`,
+          model_used: "sf_service_pick",
+          session_id: sessionId,
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] Sales-flow service pick failed (continuing):", e);
+    }
+  }
+
+  // 2) Sales flow: כפתורי CTA / תפריט המשך (לפני זיהוי שאלת ניסיון — כדי ש־1/2/3 יתאימו לתפריט הנוכחי)
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
+    const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+    const digitOnlyForCta = /^[1-9]$/.test(msg.text.trim());
+    const skipCtaBlockForDigit =
+      digitOnlyForCta &&
+      lastAssistModelForCta !== "sales_flow_cta" &&
+      lastAssistModelForCta !== "sales_flow_next_class_followup";
+
+    if (!skipCtaBlockForDigit) {
+      try {
+      const cfg = knowledge.salesFlowConfig!;
+      const follow = cfg.followup_after_next_class_options;
+      const ctaBs = cfg.cta_buttons;
+      const unionLabels = [...ctaBs.map((b) => b.label.trim()), ...follow.map((x) => String(x ?? "").trim())].filter(
+        (l) => l.length > 0
+      );
+
+      const fuOptsForNum = follow.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 3);
+      const ctaOptsForNum = ctaBs.map((b) => b.label.trim()).filter(Boolean).slice(0, 12);
+      const numericScope =
+        lastAssistModelForCta === "sales_flow_next_class_followup"
+          ? fuOptsForNum
+          : lastAssistModelForCta === "sales_flow_cta"
+            ? ctaOptsForNum
+            : undefined;
+
+      const incomingResolved = resolveWaMenuChoice(
+        msg.text.trim(),
+        msg.metaInteractiveReplyId,
+        unionLabels.length ? unionLabels : ctaBs.map((b) => b.label),
+        numericScope
+      );
+
+      const trialUrl = knowledge.arboxLink?.trim() ?? "";
+      const scheduleUrl = (knowledge.schedulePublicUrl?.trim() || trialUrl).trim();
+
+      if (follow[2] && waLabelMatches(incomingResolved, follow[2])) {
+        const txt = cfg.free_chat_invite_reply.trim() || "אין בעיה! כתבו בטקסט חופשי ואענה 🙂";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send free-chat invite failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: "sales_flow_followup_free",
+          session_id: sessionId,
+        });
+        return;
+      }
+
+      const wantsTrialByFollow = follow[0] && waLabelMatches(incomingResolved, follow[0]);
+      const wantsScheduleByFollow = follow[1] && waLabelMatches(incomingResolved, follow[1]);
+      const trialBtn = ctaBs.find((b) => b.kind === "trial");
+      const schedBtn = ctaBs.find((b) => b.kind === "schedule");
+      const nextBtn = ctaBs.find((b) => b.kind === "next_class");
+
+      const wantsTrial =
+        wantsTrialByFollow || (trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
+      const wantsSchedule =
+        wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false);
+      const wantsNext = nextBtn ? waLabelMatches(incomingResolved, nextBtn.label) : false;
+
+      if (wantsTrial && trialUrl) {
+        const txt = `הרשמה לשיעור ניסיון:\n${trialUrl}`;
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send trial link failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: "sales_flow_trial_link",
+          session_id: sessionId,
+        });
+        return;
+      }
+      if (wantsTrial && !trialUrl) {
+        const txt =
+          "כרגע אין לנו כאן קישור הרשמה — כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: "sales_flow_trial_missing",
+          session_id: sessionId,
+        });
+        return;
+      }
+
+      if (wantsSchedule && scheduleUrl) {
+        const txt = `צפייה במערכת השעות:\n${scheduleUrl}`;
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send schedule link failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: "sales_flow_schedule_link",
+          session_id: sessionId,
+        });
+        return;
+      }
+      if (wantsSchedule && !scheduleUrl) {
+        const txt = "מערכת השעות תתעדכן בקרוב — כתבו בקצרה ונעזור לקבוע מועד.";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: "sales_flow_schedule_missing",
+          session_id: sessionId,
+        });
+        return;
+      }
+
+      if (wantsNext) {
+        const serviceName =
+          salesFlowServices.length === 1
+            ? salesFlowServices[0]!.name
+            : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+        const arboxKey = knowledge.arboxApiKey?.trim() ?? "";
+        let line1 =
+          "לא מצאנו שיעור ניסיון קרוב מתויג למסלול שבחרתם. אפשר לבחור מועד ממערכת השעות או להירשם לניסיון מהכפתורים למטה.";
+        if (arboxKey && serviceName) {
+          try {
+            const fromAr = await arboxNextTrialClassHebrewLineOnly(arboxKey, serviceName, { useCache: true });
+            if (fromAr.trim()) line1 = fromAr.trim();
+          } catch (e) {
+            console.warn("[WA Webhook] next-class line failed:", e);
+          }
+        } else if (!serviceName && salesFlowServices.length > 1) {
+          line1 =
+            "כדי להציג את השיעור הקרוב, בחרו קודם איזה אימון מעניין אתכם (מהרשימה בהודעה הקודמת).";
+        }
+
+        await sendWhatsAppMessage(msg.toNumber, msg.from, line1, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send next-class line failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: line1,
+          model_used: "sales_flow_next_class",
+          session_id: sessionId,
+        });
+
+        const fuBody = cfg.followup_after_next_class_body.trim();
+        const fuOpts = cfg.followup_after_next_class_options.map((x) => String(x ?? "").trim()).filter(Boolean);
+        if (fuBody && fuOpts.length >= 3) {
+          const fuOut =
+            `${fuBody}\n\n${fuOpts.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody, fuOpts.slice(0, 3), accountSid, authToken, {
+            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          }).catch((e) => console.error("[WA Webhook] Send followup CTA failed:", e));
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: fuOut,
+            model_used: "sales_flow_next_class_followup",
+            session_id: sessionId,
+          });
+        }
+        return;
+      }
+      } catch (e) {
+        console.warn("[WA Webhook] Sales-flow CTA handling failed (continuing):", e);
+      }
+    }
+  }
+
+  // 3) Sales flow: מענה על שאלת ניסיון קודם → הנעה לפעולה + תפריט CTA
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length >= 1) {
+    try {
+      const cfg = knowledge.salesFlowConfig;
+      const opts = cfg.experience_options.map((o) => String(o ?? "").trim()).filter(Boolean);
+      if (opts.length >= 3) {
+        const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, opts);
+        const pickedExp = opts.find((o) => waLabelMatches(incomingResolved, o));
+        const canExperience =
+          salesFlowServices.length === 1 ||
+          Boolean(await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }));
+        if (pickedExp && canExperience) {
+          const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
+          const bodyOnly = [cfg.after_experience.trim(), "", cfg.cta_body.trim()]
+            .filter((x) => x.length > 0)
+            .join("\n\n")
+            .trim();
+          const numbered = ctaLabels.map((l, i) => `${i + 1}. ${l}`).join("\n");
+          const out = [bodyOnly, numbered, ZOE_WHATSAPP_MENU_FOOTER].filter((x) => x.length > 0).join("\n\n");
+
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, ctaLabels.slice(0, 3), accountSid, authToken, {
+            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          }).catch((e) => console.error("[WA Webhook] Send sales-flow CTA menu failed:", e));
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: out,
+            model_used: "sales_flow_cta",
+            session_id: sessionId,
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] Sales-flow experience→CTA failed (continuing):", e);
+    }
+  }
+
+  // 4) FAQ exact-ish match (dashboard data)
   if (msg.type === "text" && businessId) {
     try {
       const { data: faqs } = await supabase
@@ -557,17 +890,16 @@ async function processIncoming(
 
       const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
       const inTxt = norm(msg.text);
-      const hit = (faqs ?? []).find((f: any) => {
+      const hit = (faqs ?? []).find((f: { question?: unknown }) => {
         const q = norm(String(f.question ?? ""));
         if (!q) return false;
-        // exact or includes (either direction) to handle short questions
         if (inTxt === q) return true;
         if (q.length >= 6 && inTxt.includes(q)) return true;
         if (inTxt.length >= 8 && q.includes(inTxt)) return true;
         return false;
       });
 
-      const ans = hit ? String((hit as any).answer ?? "").trim() : "";
+      const ans = hit ? String((hit as { answer?: unknown }).answer ?? "").trim() : "";
       if (ans) {
         await sendWhatsAppMessage(msg.toNumber, msg.from, ans, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send FAQ reply failed:", e)
@@ -583,97 +915,6 @@ async function processIncoming(
       }
     } catch (e) {
       console.warn("[WA Webhook] FAQ lookup failed (continuing):", e);
-    }
-  }
-
-  // 2) Sales flow step: service pick → after_pick + experience question (dashboard config)
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
-    try {
-      const { data: services } = await supabase
-        .from("services")
-        .select("name, description, service_slug")
-        .eq("business_id", Number(businessId))
-        .order("created_at", { ascending: true })
-        .limit(24);
-
-      const named = (services ?? [])
-        .map((s: any) => ({
-          name: String(s.name ?? "").trim(),
-          benefit: (() => {
-            try {
-              const raw = String(s.description ?? "");
-              const meta = JSON.parse(raw || "{}") as Record<string, unknown>;
-              return String(meta.benefit_line ?? "").trim();
-            } catch {
-              return "";
-            }
-          })(),
-        }))
-        .filter((s: any) => s.name);
-
-      if (named.length > 1) {
-        const raw = msg.text.trim();
-        const rawLower = raw.toLowerCase();
-        const num = Number(rawLower);
-        const picked =
-          Number.isFinite(num) && num >= 1 && num <= named.length
-            ? named[num - 1]
-            : named.find((s: any) => s.name.toLowerCase() === rawLower) ??
-              named.find((s: any) => rawLower && s.name.toLowerCase().includes(rawLower));
-
-        if (picked) {
-          const cfg = knowledge.salesFlowConfig;
-          const afterPick = fillAfterServicePickTemplate(
-            cfg.after_service_pick,
-            picked.name,
-            picked.benefit
-          );
-          const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, picked.name);
-          const opts = Array.isArray(cfg.experience_options) ? cfg.experience_options : [];
-
-          let arboxNextBlock = "";
-          const arboxKey = knowledge.arboxApiKey?.trim() ?? "";
-          if (arboxKey) {
-            try {
-              const trialUrl = knowledge.arboxLink?.trim() ?? "";
-              const boardUrl = (knowledge.schedulePublicUrl?.trim() || trialUrl).trim();
-              arboxNextBlock = await arboxBuildNextClassWhatsAppAppendix(
-                arboxKey,
-                picked.name,
-                trialUrl,
-                boardUrl,
-                { useCache: true }
-              );
-            } catch (e) {
-              console.warn("[WA Webhook] Arbox next-class block failed (continuing):", e);
-            }
-          }
-
-          const out =
-            [arboxNextBlock, afterPick, "", q, ...opts]
-              .filter((x) => x !== undefined && String(x).trim().length > 0)
-              .join("\n")
-              .trim() + `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
-          const bodyOnly = [arboxNextBlock, afterPick, "", q]
-            .filter((x) => String(x ?? "").trim().length > 0)
-            .join("\n\n")
-            .trim();
-
-          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
-            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-          }).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: out,
-            model_used: "sales_flow",
-            session_id: sessionId,
-          });
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn("[WA Webhook] Sales-flow match failed (continuing):", e);
     }
   }
 

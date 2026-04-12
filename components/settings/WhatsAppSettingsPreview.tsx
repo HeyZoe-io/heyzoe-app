@@ -99,6 +99,7 @@ export function WhatsAppSettingsPreview({
   const hasCtaPreview =
     salesFlowConfig.cta_body.trim() ||
     salesFlowConfig.cta_buttons.some((b) => b.label.trim()) ||
+    salesFlowConfig.followup_after_next_class_body.trim() ||
     salesFlowConfig.cta_extra_steps.some(
       (st) => st.question.trim() || st.options.some((o) => o.trim())
     );
@@ -281,8 +282,30 @@ export function WhatsAppSettingsPreview({
                         )
                     )}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      סוגי כפתור: מערכת שעות · הרשמה לניסיון · מחירי מנויים (לפי ההגדרות בפועל)
+                      סוגי כפתור: שיעור קרוב (Arbox) · הרשמה לניסיון · מערכת שעות · מחירי מנויים
                     </p>
+                  </div>
+                ) : null}
+                {salesFlowConfig.followup_after_next_class_body.trim() ? (
+                  <div className="space-y-1 pt-1 border-t border-dotted border-zinc-300/80">
+                    <p className="text-[9px] text-[#075e54] text-right font-medium">
+                      אחרי «מתי השיעור קרוב?» (הודעה שנייה אוטומטית)
+                    </p>
+                    <Bubble from="bot">
+                      <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
+                        {salesFlowConfig.followup_after_next_class_body.trim()}
+                      </p>
+                    </Bubble>
+                    <div className="space-y-1">
+                      {salesFlowConfig.followup_after_next_class_options.map(
+                        (lbl, i) =>
+                          lbl.trim() && (
+                            <WaButton key={i}>
+                              {i + 1}. {lbl.trim()}
+                            </WaButton>
+                          )
+                      )}
+                    </div>
                   </div>
                 ) : null}
                 {salesFlowConfig.cta_extra_steps.map((st) =>
