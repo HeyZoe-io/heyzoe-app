@@ -16,6 +16,8 @@ export type BusinessKnowledgePack = {
   niche: string;
   businessDescription: string;
   addressText: string;
+  /** טלפון לשירות לקוחות כשזואי אינה מוצאת תשובה מדויקת בידע */
+  customerServicePhone: string;
   arboxLink: string;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
@@ -177,6 +179,10 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         : {};
 
     const addressText = typeof social.address === "string" ? String(social.address) : "";
+    const customerServicePhone =
+      typeof social.customer_service_phone === "string"
+        ? String(social.customer_service_phone).trim()
+        : "";
     const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link) : "";
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
@@ -270,6 +276,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       niche: String(business.niche ?? ""),
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
+      customerServicePhone,
       arboxLink,
       openingMediaUrl,
       openingMediaType,
@@ -325,12 +332,25 @@ function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
   return `\nדוגמאות טון מהודעות פולואפ שהוגדרו במערכת (שמרי על שפה עקבית; אל תחזירי את הטקסט הזה כולו כתשובה שגרתית):\n${parts.join("\n---\n")}\n`;
 }
 
+function formatUnknownKnowledgeBlock(phoneDisplay: string): string {
+  const phoneHint =
+    phoneDisplay && phoneDisplay !== "לא הוגדר"
+      ? `- אם בשדה «טלפון שירות לקוחות» למעלה מופיע מספר — הציעי ליצור קשר ישירות עם העסק בטלפון הזה; הציגי את המספר בדיוק כפי שמופיע (כולל קידומת), בלי לשנות ספרות.`
+      : `- טלפון שירות לקוחות לא הוגדר בידע — אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות/Arbox או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
+  return `
+חוסר ידע מדויק — כששאלה פתוחה איננה ניתנת למענה ישיר ומדויק מהידע העסקי (אין ב-FAQ, בשירותים, במחירים, במנויים, בתיאור העסק או בשדות קשורים שעונים ישירות על השאלה):
+- התנצלות קצרה שלא מצאת את המידע המדויק; אל תמציאי, אל תנחשי ואל תשלימי בכלליות כאילו ידוע.
+${phoneHint}
+- לאחר מכן המשיכי עם שאלת המשך ואפשרויות ממוספרות כרגיל (שלבים 2 ו־3 במבנה התשובה).
+`;
+}
+
 const RESPONSE_SHAPE_BLOCK_WEB = `
 מבנה תשובה — ברירת מחדל של זואי (חובה כמעט תמיד):
 1) מענה — השתמשי בידע מההגדרות למעלה (שירותים, מחירים, כתובת, FAQ, מסלול מכירה, לינק שעות אם קיים). אל תמציאי מחיר, מיקום או מדיניות שלא מופיעים.
 2) שאלת המשך — שאלה אחת קצרה שמקדמת את השיחה (התאמה, ניסיון, זמינות).
 3) אפשרויות בחירה (כמו כפתורי ווטסאפ) — מיד אחרי השאלה, 2–4 שורות; כל שורה מתחילה במספר ונקודה (1. 2. 3.) ואז טקסט קצר בעברית. לפחות אפשרות אחת מקדמת הרשמה או שריון לשיעור ניסיון / שירות המקביל בעסק; השאר רלוונטיות (מחיר, מיקום, שאלה נוספת).
-גם כשהלקוח שואל שאלה פתוחה או לא לפי כפתורים — עני קודם על השאלה מהידע, ואז הוסיפי שלבים (2) ו־(3).
+גם כשהלקוח שואל שאלה פתוחה — אם יש בידע מענה מדויק וישיר עני מהידע, ואז (2) ו־(3). אם אין בידע מענה כזה — אל תנחשי ואל תמלאי בכלליות; עברי לסעיף «חוסר ידע מדויק» שמופיע אחרי בלוק הידע העסקי.
 חריג נדיר: אם ביקשו במפורש רק תשובה חד־משמעית מינימלית בלי המשך — עדיין נסי להוסיף שאלה + לפחות שתי אפשרויות ממוספרות, אלא אם נאסר במפורש.`;
 
 const RESPONSE_SHAPE_BLOCK_WA = `
@@ -338,10 +358,12 @@ const RESPONSE_SHAPE_BLOCK_WA = `
 1) מענה קצר מהידע (שירותים, מחירים, כתובת, FAQ, מסלול מכירה, לינק שעות).
 2) שאלת המשך אחת שמקדמת לעבר שריון ניסיון או התאמה.
 3) הציעי 2–4 תשובות אפשריות כשורות נפרדות, ממוספרות 1. 2. 3. — הלקוח יכול לענות במספר או לפי הטקסט. לפחות מסלול אחד מוביל לשיעור ניסיון / הרשמה.
-גם לשאלות פתוחות: עני מהידע, ואז (2)+(3). בלי Markdown.`;
+גם לשאלות פתוחות: אם יש מענה מדויק בידע — עני ואז (2)+(3). אם אין — אל תנחשי; עברי לסעיף «חוסר ידע מדויק» אחרי בלוק הידע. בלי Markdown.`;
 
 export function buildSystemPrompt(knowledge: BusinessKnowledgePack | null, slug: string, channel: "web" | "whatsapp" = "web"): string {
   const isWhatsApp = channel === "whatsapp";
+  const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
+  const customerPhoneDisplay = customerPhoneRaw || "לא הוגדר";
   const vibeDetail = buildVibeInstructionLines(knowledge?.vibeLabels ?? []);
   const channelNote = isWhatsApp
     ? `
@@ -378,6 +400,8 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
+טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
+${formatUnknownKnowledgeBlock(customerPhoneDisplay)}
 `;
 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
