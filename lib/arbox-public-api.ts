@@ -485,6 +485,30 @@ export function formatNextClassHebrewForZoe(row: Record<string, unknown>): strin
   return `השיעור הקרוב: ${when}${staffPart}${spacePart}`;
 }
 
+export async function resolveNextTrialClassRow(
+  apiKey: string,
+  serviceName: string,
+  opts?: { useCache?: boolean }
+): Promise<Record<string, unknown> | null> {
+  const catRes = await arboxFetchBoxCategories(apiKey, opts);
+  if (!catRes.ok) return null;
+  const catId = findBoxCategoryIdForServiceName(catRes.items, serviceName);
+  if (!catId) return null;
+  const schRes = await arboxFetchScheduleForCategory(apiKey, catId, opts);
+  if (!schRes.ok) return null;
+  return pickNextAvailableScheduleRow(schRes.items);
+}
+
+/** רק משפט «השיעור הקרוב…» בלי קישורים — לכפתור «מתי השיעור קרוב?» */
+export async function arboxNextTrialClassHebrewLineOnly(
+  apiKey: string,
+  serviceName: string,
+  opts?: { useCache?: boolean }
+): Promise<string> {
+  const row = await resolveNextTrialClassRow(apiKey, serviceName, opts);
+  return row ? formatNextClassHebrewForZoe(row) : "";
+}
+
 export async function arboxBuildNextClassWhatsAppAppendix(
   apiKey: string,
   serviceName: string,
@@ -492,13 +516,7 @@ export async function arboxBuildNextClassWhatsAppAppendix(
   scheduleBoardUrl: string,
   opts?: { useCache?: boolean }
 ): Promise<string> {
-  const catRes = await arboxFetchBoxCategories(apiKey, opts);
-  if (!catRes.ok) return "";
-  const catId = findBoxCategoryIdForServiceName(catRes.items, serviceName);
-  if (!catId) return "";
-  const schRes = await arboxFetchScheduleForCategory(apiKey, catId, opts);
-  if (!schRes.ok) return "";
-  const row = pickNextAvailableScheduleRow(schRes.items);
+  const row = await resolveNextTrialClassRow(apiKey, serviceName, opts);
   if (!row) return "";
   const he = formatNextClassHebrewForZoe(row);
   const trial = trialBookingUrl.trim();

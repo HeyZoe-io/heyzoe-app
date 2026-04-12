@@ -2534,7 +2534,7 @@ export default function SlugSettingsPage() {
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  זו ההודעה שמזמינה את המשתמש לבצע פעולה משמעותית. מומלץ — הרשמה לשיעור ניסיון, צפייה במערכת השעות, צפייה במחירי מנויים וכרטיסיות.
+                  אחרי שאלת ניסיון קודם: גוף ההודעה ושלושה כפתורים. «מתי השיעור קרוב?» מושך מועד מ-Arbox לפי השירות שנבחר (בלי קישור). אחרי המענה נשלחת הודעה שנייה עם תפריט המשך (ניתן לערוך למטה).
                 </p>
                 <Field label="גוף ההודעה">
                   <Textarea
@@ -2577,6 +2577,7 @@ export default function SlugSettingsPage() {
                           }));
                         }}
                       >
+                        <option value="next_class">מתי השיעור קרוב? (Arbox — בלי לינק)</option>
                         <option value="schedule">מערכת שעות (לינק Arbox)</option>
                         <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
                         <option value="memberships">מחירי מנויים (מתוך הגדרות)</option>
@@ -2584,6 +2585,54 @@ export default function SlugSettingsPage() {
                     </div>
                   </div>
                 ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-zinc-900 text-right">תפריט אחרי «מתי השיעור קרוב?»</p>
+                <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
+                  <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                    נשלח אוטומטית אחרי מענה «מתי השיעור קרוב?». כפתור שלישי מפנה לטקסט חופשי — התשובה הקבועה למטה.
+                  </p>
+                  <Field label="גוף ההודעה השנייה">
+                    <Textarea
+                      value={salesFlowConfig.followup_after_next_class_body}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({ ...c, followup_after_next_class_body: v }))
+                      }
+                      rows={3}
+                    />
+                  </Field>
+                  {([0, 1, 2] as const).map((i) => (
+                    <Field key={i} label={`כפתור ${i + 1} (תפריט המשך)`}>
+                      <Input
+                        dir="rtl"
+                        className="min-w-[12rem]"
+                        value={salesFlowConfig.followup_after_next_class_options[i]}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSalesFlowConfig((c) => {
+                            const next = [...c.followup_after_next_class_options] as [
+                              string,
+                              string,
+                              string,
+                            ];
+                            next[i] = v;
+                            return { ...c, followup_after_next_class_options: next };
+                          });
+                        }}
+                      />
+                    </Field>
+                  ))}
+                  <Field label="תשובה אחרי «יש לי שאלה אחרת…» (או התווית שהגדרתם בכפתור 3)">
+                    <Textarea
+                      value={salesFlowConfig.free_chat_invite_reply}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({ ...c, free_chat_invite_reply: v }))
+                      }
+                      rows={2}
+                    />
+                  </Field>
                 </div>
               </div>
 
