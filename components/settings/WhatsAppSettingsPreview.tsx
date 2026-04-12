@@ -171,7 +171,7 @@ export function WhatsAppSettingsPreview({
 
           {step === 3 && (
             <Bubble from="bot">
-              <span className="text-zinc-600">מנויים וכרטיסיות — יופיעו בהנחיות לזואי מההגדרות</span>
+              <span className="text-zinc-600">מנויים וכרטיסיות — לפי ההגדרות</span>
             </Bubble>
           )}
 
