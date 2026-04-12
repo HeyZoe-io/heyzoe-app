@@ -20,6 +20,8 @@ export type SalesFlowConfig = {
   greeting_line_name: string;
   greeting_line_tagline: string;
   greeting_closer: string;
+  /** שאלות עם כפתורים מיד אחרי טקסט הפתיחה (לפני בחירת אימון) */
+  greeting_extra_steps: SalesFlowExtraStep[];
   multi_service_question: string;
   after_service_pick: string;
   experience_question: string;
@@ -29,6 +31,8 @@ export type SalesFlowConfig = {
   cta_body: string;
   cta_buttons: SalesFlowCtaButton[];
   cta_extra_steps: SalesFlowExtraStep[];
+  /** הודעה/הנחיה לזואי אחרי שהלקוח השלים הרשמה לאימון ניסיון */
+  after_trial_registration_body: string;
   /** מיגרציה ממסלול ישן — דורס את הברכה המורכבת */
   greeting_body_override?: string;
 };
@@ -40,6 +44,7 @@ const FRIENDLY: SalesFlowConfig = {
   greeting_line_name: "שמי {botName} מ־{businessName},",
   greeting_line_tagline: "{tagline}",
   greeting_closer: "נשמח מאוד לארח אותך אצלנו!",
+  greeting_extra_steps: [],
   multi_service_question:
     "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
   after_service_pick:
@@ -61,6 +66,8 @@ const FRIENDLY: SalesFlowConfig = {
     { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
   ],
   cta_extra_steps: [],
+  after_trial_registration_body:
+    "אחרי שהלקוח השלים הרשמה לאימון ניסיון — שלחי הודעת חיזוק קצרה, תזכורת מה מצפה לו ושלוש אפשרויות ממוספרות להמשך (למשל שאלה על הגעה / ציוד).",
 };
 
 const FORMAL: SalesFlowConfig = {
@@ -165,10 +172,15 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.experience_question === "string" ? o.experience_question : base.experience_question,
     experience_options: ex(o.experience_options),
     after_experience: typeof o.after_experience === "string" ? o.after_experience : base.after_experience,
+    greeting_extra_steps: parseExtraSteps(o.greeting_extra_steps),
     opening_extra_steps: parseExtraSteps(o.opening_extra_steps),
     cta_body: typeof o.cta_body === "string" ? o.cta_body : base.cta_body,
     cta_buttons: parseCtaButtons(o.cta_buttons),
     cta_extra_steps: parseExtraSteps(o.cta_extra_steps),
+    after_trial_registration_body:
+      typeof o.after_trial_registration_body === "string"
+        ? o.after_trial_registration_body
+        : base.after_trial_registration_body,
     greeting_body_override:
       typeof o.greeting_body_override === "string" ? o.greeting_body_override : undefined,
   };
@@ -186,6 +198,11 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     experience_question: c.experience_question,
     experience_options: [...c.experience_options],
     after_experience: c.after_experience,
+    greeting_extra_steps: c.greeting_extra_steps.map((s) => ({
+      id: s.id,
+      question: s.question,
+      options: s.options,
+    })),
     opening_extra_steps: c.opening_extra_steps.map((s) => ({
       id: s.id,
       question: s.question,
@@ -193,11 +210,8 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     })),
     cta_body: c.cta_body,
     cta_buttons: c.cta_buttons.map((b) => ({ id: b.id, label: b.label, kind: b.kind })),
-    cta_extra_steps: c.cta_extra_steps.map((s) => ({
-      id: s.id,
-      question: s.question,
-      options: s.options,
-    })),
+    cta_extra_steps: [],
+    after_trial_registration_body: c.after_trial_registration_body,
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
   };
 }
@@ -257,6 +271,13 @@ export function buildWhatsAppOpeningBody(
   const named = services.map((s) => s.name.trim()).filter(Boolean);
   const lines: string[] = [];
   lines.push(composeGreeting(c, botName, businessName, taglineText));
+  for (const st of c.greeting_extra_steps) {
+    if (!st.question.trim()) continue;
+    lines.push("", st.question);
+    for (const o of st.options) {
+      if (o.trim()) lines.push(o);
+    }
+  }
   if (named.length > 1) {
     lines.push("", c.multi_service_question);
     if (named.length <= 3) {
@@ -304,6 +325,12 @@ export function getWhatsAppOpeningPreviewSections(
     kind: "text",
     text: composeGreeting(c, botName, businessName, taglineText),
   });
+  for (const st of c.greeting_extra_steps) {
+    const q = st.question.trim();
+    const labels = st.options.map((o) => o.trim()).filter(Boolean);
+    if (q) sections.push({ kind: "text", text: q });
+    if (labels.length) sections.push({ kind: "buttons", labels });
+  }
   if (named.length > 1) {
     sections.push({ kind: "text", text: c.multi_service_question });
     sections.push({ kind: "buttons", labels: [...named].slice(0, 12) });
@@ -372,25 +399,29 @@ export function formatSalesFlowForPrompt(
 - שלוש אפשרויות שאלת הניסיון הקודם: תמיד שורה לכל אפשרות בלי מספור, כמו כפתורים.
 - אם יש רק אימון ניסיון אחד — דלגי על שאלת "איזה אימון מעניין" ועברי ישר לשאלת הניסיון עם שלוש האפשרויות מהגדרות.
 - אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude), ואז חזרי מיד לשאלה הבאה בפלואו עם אותן אפשרויות בחירה.
-- משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה (כשורות ממוספרות) — לפחות צפייה במערכת שעות, הרשמה לניסיון, מחירי מנויים — לפי התוויות והלינקים/ידע למטה.
+- משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה (כשורות ממוספרות) — לפי התוויות והלינקים/ידע למטה.
 
 סשן פתיחה (אחרי הודעת המערכת הראשונה):
+- טקסט הפתיחה כפי שהוגדר. אחריו — אם מופיעות שאלות נוספות מיד אחרי הפתיחה, שלבי אותן לפי הסדר עם כפתורי בחירה.
+${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני בחירת אימון)", c.greeting_extra_steps)}
 - אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובתיאור הקצר שלו מהטבלה למטה (סגנון משפט אחד, לדוגמה: "שיעורים לכל הרמות באווירה הכי כיפית שיש").
 - במענה אחרי בחירת אימון: אסור רשימת נקודות או מילים מופרדות בפסיקים. כתבי משפט אחד עד שניים זורמים שמשלבים את רוח התיאור מההגדרות — לא העתקה יבשה.
   תבנית מענה אחרי בחירת אימון (התאימי ניסוח לסגנון, שמרי על המשמעות והמידע מההגדרות): ${c.after_service_pick}
 
-סשן חימום (מומלץ לא יותר מ־2–3 שאלות בסך הכול):
+סשן חימום (מומלץ לא יותר מ־1–3 שאלות בסך הכול כולל שאלת הניסיון; בסיום סשן החימום עברי אוטומטית לשלב ההנעה לפעולה):
 - שאלת ניסיון קודם + שלוש האפשרויות מהגדרות (בלי מספור, כמו כפתורים).
   שאלה: ${c.experience_question}
   אפשרויות: ${c.experience_options.join(" | ")}
 - מענה אחרי בחירה בשאלת הניסיון: ${c.after_experience}
-${formatExtraSteps("שאלות נוספות לסשן חימום (לפי הסדר אחרי השלבים למעלה)", c.opening_extra_steps)}
+${formatExtraSteps("שאלות נוספות בסשן חימום (אחרי שאלת הניסיון, לפני ההנעה לפעולה)", c.opening_extra_steps)}
 
 שלב הנעה לפעולה:
-גוף הודעה מוצע: ${c.cta_body}
+גוף הודעה מוצע (מזמין לפעולה משמעותית — הרשמה לניסיון, מערכת שעות, מחירי מנויים/כרטיסיות): ${c.cta_body}
 כפתורי פעולה (הציגי כשורות ממוספרות; קישורים אמיתיים רק אם מופיעים בידע):
 ${ctaDesc}
-${formatExtraSteps("שאלות נוספות לסשן הנעה לפעולה", c.cta_extra_steps)}
+
+אחרי הרשמה לשיעור ניסיון (כשהלקוח השלים תשלום/הרשמה — התאימי ניסוח):
+${c.after_trial_registration_body.trim() || "(אין הנחיה מפורשת — שלחי הודעת חיזוק קצרה והמשיכי בפלואו)"}
 
 אימוני ניסיון ותיאור קצר אחרי בחירה (מההגדרות):
 ${benefitLines || "  (אין אימונים מוגדרים)"}
