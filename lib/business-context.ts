@@ -21,6 +21,8 @@ export type BusinessKnowledgePack = {
   /** מפתח API ארבוקס — לשימוש שרת בלבד; אסור לכלול בפרומפט או לשלוח ללקוח */
   arboxApiKey: string;
   arboxLink: string;
+  /** קישור לוח שיעורים ציבורי (social_links.schedule_public_url / arbox_schedule_url) */
+  schedulePublicUrl: string;
   /** טקסט לוח שיעורים מסונכרן (social_links.arbox_schedule_prompt_text) */
   arboxSchedulePromptText: string;
   arboxBoxCategoriesPromptText: string;
@@ -209,7 +211,14 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       typeof social.customer_service_phone === "string"
         ? String(social.customer_service_phone).trim()
         : "";
-    const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link) : "";
+    const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link).trim() : "";
+    const schedulePublicUrlRaw =
+      typeof social.schedule_public_url === "string"
+        ? String(social.schedule_public_url).trim()
+        : typeof social.arbox_schedule_url === "string"
+          ? String(social.arbox_schedule_url).trim()
+          : "";
+    const schedulePublicUrl = schedulePublicUrlRaw;
     const arboxApiKey = typeof social.arbox_api_key === "string" ? String(social.arbox_api_key).trim() : "";
     const arboxSchedulePromptText = truncateArboxPromptField(
       typeof social.arbox_schedule_prompt_text === "string" ? social.arbox_schedule_prompt_text : "",
@@ -316,6 +325,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       customerServicePhone,
       arboxApiKey,
       arboxLink,
+      schedulePublicUrl,
       arboxSchedulePromptText,
       arboxBoxCategoriesPromptText,
       arboxPublicSyncAt,
