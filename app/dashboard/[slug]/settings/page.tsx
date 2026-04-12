@@ -1875,7 +1875,7 @@ export default function SlugSettingsPage() {
                           };
                           setServices(arr);
                         }}
-                        placeholder="שם קצר לכפתור (עד 15 תווים) *"
+                        placeholder="שם האימון (עד 15 תווים) *"
                         className="font-medium w-full"
                       />
                       <p className="text-[11px] text-zinc-500 text-right leading-snug pr-0.5">
@@ -1913,7 +1913,7 @@ export default function SlugSettingsPage() {
                           arr[i] = { ...s, benefit_line: e.target.value };
                           setServices(arr);
                         }}
-                        placeholder="למשל: שיעורים לכל הרמות באווירה הכי כיפית שיש"
+                        placeholder="שיעורי יוגה לרמת מתקדמים."
                       />
                     </Field>
                     <Field label="מיקום">
@@ -1943,7 +1943,7 @@ export default function SlugSettingsPage() {
                 }
                 className="w-full gap-2"
               >
-                <Plus className="h-4 w-4" /> הוסף שורה
+                <Plus className="h-4 w-4" /> הוסף אימון
               </Button>
             </CardContent>
           </Card>
