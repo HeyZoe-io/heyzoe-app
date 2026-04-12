@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check,
+  Eye, EyeOff,
   GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -347,14 +348,20 @@ function Field({
   label,
   children,
   className = "",
+  description,
 }: {
   label: string;
   children: React.ReactNode;
   className?: string;
+  /** שורת הסבר מתחת לכותרת (למשל לפני שדה הקלט) */
+  description?: string;
 }) {
   return (
     <div className={`space-y-1.5 ${className}`}>
       <label className="text-sm font-medium text-zinc-700 block">{label}</label>
+      {description ? (
+        <p className="text-xs text-zinc-500 text-right leading-relaxed">{description}</p>
+      ) : null}
       {children}
     </div>
   );
@@ -487,6 +494,7 @@ export default function SlugSettingsPage() {
   const arboxApiKeyDraftRef = useRef("");
   const [arboxApiKeyDraft, setArboxApiKeyDraft] = useState("");
   const [arboxApiKeySaved, setArboxApiKeySaved] = useState(false);
+  const [arboxApiKeyReveal, setArboxApiKeyReveal] = useState(false);
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
   const [showTokenHelp, setShowTokenHelp] = useState(false);
@@ -1632,6 +1640,64 @@ export default function SlugSettingsPage() {
                 </p>
               ) : null}
 
+              <Field
+                label="מפתח API ארבוקס"
+                description="לשאיבת מידע רלוונטי לדשבורד + המשך השיחה בהתאם להרשמה לאימון ניסיון."
+              >
+                <div className="flex gap-2">
+                  <Input
+                    dir="ltr"
+                    className="font-mono text-sm min-w-0 flex-1"
+                    type={arboxApiKeyReveal ? "text" : "password"}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={
+                      arboxApiKeySaved && arboxApiKeyStoredRef.current.trim() && !arboxApiKeyDraft.trim()
+                        ? "••••••••"
+                        : "api key"
+                    }
+                    value={
+                      arboxApiKeyDraft !== ""
+                        ? arboxApiKeyDraft
+                        : arboxApiKeyReveal && arboxApiKeyStoredRef.current.trim()
+                          ? arboxApiKeyStoredRef.current
+                          : ""
+                    }
+                    onChange={(e) => setArboxApiKeyDraft(e.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 px-3"
+                    disabled={!arboxApiKeyDraft.trim() && !arboxApiKeyStoredRef.current.trim()}
+                    onClick={() => setArboxApiKeyReveal((v) => !v)}
+                    aria-label={arboxApiKeyReveal ? "הסתר מפתח API" : "הצג מפתח API שמור"}
+                    title={arboxApiKeyReveal ? "הסתר" : "הצג"}
+                  >
+                    {arboxApiKeyReveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    className="shrink-0 gap-2"
+                    disabled={fetchingArbox || (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)}
+                    onClick={() => void fetchArboxMemberships()}
+                  >
+                    {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {fetchingArbox ? "מחבר..." : "חבר לזואי"}
+                  </Button>
+                </div>
+              </Field>
+              {fetchArboxError ? (
+                <p className="text-sm text-red-600" role="alert">
+                  {fetchArboxError}
+                </p>
+              ) : null}
+              {fetchArboxNotice ? (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  {fetchArboxNotice}
+                </p>
+              ) : null}
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="שם העסק *">
                   {name.trim() && !businessNameEditing ? (
@@ -1705,44 +1771,6 @@ export default function SlugSettingsPage() {
                   ללקוחות בצ&apos;אט. סנכרון המנויים והלוח נעשה דרך מפתח ה-API הציבורי — לא חובה למלא קישור.
                 </p>
               </Field>
-
-              <div className="space-y-3 border border-[rgba(113,51,218,0.15)] rounded-2xl p-4 bg-[#faf8ff]">
-                <Field label="מפתח API ארבוקס">
-                  <Input
-                    dir="ltr"
-                    type="password"
-                    autoComplete="off"
-                    className="font-mono text-sm"
-                    placeholder={arboxApiKeySaved ? "הושאר ריק אם אין שינוי" : "מהגדרות ארבוקס → אינטגרציות"}
-                    value={arboxApiKeyDraft}
-                    onChange={(e) => setArboxApiKeyDraft(e.target.value)}
-                  />
-                </Field>
-                <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  מנויים, כרטיסיות, לוח שיעורים וקטגוריות (API ציבורי Arbox). בווטסאפ: בדיקת ליד/משתמש, ניסיון ויצירת ליד — לפי המספר.
-                </p>
-                <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
-                  <Button
-                    type="button"
-                    className="gap-2 shrink-0"
-                    disabled={fetchingArbox || (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)}
-                    onClick={() => void fetchArboxMemberships()}
-                  >
-                    {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {fetchingArbox ? "מחבר..." : "חבר בין זואי לארבוקס"}
-                  </Button>
-                </div>
-                {fetchArboxError ? (
-                  <p className="text-sm text-red-600" role="alert">
-                    {fetchArboxError}
-                  </p>
-                ) : null}
-                {fetchArboxNotice ? (
-                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                    {fetchArboxNotice}
-                  </p>
-                ) : null}
-              </div>
 
               <Field label="הנחיות הגעה">
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
