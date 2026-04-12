@@ -289,7 +289,7 @@ export async function syncArboxMembershipsFromApi(
     return { ok: false, code: "missing_api_key", message: "חסר מפתח API ארבוקס — הזינו אותו בהגדרות (הגדרות → אינטגרציות)." };
   }
 
-  const pub = await arboxFetchMembershipTypes(key);
+  const pub = await arboxFetchMembershipTypes(key, { useCache: false });
   if (pub.ok) {
     const base = resolveArboxPublicApiBase().replace(/\/$/, "");
     return {

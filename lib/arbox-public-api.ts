@@ -3,12 +3,36 @@
  * Base: https://arboxserver.arboxapp.com/api/public
  * Auth: header `api-key: <key>`
  *
+ * GET responses cached 30 minutes (per key + path + query). POST never cached.
  * Query/body field names can be overridden via env if your tenant differs — see server-env.
  */
 
+import { createHash } from "node:crypto";
 import { resolveArboxPublicApiBase, resolveArboxScheduleQueryKeys } from "@/lib/server-env";
 
 const FETCH_TIMEOUT_MS = 18_000;
+export const ARBOX_CACHE_TTL_MS = 30 * 60 * 1000;
+
+type CachedArboxResult = { ok: true; status: number; data: unknown } | { ok: false; status: number; message: string };
+const arboxResponseCache = new Map<string, { at: number; entry: CachedArboxResult }>();
+
+function stableQueryKey(query: Record<string, string | number | boolean | undefined>): string {
+  const keys = Object.keys(query).filter((k) => query[k] !== undefined).sort();
+  const o: Record<string, string> = {};
+  for (const k of keys) o[k] = String(query[k]);
+  return JSON.stringify(o);
+}
+
+function arboxCacheKey(apiKey: string, path: string, queryKey: string): string {
+  const kh = createHash("sha256").update(apiKey.trim()).digest("hex").slice(0, 16);
+  return `${kh}::${path}::${queryKey}`;
+}
+
+function pruneArboxCache(): void {
+  if (arboxResponseCache.size <= 400) return;
+  const entries = [...arboxResponseCache.entries()].sort((a, b) => a[1].at - b[1].at);
+  for (let i = 0; i < 120; i++) arboxResponseCache.delete(entries[i][0]);
+}
 
 export type ArboxHttpResult<T> =
   | { ok: true; status: number; data: T }
@@ -66,6 +90,8 @@ export async function arboxPublicFetch<T = unknown>(
     method?: "GET" | "POST" | "PATCH";
     query?: Record<string, string | number | boolean | undefined>;
     body?: unknown;
+    /** ברירת מחדל true ל-GET — מטמון 30 דקות; false לסנכרון ידני מהדשבורד */
+    useCache?: boolean;
   }
 ): Promise<ArboxHttpResult<T>> {
   const key = apiKey.trim();
@@ -76,6 +102,7 @@ export async function arboxPublicFetch<T = unknown>(
   const base = resolveArboxPublicApiBase().replace(/\/$/, "");
   const p = path.startsWith("/") ? path : `/${path}`;
   let urlStr = `${base}${p}`;
+  const q = init?.query ?? {};
   if (init?.query) {
     const u = new URL(urlStr);
     for (const [k, v] of Object.entries(init.query)) {
@@ -85,11 +112,22 @@ export async function arboxPublicFetch<T = unknown>(
     urlStr = u.toString();
   }
 
+  const method = init?.method ?? "GET";
+  const useCache = method === "GET" && init?.useCache !== false;
+  const qKey = stableQueryKey(q);
+  const ck = arboxCacheKey(key, p, qKey);
+
+  if (useCache) {
+    const hit = arboxResponseCache.get(ck);
+    if (hit && Date.now() - hit.at < ARBOX_CACHE_TTL_MS) {
+      return hit.entry as ArboxHttpResult<T>;
+    }
+  }
+
   const headers: Record<string, string> = {
     Accept: "application/json",
     "api-key": key,
   };
-  const method = init?.method ?? "GET";
   if (init?.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
@@ -130,15 +168,24 @@ export async function arboxPublicFetch<T = unknown>(
       if (typeof err === "string" && err.trim()) message = err.trim();
       else if (typeof top === "string" && top.trim()) message = top.trim();
     }
-    return {
+    const fail: ArboxHttpResult<T> = {
       ok: false,
       status: res.status,
       message,
       bodySnippet: text.slice(0, 400),
     };
+    return fail;
   }
 
-  return { ok: true, status: res.status, data: (json ?? (text as unknown)) as T };
+  const okResult: ArboxHttpResult<T> = { ok: true, status: res.status, data: (json ?? (text as unknown)) as T };
+  if (useCache) {
+    arboxResponseCache.set(ck, {
+      at: Date.now(),
+      entry: { ok: true, status: okResult.status, data: okResult.data as unknown },
+    });
+    pruneArboxCache();
+  }
+  return okResult;
 }
 
 /** E.164-style for Arbox query params */
@@ -249,11 +296,14 @@ function classifyMembershipTypes(items: Record<string, unknown>[]): {
   };
 }
 
-export async function arboxFetchMembershipTypes(apiKey: string): Promise<
+export async function arboxFetchMembershipTypes(
+  apiKey: string,
+  opts?: { useCache?: boolean }
+): Promise<
   | { ok: true; membership_tiers: ArboxMembershipTier[]; punch_cards: ArboxPunchCard[] }
   | { ok: false; message: string; status?: number }
 > {
-  const res = await arboxPublicFetch(apiKey, "/v3/membershipTypes");
+  const res = await arboxPublicFetch(apiKey, "/v3/membershipTypes", { useCache: opts?.useCache });
   if (!res.ok) return { ok: false, message: res.message, status: res.status };
   const items = extractItemsFromJson(res.data);
   if (!items.length) {
@@ -270,30 +320,193 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function arboxFetchSchedule(apiKey: string): Promise<
-  { ok: true; items: Record<string, unknown>[] } | { ok: false; message: string; status?: number }
-> {
+export async function arboxFetchSchedule(
+  apiKey: string,
+  opts?: { useCache?: boolean; daysAhead?: number }
+): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; message: string; status?: number }> {
   const { fromKey, toKey } = resolveArboxScheduleQueryKeys();
   const from = new Date();
-  const to = new Date(from.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const days = opts?.daysAhead ?? 14;
+  const to = new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
   const res = await arboxPublicFetch(apiKey, "/v3/schedule", {
     query: {
       [fromKey]: ymd(from),
       [toKey]: ymd(to),
     },
+    useCache: opts?.useCache,
   });
   if (!res.ok) return { ok: false, message: res.message, status: res.status };
   const items = extractItemsFromJson(res.data);
   return { ok: true, items };
 }
 
-export async function arboxFetchBoxCategories(apiKey: string): Promise<
-  { ok: true; items: Record<string, unknown>[] } | { ok: false; message: string; status?: number }
-> {
-  const res = await arboxPublicFetch(apiKey, "/v3/schedule/boxCategories");
+/** לוח לפי קטגוריה — פרמטרים לפי תיעוד Arbox v3 */
+export async function arboxFetchScheduleForCategory(
+  apiKey: string,
+  boxCategoryId: string,
+  opts?: { useCache?: boolean }
+): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; message: string; status?: number }> {
+  const { fromKey, toKey } = resolveArboxScheduleQueryKeys();
+  const from = new Date();
+  const to = new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const regParam =
+    process.env.ARBOX_SCHEDULE_REGISTRATION_COUNT_PARAM?.trim() || "Registration_count";
+  const res = await arboxPublicFetch(apiKey, "/v3/schedule", {
+    query: {
+      [fromKey]: ymd(from),
+      [toKey]: ymd(to),
+      box_category_id: boxCategoryId,
+      [regParam]: 1,
+      sort: "asc",
+      limit: 5,
+    },
+    useCache: opts?.useCache,
+  });
   if (!res.ok) return { ok: false, message: res.message, status: res.status };
   const items = extractItemsFromJson(res.data);
   return { ok: true, items };
+}
+
+export async function arboxFetchBoxCategories(
+  apiKey: string,
+  opts?: { useCache?: boolean }
+): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; message: string; status?: number }> {
+  const res = await arboxPublicFetch(apiKey, "/v3/schedule/boxCategories", { useCache: opts?.useCache });
+  if (!res.ok) return { ok: false, message: res.message, status: res.status };
+  const items = extractItemsFromJson(res.data);
+  return { ok: true, items };
+}
+
+function normServiceName(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function findBoxCategoryIdForServiceName(
+  categories: Record<string, unknown>[],
+  serviceName: string
+): string | null {
+  const target = normServiceName(serviceName);
+  if (!target) return null;
+  for (const o of categories) {
+    const name = normServiceName(pickStr(o, ["name", "title", "label", "boxCategoryName", "categoryName"]));
+    const id = pickStr(o, ["id", "boxCategoryFk", "box_category_id", "fk", "boxCategoryId"]);
+    if (!id || !name) continue;
+    if (name === target || name.includes(target) || target.includes(name)) return id;
+  }
+  return null;
+}
+
+function numFromRow(o: Record<string, unknown>, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = o[k];
+    if (v == null) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+export function pickNextAvailableScheduleRow(items: Record<string, unknown>[]): Record<string, unknown> | null {
+  for (const o of items) {
+    const reg = numFromRow(o, [
+      "registration_count",
+      "registrationCount",
+      "registered",
+      "currentRegistrations",
+      "registeredCount",
+      "registrations",
+    ]);
+    const max = numFromRow(o, [
+      "max_participants",
+      "maxParticipants",
+      "participants_max",
+      "capacity",
+      "max_registrations",
+      "maxRegistration",
+      "maxMembers",
+    ]);
+    const spots = numFromRow(o, ["availableSpots", "spotsLeft", "remainingPlaces", "vacancy", "freePlaces"]);
+    if (max != null && reg != null) {
+      if (reg < max) return o;
+      continue;
+    }
+    if (spots != null && spots > 0) return o;
+    if (max == null && reg == null && spots == null) return o;
+  }
+  return null;
+}
+
+/** ניסוח לזואי: השיעור הקרוב: [יום] [תאריך] בשעה [שעה] עם [מדריך] (+ מקום אם קיים) */
+export function formatNextClassHebrewForZoe(row: Record<string, unknown>): string {
+  const startIso = pickStr(row, [
+    "start_time",
+    "startTime",
+    "start",
+    "dateTime",
+    "datetime",
+    "from",
+    "scheduleStart",
+    "classStart",
+  ]);
+  const dateOnly = pickStr(row, ["date", "scheduleDate", "startDate", "day"]);
+  const staff = pickStr(row, [
+    "staff_member",
+    "staffMember",
+    "coach",
+    "trainer",
+    "instructorName",
+    "teacherName",
+    "staffName",
+    "instructor",
+  ]);
+  const space = pickStr(row, ["space_name", "spaceName", "room", "locationName", "studio"]);
+  let dayDate = "";
+  let time = "";
+  const parseSrc = startIso || dateOnly;
+  const d = parseSrc ? new Date(parseSrc) : new Date(NaN);
+  if (!Number.isNaN(d.getTime())) {
+    const w = d.toLocaleDateString("he-IL", { weekday: "long", timeZone: "Asia/Jerusalem" });
+    const dt = d.toLocaleDateString("he-IL", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "Asia/Jerusalem",
+    });
+    dayDate = `${w} ${dt}`;
+    time = d.toLocaleTimeString("he-IL", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Jerusalem",
+    });
+  }
+  const when = dayDate && time ? `${dayDate} בשעה ${time}` : [dayDate, startIso].filter(Boolean).join(" ");
+  const staffPart = staff ? ` עם ${staff}` : "";
+  const spacePart = space ? ` (${space})` : "";
+  return `השיעור הקרוב: ${when}${staffPart}${spacePart}`;
+}
+
+export async function arboxBuildNextClassWhatsAppAppendix(
+  apiKey: string,
+  serviceName: string,
+  trialBookingUrl: string,
+  scheduleBoardUrl: string,
+  opts?: { useCache?: boolean }
+): Promise<string> {
+  const catRes = await arboxFetchBoxCategories(apiKey, opts);
+  if (!catRes.ok) return "";
+  const catId = findBoxCategoryIdForServiceName(catRes.items, serviceName);
+  if (!catId) return "";
+  const schRes = await arboxFetchScheduleForCategory(apiKey, catId, opts);
+  if (!schRes.ok) return "";
+  const row = pickNextAvailableScheduleRow(schRes.items);
+  if (!row) return "";
+  const he = formatNextClassHebrewForZoe(row);
+  const trial = trialBookingUrl.trim();
+  const board = scheduleBoardUrl.trim() || trial;
+  const parts = [he];
+  if (trial) parts.push(`\n\nהירשם לשיעור ניסיון:\n${trial}`);
+  if (board) parts.push(`\n\nלוח השיעורים:\n${board}`);
+  return parts.join("").trim();
 }
 
 function formatScheduleRowHe(o: Record<string, unknown>, i: number): string {
@@ -354,20 +567,28 @@ export function formatBoxCategoriesForPrompt(items: Record<string, unknown>[], m
   return lines.join("\n");
 }
 
-/** searchUser — try phone query keys from env / defaults */
+/** תיעוד Arbox: GET /v3/users/searchUser?type=phone&value=… */
 export async function arboxSearchUserByPhone(
   apiKey: string,
-  phone: string
+  phone: string,
+  opts?: { useCache?: boolean }
 ): Promise<ArboxHttpResult<unknown>> {
   const normalized = normalizePhoneForArbox(phone);
+  const primary = await arboxPublicFetch<unknown>(apiKey, "/v3/users/searchUser", {
+    query: { type: "phone", value: normalized },
+    useCache: opts?.useCache,
+  });
+  if (primary.ok) return primary;
+
   const keys = (process.env.ARBOX_SEARCH_USER_PHONE_PARAMS?.trim() || "phone,mobile,cellPhone,search")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  let last: ArboxHttpResult<unknown> = { ok: false, status: 0, message: "no_try" };
+  let last: ArboxHttpResult<unknown> = primary;
   for (const param of keys) {
     const res = await arboxPublicFetch<unknown>(apiKey, "/v3/users/searchUser", {
       query: { [param]: normalized },
+      useCache: opts?.useCache,
     });
     if (res.ok) return res;
     last = res;
@@ -375,16 +596,93 @@ export async function arboxSearchUserByPhone(
   return last;
 }
 
-export async function arboxLeadsConverted(apiKey: string, phone: string): Promise<ArboxHttpResult<unknown>> {
-  const normalized = normalizePhoneForArbox(phone);
-  const param = process.env.ARBOX_LEADS_CONVERTED_PHONE_PARAM?.trim() || "phone";
-  return arboxPublicFetch(apiKey, "/v3/leads/converted", { query: { [param]: normalized } });
+export function extractArboxUserIdFromSearchResponse(data: unknown): string | null {
+  const inner = unwrapArboxPayload(data);
+
+  const tryObj = (o: Record<string, unknown>): string | null => {
+    for (const k of ["id", "userId", "user_id", "memberId", "member_id", "clientId", "fk"]) {
+      const v = o[k];
+      if (v != null) {
+        const s = String(v).trim();
+        if (s) return s;
+      }
+    }
+    return null;
+  };
+
+  const walk = (x: unknown): string | null => {
+    if (x == null) return null;
+    if (Array.isArray(x)) {
+      for (const el of x) {
+        const f = walk(el);
+        if (f) return f;
+      }
+      return null;
+    }
+    if (typeof x === "object") {
+      const o = x as Record<string, unknown>;
+      const direct = tryObj(o);
+      if (direct) return direct;
+      for (const v of Object.values(o)) {
+        const f = walk(v);
+        if (f) return f;
+      }
+    }
+    return null;
+  };
+
+  return walk(inner);
 }
 
-export async function arboxTrialBookingStatus(apiKey: string, phone: string): Promise<ArboxHttpResult<unknown>> {
+export function extractArboxLeadIdFromCreateResponse(data: unknown): string | null {
+  const inner = unwrapArboxPayload(data);
+  const tryObj = (o: Record<string, unknown>): string | null => {
+    for (const k of ["lead_id", "leadId", "id"]) {
+      const v = o[k];
+      if (v != null) {
+        const s = String(v).trim();
+        if (s) return s;
+      }
+    }
+    return null;
+  };
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    const o = inner as Record<string, unknown>;
+    const a = tryObj(o);
+    if (a) return a;
+    const nested = o.data;
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const b = tryObj(nested as Record<string, unknown>);
+      if (b) return b;
+    }
+  }
+  return null;
+}
+
+export async function arboxLeadsConverted(
+  apiKey: string,
+  phone: string,
+  opts?: { useCache?: boolean }
+): Promise<ArboxHttpResult<unknown>> {
+  const normalized = normalizePhoneForArbox(phone);
+  const param = process.env.ARBOX_LEADS_CONVERTED_PHONE_PARAM?.trim() || "phone";
+  return arboxPublicFetch(apiKey, "/v3/leads/converted", {
+    query: { [param]: normalized },
+    useCache: opts?.useCache,
+  });
+}
+
+export async function arboxTrialBookingStatus(
+  apiKey: string,
+  phone: string,
+  opts?: { useCache?: boolean }
+): Promise<ArboxHttpResult<unknown>> {
   const normalized = normalizePhoneForArbox(phone);
   const param = process.env.ARBOX_TRIAL_PHONE_PARAM?.trim() || "phone";
-  return arboxPublicFetch(apiKey, "/v3/schedule/booking/trial", { query: { [param]: normalized } });
+  return arboxPublicFetch(apiKey, "/v3/schedule/booking/trial", {
+    query: { [param]: normalized },
+    useCache: opts?.useCache,
+  });
 }
 
 export type ArboxCreateLeadBody = Record<string, unknown>;
@@ -426,7 +724,7 @@ export async function arboxCreateLead(
   fullName: string
 ): Promise<ArboxHttpResult<unknown>> {
   const body = buildArboxLeadPayload(phone, fullName);
-  return arboxPublicFetch(apiKey, "/v3/leads", { method: "POST", body });
+  return arboxPublicFetch(apiKey, "/v3/leads", { method: "POST", body, useCache: false });
 }
 
 export function summarizeArboxJsonForPrompt(label: string, data: unknown, maxLen = 900): string {
@@ -443,12 +741,13 @@ export function summarizeArboxJsonForPrompt(label: string, data: unknown, maxLen
 
 export async function buildArboxWhatsAppRegistrationSummary(
   apiKey: string,
-  phone: string
+  phone: string,
+  opts?: { useCache?: boolean }
 ): Promise<{ lines: string[]; raw: { user: unknown; converted: unknown; trial: unknown } }> {
   const [userRes, convRes, trialRes] = await Promise.all([
-    arboxSearchUserByPhone(apiKey, phone),
-    arboxLeadsConverted(apiKey, phone),
-    arboxTrialBookingStatus(apiKey, phone),
+    arboxSearchUserByPhone(apiKey, phone, opts),
+    arboxLeadsConverted(apiKey, phone, opts),
+    arboxTrialBookingStatus(apiKey, phone, opts),
   ]);
 
   const lines: string[] = [];

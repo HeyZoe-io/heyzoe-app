@@ -19,6 +19,7 @@ import {
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
 import { getArboxWhatsappPromptAppend } from "@/lib/arbox-whatsapp-context";
+import { arboxBuildNextClassWhatsAppAppendix } from "@/lib/arbox-public-api";
 import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import { fillAfterServicePickTemplate } from "@/lib/sales-flow";
@@ -630,10 +631,33 @@ async function processIncoming(
           const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, picked.name);
           const opts = Array.isArray(cfg.experience_options) ? cfg.experience_options : [];
 
-          const outLines = [afterPick, "", q, ...opts];
+          let arboxNextBlock = "";
+          const arboxKey = knowledge.arboxApiKey?.trim() ?? "";
+          if (arboxKey) {
+            try {
+              const trialUrl = knowledge.arboxLink?.trim() ?? "";
+              const boardUrl = (knowledge.schedulePublicUrl?.trim() || trialUrl).trim();
+              arboxNextBlock = await arboxBuildNextClassWhatsAppAppendix(
+                arboxKey,
+                picked.name,
+                trialUrl,
+                boardUrl,
+                { useCache: true }
+              );
+            } catch (e) {
+              console.warn("[WA Webhook] Arbox next-class block failed (continuing):", e);
+            }
+          }
+
           const out =
-            outLines.filter((x) => x !== undefined).join("\n").trim() + `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
-          const bodyOnly = [afterPick, "", q].filter(Boolean).join("\n").trim();
+            [arboxNextBlock, afterPick, "", q, ...opts]
+              .filter((x) => x !== undefined && String(x).trim().length > 0)
+              .join("\n")
+              .trim() + `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+          const bodyOnly = [arboxNextBlock, afterPick, "", q]
+            .filter((x) => String(x ?? "").trim().length > 0)
+            .join("\n\n")
+            .trim();
 
           await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
             footerHint: ZOE_WHATSAPP_MENU_FOOTER,

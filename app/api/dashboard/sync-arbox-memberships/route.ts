@@ -52,7 +52,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const [sch, cat] = await Promise.all([arboxFetchSchedule(apiKey), arboxFetchBoxCategories(apiKey)]);
+  const [sch, cat] = await Promise.all([
+    arboxFetchSchedule(apiKey, { useCache: false, daysAhead: 14 }),
+    arboxFetchBoxCategories(apiKey, { useCache: false }),
+  ]);
 
   const scheduleText = sch.ok
     ? formatScheduleItemsForPrompt(sch.items)
