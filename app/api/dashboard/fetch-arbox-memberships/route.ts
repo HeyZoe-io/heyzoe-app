@@ -199,6 +199,24 @@ async function fetchJinaReader(pageUrl: string): Promise<string> {
   }
 }
 
+/** וריאנטים של אותו דף — לפעמים lang=en מחזיר פחות טקסט ב-Jina מ-lang=he או בלי lang */
+function arboxMembershipUrlVariants(url: string): string[] {
+  const out: string[] = [];
+  try {
+    const u = new URL(url);
+    out.push(u.toString());
+    const he = new URL(u.toString());
+    he.searchParams.set("lang", "he");
+    out.push(he.toString());
+    const noLang = new URL(u.toString());
+    noLang.searchParams.delete("lang");
+    out.push(noLang.toString());
+  } catch {
+    out.push(url);
+  }
+  return [...new Set(out.map((s) => s.trim()).filter(Boolean))];
+}
+
 async function loadPageText(url: string): Promise<string> {
   let host = "";
   try {
@@ -213,9 +231,14 @@ async function loadPageText(url: string): Promise<string> {
 
   /** דפי Arbox הם כמעט תמיד SPA — Jina מחזירה מרקדאון עם מחירים אמיתיים */
   if (isArboxHost(host)) {
-    const jinaText = await fetchJinaReader(url);
-    if (jinaText.length >= 400) text = jinaText;
-    else if (jinaText.length > text.length) text = jinaText;
+    let bestJina = "";
+    for (const variant of arboxMembershipUrlVariants(url)) {
+      const jt = await fetchJinaReader(variant);
+      if (jt.length > bestJina.length) bestJina = jt;
+    }
+    /** סף נמוך יותר — חלק מהדפים מחזירים ~300 תווים שימושיים */
+    if (bestJina.length >= 280) text = bestJina;
+    else if (bestJina.length > text.length) text = bestJina;
   } else if (text.length < 700) {
     const jinaText = await fetchJinaReader(url);
     if (jinaText.length > text.length) text = jinaText;
@@ -224,7 +247,41 @@ async function loadPageText(url: string): Promise<string> {
   return text.slice(0, PAGE_TEXT_MAX_CHARS);
 }
 
-/** כשהמודל מחזיר מערכים ריקים — חילוץ גס משורות עם ₪ (פורמט Jina מארבוקס) */
+function lineContainsPlanPrice(line: string): boolean {
+  return (
+    /(?:₪|NIS)\s*[\d,]+(?:\.\d{2})?/i.test(line) ||
+    /\$\s*[\d,]+(?:\.\d{2})?/.test(line) ||
+    /[\d,]+(?:\.\d{2})?\s*ILS\b/i.test(line) ||
+    /\bILS\s*[\d,]+/i.test(line)
+  );
+}
+
+function extractPriceFromLine(line: string): { display: string; after: string } | null {
+  const tries: RegExp[] = [
+    /((?:₪|NIS)\s*[\d,]+(?:\.\d{2})?)/i,
+    /(\$\s*[\d,]+(?:\.\d{2})?)/,
+    /([\d,]+(?:\.\d{2})?\s*ILS)\b/i,
+    /(ILS\s*[\d,]+(?:\.\d{2})?)/i,
+  ];
+  for (const re of tries) {
+    const m = line.match(re);
+    if (m?.[1]) {
+      const display = m[1].trim();
+      const after = line.replace(m[1], "").replace(/^[\s,.|–-]+/g, "").trim();
+      return { display, after };
+    }
+  }
+  return null;
+}
+
+function normalizePlanTitle(raw: string): string {
+  let s = raw.replace(/^#+\s*/, "").trim();
+  const bold = s.match(/^\*\*([^*]+)\*\*$/);
+  if (bold) s = bold[1].trim();
+  return s.slice(0, 200);
+}
+
+/** כשהמודל מחזיר מערכים ריקים — חילוץ גס (₪ / $ / ILS, כולל דפי en) */
 function heuristicExtractArboxPlans(pageText: string): {
   membership_tiers: Array<{
     name: string;
@@ -254,38 +311,49 @@ function heuristicExtractArboxPlans(pageText: string): {
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    if (!/(?:₪|NIS)\s*[\d,]+/i.test(line)) continue;
-    const prev = lines[i - 1];
-    if (!prev || prev.length > 160) continue;
-    const dedupeKey = `${prev.slice(0, 72)}|${line.slice(0, 48)}`;
+    if (!lineContainsPlanPrice(line)) continue;
+    const extracted = extractPriceFromLine(line);
+    if (!extracted) continue;
+
+    let prev = lines[i - 1];
+    if (!prev || prev.length > 220) continue;
+    prev = normalizePlanTitle(prev);
+    if (!prev || /^https?:\/\//i.test(prev)) continue;
+
+    const dedupeKey = `${prev.slice(0, 72)}|${extracted.display.slice(0, 48)}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
-    const priceMatch = line.match(/(?:₪|NIS)\s*[\d,]+/i);
-    const price = priceMatch ? priceMatch[0].trim() : "";
-    const afterPrice = priceMatch
-      ? line.slice(line.indexOf(priceMatch[0]) + priceMatch[0].length).trim()
-      : line;
+    const price = extracted.display;
+    const afterPrice = extracted.after;
     const hay = `${prev} ${line}`.toLowerCase();
 
     const looksPack =
-      /\bpass\b|packs?|session\s*packs?|\(x\d+\)/i.test(hay) ||
+      /\bpass\b|packs?|session\s*packs?|punch|multi[- ]?pass|\(x\d+\)/i.test(hay) ||
       /for\s+\d+\s+sessions?/i.test(line) ||
-      /for\s+1\s+session/i.test(line);
+      /for\s+1\s+session/i.test(line) ||
+      /\d+\s*x\s*sessions?/i.test(line);
 
     if (looksPack) {
       const sm = line.match(/(\d+)\s*sessions?/i);
       cards.push({
         session_count: sm ? sm[1] : "1",
-        validity: afterPrice.replace(/^[,.\s-]+/g, "").slice(0, 130) || line.slice(0, 120),
+        validity: afterPrice.replace(/^[,.\s-|–]+/g, "").slice(0, 130) || line.slice(0, 120),
         notes: prev,
       });
     } else {
-      const cm = line.match(/(\d+)\s*classes?\s*\/?\s*month/i);
+      const cm =
+        line.match(/(\d+)\s*classes?\s*\/?\s*month/i) ||
+        line.match(/(\d+)\s*\/\s*month/i) ||
+        line.match(/(\d+)\s+times?\s+per\s+month/i);
+      let monthlySessions = "";
+      if (cm?.[1]) monthlySessions = String(cm[1]);
+      else if (/unlimited|ללא הגבלה/i.test(line)) monthlySessions = "ללא הגבלה";
+
       tiers.push({
         name: prev,
         price: price || line.trim(),
-        monthly_sessions: cm ? cm[1] : /unlimited/i.test(line) ? "ללא הגבלה" : "",
+        monthly_sessions: monthlySessions,
         notes: afterPrice.slice(0, 180),
       });
     }
@@ -334,7 +402,8 @@ export async function POST(req: NextRequest) {
 
 חלץ מנויים חודשיים/מנויים מתמשכים וכרטיסיות/חבילות כניסות. אם סוג מסוים לא מופיע — החזר מערך ריק.
 שמות ומחירים כפי שמופיעים בטקסט (אפשר בעברית או באנגלית). monthly_sessions = מספר אימונים/כניסות לחודש אם מצוין, אחרת "".
-הטקסט עלול להגיע כמרקדאון מ־Jina: כותרת שורה, שורת שם מנוי, שורת מחיר עם ₪ ו־"per Month" או "for N sessions" — חלץ הכל לפריטים במערכים.
+הדף עלול להיות באנגלית (lang=en): מחירים ב־$, "ILS", "per month", "for N sessions" — חלצי בכל אותם פורמטים.
+הטקסט עלול להגיע כמרקדאון מ־Jina: כותרת שורה, שורת שם מנוי, שורת מחיר עם ₪ / $ / ILS ו־"per Month" או "for N sessions" — חלץ הכל לפריטים במערכים.
 
 החזר אובייקט JSON תקף בלבד — בלי טקסט לפני או אחרי, בלי markdown.
 
