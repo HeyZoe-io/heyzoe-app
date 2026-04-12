@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check,
-  GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X,
+  GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -102,6 +103,34 @@ function serviceSlugForPersistence(serviceSlugField: string, name: string, uiId:
   const fromName = toSlug(name);
   if (fromName) return fromName;
   return `trial-${uiId}`;
+}
+
+function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
+  if (!Array.isArray(products) || products.length === 0) return [];
+  return products.slice(0, 8).map((raw) => {
+    const p = raw as Record<string, unknown>;
+    const rowId = uid();
+    const pname = truncateTrialServiceName(String(p.name ?? ""));
+    const benefits = Array.isArray(p.benefits)
+      ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    const sugg = Array.isArray(p.benefit_suggestions)
+      ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
+    const benefit_line = flowFeatures || benefits.join(" · ") || sugg[0] || "";
+    return {
+      ui_id: rowId,
+      name: pname,
+      price_text: String(p.price_text ?? "").trim(),
+      duration: "",
+      payment_link: "",
+      service_slug: serviceSlugForPersistence("", pname, rowId),
+      location_text: String(p.location_text ?? "").trim() || addrFallback,
+      description: String(p.description ?? "").trim(),
+      benefit_line,
+    };
+  });
 }
 
 /** תצוגה בשדה — ללא {serviceName} */
@@ -330,6 +359,9 @@ export default function SlugSettingsPage() {
   const [fetchingUrl, setFetchingUrl]         = useState(false);
   const [fetchSiteError, setFetchSiteError]   = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
+  const [salesFlowRegenerating, setSalesFlowRegenerating] = useState(false);
+  const [resetSalesFlowConfirmOpen, setResetSalesFlowConfirmOpen] = useState(false);
+  const [salesFlowRegenToast, setSalesFlowRegenToast] = useState(false);
   const [fetchingArbox, setFetchingArbox] = useState(false);
   const [fetchArboxError, setFetchArboxError] = useState("");
   const [fetchArboxNotice, setFetchArboxNotice] = useState("");
@@ -1077,36 +1109,129 @@ export default function SlugSettingsPage() {
       const addrFallback =
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
       if (Array.isArray(j.products) && j.products.length > 0) {
-        setServices(
-          j.products.slice(0, 8).map((p: Record<string, unknown>) => {
-            const rowId = uid();
-            const pname = truncateTrialServiceName(String(p.name ?? ""));
-            const benefits = Array.isArray(p.benefits)
-              ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-              : [];
-            const sugg = Array.isArray(p.benefit_suggestions)
-              ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-              : [];
-            const flowFeatures =
-              typeof p.flow_features === "string" ? p.flow_features.trim() : "";
-            const benefit_line = flowFeatures || benefits.join(" · ") || sugg[0] || "";
-            return {
-              ui_id: rowId,
-              name: pname,
-              price_text: String(p.price_text ?? "").trim(),
-              duration: "",
-              payment_link: "",
-              service_slug: serviceSlugForPersistence("", pname, rowId),
-              location_text: String(p.location_text ?? "").trim() || addrFallback,
-              description: String(p.description ?? "").trim(),
-              benefit_line,
-            };
-          })
-        );
+        setServices(trialServicesFromSiteProducts(j.products, addrFallback));
       }
       setStep(1);
     } finally {
       setFetchingUrl(false);
+    }
+  }
+
+  async function resetAndRegenerateSalesFlow() {
+    setResetSalesFlowConfirmOpen(false);
+    setSalesFlowRegenerating(true);
+    setFetchSiteError("");
+    setFetchSiteNotice("");
+    setSaveErr("");
+    let j: Record<string, unknown> = {};
+    try {
+      if (websiteUrl.trim()) {
+        try {
+          const res = await fetch("/api/dashboard/fetch-site", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ website_url: websiteUrl, business_name: name, niche }),
+          });
+          try {
+            j = (await res.json()) as Record<string, unknown>;
+          } catch {
+            setFetchSiteError("תשובת שרת לא תקינה.");
+            j = {};
+          }
+
+          const errStr = typeof j.error === "string" ? j.error : "";
+          const msgStr = typeof j.message === "string" ? j.message.trim() : "";
+
+          if (!res.ok) {
+            const friendly =
+              errStr === "unauthorized"
+                ? "נדרשת התחברות מחדש."
+                : errStr === "missing_website_url"
+                  ? "חסרה כתובת אתר."
+                  : errStr === "missing_anthropic_key"
+                    ? "חסר מפתח AI בשרת — פנו לתמיכה."
+                    : errStr === "ai_parse_failed"
+                      ? "לא ניתן לעבד את תוצאת הסריקה. נסו שוב."
+                      : msgStr ||
+                        (errStr === "blocked_auto_scraping"
+                          ? "האתר חוסם סריקה אוטומטית — מלאו את השדות ידנית."
+                          : `הסריקה נכשלה (${res.status}).`);
+            setFetchSiteError(friendly);
+            const hasPayload =
+              Boolean(j.niche) ||
+              Boolean(j.tagline) ||
+              Boolean(j.business_description) ||
+              (Array.isArray(j.business_traits) && j.business_traits.length > 0) ||
+              (Array.isArray(j.products) && j.products.length > 0);
+            if (!hasPayload) {
+              j = {};
+            }
+          }
+
+          if (typeof j.warning === "string" && j.warning && msgStr) {
+            setFetchSiteNotice(msgStr);
+          }
+        } catch {
+          setFetchSiteError("בעיית רשת בסריקת האתר.");
+          j = {};
+        }
+      }
+
+      const addrFallback =
+        (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
+
+      const nextServices =
+        Array.isArray(j.products) && j.products.length > 0
+          ? trialServicesFromSiteProducts(j.products, addrFallback)
+          : [];
+
+      flushSync(() => {
+        setSalesFlowConfig(defaultSalesFlowConfig(vibe));
+        setSegQuestions([]);
+        setServices(nextServices);
+
+        const bn =
+          (typeof j.business_name === "string" && j.business_name.trim()) ||
+          (typeof j.businessName === "string" && j.businessName.trim());
+        if (bn) {
+          setName(String(bn).trim());
+          setBusinessNameEditing(false);
+        }
+
+        if (typeof j.niche === "string" && j.niche.trim()) setNiche(j.niche.trim());
+        const tag =
+          (typeof j.tagline === "string" && j.tagline.trim()) ||
+          (typeof j.business_description === "string" && j.business_description.trim()) ||
+          "";
+        if (tag) setBusinessTagline(tag.split("\n")[0].trim());
+        if (typeof j.address === "string" && j.address.trim()) setAddress(j.address.trim());
+        if (typeof j.directions === "string" && j.directions.trim()) setDirections(j.directions.trim());
+        const book =
+          (typeof j.schedule_booking_url === "string" && j.schedule_booking_url.trim()) ||
+          (typeof j.schedule_url === "string" && j.schedule_url.trim()) ||
+          "";
+        if (book) setArboxLink(book);
+        const scannedTraits = Array.isArray(j.business_traits)
+          ? j.business_traits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+          : [];
+        if (scannedTraits.length) setTraits(normalizeTraitsState(scannedTraits));
+      });
+
+      const saveRes = await fetch("/api/dashboard/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(getSavePayloadRef.current()),
+      });
+      if (!saveRes.ok) {
+        setSaveErr(await readSaveErrorFromResponse(saveRes));
+        return;
+      }
+      setSalesFlowRegenToast(true);
+      window.setTimeout(() => setSalesFlowRegenToast(false), 4000);
+      setAutosaveStatus("idle");
+      setAutoSaveErr("");
+    } finally {
+      setSalesFlowRegenerating(false);
     }
   }
 
@@ -2032,6 +2157,28 @@ export default function SlugSettingsPage() {
                   החל טקסטים לפי סגנון דיבור (שלב 1)
                 </Button>
               </div>
+              <div className="flex justify-start pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label="Reset and regenerate sales flow"
+                  className="gap-1 text-xs py-1.5 px-3 h-auto text-red-800/90 border-red-200 bg-white hover:bg-red-50"
+                  disabled={
+                    salesFlowRegenerating || !settingsHydrated || saving || fetchingUrl
+                  }
+                  onClick={() => setResetSalesFlowConfirmOpen(true)}
+                >
+                  {salesFlowRegenerating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                  Reset & Regenerate
+                </Button>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-snug text-right max-w-md mr-auto">
+                מוחק את אימוני הניסיון והמסלול הנוכחי, מריץ סריקת אתר מחדש (אם הוזן אתר בשלב 1) ושומר ברירת מחדל לפי סגנון הדיבור.
+              </p>
 
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
@@ -2548,6 +2695,54 @@ export default function SlugSettingsPage() {
           )}
         </div>
 
+        {resetSalesFlowConfirmOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl" dir="rtl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-zinc-900">איפוס מסלול מכירה</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">הפעולה תישמר בשרת מיד אחרי האישור</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetSalesFlowConfirmOpen(false)}
+                  className="rounded-full p-1 text-zinc-500 hover:text-zinc-800 cursor-pointer shrink-0"
+                  aria-label="סגור"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mt-4 text-sm text-zinc-700 leading-relaxed">
+                האם את/ה בטוח/ה? פעולה זו תמחק את כל מסלול המכירה הנוכחי ותייצר חדש
+              </p>
+              <div className="mt-5 flex flex-wrap justify-start gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-zinc-300"
+                  disabled={salesFlowRegenerating}
+                  onClick={() => setResetSalesFlowConfirmOpen(false)}
+                >
+                  ביטול
+                </Button>
+                <Button
+                  type="button"
+                  className="gap-1.5 bg-red-600 hover:bg-red-600/90 text-white border-0 shadow-sm"
+                  disabled={salesFlowRegenerating || !settingsHydrated}
+                  onClick={() => void resetAndRegenerateSalesFlow()}
+                >
+                  {salesFlowRegenerating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                  {salesFlowRegenerating ? "מייצר מחדש…" : "אישור איפוס"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {showTokenHelp ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
@@ -2580,6 +2775,11 @@ export default function SlugSettingsPage() {
         {savedOk && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-500 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2 z-50">
             <Check className="h-4 w-4" /> נשמר בהצלחה!
+          </div>
+        )}
+        {salesFlowRegenToast && (
+          <div className="fixed bottom-16 left-1/2 -translate-x-1/2 bg-zinc-800 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2 z-50">
+            <Check className="h-4 w-4" /> מסלול המכירה אופס ונוצר מחדש
           </div>
         )}
       </div>
