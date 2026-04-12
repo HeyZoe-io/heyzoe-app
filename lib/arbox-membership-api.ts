@@ -1,19 +1,17 @@
-import { resolveArboxMembershipApiFullUrl, resolveArboxMembershipApiPathCandidates } from "@/lib/server-env";
+import {
+  resolveArboxMembershipApiFullUrl,
+  resolveArboxMembershipApiPathCandidates,
+  resolveArboxPublicApiBase,
+} from "@/lib/server-env";
+import {
+  arboxFetchMembershipTypes,
+  type ArboxMembershipTier,
+  type ArboxPunchCard,
+} from "@/lib/arbox-public-api";
 
 const FETCH_TIMEOUT_MS = 14_000;
 
-export type ArboxMembershipTier = {
-  name: string;
-  price: string;
-  monthly_sessions: string;
-  notes: string;
-};
-
-export type ArboxPunchCard = {
-  session_count: string;
-  validity: string;
-  notes: string;
-};
+export type { ArboxMembershipTier, ArboxPunchCard };
 
 export type ArboxApiSyncResult =
   | {
@@ -21,6 +19,7 @@ export type ArboxApiSyncResult =
       membership_tiers: ArboxMembershipTier[];
       punch_cards: ArboxPunchCard[];
       source_url: string;
+      source: "public_api" | "legacy_club";
     }
   | { ok: false; code: string; message: string; last_status?: number };
 
@@ -63,10 +62,7 @@ function looksLikeHtml(body: string): boolean {
   return t.includes("<!doctype") || t.includes("<html");
 }
 
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit
-): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -80,10 +76,11 @@ type AuthMode =
   | { type: "header"; headers: Record<string, string> }
   | { type: "query"; param: string };
 
-const AUTH_MODES: AuthMode[] = [
-  { type: "header", headers: { Authorization: "" } }, // filled per request
+const LEGACY_AUTH_MODES: AuthMode[] = [
+  { type: "header", headers: { Authorization: "" } },
   { type: "header", headers: { "X-Api-Key": "" } },
   { type: "header", headers: { "x-api-key": "" } },
+  { type: "header", headers: { "api-key": "" } },
   { type: "header", headers: { "X-Arbox-Api-Key": "" } },
   { type: "query", param: "api_key" },
   { type: "query", param: "token" },
@@ -190,7 +187,7 @@ function classifyAndMap(items: Record<string, unknown>[]): {
 }
 
 async function tryOneUrl(url: string, apiKey: string): Promise<ArboxApiSyncResult | null> {
-  for (const mode of AUTH_MODES) {
+  for (const mode of LEGACY_AUTH_MODES) {
     let finalUrl = url;
     const headers: Record<string, string> = {
       Accept: "application/json",
@@ -228,13 +225,6 @@ async function tryOneUrl(url: string, apiKey: string): Promise<ArboxApiSyncResul
       if (res.status === 401 || res.status === 403) {
         continue;
       }
-      if (!looksLikeHtml(text) && text.trim().startsWith("{")) {
-        try {
-          JSON.parse(text);
-        } catch {
-          /* ignore */
-        }
-      }
       continue;
     }
 
@@ -263,41 +253,69 @@ async function tryOneUrl(url: string, apiKey: string): Promise<ArboxApiSyncResul
       continue;
     }
 
-    return { ok: true, membership_tiers, punch_cards, source_url: finalUrl };
+    return {
+      ok: true,
+      membership_tiers,
+      punch_cards,
+      source_url: finalUrl,
+      source: "legacy_club",
+    };
   }
 
   return null;
 }
 
-/** משיכת מנויים/כרטיסיות מ-API ארבוקס (מפתח מהמועדון + מקור מקישור השעות). */
-export async function syncArboxMembershipsFromApi(arboxLink: string, apiKey: string): Promise<ArboxApiSyncResult> {
+async function legacySyncFromClubUrl(arboxLink: string, apiKey: string): Promise<ArboxApiSyncResult | null> {
+  const origin = clubOriginFromArboxLink(arboxLink);
+  if (!origin) return null;
+  const urls = buildCandidateUrls(origin);
+  for (const url of urls) {
+    const attempt = await tryOneUrl(url, apiKey);
+    if (attempt?.ok) return attempt;
+  }
+  return null;
+}
+
+/**
+ * משיכת מנויים/כרטיסיות: קודם Arbox Public API ‎GET /v3/membershipTypes‎ (מפתח בלבד),
+ * ואם נכשל — ניסיון legacy דרך מקור מקישור השעות (אם הועבר).
+ */
+export async function syncArboxMembershipsFromApi(
+  apiKey: string,
+  arboxLink = ""
+): Promise<ArboxApiSyncResult> {
   const key = apiKey.trim();
   if (!key) {
     return { ok: false, code: "missing_api_key", message: "חסר מפתח API ארבוקס — הזינו אותו בהגדרות (הגדרות → אינטגרציות)." };
   }
 
-  const origin = clubOriginFromArboxLink(arboxLink);
-  if (!origin) {
+  const pub = await arboxFetchMembershipTypes(key);
+  if (pub.ok) {
+    const base = resolveArboxPublicApiBase().replace(/\/$/, "");
     return {
-      ok: false,
-      code: "missing_arbox_link",
-      message: "חסר קישור מערכת שעות ארבוקס — נדרש לזיהוי המועדון (מקור ה-API).",
+      ok: true,
+      membership_tiers: pub.membership_tiers,
+      punch_cards: pub.punch_cards,
+      source_url: `${base}/v3/membershipTypes`,
+      source: "public_api",
     };
   }
 
-  const urls = buildCandidateUrls(origin);
-
-  for (const url of urls) {
-    const attempt = await tryOneUrl(url, key);
-    if (attempt?.ok) {
-      return attempt;
-    }
+  const link = arboxLink.trim();
+  if (link) {
+    const legacy = await legacySyncFromClubUrl(link, key);
+    if (legacy?.ok) return legacy;
   }
+
+  const hint =
+    pub.message === "empty_membership_types" || pub.message === "unmapped_membership_types"
+      ? "המפתח תקין אך לא זוהו סוגי מנוי בפורמט הצפוי. אם יש לכם OpenAPI רשמי, בדקו את מבנה התשובה או פנו לתמיכת ארבוקס."
+      : "ודאו שהמפתח מוגדר ב-הגדרות → אינטגרציות בארבוקס. אם עדיין נכשל — אפשר להשאיר גם קישור מערכת שעות לניסיון משיכה ישן (legacy).";
 
   return {
     ok: false,
     code: "api_no_match",
-    message:
-      "לא נמצאה תשובת JSON תקפה מארבוקס. ודאו שהמפתח מוגדר ב-הגדרות → אינטגרציות בארבוקס, שהקישור לשעות נכון, והגדירו בשרת את משתנה הסביבה ARBOX_MEMBERSHIP_API_URL (או ARBOX_MEMBERSHIP_API_PATHS) לפי התיעוד שקיבלתם מארבוקס.",
+    message: `לא ניתן למשוך מנויים מארבוקס (${pub.message}). ${hint}`,
+    last_status: pub.status,
   };
 }

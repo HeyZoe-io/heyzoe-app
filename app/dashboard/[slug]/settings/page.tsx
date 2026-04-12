@@ -1358,10 +1358,6 @@ export default function SlugSettingsPage() {
   }
 
   async function fetchArboxMemberships() {
-    if (!arboxLink.trim()) {
-      setFetchArboxError("הזינו קישור למערכת שעות ארבוקס (שלב פרטי העסק).");
-      return;
-    }
     if (!arboxApiKeyDraft.trim() && !arboxApiKeyStoredRef.current.trim()) {
       setFetchArboxError("הזינו מפתח API ארבוקס (הגדרות → אינטגרציות בארבוקס).");
       return;
@@ -1393,6 +1389,16 @@ export default function SlugSettingsPage() {
       }
       if (typeof j.warning === "string" && j.warning && msgStr) {
         setFetchArboxNotice(msgStr);
+      }
+      const warnParts: string[] = [];
+      if (typeof j.schedule_warning === "string" && j.schedule_warning.trim()) {
+        warnParts.push(`לוח שיעורים: ${j.schedule_warning.trim()}`);
+      }
+      if (typeof j.categories_warning === "string" && j.categories_warning.trim()) {
+        warnParts.push(`קטגוריות: ${j.categories_warning.trim()}`);
+      }
+      if (warnParts.length) {
+        setFetchArboxNotice((prev) => [prev, warnParts.join(" · ")].filter(Boolean).join(" · "));
       }
       const mt = Array.isArray(j.membership_tiers) ? j.membership_tiers : [];
       const pc = Array.isArray(j.punch_cards) ? j.punch_cards : [];
@@ -1693,8 +1699,11 @@ export default function SlugSettingsPage() {
                 </p>
               </Field>
 
-              <Field label="לינק מערכת שעות / Arbox">
+              <Field label="לינק מערכת שעות / Arbox (אופציונלי)">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  ללקוחות בצ&apos;אט. סנכרון המנויים והלוח נעשה דרך מפתח ה-API הציבורי — לא חובה למלא קישור.
+                </p>
               </Field>
 
               <div className="space-y-3 border border-[rgba(113,51,218,0.15)] rounded-2xl p-4 bg-[#faf8ff]">
@@ -1710,17 +1719,13 @@ export default function SlugSettingsPage() {
                   />
                 </Field>
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  לשאיבת מידע רלוונטי לדשבורד + המשך השיחה בהתאם להרשמה לאימון ניסיון.
+                  מנויים, כרטיסיות, לוח שיעורים וקטגוריות (API ציבורי Arbox). בווטסאפ: בדיקת ליד/משתמש, ניסיון ויצירת ליד — לפי המספר.
                 </p>
                 <div className="flex flex-col sm:flex-row-reverse gap-2 sm:items-center">
                   <Button
                     type="button"
                     className="gap-2 shrink-0"
-                    disabled={
-                      fetchingArbox ||
-                      !arboxLink.trim() ||
-                      (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)
-                    }
+                    disabled={fetchingArbox || (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)}
                     onClick={() => void fetchArboxMemberships()}
                   >
                     {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}

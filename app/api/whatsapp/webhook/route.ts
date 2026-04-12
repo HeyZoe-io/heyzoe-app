@@ -18,6 +18,7 @@ import {
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
+import { getArboxWhatsappPromptAppend } from "@/lib/arbox-whatsapp-context";
 import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import { fillAfterServicePickTemplate } from "@/lib/sales-flow";
@@ -429,6 +430,32 @@ async function processIncoming(
   // Build context
   const knowledge = await getBusinessKnowledgePack(business_slug);
 
+  const shouldRunArboxSide =
+    msg.type === "text" &&
+    businessId &&
+    Boolean(knowledge?.arboxApiKey?.trim()) &&
+    !(isNewLead && !optedInThisMessage);
+
+  let whatsappArboxNote = "";
+  if (shouldRunArboxSide) {
+    try {
+      whatsappArboxNote = await getArboxWhatsappPromptAppend({
+        supabase,
+        businessId: String(businessId),
+        business_slug,
+        apiKey: knowledge!.arboxApiKey,
+        phone: msg.from,
+        fullName:
+          typeof (msg as { profileName?: string }).profileName === "string"
+            ? (msg as { profileName: string }).profileName.trim()
+            : "",
+        createLead: !isNewLead,
+      });
+    } catch (e) {
+      console.warn("[WA Webhook] Arbox WhatsApp context failed:", e);
+    }
+  }
+
   // New lead flow: optional media first, then a default opening message (no AI)
   // If the user just opted back in, continue to Zoe instead of stopping on default opening.
   if (isNewLead && !optedInThisMessage) {
@@ -689,7 +716,9 @@ async function processIncoming(
     }
 
     // "שאלה אחרת" or any free-form question → Claude (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
-    const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp");
+    const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp", {
+      whatsappArboxNote,
+    });
     const history = await fetchRecentSessionMessages({
       business_slug,
       session_id: sessionId,

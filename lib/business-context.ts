@@ -18,7 +18,13 @@ export type BusinessKnowledgePack = {
   addressText: string;
   /** טלפון לשירות לקוחות כשזואי אינה מוצאת תשובה מדויקת בידע */
   customerServicePhone: string;
+  /** מפתח API ארבוקס — לשימוש שרת בלבד; אסור לכלול בפרומפט או לשלוח ללקוח */
+  arboxApiKey: string;
   arboxLink: string;
+  /** טקסט לוח שיעורים מסונכרן (social_links.arbox_schedule_prompt_text) */
+  arboxSchedulePromptText: string;
+  arboxBoxCategoriesPromptText: string;
+  arboxPublicSyncAt: string;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
@@ -129,6 +135,26 @@ function sanitizeText(value: string, max = 350): string {
   );
 }
 
+function truncateArboxPromptField(value: string, max: number): string {
+  const t = value.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
+function formatArboxSyncedKnowledge(k: BusinessKnowledgePack | null): string {
+  if (!k) return "";
+  const sched = k.arboxSchedulePromptText?.trim() ?? "";
+  const cats = k.arboxBoxCategoriesPromptText?.trim() ?? "";
+  const when = k.arboxPublicSyncAt?.trim() ?? "";
+  if (!sched && !cats && !when) return "";
+  const whenLine = when ? ` (סנכרון אחרון UTC: ${when})` : "";
+  return `לוח שיעורים וזמינות — מ-Arbox${whenLine}:
+${sched || "לא סונכרן — אפשר לסנכרן מכפתור ארבוקס בהגדרות הדשבורד."}
+קטגוריות/סוגי שיעור (Arbox):
+${cats || "לא סונכרנו."}
+`;
+}
+
 export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKnowledgePack | null> {
   try {
     const admin = createSupabaseAdminClient();
@@ -184,6 +210,17 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         ? String(social.customer_service_phone).trim()
         : "";
     const arboxLink = typeof social.arbox_link === "string" ? String(social.arbox_link) : "";
+    const arboxApiKey = typeof social.arbox_api_key === "string" ? String(social.arbox_api_key).trim() : "";
+    const arboxSchedulePromptText = truncateArboxPromptField(
+      typeof social.arbox_schedule_prompt_text === "string" ? social.arbox_schedule_prompt_text : "",
+      4200
+    );
+    const arboxBoxCategoriesPromptText = truncateArboxPromptField(
+      typeof social.arbox_box_categories_prompt_text === "string" ? social.arbox_box_categories_prompt_text : "",
+      2400
+    );
+    const arboxPublicSyncAt =
+      typeof social.arbox_public_sync_at === "string" ? String(social.arbox_public_sync_at).trim() : "";
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
     const openingMediaType =
@@ -277,7 +314,11 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
       customerServicePhone,
+      arboxApiKey,
       arboxLink,
+      arboxSchedulePromptText,
+      arboxBoxCategoriesPromptText,
+      arboxPublicSyncAt,
       openingMediaUrl,
       openingMediaType,
       servicesShortText,
@@ -360,7 +401,12 @@ const RESPONSE_SHAPE_BLOCK_WA = `
 3) הציעי 2–4 תשובות אפשריות כשורות נפרדות, ממוספרות 1. 2. 3. — הלקוח יכול לענות במספר או לפי הטקסט. לפחות מסלול אחד מוביל לשיעור ניסיון / הרשמה.
 גם לשאלות פתוחות: אם יש מענה מדויק בידע — עני ואז (2)+(3). אם אין — אל תנחשי; עברי לסעיף «חוסר ידע מדויק» אחרי בלוק הידע. בלי Markdown.`;
 
-export function buildSystemPrompt(knowledge: BusinessKnowledgePack | null, slug: string, channel: "web" | "whatsapp" = "web"): string {
+export function buildSystemPrompt(
+  knowledge: BusinessKnowledgePack | null,
+  slug: string,
+  channel: "web" | "whatsapp" = "web",
+  options?: { whatsappArboxNote?: string }
+): string {
   const isWhatsApp = channel === "whatsapp";
   const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
   const customerPhoneDisplay = customerPhoneRaw || "לא הוגדר";
@@ -383,6 +429,7 @@ ${vibeDetail}
 
 כללים:
 - עברית בלבד.
+- זמני שיעורים: אם מופיע למטה בלוק לוח מ-Arbox — עני לפיו; אם הלוח לא סונכרן — אל תמציאי שעות והפני ללינק השעות או לצוות.
 - שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות).${isWhatsApp ? " הקפידי על קצרנות בכל חלק." : " בצ'אט האתר מותר להרחיב במענה הראשון אם ביקשו פירוט."}
 - בלי Markdown, בלי JSON.
 - אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.${channelNote}
@@ -400,8 +447,9 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
-טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
+${formatArboxSyncedKnowledge(knowledge)}טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
 ${formatUnknownKnowledgeBlock(customerPhoneDisplay)}
+${isWhatsApp && options?.whatsappArboxNote?.trim() ? `\n${options.whatsappArboxNote.trim()}\n` : ""}
 `;
 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
