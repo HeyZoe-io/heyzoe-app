@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -17,14 +17,8 @@ type Contact = {
 
 type Props = {
   businessSlug: string;
-  totalCount: number;
-  activeCount: number;
   initialContacts: Contact[];
 };
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -98,10 +92,9 @@ function ModalShell({
   );
 }
 
-export default function ContactsClient({ businessSlug, totalCount, activeCount, initialContacts }: Props) {
+export default function ContactsClient({ businessSlug, initialContacts }: Props) {
   const router = useRouter();
-  const [contacts, setContacts] = useState<Contact[]>(initialContacts);
-  const [msg, setMsg] = useState("");
+  const contacts = initialContacts;
   const [toast, setToast] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -109,32 +102,18 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
   const [singleContact, setSingleContact] = useState<Contact | null>(null);
   const [singleMsg, setSingleMsg] = useState("");
 
-  const [selectOpen, setSelectOpen] = useState(false);
-  const [selectedPhones, setSelectedPhones] = useState<Record<string, boolean>>({});
-  const [selectQuery, setSelectQuery] = useState("");
-
   const stats = useMemo(() => {
     const total = contacts.length;
     const active = contacts.filter((c) => !c.opted_out).length;
     return { total, active };
   }, [contacts]);
 
-  const filteredForSelect = useMemo(() => {
-    const q = selectQuery.trim();
-    if (!q) return contacts;
-    return contacts.filter((c) => {
-      const p = (c.phone ?? "").toLowerCase();
-      const n = (c.full_name ?? "").toLowerCase();
-      return p.includes(q.toLowerCase()) || n.includes(q.toLowerCase());
-    });
-  }, [contacts, selectQuery]);
-
   function showToast(text: string) {
     setToast(text);
     window.setTimeout(() => setToast(null), 2600);
   }
 
-  async function sendViaApi(payload: { mode: "single" | "broadcast"; phone?: string; message: string }) {
+  async function sendViaApi(payload: { mode: "single"; phone: string; message: string }) {
     const res = await fetch("/api/contacts/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -148,26 +127,9 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
     return { sent: Number(j.sent ?? 0), failed: Number(j.failed ?? 0) };
   }
 
-  async function onSendAll() {
-    const text = msg.trim();
-    if (!text) return;
-    if (!window.confirm("לשלוח הודעה לכל אנשי הקשר הפעילים?")) return;
-    setSending(true);
-    try {
-      const { sent, failed } = await sendViaApi({ mode: "broadcast", message: text });
-      if (sent > 0) showToast(`נשלח ל-${sent} אנשי קשר בהצלחה ✅`);
-      if (failed > 0) showToast(`נשלח ל-${sent} אנשי קשר. נכשלו: ${failed}`);
-    } catch (e) {
-      console.error(e);
-      showToast("שליחה נכשלה. נסו שוב.");
-    } finally {
-      setSending(false);
-    }
-  }
-
   function openSingle(c: Contact) {
     setSingleContact(c);
-    setSingleMsg(msg); // reuse broadcast text if already typed
+    setSingleMsg("");
     setSingleOpen(true);
   }
 
@@ -194,48 +156,6 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
     }
   }
 
-  function openSelect() {
-    const next: Record<string, boolean> = {};
-    contacts.forEach((c) => {
-      if (c.phone) next[c.phone] = Boolean(selectedPhones[c.phone]);
-    });
-    setSelectedPhones(next);
-    setSelectOpen(true);
-  }
-
-  async function onSendSelected() {
-    const text = msg.trim();
-    if (!text) return;
-    const targets = Object.entries(selectedPhones)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    if (targets.length === 0) {
-      showToast("לא נבחרו אנשי קשר.");
-      return;
-    }
-    setSending(true);
-    let ok = 0;
-    let bad = 0;
-    try {
-      // Send sequentially with small delay to reduce rate limiting
-      for (const p of targets) {
-        try {
-          const r = await sendViaApi({ mode: "single", phone: p, message: text });
-          ok += r.sent;
-          bad += r.failed;
-        } catch {
-          bad += 1;
-        }
-        await sleep(500);
-      }
-      if (ok > 0) showToast(`נשלח ל-${ok} אנשי קשר בהצלחה ✅`);
-      if (bad > 0) showToast(`נשלח ל-${ok} אנשי קשר. נכשלו: ${bad}`);
-      setSelectOpen(false);
-    } finally {
-      setSending(false);
-    }
-  }
-
   return (
     <div className="space-y-6" dir="rtl">
       <div className="hz-wave hz-wave-1">
@@ -246,24 +166,6 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
       </div>
 
       <Card className="hz-wave hz-wave-2">
-        <CardHeader>
-          <CardTitle className="text-right">שליחת הודעת שידור</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Textarea value={msg} onChange={setMsg} placeholder="כתוב את ההודעה שלך כאן..." rows={4} />
-          <p className="text-xs text-zinc-500 text-right">ההודעה תכלול אוטומטית אפשרות הסרה בסוף</p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" onClick={openSelect} disabled={sending || !msg.trim()}>
-              שלח לנבחרים
-            </Button>
-            <Button type="button" onClick={onSendAll} disabled={sending || !msg.trim() || stats.active === 0}>
-              {sending ? "שולח..." : "שלח לכולם"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="hz-wave hz-wave-3">
         <CardHeader>
           <CardTitle className="text-right">רשימת אנשי קשר</CardTitle>
         </CardHeader>
@@ -352,84 +254,6 @@ export default function ContactsClient({ businessSlug, totalCount, activeCount, 
                 {sending ? "שולח..." : "שלח"}
               </Button>
             </div>
-          </div>
-        </ModalShell>
-      ) : null}
-
-      {selectOpen ? (
-        <ModalShell title="שליחה לנבחרים" onClose={() => setSelectOpen(false)} widthClass="max-w-2xl">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-zinc-600 text-right">
-                סמנו אנשי קשר לשליחה (רק פעילים יקבלו הודעה אם תלחצו “שלח” מהטבלה)
-              </p>
-              <input
-                dir="rtl"
-                value={selectQuery}
-                onChange={(e) => setSelectQuery(e.target.value)}
-                placeholder="חיפוש לפי שם / טלפון…"
-                className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-right placeholder:text-right"
-              />
-            </div>
-            <div className="max-h-[52vh] overflow-y-auto rounded-xl border border-zinc-200">
-              <table className="w-full text-sm" dir="rtl">
-                <thead>
-                  <tr className="text-right text-xs text-zinc-500 border-b border-zinc-200">
-                    <th className="py-3 px-2 font-medium">בחירה</th>
-                    <th className="py-3 px-2 font-medium">טלפון</th>
-                    <th className="py-3 px-2 font-medium">שם</th>
-                    <th className="py-3 px-2 font-medium">סטטוס</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredForSelect.map((c, idx) => {
-                    const p = c.phone ?? "";
-                    const optedOut = Boolean(c.opted_out);
-                    const checked = p ? Boolean(selectedPhones[p]) : false;
-                    return (
-                      <tr key={`${p || "row"}-${idx}`} className="border-b border-zinc-100 text-right">
-                        <td className="py-3 px-2">
-                          <input
-                            type="checkbox"
-                            disabled={!p || optedOut}
-                            checked={checked}
-                            onChange={(e) => {
-                              if (!p) return;
-                              setSelectedPhones((prev) => ({ ...prev, [p]: e.target.checked }));
-                            }}
-                          />
-                        </td>
-                        <td className="py-3 px-2 whitespace-nowrap">{p || "—"}</td>
-                        <td className="py-3 px-2">{c.full_name?.trim() || "—"}</td>
-                        <td className="py-3 px-2">
-                          {optedOut ? (
-                            <Badge className="border-red-200 bg-red-50 text-red-700">הוסר</Badge>
-                          ) : (
-                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">פעיל</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filteredForSelect.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="py-8 text-center text-zinc-500">
-                        אין תוצאות לחיפוש.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setSelectOpen(false)} disabled={sending}>
-                ביטול
-              </Button>
-              <Button type="button" onClick={onSendSelected} disabled={sending || !msg.trim()}>
-                {sending ? "שולח..." : "שלח"}
-              </Button>
-            </div>
-            <p className="text-xs text-zinc-500 text-right">ההודעה תכלול אוטומטית אפשרות הסרה בסוף</p>
           </div>
         </ModalShell>
       ) : null}

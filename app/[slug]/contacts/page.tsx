@@ -48,16 +48,9 @@ export default async function ContactsPage({ params }: Props) {
     .order("created_at", { ascending: false });
 
   const rows = (contacts ?? []) as ContactRow[];
-  const total = rows.length;
-  const active = rows.filter((c) => !c.opted_out).length;
 
   return (
-    <ContactsClient
-      businessSlug={slug}
-      totalCount={total}
-      activeCount={active}
-      initialContacts={rows}
-    />
+    <ContactsClient businessSlug={slug} initialContacts={rows} />
   );
 }
 
