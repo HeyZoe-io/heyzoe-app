@@ -1647,7 +1647,15 @@ export default function SlugSettingsPage() {
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
-                    className="font-mono text-sm min-w-0 flex-1"
+                    className={
+                      "font-mono text-sm min-w-0 flex-1 text-zinc-900 " +
+                      (arboxApiKeySaved &&
+                      arboxApiKeyStoredRef.current.trim() &&
+                      !arboxApiKeyDraft.trim() &&
+                      !arboxApiKeyReveal
+                        ? "placeholder:text-zinc-900"
+                        : "")
+                    }
                     type={arboxApiKeyReveal ? "text" : "password"}
                     autoComplete="off"
                     spellCheck={false}
