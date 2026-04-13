@@ -52,8 +52,9 @@ const FRIENDLY: SalesFlowConfig = {
   greeting_extra_steps: [],
   multi_service_question:
     "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
+  /** {serviceName} ימולא כביטוי טבעי (למשל «שיעורי אקרו»); אין חובה לכלול {benefitLine} */
   after_service_pick:
-    "אוקיי מדהים! {serviceName} אצלנו זה בדיוק המקום לקחת את מה שמעניין אותך מהאימון — במיוחד {benefitLine} — ולהתקדם בצורה נעימה, ברורה ומקצועית.",
+    "אוקיי מדהים! {serviceName} שלנו זו דרך וואו להתחזק, להתגמש, להכיר אנשים מדהימים ולמצוא אהבה חדשה לאימון.",
   experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
   experience_options: [
     "כן, לא מעט פעמים!",
@@ -95,6 +96,8 @@ const FORMAL: SalesFlowConfig = {
   ...FRIENDLY,
   greeting_opener: "שלום וברוכים הבאים.",
   greeting_closer: "נשמח לארח אתכם אצלנו.",
+  after_service_pick:
+    "מצוין. {serviceName} שלנו הם הזדמנות נעימה להתחזק, להתגמש ולהרגיש את האיזון — בגוף ובנפש, בקצב מקצועי ותומך.",
   after_experience:
     "מצוין. יש לנו אימונים לכל הרמות, ונשמח למצוא עבורכם את ההתאמה הנכונה.",
   cta_body: "מה דעתכם שנבדוק מתי אימון הניסיון הבא?",
@@ -127,6 +130,8 @@ const DIRECT: SalesFlowConfig = {
   ...FRIENDLY,
   greeting_opener: "היי,",
   multi_service_question: "איזה אימון מעניין אותך?",
+  after_service_pick:
+    "אוקיי. {serviceName} שלנו — להתחזק, להתגמש, ולהרגיש שזה בדיוק בשבילך.",
   cta_body: "נבדוק מתי אימון הניסיון הבא?",
   cta_buttons: [
     { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
@@ -226,8 +231,11 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
         "אוקיי מדהים! {serviceName}. {benefitLine} — דרך נעימה להתקדם, להרגיש את הגוף ולהיות חלק מקהילה תומכת.";
       const legacy2 =
         "אוקיי מדהים! שיעורי {serviceName} אצלנו הם דרך סופר נעימה לקחת את מה שחשוב לך מהאימון — במיוחד {benefitLine} — ולהמשיך באווירה חמה ומקצועית, חלק מקהילה שאוהבת את מה שעושים.";
+      const legacyLongBenefitDump =
+        "אוקיי מדהים! {serviceName} אצלנו זה בדיוק המקום לקחת את מה שמעניין אותך מהאימון — במיוחד {benefitLine} — ולהתקדם בצורה נעימה, ברורה ומקצועית.";
       if (raw.trim() === legacy) return base.after_service_pick;
       if (raw.trim() === legacy2) return base.after_service_pick;
+      if (raw.trim() === legacyLongBenefitDump) return base.after_service_pick;
       return raw;
     })(),
     experience_question:
@@ -370,17 +378,25 @@ export type WhatsAppOpeningPreviewSection =
   | { kind: "buttons"; labels: string[] };
 
 /** מקטעים לתצוגה מקדימה — טקסט ו״כפתורים״ בלי מספור (עד 3 אימונים) */
+/**
+ * ביטוי טבעי לשם אימון בתבנית «מענה אחרי בחירת אימון» — מונע «שיעורי שיעורי אקרו» כשהשם כבר מתחיל ב«שיעורי».
+ */
+export function trialServicePhraseForAfterPick(serviceName: string): string {
+  const s = serviceName.trim();
+  if (!s) return "השיעורים";
+  if (s.startsWith("שיעורי ") || s.startsWith("שיעור ")) return s;
+  return `שיעורי ${s}`;
+}
+
 /** מילוי תבנית מענה אחרי בחירת אימון (ווטסאפ / תצוגה מקדימה) */
 export function fillAfterServicePickTemplate(
   template: string,
   serviceName: string,
   benefitLine: string
 ): string {
-  const sn = serviceName.trim();
-  // Avoid awkward duplicates like "שיעורי שיעורי אקרו" by using a neutral fallback.
-  const safeName = sn || "האימון";
+  const phrase = trialServicePhraseForAfterPick(serviceName);
   return template
-    .replace(/\{serviceName\}/g, safeName)
+    .replace(/\{serviceName\}/g, phrase)
     .replace(/\{benefitLine\}/g, benefitLine.trim() || "תיאור מההגדרות");
 }
 
@@ -480,9 +496,10 @@ export function formatSalesFlowForPrompt(
 סשן פתיחה (אחרי הודעת המערכת הראשונה):
 - טקסט הפתיחה כפי שהוגדר. אחריו — אם מופיעות שאלות נוספות מיד אחרי הפתיחה, שלבי אותן לפי הסדר עם כפתורי בחירה.
 ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני בחירת אימון)", c.greeting_extra_steps)}
-- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה לפי התבנית. חובה להשתמש בשם האימון שנבחר ובתיאור הקצר שלו מהטבלה למטה (סגנון משפט אחד, לדוגמה: "שיעורים לכל הרמות באווירה הכי כיפית שיש").
-- במענה אחרי בחירת אימון: אסור רשימת נקודות או מילים מופרדות בפסיקים. כתבי משפט אחד עד שניים זורמים שמשלבים את רוח התיאור מההגדרות — לא העתקה יבשה.
-  תבנית מענה אחרי בחירת אימון (התאימי ניסוח לסגנון, שמרי על המשמעות והמידע מההגדרות): ${c.after_service_pick}
+- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון מההגדרות, ואז אחרי שבחרו אימון — מענה קצר וחי כמו בשיח אמיתי (משפט עד שניים). לא להעתיק את תיאור האימון מההגדרות במלואו ולא לנסח כמו "לקחת את מה שמעניין אותך מהאימון — במיוחד [פסקה ארוכה]".
+- התאימי את הרוח לסוג האימון שנבחר: אקרו/דינמי — אנרגיה, קהילה, אתגר חיובי; פילאטיס/מכשירים — חיטוב, התחזקות, השקעה בעצמך; יוגה/מיינדפולנס — חיבור פנימי, איזון, גוף־נפש. אפשר לפתוח ב"אוקיי מדהים!" או "איזה כיף :)" לפי הטון.
+- אם בתבנית יש {benefitLine}: השתמשי בו רק כרמז קצר (מילה עד חצי משפט), לא כהדבקה של כל שדה התיאור.
+  תבנית מענה אחרי בחירת אימון (שמרי על אותה רוח — קצר, ספונטני, בלי ערימת פרטים): ${c.after_service_pick}
 
 סשן חימום (מומלץ לא יותר מ־1–3 שאלות בסך הכול כולל שאלת הניסיון; בסיום סשן החימום עברי אוטומטית לשלב ההנעה לפעולה):
 - שאלת ניסיון קודם + שלוש האפשרויות מהגדרות (בלי מספור, כמו כפתורים).
