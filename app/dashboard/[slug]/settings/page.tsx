@@ -1988,21 +1988,10 @@ export default function SlugSettingsPage() {
                       placeholder={salesOpeningAutoText}
                     />
                   </Field>
-
-                  <SalesFlowExtraStepsEditor
-                    steps={salesFlowConfig.greeting_extra_steps}
-                    onChange={(next) =>
-                      setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
-                    }
-                    addButtonLabel="הוסף שאלה אחרי הפתיחה"
-                  />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900 text-right">
-                  לפני בחירת אימון ניסיון
-                </p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   {trialServiceNames.length > 1 ? (
                     <>
@@ -2055,15 +2044,41 @@ export default function SlugSettingsPage() {
                           placeholder="למשל: אוקיי מדהים! שיעורי האקרו אצלנו הם דרך כיפית להתחזק, להתגמש, ולהיות חלק מקהילה…"
                         />
                       </Field>
+
+                      <SalesFlowExtraStepsEditor
+                        steps={salesFlowConfig.greeting_extra_steps}
+                        onChange={(next) =>
+                          setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
+                        }
+                        addButtonLabel="הוסף שאלה אחרי הפתיחה"
+                      />
                     </>
                   ) : trialServiceNames.length === 1 ? (
-                    <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                      מוגדר אימון ניסיון אחד — אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
-                    </p>
+                    <>
+                      <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                        מוגדר אימון ניסיון אחד — אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
+                      </p>
+                      <SalesFlowExtraStepsEditor
+                        steps={salesFlowConfig.greeting_extra_steps}
+                        onChange={(next) =>
+                          setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
+                        }
+                        addButtonLabel="הוסף שאלה אחרי הפתיחה"
+                      />
+                    </>
                   ) : (
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                      הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
-                    </p>
+                    <>
+                      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+                        הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
+                      </p>
+                      <SalesFlowExtraStepsEditor
+                        steps={salesFlowConfig.greeting_extra_steps}
+                        onChange={(next) =>
+                          setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
+                        }
+                        addButtonLabel="הוסף שאלה אחרי הפתיחה"
+                      />
+                    </>
                   )}
                 </div>
               </div>
