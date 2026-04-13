@@ -19,6 +19,7 @@ import {
   type SalesFlowExtraStep,
   composeGreeting,
   defaultSalesFlowConfig,
+  fillAfterServicePickTemplate,
   parseSalesFlowFromSocial,
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
@@ -130,9 +131,13 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
 }
 
 function afterPickForDisplay(stored: string, serviceName: string, benefit: string): string {
-  return stored
-    .replace(/\{serviceName\}/g, serviceName.trim() || "שם האימון שנבחר")
-    .replace(/\{benefitLine\}/g, benefit.trim() || "תיאור מההגדרות");
+  const sn = serviceName.trim();
+  if (!sn) {
+    return stored
+      .replace(/\{serviceName\}/g, "שם האימון שנבחר")
+      .replace(/\{benefitLine\}/g, benefit.trim() || "תיאור מההגדרות");
+  }
+  return fillAfterServicePickTemplate(stored, sn, benefit);
 }
 
 function afterPickToStore(typed: string, serviceName: string, benefit: string): string {
@@ -2041,7 +2046,7 @@ export default function SlugSettingsPage() {
                               ),
                             }))
                           }
-                          placeholder="למשל: אוקיי מדהים! שיעורי האקרו אצלנו הם דרך כיפית להתחזק, להתגמש, ולהיות חלק מקהילה…"
+                          placeholder="למשל: אוקיי מדהים! שיעורי האקרו שלנו זו דרך וואו להתחזק, להתגמש ולהכיר אנשים מדהימים…"
                         />
                       </Field>
 
