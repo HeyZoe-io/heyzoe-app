@@ -46,7 +46,7 @@ const STEPS = [
   "אימון ניסיון",
   "מסלול מכירה",
   "חיבור פייסבוק",
-  "פולואפ ווטסאפ",
+  "פולואפ",
 ];
 
 async function readSaveErrorFromResponse(res: Response): Promise<string> {
@@ -412,8 +412,13 @@ export default function SlugSettingsPage() {
 
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
-  // ── פולואפ ווטסאפ אוטומטי (למחרת בבוקר) — טקסט אחד בלבד
+  // ── פולואפ אוטומטי בווטסאפ (למחרת בבוקר)
   const [whatsappIdleFollowupMessage, setWhatsappIdleFollowupMessage] = useState("");
+  const [whatsappIdleFollowupCtaKind, setWhatsappIdleFollowupCtaKind] = useState<
+    "trial" | "schedule" | "custom"
+  >("trial");
+  const [whatsappIdleFollowupCtaCustomUrl, setWhatsappIdleFollowupCtaCustomUrl] = useState("");
+  const [whatsappIdleFollowupCtaLabel, setWhatsappIdleFollowupCtaLabel] = useState("");
 
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
@@ -680,6 +685,16 @@ export default function SlugSettingsPage() {
         const trialLegacy =
           typeof sl.followup_day_after_trial === "string" ? sl.followup_day_after_trial.trim() : "";
         setWhatsappIdleFollowupMessage(waSaved || hourLegacy || trialLegacy || defaultWaFollowup);
+        const k = String(sl.whatsapp_idle_followup_cta_kind ?? "trial").trim();
+        setWhatsappIdleFollowupCtaKind(k === "schedule" || k === "custom" ? k : "trial");
+        setWhatsappIdleFollowupCtaCustomUrl(
+          typeof sl.whatsapp_idle_followup_cta_custom_url === "string"
+            ? sl.whatsapp_idle_followup_cta_custom_url.trim()
+            : ""
+        );
+        setWhatsappIdleFollowupCtaLabel(
+          typeof sl.whatsapp_idle_followup_cta_label === "string" ? sl.whatsapp_idle_followup_cta_label.trim() : ""
+        );
 
         if (Array.isArray(svcs)) {
           setServices((svcs as Record<string, unknown>[]).map((s) => {
@@ -769,6 +784,9 @@ export default function SlugSettingsPage() {
           arbox_api_key: arboxApiKeyDraft.trim() || arboxApiKeyStoredRef.current,
           objections,
           whatsapp_idle_followup_message: whatsappIdleFollowupMessage.trim(),
+          whatsapp_idle_followup_cta_kind: whatsappIdleFollowupCtaKind,
+          whatsapp_idle_followup_cta_custom_url: whatsappIdleFollowupCtaCustomUrl.trim(),
+          whatsapp_idle_followup_cta_label: whatsappIdleFollowupCtaLabel.trim(),
           followup_after_registration: "",
           followup_after_hour_no_registration: "",
           followup_day_after_trial: "",
@@ -819,6 +837,9 @@ export default function SlugSettingsPage() {
       arboxApiKeyDraft,
       objections,
       whatsappIdleFollowupMessage,
+      whatsappIdleFollowupCtaKind,
+      whatsappIdleFollowupCtaCustomUrl,
+      whatsappIdleFollowupCtaLabel,
       membershipsUrl,
       services,
   ]);
@@ -2284,7 +2305,9 @@ export default function SlugSettingsPage() {
                 </p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    כאן כותבים מידע רלוונטי לאחר הרשמה לאימון ניסיון.
+                    כאן כותבים מידע רלוונטי לאחר הרשמה לאימון ניסיון. אפשר לסיים ב־{"{instagram_cta}"} — המערכת
+                    תמלא משפט על אינסטגרם ואת הלינק משדה האינסטגרם ב«לינקים חשובים» רק כשיש לינק; בלי לינק השורה
+                    לא תופיע.
                   </p>
                   <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
                     <Textarea
@@ -2349,8 +2372,8 @@ export default function SlugSettingsPage() {
               <CardTitle>
                 <StepHeader
                   n={5}
-                  title="פולואפ ווטסאפ"
-                  desc="הודעה אחת בלבד ללקוח שלא הגיב מעל ליום — נשלחת אוטומטית למחרת בבוקר (סביבות 11:00 לפי שעון ישראל, דרך סליחוס יומי). פולואפ אחרי הרשמה לשיעור ניסיון מוגדר בשלב «מסלול מכירה». זואי בצ'אט ובווטסאפ: עונה מהמידע במסלול המכירה, מוסיפה שאלת המשך ואפשרויות ממוספרות."
+                  title="פולואפ"
+                  desc="הודעה אחת ללקוח שלא הגיב מעל ליום — נשלחת אוטומטית למחרת בבוקר (סביבות 11:00 לפי שעון ישראל, דרך סליחוס יומי). אפשר כפתור קישור אחד (ברירת מחדל: רכישת אימון ניסיון). פולואפ אחרי הרשמה לשיעור ניסיון מוגדר בשלב «מסלול מכירה»."
                 />
               </CardTitle>
             </CardHeader>
