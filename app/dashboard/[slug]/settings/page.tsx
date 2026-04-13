@@ -2022,7 +2022,7 @@ export default function SlugSettingsPage() {
               <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
                 <p className="text-sm font-semibold text-zinc-900">מנויים</p>
                 <p className="text-xs text-zinc-500">
-                  לכל מנוי: שם, מחיר, כמות אימונים חודשית והערות. ברירת מחדל — כל אימוני הניסיון כלולים; אפשר לסמן חריגות.
+                  מומלץ להשאיר רק את המסלולים הנפוצים ביותר
                 </p>
                 {membershipTiers.map((m, i) => (
                   <div
