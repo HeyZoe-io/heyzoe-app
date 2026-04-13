@@ -489,7 +489,7 @@ export default function SlugSettingsPage() {
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
-  /** מפתח API ארבוקס (הגדרות → אינטגרציות) — למשיכת מנויים מ-API */
+  /** מפתח API ארבוקס (הגדרות → אינטגרציות) — לוח/קטגוריות, ווטסאפ, לידים וכו׳ */
   const arboxApiKeyStoredRef = useRef("");
   const arboxApiKeyDraftRef = useRef("");
   const [arboxApiKeyDraft, setArboxApiKeyDraft] = useState("");
@@ -1395,9 +1395,6 @@ export default function SlugSettingsPage() {
         );
         return;
       }
-      if (typeof j.warning === "string" && j.warning && msgStr) {
-        setFetchArboxNotice(msgStr);
-      }
       const warnParts: string[] = [];
       if (typeof j.schedule_warning === "string" && j.schedule_warning.trim()) {
         warnParts.push(`לוח שיעורים: ${j.schedule_warning.trim()}`);
@@ -1405,41 +1402,8 @@ export default function SlugSettingsPage() {
       if (typeof j.categories_warning === "string" && j.categories_warning.trim()) {
         warnParts.push(`קטגוריות: ${j.categories_warning.trim()}`);
       }
-      if (warnParts.length) {
-        setFetchArboxNotice((prev) => [prev, warnParts.join(" · ")].filter(Boolean).join(" · "));
-      }
-      const mt = Array.isArray(j.membership_tiers) ? j.membership_tiers : [];
-      const pc = Array.isArray(j.punch_cards) ? j.punch_cards : [];
-      if (mt.length) {
-        setMembershipTiers(
-          mt
-            .filter((row): row is Record<string, unknown> => row !== null && typeof row === "object")
-            .map((row) => ({
-              id: uid(),
-              name: String(row.name ?? "").trim(),
-              price: String(row.price ?? "").trim(),
-              monthlySessions: String(row.monthly_sessions ?? "").trim(),
-              notes: String(row.notes ?? "").trim(),
-              excludedServiceSlugs: [] as string[],
-            }))
-        );
-      }
-      if (pc.length) {
-        setPunchCards(
-          pc
-            .filter((row): row is Record<string, unknown> => row !== null && typeof row === "object")
-            .map((row) => ({
-              id: uid(),
-              sessionCount: String(row.session_count ?? "").trim(),
-              validity: String(row.validity ?? "").trim(),
-              notes: String(row.notes ?? "").trim(),
-              excludedServiceSlugs: [] as string[],
-            }))
-        );
-      }
-      if (!mt.length && !pc.length && !msgStr) {
-        setFetchArboxNotice("לא נמצאו מנויים או כרטיסיות — בדקו את המפתח ואת נתיב ה-API בשרת, או מלאו ידנית.");
-      }
+      const baseOk = "סונכרנו מארבוקס לוח שיעורים וקטגוריות לזואי (מנויים וכרטיסיות נשארים לעריכה ידנית כאן).";
+      setFetchArboxNotice([baseOk, warnParts.join(" · ")].filter(Boolean).join(" "));
     } catch {
       setFetchArboxError("בעיית רשת במשיכת ארבוקס.");
     } finally {
@@ -1642,7 +1606,7 @@ export default function SlugSettingsPage() {
 
               <Field
                 label="מפתח API ארבוקס"
-                description="לשאיבת מידע רלוונטי לדשבורד + המשך השיחה בהתאם להרשמה לאימון ניסיון."
+                description="לסנכרון לוח שיעורים וקטגוריות לזואי, ולפעולות ארבוקס בשיחה (ניסיון, לידים וכו׳). מנויים וכרטיסיות ממלאים ידנית בטאב המתאים."
               >
                 <div className="flex gap-2">
                   <Input
@@ -1776,7 +1740,7 @@ export default function SlugSettingsPage() {
               <Field label="לינק מערכת שעות / Arbox (אופציונלי)">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
                 <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  ללקוחות בצ&apos;אט. סנכרון המנויים והלוח נעשה דרך מפתח ה-API הציבורי — לא חובה למלא קישור.
+                  ללקוחות בצ&apos;אט. סנכרון הלוח לזואי נעשה דרך מפתח ה-API הציבורי; קישור לא חובה.
                 </p>
               </Field>
 

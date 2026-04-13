@@ -1,8 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { syncArboxMembershipsFromApi } from "@/lib/arbox-membership-api";
 import {
   arboxFetchBoxCategories,
   arboxFetchSchedule,
@@ -17,6 +15,10 @@ import {
 
 export const runtime = "nodejs";
 
+/**
+ * סנכרון Arbox לדשבורד: לוח שיעורים + קטגוריות בלבד (לפרומפט זואי).
+ * מנויים וכרטיסיות לא נמשכים מ־API — נשארים כפי שמוגדרים ב־social_links.
+ */
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -41,14 +43,10 @@ export async function POST(req: NextRequest) {
 
   const bodyKey = String(body.arbox_api_key ?? "").trim();
   const apiKey = bodyKey || String(social.arbox_api_key ?? "").trim();
-  const arboxLink = String(social.arbox_link ?? "").trim();
-
-  const result = await syncArboxMembershipsFromApi(apiKey, arboxLink);
-  if (!result.ok) {
-    const status = result.code === "missing_api_key" ? 400 : 502;
+  if (!apiKey) {
     return NextResponse.json(
-      { error: result.code, message: result.message, last_status: result.last_status },
-      { status }
+      { error: "missing_api_key", message: "חסר מפתח API ארבוקס." },
+      { status: 400 }
     );
   }
 
@@ -66,31 +64,11 @@ export async function POST(req: NextRequest) {
 
   const syncedAt = new Date().toISOString();
 
-  const membership_tiers = result.membership_tiers.map((t) => ({
-    id: randomUUID(),
-    name: t.name,
-    price: t.price,
-    monthly_sessions: t.monthly_sessions,
-    notes: t.notes,
-    excluded_service_slugs: [] as string[],
-  }));
-
-  const punch_cards = result.punch_cards.map((c) => ({
-    id: randomUUID(),
-    session_count: c.session_count,
-    validity: c.validity,
-    notes: c.notes,
-    excluded_service_slugs: [] as string[],
-  }));
-
   const mergedSocial: Record<string, unknown> = {
     ...social,
-    membership_tiers,
-    punch_cards,
     arbox_schedule_prompt_text: scheduleText,
     arbox_box_categories_prompt_text: categoriesText,
     arbox_public_sync_at: syncedAt,
-    arbox_membership_sync_source: result.source,
   };
 
   const { error: updErr } = await admin
@@ -107,10 +85,6 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
-    membership_tiers,
-    punch_cards,
-    source_url: result.source_url,
-    source: result.source,
     schedule_synced: sch.ok,
     categories_synced: cat.ok,
     schedule_warning: sch.ok ? undefined : sch.message,

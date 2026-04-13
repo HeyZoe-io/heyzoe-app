@@ -67,10 +67,6 @@ export function resolveAdminAllowedEmail(): string {
  *   ARBOX_TRIAL_PHONE_PARAM — פרמטר טלפון ל-/v3/schedule/booking/trial (ברירת מחדל phone)
  *   ARBOX_LEAD_POST_BODY_TEMPLATE — JSON עם placeholders {phone}, {fullName}, {source} ל-POST /v3/leads
  *   ARBOX_SCHEDULE_REGISTRATION_COUNT_PARAM — שם query ל-/v3/schedule עם קטגוריה (ברירת מחדל Registration_count)
- *
- * Arbox — משיכת מנויים legacy (מקור מקישור מועדון):
- *   ARBOX_MEMBERSHIP_API_URL — URL מלא ל-GET; אפשר `{origin}` שמוחלף במקור מקישור השעות.
- *   ARBOX_MEMBERSHIP_API_PATHS — נתיבים יחסיים מופרדים בפסיק, אם לא הוגדר URL מלא.
  */
 export function resolveArboxPublicApiBase(): string {
   return (
@@ -83,25 +79,6 @@ export function resolveArboxScheduleQueryKeys(): { fromKey: string; toKey: strin
     fromKey: process.env.ARBOX_SCHEDULE_FROM_PARAM?.trim() || "from_date",
     toKey: process.env.ARBOX_SCHEDULE_TO_PARAM?.trim() || "to_date",
   };
-}
-
-export function resolveArboxMembershipApiFullUrl(): string {
-  return process.env.ARBOX_MEMBERSHIP_API_URL?.trim() ?? "";
-}
-
-export function resolveArboxMembershipApiPathCandidates(): string[] {
-  const raw = process.env.ARBOX_MEMBERSHIP_API_PATHS?.trim();
-  if (raw) {
-    return raw.split(",").map((s) => s.trim()).filter(Boolean);
-  }
-  return [
-    "/api/v1/membership-plans",
-    "/api/v1/memberships",
-    "/api/v1/plans",
-    "/api/v1/subscription-plans",
-    "/api/v1/products",
-    "/api/external/v1/membership-plans",
-  ];
 }
 
 export function listMissingBusinessBootstrapKeys(): string[] {
