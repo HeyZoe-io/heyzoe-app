@@ -135,7 +135,7 @@ function afterPickForDisplay(stored: string, serviceName: string, benefit: strin
   if (!sn) {
     return stored
       .replace(/\{serviceName\}/g, "שם האימון שנבחר")
-      .replace(/\{benefitLine\}/g, benefit.trim() || "תיאור מההגדרות");
+      .replace(/\{benefitLine\}/g, benefit.trim() || "תיאור ממסלול המכירה");
   }
   return fillAfterServicePickTemplate(stored, sn, benefit);
 }
@@ -530,7 +530,7 @@ export default function SlugSettingsPage() {
           setSettingsLoadError(
             data.error === "unauthorized"
               ? "נדרשת התחברות מחדש."
-              : "לא ניתן לטעון את הגדרות העסק."
+              : "לא ניתן לטעון את נתוני מסלול המכירה."
           );
           return;
         }
@@ -702,7 +702,7 @@ export default function SlugSettingsPage() {
         setSettingsHydrated(true);
       })
       .catch(() => {
-        if (!cancelled) setSettingsLoadError("שגיאת רשת בטעינת ההגדרות.");
+        if (!cancelled) setSettingsLoadError("שגיאת רשת בטעינת מסלול המכירה.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -2010,7 +2010,7 @@ export default function SlugSettingsPage() {
                           placeholder="למשל: איזה אימון הכי מדבר אליך?"
                         />
                       </Field>
-                      <p className="text-xs font-medium text-zinc-700 text-right">כפתורי בחירה (מהגדרות)</p>
+                      <p className="text-xs font-medium text-zinc-700 text-right">כפתורי בחירה (משלב «אימון ניסיון»)</p>
                       <p className="text-xs text-zinc-500 text-right leading-snug">
                         עד שלושה אימונים — כפתורים; מעל שלושה — רשימה ממוספרת בווטסאפ.
                       </p>
@@ -2353,7 +2353,7 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={5}
                   title="פולואפ"
-                  desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, אימוני ניסיון וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהידע בהגדרות, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
+                  desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, אימוני ניסיון וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהמידע במסלול המכירה, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
                 />
               </CardTitle>
             </CardHeader>

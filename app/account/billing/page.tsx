@@ -90,7 +90,7 @@ export default function AccountBillingPage() {
         <PlanCard
           title="Basic"
           price="₪0 / חודש"
-          bullets={["ניהול עסק ודשבורד", "שיחות והגדרות", "תמיכה בסיסית"]}
+          bullets={["ניהול עסק ודשבורד", "שיחות ומסלול מכירה", "תמיכה בסיסית"]}
           isCurrent={plan === "basic"}
           showUpgrade={false}
         />

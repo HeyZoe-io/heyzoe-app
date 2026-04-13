@@ -13,7 +13,7 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
     { href: `${base}/analytics`, label: "אנליטיקס" },
     { href: `${base}/conversations`, label: "שיחות" },
     { href: `${base}/contacts`, label: "אנשי קשר" },
-    { href: `${base}/settings`, label: "הגדרות" },
+    { href: `${base}/settings`, label: "מסלול מכירה" },
   ];
 
   return (
