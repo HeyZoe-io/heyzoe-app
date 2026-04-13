@@ -2320,9 +2320,8 @@ export default function SlugSettingsPage() {
                 </p>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    כאן כותבים מידע רלוונטי לאחר הרשמה לאימון ניסיון. אפשר לסיים ב־{"{instagram_cta}"} — המערכת
-                    תמלא משפט על אינסטגרם ואת הלינק משדה האינסטגרם ב«לינקים חשובים» רק כשיש לינק; בלי לינק השורה
-                    לא תופיע.
+                    כתובת והגעה: זואי ממלאת מ«פרטי העסק» בידע. אפשר לסיים ב־{"{instagram_cta}"} — יוחלף ב־«מוזמנים לבקר
+                    באינסטגרם שלנו בינתיים» ולינק משדה האינסטגרם ב«לינקים חשובים»; בלי לינק השורה לא תיכנס לפרומפט.
                   </p>
                   <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
                     <Textarea
