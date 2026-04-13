@@ -42,6 +42,7 @@ type ServiceItem = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
+  "לינקים חשובים",
   "פרטי העסק",
   "אימון ניסיון",
   "מסלול מכירה",
@@ -466,7 +467,7 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     const prev = prevStepForServicesRef.current;
     prevStepForServicesRef.current = step;
-    if (step === 2 && prev === 2 && servicesSignatureRef.current !== servicesSignature) {
+    if (step === 3 && prev === 3 && servicesSignatureRef.current !== servicesSignature) {
       welcomeOpeningLockedRef.current = false;
     }
     servicesSignatureRef.current = servicesSignature;
@@ -475,9 +476,9 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     const prev = welcomePrevStepRef.current;
     welcomePrevStepRef.current = step;
-    if (!settingsHydrated || step !== 4) return;
+    if (!settingsHydrated || step !== 5) return;
     if (welcomeOpeningLockedRef.current) return;
-    if (prev !== 3) return;
+    if (prev !== 4) return;
 
     setSalesFlowConfig(defaultSalesFlowConfig(vibe));
     welcomeOpeningLockedRef.current = true;
@@ -512,7 +513,7 @@ export default function SlugSettingsPage() {
   const isPremium = plan === "premium";
 
   useEffect(() => {
-    if (!isPremium && step === 4) setStep(5);
+    if (!isPremium && step === 5) setStep(6);
   }, [isPremium, step]);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
@@ -1119,7 +1120,7 @@ export default function SlugSettingsPage() {
       if (Array.isArray(j.products) && j.products.length > 0) {
         setServices(trialServicesFromSiteProducts(j.products, addrFallback));
       }
-      setStep(1);
+      setStep(2);
     } finally {
       setFetchingUrl(false);
     }
@@ -1364,7 +1365,7 @@ export default function SlugSettingsPage() {
   function nextStep() {
     setStep((s) => {
       let n = Math.min(STEPS.length, s + 1);
-      if (!isPremium && n === 4) n = 5;
+      if (!isPremium && n === 5) n = 6;
       return n;
     });
   }
@@ -1372,7 +1373,7 @@ export default function SlugSettingsPage() {
   function prevStep() {
     setStep((s) => {
       let n = Math.max(1, s - 1);
-      if (!isPremium && s === 5 && n === 4) n = 3;
+      if (!isPremium && s === 6 && n === 5) n = 4;
       return n;
     });
   }
@@ -1445,10 +1446,18 @@ export default function SlugSettingsPage() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto w-full">
 
-        {/* ════════════════════ STEP 1 ════════════════════ */}
+        {/* ════════════════════ STEP 1 — לינקים חשובים ════════════════════ */}
         {step === 1 && (
           <Card>
-            <CardHeader><CardTitle><StepHeader n={1} title="פרטי העסק" /></CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader
+                  n={1}
+                  title="לינקים חשובים"
+                  desc="אתר, ארבוקס, מערכת שעות, מנויים ואינסטגרם — מה שזואי מפנה אליו בצ׳אט."
+                />
+              </CardTitle>
+            </CardHeader>
             <CardContent className="space-y-5">
               <Field label="כתובת האתר (מומלץ! סרקו והמתינו ליצירת תוכן אוטומטית)">
                 <div className="flex gap-2">
@@ -1548,6 +1557,58 @@ export default function SlugSettingsPage() {
                 </p>
               ) : null}
 
+              <Field label="לינק מערכת שעות / Arbox (אופציונלי)">
+                <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  ללקוחות בצ&apos;אט. סנכרון הלוח לזואי נעשה דרך מפתח ה-API הציבורי; קישור לא חובה.
+                </p>
+              </Field>
+
+              <Field label="קישור לדף מנויים וכרטיסיות">
+                <Input
+                  dir="ltr"
+                  value={membershipsUrl}
+                  onChange={(e) => setMembershipsUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  נשלח ללקוחות בלחיצה על «מה מחירי המנויים?» במסלול המכירה.
+                </p>
+              </Field>
+
+              <Field label="אינסטגרם">
+                <div className="flex flex-row-reverse gap-2 items-stretch">
+                  <span
+                    className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
+                    aria-hidden
+                  >
+                    <InstagramGlyph className="h-5 w-5" />
+                  </span>
+                  <Input
+                    dir="ltr"
+                    className="flex-1 min-w-0"
+                    placeholder="https://instagram.com/..."
+                    value={instagramUrl}
+                    onChange={(e) => setInstagramUrl(e.target.value)}
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  משמש גם לשורת האינסטגרם אחרי הרשמה לניסיון (במסלול המכירה), כשמופיע המציין {"{instagram_cta}"}.
+                </p>
+              </Field>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ════════════════════ STEP 2 — פרטי העסק ════════════════════ */}
+        {step === 2 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                <StepHeader n={2} title="פרטי העסק" desc="שם, תיאור, כתובת והטון — מה שזואי יודעת עליכם." />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="שם העסק *">
                   {name.trim() && !businessNameEditing ? (
@@ -1615,25 +1676,6 @@ export default function SlugSettingsPage() {
                 </p>
               </Field>
 
-              <Field label="לינק מערכת שעות / Arbox (אופציונלי)">
-                <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  ללקוחות בצ&apos;אט. סנכרון הלוח לזואי נעשה דרך מפתח ה-API הציבורי; קישור לא חובה.
-                </p>
-              </Field>
-
-              <Field label="קישור לדף מנויים וכרטיסיות">
-                <Input
-                  dir="ltr"
-                  value={membershipsUrl}
-                  onChange={(e) => setMembershipsUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  נשלח ללקוחות בלחיצה על «מה מחירי המנויים?» במסלול המכירה.
-                </p>
-              </Field>
-
               <Field label="הנחיות הגעה">
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
               </Field>
@@ -1683,24 +1725,6 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <Field label="אינסטגרם">
-                <div className="flex flex-row-reverse gap-2 items-stretch">
-                  <span
-                    className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
-                    aria-hidden
-                  >
-                    <InstagramGlyph className="h-5 w-5" />
-                  </span>
-                  <Input
-                    dir="ltr"
-                    className="flex-1 min-w-0"
-                    placeholder="https://instagram.com/..."
-                    value={instagramUrl}
-                    onChange={(e) => setInstagramUrl(e.target.value)}
-                  />
-                </div>
-              </Field>
-
               <Field label="סגנון דיבור">
                 <div className="flex flex-wrap gap-2">
                   {VIBES.map(v => (
@@ -1720,13 +1744,13 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 2 — אימון ניסיון ════════════════════ */}
-        {step === 2 && (
+        {/* ════════════════════ STEP 3 — אימון ניסיון ════════════════════ */}
+        {step === 3 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={2}
+                  n={3}
                   title="אימון ניסיון"
                   desc="אילו אימוני ניסיון אתם מציעים? ניתן לסרוק מהאתר, לערוך ולכתוב עצמאית."
                 />
@@ -1864,13 +1888,13 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 3 — מסלול מכירה ════════════════════ */}
-        {step === 3 && (
+        {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
+        {step === 4 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={3}
+                  n={4}
                   title="מסלול מכירה"
                   desc="כאן נוצר תהליך המכירה של זואי. במידה והליד ישאל שאלה פתוחה, זואי תוכל לענות על פי כל המידע שהזנת בטאבים הקודמים."
                 />
@@ -2115,7 +2139,7 @@ export default function SlugSettingsPage() {
 
                   {trialServiceNames.length === 0 ? (
                     <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                      כדי לערוך כאן את שאלת הניסיון והכפתורים — הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 2).
+                      כדי לערוך כאן את שאלת הניסיון והכפתורים — הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 3).
                     </p>
                   ) : (
                     <>
@@ -2324,12 +2348,12 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 4 — פייסבוק ════════════════════ */}
-        {step === 4 && isPremium ? (
+        {/* ════════════════════ STEP 5 — פייסבוק ════════════════════ */}
+        {step === 5 && isPremium ? (
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={4} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" />
+                <StepHeader n={5} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2365,13 +2389,13 @@ export default function SlugSettingsPage() {
           </Card>
         ) : null}
 
-        {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
-        {step === 5 && (
+        {/* ════════════════════ STEP 6 — פולואפ ════════════════════ */}
+        {step === 6 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={5}
+                  n={6}
                   title="פולואפ"
                   desc="הודעה אחת ללקוח שלא הגיב מעל ליום — נשלחת אוטומטית למחרת בבוקר (סביבות 11:00 לפי שעון ישראל, דרך סליחוס יומי). אפשר כפתור קישור אחד (ברירת מחדל: רכישת אימון ניסיון). פולואפ אחרי הרשמה לשיעור ניסיון מוגדר בשלב «מסלול מכירה»."
                 />
