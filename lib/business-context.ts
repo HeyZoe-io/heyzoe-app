@@ -16,6 +16,8 @@ export type BusinessKnowledgePack = {
   niche: string;
   businessDescription: string;
   addressText: string;
+  /** הנחיות הגעה (social_links.directions) — לשליחה אוטומטית בווטסאפ וכו׳ */
+  directionsText: string;
   /** טלפון לשירות לקוחות כשזואי אינה מוצאת תשובה מדויקת בידע */
   customerServicePhone: string;
   /** מפתח API ארבוקס — לשימוש שרת בלבד; אסור לכלול בפרומפט או לשלוח ללקוח */
@@ -56,6 +58,8 @@ export type BusinessKnowledgePack = {
   membershipsAndCardsText: string;
   salesFlowConfig: SalesFlowConfig | null;
   salesFlowPromptSection: string;
+  /** קישור אינסטגרם (social_links.instagram) */
+  instagramUrl: string;
 };
 
 function formatMembershipsLinkLine(social: Record<string, unknown>): string {
@@ -160,6 +164,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         : {};
 
     const addressText = typeof social.address === "string" ? String(social.address) : "";
+    const directionsText = typeof social.directions === "string" ? String(social.directions).trim() : "";
     const customerServicePhone =
       typeof social.customer_service_phone === "string"
         ? String(social.customer_service_phone).trim()
@@ -298,6 +303,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       niche: String(business.niche ?? ""),
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
+      directionsText,
       customerServicePhone,
       arboxApiKey,
       arboxLink,
@@ -332,6 +338,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
+      instagramUrl,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);

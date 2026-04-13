@@ -473,6 +473,47 @@ export function expandAfterTrialRegistrationForPrompt(body: string, instagramUrl
   return t;
 }
 
+const TRIAL_REGISTERED_PHRASES = ["נרשמתי", "נרשמת", "נרשמנו", "registered", "signed up"] as const;
+
+/** זיהוי הודעת «סיימתי להירשם» לווטסאפ (התאמה מלאה אחרי trim, case-insensitive לאנגלית). */
+export function matchesTrialRegisteredMessage(raw: string): boolean {
+  const t = raw.trim().toLowerCase();
+  for (const p of TRIAL_REGISTERED_PHRASES) {
+    if (t === p.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/**
+ * מכין את תבנית «אחרי הרשמה» לשליחה ללקוח בווטסאפ: אינסטגרם, הסרת הערות «מלאי», מילוי ____ בכתובת והגעה, השמטת שורות ריקות אחרי נקודתיים.
+ */
+export function formatAfterTrialRegistrationForWhatsAppDelivery(
+  body: string,
+  instagramUrl: string,
+  address: string,
+  directions: string
+): string {
+  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl);
+  s = s.replace(/\s*\(מלאי[^)]*\)/g, "");
+  const a = address.trim();
+  const d = directions.trim();
+  if (s.includes("____")) s = s.replace(/____/, a);
+  if (s.includes("____")) s = s.replace(/____/, d);
+  s = s
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      if (!t) return true;
+      const ci = t.lastIndexOf(":");
+      if (ci >= 0 && !t.slice(ci + 1).trim()) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return s;
+}
+
 function formatExtraSteps(title: string, steps: SalesFlowExtraStep[]): string {
   if (!steps.length) return "";
   return (
