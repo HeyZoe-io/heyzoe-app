@@ -6,6 +6,7 @@ import {
   normDashboardSlug,
   pickBusinessBySlug,
 } from "@/lib/dashboard-business-access";
+import { pickMonthlySessionsFromArboxMembershipRow } from "@/lib/arbox-public-api";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,30 @@ const MEMBERSHIP_TYPES_URL =
   "https://arboxserver.arboxapp.com/api/public/v3/membershipTypes";
 const FETCH_TIMEOUT_MS = 25_000;
 const MAX_BODY_CHARS = 500_000;
+
+function membershipTypesDebugFromParsedBody(body: unknown): {
+  first_item_top_level_keys: string[];
+  first_item_nested_paths_sample: string[];
+  mapped_monthly_sessions: string;
+} | null {
+  if (!body || typeof body !== "object") return null;
+  const d = (body as { data?: unknown }).data;
+  if (!Array.isArray(d) || !d[0] || typeof d[0] !== "object" || d[0] === null) return null;
+  const row = d[0] as Record<string, unknown>;
+  const top = Object.keys(row).sort();
+  const nested: string[] = [];
+  for (const [k, v] of Object.entries(row)) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const sk of Object.keys(v as object)) nested.push(`${k}.${sk}`);
+    }
+  }
+  nested.sort();
+  return {
+    first_item_top_level_keys: top,
+    first_item_nested_paths_sample: nested,
+    mapped_monthly_sessions: pickMonthlySessionsFromArboxMembershipRow(row),
+  };
+}
 
 /**
  * בדיקה חד-פעמית מול Arbox — GET יחיד ל-membershipTypes, מחזיר סטטוס וגוף גולמי לדיבוג.
@@ -101,6 +126,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const membershipDebug = bodyJson ? membershipTypesDebugFromParsedBody(bodyJson) : null;
+
   return NextResponse.json({
     request_url: MEMBERSHIP_TYPES_URL,
     request_headers_sent: { Accept: "application/json", "api-key": "[redacted]" },
@@ -110,5 +137,7 @@ export async function POST(req: NextRequest) {
     arbox_body_raw: raw,
     arbox_body_json: bodyJson,
     arbox_body_truncated: truncated,
+    /** עזר לדיבוג: מפתחות לפריט הראשון ב־data וערך כמות אימונים חודשית אחרי המיפוי */
+    membership_types_debug: membershipDebug,
   });
 }
