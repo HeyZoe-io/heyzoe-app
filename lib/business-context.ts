@@ -23,6 +23,8 @@ export type BusinessKnowledgePack = {
   arboxLink: string;
   /** קישור לוח שיעורים ציבורי (social_links.schedule_public_url / arbox_schedule_url) */
   schedulePublicUrl: string;
+  /** קישור לדף מנויים וכרטיסיות (social_links.memberships_url) */
+  membershipsUrl: string;
   /** טקסט לוח שיעורים מסונכרן (social_links.arbox_schedule_prompt_text) */
   arboxSchedulePromptText: string;
   arboxBoxCategoriesPromptText: string;
@@ -55,60 +57,10 @@ export type BusinessKnowledgePack = {
   salesFlowPromptSection: string;
 };
 
-function formatMembershipsAndCardsBlock(
-  social: Record<string, unknown>,
-  servicesList: { name: string; service_slug: string | null }[]
-): string {
-  const slugToName = new Map<string, string>();
-  for (const s of servicesList) {
-    const name = String(s.name ?? "").trim();
-    if (!name) continue;
-    const slug = String(s.service_slug ?? "").trim() || name;
-    slugToName.set(slug, name);
-  }
-
-  const excludedLine = (slugs: string[]): string => {
-    if (!slugs.length) return "כל אימוני הניסיון כלולים";
-    const labels = slugs.map((x) => slugToName.get(x) || x).filter(Boolean);
-    return `לא כלול באפשרות זו: ${labels.join(", ")}`;
-  };
-
-  const tiers = Array.isArray(social.membership_tiers) ? social.membership_tiers : [];
-  const tierLines: string[] = [];
-  for (const t of tiers) {
-    if (!t || typeof t !== "object") continue;
-    const o = t as Record<string, unknown>;
-    const name = String(o.name ?? "").trim();
-    if (!name) continue;
-    const price = String(o.price ?? "").trim();
-    const monthly = String(o.monthly_sessions ?? "").trim();
-    const notes = String(o.notes ?? "").trim();
-    const ex = Array.isArray(o.excluded_service_slugs) ? o.excluded_service_slugs.map(String) : [];
-    tierLines.push(
-      `- ${name}${price ? ` | מחיר: ${truncateText(price, 40)}` : ""}${monthly ? ` | אימונים חודשיים: ${truncateText(monthly, 24)}` : ""} | ${excludedLine(ex)}${notes ? ` | הערות: ${truncateText(notes, 120)}` : ""}`
-    );
-  }
-
-  const cards = Array.isArray(social.punch_cards) ? social.punch_cards : [];
-  const cardLines: string[] = [];
-  for (const c of cards) {
-    if (!c || typeof c !== "object") continue;
-    const o = c as Record<string, unknown>;
-    const count = String(o.session_count ?? "").trim();
-    const validity = String(o.validity ?? "").trim();
-    if (!count && !validity) continue;
-    const notes = String(o.notes ?? "").trim();
-    const ex = Array.isArray(o.excluded_service_slugs) ? o.excluded_service_slugs.map(String) : [];
-    cardLines.push(
-      `- כמות אימונים: ${count || "—"} | תוקף: ${validity || "—"} | ${excludedLine(ex)}${notes ? ` | הערות: ${truncateText(notes, 120)}` : ""}`
-    );
-  }
-
-  if (!tierLines.length && !cardLines.length) return "";
-  const parts: string[] = [];
-  if (tierLines.length) parts.push(`מנויים:\n${tierLines.join("\n")}`);
-  if (cardLines.length) parts.push(`כרטיסיות:\n${cardLines.join("\n")}`);
-  return parts.join("\n\n");
+function formatMembershipsLinkLine(social: Record<string, unknown>): string {
+  const url = typeof social.memberships_url === "string" ? social.memberships_url.trim() : "";
+  if (!url) return "";
+  return `קישור לדף מנויים וכרטיסיות (להפניה כששואלים על מחירים): ${url}`;
 }
 
 function truncateText(value: string, max = 280): string {
@@ -294,7 +246,9 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       .map((s) => String(s.name ?? "").trim())
       .filter(Boolean);
 
-    const membershipsAndCardsText = formatMembershipsAndCardsBlock(social, services ?? []);
+    const membershipsUrl =
+      typeof social.memberships_url === "string" ? String(social.memberships_url).trim() : "";
+    const membershipsAndCardsText = formatMembershipsLinkLine(social);
 
     const benefitByName = new Map<string, string>();
     for (const s of services ?? []) {
@@ -326,6 +280,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       arboxApiKey,
       arboxLink,
       schedulePublicUrl,
+      membershipsUrl,
       arboxSchedulePromptText,
       arboxBoxCategoriesPromptText,
       arboxPublicSyncAt,

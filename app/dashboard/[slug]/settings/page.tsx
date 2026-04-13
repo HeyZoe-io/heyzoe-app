@@ -37,29 +37,12 @@ type ServiceItem = {
   /** תיאור קצר אחרי בחירת האימון בפלואו (משפט אחד) */
   benefit_line: string;
 };
-type MembershipTierUI = {
-  id: string;
-  name: string;
-  price: string;
-  monthlySessions: string;
-  notes: string;
-  excludedServiceSlugs: string[];
-};
-
-type PunchCardUI = {
-  id: string;
-  sessionCount: string;
-  validity: string;
-  notes: string;
-  excludedServiceSlugs: string[];
-};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
   "פרטי העסק",
   "אימון ניסיון",
-  "כרטיסיות ומנויים",
   "מסלול מכירה",
   "חיבור פייסבוק",
   "פולואפ",
@@ -280,54 +263,6 @@ function normalizeTraitsState(arr: string[]): string[] {
   return t;
 }
 
-function parseMembershipTier(raw: unknown): MembershipTierUI {
-  if (raw && typeof raw === "object") {
-    const o = raw as Record<string, unknown>;
-    const ex = Array.isArray(o.excluded_service_slugs)
-      ? o.excluded_service_slugs.map(String)
-      : [];
-    return {
-      id: typeof o.id === "string" ? o.id : uid(),
-      name: String(o.name ?? ""),
-      price: String(o.price ?? ""),
-      monthlySessions: String(o.monthly_sessions ?? ""),
-      notes: String(o.notes ?? ""),
-      excludedServiceSlugs: ex,
-    };
-  }
-  return {
-    id: uid(),
-    name: "",
-    price: "",
-    monthlySessions: "",
-    notes: "",
-    excludedServiceSlugs: [],
-  };
-}
-
-function parsePunchCard(raw: unknown): PunchCardUI {
-  if (raw && typeof raw === "object") {
-    const o = raw as Record<string, unknown>;
-    const ex = Array.isArray(o.excluded_service_slugs)
-      ? o.excluded_service_slugs.map(String)
-      : [];
-    return {
-      id: typeof o.id === "string" ? o.id : uid(),
-      sessionCount: String(o.session_count ?? ""),
-      validity: String(o.validity ?? ""),
-      notes: String(o.notes ?? ""),
-      excludedServiceSlugs: ex,
-    };
-  }
-  return {
-    id: uid(),
-    sessionCount: "",
-    validity: "",
-    notes: "",
-    excludedServiceSlugs: [],
-  };
-}
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
@@ -395,57 +330,6 @@ function InstagramGlyph({ className }: { className?: string }) {
   );
 }
 
-function ServiceExcludePicker({
-  services,
-  excludedSlugs,
-  onChange,
-}: {
-  services: ServiceItem[];
-  excludedSlugs: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const opts = services
-    .filter((s) => s.name.trim())
-    .map((s) => {
-      // `toSlug` returns empty for Hebrew-only names which caused multiple rows to share "".
-      // Always derive a stable, unique slug for toggling.
-      const slug = serviceSlugForPersistence(s.service_slug ?? "", s.name, s.ui_id).trim();
-      return { slug, name: s.name.trim() };
-    });
-
-  if (opts.length === 0) {
-    return (
-      <p className="text-xs text-zinc-500 text-right">
-        הוסיפו אימוני ניסיון בטאב «אימון ניסיון» כדי לסמן אימונים שאינם כלולים.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-2 border border-zinc-100 rounded-xl p-3 bg-white">
-      <p className="text-xs font-medium text-zinc-700 text-right">אימונים שנכללים במנוי או בכרטיסיה זו</p>
-      <div className="flex flex-wrap gap-x-4 gap-y-2">
-        {opts.map(({ slug, name }) => (
-          <label key={slug} className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded border-zinc-300"
-              // Default: included (checked). If unchecked — it becomes excluded.
-              checked={!excludedSlugs.includes(slug)}
-              onChange={(e) => {
-                const isIncluded = e.target.checked;
-                if (isIncluded) onChange(excludedSlugs.filter((x) => x !== slug));
-                else onChange([...excludedSlugs, slug]);
-              }}
-            />
-            <span>{name}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SlugSettingsPage() {
@@ -489,6 +373,7 @@ export default function SlugSettingsPage() {
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
+  const [membershipsUrl, setMembershipsUrl] = useState("");
   /** מפתח API ארבוקס (הגדרות → אינטגרציות) — לוח/קטגוריות, ווטסאפ, לידים וכו׳ */
   const arboxApiKeyStoredRef = useRef("");
   const arboxApiKeyDraftRef = useRef("");
@@ -527,8 +412,6 @@ export default function SlugSettingsPage() {
   const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
   const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
 
-  const [membershipTiers, setMembershipTiers] = useState<MembershipTierUI[]>([]);
-  const [punchCards, setPunchCards] = useState<PunchCardUI[]>([]);
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
@@ -621,7 +504,7 @@ export default function SlugSettingsPage() {
   const isPremium = plan === "premium";
 
   useEffect(() => {
-    if (!isPremium && step === 5) setStep(6);
+    if (!isPremium && step === 4) setStep(5);
   }, [isPremium, step]);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
@@ -696,12 +579,7 @@ export default function SlugSettingsPage() {
           setTraits(["", "", ""]);
         }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
-        {
-          const mt = Array.isArray(sl.membership_tiers) ? sl.membership_tiers : [];
-          setMembershipTiers(mt.length ? mt.map(parseMembershipTier) : []);
-          const pc = Array.isArray(sl.punch_cards) ? sl.punch_cards : [];
-          setPunchCards(pc.length ? pc.map(parsePunchCard) : []);
-        }
+        setMembershipsUrl(typeof sl.memberships_url === "string" ? sl.memberships_url.trim() : "");
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
         const fullWelcome = String(business.welcome_message ?? "");
@@ -889,31 +767,9 @@ export default function SlugSettingsPage() {
           followup_after_registration: followupAfterRegistration,
           followup_after_hour_no_registration: followupAfterHourNoRegistration,
           followup_day_after_trial: followupDayAfterTrial,
-          membership_tiers: membershipTiers
-            .filter(
-              (m) =>
-                m.name.trim() ||
-                m.price.trim() ||
-                m.monthlySessions.trim() ||
-                m.notes.trim()
-            )
-            .map((m) => ({
-              id: m.id,
-              name: m.name.trim(),
-              price: m.price.trim(),
-              monthly_sessions: m.monthlySessions.trim(),
-              notes: m.notes.trim(),
-              excluded_service_slugs: m.excludedServiceSlugs,
-            })),
-          punch_cards: punchCards
-            .filter((c) => c.sessionCount.trim() || c.validity.trim() || c.notes.trim())
-            .map((c) => ({
-              id: c.id,
-              session_count: c.sessionCount.trim(),
-              validity: c.validity.trim(),
-              notes: c.notes.trim(),
-              excluded_service_slugs: c.excludedServiceSlugs,
-            })),
+          membership_tiers: [],
+          punch_cards: [],
+          memberships_url: membershipsUrl.trim(),
         },
       },
       services: services.filter((s) => s.name.trim()).map((s) => ({
@@ -960,8 +816,7 @@ export default function SlugSettingsPage() {
       followupAfterRegistration,
       followupAfterHourNoRegistration,
       followupDayAfterTrial,
-      membershipTiers,
-      punchCards,
+      membershipsUrl,
       services,
   ]);
 
@@ -1365,7 +1220,7 @@ export default function SlugSettingsPage() {
     }
   }
 
-  async function fetchArboxMemberships() {
+  async function syncArboxScheduleToZoe() {
     if (!arboxApiKeyDraft.trim() && !arboxApiKeyStoredRef.current.trim()) {
       setFetchArboxError("הזינו מפתח API ארבוקס (הגדרות → אינטגרציות בארבוקס).");
       return;
@@ -1402,7 +1257,7 @@ export default function SlugSettingsPage() {
       if (typeof j.categories_warning === "string" && j.categories_warning.trim()) {
         warnParts.push(`קטגוריות: ${j.categories_warning.trim()}`);
       }
-      const baseOk = "סונכרנו מארבוקס לוח שיעורים וקטגוריות לזואי (מנויים וכרטיסיות נשארים לעריכה ידנית כאן).";
+      const baseOk = "סונכרנו מארבוקס לוח שיעורים וקטגוריות לזואי.";
       setFetchArboxNotice([baseOk, warnParts.join(" · ")].filter(Boolean).join(" "));
     } catch {
       setFetchArboxError("בעיית רשת במשיכת ארבוקס.");
@@ -1486,7 +1341,7 @@ export default function SlugSettingsPage() {
   function nextStep() {
     setStep((s) => {
       let n = Math.min(STEPS.length, s + 1);
-      if (!isPremium && n === 5) n = 6;
+      if (!isPremium && n === 4) n = 5;
       return n;
     });
   }
@@ -1494,7 +1349,7 @@ export default function SlugSettingsPage() {
   function prevStep() {
     setStep((s) => {
       let n = Math.max(1, s - 1);
-      if (!isPremium && s === 6 && n === 5) n = 4;
+      if (!isPremium && s === 5 && n === 4) n = 3;
       return n;
     });
   }
@@ -1606,7 +1461,7 @@ export default function SlugSettingsPage() {
 
               <Field
                 label="מפתח API ארבוקס"
-                description="לסנכרון לוח שיעורים וקטגוריות לזואי, ולפעולות ארבוקס בשיחה (ניסיון, לידים וכו׳). מנויים וכרטיסיות ממלאים ידנית בטאב המתאים."
+                description="לסנכרון לוח שיעורים וקטגוריות לזואי, ולפעולות ארבוקס בשיחה (ניסיון, לידים וכו׳)."
               >
                 <div className="flex gap-2">
                   <Input
@@ -1652,7 +1507,7 @@ export default function SlugSettingsPage() {
                     type="button"
                     className="shrink-0 gap-2"
                     disabled={fetchingArbox || (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)}
-                    onClick={() => void fetchArboxMemberships()}
+                    onClick={() => void syncArboxScheduleToZoe()}
                   >
                     {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     {fetchingArbox ? "מחבר..." : "חבר לזואי"}
@@ -1741,6 +1596,18 @@ export default function SlugSettingsPage() {
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
                 <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
                   ללקוחות בצ&apos;אט. סנכרון הלוח לזואי נעשה דרך מפתח ה-API הציבורי; קישור לא חובה.
+                </p>
+              </Field>
+
+              <Field label="קישור לדף מנויים וכרטיסיות">
+                <Input
+                  dir="ltr"
+                  value={membershipsUrl}
+                  onChange={(e) => setMembershipsUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  נשלח ללקוחות בלחיצה על «מה מחירי המנויים?» במסלול המכירה.
                 </p>
               </Field>
 
@@ -1974,227 +1841,13 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 3 — כרטיסיות ומנויים ════════════════════ */}
+        {/* ════════════════════ STEP 3 — מסלול מכירה ════════════════════ */}
         {step === 3 && (
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={3} title="כרטיסיות ומנויים" />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
-                <p className="text-sm font-semibold text-zinc-900">מנויים</p>
-                <p className="text-xs text-zinc-500">
-                  מומלץ להשאיר רק את המסלולים הנפוצים ביותר
-                </p>
-                {membershipTiers.map((m, i) => (
-                  <div
-                    key={m.id}
-                    className="border border-dashed border-zinc-200 rounded-xl p-4 space-y-3 bg-zinc-50/50"
-                  >
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="text-xs font-medium text-zinc-500">מנוי {i + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => setMembershipTiers((prev) => prev.filter((x) => x.id !== m.id))}
-                        className="p-1 text-zinc-400 hover:text-red-500"
-                        aria-label="הסר מנוי"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <Field label="שם המנוי">
-                      <Input
-                        dir="rtl"
-                        value={m.name}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setMembershipTiers((prev) =>
-                            prev.map((x) => (x.id === m.id ? { ...x, name: v } : x))
-                          );
-                        }}
-                        placeholder="למשל: מנוי בוקר"
-                      />
-                    </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="מחיר">
-                        <Input
-                          dir="rtl"
-                          value={m.price}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setMembershipTiers((prev) =>
-                              prev.map((x) => (x.id === m.id ? { ...x, price: v } : x))
-                            );
-                          }}
-                          placeholder="₪ 390 לחודש"
-                        />
-                      </Field>
-                      <Field label="כמות אימונים חודשית">
-                        <Input
-                          dir="rtl"
-                          value={m.monthlySessions}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setMembershipTiers((prev) =>
-                              prev.map((x) => (x.id === m.id ? { ...x, monthlySessions: v } : x))
-                            );
-                          }}
-                          placeholder="8"
-                        />
-                      </Field>
-                    </div>
-                    <Field label="הערות">
-                      <Textarea
-                        value={m.notes}
-                        onChange={(v) =>
-                          setMembershipTiers((prev) =>
-                            prev.map((x) => (x.id === m.id ? { ...x, notes: v } : x))
-                          )
-                        }
-                        rows={2}
-                        placeholder="תנאים, התחייבות, מה כלול…"
-                      />
-                    </Field>
-                    <ServiceExcludePicker
-                      services={services}
-                      excludedSlugs={m.excludedServiceSlugs}
-                      onChange={(next) =>
-                        setMembershipTiers((prev) =>
-                          prev.map((x) => (x.id === m.id ? { ...x, excludedServiceSlugs: next } : x))
-                        )
-                      }
-                    />
-                  </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2"
-                  onClick={() =>
-                    setMembershipTiers((prev) => [
-                      ...prev,
-                      {
-                        id: uid(),
-                        name: "",
-                        price: "",
-                        monthlySessions: "",
-                        notes: "",
-                        excludedServiceSlugs: [],
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  הוסף מנוי
-                </Button>
-              </div>
-
-              <div className="space-y-4 border border-zinc-200 rounded-2xl p-4 bg-white">
-                <p className="text-sm font-semibold text-zinc-900">כרטיסיות</p>
-                <p className="text-xs text-zinc-500">
-                  כמות אימונים, תוקף והערות לכל כרטיסיה. ברירת מחדל — כל אימוני הניסיון כלולים; אפשר לסמן חריגות.
-                </p>
-                {punchCards.map((c, i) => (
-                  <div
-                    key={c.id}
-                    className="border border-dashed border-zinc-200 rounded-xl p-4 space-y-3 bg-zinc-50/50"
-                  >
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="text-xs font-medium text-zinc-500">כרטיסיה {i + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => setPunchCards((prev) => prev.filter((x) => x.id !== c.id))}
-                        className="p-1 text-zinc-400 hover:text-red-500"
-                        aria-label="הסר כרטיסיה"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="כמות אימונים">
-                        <Input
-                          dir="rtl"
-                          value={c.sessionCount}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPunchCards((prev) =>
-                              prev.map((x) => (x.id === c.id ? { ...x, sessionCount: v } : x))
-                            );
-                          }}
-                          placeholder="10"
-                        />
-                      </Field>
-                      <Field label="תוקף הכרטיסיה">
-                        <Input
-                          dir="rtl"
-                          value={c.validity}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPunchCards((prev) =>
-                              prev.map((x) => (x.id === c.id ? { ...x, validity: v } : x))
-                            );
-                          }}
-                          placeholder="3 חודשים ממועד הרכישה"
-                        />
-                      </Field>
-                    </div>
-                    <Field label="הערות">
-                      <Textarea
-                        value={c.notes}
-                        onChange={(v) =>
-                          setPunchCards((prev) =>
-                            prev.map((x) => (x.id === c.id ? { ...x, notes: v } : x))
-                          )
-                        }
-                        rows={2}
-                        placeholder="מדיניות ביטול, הרחבות…"
-                      />
-                    </Field>
-                    <ServiceExcludePicker
-                      services={services}
-                      excludedSlugs={c.excludedServiceSlugs}
-                      onChange={(next) =>
-                        setPunchCards((prev) =>
-                          prev.map((x) => (x.id === c.id ? { ...x, excludedServiceSlugs: next } : x))
-                        )
-                      }
-                    />
-                  </div>
-                ))}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2"
-                  onClick={() =>
-                    setPunchCards((prev) => [
-                      ...prev,
-                      {
-                        id: uid(),
-                        sessionCount: "",
-                        validity: "",
-                        notes: "",
-                        excludedServiceSlugs: [],
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  הוסף כרטיסיה
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
-        {step === 4 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
                 <StepHeader
-                  n={4}
+                  n={3}
                   title="מסלול מכירה"
                   desc="כאן נוצר תהליך המכירה של זואי. במידה והליד ישאל שאלה פתוחה, זואי תוכל לענות על פי כל המידע שהזנת בטאבים הקודמים."
                 />
@@ -2552,7 +2205,7 @@ export default function SlugSettingsPage() {
                         <option value="next_class">מתי השיעור קרוב? (Arbox — בלי לינק)</option>
                         <option value="schedule">מערכת שעות (לינק Arbox)</option>
                         <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
-                        <option value="memberships">מחירי מנויים (מתוך הגדרות)</option>
+                        <option value="memberships">מחירי מנויים (קישור מ«פרטי העסק»)</option>
                       </select>
                     </div>
                   </div>
@@ -2631,12 +2284,12 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 5 — פייסבוק ════════════════════ */}
-        {step === 5 && isPremium ? (
+        {/* ════════════════════ STEP 4 — פייסבוק ════════════════════ */}
+        {step === 4 && isPremium ? (
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={5} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" />
+                <StepHeader n={4} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2672,13 +2325,13 @@ export default function SlugSettingsPage() {
           </Card>
         ) : null}
 
-        {/* ════════════════════ STEP 6 — פולואפ ════════════════════ */}
-        {step === 6 && (
+        {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
+        {step === 5 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={6}
+                  n={5}
                   title="פולואפ"
                   desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, אימוני ניסיון וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהידע בהגדרות, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
                 />

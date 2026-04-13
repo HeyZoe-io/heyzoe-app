@@ -67,7 +67,7 @@ const FRIENDLY: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
-    { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
+    { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
   ],
   cta_extra_steps: [],
   followup_after_next_class_body:
@@ -101,7 +101,7 @@ const FORMAL: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
-    { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
+    { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
   ],
   followup_after_next_class_body:
     "בואו נשריין לכם את האימון. ניתן לבחור כל אימון ממערכת השעות בלחיצה על הכפתור.",
@@ -131,7 +131,7 @@ const DIRECT: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
-    { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
+    { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
   ],
   followup_after_next_class_body:
     "בואו נשריין. תבחרו אימון ממערכת השעות בכפתור.",
@@ -457,7 +457,9 @@ export function formatSalesFlowForPrompt(
             ? "לינק סליקה לאימון שנבחר (משירותי הניסיון)"
             : b.kind === "next_class"
               ? "במערכת: מושך שיעור ניסיון קרוב מ-Arbox לפי האימון שנבחר — בלי קישור בהודעה"
-              : "סיכום מחירי מנויים וכרטיסיות מההגדרות — בלי להמציא";
+              : b.kind === "memberships"
+                ? "בווטסאפ: נשלח קישור מ«קישור לדף מנויים וכרטיסיות» בדשבורד; אם אין קישור — תשובה קבועה מהמערכת"
+                : "עקבי אחרי סוג הכפתור בהגדרות";
       return `  - "${b.label}" (${b.kind}): ${hint}`;
     })
     .join("\n");
