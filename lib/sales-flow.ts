@@ -89,7 +89,9 @@ const FRIENDLY: SalesFlowConfig = {
 ____ (מלאי משדה «הנחיות הגעה» בפרטי העסק בידע).
 
 מומלץ להגיע לאימון לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
-סופר מחכים לראותך. נתראה בקרוב!`,
+סופר מחכים לראותך. נתראה בקרוב!
+
+{instagram_cta}`,
 };
 
 const FORMAL: SalesFlowConfig = {
@@ -123,7 +125,9 @@ const FORMAL: SalesFlowConfig = {
 הגעה: ____ (מ«הנחיות הגעה» בפרטי העסק בידע).
 
 מומלץ להגיע כ־10 דקות לפני, עם בקבוק מים ומגבת אישית.
-נשמח לראותכם.`,
+נשמח לראותכם.
+
+{instagram_cta}`,
 };
 
 const DIRECT: SalesFlowConfig = {
@@ -438,6 +442,38 @@ export function getWhatsAppOpeningPreviewSections(
   return sections;
 }
 
+const INSTAGRAM_CTA_PLACEHOLDER = "{instagram_cta}";
+
+/**
+ * מרחיב תבנית «אחרי הרשמה לאימון ניסיון» לפרומפט: ממלא את {instagram_cta}
+ * במשפט + URL כשיש לינק אינסטגרם; אחרת מסיר את המציין בלי להשאיר שורות ריקות.
+ */
+export function expandAfterTrialRegistrationForPrompt(body: string, instagramUrl: string): string {
+  const u = instagramUrl.trim();
+  let t = body.trim();
+  if (!t) return t;
+
+  if (t.includes(INSTAGRAM_CTA_PLACEHOLDER)) {
+    if (u) {
+      t = t.replace(
+        INSTAGRAM_CTA_PLACEHOLDER,
+        `בינתיים בואו לבקר בעמוד האינסטגרם שלנו!\n${u}`
+      );
+    } else {
+      t = t
+        .replace(/\n*\{instagram_cta\}\n*/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+    return t;
+  }
+
+  if (u) {
+    return `${t}\n\nבינתיים בואו לבקר בעמוד האינסטגרם שלנו!\n${u}`;
+  }
+  return t;
+}
+
 function formatExtraSteps(title: string, steps: SalesFlowExtraStep[]): string {
   if (!steps.length) return "";
   return (
@@ -454,7 +490,8 @@ function formatExtraSteps(title: string, steps: SalesFlowExtraStep[]): string {
 export function formatSalesFlowForPrompt(
   c: SalesFlowConfig,
   serviceNames: string[],
-  benefitByName: Map<string, string>
+  benefitByName: Map<string, string>,
+  instagramUrl = ""
 ): string {
   const named = serviceNames.map((n) => n.trim()).filter(Boolean);
   const benefitLines = named
@@ -479,6 +516,11 @@ export function formatSalesFlowForPrompt(
       return `  - "${b.label}" (${b.kind}): ${hint}`;
     })
     .join("\n");
+
+  const afterTrialRegistrationExpanded = expandAfterTrialRegistrationForPrompt(
+    c.after_trial_registration_body.trim(),
+    instagramUrl
+  );
 
   return `
 מסלול מכירה מובנה (חובה לעקוב אחרי הסדר הלוגי; התאימי ניסוח לסגנון הדיבור):
@@ -522,8 +564,9 @@ ${c.followup_after_next_class_body}
 - יום ושעה: מלאי מפרטי האימון בארבוקס או מהשיחה אם הופיעו; אם אין — שאלי בקצרה או השתמשי במה שידוע בלבד — בלי להמציא.
 - כתובת: השתמשי בכתובת העסק מבלוק «ידע עסקי» (שדה כתובת).
 - הגעה: השתמשי ב«הנחיות הגעה» מבלוק «ידע עסקי»; אם ריק — השמיטי את השורה או צייני בקצרה שאין הנחיות.
+- אם בתבנית מופיעים משפט על אינסטגרם וכתובת URL בשורה נפרדת — שלחי קודם את המשפט ואז בשורה הבאה בדיוק את ה־URL (כך שיופיע בווטסאפ כקישור לחיץ). אם אין בתבנית בלוק כזה — אל תוסיפי.
 תבנית והנחיות ממסלול המכירה:
-${c.after_trial_registration_body.trim() || "(אין תבנית — שלחי הודעת חיזוק קצרה והמשיכי בפלואו)"}
+${afterTrialRegistrationExpanded || "(אין תבנית — שלחי הודעת חיזוק קצרה והמשיכי בפלואו)"}
 
 אימוני ניסיון ותיאור קצר אחרי בחירה (ממסלול המכירה):
 ${benefitLines || "  (אין אימונים מוגדרים)"}

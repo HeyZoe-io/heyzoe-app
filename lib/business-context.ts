@@ -51,6 +51,8 @@ export type BusinessKnowledgePack = {
   salesFlowBlocks: SalesFlowBlockPack[];
   /** הודעת פולואפ ווטסאפ אוטומטית לליד שאינו מגיב (למחרת בבוקר) */
   whatsappIdleFollowupMessage: string;
+  whatsappIdleFollowupCtaKind: "trial" | "schedule" | "custom";
+  whatsappIdleFollowupCtaLabel: string;
   membershipsAndCardsText: string;
   salesFlowConfig: SalesFlowConfig | null;
   salesFlowPromptSection: string;
@@ -247,12 +249,27 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       return legacyHour || legacyTrial;
     })();
 
+    const ctaKindRaw = String(social.whatsapp_idle_followup_cta_kind ?? "trial").trim();
+    const whatsappIdleFollowupCtaKind: "trial" | "schedule" | "custom" =
+      ctaKindRaw === "schedule" || ctaKindRaw === "custom" ? ctaKindRaw : "trial";
+    const whatsappIdleFollowupCtaLabel =
+      typeof social.whatsapp_idle_followup_cta_label === "string" &&
+      social.whatsapp_idle_followup_cta_label.trim()
+        ? social.whatsapp_idle_followup_cta_label.trim()
+        : whatsappIdleFollowupCtaKind === "schedule"
+          ? "מערכת שעות"
+          : whatsappIdleFollowupCtaKind === "custom"
+            ? "לחצו כאן"
+            : "לרכוש אימון ניסיון";
+
     const serviceNamesForOpening = (services ?? [])
       .map((s) => String(s.name ?? "").trim())
       .filter(Boolean);
 
     const membershipsUrl =
       typeof social.memberships_url === "string" ? String(social.memberships_url).trim() : "";
+    const instagramUrl =
+      typeof social.instagram === "string" ? String(social.instagram).trim() : "";
     const membershipsAndCardsText = formatMembershipsLinkLine(social);
 
     const benefitByName = new Map<string, string>();
@@ -272,7 +289,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const salesFlowConfig = parseSalesFlowFromSocial(social.sales_flow);
     const salesFlowPromptSection = salesFlowConfig
-      ? formatSalesFlowForPrompt(salesFlowConfig, serviceNamesForOpening, benefitByName)
+      ? formatSalesFlowForPrompt(salesFlowConfig, serviceNamesForOpening, benefitByName, instagramUrl)
       : "";
 
     return {
@@ -310,6 +327,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       welcomeOptionLabels,
       salesFlowBlocks,
       whatsappIdleFollowupMessage,
+      whatsappIdleFollowupCtaKind,
+      whatsappIdleFollowupCtaLabel,
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
@@ -333,7 +352,13 @@ function formatSalesFlowBlocksForPrompt(blocks: SalesFlowBlockPack[]): string {
 function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
   if (!k?.whatsappIdleFollowupMessage?.trim()) return "";
   const t = k.whatsappIdleFollowupMessage.trim().slice(0, 450);
-  return `\nדוגמה לטון מהודעת הפולואפ האוטומטית בווטסאפ (למחרת בבוקר לליד שאינו מגיב; שמרי על שפה עקבית; אל תחזירי את הטקסט כולו כתשובה שגרתית):\n${t}\n`;
+  const kindHint =
+    k.whatsappIdleFollowupCtaKind === "trial"
+      ? "כפתור הקישור מוביל לדף רכישת אימון ניסיון (לינק סליקה מהאימון הראשון בהגדרות)."
+      : k.whatsappIdleFollowupCtaKind === "schedule"
+        ? "כפתור הקישור מוביל למערכת השעות / Arbox."
+        : "כפתור הקישור מוביל לכתובת מותאמת שהעסק הגדיר.";
+  return `\nדוגמה לטון מהודעת הפולואפ האוטומטית (למחרת בבוקר לליד שאינו מגיב; שמרי על שפה עקבית; אל תחזירי את הטקסט כולו כתשובה שגרתית):\n${t}\nתווית הכפתור בהגדרות: «${k.whatsappIdleFollowupCtaLabel}». ${kindHint}\n`;
 }
 
 function formatUnknownKnowledgeBlock(phoneDisplay: string): string {
