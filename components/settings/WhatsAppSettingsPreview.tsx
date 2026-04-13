@@ -19,9 +19,7 @@ type Props = {
   businessTagline: string;
   traits: string[];
   address: string;
-  followupAfterRegistration: string;
-  followupAfterHourNoRegistration: string;
-  followupDayAfterTrial: string;
+  whatsappIdleFollowupMessage: string;
 };
 
 function Bubble({
@@ -68,9 +66,7 @@ export function WhatsAppSettingsPreview({
   businessTagline,
   traits,
   address,
-  followupAfterRegistration,
-  followupAfterHourNoRegistration,
-  followupDayAfterTrial,
+  whatsappIdleFollowupMessage,
 }: Props) {
   const facts = traits.map((f) => f.trim()).filter(Boolean);
   const tag = businessTagline.trim();
@@ -345,18 +341,13 @@ export function WhatsAppSettingsPreview({
 
           {step === 5 && (
             <>
-              {followupAfterRegistration.trim() && <Bubble from="bot">{followupAfterRegistration.trim()}</Bubble>}
-              {followupAfterHourNoRegistration.trim() && (
-                <Bubble from="bot">{followupAfterHourNoRegistration.trim()}</Bubble>
+              {whatsappIdleFollowupMessage.trim() ? (
+                <Bubble from="bot">{whatsappIdleFollowupMessage.trim()}</Bubble>
+              ) : (
+                <Bubble from="bot">
+                  <span className="text-zinc-500">מלאו הודעת פולואפ למחרת בבוקר</span>
+                </Bubble>
               )}
-              {followupDayAfterTrial.trim() && <Bubble from="bot">{followupDayAfterTrial.trim()}</Bubble>}
-              {!followupAfterRegistration.trim() &&
-                !followupAfterHourNoRegistration.trim() &&
-                !followupDayAfterTrial.trim() && (
-                  <Bubble from="bot">
-                    <span className="text-zinc-500">הודעות פולואפ</span>
-                  </Bubble>
-                )}
             </>
           )}
         </div>

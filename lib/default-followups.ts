@@ -1,5 +1,6 @@
 /**
- * טקסטי פולואפ ברירת מחדל — מותאמים לשם בוט, עסק, נישה, סגנון דיבור ושירותים.
+ * טקסט פולואפ ווטסאפ אוטומטי (ליד שאינו מגיב) — מותאם לשם בוט, עסק, נישה וסגנון דיבור.
+ * הודעה אחת בלבד ליום למחרת בבוקר (לפי סליחוס בשרת).
  */
 
 export type DefaultFollowupInput = {
@@ -28,65 +29,45 @@ function trialLabel(serviceNames: string[], niche: string): string {
   return "שיעור הניסיון";
 }
 
-function openingCongrats(vibes: string[]): string {
+function morningIdleBody(vibes: string[], bot: string, biz: string, trial: string, hasLink: boolean): string {
   const v = new Set(vibes);
-  if (v.has("יוקרתי")) return "ברוכים הבאים";
-  if (v.has("מצחיק")) return "יאללה, זה קרה";
-  if (v.has("רוחני")) return "איזה כיף שבחרתם להצטרף";
-  if (v.has("מקצועי")) return "תודה על ההרשמה";
-  if (v.has("ישיר")) return "נרשמתם";
-  return "כל הכבוד";
+  const linkHint = hasLink
+    ? ` אם תרצו — אפשר גם לבחור שעה מהמערכת, ואני כאן לכל שאלה בדרך.`
+    : "";
+  if (v.has("ישיר")) {
+    return `בוקר טוב, ${bot} מ־${biz}.
+
+עדיין רלוונטי לכם ${trial}? ענו כאן ונסגור את זה מהר.${linkHint}`;
+  }
+  if (v.has("יוקרתי") || v.has("מקצועי") || v.has("סמכותי")) {
+    return `בוקר טוב 🙂
+
+${bot} מ־${biz}. נגענו אתמול — רצינו לבדוק בעדינות אם נשאר משהו פתוח, או אם תרצו לקבוע ${trial}.${linkHint}
+
+נשמח לסייע.`;
+  }
+  if (v.has("מצחיק")) {
+    return `בוקר טוב 🙂 ${bot} כאן מ־${biz}!
+
+אם אתמול נשאר באמצע — אין בעיה. רוצים לשריין ${trial} או סתם לשאול משהו? אני פה.${linkHint}`;
+  }
+  if (v.has("רוחני")) {
+    return `בוקר טוב ושקט 🙂
+
+${bot} מ־${biz}. אם תרצו להמשיך את הדרך אלינו — ${trial} או כל שאלה — אני כאן איתכם.${linkHint}`;
+  }
+  return `בוקר טוב 🙂 ${bot} מ־${biz}.
+
+נגענו אתמול ורצינו לבדוק אם נשאר משהו פתוח — או אם בא לכם לקבוע ${trial}.${linkHint}
+
+כתבו כאן בקצרה ואשמח להמשיך מכאן.`;
 }
 
-function reminderTone(vibes: string[]): string {
-  const v = new Set(vibes);
-  if (v.has("ישיר")) return "עדיין רוצים לשריין? ענו כאן.";
-  if (v.has("יוקרתי")) return "בעדינות — אם תרצו לשריין מקום, נשמח לסייע כאן.";
-  return "רק מזכירה בעדינות — אם תרצו לשריין מקום, אפשר לענות בקצרה כאן 🙂";
-}
-
-export function buildDefaultFollowupPack(input: DefaultFollowupInput): {
-  followupAfterRegistration: string;
-  followupAfterHourNoRegistration: string;
-  followupDayAfterTrial: string;
-} {
+/** טקסט ברירת מחדל להודעת הפולואפ האוטומטית בווטסאפ (למחרת בבוקר). */
+export function buildDefaultWhatsAppIdleFollowup(input: DefaultFollowupInput): string {
   const bot = input.botName.trim() || "זואי";
   const biz = input.businessName.trim() || "העסק";
   const trial = trialLabel(input.serviceNames, input.niche);
-  const firstSvc = input.serviceNames[0]?.trim() ?? "";
-  const addr = input.address.trim();
-  const tag = input.tagline.trim();
-  const vibes = input.vibeLabels ?? [];
-
-  const head = `${openingCongrats(vibes)}! נרשמתם בהצלחה 🎉
-
-${bot} כאן מ־${biz}.${tag ? ` ${tag}` : ""}
-
-לפני ה${trial}:
-• להגיע כמה דקות לפני
-• בגדים נוחים
-• מומלץ לשתות מים לפני`;
-
-  const foot = addr ? `\n\n📍 ${addr}\n\nנתראה בקרוב!` : `\n\nנתראה בקרוב!`;
-
-  const followupAfterRegistration = `${head}${foot}`;
-
-  const linkBit = input.hasBookingLink
-    ? `\n\nיש גם קישור לשעות/הרשמה — ${bot} כאן לכל שאלה בדרך.`
-    : "";
-
-  const followupAfterHourNoRegistration = `היי, ${bot} מ־${biz}.
-
-${reminderTone(vibes)}${linkBit}`;
-
-  const svcBit = firstSvc ? ` (${firstSvc})` : "";
-  const followupDayAfterTrial = `היי! איך היה לכם ה${trial}?${svcBit}
-
-${bot} אשמח לשמוע במילה–שתיים — ואז נציע את מה שמתאים לכם ב־${biz} להמשך.`;
-
-  return {
-    followupAfterRegistration,
-    followupAfterHourNoRegistration,
-    followupDayAfterTrial,
-  };
+  return morningIdleBody(input.vibeLabels ?? [], bot, biz, trial, input.hasBookingLink);
 }
+

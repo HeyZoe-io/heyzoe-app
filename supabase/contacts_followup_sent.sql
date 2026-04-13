@@ -1,4 +1,4 @@
--- One-time 24h inactive follow-up per dormancy cycle (see /api/cron/followup)
+-- One-time inactive WhatsApp follow-up per dormancy cycle (daily cron ~morning IL; see /api/cron/followup)
 alter table if exists public.contacts
   add column if not exists followup_sent boolean not null default false;
 
