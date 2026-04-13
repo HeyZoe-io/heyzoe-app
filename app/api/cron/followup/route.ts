@@ -9,8 +9,22 @@ export const dynamic = "force-dynamic";
 
 const FOLLOWUP_FOOTER = "\n\n_לביטול קבלת הודעות שלח *הסר*_";
 const DEFAULT_CORE = "היי! רצינו לבדוק אם יש לך שאלות נוספות 😊";
+/** מינימום זמן ללא מענה לפני שליחה (יום לפחות); הסליחוס היומי רץ בבוקר (~11:00 ישראל, לפי UTC ב-vercel.json) */
 const HOURS = 24;
 const BATCH = 100;
+
+function pickWhatsAppIdleFollowupBody(socialLinks: unknown): string {
+  if (!socialLinks || typeof socialLinks !== "object" || Array.isArray(socialLinks)) return "";
+  const sl = socialLinks as Record<string, unknown>;
+  const primary =
+    typeof sl.whatsapp_idle_followup_message === "string" ? sl.whatsapp_idle_followup_message.trim() : "";
+  if (primary) return primary;
+  const legacy =
+    typeof sl.followup_after_hour_no_registration === "string"
+      ? sl.followup_after_hour_no_registration.trim()
+      : "";
+  return legacy;
+}
 
 function buildFollowupBody(ctaText: string, ctaLink: string): string {
   const t = ctaText.trim();
@@ -153,7 +167,7 @@ export async function GET(req: NextRequest) {
 
       const { data: biz, error: bizErr } = await admin
         .from("businesses")
-        .select("cta_text, cta_link")
+        .select("cta_text, cta_link, social_links")
         .eq("id", businessId)
         .maybeSingle();
 
@@ -163,10 +177,11 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const body = buildFollowupBody(
-        String((biz as { cta_text?: string })?.cta_text ?? ""),
-        String((biz as { cta_link?: string })?.cta_link ?? "")
-      );
+      const bizRow = biz as { cta_text?: string; cta_link?: string; social_links?: unknown } | null;
+      const customIdle = pickWhatsAppIdleFollowupBody(bizRow?.social_links);
+      const body = customIdle
+        ? `${customIdle.trim()}${FOLLOWUP_FOOTER}`
+        : buildFollowupBody(String(bizRow?.cta_text ?? ""), String(bizRow?.cta_link ?? ""));
 
       await sendWhatsAppMessage(phoneNumberId, phone, body, accountSid, authToken);
 

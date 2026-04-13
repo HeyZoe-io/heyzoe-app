@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
-import { buildDefaultFollowupPack } from "@/lib/default-followups";
+import { buildDefaultWhatsAppIdleFollowup } from "@/lib/default-followups";
 import {
   type SalesFlowConfig,
   type SalesFlowCtaButton,
@@ -46,7 +46,7 @@ const STEPS = [
   "אימון ניסיון",
   "מסלול מכירה",
   "חיבור פייסבוק",
-  "פולואפ",
+  "פולואפ ווטסאפ",
 ];
 
 async function readSaveErrorFromResponse(res: Response): Promise<string> {
@@ -412,10 +412,8 @@ export default function SlugSettingsPage() {
 
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
-  // ── Step 7: Follow-up
-  const [followupAfterRegistration, setFollowupAfterRegistration] = useState("");
-  const [followupAfterHourNoRegistration, setFollowupAfterHourNoRegistration] = useState("");
-  const [followupDayAfterTrial, setFollowupDayAfterTrial] = useState("");
+  // ── פולואפ ווטסאפ אוטומטי (למחרת בבוקר) — טקסט אחד בלבד
+  const [whatsappIdleFollowupMessage, setWhatsappIdleFollowupMessage] = useState("");
 
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
@@ -660,7 +658,7 @@ export default function SlugSettingsPage() {
               .map((s) => String(s.name ?? "").trim())
               .filter(Boolean)
           : [];
-        const defaultFollow = buildDefaultFollowupPack({
+        const followupDefaultsInput = {
           botName: String(business.bot_name ?? "זואי"),
           businessName: String(business.name ?? "").trim() || displayNameFromSlug(slug),
           niche: String(business.niche ?? ""),
@@ -669,18 +667,19 @@ export default function SlugSettingsPage() {
           address: String(sl.address ?? ""),
           tagline: typeof sl.tagline === "string" ? sl.tagline.trim() : "",
           hasBookingLink: Boolean(String(sl.arbox_link ?? "").trim()),
-        });
-        const regSaved =
-          typeof sl.followup_after_registration === "string" ? sl.followup_after_registration.trim() : "";
-        const hourSaved =
+        };
+        const defaultWaFollowup = buildDefaultWhatsAppIdleFollowup(followupDefaultsInput);
+        const waSaved =
+          typeof sl.whatsapp_idle_followup_message === "string"
+            ? sl.whatsapp_idle_followup_message.trim()
+            : "";
+        const hourLegacy =
           typeof sl.followup_after_hour_no_registration === "string"
             ? sl.followup_after_hour_no_registration.trim()
             : "";
-        const trialSaved =
+        const trialLegacy =
           typeof sl.followup_day_after_trial === "string" ? sl.followup_day_after_trial.trim() : "";
-        setFollowupAfterRegistration(regSaved || defaultFollow.followupAfterRegistration);
-        setFollowupAfterHourNoRegistration(hourSaved || defaultFollow.followupAfterHourNoRegistration);
-        setFollowupDayAfterTrial(trialSaved || defaultFollow.followupDayAfterTrial);
+        setWhatsappIdleFollowupMessage(waSaved || hourLegacy || trialLegacy || defaultWaFollowup);
 
         if (Array.isArray(svcs)) {
           setServices((svcs as Record<string, unknown>[]).map((s) => {
@@ -769,9 +768,10 @@ export default function SlugSettingsPage() {
           arbox_link: arboxLink,
           arbox_api_key: arboxApiKeyDraft.trim() || arboxApiKeyStoredRef.current,
           objections,
-          followup_after_registration: followupAfterRegistration,
-          followup_after_hour_no_registration: followupAfterHourNoRegistration,
-          followup_day_after_trial: followupDayAfterTrial,
+          whatsapp_idle_followup_message: whatsappIdleFollowupMessage.trim(),
+          followup_after_registration: "",
+          followup_after_hour_no_registration: "",
+          followup_day_after_trial: "",
           membership_tiers: [],
           punch_cards: [],
           memberships_url: membershipsUrl.trim(),
@@ -818,9 +818,7 @@ export default function SlugSettingsPage() {
       arboxLink,
       arboxApiKeyDraft,
       objections,
-      followupAfterRegistration,
-      followupAfterHourNoRegistration,
-      followupDayAfterTrial,
+      whatsappIdleFollowupMessage,
       membershipsUrl,
       services,
   ]);
@@ -930,19 +928,18 @@ export default function SlugSettingsPage() {
   }, [postSettings]);
 
   const applyFollowupTemplate = useCallback(() => {
-    const pack = buildDefaultFollowupPack({
-      botName: botName.trim() || "זואי",
-      businessName: name.trim() || displayNameFromSlug(slug),
-      niche: niche.trim(),
-      vibeLabels: vibe,
-      serviceNames: services.map((s) => s.name.trim()).filter(Boolean),
-      address: address.trim(),
-      tagline: businessTagline.trim(),
-      hasBookingLink: Boolean(arboxLink.trim()),
-    });
-    setFollowupAfterRegistration(pack.followupAfterRegistration);
-    setFollowupAfterHourNoRegistration(pack.followupAfterHourNoRegistration);
-    setFollowupDayAfterTrial(pack.followupDayAfterTrial);
+    setWhatsappIdleFollowupMessage(
+      buildDefaultWhatsAppIdleFollowup({
+        botName: botName.trim() || "זואי",
+        businessName: name.trim() || displayNameFromSlug(slug),
+        niche: niche.trim(),
+        vibeLabels: vibe,
+        serviceNames: services.map((s) => s.name.trim()).filter(Boolean),
+        address: address.trim(),
+        tagline: businessTagline.trim(),
+        hasBookingLink: Boolean(arboxLink.trim()),
+      })
+    );
   }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
@@ -2352,8 +2349,8 @@ export default function SlugSettingsPage() {
               <CardTitle>
                 <StepHeader
                   n={5}
-                  title="פולואפ"
-                  desc="ברירת המחדל נוצרת לפי שם הבוט, סגנון דיבור, אימוני ניסיון וכתובת. זואי בצ'אט ובווטסאפ תמיד: עונה מהמידע במסלול המכירה, מוסיפה שאלת המשך, ואז 2–4 אפשרויות ממוספרות (כמו כפתורים) — גם אחרי שאלה פתוחה — כדי לקדם שריון לשיעור ניסיון."
+                  title="פולואפ ווטסאפ"
+                  desc="הודעה אחת בלבד ללקוח שלא הגיב מעל ליום — נשלחת אוטומטית למחרת בבוקר (סביבות 11:00 לפי שעון ישראל, דרך סליחוס יומי). פולואפ אחרי הרשמה לשיעור ניסיון מוגדר בשלב «מסלול מכירה». זואי בצ'אט ובווטסאפ: עונה מהמידע במסלול המכירה, מוסיפה שאלת המשך ואפשרויות ממוספרות."
                 />
               </CardTitle>
             </CardHeader>
@@ -2369,30 +2366,15 @@ export default function SlugSettingsPage() {
                   חידוש טקסטים לפי העסק וסגנון
                 </Button>
               </div>
-              <Field label="פולואפ לאחר הרשמה">
+              <Field label="הודעת פולואפ למחרת בבוקר (ליד שאינו מגיב)">
                 <Textarea
-                  value={followupAfterRegistration}
-                  onChange={setFollowupAfterRegistration}
-                  rows={8}
+                  value={whatsappIdleFollowupMessage}
+                  onChange={setWhatsappIdleFollowupMessage}
+                  rows={10}
+                  placeholder="בוקר טוב 🙂 …"
                 />
-              </Field>
-
-              <Field label="פולואפ אחרי שעה אם לא נרשם">
-                <Textarea
-                  value={followupAfterHourNoRegistration}
-                  onChange={setFollowupAfterHourNoRegistration}
-                  rows={5}
-                />
-              </Field>
-
-              <Field label="פולואפ יום אחרי שיעור הניסיון">
-                <Textarea
-                  value={followupDayAfterTrial}
-                  onChange={setFollowupDayAfterTrial}
-                  rows={5}
-                />
-                <p className="text-[11px] text-zinc-500">
-                  הערה: בעתיד המועד (יום אחרי שיעור הניסיון) יישאב אוטומטית מארבוקס.
+                <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  אם השדה ריק, המערכת תשתמש בטקסט ה-CTA של העסק. מומלץ למלא טקסט חם וקצר — בלי רשימות נקודות ארוכות.
                 </p>
               </Field>
             </CardContent>

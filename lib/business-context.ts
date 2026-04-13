@@ -49,9 +49,8 @@ export type BusinessKnowledgePack = {
   welcomeQuestionText: string;
   welcomeOptionLabels: string[];
   salesFlowBlocks: SalesFlowBlockPack[];
-  followupAfterRegistration: string;
-  followupAfterHourNoRegistration: string;
-  followupDayAfterTrial: string;
+  /** הודעת פולואפ ווטסאפ אוטומטית לליד שאינו מגיב (למחרת בבוקר) */
+  whatsappIdleFollowupMessage: string;
   membershipsAndCardsText: string;
   salesFlowConfig: SalesFlowConfig | null;
   salesFlowPromptSection: string;
@@ -233,14 +232,20 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         x !== null && Boolean(x.intro || x.question || x.options.length > 0)
       );
 
-    const followupAfterRegistration =
-      typeof social.followup_after_registration === "string" ? social.followup_after_registration.trim() : "";
-    const followupAfterHourNoRegistration =
-      typeof social.followup_after_hour_no_registration === "string"
-        ? social.followup_after_hour_no_registration.trim()
-        : "";
-    const followupDayAfterTrial =
-      typeof social.followup_day_after_trial === "string" ? social.followup_day_after_trial.trim() : "";
+    const whatsappIdleFollowupMessage = (() => {
+      const key =
+        typeof social.whatsapp_idle_followup_message === "string"
+          ? social.whatsapp_idle_followup_message.trim()
+          : "";
+      if (key) return key;
+      const legacyHour =
+        typeof social.followup_after_hour_no_registration === "string"
+          ? social.followup_after_hour_no_registration.trim()
+          : "";
+      const legacyTrial =
+        typeof social.followup_day_after_trial === "string" ? social.followup_day_after_trial.trim() : "";
+      return legacyHour || legacyTrial;
+    })();
 
     const serviceNamesForOpening = (services ?? [])
       .map((s) => String(s.name ?? "").trim())
@@ -304,9 +309,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       welcomeQuestionText: typeof social.welcome_question === "string" ? social.welcome_question : "",
       welcomeOptionLabels,
       salesFlowBlocks,
-      followupAfterRegistration,
-      followupAfterHourNoRegistration,
-      followupDayAfterTrial,
+      whatsappIdleFollowupMessage,
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
@@ -328,14 +331,9 @@ function formatSalesFlowBlocksForPrompt(blocks: SalesFlowBlockPack[]): string {
 }
 
 function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
-  if (!k) return "";
-  const parts: string[] = [];
-  if (k.followupAfterRegistration) parts.push(`אחרי הרשמה:\n${k.followupAfterRegistration.slice(0, 400)}`);
-  if (k.followupAfterHourNoRegistration)
-    parts.push(`אחרי שעה בלי הרשמה:\n${k.followupAfterHourNoRegistration.slice(0, 350)}`);
-  if (k.followupDayAfterTrial) parts.push(`אחרי שיעור ניסיון:\n${k.followupDayAfterTrial.slice(0, 350)}`);
-  if (!parts.length) return "";
-  return `\nדוגמאות טון מהודעות פולואפ שהוגדרו במערכת (שמרי על שפה עקבית; אל תחזירי את הטקסט הזה כולו כתשובה שגרתית):\n${parts.join("\n---\n")}\n`;
+  if (!k?.whatsappIdleFollowupMessage?.trim()) return "";
+  const t = k.whatsappIdleFollowupMessage.trim().slice(0, 450);
+  return `\nדוגמה לטון מהודעת הפולואפ האוטומטית בווטסאפ (למחרת בבוקר לליד שאינו מגיב; שמרי על שפה עקבית; אל תחזירי את הטקסט כולו כתשובה שגרתית):\n${t}\n`;
 }
 
 function formatUnknownKnowledgeBlock(phoneDisplay: string): string {
