@@ -2,6 +2,7 @@ import { resolveArboxMembershipApiPathCandidates } from "@/lib/server-env";
 import {
   ARBOX_PUBLIC_API_BASE_FIXED,
   arboxFetchMembershipTypes,
+  pickMonthlySessionsFromArboxMembershipRow,
   type ArboxMembershipTier,
   type ArboxPunchCard,
 } from "@/lib/arbox-public-api";
@@ -120,13 +121,7 @@ function itemToTier(o: Record<string, unknown>): ArboxMembershipTier {
       "priceFormatted",
       "display_price",
     ]),
-    monthly_sessions: pickStr(o, [
-      "monthly_sessions",
-      "sessions_per_month",
-      "classes_per_month",
-      "entries_per_month",
-      "sessionsPerMonth",
-    ]),
+    monthly_sessions: pickMonthlySessionsFromArboxMembershipRow(o),
     notes: pickStr(o, ["notes", "description", "details", "subtitle"]),
   };
 }

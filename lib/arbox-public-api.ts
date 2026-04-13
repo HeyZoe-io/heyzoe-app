@@ -58,6 +58,73 @@ function pickStr(o: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
+/** מפתחות אפשריים ל־/v3/membershipTypes (Arbox — שמות שונים בין סביבות). */
+const ARBOX_MEMBERSHIP_MONTHLY_SESSION_KEYS: string[] = [
+  "monthly_sessions",
+  "sessions_per_month",
+  "classes_per_month",
+  "entries_per_month",
+  "sessionsPerMonth",
+  "classesPerMonth",
+  "entriesPerMonth",
+  "SessionsPerMonth",
+  "monthlySessions",
+  "monthly_session_count",
+  "monthlySessionCount",
+  "sessions_in_month",
+  "sessionsInMonth",
+  "numberOfSessions",
+  "NumberOfSessions",
+  "number_of_sessions_in_month",
+  "num_of_sessions_in_month",
+  "sessionsAmount",
+  "SessionsAmount",
+  "sessions_amount",
+  "monthlySessionsAmount",
+  "monthly_sessions_amount",
+  "max_sessions_per_month",
+  "maxSessionsPerMonth",
+  "included_sessions",
+  "includedSessions",
+  "sessionPerMonth",
+  "session_per_month",
+  "month_entries",
+  "monthEntries",
+  "MonthEntries",
+  "entriesPerMonth",
+  "monthly_entries",
+  "monthlyEntries",
+  "quota_monthly",
+  "monthly_quota",
+  "sessions_quota",
+];
+
+/**
+ * מחפש מגבלת אימונים חודשית בשורת membershipTypes — כולל שדות מקוננים (למשל תחת limits/settings).
+ */
+export function pickMonthlySessionsFromArboxMembershipRow(o: Record<string, unknown>): string {
+  const seen = new WeakSet<object>();
+
+  function walk(obj: Record<string, unknown>, depth: number): string {
+    if (depth > 4) return "";
+    if (seen.has(obj)) return "";
+    seen.add(obj);
+
+    const direct = pickStr(obj, ARBOX_MEMBERSHIP_MONTHLY_SESSION_KEYS);
+    if (direct) return direct;
+
+    for (const v of Object.values(obj)) {
+      if (v != null && typeof v === "object" && !Array.isArray(v)) {
+        const inner = walk(v as Record<string, unknown>, depth + 1);
+        if (inner) return inner;
+      }
+    }
+    return "";
+  }
+
+  return walk(o, 0);
+}
+
 function unwrapArboxPayload(json: unknown): unknown {
   if (json && typeof json === "object" && "data" in json) {
     return (json as { data: unknown }).data;
@@ -273,15 +340,7 @@ function membershipItemToTier(o: Record<string, unknown>): ArboxMembershipTier {
       "display_price",
       "priceFormatted",
     ]),
-    monthly_sessions: pickStr(o, [
-      "monthly_sessions",
-      "sessions_per_month",
-      "classes_per_month",
-      "sessionsAmount",
-      "entries_per_month",
-      "sessionsPerMonth",
-      "numberOfSessions",
-    ]),
+    monthly_sessions: pickMonthlySessionsFromArboxMembershipRow(o),
     notes: pickStr(o, ["notes", "description", "details", "subtitle", "comment"]),
   };
 }
