@@ -6,7 +6,7 @@ import {
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
 
-type PreviewStep = 1 | 2 | 3 | 4 | 5 | 6;
+type PreviewStep = 1 | 2 | 3 | 4 | 5;
 
 type Props = {
   step: PreviewStep;
@@ -83,7 +83,7 @@ export function WhatsAppSettingsPreview({
     }));
 
   const openingSections =
-    step === 4
+    step === 3
       ? getWhatsAppOpeningPreviewSections(
           salesFlowConfig,
           trialServices,
@@ -104,7 +104,7 @@ export function WhatsAppSettingsPreview({
       (st) => st.question.trim() || st.options.some((o) => o.trim())
     );
 
-  const step4HasContent =
+  const step3HasContent =
     !!openingMediaUrl ||
     openingSections.length > 0 ||
     hasOpeningExtras ||
@@ -123,7 +123,7 @@ export function WhatsAppSettingsPreview({
         </div>
 
         <div
-          className={`p-2 space-y-1.5 min-h-[280px] overflow-y-auto ${step === 4 ? "max-h-[520px]" : "max-h-[420px]"}`}
+          className={`p-2 space-y-1.5 min-h-[280px] overflow-y-auto ${step === 3 ? "max-h-[520px]" : "max-h-[420px]"}`}
         >
           {step === 1 && (
             <>
@@ -171,12 +171,6 @@ export function WhatsAppSettingsPreview({
           )}
 
           {step === 3 && (
-            <Bubble from="bot">
-              <span className="text-zinc-600">מנויים וכרטיסיות — לפי ההגדרות</span>
-            </Bubble>
-          )}
-
-          {step === 4 && (
             <>
               {openingMediaUrl ? (
                 <div className="flex justify-start">
@@ -282,7 +276,7 @@ export function WhatsAppSettingsPreview({
                         )
                     )}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      סוגי כפתור: שיעור קרוב (Arbox) · הרשמה לניסיון · מערכת שעות · מחירי מנויים
+                      סוגי כפתור: שיעור קרוב (Arbox) · הרשמה לניסיון · מערכת שעות · קישור מנויים
                     </p>
                   </div>
                 ) : null}
@@ -335,7 +329,7 @@ export function WhatsAppSettingsPreview({
                 )}
               </div>
 
-              {!step4HasContent ? (
+              {!step3HasContent ? (
                 <Bubble from="bot">
                   <span className="text-zinc-500">הגדירו מסלול מכירה — מדיה, טקסטים ואימוני ניסיון</span>
                 </Bubble>
@@ -343,13 +337,13 @@ export function WhatsAppSettingsPreview({
             </>
           )}
 
-          {step === 5 && (
+          {step === 4 && (
             <Bubble from="bot">
               <span className="text-zinc-600">חיבור פייסבוק ופיקסל — אין הודעת צ׳אט כאן</span>
             </Bubble>
           )}
 
-          {step === 6 && (
+          {step === 5 && (
             <>
               {followupAfterRegistration.trim() && <Bubble from="bot">{followupAfterRegistration.trim()}</Bubble>}
               {followupAfterHourNoRegistration.trim() && (

@@ -785,6 +785,26 @@ async function processIncoming(
         return;
       }
 
+      const memBtn = ctaBs.find((b) => b.kind === "memberships");
+      const wantsMemberships = memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false;
+      if (wantsMemberships) {
+        const mu = knowledge?.membershipsUrl?.trim() ?? "";
+        const txt = mu.length
+          ? `מחירי מנויים וכרטיסיות:\n${mu}`
+          : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send memberships reply failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: mu.length ? "sales_flow_memberships_link" : "sales_flow_memberships_fallback",
+          session_id: sessionId,
+        });
+        return;
+      }
+
       if (wantsNext) {
         const serviceName =
           salesFlowServices.length === 1
