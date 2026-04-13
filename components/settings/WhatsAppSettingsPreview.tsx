@@ -222,7 +222,7 @@ export function WhatsAppSettingsPreview({
                         </p>
                       </Bubble>
                       <p className="text-[8px] text-zinc-500 text-right px-0.5 leading-tight">
-                        דוגמה אחרי בחירת אימון (שם ותיאור מהאימון הראשון בהגדרות)
+                        דוגמה אחרי בחירת אימון (שם ותיאור מהאימון הראשון במסלול המכירה)
                       </p>
                     </>
                   ) : null}
@@ -231,7 +231,7 @@ export function WhatsAppSettingsPreview({
 
               {trialServices.length > 3 ? (
                 <p className="text-[9px] text-amber-900/90 text-right px-1 leading-snug bg-amber-50/90 rounded-md py-1 border border-amber-200/80">
-                  מעל 3 אימונים: בפועל נשלחת רשימה ממוספרת — כאן מוצגת דוגמה לפי ההגדרות.
+                  מעל 3 אימונים: בפועל נשלחת רשימה ממוספרת — כאן מוצגת דוגמה לפי מסלול המכירה.
                 </p>
               ) : null}
 
@@ -325,7 +325,7 @@ export function WhatsAppSettingsPreview({
                   ) : null
                 )}
                 {!hasCtaPreview && (
-                  <p className="text-[9px] text-zinc-500 text-right">מלאו גוף וכפתורי הנעה לפעולה בהגדרות</p>
+                  <p className="text-[9px] text-zinc-500 text-right">מלאו גוף וכפתורי הנעה לפעולה במסלול המכירה</p>
                 )}
               </div>
 

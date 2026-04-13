@@ -54,7 +54,7 @@ export function getWhatsAppOpeningBodyAndMenuLabels(k: BusinessKnowledgePack): {
   return { body: bodyLines.join("\n\n"), menuLabels: [...built.options] };
 }
 
-/** טקסט הודעת פתיחה לווטסאפ — לפי ההגדרות בדשבורד, או טמפלייט */
+/** טקסט הודעת פתיחה לווטסאפ — לפי מסלול המכירה בדשבורד, או טמפלייט */
 export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
   if (k.salesFlowConfig) {
     const body = buildWhatsAppOpeningBody(

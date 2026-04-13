@@ -16,7 +16,7 @@ type Member = {
 };
 
 const roleHelp: Record<Member["role"], string> = {
-  admin: "גישה לכל הדשבורד (שיחות, אנליטיקס, הגדרות).",
+  admin: "גישה לכל הדשבורד (שיחות, אנליטיקס, מסלול מכירה).",
   employee: "גישה לדף שיחות בלבד.",
 };
 
