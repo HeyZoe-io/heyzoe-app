@@ -60,6 +60,7 @@ function pickStr(o: Record<string, unknown>, keys: string[]): string {
 
 /** מפתחות אפשריים ל־/v3/membershipTypes (Arbox — שמות שונים בין סביבות). */
 const ARBOX_MEMBERSHIP_MONTHLY_SESSION_KEYS: string[] = [
+  "sessions",
   "monthly_sessions",
   "sessions_per_month",
   "classes_per_month",
