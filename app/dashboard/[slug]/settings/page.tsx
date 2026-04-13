@@ -1491,10 +1491,7 @@ export default function SlugSettingsPage() {
                 </p>
               ) : null}
 
-              <Field
-                label="מפתח API ארבוקס"
-                description="לסנכרון לוח שיעורים וקטגוריות לזואי, ולפעולות ארבוקס בשיחה (ניסיון, לידים וכו׳)."
-              >
+              <Field label="מפתח API ארבוקס" description="סנכרון בין זואי לבין ארבוקס">
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
@@ -1559,9 +1556,6 @@ export default function SlugSettingsPage() {
 
               <Field label="לינק מערכת שעות / Arbox (אופציונלי)">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  ללקוחות בצ&apos;אט. סנכרון הלוח לזואי נעשה דרך מפתח ה-API הציבורי; קישור לא חובה.
-                </p>
               </Field>
 
               <Field label="קישור לדף מנויים וכרטיסיות">
@@ -1592,9 +1586,6 @@ export default function SlugSettingsPage() {
                     onChange={(e) => setInstagramUrl(e.target.value)}
                   />
                 </div>
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  משמש גם לשורת האינסטגרם אחרי הרשמה לניסיון (במסלול המכירה), כשמופיע המציין {"{instagram_cta}"}.
-                </p>
               </Field>
             </CardContent>
           </Card>
