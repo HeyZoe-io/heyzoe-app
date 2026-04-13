@@ -22,7 +22,15 @@ import { getArboxWhatsappPromptAppend } from "@/lib/arbox-whatsapp-context";
 import { arboxNextTrialClassHebrewLineOnly } from "@/lib/arbox-public-api";
 import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
-import { fillAfterServicePickTemplate } from "@/lib/sales-flow";
+import {
+  defaultSalesFlowConfig,
+  fillAfterServicePickTemplate,
+  formatAfterTrialRegistrationForWhatsAppDelivery,
+  matchesTrialRegisteredMessage,
+} from "@/lib/sales-flow";
+
+const TRIAL_LINK_POST_CTA_MESSAGE =
+  "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
@@ -499,6 +507,81 @@ async function processIncoming(
     }
   }
 
+  // Trial registration keyword → update contact + send after-trial template (no Claude)
+  if (msg.type === "text" && businessId && knowledge) {
+    const rawTrimmed = msg.text.trim();
+    if (matchesTrialRegisteredMessage(rawTrimmed)) {
+      try {
+        let alreadyRegistered = false;
+        const sel = await supabase
+          .from("contacts")
+          .select("trial_registered")
+          .eq("business_id", businessId)
+          .eq("phone", msg.from)
+          .maybeSingle();
+        if (sel.error) {
+          console.warn("[WA Webhook] trial_registered select:", sel.error.message);
+        } else if ((sel.data as { trial_registered?: boolean } | null)?.trial_registered === true) {
+          alreadyRegistered = true;
+        }
+
+        if (alreadyRegistered) {
+          const repeatTxt =
+            "כבר שלחנו את הוראות ההמשך. אם משהו חסר — כתבו כאן ונעזור 😊";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, repeatTxt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send trial-registered repeat reply failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: repeatTxt,
+            model_used: "trial_registered_repeat_ack",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        const bodyTemplate =
+          knowledge.salesFlowConfig?.after_trial_registration_body?.trim() ||
+          defaultSalesFlowConfig(knowledge.vibeLabels ?? []).after_trial_registration_body;
+
+        const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
+          bodyTemplate,
+          knowledge.instagramUrl ?? "",
+          knowledge.addressText ?? "",
+          knowledge.directionsText ?? ""
+        );
+        const outText =
+          delivered.trim().length > 0
+            ? delivered
+            : "תודה על ההרשמה! נתראה באימון 🎉";
+
+        const { error: upErr } = await supabase
+          .from("contacts")
+          .update({ trial_registered: true, trial_registered_at: nowIso })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        if (upErr) {
+          console.warn("[WA Webhook] trial_registered update failed:", upErr.message);
+        }
+
+        await sendWhatsAppMessage(msg.toNumber, msg.from, outText, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send after-trial registration body failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: outText,
+          model_used: "sales_flow_after_trial_registered",
+          session_id: sessionId,
+        });
+        return;
+      } catch (e) {
+        console.warn("[WA Webhook] trial_registered flow failed (continuing to normal handling):", e);
+      }
+    }
+  }
+
   const shouldRunArboxSide =
     msg.type === "text" &&
     businessId &&
@@ -735,10 +818,14 @@ async function processIncoming(
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send trial link failed:", e)
         );
+        await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
+          (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
+        );
+        const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
         await logMessage({
           business_slug,
           role: "assistant",
-          content: txt,
+          content: logged,
           model_used: "sales_flow_trial_link",
           session_id: sessionId,
         });
