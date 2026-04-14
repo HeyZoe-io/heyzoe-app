@@ -1128,7 +1128,7 @@ export default function SlugSettingsPage() {
 
   // ─── Fetch site ────────────────────────────────────────────────────────────
 
-  async function fetchSite() {
+  async function fetchSite(nextStepAfterScan = 2) {
     if (!websiteUrl) return;
     setFetchingUrl(true);
     setFetchSiteError("");
@@ -1211,7 +1211,7 @@ export default function SlugSettingsPage() {
       if (Array.isArray(j.products) && j.products.length > 0) {
         setServices(trialServicesFromSiteProducts(j.products, addrFallback));
       }
-      setStep(2);
+      setStep(nextStepAfterScan);
     } finally {
       setFetchingUrl(false);
     }
@@ -1444,7 +1444,7 @@ export default function SlugSettingsPage() {
                     onChange={e => setWebsiteUrl(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && fetchSite()}
                   />
-                  <Button onClick={fetchSite} disabled={!websiteUrl || fetchingUrl} className="shrink-0 gap-2">
+                  <Button onClick={() => void fetchSite()} disabled={!websiteUrl || fetchingUrl} className="shrink-0 gap-2">
                     {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     {fetchingUrl ? "סורק..." : "סרוק"}
                   </Button>
@@ -1626,7 +1626,7 @@ export default function SlugSettingsPage() {
                 />
               </Field>
 
-              <Field label="טלפון לשירות לקוחות">
+              <Field label="טלפון לשירות לקוחות" description="במידה וזואי לא תדע לענות.">
                 <Input
                   dir="ltr"
                   className="font-mono text-sm"
@@ -1637,9 +1637,6 @@ export default function SlugSettingsPage() {
                   inputMode="tel"
                   autoComplete="tel"
                 />
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  במידה וזואי לא תדע לענות.
-                </p>
               </Field>
 
               <Field label="הנחיות הגעה">
@@ -1728,10 +1725,11 @@ export default function SlugSettingsPage() {
                   type="button"
                   variant="outline"
                   className="gap-2 h-10 text-sm mx-auto shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
-                  onClick={() => setStep(1)}
+                  onClick={() => void fetchSite(3)}
+                  disabled={!websiteUrl.trim() || fetchingUrl}
                 >
-                  <Link className="h-4 w-4" />
-                  סריקה מהאתר נמצאת ב«לינקים חשובים»
+                  {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
                 </Button>
                 <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
                   {!websiteUrl.trim()
