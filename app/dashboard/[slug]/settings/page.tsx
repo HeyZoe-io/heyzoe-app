@@ -356,9 +356,7 @@ export default function SlugSettingsPage() {
   const [fetchingUrl, setFetchingUrl]         = useState(false);
   const [fetchSiteError, setFetchSiteError]   = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
-  const [salesFlowRegenerating, setSalesFlowRegenerating] = useState(false);
-  const [resetSalesFlowConfirmOpen, setResetSalesFlowConfirmOpen] = useState(false);
-  const [salesFlowRegenToast, setSalesFlowRegenToast] = useState(false);
+  // Sales-flow regeneration is now per-section only (no global reset).
   const [fetchingArbox, setFetchingArbox] = useState(false);
   const [fetchArboxError, setFetchArboxError] = useState("");
   const [fetchArboxNotice, setFetchArboxNotice] = useState("");
@@ -998,6 +996,62 @@ export default function SlugSettingsPage() {
     );
   }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
 
+  const regenerateSalesFlowSection = useCallback(
+    (
+      section:
+        | "opening"
+        | "service_pick"
+        | "warmup"
+        | "cta"
+        | "after_trial_registration"
+    ) => {
+      const base = defaultSalesFlowConfig(vibe);
+      setSalesFlowConfig((c) => {
+        if (!c) return base;
+        if (section === "opening") {
+          return {
+            ...c,
+            greeting_body_override: undefined,
+            greeting_opener: base.greeting_opener,
+            greeting_line_name: base.greeting_line_name,
+            greeting_line_tagline: base.greeting_line_tagline,
+            greeting_closer: base.greeting_closer,
+            greeting_extra_steps: structuredClone(base.greeting_extra_steps),
+          };
+        }
+        if (section === "service_pick") {
+          return {
+            ...c,
+            multi_service_question: base.multi_service_question,
+            after_service_pick: base.after_service_pick,
+          };
+        }
+        if (section === "warmup") {
+          return {
+            ...c,
+            experience_question: base.experience_question,
+            experience_options: structuredClone(base.experience_options),
+            after_experience: base.after_experience,
+            opening_extra_steps: structuredClone(base.opening_extra_steps),
+          };
+        }
+        if (section === "cta") {
+          return {
+            ...c,
+            cta_body: base.cta_body,
+            cta_buttons: structuredClone(base.cta_buttons),
+            cta_extra_steps: structuredClone(base.cta_extra_steps),
+            followup_after_next_class_body: base.followup_after_next_class_body,
+            followup_after_next_class_options: structuredClone(base.followup_after_next_class_options),
+            free_chat_invite_reply: base.free_chat_invite_reply,
+          };
+        }
+        return { ...c, after_trial_registration_body: base.after_trial_registration_body };
+      });
+    },
+    [vibe]
+  );
+
   // ─── Media upload ──────────────────────────────────────────────────────────
 
   async function uploadMedia(file: File) {
@@ -1160,124 +1214,6 @@ export default function SlugSettingsPage() {
       setStep(2);
     } finally {
       setFetchingUrl(false);
-    }
-  }
-
-  async function resetAndRegenerateSalesFlow() {
-    setResetSalesFlowConfirmOpen(false);
-    setSalesFlowRegenerating(true);
-    setFetchSiteError("");
-    setFetchSiteNotice("");
-    setSaveErr("");
-    let j: Record<string, unknown> = {};
-    try {
-      if (websiteUrl.trim()) {
-        try {
-          const res = await fetch("/api/dashboard/fetch-site", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ website_url: websiteUrl, business_name: name, niche }),
-          });
-          try {
-            j = (await res.json()) as Record<string, unknown>;
-          } catch {
-            setFetchSiteError("תשובת שרת לא תקינה.");
-            j = {};
-          }
-
-          const errStr = typeof j.error === "string" ? j.error : "";
-          const msgStr = typeof j.message === "string" ? j.message.trim() : "";
-
-          if (!res.ok) {
-            const friendly =
-              errStr === "unauthorized"
-                ? "נדרשת התחברות מחדש."
-                : errStr === "missing_website_url"
-                  ? "חסרה כתובת אתר."
-                  : errStr === "missing_anthropic_key"
-                    ? "חסר מפתח AI בשרת — פנו לתמיכה."
-                    : errStr === "ai_parse_failed"
-                      ? "לא ניתן לעבד את תוצאת הסריקה. נסו שוב."
-                      : msgStr ||
-                        (errStr === "blocked_auto_scraping"
-                          ? "האתר חוסם סריקה אוטומטית — מלאו את השדות ידנית."
-                          : `הסריקה נכשלה (${res.status}).`);
-            setFetchSiteError(friendly);
-            const hasPayload =
-              Boolean(j.niche) ||
-              Boolean(j.tagline) ||
-              Boolean(j.business_description) ||
-              (Array.isArray(j.business_traits) && j.business_traits.length > 0) ||
-              (Array.isArray(j.products) && j.products.length > 0);
-            if (!hasPayload) {
-              j = {};
-            }
-          }
-
-          if (typeof j.warning === "string" && j.warning && msgStr) {
-            setFetchSiteNotice(msgStr);
-          }
-        } catch {
-          setFetchSiteError("בעיית רשת בסריקת האתר.");
-          j = {};
-        }
-      }
-
-      const addrFallback =
-        (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
-
-      const nextServices =
-        Array.isArray(j.products) && j.products.length > 0
-          ? trialServicesFromSiteProducts(j.products, addrFallback)
-          : [];
-
-      flushSync(() => {
-        setSalesFlowConfig(defaultSalesFlowConfig(vibe));
-        setSegQuestions([]);
-        setServices(nextServices);
-
-        const bn =
-          (typeof j.business_name === "string" && j.business_name.trim()) ||
-          (typeof j.businessName === "string" && j.businessName.trim());
-        if (bn) {
-          setName(String(bn).trim());
-          setBusinessNameEditing(false);
-        }
-
-        if (typeof j.niche === "string" && j.niche.trim()) setNiche(j.niche.trim());
-        const tag =
-          (typeof j.tagline === "string" && j.tagline.trim()) ||
-          (typeof j.business_description === "string" && j.business_description.trim()) ||
-          "";
-        if (tag) setBusinessTagline(tag.split("\n")[0].trim());
-        if (typeof j.address === "string" && j.address.trim()) setAddress(j.address.trim());
-        if (typeof j.directions === "string" && j.directions.trim()) setDirections(j.directions.trim());
-        const book =
-          (typeof j.schedule_booking_url === "string" && j.schedule_booking_url.trim()) ||
-          (typeof j.schedule_url === "string" && j.schedule_url.trim()) ||
-          "";
-        if (book) setArboxLink(book);
-        const scannedTraits = Array.isArray(j.business_traits)
-          ? j.business_traits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-          : [];
-        if (scannedTraits.length) setTraits(normalizeTraitsState(scannedTraits));
-      });
-
-      const saveRes = await fetch("/api/dashboard/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(getSavePayloadRef.current()),
-      });
-      if (!saveRes.ok) {
-        setSaveErr(await readSaveErrorFromResponse(saveRes));
-        return;
-      }
-      setSalesFlowRegenToast(true);
-      window.setTimeout(() => setSalesFlowRegenToast(false), 4000);
-      setAutosaveStatus("idle");
-      setAutoSaveErr("");
-    } finally {
-      setSalesFlowRegenerating(false);
     }
   }
 
@@ -1792,15 +1728,14 @@ export default function SlugSettingsPage() {
                   type="button"
                   variant="outline"
                   className="gap-2 h-10 text-sm mx-auto shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
-                  onClick={() => void fetchSite()}
-                  disabled={!websiteUrl.trim() || fetchingUrl}
+                  onClick={() => setStep(1)}
                 >
-                  {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {fetchingUrl ? "סורק..." : "סרוק שוב מהאתר"}
+                  <Link className="h-4 w-4" />
+                  סריקה מהאתר נמצאת ב«לינקים חשובים»
                 </Button>
                 <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
                   {!websiteUrl.trim()
-                    ? "הוסיפו כתובת אתר בטאב «פרטי העסק» ולחצו «סרוק» כדי למלא את הרשימה."
+                    ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
                     : ""}
                 </p>
               </div>
@@ -2021,31 +1956,19 @@ export default function SlugSettingsPage() {
                 />
               </div>
 
-              <div className="flex justify-start border-t border-dashed border-zinc-200 pt-5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  aria-label="Reset and regenerate sales flow"
-                  className="gap-1 text-xs py-1.5 px-3 h-auto text-red-800/90 border-red-200 bg-white hover:bg-red-50"
-                  disabled={
-                    salesFlowRegenerating || !settingsHydrated || saving || fetchingUrl
-                  }
-                  onClick={() => setResetSalesFlowConfirmOpen(true)}
-                >
-                  {salesFlowRegenerating ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-3.5 w-3.5" />
-                  )}
-                  Reset & Regenerate
-                </Button>
-              </div>
-              <p className="text-[11px] text-zinc-400 leading-snug text-right max-w-md mr-auto">
-                מוחק את אימוני הניסיון והמסלול הנוכחי, מריץ סריקת אתר מחדש (אם הוזן אתר בשלב 1) ושומר ברירת מחדל לפי סגנון הדיבור.
-              </p>
-
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1 text-xs py-1.5 px-3 h-auto"
+                    onClick={() => regenerateSalesFlowSection("opening")}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    ג׳נרט מחדש
+                  </Button>
+                </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
                   <p className="text-xs text-zinc-600 leading-relaxed text-right">
                     אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳…
@@ -2069,6 +1992,18 @@ export default function SlugSettingsPage() {
               </div>
 
               <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-zinc-900 text-right">אחרי בחירת אימון</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1 text-xs py-1.5 px-3 h-auto"
+                    onClick={() => regenerateSalesFlowSection("service_pick")}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    ג׳נרט מחדש
+                  </Button>
+                </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   {trialServiceNames.length > 1 ? (
                     <>
@@ -2161,7 +2096,18 @@ export default function SlugSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1 text-xs py-1.5 px-3 h-auto"
+                    onClick={() => regenerateSalesFlowSection("warmup")}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    ג׳נרט מחדש
+                  </Button>
+                </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
                     מומלץ לא יותר מ־1–3 שאלות. בתום סשן החימום זואי תעבור אוטומטית לסשן הנעה לפעולה.
@@ -2248,7 +2194,18 @@ export default function SlugSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1 text-xs py-1.5 px-3 h-auto"
+                    onClick={() => regenerateSalesFlowSection("cta")}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    ג׳נרט מחדש
+                  </Button>
+                </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
                   אחרי שאלת ניסיון קודם: גוף ההודעה ושלושה כפתורים. «מתי השיעור קרוב?» מושך מועד מ-Arbox לפי השירות שנבחר (בלי קישור). אחרי המענה נשלחת הודעה שנייה עם תפריט המשך (ניתן לערוך למטה).
@@ -2354,9 +2311,20 @@ export default function SlugSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900 text-right">
-                  אחרי הרשמה לשיעור ניסיון
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-zinc-900 text-right">
+                    אחרי הרשמה לשיעור ניסיון
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1 text-xs py-1.5 px-3 h-auto"
+                    onClick={() => regenerateSalesFlowSection("after_trial_registration")}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    ג׳נרט מחדש
+                  </Button>
+                </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
                     כתובת והגעה: זואי ממלאת מ«פרטי העסק» בידע. אפשר לסיים ב־{"{instagram_cta}"} — יוחלף ב־«מוזמנים לבקר
@@ -2503,54 +2471,6 @@ export default function SlugSettingsPage() {
           )}
         </div>
 
-        {resetSalesFlowConfirmOpen ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl" dir="rtl">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-base font-semibold text-zinc-900">איפוס מסלול מכירה</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">הפעולה תישמר בשרת מיד אחרי האישור</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setResetSalesFlowConfirmOpen(false)}
-                  className="rounded-full p-1 text-zinc-500 hover:text-zinc-800 cursor-pointer shrink-0"
-                  aria-label="סגור"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <p className="mt-4 text-sm text-zinc-700 leading-relaxed">
-                האם את/ה בטוח/ה? פעולה זו תמחק את כל מסלול המכירה הנוכחי ותייצר חדש
-              </p>
-              <div className="mt-5 flex flex-wrap justify-start gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-zinc-300"
-                  disabled={salesFlowRegenerating}
-                  onClick={() => setResetSalesFlowConfirmOpen(false)}
-                >
-                  ביטול
-                </Button>
-                <Button
-                  type="button"
-                  className="gap-1.5 bg-red-600 hover:bg-red-600/90 text-white border-0 shadow-sm"
-                  disabled={salesFlowRegenerating || !settingsHydrated}
-                  onClick={() => void resetAndRegenerateSalesFlow()}
-                >
-                  {salesFlowRegenerating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-4 w-4" />
-                  )}
-                  {salesFlowRegenerating ? "מייצר מחדש…" : "אישור איפוס"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {showTokenHelp ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
@@ -2583,11 +2503,6 @@ export default function SlugSettingsPage() {
         {savedOk && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-500 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2 z-50">
             <Check className="h-4 w-4" /> נשמר בהצלחה!
-          </div>
-        )}
-        {salesFlowRegenToast && (
-          <div className="fixed bottom-16 left-1/2 -translate-x-1/2 bg-zinc-800 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2 z-50">
-            <Check className="h-4 w-4" /> מסלול המכירה אופס ונוצר מחדש
           </div>
         )}
       </div>
