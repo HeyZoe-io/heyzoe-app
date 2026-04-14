@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   verifyTwilioSignature,
   parseTwilioWebhook,
@@ -19,18 +20,19 @@ import {
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
 import { getArboxWhatsappPromptAppend } from "@/lib/arbox-whatsapp-context";
-import { arboxNextTrialClassHebrewLineOnly } from "@/lib/arbox-public-api";
 import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import {
   defaultSalesFlowConfig,
   fillAfterServicePickTemplate,
+  fillCtaBodyTemplate,
   formatAfterTrialRegistrationForWhatsAppDelivery,
   matchesTrialRegisteredMessage,
 } from "@/lib/sales-flow";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
+const GEMINI_WHATSAPP_MODEL = "gemini-1.5-flash" as const;
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
@@ -478,7 +480,7 @@ async function processIncoming(
   // Build context
   const knowledge = await getBusinessKnowledgePack(business_slug);
 
-  type SfServiceRow = { name: string; benefit: string };
+  type SfServiceRow = { name: string; benefit: string; priceText: string; durationText: string };
   let salesFlowServices: SfServiceRow[] = [];
   if (knowledge?.salesFlowConfig && businessId) {
     try {
@@ -491,13 +493,17 @@ async function processIncoming(
       salesFlowServices = (services ?? [])
         .map((s: { name?: unknown; description?: unknown }) => ({
           name: String(s.name ?? "").trim(),
-          benefit: (() => {
+          ...(() => {
             try {
               const raw = String(s.description ?? "");
               const meta = JSON.parse(raw || "{}") as Record<string, unknown>;
-              return String(meta.benefit_line ?? "").trim();
+              return {
+                benefit: String(meta.benefit_line ?? "").trim(),
+                priceText: String(meta.price_text ?? "").trim(),
+                durationText: String(meta.duration ?? "").trim(),
+              };
             } catch {
-              return "";
+              return { benefit: "", priceText: "", durationText: "" };
             }
           })(),
         }))
@@ -756,7 +762,7 @@ async function processIncoming(
     const skipCtaBlockForDigit =
       digitOnlyForCta &&
       lastAssistModelForCta !== "sales_flow_cta" &&
-      lastAssistModelForCta !== "sales_flow_next_class_followup";
+      lastAssistModelForCta !== "sales_flow_post_link_menu";
 
     if (!skipCtaBlockForDigit) {
       try {
@@ -770,7 +776,7 @@ async function processIncoming(
       const fuOptsForNum = follow.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 3);
       const ctaOptsForNum = ctaBs.map((b) => b.label.trim()).filter(Boolean).slice(0, 12);
       const numericScope =
-        lastAssistModelForCta === "sales_flow_next_class_followup"
+        lastAssistModelForCta === "sales_flow_post_link_menu"
           ? fuOptsForNum
           : lastAssistModelForCta === "sales_flow_cta"
             ? ctaOptsForNum
@@ -791,13 +797,39 @@ async function processIncoming(
       const wantsMembershipsByFollow = follow[2] && waLabelMatches(incomingResolved, follow[2]);
       const trialBtn = ctaBs.find((b) => b.kind === "trial");
       const schedBtn = ctaBs.find((b) => b.kind === "schedule");
-      const nextBtn = ctaBs.find((b) => b.kind === "next_class");
+      const memBtn = ctaBs.find((b) => b.kind === "memberships");
 
       const wantsTrial =
         wantsTrialByFollow || (trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
       const wantsSchedule =
         wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false);
-      const wantsNext = nextBtn ? waLabelMatches(incomingResolved, nextBtn.label) : false;
+      const wantsMemberships =
+        wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
+
+      const sendPostLinkMenu = async (): Promise<void> => {
+        const fuBody = cfg.followup_after_next_class_body.trim();
+        const fuOpts = cfg.followup_after_next_class_options.map((x) => String(x ?? "").trim()).filter(Boolean);
+        if (!fuBody || fuOpts.length < 3) return;
+        const menuBody = fuBody;
+        const menuLabels = fuOpts.slice(0, 3);
+        const logged = [
+          menuBody,
+          menuLabels.map((label, index) => `${index + 1}. ${label}`).join("\n"),
+          ZOE_WHATSAPP_MENU_FOOTER,
+        ]
+          .filter((x) => x.length > 0)
+          .join("\n\n");
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, menuBody, menuLabels, accountSid, authToken, {
+          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        }).catch((e) => console.error("[WA Webhook] Send post-link menu failed:", e));
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: logged,
+          model_used: "sales_flow_post_link_menu",
+          session_id: sessionId,
+        });
+      };
 
       if (wantsTrial && trialUrl) {
         const txt = `הרשמה לשיעור ניסיון:\n${trialUrl}`;
@@ -807,6 +839,7 @@ async function processIncoming(
         await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
           (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
         );
+        await sendPostLinkMenu();
         const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
         await logMessage({
           business_slug,
@@ -836,6 +869,7 @@ async function processIncoming(
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send schedule link failed:", e)
         );
+        await sendPostLinkMenu();
         await logMessage({
           business_slug,
           role: "assistant",
@@ -857,18 +891,15 @@ async function processIncoming(
         });
         return;
       }
-
-      const memBtn = ctaBs.find((b) => b.kind === "memberships");
-      const wantsMemberships =
-        wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
       if (wantsMemberships) {
         const mu = knowledge?.membershipsUrl?.trim() ?? "";
         const txt = mu.length
-          ? `מחירי מנויים וכרטיסיות:\n${mu}`
+          ? `מחירי מנויים:\n${mu}`
           : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send memberships reply failed:", e)
         );
+        if (mu.length) await sendPostLinkMenu();
         await logMessage({
           business_slug,
           role: "assistant",
@@ -876,56 +907,6 @@ async function processIncoming(
           model_used: mu.length ? "sales_flow_memberships_link" : "sales_flow_memberships_fallback",
           session_id: sessionId,
         });
-        return;
-      }
-
-      if (wantsNext) {
-        const serviceName =
-          salesFlowServices.length === 1
-            ? salesFlowServices[0]!.name
-            : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-        const arboxKey = knowledge.arboxApiKey?.trim() ?? "";
-        let line1 =
-          "לא מצאנו שיעור ניסיון קרוב מתויג למסלול שבחרתם. אפשר לבחור מועד ממערכת השעות או להירשם לניסיון מהכפתורים למטה.";
-        if (arboxKey && serviceName) {
-          try {
-            const fromAr = await arboxNextTrialClassHebrewLineOnly(arboxKey, serviceName, { useCache: true });
-            if (fromAr.trim()) line1 = fromAr.trim();
-          } catch (e) {
-            console.warn("[WA Webhook] next-class line failed:", e);
-          }
-        } else if (!serviceName && salesFlowServices.length > 1) {
-          line1 =
-            "כדי להציג את השיעור הקרוב, בחרו קודם איזה אימון מעניין אתכם (מהרשימה בהודעה הקודמת).";
-        }
-
-        await sendWhatsAppMessage(msg.toNumber, msg.from, line1, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send next-class line failed:", e)
-        );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: line1,
-          model_used: "sales_flow_next_class",
-          session_id: sessionId,
-        });
-
-        const fuBody = cfg.followup_after_next_class_body.trim();
-        const fuOpts = cfg.followup_after_next_class_options.map((x) => String(x ?? "").trim()).filter(Boolean);
-        if (fuBody && fuOpts.length >= 3) {
-          const fuOut =
-            `${fuBody}\n\n${fuOpts.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
-          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody, fuOpts.slice(0, 3), accountSid, authToken, {
-            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-          }).catch((e) => console.error("[WA Webhook] Send followup CTA failed:", e));
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: fuOut,
-            model_used: "sales_flow_next_class_followup",
-            session_id: sessionId,
-          });
-        }
         return;
       }
       } catch (e) {
@@ -946,8 +927,19 @@ async function processIncoming(
           salesFlowServices.length === 1 ||
           Boolean(await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }));
         if (pickedExp && canExperience) {
+          const selectedServiceName =
+            salesFlowServices.length === 1
+              ? salesFlowServices[0]!.name
+              : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+          const selectedService =
+            salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
           const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
-          const bodyOnly = [cfg.after_experience.trim(), "", cfg.cta_body.trim()]
+          const ctaBody = fillCtaBodyTemplate(
+            cfg.cta_body,
+            selectedService?.priceText ?? "",
+            selectedService?.durationText ?? ""
+          ).trim();
+          const bodyOnly = [cfg.after_experience.trim(), "", ctaBody]
             .filter((x) => x.length > 0)
             .join("\n\n")
             .trim();
@@ -1081,7 +1073,7 @@ async function processIncoming(
     const history = await fetchRecentSessionMessages({
       business_slug,
       session_id: sessionId,
-      limit: 28,
+      limit: 10,
     });
     const claudeMessages =
       history.length > 0
@@ -1097,59 +1089,91 @@ async function processIncoming(
           system: systemPrompt,
           messages: claudeMessages,
         });
-
-      let response: Awaited<ReturnType<typeof runClaude>> | null = null;
-      try {
-        response = await runClaude();
-      } catch (e) {
-        // One quick retry on transient errors (Twilio webhook must stay fast)
-        if (isRetryableClaudeError(e)) {
-          await sleepMs(900);
-          response = await runClaude();
-        } else {
-          throw e;
-        }
-      }
-
-      const extractCombinedText = (resObj: any) => {
-        const textBlocks =
-          Array.isArray(resObj?.content)
-            ? resObj.content
-                .filter(
-                  (b: any) =>
-                    b && typeof b === "object" && b.type === "text" && typeof b.text === "string"
-                )
-                .map((b: any) => String(b.text).trim())
-                .filter(Boolean)
-            : [];
-        return textBlocks.join("\n").trim();
+      const runGemini = async () => {
+        const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+        if (!geminiApiKey) throw new Error("Missing GEMINI_API_KEY");
+        const genAI = new GoogleGenerativeAI(geminiApiKey);
+        const model = genAI.getGenerativeModel({
+          model: GEMINI_WHATSAPP_MODEL,
+          systemInstruction: systemPrompt,
+        });
+        const response = await model.generateContent({
+          contents: claudeMessages.map((m) => ({
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: String(m.content ?? "") }],
+          })),
+        });
+        const text = response.response.text().trim();
+        if (!text) throw new Error("empty response");
+        return text;
       };
 
-      // Some rare Anthropic responses return end_turn with empty content.
-      // Retry once even if no error was thrown.
-      let combinedText = extractCombinedText(response as any);
-      if (!combinedText) {
-        await sleepMs(700);
-        const retryResp = await runClaude();
-        combinedText = extractCombinedText(retryResp as any);
-        response = retryResp;
-      }
+      try {
+        let response: Awaited<ReturnType<typeof runClaude>> | null = null;
+        try {
+          response = await runClaude();
+        } catch (e) {
+          // One quick retry on transient errors (Twilio webhook must stay fast)
+          if (isRetryableClaudeError(e)) {
+            await sleepMs(900);
+            response = await runClaude();
+          } else {
+            throw e;
+          }
+        }
 
-      replyCore = combinedText || formatUserFacingClaudeError(new Error("empty response"));
-      if (!combinedText) {
-        isFallbackErrorReply = true;
-        const types =
-          Array.isArray((response as any)?.content)
-            ? (response as any).content.map((b: any) => String(b?.type ?? "unknown")).join(",")
-            : "no_content";
-        const stopReason = String((response as any)?.stop_reason ?? "");
-        const model = String((response as any)?.model ?? "");
-        const id = String((response as any)?.id ?? "");
-        console.warn("[WA Webhook] Claude empty_response", { id, model, stopReason, types });
-        replyErrorCode = replyErrorCode ?? "empty_response";
+        const extractCombinedText = (resObj: any) => {
+          const textBlocks =
+            Array.isArray(resObj?.content)
+              ? resObj.content
+                  .filter(
+                    (b: any) =>
+                      b && typeof b === "object" && b.type === "text" && typeof b.text === "string"
+                  )
+                  .map((b: any) => String(b.text).trim())
+                  .filter(Boolean)
+              : [];
+          return textBlocks.join("\n").trim();
+        };
+
+        // Some rare Anthropic responses return end_turn with empty content.
+        // Retry once even if no error was thrown.
+        let combinedText = extractCombinedText(response as any);
+        if (!combinedText) {
+          await sleepMs(700);
+          const retryResp = await runClaude();
+          combinedText = extractCombinedText(retryResp as any);
+          response = retryResp;
+        }
+
+        if (!combinedText) {
+          const types =
+            Array.isArray((response as any)?.content)
+              ? (response as any).content.map((b: any) => String(b?.type ?? "unknown")).join(",")
+              : "no_content";
+          const stopReason = String((response as any)?.stop_reason ?? "");
+          const model = String((response as any)?.model ?? "");
+          const id = String((response as any)?.id ?? "");
+          console.warn("[WA Webhook] Claude empty_response", { id, model, stopReason, types });
+          replyErrorCode = replyErrorCode ?? "empty_response";
+          throw new Error("Claude empty response");
+        }
+
+        replyCore = combinedText;
+      } catch (claudeError) {
+        console.error(`[WA Webhook] Claude error for ${business_slug}, falling back to Gemini:`, claudeError);
+        try {
+          replyCore = await runGemini();
+        } catch (geminiError) {
+          console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
+          replyCore = formatUserFacingClaudeError(geminiError);
+          replyErrorCode = extractErrorCode(geminiError);
+          isFallbackErrorReply = true;
+          replyErrorCode = replyErrorCode ?? "claude_failed";
+        }
       }
     } catch (e) {
-      console.error(`[WA Webhook] Claude error for ${business_slug}:`, e);
+      console.error(`[WA Webhook] Claude/Gemini setup error for ${business_slug}:`, e);
       replyCore = formatUserFacingClaudeError(e);
       replyErrorCode = extractErrorCode(e);
       isFallbackErrorReply = true;
