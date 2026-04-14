@@ -29,38 +29,31 @@ function trialLabel(serviceNames: string[], niche: string): string {
   return "שיעור הניסיון";
 }
 
-function morningIdleBody(vibes: string[], bot: string, biz: string, trial: string, hasLink: boolean): string {
+function morningIdleBody(vibes: string[], bot: string, biz: string, _trial: string, _hasLink: boolean): string {
   const v = new Set(vibes);
-  const linkHint = hasLink
-    ? ` אם תרצו — אפשר גם לבחור שעה מהמערכת, ואני כאן לכל שאלה בדרך.`
-    : "";
-  if (v.has("ישיר")) {
+  const isFormal = v.has("יוקרתי") || v.has("מקצועי") || v.has("סמכותי");
+  const isDirect = v.has("ישיר");
+
+  // Keep followup short + consistent (per product decision).
+  if (isFormal) {
+    return `בוקר טוב 🙂 ${bot} מ־${biz}.
+
+רציתי לבדוק אם נשארו שאלות מהשיחה שלנו אתמול, או שתרצו להמשיך לרכישת אימון הניסיון דרך הכפתור ולבחור מועד מתאים.
+
+אני כאן לכל שאלה.`;
+  }
+  if (isDirect) {
     return `בוקר טוב, ${bot} מ־${biz}.
 
-עדיין רלוונטי לכם ${trial}? ענו כאן ונסגור את זה מהר.${linkHint}`;
-  }
-  if (v.has("יוקרתי") || v.has("מקצועי") || v.has("סמכותי")) {
-    return `בוקר טוב 🙂
+דיברנו אתמול — נשאר משהו פתוח? אפשר להמשיך דרך הכפתור לרכישת אימון הניסיון ולבחור מועד.
 
-${bot} מ־${biz}. נגענו אתמול — רצינו לבדוק בעדינות אם נשאר משהו פתוח, או אם תרצו לקבוע ${trial}.${linkHint}
-
-נשמח לסייע.`;
-  }
-  if (v.has("מצחיק")) {
-    return `בוקר טוב 🙂 ${bot} כאן מ־${biz}!
-
-אם אתמול נשאר באמצע — אין בעיה. רוצים לשריין ${trial} או סתם לשאול משהו? אני פה.${linkHint}`;
-  }
-  if (v.has("רוחני")) {
-    return `בוקר טוב ושקט 🙂
-
-${bot} מ־${biz}. אם תרצו להמשיך את הדרך אלינו — ${trial} או כל שאלה — אני כאן איתכם.${linkHint}`;
+אני כאן.`;
   }
   return `בוקר טוב 🙂 ${bot} מ־${biz}.
 
-נגענו אתמול ורצינו לבדוק אם נשאר משהו פתוח — או אם בא לכם לקבוע ${trial}.${linkHint}
+קשקשנו אתמול — נשאר משהו פתוח? אפשר להמשיך דרך הכפתור לרכישת אימון הניסיון ולבחור מועד.
 
-כתבו כאן בקצרה ואשמח להמשיך מכאן.`;
+אני כאן לכל שאלה.`;
 }
 
 /** טקסט ברירת מחדל להודעת הפולואפ האוטומטית בווטסאפ (למחרת בבוקר). */
