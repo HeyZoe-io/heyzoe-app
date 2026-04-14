@@ -1991,7 +1991,6 @@ export default function SlugSettingsPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-zinc-900 text-right">אחרי בחירת אימון</p>
                   <Button
                     type="button"
                     variant="outline"
@@ -2005,7 +2004,10 @@ export default function SlugSettingsPage() {
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   {trialServiceNames.length > 1 ? (
                     <>
-                      <Field label="שאלה לפני בחירת אימון" className="space-y-1">
+                      <Field label="שאלה 1" className="space-y-1">
+                        <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                          אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳…
+                        </p>
                         <Textarea
                           value={salesFlowConfig.multi_service_question}
                           onChange={(v) =>
@@ -2030,7 +2032,7 @@ export default function SlugSettingsPage() {
                         ))}
                       </div>
 
-                      <Field label="מענה אחרי בחירת האימון">
+                      <Field label="תשובה">
                         <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
                           זואי ממלאה את שם האימון שנבחר ואת שדה «תיאור» מ«אימון ניסיון». כתבו משפט קצר וחי — לא רשימת נקודות.
                         </p>
@@ -2120,8 +2122,8 @@ export default function SlugSettingsPage() {
                       <Field
                         label={
                           trialServiceNames.length > 1
-                            ? "שאלת ניסיון קודם"
-                            : "שאלת ניסיון קודם (אחרי הפתיחה)"
+                            ? "שאלה 1"
+                            : "שאלה 1"
                         }
                       >
                         <Input
@@ -2206,13 +2208,14 @@ export default function SlugSettingsPage() {
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  אחרי שאלת ניסיון קודם: גוף ההודעה ושלושה כפתורים. «מתי השיעור קרוב?» מושך מועד מ-Arbox לפי השירות שנבחר (בלי קישור). אחרי המענה נשלחת הודעה שנייה עם תפריט המשך (ניתן לערוך למטה).
+                  כל שאלה כאן תניע ללחיצה על לינקים רלוונטים.
                 </p>
-                <Field label="גוף ההודעה">
+                <Field label="שאלה 1">
                   <Textarea
                     value={salesFlowConfig.cta_body}
                     onChange={(v) => setSalesFlowConfig((c) => ({ ...c, cta_body: v }))}
                     rows={3}
+                    placeholder="נראה לי שהולכת להיות לך חוויה מיוחדת במינה איתנו. מה דעתך שנשריין לך אימון ניסיון? אגב, אם יש לך עוד שאלות תמיד אפשר לכתוב בטקסט חופשי ואענה."
                   />
                 </Field>
                 {salesFlowConfig.cta_buttons.map((b, bi) => (
@@ -2257,54 +2260,6 @@ export default function SlugSettingsPage() {
                     </div>
                   </div>
                 ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900 text-right">תפריט אחרי «מתי השיעור קרוב?»</p>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
-                  <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    נשלח אוטומטית אחרי מענה «מתי השיעור קרוב?». כפתור שלישי מפנה לטקסט חופשי — התשובה הקבועה למטה.
-                  </p>
-                  <Field label="גוף ההודעה השנייה">
-                    <Textarea
-                      value={salesFlowConfig.followup_after_next_class_body}
-                      onChange={(v) =>
-                        setSalesFlowConfig((c) => ({ ...c, followup_after_next_class_body: v }))
-                      }
-                      rows={3}
-                    />
-                  </Field>
-                  {([0, 1, 2] as const).map((i) => (
-                    <Field key={i} label={`כפתור ${i + 1} (תפריט המשך)`}>
-                      <Input
-                        dir="rtl"
-                        className="min-w-[12rem]"
-                        value={salesFlowConfig.followup_after_next_class_options[i]}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setSalesFlowConfig((c) => {
-                            const next = [...c.followup_after_next_class_options] as [
-                              string,
-                              string,
-                              string,
-                            ];
-                            next[i] = v;
-                            return { ...c, followup_after_next_class_options: next };
-                          });
-                        }}
-                      />
-                    </Field>
-                  ))}
-                  <Field label="תשובה אחרי «יש לי שאלה אחרת…» (או התווית שהגדרתם בכפתור 3)">
-                    <Textarea
-                      value={salesFlowConfig.free_chat_invite_reply}
-                      onChange={(v) =>
-                        setSalesFlowConfig((c) => ({ ...c, free_chat_invite_reply: v }))
-                      }
-                      rows={2}
-                    />
-                  </Field>
                 </div>
               </div>
 
