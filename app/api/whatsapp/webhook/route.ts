@@ -1042,7 +1042,7 @@ async function processIncoming(
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
   let didCallClaude = false;
-  let replyModelUsed = CLAUDE_WHATSAPP_MODEL;
+  let replyModelUsed: string = CLAUDE_WHATSAPP_MODEL;
 
   if (matched && matched.reply) {
     // Static answer for a predefined quick-reply button
