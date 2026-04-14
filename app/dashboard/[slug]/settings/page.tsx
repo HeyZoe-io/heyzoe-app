@@ -23,6 +23,7 @@ import {
   parseSalesFlowFromSocial,
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
+  trialServicePhraseForAfterPick,
 } from "@/lib/sales-flow";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 
@@ -91,6 +92,50 @@ function serviceSlugForPersistence(serviceSlugField: string, name: string, uiId:
 }
 
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
+  const normalizeInterestingText = (value: string): string => {
+    return value
+      .replace(/\s*[•·]\s*/g, ", ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^[,.\-–—\s]+/, "")
+      .replace(/[,.\-–—\s]+$/, "");
+  };
+  const buildServiceReplyDraft = (
+    serviceName: string,
+    rawDescription: string,
+    flowFeatures: string,
+    benefits: string[],
+    suggestions: string[]
+  ): string => {
+    const phrase = trialServicePhraseForAfterPick(serviceName);
+    const interesting =
+      normalizeInterestingText(flowFeatures) ||
+      normalizeInterestingText(rawDescription) ||
+      normalizeInterestingText(benefits[0] ?? "") ||
+      normalizeInterestingText(suggestions[0] ?? "");
+    if (!interesting) {
+      return `כיף גדול! ${phrase} אצלנו הם דרך מעולה להתחזק, לדייק טכניקה ולהתקדם בקצב נכון ונעים.`;
+    }
+    if (
+      interesting.startsWith("כיף") ||
+      interesting.startsWith("אוקיי") ||
+      interesting.startsWith("מעולה") ||
+      interesting.startsWith("מדהים")
+    ) {
+      return interesting;
+    }
+    const lowerInteresting = interesting.toLowerCase();
+    const lowerPhrase = phrase.toLowerCase();
+    if (lowerInteresting.includes(lowerPhrase) || lowerInteresting.includes(serviceName.trim().toLowerCase())) {
+      return `כיף גדול! ${interesting}`;
+    }
+    if (
+      /^(עובד|עובדים|מתאים|מתאימים|בנוי|בנויים|מחזק|מחזקים|מלמד|מלמדים|משלב|משלבים)/.test(interesting)
+    ) {
+      return `כיף גדול! ${phrase} ${interesting}`;
+    }
+    return `כיף גדול! ${phrase} ${interesting}`;
+  };
   if (!Array.isArray(products) || products.length === 0) return [];
   return products.slice(0, 8).map((raw) => {
     const p = raw as Record<string, unknown>;
@@ -102,8 +147,9 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
     const sugg = Array.isArray(p.benefit_suggestions)
       ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
       : [];
+    const description = String(p.description ?? "").trim();
     const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
-    const benefit_line = flowFeatures || benefits.join(" · ") || sugg[0] || "";
+    const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg);
     return {
       ui_id: rowId,
       name: pname,
@@ -112,7 +158,7 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
       payment_link: "",
       service_slug: serviceSlugForPersistence("", pname, rowId),
       location_text: String(p.location_text ?? "").trim() || addrFallback,
-      description: String(p.description ?? "").trim(),
+      description,
       benefit_line,
     };
   });
@@ -735,16 +781,23 @@ export default function SlugSettingsPage() {
           setServices((svcs as Record<string, unknown>[]).map((s) => {
             let meta: Record<string, unknown> = {};
             try { meta = JSON.parse(String(s.description ?? "{}")); } catch { /* empty */ }
+            const name = String(s.name ?? "");
+            const rawDescription = String(s.description ?? "");
+            const storedBenefit = String(meta.benefit_line ?? "").trim();
             return {
               ui_id: uid(),
-              name: String(s.name ?? ""),
+              name,
               price_text: String(s.price_text ?? ""),
               duration: String(meta.duration ?? ""),
               payment_link: String(meta.payment_link ?? ""),
               service_slug: String(s.service_slug ?? ""),
               location_text: String(s.location_text ?? ""),
-              description: String(s.description ?? ""),
-              benefit_line: String(meta.benefit_line ?? ""),
+              description: rawDescription,
+              benefit_line:
+                storedBenefit ||
+                (rawDescription.trim().startsWith("{")
+                  ? ""
+                  : `כיף גדול! ${trialServicePhraseForAfterPick(name)} ${rawDescription.trim()}`),
             };
           }));
         }
