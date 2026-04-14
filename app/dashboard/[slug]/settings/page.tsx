@@ -1801,7 +1801,7 @@ export default function SlugSettingsPage() {
                 <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
                   {!websiteUrl.trim()
                     ? "הוסיפו כתובת אתר בטאב «פרטי העסק» ולחצו «סרוק» כדי למלא את הרשימה."
-                    : "הסריקה יכולה לעדכן גם שדות ב«פרטי העסק» — השתמשו בכפתור כשמעדכנים את האתר."}
+                    : ""}
                 </p>
               </div>
 
