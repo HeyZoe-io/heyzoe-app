@@ -1039,6 +1039,18 @@ async function processIncoming(
   const matched = knowledge?.quickReplies?.find(
     (qr) => qr.label.trim().toLowerCase() === incomingAsLabel.trim().toLowerCase()
   );
+  const openingMenuLabels = knowledge ? getWhatsAppOpeningBodyAndMenuLabels(knowledge).menuLabels : [];
+  const predefinedClosedLabels = [
+    ...quickLabels,
+    ...openingMenuLabels,
+    ...(knowledge?.salesFlowConfig?.greeting_extra_steps ?? []).flatMap((step) => step.options.map((option) => option.trim())),
+    ...salesFlowServices.map((service) => service.name.trim()),
+    ...((knowledge?.salesFlowConfig?.experience_options ?? []).map((option) => String(option ?? "").trim())),
+    ...ctaMenuLabels,
+    ...((knowledge?.salesFlowConfig?.followup_after_next_class_options ?? []).map((option) => String(option ?? "").trim())),
+  ].filter(Boolean);
+  const matchedPredefinedClosedLabel =
+    !matched?.reply && predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label));
 
   let replyCore: string;
   let replyErrorCode: string | null = null;
@@ -1050,6 +1062,20 @@ async function processIncoming(
     // Static answer for a predefined quick-reply button
     replyCore = matched.reply;
     console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
+  } else if (matchedPredefinedClosedLabel) {
+    const txt =
+      "קיבלתי את הבחירה שלך 👍 אם רצית להמשיך דרך התפריט, אפשר לבחור שוב מהאפשרויות שמופיעות בהודעה האחרונה. לשאלה פתוחה אפשר פשוט לכתוב לי כאן.";
+    await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+      console.error("[WA Webhook] Send predefined-choice guard reply failed:", e)
+    );
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: txt,
+      model_used: "predefined_choice_guard",
+      session_id: sessionId,
+    });
+    return;
   } else {
     // Claude rate limiting per contact (phone+business)
     if (contactClaudeCount != null && contactClaudeCount >= 20) {

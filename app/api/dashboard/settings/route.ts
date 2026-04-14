@@ -110,8 +110,10 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const business = body.business as Record<string, unknown>;
-  const services = (body.services as Array<Record<string, unknown>>) ?? [];
-  const faqs = (body.faqs as Array<Record<string, unknown>>) ?? [];
+  const shouldReplaceServices = Array.isArray(body.services);
+  const shouldReplaceFaqs = Array.isArray(body.faqs);
+  const services = shouldReplaceServices ? (body.services as Array<Record<string, unknown>>) : [];
+  const faqs = shouldReplaceFaqs ? (body.faqs as Array<Record<string, unknown>>) : [];
 
   const slug = String(business.slug ?? "").trim().toLowerCase();
   if (!slug) return NextResponse.json({ error: "slug_required" }, { status: 400 });
@@ -184,49 +186,57 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "business_save_failed" }, { status: 400 });
   }
 
-  await admin.from("services").delete().eq("business_id", savedBiz.id);
-  await admin.from("faqs").delete().eq("business_id", savedBiz.id);
-
-  const namedRows = services.filter((s) => String(s.name ?? "").trim());
-  const usedServiceSlugs = new Set<string>();
-  const servicesPayload = namedRows.map((s, index) => {
-    const name = truncateTrialServiceName(String(s.name ?? ""));
-    let slug = ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index);
-    let bump = 0;
-    while (usedServiceSlugs.has(slug)) {
-      bump += 1;
-      slug = `${ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index)}-${bump}`.slice(0, 80);
-    }
-    usedServiceSlugs.add(slug);
-    return {
-      business_id: savedBiz.id,
-      name,
-      description: String(s.description ?? ""),
-      location_mode: String(s.location_mode ?? "online"),
-      location_text: String(s.location_text ?? ""),
-      price_text: String(s.price_text ?? ""),
-      service_slug: slug,
-    };
-  });
-
   let insertedServices: Array<{ id: number; service_slug: string }> = [];
-  if (servicesPayload.length) {
-    const { data } = await admin.from("services").insert(servicesPayload).select("id, service_slug");
+  if (shouldReplaceServices) {
+    await admin.from("services").delete().eq("business_id", savedBiz.id);
+
+    const namedRows = services.filter((s) => String(s.name ?? "").trim());
+    const usedServiceSlugs = new Set<string>();
+    const servicesPayload = namedRows.map((s, index) => {
+      const name = truncateTrialServiceName(String(s.name ?? ""));
+      let slug = ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index);
+      let bump = 0;
+      while (usedServiceSlugs.has(slug)) {
+        bump += 1;
+        slug = `${ensureServiceInsertSlug(name, String(s.service_slug ?? ""), index)}-${bump}`.slice(0, 80);
+      }
+      usedServiceSlugs.add(slug);
+      return {
+        business_id: savedBiz.id,
+        name,
+        description: String(s.description ?? ""),
+        location_mode: String(s.location_mode ?? "online"),
+        location_text: String(s.location_text ?? ""),
+        price_text: String(s.price_text ?? ""),
+        service_slug: slug,
+      };
+    });
+
+    if (servicesPayload.length) {
+      const { data } = await admin.from("services").insert(servicesPayload).select("id, service_slug");
+      insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
+    }
+  } else if (shouldReplaceFaqs) {
+    const { data } = await admin.from("services").select("id, service_slug").eq("business_id", savedBiz.id);
     insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
   }
 
-  const faqsPayload = faqs
-    .map((f, i) => ({
-      business_id: savedBiz.id,
-      service_id:
-        insertedServices.find((s) => s.service_slug === String(f.service_slug ?? ""))?.id ?? null,
-      question: String(f.question ?? ""),
-      answer: String(f.answer ?? ""),
-      sort_order: i,
-    }))
-    .filter((f) => f.question && f.answer);
+  if (shouldReplaceFaqs) {
+    await admin.from("faqs").delete().eq("business_id", savedBiz.id);
 
-  if (faqsPayload.length) await admin.from("faqs").insert(faqsPayload);
+    const faqsPayload = faqs
+      .map((f, i) => ({
+        business_id: savedBiz.id,
+        service_id:
+          insertedServices.find((s) => s.service_slug === String(f.service_slug ?? ""))?.id ?? null,
+        question: String(f.question ?? ""),
+        answer: String(f.answer ?? ""),
+        sort_order: i,
+      }))
+      .filter((f) => f.question && f.answer);
+
+    if (faqsPayload.length) await admin.from("faqs").insert(faqsPayload);
+  }
 
   return NextResponse.json({ ok: true, slug: savedBiz.slug });
 }

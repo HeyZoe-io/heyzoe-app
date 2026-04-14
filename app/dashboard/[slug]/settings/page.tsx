@@ -111,6 +111,19 @@ function hasMeaningfulTextOverlap(a: string, b: string): boolean {
   return tokenize(b).some((token) => left.has(token));
 }
 
+function parseServiceDescriptionMeta(rawDescription: string): Record<string, unknown> {
+  const trimmed = rawDescription.trim();
+  if (!trimmed) return {};
+  const candidate = trimmed.startsWith("__META__:") ? trimmed.slice("__META__:".length).trim() : trimmed;
+  if (!candidate.startsWith("{")) return {};
+  try {
+    const parsed = JSON.parse(candidate);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function buildServiceReplyDraft(
   serviceName: string,
   rawDescription: string,
@@ -794,12 +807,17 @@ export default function SlugSettingsPage() {
 
         if (Array.isArray(svcs)) {
           setServices((svcs as Record<string, unknown>[]).map((s) => {
-            let meta: Record<string, unknown> = {};
-            try { meta = JSON.parse(String(s.description ?? "{}")); } catch { /* empty */ }
             const name = String(s.name ?? "");
             const rawDescription = String(s.description ?? "");
+            const meta = parseServiceDescriptionMeta(rawDescription);
             const storedBenefit = String(meta.benefit_line ?? "").trim();
-            const storedDescriptionText = String(meta.description_text ?? "").trim();
+            const storedDescriptionText = String(meta.description_text ?? meta.description ?? "").trim();
+            const legacyBenefits = Array.isArray(meta.benefits)
+              ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
+              : [];
+            const legacySuggestions = Array.isArray(meta.benefit_suggestions)
+              ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
+              : [];
             return {
               ui_id: uid(),
               name,
@@ -811,7 +829,13 @@ export default function SlugSettingsPage() {
               description: storedDescriptionText || rawDescription,
               benefit_line:
                 storedBenefit ||
-                buildServiceReplyDraft(name, storedDescriptionText || rawDescription, "", [], []),
+                buildServiceReplyDraft(
+                  name,
+                  storedDescriptionText || rawDescription,
+                  "",
+                  legacyBenefits,
+                  legacySuggestions
+                ),
             };
           }));
         }
