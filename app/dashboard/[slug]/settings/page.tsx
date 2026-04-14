@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { useParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check,
   Eye, EyeOff,
@@ -340,6 +340,9 @@ function InstagramGlyph({ className }: { className?: string }) {
 
 export default function SlugSettingsPage() {
   const { slug } = useParams() as { slug: string };
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [step, setStep]     = useState(1);
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
@@ -515,6 +518,26 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     if (!isPremium && step === 5) setStep(6);
   }, [isPremium, step]);
+
+  // ─── Step persistence in URL (?step=) ─────────────────────────────────────
+  // Without this, refresh resets step to 1.
+  useEffect(() => {
+    const sp = searchParams.get("step") ?? "";
+    const parsed = Number(sp);
+    if (!Number.isFinite(parsed)) return;
+    const n = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
+    const coerced = !isPremium && n === 5 ? 6 : n;
+    if (coerced !== step) setStep(coerced);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isPremium]);
+
+  useEffect(() => {
+    const current = searchParams.get("step") ?? "";
+    if (current === String(step)) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("step", String(step));
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  }, [step, router, pathname, searchParams]);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
 
