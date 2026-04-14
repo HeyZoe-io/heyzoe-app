@@ -1102,10 +1102,20 @@ async function processIncoming(
       session_id: sessionId,
       limit: 10,
     });
+    const currentText = msg.text.trim();
     const claudeMessages =
       history.length > 0
         ? history.map((m) => ({ role: m.role, content: m.content }))
-        : [{ role: "user" as const, content: msg.text }];
+        : [];
+    const lastHistoryMessage = claudeMessages[claudeMessages.length - 1];
+    if (
+      currentText &&
+      (!lastHistoryMessage ||
+        lastHistoryMessage.role !== "user" ||
+        String(lastHistoryMessage.content ?? "").trim() !== currentText)
+    ) {
+      claudeMessages.push({ role: "user" as const, content: currentText });
+    }
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
       didCallClaude = true;

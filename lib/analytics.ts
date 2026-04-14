@@ -76,11 +76,11 @@ export async function fetchRecentSessionMessages(input: {
       .select("role, content")
       .eq("business_slug", input.business_slug)
       .eq("session_id", input.session_id)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(input.limit ?? 28);
     if (error || !data?.length) return [];
     const out: { role: "user" | "assistant"; content: string }[] = [];
-    for (const row of data) {
+    for (const row of [...data].reverse()) {
       if (row.role !== "user" && row.role !== "assistant") continue;
       const c = String(row.content ?? "").trim();
       if (!c || c.startsWith("[media]")) continue;
