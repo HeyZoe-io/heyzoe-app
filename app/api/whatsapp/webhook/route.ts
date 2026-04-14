@@ -19,7 +19,6 @@ import {
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
-import { getArboxWhatsappPromptAppend } from "@/lib/arbox-whatsapp-context";
 import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import {
@@ -588,32 +587,6 @@ async function processIncoming(
     }
   }
 
-  const shouldRunArboxSide =
-    msg.type === "text" &&
-    businessId &&
-    Boolean(knowledge?.arboxApiKey?.trim()) &&
-    !(isNewLead && !optedInThisMessage);
-
-  let whatsappArboxNote = "";
-  if (shouldRunArboxSide) {
-    try {
-      whatsappArboxNote = await getArboxWhatsappPromptAppend({
-        supabase,
-        businessId: String(businessId),
-        business_slug,
-        apiKey: knowledge!.arboxApiKey,
-        phone: msg.from,
-        fullName:
-          typeof (msg as { profileName?: string }).profileName === "string"
-            ? (msg as { profileName: string }).profileName.trim()
-            : "",
-        createLead: !isNewLead,
-      });
-    } catch (e) {
-      console.warn("[WA Webhook] Arbox WhatsApp context failed:", e);
-    }
-  }
-
   // New lead flow: optional media first, then a default opening message (no AI)
   // If the user just opted back in, continue to Zoe instead of stopping on default opening.
   if (isNewLead && !optedInThisMessage) {
@@ -702,7 +675,7 @@ async function processIncoming(
     }
   }
 
-  // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון (בלי בלוק Arbox בכאן)
+  // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
     try {
       const named = salesFlowServices;
@@ -798,6 +771,7 @@ async function processIncoming(
       const trialBtn = ctaBs.find((b) => b.kind === "trial");
       const schedBtn = ctaBs.find((b) => b.kind === "schedule");
       const memBtn = ctaBs.find((b) => b.kind === "memberships");
+      const addressBtn = ctaBs.find((b) => b.kind === "address");
 
       const wantsTrial =
         wantsTrialByFollow || (trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
@@ -805,6 +779,7 @@ async function processIncoming(
         wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false);
       const wantsMemberships =
         wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
+      const wantsAddress = addressBtn ? waLabelMatches(incomingResolved, addressBtn.label) : false;
 
       const sendPostLinkMenu = async (): Promise<void> => {
         const fuBody = cfg.followup_after_next_class_body.trim();
@@ -909,6 +884,24 @@ async function processIncoming(
         });
         return;
       }
+      if (wantsAddress) {
+        const address = knowledge?.addressText?.trim() ?? "";
+        const directions = knowledge?.directionsText?.trim() ?? "";
+        const txt = address
+          ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
+          : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send address reply failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
+          session_id: sessionId,
+        });
+        return;
+      }
       } catch (e) {
         console.warn("[WA Webhook] Sales-flow CTA handling failed (continuing):", e);
       }
@@ -1004,8 +997,6 @@ async function processIncoming(
     }
   }
 
-  const OTHER_LABEL = "שאלה אחרת";
-
   // ── Quick-reply vs. "other question" routing ────────────────────────────────
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
@@ -1016,7 +1007,6 @@ async function processIncoming(
   const buttons: string[] = [
     ...quickLabels,
     ...ctaMenuLabels.filter((l) => !quickLabels.some((q) => q === l)),
-    OTHER_LABEL,
   ];
 
   const incomingRaw =
@@ -1067,10 +1057,8 @@ async function processIncoming(
       return;
     }
 
-    // "שאלה אחרת" or any free-form question → Claude (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
-    const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp", {
-      whatsappArboxNote,
-    });
+    // Any free-form question → Claude/Gemini (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
+    const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp");
     const history = await fetchRecentSessionMessages({
       business_slug,
       session_id: sessionId,

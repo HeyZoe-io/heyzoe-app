@@ -21,17 +21,11 @@ export type BusinessKnowledgePack = {
   directionsText: string;
   /** טלפון לשירות לקוחות כשזואי אינה מוצאת תשובה מדויקת בידע */
   customerServicePhone: string;
-  /** מפתח API ארבוקס — לשימוש שרת בלבד; אסור לכלול בפרומפט או לשלוח ללקוח */
-  arboxApiKey: string;
   arboxLink: string;
   /** קישור לוח שיעורים ציבורי (social_links.schedule_public_url / arbox_schedule_url) */
   schedulePublicUrl: string;
   /** קישור לדף מנויים וכרטיסיות (social_links.memberships_url) */
   membershipsUrl: string;
-  /** טקסט לוח שיעורים מסונכרן (social_links.arbox_schedule_prompt_text) */
-  arboxSchedulePromptText: string;
-  arboxBoxCategoriesPromptText: string;
-  arboxPublicSyncAt: string;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
@@ -93,26 +87,6 @@ function sanitizeText(value: string, max = 350): string {
     decodeHtmlEntities(value).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
     max
   );
-}
-
-function truncateArboxPromptField(value: string, max: number): string {
-  const t = value.replace(/\s+/g, " ").trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, max)}…`;
-}
-
-function formatArboxSyncedKnowledge(k: BusinessKnowledgePack | null): string {
-  if (!k) return "";
-  const sched = k.arboxSchedulePromptText?.trim() ?? "";
-  const cats = k.arboxBoxCategoriesPromptText?.trim() ?? "";
-  const when = k.arboxPublicSyncAt?.trim() ?? "";
-  if (!sched && !cats && !when) return "";
-  const whenLine = when ? ` (סנכרון אחרון UTC: ${when})` : "";
-  return `לוח שיעורים וזמינות — מ-Arbox${whenLine}:
-${sched || "לא סונכרן — אפשר לסנכרן מכפתור ארבוקס בטאב מסלול מכירה בדשבורד."}
-קטגוריות/סוגי שיעור (Arbox):
-${cats || "לא סונכרנו."}
-`;
 }
 
 export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKnowledgePack | null> {
@@ -178,17 +152,6 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
           ? String(social.arbox_schedule_url).trim()
           : "";
     const schedulePublicUrl = schedulePublicUrlRaw;
-    const arboxApiKey = typeof social.arbox_api_key === "string" ? String(social.arbox_api_key).trim() : "";
-    const arboxSchedulePromptText = truncateArboxPromptField(
-      typeof social.arbox_schedule_prompt_text === "string" ? social.arbox_schedule_prompt_text : "",
-      4200
-    );
-    const arboxBoxCategoriesPromptText = truncateArboxPromptField(
-      typeof social.arbox_box_categories_prompt_text === "string" ? social.arbox_box_categories_prompt_text : "",
-      2400
-    );
-    const arboxPublicSyncAt =
-      typeof social.arbox_public_sync_at === "string" ? String(social.arbox_public_sync_at).trim() : "";
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
     const openingMediaType =
@@ -314,13 +277,9 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       addressText,
       directionsText,
       customerServicePhone,
-      arboxApiKey,
       arboxLink,
       schedulePublicUrl,
       membershipsUrl,
-      arboxSchedulePromptText,
-      arboxBoxCategoriesPromptText,
-      arboxPublicSyncAt,
       openingMediaUrl,
       openingMediaType,
       servicesShortText,
@@ -372,7 +331,7 @@ function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
     k.whatsappIdleFollowupCtaKind === "trial"
       ? "כפתור הקישור מוביל לדף רכישת אימון ניסיון (לינק סליקה מהאימון הראשון בהגדרות)."
       : k.whatsappIdleFollowupCtaKind === "schedule"
-        ? "כפתור הקישור מוביל למערכת השעות / Arbox."
+        ? "כפתור הקישור מוביל למערכת השעות."
         : "כפתור הקישור מוביל לכתובת מותאמת שהעסק הגדיר.";
   return `\nדוגמה לטון מהודעת הפולואפ האוטומטית (למחרת בבוקר לליד שאינו מגיב; שמרי על שפה עקבית; אל תחזירי את הטקסט כולו כתשובה שגרתית):\n${t}\nתווית הכפתור בהגדרות: «${k.whatsappIdleFollowupCtaLabel}». ${kindHint}\n`;
 }
@@ -381,7 +340,7 @@ function formatUnknownKnowledgeBlock(phoneDisplay: string): string {
   const phoneHint =
     phoneDisplay && phoneDisplay !== "לא הוגדר"
       ? `- אם בשדה «טלפון שירות לקוחות» למעלה מופיע מספר — הציעי ליצור קשר ישירות עם העסק בטלפון הזה; הציגי את המספר בדיוק כפי שמופיע (כולל קידומת), בלי לשנות ספרות.`
-      : `- טלפון שירות לקוחות לא הוגדר בידע — אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות/Arbox או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
+      : `- טלפון שירות לקוחות לא הוגדר בידע — אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
   return `
 חוסר ידע מדויק — כששאלה פתוחה איננה ניתנת למענה ישיר ומדויק מהידע העסקי (אין ב-FAQ, בשירותים, במחירים, במנויים, בתיאור העסק או בשדות קשורים שעונים ישירות על השאלה):
 - התנצלות קצרה שלא מצאת את המידע המדויק; אל תמציאי, אל תנחשי ואל תשלימי בכלליות כאילו ידוע.
@@ -408,8 +367,7 @@ const RESPONSE_SHAPE_BLOCK_WA = `
 export function buildSystemPrompt(
   knowledge: BusinessKnowledgePack | null,
   slug: string,
-  channel: "web" | "whatsapp" = "web",
-  options?: { whatsappArboxNote?: string }
+  channel: "web" | "whatsapp" = "web"
 ): string {
   const isWhatsApp = channel === "whatsapp";
   const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
@@ -433,7 +391,7 @@ ${vibeDetail}
 
 כללים:
 - עברית בלבד.
-- זמני שיעורים: אם מופיע למטה בלוק לוח מ-Arbox — עני לפיו; אם הלוח לא סונכרן — אל תמציאי שעות והפני ללינק השעות או לצוות.
+- זמני שיעורים: השתמשי רק במידע שמופיע בידע העסקי או בלינק מערכת השעות; אל תמציאי שעות.
 - שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות).${isWhatsApp ? " הקפידי על קצרנות בכל חלק." : " בצ'אט האתר מותר להרחיב במענה הראשון אם ביקשו פירוט."}
 - בלי Markdown, בלי JSON.
 - אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.${channelNote}
@@ -451,9 +409,8 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
-${formatArboxSyncedKnowledge(knowledge)}טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
+טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
 ${formatUnknownKnowledgeBlock(customerPhoneDisplay)}
-${isWhatsApp && options?.whatsappArboxNote?.trim() ? `\n${options.whatsappArboxNote.trim()}\n` : ""}
 `;
 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
@@ -478,7 +435,7 @@ ${saleFlowExtra}`;
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה מהדשבורד):
 - הודעת הפתיחה נשלחת אוטומטית מהמערכת לפי מסלול המכירה — אל תחזירי אותה מחדש בתשובתך הראשונה אלא אם התבקשת במפורש.
 ${saleFlowExtra}
-- אם יש לינק Arbox/שעות: ${knowledge?.arboxLink ? "הציעי את הקישור המתאים (הרשמה / מחירים) כשזה עוזר ללקוח — בלי למציא קישורים." : "אין לינק — אל תמציאי."}
+- אם יש לינק מערכת שעות: ${knowledge?.schedulePublicUrl || knowledge?.arboxLink ? "הציעי את הקישור המתאים כשזה עוזר ללקוח — בלי להמציא קישורים." : "אין לינק — אל תמציאי."}
 - לעולם אל תשתמשי ב-Markdown או ברשימות תבליטים; בוואטסאפ הטקסט חייב להיות פשוט וברור.
 `;
 }
