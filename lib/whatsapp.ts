@@ -483,6 +483,88 @@ export type MetaWhatsAppOutgoing =
   | { type: "text"; text: string }
   | { type: "interactive"; interactive: Record<string, unknown> };
 
+const META_CTA_URL_DISPLAY_MAX = 20;
+
+/**
+ * הודמת interactive מסוג cta_url (כפתור שפותח קישור).
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-cta-url-messages
+ */
+export function buildMetaCtaUrlOutgoing(
+  bodyText: string,
+  buttonLabel: string,
+  url: string,
+  footerText?: string
+): MetaWhatsAppOutgoing {
+  const href = url.trim();
+  const label = truncateMetaByCodePoints(buttonLabel.trim() || "לחצו כאן", META_CTA_URL_DISPLAY_MAX);
+  return {
+    type: "interactive",
+    interactive: {
+      type: "cta_url",
+      body: { text: formatWhatsAppRtlBody(truncateInteractiveBody(bodyText.trim() || "\u200e")) },
+      action: {
+        name: "cta_url",
+        parameters: {
+          display_text: label,
+          url: href,
+        },
+      },
+      ...(footerText?.trim()
+        ? { footer: { text: formatWhatsAppRtlBody(truncateMetaFooterText(footerText)) } }
+        : {}),
+    },
+  };
+}
+
+/**
+ * פולואפ אוטומטי: אם Meta Cloud + יש קישור — שולח cta_url; אחרת טקסט (עם קישור בשורה אם צריך).
+ */
+export async function sendWhatsAppIdleFollowupMessage(
+  fromNumber: string,
+  to: string,
+  bodyText: string,
+  footerText: string,
+  cta: { label: string; url: string } | null,
+  accountSid: string,
+  authToken: string
+): Promise<void> {
+  const foot = footerText.trim();
+  const ctaUrl = cta?.url?.trim() ?? "";
+  const ctaLabel = cta?.label?.trim() || "לחצו כאן";
+
+  const footClean = foot.replace(/^\s+/, "").trim();
+
+  if (
+    ctaUrl &&
+    (ctaUrl.startsWith("https://") || ctaUrl.startsWith("http://")) &&
+    isMetaCloudPhoneNumberId(fromNumber) &&
+    resolveMetaAccessToken()
+  ) {
+    try {
+      await sendMetaWhatsAppMessage(
+        fromNumber,
+        to,
+        buildMetaCtaUrlOutgoing(
+          bodyText.trim(),
+          ctaLabel,
+          ctaUrl,
+          footClean || undefined
+        )
+      );
+      return;
+    } catch (e) {
+      console.warn("[WhatsApp idle followup] cta_url send failed, falling back to plain text:", e);
+    }
+  }
+
+  let text = bodyText.trim();
+  if (ctaUrl) {
+    text = `${text}\n\n${ctaLabel}: ${ctaUrl}`;
+  }
+  if (foot) text = `${text}${foot}`;
+  await sendWhatsAppMessage(fromNumber, to, text, accountSid, authToken);
+}
+
 /**
  * Sends a WhatsApp Cloud API message (plain text or interactive) from a phone_number_id.
  */

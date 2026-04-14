@@ -1042,6 +1042,7 @@ async function processIncoming(
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
   let didCallClaude = false;
+  let replyModelUsed = CLAUDE_WHATSAPP_MODEL;
 
   if (matched && matched.reply) {
     // Static answer for a predefined quick-reply button
@@ -1090,7 +1091,7 @@ async function processIncoming(
           messages: claudeMessages,
         });
       const runGemini = async () => {
-        const geminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+        const geminiApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ?? "";
         if (!geminiApiKey) throw new Error("Missing GEMINI_API_KEY");
         const genAI = new GoogleGenerativeAI(geminiApiKey);
         const model = genAI.getGenerativeModel({
@@ -1164,6 +1165,7 @@ async function processIncoming(
         console.error(`[WA Webhook] Claude error for ${business_slug}, falling back to Gemini:`, claudeError);
         try {
           replyCore = await runGemini();
+          replyModelUsed = GEMINI_WHATSAPP_MODEL;
         } catch (geminiError) {
           console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
           replyCore = formatUserFacingClaudeError(geminiError);
@@ -1231,7 +1233,7 @@ async function processIncoming(
     business_slug,
     role: "assistant",
     content: replyText,
-    model_used: matched?.reply ? "static" : CLAUDE_WHATSAPP_MODEL,
+    model_used: matched?.reply ? "static" : replyModelUsed,
     session_id: sessionId,
     error_code: replyErrorCode,
   });

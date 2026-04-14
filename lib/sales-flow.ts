@@ -11,7 +11,7 @@ export type SalesFlowExtraStep = {
 export type SalesFlowCtaButton = {
   id: string;
   label: string;
-  kind: "schedule" | "trial" | "memberships" | "next_class";
+  kind: "schedule" | "trial" | "memberships";
 };
 
 export type SalesFlowConfig = {
@@ -31,10 +31,10 @@ export type SalesFlowConfig = {
   cta_body: string;
   cta_buttons: SalesFlowCtaButton[];
   cta_extra_steps: SalesFlowExtraStep[];
-  /** אחרי מענה «מתי השיעור קרוב?» — הודעת מערכת שנייה עם תפריט הרשמה/לוח/שאלה */
+  /** הודעת המשך קצרה עם תפריט קבוע אחרי שליחת לינק (הרשמה / מערכת שעות / מנויים) */
   followup_after_next_class_body: string;
   followup_after_next_class_options: [string, string, string];
-  /** אחרי «יש לי שאלה אחרת…» מהתפריט המשני */
+  /** שמור לתאימות היסטורית */
   free_chat_invite_reply: string;
   /** הודעה/הנחיה לזואי אחרי שהלקוח השלים הרשמה לאימון ניסיון */
   after_trial_registration_body: string;
@@ -64,19 +64,19 @@ const FRIENDLY: SalesFlowConfig = {
   after_experience:
     "מגניב לגמרי, יש לנו אימונים לכל הרמות, כך שכל אחד ואחת יכולים למצוא את עצמם.",
   opening_extra_steps: [],
-  cta_body: "מה דעתך שנבדוק מתי האימון ניסיון הבא?",
+  cta_body:
+    "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   cta_buttons: [
-    { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
-    { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
+    { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
   ],
   cta_extra_steps: [],
-  followup_after_next_class_body:
-    "בואו נשריין לך את האימון! אל דאגה, ביכולתך לבחור כל אימון ממערכת השעות בלחיצה על הכפתור",
+  followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
   followup_after_next_class_options: [
     "הרשמה לשיעור ניסיון",
     "צפייה במערכת השעות",
-    "צפייה במחירי מנויים וכרטיסיות",
+    "מחירי מנויים",
   ],
   free_chat_invite_reply: "אין בעיה! כתבו בטקסט חופשי ואענה 🙂",
   after_trial_registration_body: `כל הכבוד! נרשמת בהצלחה 🎉
@@ -101,18 +101,18 @@ const FORMAL: SalesFlowConfig = {
     "מצוין. {serviceName} שלנו הם הזדמנות נעימה להתחזק, להתגמש ולהרגיש את האיזון — בגוף ובנפש, בקצב מקצועי ותומך.",
   after_experience:
     "מצוין. יש לנו אימונים לכל הרמות, ונשמח למצוא עבורכם את ההתאמה הנכונה.",
-  cta_body: "מה דעתכם שנבדוק מתי אימון הניסיון הבא?",
+  cta_body:
+    "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   cta_buttons: [
-    { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
-    { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
+    { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
   ],
-  followup_after_next_class_body:
-    "בואו נשריין לכם את האימון. ניתן לבחור כל אימון ממערכת השעות בלחיצה על הכפתור.",
+  followup_after_next_class_body: "שנשריין לכם את האימון? 🙂",
   followup_after_next_class_options: [
     "הרשמה לשיעור ניסיון",
     "צפייה במערכת השעות",
-    "צפייה במחירי מנויים וכרטיסיות",
+    "מחירי מנויים",
   ],
   free_chat_invite_reply: "אין בעיה. כתבו בטקסט חופשי ונשיב בהקדם.",
   after_trial_registration_body: `ברכות על ההרשמה.
@@ -135,18 +135,18 @@ const DIRECT: SalesFlowConfig = {
   multi_service_question: "איזה אימון מעניין אותך?",
   after_service_pick:
     "אוקיי. {serviceName} שלנו — להתחזק, להתגמש, ולהרגיש שזה בדיוק בשבילך.",
-  cta_body: "נבדוק מתי אימון הניסיון הבא?",
+  cta_body:
+    "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   cta_buttons: [
-    { id: "cta-next", label: "מתי השיעור קרוב?", kind: "next_class" },
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
-    { id: "cta-memberships", label: "מה מחירי המנויים?", kind: "memberships" },
+    { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
   ],
-  followup_after_next_class_body:
-    "בואו נשריין. תבחרו אימון ממערכת השעות בכפתור.",
+  followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
   followup_after_next_class_options: [
     "הרשמה לשיעור ניסיון",
     "צפייה במערכת השעות",
-    "צפייה במחירי מנויים וכרטיסיות",
+    "מחירי מנויים",
   ],
   free_chat_invite_reply: "אין בעיה. כתבו בצ׳אט חופשי.",
 };
@@ -185,8 +185,10 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
     if (!x || typeof x !== "object") continue;
     const o = x as Record<string, unknown>;
     const kind =
-      o.kind === "schedule" || o.kind === "trial" || o.kind === "memberships" || o.kind === "next_class"
+      o.kind === "schedule" || o.kind === "trial" || o.kind === "memberships"
         ? o.kind
+        : o.kind === "next_class"
+          ? "schedule"
         : "trial";
     out.push({
       id: typeof o.id === "string" ? o.id : Math.random().toString(36).slice(2, 9),
@@ -385,10 +387,19 @@ export type WhatsAppOpeningPreviewSection =
  * ביטוי טבעי לשם אימון בתבנית «מענה אחרי בחירת אימון» — מונע «שיעורי שיעורי אקרו» כשהשם כבר מתחיל ב«שיעורי».
  */
 export function trialServicePhraseForAfterPick(serviceName: string): string {
+  const addDefiniteArticle = (text: string): string => {
+    const t = text.trim();
+    if (!t) return t;
+    const parts = t.split(/\s+/);
+    const first = parts[0] ?? "";
+    if (!first || first.startsWith("ה")) return t;
+    return [`ה${first}`, ...parts.slice(1)].join(" ");
+  };
   const s = serviceName.trim();
   if (!s) return "השיעורים";
-  if (s.startsWith("שיעורי ") || s.startsWith("שיעור ")) return s;
-  return `שיעורי ${s}`;
+  if (s.startsWith("שיעורי ")) return `שיעורי ${addDefiniteArticle(s.slice("שיעורי ".length))}`;
+  if (s.startsWith("שיעור ")) return `שיעור ${addDefiniteArticle(s.slice("שיעור ".length))}`;
+  return `שיעורי ${addDefiniteArticle(s)}`;
 }
 
 /** מילוי תבנית מענה אחרי בחירת אימון (ווטסאפ / תצוגה מקדימה) */
@@ -401,6 +412,16 @@ export function fillAfterServicePickTemplate(
   return template
     .replace(/\{serviceName\}/g, phrase)
     .replace(/\{benefitLine\}/g, benefitLine.trim() || "תיאור ממסלול המכירה");
+}
+
+export function fillCtaBodyTemplate(
+  template: string,
+  priceText: string,
+  durationText: string
+): string {
+  return template
+    .replace(/\{priceText\}/g, priceText.trim() || "...")
+    .replace(/\{durationText\}/g, durationText.trim() || "...");
 }
 
 export function getWhatsAppOpeningPreviewSections(
@@ -562,9 +583,7 @@ export function formatSalesFlowForPrompt(
           ? "לינק מערכת שעות / Arbox ממסלול המכירה"
           : b.kind === "trial"
             ? "לינק סליקה לאימון שנבחר (משירותי הניסיון)"
-            : b.kind === "next_class"
-              ? "במערכת: מושך שיעור ניסיון קרוב מ-Arbox לפי האימון שנבחר — בלי קישור בהודעה"
-              : b.kind === "memberships"
+            : b.kind === "memberships"
                 ? "בווטסאפ: נשלח קישור מ«קישור לדף מנויים וכרטיסיות» בדשבורד; אם אין קישור — תשובה קבועה מהמערכת"
                 : "עקבי אחרי סוג הכפתור במסלול המכירה";
       return `  - "${b.label}" (${b.kind}): ${hint}`;
@@ -608,12 +627,12 @@ ${formatExtraSteps("שאלות נוספות בסשן חימום (אחרי שאל
 
 שלב הנעה לפעולה:
 גוף הודעה מוצע (אחרי שאלת ניסיון קודם): ${c.cta_body}
+- אם מופיעים ב־CTA המציינים {priceText} / {durationText} — מלאי אותם מהמחיר/משך של אימון הניסיון שנבחר בטאב «אימון ניסיון». אם חסר נתון, נסחי טבעי בלי להמציא.
 כפתורי פעולה (הציגי כשורות ממוספרות; קישורים אמיתיים רק אם מופיעים בידע):
 ${ctaDesc}
-אחרי שהלקוח ביקש «מתי השיעור קרוב?» — המערכת שולחת הודעה שנייה אוטומטית:
+אחרי שלקוח לחץ על קישור (הרשמה / מערכת שעות / מנויים), המערכת שולחת הודעת המשך אוטומטית:
 ${c.followup_after_next_class_body}
 עם שלוש אפשרויות: ${c.followup_after_next_class_options.join(" | ")}
-אם בחר «${c.followup_after_next_class_options[2]}» — עני בדיוק: ${c.free_chat_invite_reply}
 
 אחרי הרשמה לשיעור ניסיון (כשהלקוח השלים תשלום/הרשמה לאימון ניסיון):
 - שלחי הודעה לפי התבנית והרוח למטה. התאימי ניסוח לסגנון הדיבור; אל תשאירי סוגריים או הערות טכניות בטקסט ללקוח.
