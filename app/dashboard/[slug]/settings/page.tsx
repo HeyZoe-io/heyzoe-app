@@ -1684,26 +1684,9 @@ export default function SlugSettingsPage() {
                     </div>
                   </Field>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="תשובה אחרי בחירה בסשן פתיחה">
-                      <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
-                        זה המשפט שזואי תשלח אחרי שלוחצים על הכפתור של האימון הזה.
-                      </p>
-                      <Textarea
-                        rows={3}
-                        value={s.benefit_line}
-                        onChange={(v) => {
-                          const arr = [...services];
-                          arr[i] = { ...s, benefit_line: v };
-                          setServices(arr);
-                        }}
-                        placeholder="למשל: כיף גדול! שיעורי עמידות ידיים עובדים על יצירת טכניקה נכונה וחיזוק הגוף עד למצב בו תוכלו לעמוד על הידיים לגמרי בעצמכם!"
-                      />
-                    </Field>
-                    <Field label="מיקום">
-                      <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder={address || "תל אביב"} />
-                    </Field>
-                  </div>
+                  <Field label="מיקום">
+                    <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder={address || "תל אביב"} />
+                  </Field>
                 </div>
               ))}
 
@@ -1912,6 +1895,36 @@ export default function SlugSettingsPage() {
                             {n}
                           </span>
                         ))}
+                      </div>
+
+                      <div className="space-y-3 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-3">
+                        <p className="text-xs font-medium text-zinc-700 text-right">
+                          תשובה אוטומטית לפי כפתור שנבחר
+                        </p>
+                        <p className="text-[11px] text-zinc-500 text-right leading-snug">
+                          עבור כל כפתור מזואי תשלח את התשובה שמוגדרת כאן. אם שדה מסוים ריק, היא תשתמש בתשובת ה־fallback הכללית.
+                        </p>
+                        {services
+                          .filter((s) => s.name.trim())
+                          .map((s, i) => (
+                            <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
+                              <p className="text-xs font-medium text-zinc-700 text-right">
+                                כפתור: {s.name.trim()}
+                              </p>
+                              <Field label="תשובה">
+                                <Textarea
+                                  rows={3}
+                                  value={s.benefit_line}
+                                  onChange={(v) => {
+                                    const arr = [...services];
+                                    arr[i] = { ...s, benefit_line: v };
+                                    setServices(arr);
+                                  }}
+                                  placeholder="למשל: כיף גדול! שיעורי עמידות ידיים עובדים על יצירת טכניקה נכונה וחיזוק הגוף עד למצב בו תוכלו לעמוד על הידיים לגמרי בעצמכם!"
+                                />
+                              </Field>
+                            </div>
+                          ))}
                       </div>
 
                       <Field label="תשובת fallback">
