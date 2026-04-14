@@ -462,6 +462,8 @@ export function fillAfterServicePickTemplate(
   serviceName: string,
   benefitLine: string
 ): string {
+  const serviceSpecificReply = benefitLine.trim();
+  if (serviceSpecificReply) return serviceSpecificReply;
   const phrase = trialServicePhraseForAfterPick(serviceName);
   return template
     .replace(/\{serviceName\}/g, phrase)

@@ -222,7 +222,7 @@ export function WhatsAppSettingsPreview({
                         </p>
                       </Bubble>
                       <p className="text-[8px] text-zinc-500 text-right px-0.5 leading-tight">
-                        דוגמה אחרי בחירת אימון (שם ותיאור מהאימון הראשון במסלול המכירה)
+                        דוגמה אחרי בחירת אימון (לפי התשובה הפרטנית של האימון הראשון, או fallback כללי)
                       </p>
                     </>
                   ) : null}
