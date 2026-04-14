@@ -45,10 +45,10 @@ async function resolveIdleFollowupCta(
     typeof sl.whatsapp_idle_followup_cta_label === "string" && sl.whatsapp_idle_followup_cta_label.trim()
       ? sl.whatsapp_idle_followup_cta_label.trim()
       : kind === "schedule"
-        ? "מערכת שעות"
+        ? "צפייה במערכת השעות"
         : kind === "custom"
           ? "לחצו כאן"
-          : "לרכוש אימון ניסיון";
+          : "הרשמה לשיעור ניסיון";
 
   const validHttp = (u: string) => u.startsWith("https://") || u.startsWith("http://");
 

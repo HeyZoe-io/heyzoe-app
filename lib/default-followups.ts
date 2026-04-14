@@ -29,29 +29,10 @@ function trialLabel(serviceNames: string[], niche: string): string {
   return "שיעור הניסיון";
 }
 
-function morningIdleBody(vibes: string[], bot: string, biz: string, _trial: string, _hasLink: boolean): string {
-  const v = new Set(vibes);
-  const isFormal = v.has("יוקרתי") || v.has("מקצועי") || v.has("סמכותי");
-  const isDirect = v.has("ישיר");
-
-  // Keep followup short + consistent (per product decision).
-  if (isFormal) {
-    return `בוקר טוב 🙂 ${bot} מ־${biz}.
-
-רציתי לבדוק אם יש שאלות נוספות, או שתרצו להמשיך לרכישת אימון הניסיון דרך הכפתור ולבחור מועד מתאים.
-
-אני כאן לכל שאלה.`;
-  }
-  if (isDirect) {
-    return `בוקר טוב, ${bot} מ־${biz}.
-
-דיברנו אתמול — יש שאלות? אפשר להמשיך דרך הכפתור לרכישת אימון הניסיון ולבחור מועד.
-
-אני כאן.`;
-  }
+function morningIdleBody(_vibes: string[], bot: string, biz: string, _trial: string, _hasLink: boolean): string {
   return `בוקר טוב 🙂 ${bot} מ־${biz}.
 
-קשקשנו אתמול — יש שאלות? אפשר להמשיך דרך הכפתור לרכישת אימון הניסיון ולבחור מועד.
+קשקשנו אתמול — רציתי לשאול אם יש לך עוד שאלות? אפשר ללחוץ על הכפתור ולהירשם לאימון ניסיון, או לכתוב לי כל שאלה.
 
 אני כאן לכל שאלה.`;
 }

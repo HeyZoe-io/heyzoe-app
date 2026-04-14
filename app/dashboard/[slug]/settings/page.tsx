@@ -124,6 +124,89 @@ function parseServiceDescriptionMeta(rawDescription: string): Record<string, unk
   }
 }
 
+function serviceReplyPhrase(serviceName: string): string {
+  const trimmed = serviceName.trim();
+  if (!trimmed) return "האימון";
+  if (/^שיעור(?:י)?\s+/u.test(trimmed)) return trimmed;
+  if (/עמיד(?:ת|ו) יד(?:יים|ים)/u.test(trimmed)) return `שיעורי ${trimmed}`;
+  return trialServicePhraseForAfterPick(trimmed);
+}
+
+function pickServiceReplyOpener(serviceName: string): string {
+  const options = ["איזה כיף", "אוקיי מדהים", "כיף גדול", "מהמם", "כיף לשמוע"];
+  let hash = 0;
+  for (let i = 0; i < serviceName.length; i++) hash = (hash * 31 + serviceName.charCodeAt(i)) | 0;
+  return options[Math.abs(hash) % options.length] ?? options[0]!;
+}
+
+function resolveServiceReplyFocus(serviceName: string): string {
+  const name = serviceName.trim().toLowerCase();
+  if (/אקרו/.test(name)) {
+    return "להתחזק, להשתפר בגמישות, לעבוד על באלאנס ולפתח תקשורת ותיאום מעולים בעבודה בזוגות";
+  }
+  if (/עמיד(?:ת|ו) יד(?:יים|ים)|handstand/.test(name)) {
+    return "לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות";
+  }
+  if (/יוגה/.test(name)) {
+    return "לאזן בין הגוף לנפש, לשפר גמישות, לחזק את הגוף ולפנות זמן איכות לעצמכם";
+  }
+  if (/פילאטיס/.test(name)) {
+    return "לחזק את מרכז הגוף, לשפר יציבה ולעבוד בדיוק, שליטה והארכה של הגוף";
+  }
+  if (/trx/.test(name)) {
+    return "לחזק את כל הגוף, לשפר סיבולת ולעבוד ביציבות, שליטה וקצב נכון";
+  }
+  if (/כושר|פונקציונלי|strength|fit/.test(name)) {
+    return "להתחזק, לשפר סיבולת לב ריאה ולהרגיש שהגוף עובד בצורה מדויקת וחכמה";
+  }
+  if (/ריקוד|dance/.test(name)) {
+    return "להשתחרר, ליהנות, לשפר קואורדינציה ולהרגיש יותר בטוחים בתנועה";
+  }
+  return "להתחזק, לשפר יכולות פיזיות ולהתקדם בקצב נכון ונעים";
+}
+
+function extractServiceReplyHighlights(
+  serviceName: string,
+  rawDescription: string,
+  flowFeatures: string,
+  benefits: string[],
+  suggestions: string[]
+): string[] {
+  const serviceTokens = serviceName
+    .toLowerCase()
+    .split(/[^a-zA-Z\u0590-\u05FF]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+  const interesting = /(טכנ|חיזוק|גמיש|איזו|באלאנס|בלנס|שליט|יציב|קואורד|תקשורת|סיבולת|נשימ|שחרור|פאן|ביטחו|מודעות|כוח|ליבה|כתפ|עמיד|ידיים|תנועה|זרימ|דיוק|ניידות|גוף|נפש)/u;
+  const noise = /(לכל הרמות|בסטודיו|סטודיו מקצועי|מקצועי|מקצועית|ביטוח|שיעורים שבועיים|שיעור שבועי|קבוצות? קטנות?|קבוצה|בוקר|ערב|כתובת|הרשמה|תשלום|לינק)/u;
+  const candidates = [rawDescription, flowFeatures, ...benefits, ...suggestions]
+    .map(normalizeInterestingText)
+    .filter(Boolean);
+  const parts = candidates.flatMap((value) =>
+    value
+      .split(/[,.]| ו(?=חיזוק|שיפור|למידה|עבודה|פיתוח|גמישות|איזון|שליטה|תקשורת|יציבה|נשימה|סיבולת|כוח|טכניקה)/u)
+      .map((part) => normalizeInterestingText(part))
+      .filter(Boolean)
+  );
+  return parts.filter((part, index) => {
+    const lower = part.toLowerCase();
+    if (!interesting.test(part) || noise.test(part)) return false;
+    if (serviceTokens.some((token) => lower === token || lower === `שיעורי ${token}`)) return false;
+    return parts.findIndex((candidate) => candidate.toLowerCase() === lower) === index;
+  });
+}
+
+function isLegacyGeneratedServiceReply(value: string, serviceName: string): boolean {
+  const trimmed = value.trim();
+  const phrase = serviceReplyPhrase(serviceName);
+  return (
+    trimmed.startsWith("כיף גדול!") &&
+    (trimmed.includes(`${phrase} מתמקדים ב`) ||
+      trimmed.includes(`${phrase} שלנו מתמקדים ב`) ||
+      trimmed.includes(`${phrase} אצלנו עובדים על בניית טכניקה נכונה`))
+  );
+}
+
 function buildServiceReplyDraft(
   serviceName: string,
   rawDescription: string,
@@ -131,56 +214,13 @@ function buildServiceReplyDraft(
   benefits: string[],
   suggestions: string[]
 ): string {
-  const phrase = trialServicePhraseForAfterPick(serviceName);
-  const normalizedDescription = normalizeInterestingText(rawDescription);
-  const normalizedFlowFeatures = normalizeInterestingText(flowFeatures);
-  const leadingCandidates =
-    normalizedFlowFeatures.length >= normalizedDescription.length + 12
-      ? [normalizedFlowFeatures, normalizedDescription]
-      : [normalizedDescription, normalizedFlowFeatures];
-  const candidates = [
-    ...leadingCandidates,
-    ...benefits.map(normalizeInterestingText),
-    ...suggestions.map(normalizeInterestingText),
-  ].filter(Boolean);
-  const uniqueCandidates = candidates.filter(
-    (value, index) => candidates.findIndex((x) => x.toLowerCase() === value.toLowerCase()) === index
-  );
-  const primary = uniqueCandidates[0] ?? "";
-  const secondary = uniqueCandidates[1] ?? "";
-
-  if (!primary) {
-    return `כיף גדול! ${phrase} אצלנו עובדים על בניית טכניקה נכונה, חיזוק הגוף והתקדמות בטוחה בקצב נעים.`;
-  }
-  if (/^(כיף|אוקיי|מעולה|מדהים)/.test(primary)) {
-    return primary;
-  }
-
-  const lowerPrimary = primary.toLowerCase();
-  const includesServiceName =
-    lowerPrimary.includes(phrase.toLowerCase()) || lowerPrimary.includes(serviceName.trim().toLowerCase());
-  const startsWithVerb =
-    /^(עובד|עובדים|מתאים|מתאימים|בנוי|בנויים|מחזק|מחזקים|מלמד|מלמדים|משלב|משלבים|מתמקד|מתמקדים|נותן|נותנים)/.test(
-      primary
-    );
-  const secondaryStartsWithVerb =
-    /^(עובד|עובדים|מתאים|מתאימים|בנוי|בנויים|מחזק|מחזקים|מלמד|מלמדים|משלב|משלבים|מתמקד|מתמקדים|נותן|נותנים)/.test(
-      secondary
-    );
-  let sentence = includesServiceName
-    ? `כיף גדול! ${primary}`
-    : startsWithVerb
-      ? `כיף גדול! ${phrase} ${primary}`
-      : `כיף גדול! ${phrase} מתמקדים ב${primary}`;
-
-  if (
-    secondary &&
-    !sentence.toLowerCase().includes(secondary.toLowerCase()) &&
-    !hasMeaningfulTextOverlap(primary, secondary)
-  ) {
-    sentence += startsWithVerb || secondaryStartsWithVerb ? `, וגם ${secondary}` : `, עם ${secondary}`;
-  }
-  return sentence;
+  const phrase = serviceReplyPhrase(serviceName);
+  const opener = pickServiceReplyOpener(serviceName);
+  const focus = resolveServiceReplyFocus(serviceName);
+  const highlights = extractServiceReplyHighlights(serviceName, rawDescription, flowFeatures, benefits, suggestions);
+  const highlight = highlights.find((item) => !hasMeaningfulTextOverlap(item, focus)) ?? "";
+  const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
+  return `${opener}! ${phrase} שלנו הם דרך מעולה ל${focus}.${extra}`;
 }
 
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
@@ -802,7 +842,13 @@ export default function SlugSettingsPage() {
             : ""
         );
         setWhatsappIdleFollowupCtaLabel(
-          typeof sl.whatsapp_idle_followup_cta_label === "string" ? sl.whatsapp_idle_followup_cta_label.trim() : ""
+          typeof sl.whatsapp_idle_followup_cta_label === "string" && sl.whatsapp_idle_followup_cta_label.trim()
+            ? sl.whatsapp_idle_followup_cta_label.trim()
+            : k === "schedule"
+              ? "צפייה במערכת השעות"
+              : k === "custom"
+                ? "לחצו כאן"
+                : "הרשמה לשיעור ניסיון"
         );
 
         if (Array.isArray(svcs)) {
@@ -818,6 +864,13 @@ export default function SlugSettingsPage() {
             const legacySuggestions = Array.isArray(meta.benefit_suggestions)
               ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
               : [];
+            const regeneratedBenefit = buildServiceReplyDraft(
+              name,
+              storedDescriptionText || rawDescription,
+              "",
+              legacyBenefits,
+              legacySuggestions
+            );
             return {
               ui_id: uid(),
               name,
@@ -828,14 +881,9 @@ export default function SlugSettingsPage() {
               location_text: String(s.location_text ?? ""),
               description: storedDescriptionText || rawDescription,
               benefit_line:
-                storedBenefit ||
-                buildServiceReplyDraft(
-                  name,
-                  storedDescriptionText || rawDescription,
-                  "",
-                  legacyBenefits,
-                  legacySuggestions
-                ),
+                storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
+                  ? storedBenefit
+                  : regeneratedBenefit,
             };
           }));
         }
@@ -1074,6 +1122,9 @@ export default function SlugSettingsPage() {
         hasBookingLink: Boolean(arboxLink.trim()),
       })
     );
+    setWhatsappIdleFollowupCtaKind("trial");
+    setWhatsappIdleFollowupCtaLabel("הרשמה לשיעור ניסיון");
+    setWhatsappIdleFollowupCtaCustomUrl("");
   }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
 
   const regenerateSalesFlowSection = useCallback(
@@ -1996,9 +2047,8 @@ export default function SlugSettingsPage() {
                         <p className="text-[11px] text-zinc-500 text-right leading-snug">
                           עבור כל כפתור זואי תשלח את התשובה שמוגדרת כאן, ונשתמש בתיאור האימון כדי להציע ניסוח התחלתי טוב.
                         </p>
-                        {services
-                          .filter((s) => s.name.trim())
-                          .map((s, i) => (
+                        {services.map((s, i) =>
+                          !s.name.trim() ? null : (
                             <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
                               <p className="text-xs font-medium text-zinc-700 text-right">
                                 כפתור: {s.name.trim()}
@@ -2012,11 +2062,12 @@ export default function SlugSettingsPage() {
                                     arr[i] = { ...s, benefit_line: v };
                                     setServices(arr);
                                   }}
-                                  placeholder="למשל: כיף גדול! שיעורי עמידות ידיים עובדים על יצירת טכניקה נכונה וחיזוק הגוף עד למצב בו תוכלו לעמוד על הידיים לגמרי בעצמכם!"
+                                  placeholder="למשל: איזה כיף! שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
                                 />
                               </Field>
                             </div>
-                          ))}
+                          )
+                        )}
                       </div>
 
                       <SalesFlowExtraStepsEditor
@@ -2032,6 +2083,28 @@ export default function SlugSettingsPage() {
                       <p className="text-xs text-zinc-600 text-right leading-relaxed">
                         מוגדר אימון ניסיון אחד — אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
                       </p>
+                      {(() => {
+                        const firstNamedIndex = services.findIndex((s) => s.name.trim());
+                        if (firstNamedIndex < 0) return null;
+                        const s = services[firstNamedIndex]!;
+                        return (
+                          <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
+                            <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
+                            <Field label="תשובה">
+                              <Textarea
+                                rows={3}
+                                value={s.benefit_line}
+                                onChange={(v) => {
+                                  const arr = [...services];
+                                  arr[firstNamedIndex] = { ...s, benefit_line: v };
+                                  setServices(arr);
+                                }}
+                                placeholder="למשל: איזה כיף! שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
+                              />
+                            </Field>
+                          </div>
+                        );
+                      })()}
                       <SalesFlowExtraStepsEditor
                         steps={salesFlowConfig.greeting_extra_steps}
                         onChange={(next) =>
@@ -2322,7 +2395,7 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={6}
                   title="פולואפ"
-                  desc="הודעה אחת ללקוח שלא הגיב מעל ליום — נשלחת אוטומטית למחרת בבוקר (סביבות 11:00 לפי שעון ישראל, דרך סליחוס יומי). אפשר כפתור קישור אחד (ברירת מחדל: רכישת אימון ניסיון). פולואפ אחרי הרשמה לשיעור ניסיון מוגדר בשלב «מסלול מכירה»."
+                  desc="הודעה לליד שלא נרשם לשיעור ניסיון, יום למחרת ב10-11 בבוקר."
                 />
               </CardTitle>
             </CardHeader>
