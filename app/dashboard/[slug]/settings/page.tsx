@@ -1477,12 +1477,12 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={1}
                   title="לינקים חשובים"
-                  desc="אתר, ארבוקס, מערכת שעות, מנויים ואינסטגרם — מה שזואי מפנה אליו בצ׳אט."
+                  desc="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
                 />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
-              <Field label="כתובת האתר (מומלץ! סרקו והמתינו ליצירת תוכן אוטומטית)">
+              <Field label="לינק לאתר">
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
@@ -1496,6 +1496,9 @@ export default function SlugSettingsPage() {
                     {fetchingUrl ? "סורק..." : "סרוק"}
                   </Button>
                 </div>
+                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  מומלץ! סרקו והמתינו ליצירת תוכן אוטומטית
+                </p>
               </Field>
               {fetchingUrl && (
                 <p className="text-sm text-[#7133da] flex items-center gap-2">
@@ -1577,23 +1580,20 @@ export default function SlugSettingsPage() {
                 </p>
               ) : null}
 
-              <Field label="לינק מערכת שעות / Arbox (אופציונלי)">
+              <Field label="לינק מערכת שעות / Arbox">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
               </Field>
 
-              <Field label="קישור לדף מנויים וכרטיסיות">
+              <Field label="לינק לדף מנויים וכרטיסיות  / Arbox">
                 <Input
                   dir="ltr"
                   value={membershipsUrl}
                   onChange={(e) => setMembershipsUrl(e.target.value)}
                   placeholder="https://..."
                 />
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  נשלח ללקוחות בלחיצה על «מה מחירי המנויים?» במסלול המכירה.
-                </p>
               </Field>
 
-              <Field label="אינסטגרם">
+              <Field label="לינק לאינסטגרם">
                 <div className="flex flex-row-reverse gap-2 items-stretch">
                   <span
                     className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
