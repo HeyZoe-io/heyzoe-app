@@ -31,7 +31,7 @@ import {
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
-const GEMINI_WHATSAPP_MODEL = "gemini-1.5-flash" as const;
+const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
