@@ -91,51 +91,86 @@ function serviceSlugForPersistence(serviceSlugField: string, name: string, uiId:
   return `trial-${uiId}`;
 }
 
+function normalizeInterestingText(value: string): string {
+  return value
+    .replace(/\s*[•·]\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[,.\-–—\s]+/, "")
+    .replace(/[,.\-–—\s]+$/, "");
+}
+
+function hasMeaningfulTextOverlap(a: string, b: string): boolean {
+  const tokenize = (value: string) =>
+    value
+      .toLowerCase()
+      .split(/[^a-zA-Z\u0590-\u05FF]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 4);
+  const left = new Set(tokenize(a));
+  return tokenize(b).some((token) => left.has(token));
+}
+
+function buildServiceReplyDraft(
+  serviceName: string,
+  rawDescription: string,
+  flowFeatures: string,
+  benefits: string[],
+  suggestions: string[]
+): string {
+  const phrase = trialServicePhraseForAfterPick(serviceName);
+  const normalizedDescription = normalizeInterestingText(rawDescription);
+  const normalizedFlowFeatures = normalizeInterestingText(flowFeatures);
+  const leadingCandidates =
+    normalizedFlowFeatures.length >= normalizedDescription.length + 12
+      ? [normalizedFlowFeatures, normalizedDescription]
+      : [normalizedDescription, normalizedFlowFeatures];
+  const candidates = [
+    ...leadingCandidates,
+    ...benefits.map(normalizeInterestingText),
+    ...suggestions.map(normalizeInterestingText),
+  ].filter(Boolean);
+  const uniqueCandidates = candidates.filter(
+    (value, index) => candidates.findIndex((x) => x.toLowerCase() === value.toLowerCase()) === index
+  );
+  const primary = uniqueCandidates[0] ?? "";
+  const secondary = uniqueCandidates[1] ?? "";
+
+  if (!primary) {
+    return `כיף גדול! ${phrase} אצלנו עובדים על בניית טכניקה נכונה, חיזוק הגוף והתקדמות בטוחה בקצב נעים.`;
+  }
+  if (/^(כיף|אוקיי|מעולה|מדהים)/.test(primary)) {
+    return primary;
+  }
+
+  const lowerPrimary = primary.toLowerCase();
+  const includesServiceName =
+    lowerPrimary.includes(phrase.toLowerCase()) || lowerPrimary.includes(serviceName.trim().toLowerCase());
+  const startsWithVerb =
+    /^(עובד|עובדים|מתאים|מתאימים|בנוי|בנויים|מחזק|מחזקים|מלמד|מלמדים|משלב|משלבים|מתמקד|מתמקדים|נותן|נותנים)/.test(
+      primary
+    );
+  const secondaryStartsWithVerb =
+    /^(עובד|עובדים|מתאים|מתאימים|בנוי|בנויים|מחזק|מחזקים|מלמד|מלמדים|משלב|משלבים|מתמקד|מתמקדים|נותן|נותנים)/.test(
+      secondary
+    );
+  let sentence = includesServiceName
+    ? `כיף גדול! ${primary}`
+    : startsWithVerb
+      ? `כיף גדול! ${phrase} ${primary}`
+      : `כיף גדול! ${phrase} מתמקדים ב${primary}`;
+
+  if (
+    secondary &&
+    !sentence.toLowerCase().includes(secondary.toLowerCase()) &&
+    !hasMeaningfulTextOverlap(primary, secondary)
+  ) {
+    sentence += startsWithVerb || secondaryStartsWithVerb ? `, וגם ${secondary}` : `, עם ${secondary}`;
+  }
+  return sentence;
+}
+
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
-  const normalizeInterestingText = (value: string): string => {
-    return value
-      .replace(/\s*[•·]\s*/g, ", ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/^[,.\-–—\s]+/, "")
-      .replace(/[,.\-–—\s]+$/, "");
-  };
-  const buildServiceReplyDraft = (
-    serviceName: string,
-    rawDescription: string,
-    flowFeatures: string,
-    benefits: string[],
-    suggestions: string[]
-  ): string => {
-    const phrase = trialServicePhraseForAfterPick(serviceName);
-    const interesting =
-      normalizeInterestingText(flowFeatures) ||
-      normalizeInterestingText(rawDescription) ||
-      normalizeInterestingText(benefits[0] ?? "") ||
-      normalizeInterestingText(suggestions[0] ?? "");
-    if (!interesting) {
-      return `כיף גדול! ${phrase} אצלנו הם דרך מעולה להתחזק, לדייק טכניקה ולהתקדם בקצב נכון ונעים.`;
-    }
-    if (
-      interesting.startsWith("כיף") ||
-      interesting.startsWith("אוקיי") ||
-      interesting.startsWith("מעולה") ||
-      interesting.startsWith("מדהים")
-    ) {
-      return interesting;
-    }
-    const lowerInteresting = interesting.toLowerCase();
-    const lowerPhrase = phrase.toLowerCase();
-    if (lowerInteresting.includes(lowerPhrase) || lowerInteresting.includes(serviceName.trim().toLowerCase())) {
-      return `כיף גדול! ${interesting}`;
-    }
-    if (
-      /^(עובד|עובדים|מתאים|מתאימים|בנוי|בנויים|מחזק|מחזקים|מלמד|מלמדים|משלב|משלבים)/.test(interesting)
-    ) {
-      return `כיף גדול! ${phrase} ${interesting}`;
-    }
-    return `כיף גדול! ${phrase} ${interesting}`;
-  };
   if (!Array.isArray(products) || products.length === 0) return [];
   return products.slice(0, 8).map((raw) => {
     const p = raw as Record<string, unknown>;
@@ -175,25 +210,6 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
   if (!serviceName.trim()) return typed;
   if (!typed.includes(serviceName)) return typed;
   return typed.split(serviceName).join("{serviceName}");
-}
-
-function afterPickForDisplay(stored: string, serviceName: string, benefit: string): string {
-  const sn = serviceName.trim();
-  if (!sn) {
-    return stored
-      .replace(/\{serviceName\}/g, "שם האימון שנבחר")
-      .replace(/\{benefitLine\}/g, benefit.trim() || "תיאור ממסלול המכירה");
-  }
-  return fillAfterServicePickTemplate(stored, sn, benefit);
-}
-
-function afterPickToStore(typed: string, serviceName: string, benefit: string): string {
-  let s = typed;
-  const ben = benefit.trim();
-  const sn = serviceName.trim();
-  if (ben && s.includes(ben)) s = s.split(ben).join("{benefitLine}");
-  if (sn && s.includes(sn)) s = s.split(sn).join("{serviceName}");
-  return s;
 }
 
 function ctaBodyForDisplay(stored: string, priceText: string, durationText: string): string {
@@ -502,14 +518,13 @@ export default function SlugSettingsPage() {
     [services]
   );
 
-  /** דוגמה לתבניות שמכילות שם אימון ותיאור — לפי האימון הראשון ברשימה */
+  /** דוגמה לתבניות שמכילות פרטי אימון — לפי האימון הראשון ברשימה */
   const firstTrialForTemplates = useMemo(() => {
     const n = trialServiceNames[0];
-    if (!n) return { name: "", benefit: "", priceText: "", durationText: "" };
+    if (!n) return { name: "", priceText: "", durationText: "" };
     const row = services.find((s) => s.name.trim() === n);
     return {
       name: n,
-      benefit: (row?.benefit_line ?? "").trim(),
       priceText: (row?.price_text ?? "").trim(),
       durationText: (row?.duration ?? "").trim(),
     };
@@ -784,6 +799,7 @@ export default function SlugSettingsPage() {
             const name = String(s.name ?? "");
             const rawDescription = String(s.description ?? "");
             const storedBenefit = String(meta.benefit_line ?? "").trim();
+            const storedDescriptionText = String(meta.description_text ?? "").trim();
             return {
               ui_id: uid(),
               name,
@@ -792,12 +808,10 @@ export default function SlugSettingsPage() {
               payment_link: String(meta.payment_link ?? ""),
               service_slug: String(s.service_slug ?? ""),
               location_text: String(s.location_text ?? ""),
-              description: rawDescription,
+              description: storedDescriptionText || rawDescription,
               benefit_line:
                 storedBenefit ||
-                (rawDescription.trim().startsWith("{")
-                  ? ""
-                  : `כיף גדול! ${trialServicePhraseForAfterPick(name)} ${rawDescription.trim()}`),
+                buildServiceReplyDraft(name, storedDescriptionText || rawDescription, "", [], []),
             };
           }));
         }
@@ -896,6 +910,7 @@ export default function SlugSettingsPage() {
           duration: s.duration,
           payment_link: s.payment_link,
           benefit_line: s.benefit_line,
+          description_text: s.description,
         }),
       })),
       faqs: [] as unknown[],
@@ -1955,7 +1970,7 @@ export default function SlugSettingsPage() {
                           תשובה אוטומטית לפי כפתור שנבחר
                         </p>
                         <p className="text-[11px] text-zinc-500 text-right leading-snug">
-                          עבור כל כפתור מזואי תשלח את התשובה שמוגדרת כאן. אם שדה מסוים ריק, היא תשתמש בתשובת ה־fallback הכללית.
+                          עבור כל כפתור זואי תשלח את התשובה שמוגדרת כאן, ונשתמש בתיאור האימון כדי להציע ניסוח התחלתי טוב.
                         </p>
                         {services
                           .filter((s) => s.name.trim())
@@ -1979,31 +1994,6 @@ export default function SlugSettingsPage() {
                             </div>
                           ))}
                       </div>
-
-                      <Field label="תשובת fallback">
-                        <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
-                          אם הוגדרה לכל אימון תשובה פרטנית בטאב «אימון ניסיון», זואי תשלח אותה. השדה כאן משמש fallback כללי בלבד.
-                        </p>
-                        <Textarea
-                          rows={4}
-                          value={afterPickForDisplay(
-                            salesFlowConfig.after_service_pick,
-                            firstTrialForTemplates.name,
-                            firstTrialForTemplates.benefit
-                          )}
-                          onChange={(v) =>
-                            setSalesFlowConfig((c) => ({
-                              ...c,
-                              after_service_pick: afterPickToStore(
-                                v,
-                                firstTrialForTemplates.name,
-                                firstTrialForTemplates.benefit
-                              ),
-                            }))
-                          }
-                          placeholder="למשל: אוקיי מדהים! שיעורי האקרו שלנו זו דרך וואו להתחזק, להתגמש ולהכיר אנשים מדהימים…"
-                        />
-                      </Field>
 
                       <SalesFlowExtraStepsEditor
                         steps={salesFlowConfig.greeting_extra_steps}
