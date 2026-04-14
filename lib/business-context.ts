@@ -294,7 +294,14 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const salesFlowConfig = parseSalesFlowFromSocial(social.sales_flow);
     const salesFlowPromptSection = salesFlowConfig
-      ? formatSalesFlowForPrompt(salesFlowConfig, serviceNamesForOpening, benefitByName, instagramUrl)
+      ? formatSalesFlowForPrompt(
+          salesFlowConfig,
+          serviceNamesForOpening,
+          benefitByName,
+          instagramUrl,
+          addressText,
+          directionsText
+        )
       : "";
 
     return {

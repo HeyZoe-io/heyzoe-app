@@ -82,10 +82,10 @@ const FRIENDLY: SalesFlowConfig = {
   after_trial_registration_body: `כל הכבוד! נרשמת בהצלחה 🎉
 
 מתרגשים לראותך בקרוב!
-זה קורה בכתובת: ____ (מלאי משדה «כתובת» בפרטי העסק בידע).
+זה קורה בכתובת: {business_address}
 
 ככה מגיעים אלינו:
-____ (מלאי משדה «הנחיות הגעה» בפרטי העסק בידע).
+{business_directions}
 
 מומלץ להגיע לאימון לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
 סופר מחכים לראותך. נתראה בקרוב!
@@ -118,10 +118,10 @@ const FORMAL: SalesFlowConfig = {
   after_trial_registration_body: `ברכות על ההרשמה.
 
 נשמח לפגוש אתכם בקרוב!
-המפגש יתקיים בכתובת: ____ (מלאי משדה «כתובת» בפרטי העסק בידע).
+המפגש יתקיים בכתובת: {business_address}
 
 ככה מגיעים אלינו:
-____ (מלאי משדה «הנחיות הגעה» בפרטי העסק בידע).
+{business_directions}
 
 מומלץ להגיע כ־10 דקות לפני, עם בקבוק מים ומגבת אישית.
 נשמח לראותכם בקרוב.
@@ -442,15 +442,32 @@ export function getWhatsAppOpeningPreviewSections(
 }
 
 const INSTAGRAM_CTA_PLACEHOLDER = "{instagram_cta}";
+const ADDRESS_PLACEHOLDER = "{business_address}";
+const DIRECTIONS_PLACEHOLDER = "{business_directions}";
 
 /**
  * מרחיב תבנית «אחרי הרשמה לאימון ניסיון» לפרומפט: ממלא את {instagram_cta}
  * במשפט + URL כשיש לינק אינסטגרם; אחרת מסיר את המציין בלי להשאיר שורות ריקות.
  */
-export function expandAfterTrialRegistrationForPrompt(body: string, instagramUrl: string): string {
+export function expandAfterTrialRegistrationForPrompt(
+  body: string,
+  instagramUrl: string,
+  address: string,
+  directions: string
+): string {
   const u = instagramUrl.trim();
+  const a = address.trim();
+  const d = directions.trim();
   let t = body.trim();
   if (!t) return t;
+
+  // Address + directions: insert actual knowledge (no ____ / no "(מלאי...)")
+  if (t.includes(ADDRESS_PLACEHOLDER)) {
+    t = a ? t.replaceAll(ADDRESS_PLACEHOLDER, a) : t.replaceAll(ADDRESS_PLACEHOLDER, "");
+  }
+  if (t.includes(DIRECTIONS_PLACEHOLDER)) {
+    t = d ? t.replaceAll(DIRECTIONS_PLACEHOLDER, d) : t.replaceAll(DIRECTIONS_PLACEHOLDER, "");
+  }
 
   if (t.includes(INSTAGRAM_CTA_PLACEHOLDER)) {
     if (u) {
@@ -493,19 +510,14 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   address: string,
   directions: string
 ): string {
-  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl);
-  s = s.replace(/\s*\(מלאי[^)]*\)/g, "");
-  const a = address.trim();
-  const d = directions.trim();
-  if (s.includes("____")) s = s.replace(/____/, a);
-  if (s.includes("____")) s = s.replace(/____/, d);
+  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions);
   s = s
     .split("\n")
+    .map((x) => x.trim())
     .filter((line) => {
-      const t = line.trim();
-      if (!t) return true;
-      const ci = t.lastIndexOf(":");
-      if (ci >= 0 && !t.slice(ci + 1).trim()) return false;
+      if (!line) return true;
+      const ci = line.lastIndexOf(":");
+      if (ci >= 0 && !line.slice(ci + 1).trim()) return false; // drop "label:" with nothing
       return true;
     })
     .join("\n")
@@ -531,7 +543,9 @@ export function formatSalesFlowForPrompt(
   c: SalesFlowConfig,
   serviceNames: string[],
   benefitByName: Map<string, string>,
-  instagramUrl = ""
+  instagramUrl = "",
+  address = "",
+  directions = ""
 ): string {
   const named = serviceNames.map((n) => n.trim()).filter(Boolean);
   const benefitLines = named
@@ -559,7 +573,9 @@ export function formatSalesFlowForPrompt(
 
   const afterTrialRegistrationExpanded = expandAfterTrialRegistrationForPrompt(
     c.after_trial_registration_body.trim(),
-    instagramUrl
+    instagramUrl,
+    address,
+    directions
   );
 
   return `
