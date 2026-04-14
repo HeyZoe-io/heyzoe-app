@@ -521,17 +521,24 @@ export default function SlugSettingsPage() {
 
   // ─── Step persistence in URL (?step=) ─────────────────────────────────────
   // Without this, refresh resets step to 1.
+  const stepSyncFromUrlRef = useRef(false);
   useEffect(() => {
     const sp = searchParams.get("step") ?? "";
     const parsed = Number(sp);
     if (!Number.isFinite(parsed)) return;
     const n = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
     const coerced = !isPremium && n === 5 ? 6 : n;
-    if (coerced !== step) setStep(coerced);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, isPremium]);
+    if (coerced !== step) {
+      stepSyncFromUrlRef.current = true;
+      setStep(coerced);
+    }
+  }, [searchParams, isPremium, step]);
 
   useEffect(() => {
+    if (stepSyncFromUrlRef.current) {
+      stepSyncFromUrlRef.current = false;
+      return;
+    }
     const current = searchParams.get("step") ?? "";
     if (current === String(step)) return;
     const next = new URLSearchParams(searchParams.toString());
