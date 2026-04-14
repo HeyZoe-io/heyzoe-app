@@ -59,6 +59,14 @@ function waNormLabel(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeGreetingToken(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[!.,?;:~'"`\-]+/g, "")
+    .replace(/\s+/g, " ");
+}
+
 function resolveWaMenuChoice(
   raw: string,
   metaInteractiveReplyId: string | undefined,
@@ -645,8 +653,8 @@ async function processIncoming(
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
-    const greet = msg.text.trim().toLowerCase().replace(/\s+/g, " ");
-    const GREETINGS = new Set(["שלום", "היי", "הי", "hello", "hi"]);
+    const greet = normalizeGreetingToken(msg.text);
+    const GREETINGS = new Set(["שלום", "היי", "הי", "אהלן", "hello", "hi"]);
     if (GREETINGS.has(greet)) {
       // Treat greetings as a "reset" — send the full opening message (intro + question + options)
       // even if this contact talked before.
