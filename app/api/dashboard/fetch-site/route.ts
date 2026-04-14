@@ -183,6 +183,26 @@ function extractMetaHints(html: string): string {
   return [title, description, ogTitle, ogDescription].filter(Boolean).join(" | ");
 }
 
+function extractPhoneCandidates(html: string, pageText: string): string[] {
+  const src = `${html}\n${pageText}`.replace(/\s+/g, " ");
+  const found = new Set<string>();
+
+  // Israeli + international-ish formats (keep permissive; UI/user will verify)
+  const re = /(\+?\d[\d\s().-]{6,}\d)/g;
+  for (const m of src.matchAll(re)) {
+    const raw = String(m[1] ?? "").trim();
+    if (!raw) continue;
+    const digits = raw.replace(/[^\d+]/g, "");
+    const plainDigits = digits.replace(/[^\d]/g, "");
+    if (plainDigits.length < 9 || plainDigits.length > 15) continue;
+    // Filter out obvious non-phones (years / ids) by requiring at least one separator in the original
+    if (!/[().\s-]/.test(raw) && !raw.startsWith("+")) continue;
+    found.add(raw);
+  }
+
+  return [...found].slice(0, 6);
+}
+
 function stripJsonTrailingCommas(s: string): string {
   return s.replace(/,(\s*[}\]])/g, "$1");
 }
@@ -334,6 +354,7 @@ export async function POST(req: NextRequest) {
   let logoCandidate = "";
   let metaHints = "";
   let bookingCandidates: string[] = [];
+  let phoneCandidates: string[] = [];
   try {
     let res = await fetchWithTimeout(url, { redirect: "follow", headers: BROWSER_HEADERS });
 
@@ -369,6 +390,7 @@ export async function POST(req: NextRequest) {
     metaHints = extractMetaHints(html);
     bookingCandidates = extractBookingUrlCandidates(html, url);
     pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, PAGE_TEXT_MAX_CHARS);
+    phoneCandidates = extractPhoneCandidates(html, pageText);
   } catch {
     return NextResponse.json(
       { error: "blocked_auto_scraping", message: "האתר חוסם סריקה אוטומטית, אנא הזן את פרטי העסק ידנית" },
@@ -390,6 +412,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 - tagline: משפט תיאור עסק אחד קצר ומזמין בעברית (כמו תת-כותרת), עד ~20 מילים.
 - address: כתובת פיזית אם מופיעה.
 - directions: הנחיות הגעה/חניה/כניסה אם מופיעות (או ריק).
+- customer_service_phone: מספר טלפון לשירות לקוחות/יצירת קשר אם מופיע (אפשר גם נייד). אם יש רשימת "טלפונים גולמיים" למטה — העתק אחד מהם בדיוק.
 - schedule_booking_url: קישור https מלא למערכת שעות/הרשמה (Arbox, Mindbody, Acuity, Calendly וכו׳). אם יש רשימת "קישורים גולמיים" למטה — העתק אחד מהם בדיוק (עדיפות לראשון ברשימה אם זה ארבוקס/Mindbody).
 - business_traits: מערך של 3–8 משפטים קצרים בעברית, כל משפט עד 5–6 מילים — מאפיינים ששווה לציין (רמות, גודל מקום, מתאים ל…).
 ב-products לכל פריט:
@@ -407,6 +430,7 @@ business_description: אותו תוכן כמו tagline או סיכום קצר מ
   "tagline": "משפט תיאור עסק אחד בעברית",
   "address": "",
   "directions": "",
+  "customer_service_phone": "",
   "schedule_booking_url": "",
   "business_description": "כמו tagline או ריק",
   "business_traits": ["מאפיין קצר 1", "מאפיין קצר 2", "מאפיין קצר 3"],
@@ -429,6 +453,9 @@ business_description: אותו תוכן כמו tagline או סיכום קצר מ
 
 קישורים גולמיים שנחלצו מקוד הדף למערכות הזמנה (השתמש באחד ל-schedule_booking_url אם רלוונטי):
 ${bookingCandidates.length ? bookingCandidates.slice(0, 10).join("\n") : "לא אותרו — חפש בטקסט האתר למטה."}
+
+טלפונים גולמיים שנחלצו מהדף (השתמש באחד ל-customer_service_phone אם רלוונטי):
+${phoneCandidates.length ? phoneCandidates.join("\n") : "לא אותרו — חפש בטקסט האתר למטה."}
 
 טקסט אתר:
 ${pageText}`;
@@ -479,6 +506,7 @@ ${pageText}`;
       tagline: metaHints || `עסק בתחום ${nicheGuess}.`,
       address: "",
       directions: "",
+      customer_service_phone: phoneCandidates[0] ?? "",
       schedule_booking_url: bookingCandidates[0] ?? "",
       business_description: metaHints || `עסק בתחום ${nicheGuess}.`,
       business_traits: [] as string[],
@@ -532,12 +560,18 @@ ${pageText}`;
       typeof parsed.schedule_booking_url === "string" ? parsed.schedule_booking_url.trim() : "";
     /** עדיפות לקישור שחולץ מ-HTML (ארבוקס וכו׳) — המודל לפעמים מפספס */
     const scheduleUrl = (bookingCandidates[0] || fromAiSchedule).trim();
+    const phoneFromAi =
+      typeof (parsed as any).customer_service_phone === "string"
+        ? String((parsed as any).customer_service_phone).trim()
+        : "";
+    const phone = (phoneFromAi || phoneCandidates[0] || "").trim();
     return NextResponse.json({
       niche: typeof parsed.niche === "string" ? parsed.niche : "",
       business_name: businessName,
       tagline: taglineStr,
       address: typeof parsed.address === "string" ? parsed.address.trim() : "",
       directions: typeof parsed.directions === "string" ? parsed.directions.trim() : "",
+      customer_service_phone: phone,
       schedule_booking_url: scheduleUrl,
       business_description:
         typeof parsed.business_description === "string" && parsed.business_description.trim()

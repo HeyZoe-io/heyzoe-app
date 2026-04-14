@@ -1129,6 +1129,9 @@ export default function SlugSettingsPage() {
       if (tag) setBusinessTagline(tag.split("\n")[0].trim());
       if (typeof j.address === "string" && j.address.trim()) setAddress(j.address.trim());
       if (typeof j.directions === "string" && j.directions.trim()) setDirections(j.directions.trim());
+      if (typeof j.customer_service_phone === "string" && j.customer_service_phone.trim()) {
+        setCustomerServicePhone(j.customer_service_phone.trim());
+      }
       const book =
         (typeof j.schedule_booking_url === "string" && j.schedule_booking_url.trim()) ||
         (typeof j.schedule_url === "string" && j.schedule_url.trim()) ||
@@ -1682,7 +1685,9 @@ export default function SlugSettingsPage() {
                   className="font-mono text-sm"
                   value={customerServicePhone}
                   onChange={(e) => setCustomerServicePhone(e.target.value)}
-                  placeholder="972-5X-XXX-XXXX או 05X-XXX-XXXX"
+                  placeholder="05…"
+                  type="tel"
+                  inputMode="tel"
                   autoComplete="tel"
                 />
                 <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
