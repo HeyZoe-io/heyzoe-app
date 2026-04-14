@@ -1483,6 +1483,9 @@ export default function SlugSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-5">
               <Field label="לינק לאתר">
+                <p className="text-xs text-zinc-500 mt-0.5 mb-2 text-right leading-relaxed">
+                  סרקו והמתינו דקה ליצירת תוכן אוטומטית
+                </p>
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
@@ -1496,9 +1499,6 @@ export default function SlugSettingsPage() {
                     {fetchingUrl ? "סורק..." : "סרוק"}
                   </Button>
                 </div>
-                <p className="text-xs text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  מומלץ! סרקו והמתינו ליצירת תוכן אוטומטית
-                </p>
               </Field>
               {fetchingUrl && (
                 <p className="text-sm text-[#7133da] flex items-center gap-2">
@@ -1517,7 +1517,7 @@ export default function SlugSettingsPage() {
                 </p>
               ) : null}
 
-              <Field label="מפתח API ארבוקס" description="סנכרון בין זואי לבין ארבוקס">
+              <Field label="מפתח API ארבוקס">
                 <div className="flex gap-2">
                   <Input
                     dir="ltr"
