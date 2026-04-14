@@ -522,17 +522,21 @@ export default function SlugSettingsPage() {
   // ─── Step persistence in URL (?step=) ─────────────────────────────────────
   // Without this, refresh resets step to 1.
   const stepSyncFromUrlRef = useRef(false);
+  const stepRef = useRef(step);
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
   useEffect(() => {
     const sp = searchParams.get("step") ?? "";
     const parsed = Number(sp);
     if (!Number.isFinite(parsed)) return;
     const n = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
     const coerced = !isPremium && n === 5 ? 6 : n;
-    if (coerced !== step) {
+    if (coerced !== stepRef.current) {
       stepSyncFromUrlRef.current = true;
       setStep(coerced);
     }
-  }, [searchParams, isPremium, step]);
+  }, [searchParams, isPremium]);
 
   useEffect(() => {
     if (stepSyncFromUrlRef.current) {
