@@ -64,8 +64,6 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
   return `שגיאת שרת (${res.status})`;
 }
 
-const VIBES = ["חברי", "מקצועי", "מצחיק", "רוחני", "יוקרתי", "ישיר", "אמפתי", "סמכותי"];
-
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
@@ -1710,21 +1708,6 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <Field label="סגנון דיבור">
-                <div className="flex flex-wrap gap-2">
-                  {VIBES.map(v => (
-                    <button
-                      key={v}
-                      onClick={() => setVibe(curr => curr.includes(v) ? curr.filter(x => x !== v) : [...curr, v])}
-                      className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
-                        vibe.includes(v)
-                          ? "text-white shadow-sm border-transparent bg-[linear-gradient(135deg,#7133da,#ff92ff)]"
-                          : "bg-[#f0eaff] text-[#7133da] border-transparent hover:opacity-90"
-                      }`}
-                    >{v}</button>
-                  ))}
-                </div>
-              </Field>
             </CardContent>
           </Card>
         )}
@@ -2408,7 +2391,7 @@ export default function SlugSettingsPage() {
                   onClick={applyFollowupTemplate}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  חידוש טקסטים לפי העסק וסגנון
+                  חידוש טקסטים לפי העסק
                 </Button>
               </div>
               <Field label="הודעת פולואפ למחרת בבוקר (ליד שאינו מגיב)">
