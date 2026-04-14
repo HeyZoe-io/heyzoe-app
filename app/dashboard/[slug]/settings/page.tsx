@@ -5,7 +5,6 @@ import { flushSync } from "react-dom";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, Check,
-  Eye, EyeOff,
   GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -371,9 +370,6 @@ export default function SlugSettingsPage() {
   const [fetchSiteError, setFetchSiteError]   = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
   // Sales-flow regeneration is now per-section only (no global reset).
-  const [fetchingArbox, setFetchingArbox] = useState(false);
-  const [fetchArboxError, setFetchArboxError] = useState("");
-  const [fetchArboxNotice, setFetchArboxNotice] = useState("");
   const [businessNameEditing, setBusinessNameEditing] = useState(false);
   const [canAutosave, setCanAutosave] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -395,12 +391,6 @@ export default function SlugSettingsPage() {
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
   const [membershipsUrl, setMembershipsUrl] = useState("");
-  /** מפתח API ארבוקס (הגדרות → אינטגרציות) — לוח/קטגוריות, ווטסאפ, לידים וכו׳ */
-  const arboxApiKeyStoredRef = useRef("");
-  const arboxApiKeyDraftRef = useRef("");
-  const [arboxApiKeyDraft, setArboxApiKeyDraft] = useState("");
-  const [arboxApiKeySaved, setArboxApiKeySaved] = useState(false);
-  const [arboxApiKeyReveal, setArboxApiKeyReveal] = useState(false);
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
   const [showTokenHelp, setShowTokenHelp] = useState(false);
@@ -449,10 +439,6 @@ export default function SlugSettingsPage() {
     () => services.map((s) => s.name.trim()).filter(Boolean).join("\0"),
     [services]
   );
-
-  useEffect(() => {
-    arboxApiKeyDraftRef.current = arboxApiKeyDraft;
-  }, [arboxApiKeyDraft]);
 
   const salesOpeningAutoText = useMemo(
     () =>
@@ -703,9 +689,6 @@ export default function SlugSettingsPage() {
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
-        arboxApiKeyStoredRef.current = String(sl.arbox_api_key ?? "").trim();
-        setArboxApiKeySaved(Boolean(arboxApiKeyStoredRef.current));
-        setArboxApiKeyDraft("");
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -833,7 +816,6 @@ export default function SlugSettingsPage() {
           segmentation_questions: segQuestions,
           quick_replies: quickReplies,
           arbox_link: arboxLink,
-          arbox_api_key: arboxApiKeyDraft.trim() || arboxApiKeyStoredRef.current,
           objections,
           whatsapp_idle_followup_message: whatsappIdleFollowupMessage.trim(),
           whatsapp_idle_followup_cta_kind: whatsappIdleFollowupCtaKind,
@@ -886,7 +868,6 @@ export default function SlugSettingsPage() {
       segQuestions,
       quickReplies,
       arboxLink,
-      arboxApiKeyDraft,
       objections,
       whatsappIdleFollowupMessage,
       whatsappIdleFollowupCtaKind,
@@ -947,12 +928,6 @@ export default function SlugSettingsPage() {
           if (!cancelled) {
             setAutoSaveErr("");
             setAutosaveStatus("saved");
-            const d = arboxApiKeyDraftRef.current.trim();
-            if (d) {
-              arboxApiKeyStoredRef.current = d;
-              setArboxApiKeyDraft("");
-              setArboxApiKeySaved(true);
-            }
             window.setTimeout(() => {
               setAutosaveStatus((s) => (s === "saved" ? "idle" : s));
             }, 2500);
@@ -980,12 +955,6 @@ export default function SlugSettingsPage() {
       if (!res.ok) {
         setSaveErr(await readSaveErrorFromResponse(res));
         return false;
-      }
-      const d = arboxApiKeyDraftRef.current.trim();
-      if (d) {
-        arboxApiKeyStoredRef.current = d;
-        setArboxApiKeyDraft("");
-        setArboxApiKeySaved(true);
       }
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
@@ -1236,52 +1205,6 @@ export default function SlugSettingsPage() {
     }
   }
 
-  async function syncArboxScheduleToZoe() {
-    if (!arboxApiKeyDraft.trim() && !arboxApiKeyStoredRef.current.trim()) {
-      setFetchArboxError("הזינו מפתח API ארבוקס (הגדרות → אינטגרציות בארבוקס).");
-      return;
-    }
-    setFetchingArbox(true);
-    setFetchArboxError("");
-    setFetchArboxNotice("");
-    try {
-      const res = await fetch("/api/dashboard/sync-arbox-memberships", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slug,
-          ...(arboxApiKeyDraft.trim() ? { arbox_api_key: arboxApiKeyDraft.trim() } : {}),
-        }),
-      });
-      const j = (await res.json()) as Record<string, unknown>;
-      const msgStr = typeof j.message === "string" ? j.message.trim() : "";
-      if (!res.ok) {
-        setFetchArboxError(
-          msgStr ||
-            (j.error === "unauthorized"
-              ? "נדרשת התחברות מחדש."
-              : j.error === "forbidden"
-                ? "אין הרשאה לעסק זה."
-                : "המשיכה מארבוקס נכשלה. נסו שוב או מלאו ידנית.")
-        );
-        return;
-      }
-      const warnParts: string[] = [];
-      if (typeof j.schedule_warning === "string" && j.schedule_warning.trim()) {
-        warnParts.push(`לוח שיעורים: ${j.schedule_warning.trim()}`);
-      }
-      if (typeof j.categories_warning === "string" && j.categories_warning.trim()) {
-        warnParts.push(`קטגוריות: ${j.categories_warning.trim()}`);
-      }
-      const baseOk = "סונכרנו מארבוקס לוח שיעורים וקטגוריות לזואי.";
-      setFetchArboxNotice([baseOk, warnParts.join(" · ")].filter(Boolean).join(" "));
-    } catch {
-      setFetchArboxError("בעיית רשת במשיכת ארבוקס.");
-    } finally {
-      setFetchingArbox(false);
-    }
-  }
-
   // ─── Services drag & drop ──────────────────────────────────────────────────
 
   function onDragStart(i: number) { dragIdx.current = i; }
@@ -1486,74 +1409,11 @@ export default function SlugSettingsPage() {
                 </p>
               ) : null}
 
-              <Field label="מפתח API ארבוקס">
-                <div className="flex gap-2">
-                  <Input
-                    dir="ltr"
-                    className={
-                      "font-mono text-sm min-w-0 flex-1 text-zinc-900 " +
-                      (arboxApiKeySaved &&
-                      arboxApiKeyStoredRef.current.trim() &&
-                      !arboxApiKeyDraft.trim() &&
-                      !arboxApiKeyReveal
-                        ? "placeholder:text-zinc-900"
-                        : "")
-                    }
-                    type={arboxApiKeyReveal ? "text" : "password"}
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={
-                      arboxApiKeySaved && arboxApiKeyStoredRef.current.trim() && !arboxApiKeyDraft.trim()
-                        ? "••••••••"
-                        : "api key"
-                    }
-                    value={
-                      arboxApiKeyDraft !== ""
-                        ? arboxApiKeyDraft
-                        : arboxApiKeyReveal && arboxApiKeyStoredRef.current.trim()
-                          ? arboxApiKeyStoredRef.current
-                          : ""
-                    }
-                    onChange={(e) => setArboxApiKeyDraft(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0 px-3"
-                    disabled={!arboxApiKeyDraft.trim() && !arboxApiKeyStoredRef.current.trim()}
-                    onClick={() => setArboxApiKeyReveal((v) => !v)}
-                    aria-label={arboxApiKeyReveal ? "הסתר מפתח API" : "הצג מפתח API שמור"}
-                    title={arboxApiKeyReveal ? "הסתר" : "הצג"}
-                  >
-                    {arboxApiKeyReveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    type="button"
-                    className="shrink-0 gap-2"
-                    disabled={fetchingArbox || (!arboxApiKeyDraft.trim() && !arboxApiKeySaved)}
-                    onClick={() => void syncArboxScheduleToZoe()}
-                  >
-                    {fetchingArbox ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {fetchingArbox ? "מחבר..." : "חבר לזואי"}
-                  </Button>
-                </div>
-              </Field>
-              {fetchArboxError ? (
-                <p className="text-sm text-red-600" role="alert">
-                  {fetchArboxError}
-                </p>
-              ) : null}
-              {fetchArboxNotice ? (
-                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                  {fetchArboxNotice}
-                </p>
-              ) : null}
-
-              <Field label="לינק מערכת שעות / Arbox">
+              <Field label="לינק מערכת שעות">
                 <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
               </Field>
 
-              <Field label="לינק לדף מנויים וכרטיסיות  / Arbox">
+              <Field label="לינק לדף מנויים וכרטיסיות">
                 <Input
                   dir="ltr"
                   value={membershipsUrl}
@@ -2284,9 +2144,10 @@ export default function SlugSettingsPage() {
                           }));
                         }}
                       >
-                        <option value="schedule">מערכת שעות (לינק Arbox)</option>
+                        <option value="schedule">מערכת שעות (לינק)</option>
                         <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
                         <option value="memberships">מחירי מנויים (קישור מ«פרטי העסק»)</option>
+                        <option value="address">מה הכתובת? (שדה כתובת)</option>
                       </select>
                     </div>
                   </div>

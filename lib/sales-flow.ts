@@ -11,7 +11,7 @@ export type SalesFlowExtraStep = {
 export type SalesFlowCtaButton = {
   id: string;
   label: string;
-  kind: "schedule" | "trial" | "memberships";
+  kind: "schedule" | "trial" | "memberships" | "address";
 };
 
 export type SalesFlowConfig = {
@@ -69,7 +69,7 @@ const FRIENDLY: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
     { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
-    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    { id: "cta-address", label: "מה הכתובת?", kind: "address" },
   ],
   cta_extra_steps: [],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
@@ -106,7 +106,7 @@ const FORMAL: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
     { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
-    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    { id: "cta-address", label: "מה הכתובת?", kind: "address" },
   ],
   followup_after_next_class_body: "שנשריין לכם את האימון? 🙂",
   followup_after_next_class_options: [
@@ -140,7 +140,7 @@ const DIRECT: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
     { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
-    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    { id: "cta-address", label: "מה הכתובת?", kind: "address" },
   ],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
   followup_after_next_class_options: [
@@ -185,7 +185,7 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
     if (!x || typeof x !== "object") continue;
     const o = x as Record<string, unknown>;
     const kind =
-      o.kind === "schedule" || o.kind === "trial" || o.kind === "memberships"
+      o.kind === "schedule" || o.kind === "trial" || o.kind === "memberships" || o.kind === "address"
         ? o.kind
         : o.kind === "next_class"
           ? "schedule"
@@ -197,6 +197,59 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
     });
   }
   return out.length ? out : structuredClone(FRIENDLY.cta_buttons);
+}
+
+function migrateLegacyCtaBody(raw: string, fallback: string): string {
+  const text = raw.trim();
+  if (!text) return fallback;
+  const legacyBodies = new Set([
+    "מה דעתך שנבדוק מתי האימון ניסיון הבא?",
+    "מה דעתכם שנבדוק מתי אימון הניסיון הבא?",
+    "נבדוק מתי אימון הניסיון הבא?",
+    "מה דעתך שנבדוק מתי אימון הניסיון הבא?",
+  ]);
+  return legacyBodies.has(text) ? fallback : raw;
+}
+
+function migrateLegacyCtaButtons(buttons: SalesFlowCtaButton[], fallback: SalesFlowCtaButton[]): SalesFlowCtaButton[] {
+  if (!buttons.length) return fallback;
+  const normalized = buttons.map((b) => ({
+    ...b,
+    label: b.label.trim(),
+  }));
+  const isLegacyAddressSlot =
+    normalized.length >= 3 &&
+    normalized[0]?.kind === "trial" &&
+    normalized[1]?.kind === "schedule" &&
+    (
+      normalized[2]?.kind === "memberships" ||
+      normalized[2]?.label === "יש לי שאלה אחרת" ||
+      normalized[2]?.label === "מה מחירי המנויים?" ||
+      normalized[2]?.label === "מחירי מנויים"
+    );
+  if (!isLegacyAddressSlot) return buttons;
+  return [
+    normalized[0]!,
+    normalized[1]!,
+    { ...normalized[2]!, id: normalized[2]!.id || "cta-address", label: "מה הכתובת?", kind: "address" },
+    ...normalized.slice(3),
+  ];
+}
+
+function migrateLegacyGreetingTagline(raw: string, fallback: string): string {
+  const text = raw.trim();
+  if (!text) return fallback;
+  if (text.includes("{tagline}")) return raw;
+  if (text.includes("•")) return fallback;
+  return raw;
+}
+
+function migrateLegacyGreetingBodyOverride(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const text = raw.trim();
+  if (!text) return undefined;
+  if (text.includes("•")) return undefined;
+  return raw;
 }
 
 export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
@@ -215,8 +268,10 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     opening_note: typeof o.opening_note === "string" ? o.opening_note : base.opening_note,
     greeting_opener: typeof o.greeting_opener === "string" ? o.greeting_opener : base.greeting_opener,
     greeting_line_name: typeof o.greeting_line_name === "string" ? o.greeting_line_name : base.greeting_line_name,
-    greeting_line_tagline:
+    greeting_line_tagline: migrateLegacyGreetingTagline(
       typeof o.greeting_line_tagline === "string" ? o.greeting_line_tagline : base.greeting_line_tagline,
+      base.greeting_line_tagline
+    ),
     greeting_closer: typeof o.greeting_closer === "string" ? o.greeting_closer : base.greeting_closer,
     multi_service_question: (() => {
       const raw =
@@ -249,8 +304,8 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     after_experience: typeof o.after_experience === "string" ? o.after_experience : base.after_experience,
     greeting_extra_steps: parseExtraSteps(o.greeting_extra_steps),
     opening_extra_steps: parseExtraSteps(o.opening_extra_steps),
-    cta_body: typeof o.cta_body === "string" ? o.cta_body : base.cta_body,
-    cta_buttons: parseCtaButtons(o.cta_buttons),
+    cta_body: migrateLegacyCtaBody(typeof o.cta_body === "string" ? o.cta_body : base.cta_body, base.cta_body),
+    cta_buttons: migrateLegacyCtaButtons(parseCtaButtons(o.cta_buttons), base.cta_buttons),
     cta_extra_steps: parseExtraSteps(o.cta_extra_steps),
     followup_after_next_class_body:
       typeof o.followup_after_next_class_body === "string"
@@ -263,8 +318,7 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_trial_registration_body === "string"
         ? o.after_trial_registration_body
         : base.after_trial_registration_body,
-    greeting_body_override:
-      typeof o.greeting_body_override === "string" ? o.greeting_body_override : undefined,
+    greeting_body_override: migrateLegacyGreetingBodyOverride(o.greeting_body_override),
   };
 }
 
@@ -580,9 +634,11 @@ export function formatSalesFlowForPrompt(
     .map((b) => {
       const hint =
         b.kind === "schedule"
-          ? "לינק מערכת שעות / Arbox ממסלול המכירה"
+          ? "לינק מערכת שעות ממסלול המכירה"
           : b.kind === "trial"
             ? "לינק סליקה לאימון שנבחר (משירותי הניסיון)"
+            : b.kind === "address"
+              ? "משיב עם הכתובת של העסק מהדשבורד"
             : b.kind === "memberships"
                 ? "בווטסאפ: נשלח קישור מ«קישור לדף מנויים וכרטיסיות» בדשבורד; אם אין קישור — תשובה קבועה מהמערכת"
                 : "עקבי אחרי סוג הכפתור במסלול המכירה";
@@ -636,7 +692,7 @@ ${c.followup_after_next_class_body}
 
 אחרי הרשמה לשיעור ניסיון (כשהלקוח השלים תשלום/הרשמה לאימון ניסיון):
 - שלחי הודעה לפי התבנית והרוח למטה. התאימי ניסוח לסגנון הדיבור; אל תשאירי סוגריים או הערות טכניות בטקסט ללקוח.
-- יום ושעה: אם ידועים מהשיחה או מארבוקס — אפשר לציין בקצרה; אם אין — בלי להמציא.
+- יום ושעה: אם ידועים מהשיחה או מהמידע העסקי — אפשר לציין בקצרה; אם אין — בלי להמציא.
 - כתובת: מלאי משדה הכתובת בבלוק «ידע עסקי» (כפי בתבנית «זה קורה בכתובת» / ניסוח דומה).
 - הגעה: מלאי מ«הנחיות הגעה» בבלוק «ידע עסקי»; אם ריק — השמיטי את בלוק ההגעה או צייני בקצרה שאין הנחיות.
 - אם בתבנית מופיע שורה על אינסטגרם «בינתיים» וכתובת URL בשורה נפרדת — שלחי את המשפט ואז בשורה הבאה בדיוק את ה־URL (קישור לחיץ בווטסאפ). אם אין בתבנית בלוק כזה — אל תוסיפי.

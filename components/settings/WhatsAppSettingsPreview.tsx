@@ -280,7 +280,7 @@ export function WhatsAppSettingsPreview({
                         )
                     )}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      סוגי כפתור: הרשמה לניסיון · מערכת שעות · קישור מנויים
+                      סוגי כפתור: הרשמה לניסיון · מערכת שעות · כתובת
                     </p>
                   </div>
                 ) : null}

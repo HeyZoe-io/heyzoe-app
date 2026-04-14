@@ -151,15 +151,10 @@ export async function POST(req: NextRequest) {
   const mergedSocial: Record<string, unknown> = { ...prevSocial, ...incomingSocial };
   delete mergedSocial.arbox_memberships_url;
   delete mergedSocial.arbox_integration_notes;
-
-  const incomingArboxKey = String(incomingSocial.arbox_api_key ?? "").trim();
-  if (
-    !incomingArboxKey &&
-    typeof prevSocial.arbox_api_key === "string" &&
-    prevSocial.arbox_api_key.trim()
-  ) {
-    mergedSocial.arbox_api_key = prevSocial.arbox_api_key;
-  }
+  delete mergedSocial.arbox_api_key;
+  delete mergedSocial.arbox_schedule_prompt_text;
+  delete mergedSocial.arbox_box_categories_prompt_text;
+  delete mergedSocial.arbox_public_sync_at;
 
   const upsertBusiness = {
     user_id: ownerUserId,
