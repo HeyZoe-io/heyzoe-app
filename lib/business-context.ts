@@ -14,6 +14,7 @@ export type BusinessKnowledgePack = {
   businessName: string;
   botName: string;
   niche: string;
+  taglineText: string;
   businessDescription: string;
   addressText: string;
   /** הנחיות הגעה (social_links.directions) — לשליחה אוטומטית בווטסאפ וכו׳ */
@@ -308,6 +309,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       businessName: String(business.name ?? slug),
       botName: String(business.bot_name ?? "זואי").trim() || "זואי",
       niche: String(business.niche ?? ""),
+      taglineText: tagline,
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
       directionsText,

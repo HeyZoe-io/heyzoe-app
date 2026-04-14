@@ -20,6 +20,7 @@ import {
   composeGreeting,
   defaultSalesFlowConfig,
   fillAfterServicePickTemplate,
+  fillCtaBodyTemplate,
   parseSalesFlowFromSocial,
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
@@ -147,6 +148,19 @@ function afterPickToStore(typed: string, serviceName: string, benefit: string): 
   const sn = serviceName.trim();
   if (ben && s.includes(ben)) s = s.split(ben).join("{benefitLine}");
   if (sn && s.includes(sn)) s = s.split(sn).join("{serviceName}");
+  return s;
+}
+
+function ctaBodyForDisplay(stored: string, priceText: string, durationText: string): string {
+  return fillCtaBodyTemplate(stored, priceText, durationText);
+}
+
+function ctaBodyToStore(typed: string, priceText: string, durationText: string): string {
+  let s = typed;
+  const p = priceText.trim();
+  const d = durationText.trim();
+  if (p && s.includes(p)) s = s.split(p).join("{priceText}");
+  if (d && s.includes(d)) s = s.split(d).join("{durationText}");
   return s;
 }
 
@@ -459,9 +473,14 @@ export default function SlugSettingsPage() {
   /** דוגמה לתבניות שמכילות שם אימון ותיאור — לפי האימון הראשון ברשימה */
   const firstTrialForTemplates = useMemo(() => {
     const n = trialServiceNames[0];
-    if (!n) return { name: "", benefit: "" };
+    if (!n) return { name: "", benefit: "", priceText: "", durationText: "" };
     const row = services.find((s) => s.name.trim() === n);
-    return { name: n, benefit: (row?.benefit_line ?? "").trim() };
+    return {
+      name: n,
+      benefit: (row?.benefit_line ?? "").trim(),
+      priceText: (row?.price_text ?? "").trim(),
+      durationText: (row?.duration ?? "").trim(),
+    };
   }, [trialServiceNames, services]);
 
   const prevStepForServicesRef = useRef(step);
@@ -2212,10 +2231,23 @@ export default function SlugSettingsPage() {
                 </p>
                 <Field label="שאלה 1">
                   <Textarea
-                    value={salesFlowConfig.cta_body}
-                    onChange={(v) => setSalesFlowConfig((c) => ({ ...c, cta_body: v }))}
+                    value={ctaBodyForDisplay(
+                      salesFlowConfig.cta_body,
+                      firstTrialForTemplates.priceText,
+                      firstTrialForTemplates.durationText
+                    )}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({
+                        ...c,
+                        cta_body: ctaBodyToStore(
+                          v,
+                          firstTrialForTemplates.priceText,
+                          firstTrialForTemplates.durationText
+                        ),
+                      }))
+                    }
                     rows={3}
-                    placeholder="נראה לי שהולכת להיות לך חוויה מיוחדת במינה איתנו. מה דעתך שנשריין לך אימון ניסיון? אגב, אם יש לך עוד שאלות תמיד אפשר לכתוב בטקסט חופשי ואענה."
+                    placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה 120 שקלים, הוא נמשך 60 דקות ובאמת שהולך להיות כיף."
                   />
                 </Field>
                 {salesFlowConfig.cta_buttons.map((b, bi) => (
@@ -2252,7 +2284,6 @@ export default function SlugSettingsPage() {
                           }));
                         }}
                       >
-                        <option value="next_class">מתי השיעור קרוב? (Arbox — בלי לינק)</option>
                         <option value="schedule">מערכת שעות (לינק Arbox)</option>
                         <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
                         <option value="memberships">מחירי מנויים (קישור מ«פרטי העסק»)</option>

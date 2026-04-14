@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage } from "@/lib/analytics";
-import { sendWhatsAppMessage, resolveTwilioAccountSid, resolveTwilioAuthToken } from "@/lib/whatsapp";
+import {
+  sendWhatsAppMessage,
+  sendWhatsAppIdleFollowupMessage,
+  resolveTwilioAccountSid,
+  resolveTwilioAuthToken,
+} from "@/lib/whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 
 export const runtime = "nodejs";
@@ -13,9 +18,12 @@ const DEFAULT_CORE = "היי! רצינו לבדוק אם יש לך שאלות נ
 const HOURS = 24;
 const BATCH = 100;
 
-function pickWhatsAppIdleFollowupBody(socialLinks: unknown): string {
-  if (!socialLinks || typeof socialLinks !== "object" || Array.isArray(socialLinks)) return "";
-  const sl = socialLinks as Record<string, unknown>;
+function asSocialRecord(socialLinks: unknown): Record<string, unknown> {
+  if (!socialLinks || typeof socialLinks !== "object" || Array.isArray(socialLinks)) return {};
+  return socialLinks as Record<string, unknown>;
+}
+
+function pickWhatsAppIdleFollowupBody(sl: Record<string, unknown>): string {
   const primary =
     typeof sl.whatsapp_idle_followup_message === "string" ? sl.whatsapp_idle_followup_message.trim() : "";
   if (primary) return primary;
@@ -24,6 +32,63 @@ function pickWhatsAppIdleFollowupBody(socialLinks: unknown): string {
       ? sl.followup_after_hour_no_registration.trim()
       : "";
   return legacy;
+}
+
+async function resolveIdleFollowupCta(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  sl: Record<string, unknown>
+): Promise<{ label: string; url: string } | null> {
+  const kindRaw = String(sl.whatsapp_idle_followup_cta_kind ?? "trial").trim();
+  const kind = kindRaw === "schedule" || kindRaw === "custom" ? kindRaw : "trial";
+  const label =
+    typeof sl.whatsapp_idle_followup_cta_label === "string" && sl.whatsapp_idle_followup_cta_label.trim()
+      ? sl.whatsapp_idle_followup_cta_label.trim()
+      : kind === "schedule"
+        ? "מערכת שעות"
+        : kind === "custom"
+          ? "לחצו כאן"
+          : "לרכוש אימון ניסיון";
+
+  const validHttp = (u: string) => u.startsWith("https://") || u.startsWith("http://");
+
+  if (kind === "custom") {
+    const u =
+      typeof sl.whatsapp_idle_followup_cta_custom_url === "string"
+        ? sl.whatsapp_idle_followup_cta_custom_url.trim()
+        : "";
+    if (!validHttp(u)) return null;
+    return { label, url: u };
+  }
+
+  if (kind === "schedule") {
+    const u = typeof sl.arbox_link === "string" ? sl.arbox_link.trim() : "";
+    if (!validHttp(u)) return null;
+    return { label, url: u };
+  }
+
+  const { data: svc } = await admin
+    .from("services")
+    .select("description")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  let paymentUrl = "";
+  if (svc?.description) {
+    try {
+      const meta = JSON.parse(String(svc.description ?? "{}")) as Record<string, unknown>;
+      paymentUrl = String(meta.payment_link ?? "").trim();
+    } catch {
+      /* noop */
+    }
+  }
+  if (validHttp(paymentUrl)) return { label, url: paymentUrl };
+
+  const arbox = typeof sl.arbox_link === "string" ? sl.arbox_link.trim() : "";
+  if (validHttp(arbox)) return { label: "מערכת שעות", url: arbox };
+  return null;
 }
 
 function buildFollowupBody(ctaText: string, ctaLink: string): string {
@@ -178,17 +243,34 @@ export async function GET(req: NextRequest) {
       }
 
       const bizRow = biz as { cta_text?: string; cta_link?: string; social_links?: unknown } | null;
-      const customIdle = pickWhatsAppIdleFollowupBody(bizRow?.social_links);
-      const body = customIdle
-        ? `${customIdle.trim()}${FOLLOWUP_FOOTER}`
-        : buildFollowupBody(String(bizRow?.cta_text ?? ""), String(bizRow?.cta_link ?? ""));
+      const social = asSocialRecord(bizRow?.social_links);
+      const customIdle = pickWhatsAppIdleFollowupBody(social);
 
-      await sendWhatsAppMessage(phoneNumberId, phone, body, accountSid, authToken);
+      let logContent: string;
+
+      if (customIdle) {
+        const cta = await resolveIdleFollowupCta(admin, Number(businessId), social);
+        logContent = `${customIdle.trim()}${FOLLOWUP_FOOTER}`;
+        if (cta) logContent += `\n\n[כפתור: ${cta.label} → ${cta.url}]`;
+        await sendWhatsAppIdleFollowupMessage(
+          phoneNumberId,
+          phone,
+          customIdle.trim(),
+          FOLLOWUP_FOOTER,
+          cta,
+          accountSid,
+          authToken
+        );
+      } else {
+        const body = buildFollowupBody(String(bizRow?.cta_text ?? ""), String(bizRow?.cta_link ?? ""));
+        logContent = body;
+        await sendWhatsAppMessage(phoneNumberId, phone, body, accountSid, authToken);
+      }
 
       await logMessage({
         business_slug: businessSlug,
         role: "assistant",
-        content: body,
+        content: logContent,
         model_used: "inactive_followup_cron",
         session_id: sessionId,
       });

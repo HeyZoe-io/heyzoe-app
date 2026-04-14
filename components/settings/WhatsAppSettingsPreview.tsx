@@ -2,6 +2,7 @@
 
 import {
   fillAfterServicePickTemplate,
+  fillCtaBodyTemplate,
   getWhatsAppOpeningPreviewSections,
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
@@ -15,7 +16,7 @@ type Props = {
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   salesFlowConfig: SalesFlowConfig;
-  services: { name: string; price_text: string; benefit_line?: string }[];
+  services: { name: string; price_text: string; duration?: string; benefit_line?: string }[];
   businessTagline: string;
   traits: string[];
   address: string;
@@ -75,6 +76,8 @@ export function WhatsAppSettingsPreview({
     .filter((s) => s.name.trim())
     .map((s) => ({
       name: s.name.trim(),
+      price_text: s.price_text.trim(),
+      duration: (s.duration ?? "").trim(),
       benefit_line: (s.benefit_line ?? "").trim(),
     }));
 
@@ -105,6 +108,7 @@ export function WhatsAppSettingsPreview({
     openingSections.length > 0 ||
     hasOpeningExtras ||
     hasCtaPreview;
+  const firstTrial = trialServices[0] ?? { name: "", price_text: "", duration: "", benefit_line: "" };
 
   return (
     <div className="w-full max-w-[280px] mx-auto shrink-0" dir="rtl">
@@ -257,7 +261,11 @@ export function WhatsAppSettingsPreview({
                 {salesFlowConfig.cta_body.trim() ? (
                   <Bubble from="bot">
                     <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
-                      {salesFlowConfig.cta_body.trim()}
+                      {fillCtaBodyTemplate(
+                        salesFlowConfig.cta_body.trim(),
+                        firstTrial.price_text,
+                        firstTrial.duration
+                      )}
                     </p>
                   </Bubble>
                 ) : null}
@@ -272,14 +280,14 @@ export function WhatsAppSettingsPreview({
                         )
                     )}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      סוגי כפתור: שיעור קרוב (Arbox) · הרשמה לניסיון · מערכת שעות · קישור מנויים
+                      סוגי כפתור: הרשמה לניסיון · מערכת שעות · קישור מנויים
                     </p>
                   </div>
                 ) : null}
                 {salesFlowConfig.followup_after_next_class_body.trim() ? (
                   <div className="space-y-1 pt-1 border-t border-dotted border-zinc-300/80">
                     <p className="text-[9px] text-[#075e54] text-right font-medium">
-                      אחרי «מתי השיעור קרוב?» (הודעה שנייה אוטומטית)
+                      אחרי שליחת לינק (הודעת המשך אוטומטית)
                     </p>
                     <Bubble from="bot">
                       <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
