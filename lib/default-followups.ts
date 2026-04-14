@@ -32,9 +32,7 @@ function trialLabel(serviceNames: string[], niche: string): string {
 function morningIdleBody(_vibes: string[], bot: string, biz: string, _trial: string, _hasLink: boolean): string {
   return `בוקר טוב 🙂 ${bot} מ־${biz}.
 
-קשקשנו אתמול — רציתי לשאול אם יש לך עוד שאלות? אפשר ללחוץ על הכפתור ולהירשם לאימון ניסיון, או לכתוב לי כל שאלה.
-
-אני כאן לכל שאלה.`;
+קשקשנו אתמול — רציתי לשאול אם יש לך עוד שאלות? אפשר ללחוץ על הכפתור ולהירשם לאימון ניסיון, או לכתוב לי כל שאלה.`;
 }
 
 /** טקסט ברירת מחדל להודעת הפולואפ האוטומטית בווטסאפ (למחרת בבוקר). */
