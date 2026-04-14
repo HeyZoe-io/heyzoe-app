@@ -1685,16 +1685,19 @@ export default function SlugSettingsPage() {
                   </Field>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="תיאור">
-                      <Input
-                        dir="rtl"
+                    <Field label="תשובה אחרי בחירה בסשן פתיחה">
+                      <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
+                        זה המשפט שזואי תשלח אחרי שלוחצים על הכפתור של האימון הזה.
+                      </p>
+                      <Textarea
+                        rows={3}
                         value={s.benefit_line}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const arr = [...services];
-                          arr[i] = { ...s, benefit_line: e.target.value };
+                          arr[i] = { ...s, benefit_line: v };
                           setServices(arr);
                         }}
-                        placeholder="שיעורי יוגה לרמת מתקדמים."
+                        placeholder="למשל: כיף גדול! שיעורי עמידות ידיים עובדים על יצירת טכניקה נכונה וחיזוק הגוף עד למצב בו תוכלו לעמוד על הידיים לגמרי בעצמכם!"
                       />
                     </Field>
                     <Field label="מיקום">
@@ -1911,9 +1914,9 @@ export default function SlugSettingsPage() {
                         ))}
                       </div>
 
-                      <Field label="תשובה">
+                      <Field label="תשובת fallback">
                         <p className="text-[11px] text-zinc-500 text-right mb-1.5 leading-snug">
-                          זואי ממלאה את שם האימון שנבחר ואת שדה «תיאור» מ«אימון ניסיון». כתבו משפט קצר וחי — לא רשימת נקודות.
+                          אם הוגדרה לכל אימון תשובה פרטנית בטאב «אימון ניסיון», זואי תשלח אותה. השדה כאן משמש fallback כללי בלבד.
                         </p>
                         <Textarea
                           rows={4}
