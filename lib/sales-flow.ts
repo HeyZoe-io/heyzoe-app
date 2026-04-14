@@ -76,7 +76,7 @@ const FRIENDLY: SalesFlowConfig = {
   followup_after_next_class_options: [
     "הרשמה לשיעור ניסיון",
     "צפייה במערכת השעות",
-    "יש לי שאלה אחרת...",
+    "צפייה במחירי מנויים וכרטיסיות",
   ],
   free_chat_invite_reply: "אין בעיה! כתבו בטקסט חופשי ואענה 🙂",
   after_trial_registration_body: `כל הכבוד! נרשמת בהצלחה 🎉
@@ -112,7 +112,7 @@ const FORMAL: SalesFlowConfig = {
   followup_after_next_class_options: [
     "הרשמה לשיעור ניסיון",
     "צפייה במערכת השעות",
-    "יש לי שאלה אחרת...",
+    "צפייה במחירי מנויים וכרטיסיות",
   ],
   free_chat_invite_reply: "אין בעיה. כתבו בטקסט חופשי ונשיב בהקדם.",
   after_trial_registration_body: `ברכות על ההרשמה.
@@ -146,7 +146,7 @@ const DIRECT: SalesFlowConfig = {
   followup_after_next_class_options: [
     "הרשמה לשיעור ניסיון",
     "צפייה במערכת השעות",
-    "יש לי שאלה אחרת...",
+    "צפייה במחירי מנויים וכרטיסיות",
   ],
   free_chat_invite_reply: "אין בעיה. כתבו בצ׳אט חופשי.",
 };

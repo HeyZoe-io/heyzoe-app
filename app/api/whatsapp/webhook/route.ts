@@ -786,23 +786,9 @@ async function processIncoming(
       const trialUrl = knowledge.arboxLink?.trim() ?? "";
       const scheduleUrl = (knowledge.schedulePublicUrl?.trim() || trialUrl).trim();
 
-      if (follow[2] && waLabelMatches(incomingResolved, follow[2])) {
-        const txt = cfg.free_chat_invite_reply.trim() || "אין בעיה! כתבו בטקסט חופשי ואענה 🙂";
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send free-chat invite failed:", e)
-        );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: txt,
-          model_used: "sales_flow_followup_free",
-          session_id: sessionId,
-        });
-        return;
-      }
-
       const wantsTrialByFollow = follow[0] && waLabelMatches(incomingResolved, follow[0]);
       const wantsScheduleByFollow = follow[1] && waLabelMatches(incomingResolved, follow[1]);
+      const wantsMembershipsByFollow = follow[2] && waLabelMatches(incomingResolved, follow[2]);
       const trialBtn = ctaBs.find((b) => b.kind === "trial");
       const schedBtn = ctaBs.find((b) => b.kind === "schedule");
       const nextBtn = ctaBs.find((b) => b.kind === "next_class");
@@ -873,7 +859,8 @@ async function processIncoming(
       }
 
       const memBtn = ctaBs.find((b) => b.kind === "memberships");
-      const wantsMemberships = memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false;
+      const wantsMemberships =
+        wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
       if (wantsMemberships) {
         const mu = knowledge?.membershipsUrl?.trim() ?? "";
         const txt = mu.length
