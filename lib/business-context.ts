@@ -226,10 +226,10 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       social.whatsapp_idle_followup_cta_label.trim()
         ? social.whatsapp_idle_followup_cta_label.trim()
         : whatsappIdleFollowupCtaKind === "schedule"
-          ? "מערכת שעות"
+          ? "צפייה במערכת השעות"
           : whatsappIdleFollowupCtaKind === "custom"
             ? "לחצו כאן"
-            : "לרכוש אימון ניסיון";
+            : "הרשמה לשיעור ניסיון";
 
     const serviceNamesForOpening = (services ?? [])
       .map((s) => String(s.name ?? "").trim())
