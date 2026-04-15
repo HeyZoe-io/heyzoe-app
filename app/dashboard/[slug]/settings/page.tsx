@@ -584,9 +584,10 @@ export default function SlugSettingsPage() {
         salesFlowConfig,
         botName.trim() || "זואי",
         name.trim() || displayNameFromSlug(slug),
-        businessTagline.trim()
+        businessTagline.trim(),
+        address.trim()
       ),
-    [salesFlowConfig, botName, name, slug, businessTagline]
+    [salesFlowConfig, botName, name, slug, businessTagline, address]
   );
 
   const trialServiceNames = useMemo(
@@ -640,7 +641,8 @@ export default function SlugSettingsPage() {
       })),
       botName.trim() || "זואי",
       name.trim() || displayNameFromSlug(slug),
-      businessTagline.trim()
+      businessTagline.trim(),
+      address.trim()
     );
     setWelcomeIntro(wf.intro);
     setWelcomeQuestion(wf.question);
@@ -653,6 +655,7 @@ export default function SlugSettingsPage() {
     name,
     slug,
     businessTagline,
+    address,
   ]);
 
   const isPremium = plan === "premium";
@@ -812,10 +815,11 @@ export default function SlugSettingsPage() {
 
         if (hasSalesFlowSaved) {
           const parsed = parseSalesFlowFromSocial(sl.sales_flow);
-          if (parsed) setSalesFlowConfig(parsed);
+          if (parsed) setSalesFlowConfig({ ...parsed, greeting_extra_steps: [] });
         } else {
           const def = defaultSalesFlowConfig(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
           if (loadedWelcomeIntro.trim()) def.greeting_body_override = loadedWelcomeIntro.trim();
+          def.greeting_extra_steps = [];
           setSalesFlowConfig(def);
         }
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
@@ -953,7 +957,8 @@ export default function SlugSettingsPage() {
       })),
       botName.trim() || "זואי",
       name.trim() || displayNameFromSlug(slug),
-      businessTagline.trim()
+      businessTagline.trim(),
+      address.trim()
     );
     return {
       business: {
@@ -1189,10 +1194,38 @@ export default function SlugSettingsPage() {
           };
         }
         if (section === "service_pick") {
+          const namedServices = services.filter((s) => s.name.trim());
+          const includeOpener = namedServices.length > 1;
+          setServices((prev) =>
+            prev.map((service) => {
+              const serviceName = service.name.trim();
+              if (!serviceName) return service;
+              const meta = parseServiceDescriptionMeta(service.description);
+              const descriptionText = String(meta.description_text ?? meta.description ?? service.description ?? "").trim();
+              const benefits = Array.isArray(meta.benefits)
+                ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
+                : [];
+              const suggestions = Array.isArray(meta.benefit_suggestions)
+                ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
+                : [];
+              return {
+                ...service,
+                benefit_line: buildServiceReplyDraft(
+                  serviceName,
+                  descriptionText,
+                  "",
+                  benefits,
+                  suggestions,
+                  includeOpener
+                ),
+              };
+            })
+          );
           return {
             ...c,
             multi_service_question: base.multi_service_question,
             after_service_pick: base.after_service_pick,
+            greeting_extra_steps: [],
           };
         }
         if (section === "warmup") {
@@ -1218,7 +1251,7 @@ export default function SlugSettingsPage() {
         return { ...c, after_trial_registration_body: base.after_trial_registration_body };
       });
     },
-    [vibe]
+    [services, vibe]
   );
 
   // ─── Media upload ──────────────────────────────────────────────────────────
@@ -1705,7 +1738,8 @@ export default function SlugSettingsPage() {
 
               <Field
                 label={
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center justify-start gap-3 text-right">
+                    <span className="text-right">הנחיות הגעה</span>
                     <button
                       type="button"
                       onClick={() => setShowDirectionsMediaModal(true)}
@@ -1713,7 +1747,6 @@ export default function SlugSettingsPage() {
                     >
                       העלה קובץ
                     </button>
-                    <span>הנחיות הגעה</span>
                   </div>
                 }
               >
@@ -1842,9 +1875,7 @@ export default function SlugSettingsPage() {
                         placeholder="שם האימון (עד 15 תווים) *"
                         className="font-medium w-full"
                       />
-                      <p className="text-[11px] text-zinc-500 text-right leading-snug pr-0.5">
-                        קצר יותר = כפתור ברור יותר (עד 3 מילים)
-                      </p>
+                      <p className="text-[11px] text-zinc-500 text-right leading-snug pr-0.5">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</p>
                     </div>
                     <button onClick={() => setServices(sv => sv.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400">
                       <Trash2 className="h-4 w-4" />
@@ -1871,8 +1902,8 @@ export default function SlugSettingsPage() {
                     <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder={address || "תל אביב"} />
                   </Field>
 
-                  <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3">
-                    <label className="flex items-center justify-end gap-2 text-sm font-medium text-zinc-700">
+                  <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3 text-right">
+                    <label className="flex items-center justify-end gap-2 text-right text-sm font-medium text-zinc-700">
                       <span>חלוקה לרמות</span>
                       <input
                         type="checkbox"
@@ -1893,9 +1924,9 @@ export default function SlugSettingsPage() {
                       />
                     </label>
                     {s.levels_enabled ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2 text-right">
                         {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
-                          <div key={`${s.ui_id}-level-${levelIndex}`} className="flex items-center gap-2">
+                          <div key={`${s.ui_id}-level-${levelIndex}`} className="flex flex-row-reverse items-center gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -1927,7 +1958,7 @@ export default function SlugSettingsPage() {
                         <Button
                           type="button"
                           variant="outline"
-                          className="w-full gap-2"
+                          className="w-full gap-2 text-right"
                           onClick={() => {
                             const arr = [...services];
                             arr[i] = { ...s, levels: [...s.levels, ""] };
@@ -2009,10 +2040,10 @@ export default function SlugSettingsPage() {
                 ) : (
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
                     {openingMediaType === "video" ? (
-                      <div className="relative w-full max-w-sm mx-auto">
+                      <div className="relative mx-auto w-fit max-w-full">
                         <video
                           src={videoUrlForPreview(openingMediaUrl)}
-                          className="max-h-48 w-full rounded-xl object-cover bg-black"
+                          className="block max-h-72 max-w-full rounded-xl bg-black"
                           muted
                           playsInline
                           preload="metadata"
@@ -2023,9 +2054,9 @@ export default function SlugSettingsPage() {
                         </p>
                       </div>
                     ) : (
-                      <div className="relative w-full max-w-sm mx-auto">
+                      <div className="relative mx-auto w-fit max-w-full">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={openingMediaUrl} alt="מדיה לפתיחה" className="max-h-48 w-full rounded-xl object-contain mx-auto" />
+                        <img src={openingMediaUrl} alt="מדיה לפתיחה" className="mx-auto block max-h-72 max-w-full rounded-xl object-contain" />
                         <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה</p>
                       </div>
                     )}
@@ -2121,9 +2152,6 @@ export default function SlugSettingsPage() {
                   {trialServiceNames.length > 1 ? (
                     <>
                       <Field label="בחירת סוג האימון" className="space-y-1">
-                        <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                          אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳…
-                        </p>
                         <Textarea
                           value={salesFlowConfig.multi_service_question}
                           onChange={(v) =>
@@ -2157,13 +2185,6 @@ export default function SlugSettingsPage() {
                         )}
                       </div>
 
-                      <SalesFlowExtraStepsEditor
-                        steps={salesFlowConfig.greeting_extra_steps}
-                        onChange={(next) =>
-                          setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
-                        }
-                        addButtonLabel="הוסף שאלה אחרי הפתיחה"
-                      />
                     </>
                   ) : trialServiceNames.length === 1 ? (
                     <>
@@ -2192,26 +2213,12 @@ export default function SlugSettingsPage() {
                           </div>
                         );
                       })()}
-                      <SalesFlowExtraStepsEditor
-                        steps={salesFlowConfig.greeting_extra_steps}
-                        onChange={(next) =>
-                          setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
-                        }
-                        addButtonLabel="הוסף שאלה אחרי הפתיחה"
-                      />
                     </>
                   ) : (
                     <>
                       <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
                         הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
                       </p>
-                      <SalesFlowExtraStepsEditor
-                        steps={salesFlowConfig.greeting_extra_steps}
-                        onChange={(next) =>
-                          setSalesFlowConfig((c) => ({ ...c, greeting_extra_steps: next }))
-                        }
-                        addButtonLabel="הוסף שאלה אחרי הפתיחה"
-                      />
                     </>
                   )}
                 </div>
@@ -2232,7 +2239,7 @@ export default function SlugSettingsPage() {
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    מומלץ לא יותר מ־1–3 שאלות. בתום סשן החימום זואי תעבור אוטומטית לסשן הנעה לפעולה.
+                    פשוט שאלות שעושות חשק לבוא. אין לתשובה השפעה על פלואו השיחה. אל תעמיסו 🙂
                   </p>
 
                   {trialServiceNames.length === 0 ? (
@@ -2332,10 +2339,7 @@ export default function SlugSettingsPage() {
                   </Button>
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
-                <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  כל שאלה כאן תניע ללחיצה על לינקים רלוונטים.
-                </p>
-                <Field label="שאלה 1">
+                <div>
                   <Textarea
                     value={ctaBodyForDisplay(
                       salesFlowConfig.cta_body,
@@ -2355,7 +2359,7 @@ export default function SlugSettingsPage() {
                     rows={3}
                     placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה 120 שקלים, הוא נמשך 60 דקות ובאמת שהולך להיות כיף."
                   />
-                </Field>
+                </div>
                 {salesFlowConfig.cta_buttons.map((b, bi) => (
                   <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
                     <Field label={`כפתור ${bi + 1} — תווית`}>
@@ -2593,10 +2597,10 @@ export default function SlugSettingsPage() {
         {showDirectionsMediaModal ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-3 text-right">
                 <div>
-                  <p className="text-base font-semibold text-zinc-900">מדיה להנחיות הגעה</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">תמונה או סרטון שישלחו יחד עם ההוראות הכתובות</p>
+                  <p className="text-right text-base font-semibold text-zinc-900">מדיה להנחיות הגעה</p>
+                  <p className="mt-0.5 text-right text-xs text-zinc-500">תמונה או סרטון שישלחו יחד עם ההוראות הכתובות</p>
                 </div>
                 <button
                   type="button"
@@ -2631,10 +2635,10 @@ export default function SlugSettingsPage() {
                 ) : (
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
                     {directionsMediaType === "video" ? (
-                      <div className="relative w-full max-w-sm mx-auto">
+                      <div className="relative mx-auto w-fit max-w-full">
                         <video
                           src={videoUrlForPreview(directionsMediaUrl)}
-                          className="max-h-48 w-full rounded-xl object-cover bg-black"
+                          className="block max-h-72 max-w-full rounded-xl bg-black"
                           muted
                           playsInline
                           preload="metadata"
@@ -2643,9 +2647,9 @@ export default function SlugSettingsPage() {
                         <p className="text-center text-xs text-emerald-600 mt-2 font-medium">הסרטון הועלה ונשמר</p>
                       </div>
                     ) : (
-                      <div className="relative w-full max-w-sm mx-auto">
+                      <div className="relative mx-auto w-fit max-w-full">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={directionsMediaUrl} alt="מדיה להנחיות הגעה" className="max-h-48 w-full rounded-xl object-contain mx-auto" />
+                        <img src={directionsMediaUrl} alt="מדיה להנחיות הגעה" className="mx-auto block max-h-72 max-w-full rounded-xl object-contain" />
                         <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה ונשמרה</p>
                       </div>
                     )}
