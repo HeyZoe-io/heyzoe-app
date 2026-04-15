@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Assistant:wght@300..800&family=Rubik:wght@300..900&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -6,9 +6,15 @@
   --hz-pink: #ff92ff;
   --hz-green: #35ff70;
   --hz-page: #f5f3ff;
+  --hz-ink: #22163d;
+  --hz-card: rgba(255, 255, 255, 0.82);
+  --hz-card-strong: rgba(255, 255, 255, 0.92);
+  --hz-line: rgba(131, 84, 255, 0.16);
+  --hz-shadow: 0 22px 70px rgba(93, 57, 179, 0.14);
+  --hz-shadow-soft: 0 12px 30px rgba(108, 76, 171, 0.1);
 
   --background: var(--hz-page);
-  --foreground: #171717;
+  --foreground: var(--hz-ink);
 }
 
 @theme inline {
@@ -31,9 +37,17 @@ html[dir="rtl"] body {
 }
 
 body {
-  background: var(--background);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 146, 255, 0.26), transparent 0 26%),
+    radial-gradient(circle at 88% 12%, rgba(113, 51, 218, 0.24), transparent 0 28%),
+    radial-gradient(circle at 78% 78%, rgba(83, 205, 255, 0.18), transparent 0 24%),
+    linear-gradient(180deg, #faf7ff 0%, #f5f2ff 38%, #f7f5ff 100%);
   color: var(--foreground);
-  font-family: "Fredoka", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Rubik", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 @keyframes hzFadeUp {
@@ -45,6 +59,95 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes hzGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(113, 51, 218, 0);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 20px 40px rgba(113, 51, 218, 0.16);
+    transform: translateY(-1px);
+  }
+}
+
+.hz-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.hz-shell::before,
+.hz-shell::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: auto;
+  border-radius: 999px;
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.hz-shell::before {
+  top: 80px;
+  right: -40px;
+  width: 260px;
+  height: 260px;
+  background: rgba(255, 146, 255, 0.22);
+}
+
+.hz-shell::after {
+  bottom: 40px;
+  left: -30px;
+  width: 300px;
+  height: 300px;
+  background: rgba(113, 51, 218, 0.16);
+}
+
+.hz-frost {
+  background: var(--hz-card);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: var(--hz-shadow);
+}
+
+.hz-frost-strong {
+  background: var(--hz-card-strong);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: var(--hz-shadow-soft);
+}
+
+.hz-gradient-text {
+  background: linear-gradient(135deg, #5a2bd8 0%, #c045ff 52%, #ff6cd8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hz-soft-ring {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.32),
+    0 16px 40px rgba(99, 67, 177, 0.12);
+}
+
+.hz-lift {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.hz-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px rgba(98, 63, 180, 0.18);
+}
+
+.hz-glow {
+  animation: hzGlow 4.8s ease-in-out infinite;
 }
 
 .hz-wave {
@@ -76,6 +179,26 @@ div,
 span,
 label {
   unicode-bidi: plaintext;
+}
+
+::selection {
+  background: rgba(192, 69, 255, 0.18);
+  color: #2e145f;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(113, 51, 218, 0.56), rgba(255, 146, 255, 0.58));
+  border-radius: 999px;
+  border: 2px solid rgba(248, 244, 255, 0.9);
 }
 
 button,
