@@ -418,14 +418,14 @@ function normalizeTraitsState(arr: string[]): string[] {
 
 function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3 mb-1">
-        <span className="w-8 h-8 rounded-full bg-[#f0eaff] text-[#7133da] text-sm font-bold flex items-center justify-center shrink-0">
+    <div className="mb-7">
+      <div className="mb-2 flex items-center gap-3">
+        <span className="hz-glow flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(113,51,218,0.16),rgba(255,146,255,0.22))] text-sm font-extrabold text-[#7133da] shadow-[0_14px_28px_rgba(113,51,218,0.14)] ring-1 ring-white/70">
           {n}
         </span>
-        <h2 className="text-xl font-bold text-zinc-900">{title}</h2>
+        <h2 className="text-[1.45rem] font-extrabold tracking-[-0.03em] text-zinc-900">{title}</h2>
       </div>
-      {desc && <p className="text-sm text-zinc-500 mr-11">{desc}</p>}
+      {desc && <p className="mr-13 max-w-[42rem] text-[0.95rem] leading-7 text-zinc-500">{desc}</p>}
     </div>
   );
 }
@@ -443,10 +443,10 @@ function Field({
   description?: string;
 }) {
   return (
-    <div className={`space-y-1.5 ${className}`}>
-      <div className="text-sm font-medium text-zinc-700 block">{label}</div>
+    <div className={`space-y-2 ${className}`}>
+      <div className="block text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">{label}</div>
       {description ? (
-        <p className="text-xs text-zinc-500 text-right leading-relaxed">{description}</p>
+        <p className="text-xs leading-6 text-zinc-500 text-right">{description}</p>
       ) : null}
       {children}
     </div>
@@ -463,7 +463,7 @@ function Textarea({ value, onChange, placeholder, rows = 3 }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#7133da]/40 resize-none"
+      className="w-full resize-none rounded-2xl border border-[rgba(124,96,202,0.18)] bg-white/88 px-4 py-3 text-sm leading-6 text-zinc-800 shadow-[0_12px_28px_rgba(110,78,176,0.08)] backdrop-blur-sm transition-all duration-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#7133da]/30 focus:ring-offset-2 focus:ring-offset-white focus:border-[rgba(113,51,218,0.35)] hover:border-[rgba(113,51,218,0.24)]"
     />
   );
 }
@@ -1408,8 +1408,8 @@ export default function SlugSettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5f3ff]" dir="rtl">
-        <div className="sticky top-0 z-40 bg-white border-b border-zinc-200 shadow-sm">
+      <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
+        <div className="sticky top-0 z-40 border-b border-white/50 bg-white/65 shadow-[0_14px_40px_rgba(95,64,178,0.1)] backdrop-blur-xl">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between animate-pulse">
             <div className="h-4 w-40 rounded bg-zinc-200" />
             <div className="h-4 w-24 rounded bg-zinc-200" />
@@ -1423,8 +1423,8 @@ export default function SlugSettingsPage() {
           </div>
         </div>
 
-        <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-          <div className="rounded-2xl bg-white border border-[rgba(113,51,218,0.1)] p-5 animate-pulse space-y-4">
+          <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
+          <div className="rounded-[28px] border border-white/75 bg-white/80 p-6 animate-pulse space-y-4 shadow-[0_24px_70px_rgba(95,64,178,0.12)] backdrop-blur-xl">
             <div className="flex items-center justify-end gap-3">
               <div className="h-8 w-8 rounded-full bg-[#f0eaff]" />
               <div className="h-5 w-40 rounded bg-zinc-200" />
@@ -1449,7 +1449,7 @@ export default function SlugSettingsPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between mt-8 pt-4 border-t border-zinc-200 animate-pulse">
+          <div className="mt-8 flex items-center justify-between border-t border-white/70 pt-5 animate-pulse">
             <div className="h-10 w-24 rounded-xl bg-zinc-200" />
             <div className="h-4 w-16 rounded bg-zinc-200" />
             <div className="h-10 w-28 rounded-xl bg-zinc-200" />
@@ -1479,18 +1479,18 @@ export default function SlugSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f3ff]" dir="rtl">
+    <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
       {/* ── Top bar ── */}
-      <div className="sticky top-0 z-40 bg-white border-b border-zinc-200 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+      <div className="sticky top-0 z-40 border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-            <span className="text-[#7133da]">HeyZoe</span>
+            <span className="hz-gradient-text font-extrabold">HeyZoe</span>
             <span className="text-zinc-300">/</span>
             <span>{slug}</span>
           </div>
           {canAutosave ? (
-            <div className="text-xs text-zinc-500 flex items-center gap-1.5 shrink-0 min-h-[1.25rem]" aria-live="polite">
+            <div className="hz-frost-strong text-xs text-zinc-500 flex items-center gap-1.5 shrink-0 min-h-[1.25rem] rounded-full px-3 py-1.5" aria-live="polite">
               {autosaveStatus === "saving" && (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
@@ -1508,8 +1508,8 @@ export default function SlugSettingsPage() {
         </div>
 
         {/* Step indicator */}
-        <div className="max-w-6xl mx-auto px-4 pb-3 overflow-x-auto">
-          <div className="flex gap-1 min-w-max">
+        <div className="max-w-6xl mx-auto px-4 pb-4 overflow-x-auto">
+          <div className="flex gap-2 min-w-max">
             {STEPS.map((label, i) => {
               const n = i + 1;
               if (!isPremium && label === "חיבור פייסבוק") return null;
@@ -1519,14 +1519,14 @@ export default function SlugSettingsPage() {
                 <button
                   key={n}
                   onClick={() => setStep(n)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                    active  ? "text-white shadow-sm bg-[linear-gradient(135deg,#7133da,#ff92ff)]" :
-                    done    ? "bg-[#f0eaff] text-[#7133da]" :
-                              "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-semibold tracking-[-0.01em] transition-all duration-200 border ${
+                    active  ? "border-white/60 text-white bg-[linear-gradient(135deg,#6434ec_0%,#9350ff_45%,#ff7adc_100%)] shadow-[0_16px_32px_rgba(125,71,233,0.24)]" :
+                    done    ? "border-white/70 bg-white/78 text-[#7133da] shadow-[0_10px_24px_rgba(112,84,182,0.1)] backdrop-blur-sm hover:bg-white" :
+                              "border-transparent bg-white/52 text-zinc-500 backdrop-blur-sm hover:bg-white/76 hover:text-zinc-800"
                   }`}
                 >
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                    active ? "bg-white/30" : done ? "bg-[#e6dcff]" : "bg-zinc-200"
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-extrabold ${
+                    active ? "bg-white/24" : done ? "bg-[#efe8ff]" : "bg-zinc-200/80"
                   }`}>{done ? "✓" : n}</span>
                   <span className="hidden sm:inline">{label}</span>
                 </button>
@@ -1537,13 +1537,13 @@ export default function SlugSettingsPage() {
       </div>
 
       {settingsLoadError ? (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-sm text-red-800 text-center" role="alert">
+        <div className="mx-4 mt-4 rounded-2xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800 shadow-[0_12px_28px_rgba(239,68,68,0.08)]" role="alert">
           {settingsLoadError}
         </div>
       ) : null}
 
       {/* ── Step content ── */}
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-10">
         <div className="max-w-2xl mx-auto w-full">
 
         {/* ════════════════════ STEP 1 — לינקים חשובים ════════════════════ */}
