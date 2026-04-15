@@ -62,7 +62,7 @@ const FRIENDLY: SalesFlowConfig = {
     "עדיין לא :)",
   ],
   after_experience:
-    "מגניב לגמרי, יש לנו אימונים לכל הרמות, כך שכל אחד ואחת יכולים למצוא את עצמם.",
+    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
   opening_extra_steps: [],
   cta_body:
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
@@ -100,7 +100,7 @@ const FORMAL: SalesFlowConfig = {
   after_service_pick:
     "מצוין. {serviceName} שלנו הם הזדמנות נעימה להתחזק, להתגמש ולהרגיש את האיזון — בגוף ובנפש, בקצב מקצועי ותומך.",
   after_experience:
-    "מצוין. יש לנו אימונים לכל הרמות, ונשמח למצוא עבורכם את ההתאמה הנכונה.",
+    "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
   cta_body:
     "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   cta_buttons: [
@@ -371,6 +371,28 @@ export function composeGreeting(
 }
 
 export type ServiceLike = { name: string; benefit_line?: string; service_slug?: string };
+
+export function formatServiceLevelsText(levelsEnabled: boolean, levels: string[]): string {
+  const cleanLevels = levels.map((level) => String(level ?? "").trim()).filter(Boolean);
+  if (!levelsEnabled || cleanLevels.length === 0) {
+    return "יש לנו אימונים לכל הרמות,";
+  }
+  if (cleanLevels.length === 1) {
+    return `יש לנו אימונים לרמת ${cleanLevels[0]},`;
+  }
+  if (cleanLevels.length === 2) {
+    return `יש לנו אימונים לרמת ${cleanLevels[0]} ו${cleanLevels[1]},`;
+  }
+  return `יש לנו אימונים לרמת ${cleanLevels.slice(0, -1).join(", ")} ו${cleanLevels[cleanLevels.length - 1]},`;
+}
+
+export function fillAfterExperienceTemplate(
+  template: string,
+  levelsEnabled: boolean,
+  levels: string[]
+): string {
+  return template.replace(/\{levelsText\}/g, formatServiceLevelsText(levelsEnabled, levels));
+}
 
 export function syncWelcomeFromSalesFlow(
   c: SalesFlowConfig,
