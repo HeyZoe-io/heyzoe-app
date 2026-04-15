@@ -70,7 +70,7 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
-const MAX_OPENING_MEDIA_BYTES = 16 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
 
 function videoUrlForPreview(url: string) {
   if (!url) return url;
@@ -436,7 +436,7 @@ function Field({
   className = "",
   description,
 }: {
-  label: string;
+  label: React.ReactNode;
   children: React.ReactNode;
   className?: string;
   /** שורת הסבר מתחת לכותרת (למשל לפני שדה הקלט) */
@@ -444,7 +444,7 @@ function Field({
 }) {
   return (
     <div className={`space-y-1.5 ${className}`}>
-      <label className="text-sm font-medium text-zinc-700 block">{label}</label>
+      <div className="text-sm font-medium text-zinc-700 block">{label}</div>
       {description ? (
         <p className="text-xs text-zinc-500 text-right leading-relaxed">{description}</p>
       ) : null}
@@ -518,6 +518,8 @@ export default function SlugSettingsPage() {
   const [address, setAddress]   = useState("");
   const [customerServicePhone, setCustomerServicePhone] = useState("");
   const [directions, setDirections] = useState("");
+  const [directionsMediaUrl, setDirectionsMediaUrl] = useState("");
+  const [directionsMediaType, setDirectionsMediaType] = useState<"image" | "video" | "">("");
   const [businessTagline, setBusinessTagline] = useState("");
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
   const [vibe, setVibe]         = useState<string[]>([]);
@@ -533,6 +535,10 @@ export default function SlugSettingsPage() {
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaUploadError, setMediaUploadError] = useState("");
+  const directionsMediaInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingDirectionsMedia, setUploadingDirectionsMedia] = useState(false);
+  const [directionsMediaUploadError, setDirectionsMediaUploadError] = useState("");
+  const [showDirectionsMediaModal, setShowDirectionsMediaModal] = useState(false);
 
   // ── מסלול מכירה: פתיחה + כפתורים
   const [welcomeIntro, setWelcomeIntro] = useState("");
@@ -740,6 +746,8 @@ export default function SlugSettingsPage() {
           typeof sl.customer_service_phone === "string" ? sl.customer_service_phone.trim() : ""
         );
         setDirections(String(sl.directions ?? ""));
+        setDirectionsMediaUrl(String(sl.directions_media_url ?? ""));
+        setDirectionsMediaType((sl.directions_media_type as "image" | "video" | "") ?? "");
         setBusinessTagline(typeof sl.tagline === "string" ? sl.tagline : "");
         const f1 = typeof sl.fact1 === "string" ? sl.fact1 : "";
         const f2 = typeof sl.fact2 === "string" ? sl.fact2 : "";
@@ -968,6 +976,8 @@ export default function SlugSettingsPage() {
           address,
           customer_service_phone: customerServicePhone.trim(),
           directions,
+          directions_media_url: directionsMediaUrl,
+          directions_media_type: directionsMediaType,
           vibe,
           opening_media_url: openingMediaUrl,
           opening_media_type: openingMediaType,
@@ -1028,6 +1038,8 @@ export default function SlugSettingsPage() {
       address,
       customerServicePhone,
       directions,
+      directionsMediaUrl,
+      directionsMediaType,
       vibe,
       openingMediaUrl,
       openingMediaType,
@@ -1211,15 +1223,19 @@ export default function SlugSettingsPage() {
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
-  async function uploadMedia(file: File) {
-    setMediaUploadError("");
-    if (file.size > MAX_OPENING_MEDIA_BYTES) {
-      setMediaUploadError(
+  async function uploadMedia(file: File, target: "opening" | "directions") {
+    const setError = target === "opening" ? setMediaUploadError : setDirectionsMediaUploadError;
+    const setUploading = target === "opening" ? setUploadingMedia : setUploadingDirectionsMedia;
+    const setUrl = target === "opening" ? setOpeningMediaUrl : setDirectionsMediaUrl;
+    const setType = target === "opening" ? setOpeningMediaType : setDirectionsMediaType;
+    setError("");
+    if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+      setError(
         "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
       );
       return;
     }
-    setUploadingMedia(true);
+    setUploading(true);
     try {
       const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
         method: "POST",
@@ -1270,16 +1286,16 @@ export default function SlugSettingsPage() {
         } catch {
           errText = putRes.statusText || "";
         }
-        setMediaUploadError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+        setError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
         return;
       }
 
-      setOpeningMediaUrl(publicUrl);
-      setOpeningMediaType(file.type.startsWith("video") ? "video" : "image");
+      setUrl(publicUrl);
+      setType(file.type.startsWith("video") ? "video" : "image");
     } catch {
-      setMediaUploadError("בעיית רשת בהעלאה.");
+      setError("בעיית רשת בהעלאה.");
     } finally {
-      setUploadingMedia(false);
+      setUploading(false);
     }
   }
 
@@ -1687,7 +1703,20 @@ export default function SlugSettingsPage() {
                 />
               </Field>
 
-              <Field label="הנחיות הגעה">
+              <Field
+                label={
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowDirectionsMediaModal(true)}
+                      className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
+                    >
+                      העלה קובץ
+                    </button>
+                    <span>הנחיות הגעה</span>
+                  </div>
+                }
+              >
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
               </Field>
 
@@ -2040,7 +2069,7 @@ export default function SlugSettingsPage() {
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     e.target.value = "";
-                    if (f) uploadMedia(f);
+                    if (f) void uploadMedia(f, "opening");
                   }}
                 />
               </div>
@@ -2104,34 +2133,13 @@ export default function SlugSettingsPage() {
                           placeholder="למשל: איזה אימון הכי מדבר אליך?"
                         />
                       </Field>
-                      <p className="text-xs font-medium text-zinc-700 text-right">כפתורי בחירה (משלב «אימון ניסיון»)</p>
-                      <p className="text-xs text-zinc-500 text-right leading-snug">
-                        עד שלושה אימונים — כפתורים; מעל שלושה — רשימה ממוספרת בווטסאפ.
-                      </p>
-                      <div className="flex flex-wrap gap-2 justify-end">
-                        {trialServiceNames.map((n) => (
-                          <span
-                            key={n}
-                            className="px-3 py-2 rounded-xl text-xs font-medium text-right border border-[#7133da]/20 bg-white text-zinc-800 shadow-sm"
-                          >
-                            {n}
-                          </span>
-                        ))}
-                      </div>
-
                       <div className="space-y-3 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-3">
-                        <p className="text-xs font-medium text-zinc-700 text-right">
-                          תשובה אוטומטית לפי כפתור שנבחר
-                        </p>
-                        <p className="text-[11px] text-zinc-500 text-right leading-snug">
-                          עבור כל כפתור זואי תשלח את התשובה שמוגדרת כאן, ונשתמש בתיאור האימון כדי להציע ניסוח התחלתי טוב.
-                        </p>
                         {services.map((s, i) =>
                           !s.name.trim() ? null : (
                             <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
-                              <p className="text-xs font-medium text-zinc-700 text-right">
-                                כפתור: {s.name.trim()}
-                              </p>
+                              <div className="w-full rounded-xl border border-[#d1d7db] bg-white px-3 py-2 text-right text-sm font-medium text-[#027eb5] shadow-sm">
+                                {s.name.trim()}
+                              </div>
                               <Field label="תשובה">
                                 <Textarea
                                   rows={3}
@@ -2577,6 +2585,114 @@ export default function SlugSettingsPage() {
               </ol>
               <div className="mt-5 flex justify-start">
                 <Button onClick={() => setShowTokenHelp(false)} className="px-4">סגור</Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showDirectionsMediaModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-zinc-900">מדיה להנחיות הגעה</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">תמונה או סרטון שישלחו יחד עם ההוראות הכתובות</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDirectionsMediaModal(false)}
+                  className="rounded-full p-1 text-zinc-500 hover:text-zinc-800"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {!directionsMediaUrl ? (
+                  <button
+                    type="button"
+                    disabled={uploadingDirectionsMedia}
+                    onClick={() => !uploadingDirectionsMedia && directionsMediaInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-zinc-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all disabled:opacity-60 disabled:pointer-events-none"
+                  >
+                    {uploadingDirectionsMedia ? (
+                      <>
+                        <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
+                        <p className="text-sm text-zinc-500">מעלה ושומרת...</p>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-8 w-8 text-zinc-400" />
+                        <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
+                        <p className="text-xs text-zinc-400">עד 16MB. JPG, PNG, GIF, MP4</p>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
+                    {directionsMediaType === "video" ? (
+                      <div className="relative w-full max-w-sm mx-auto">
+                        <video
+                          src={videoUrlForPreview(directionsMediaUrl)}
+                          className="max-h-48 w-full rounded-xl object-cover bg-black"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          controls
+                        />
+                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">הסרטון הועלה ונשמר</p>
+                      </div>
+                    ) : (
+                      <div className="relative w-full max-w-sm mx-auto">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={directionsMediaUrl} alt="מדיה להנחיות הגעה" className="max-h-48 w-full rounded-xl object-contain mx-auto" />
+                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה ונשמרה</p>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto"
+                        disabled={uploadingDirectionsMedia}
+                        onClick={() => directionsMediaInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        החלף קובץ
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => {
+                          setDirectionsMediaUrl("");
+                          setDirectionsMediaType("");
+                          setDirectionsMediaUploadError("");
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                        הסר קובץ
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {directionsMediaUploadError ? (
+                  <p className="text-sm text-red-600 text-right" role="alert">
+                    {directionsMediaUploadError}
+                  </p>
+                ) : null}
+                <input
+                  ref={directionsMediaInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void uploadMedia(f, "directions");
+                  }}
+                />
               </div>
             </div>
           </div>

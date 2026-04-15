@@ -597,6 +597,36 @@ async function processIncoming(
           console.warn("[WA Webhook] trial_registered update failed:", upErr.message);
         }
 
+        const directionsMediaUrl = knowledge.directionsMediaUrl?.trim() ?? "";
+        const directionsCaption = [
+          knowledge.addressText?.trim() ? `הכתובת שלנו:\n${knowledge.addressText.trim()}` : "",
+          knowledge.directionsText?.trim() ? `ככה מגיעים אלינו:\n${knowledge.directionsText.trim()}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        if (directionsMediaUrl) {
+          await sendWhatsAppMediaMessage(
+            msg.toNumber,
+            msg.from,
+            directionsMediaUrl,
+            accountSid,
+            authToken,
+            directionsCaption || undefined,
+            knowledge.directionsMediaType === "video"
+              ? "video"
+              : knowledge.directionsMediaType === "image"
+                ? "image"
+                : undefined
+          ).catch((e) => console.error("[WA Webhook] Send directions media after registration failed:", e));
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: `[media] ${directionsMediaUrl}${directionsCaption ? `\n\n${directionsCaption}` : ""}`,
+            model_used: "directions_media",
+            session_id: sessionId,
+          });
+        }
+
         await sendWhatsAppMessage(msg.toNumber, msg.from, outText, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send after-trial registration body failed:", e)
         );
@@ -921,13 +951,30 @@ async function processIncoming(
         const txt = address
           ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
           : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send address reply failed:", e)
-        );
+        const directionsMediaUrl = knowledge?.directionsMediaUrl?.trim() ?? "";
+        if (directionsMediaUrl) {
+          await sendWhatsAppMediaMessage(
+            msg.toNumber,
+            msg.from,
+            directionsMediaUrl,
+            accountSid,
+            authToken,
+            txt,
+            knowledge?.directionsMediaType === "video"
+              ? "video"
+              : knowledge?.directionsMediaType === "image"
+                ? "image"
+                : undefined
+          ).catch((e) => console.error("[WA Webhook] Send address media reply failed:", e));
+        } else {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send address reply failed:", e)
+          );
+        }
         await logMessage({
           business_slug,
           role: "assistant",
-          content: txt,
+          content: directionsMediaUrl ? `[media] ${directionsMediaUrl}\n\n${txt}` : txt,
           model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
           session_id: sessionId,
         });
