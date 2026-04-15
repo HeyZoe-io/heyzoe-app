@@ -89,6 +89,19 @@ function sanitizeText(value: string, max = 350): string {
   );
 }
 
+function parseServiceMeta(rawDescription: string): Record<string, unknown> {
+  const trimmed = rawDescription.trim();
+  if (!trimmed) return {};
+  const candidate = trimmed.startsWith("__META__:") ? trimmed.slice("__META__:".length).trim() : trimmed;
+  if (!candidate.startsWith("{")) return {};
+  try {
+    const parsed = JSON.parse(candidate);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKnowledgePack | null> {
   try {
     const admin = createSupabaseAdminClient();
@@ -122,9 +135,19 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       : "";
 
     const servicesText = services?.length
-      ? services.slice(0, 6).map((s, i) =>
-          `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"} | תיאור: ${truncateText(String(s.description ?? ""), 140)}`
-        ).join("\n")
+      ? services
+          .slice(0, 6)
+          .map((s, i) => {
+            const meta = parseServiceMeta(String(s.description ?? ""));
+            const descriptionText = String(meta.description_text ?? meta.description ?? s.description ?? "").trim();
+            const levels = Array.isArray(meta.levels)
+              ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
+              : [];
+            const levelsText =
+              meta.levels_enabled === true && levels.length > 0 ? ` | רמות: ${levels.join(", ")}` : "";
+            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText} | תיאור: ${truncateText(descriptionText, 140)}`;
+          })
+          .join("\n")
       : "אין שירותים מוגדרים.";
 
     const faqsText = faqs?.length
@@ -248,7 +271,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       let benefit = "";
       try {
         const raw = String((s as { description?: string }).description ?? "");
-        const meta = JSON.parse(raw || "{}") as Record<string, unknown>;
+        const meta = parseServiceMeta(raw);
         benefit = String(meta.benefit_line ?? "").trim();
       } catch {
         /* legacy plain description */

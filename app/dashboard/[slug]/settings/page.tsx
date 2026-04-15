@@ -18,8 +18,10 @@ import {
   type SalesFlowExtraStep,
   composeGreeting,
   defaultSalesFlowConfig,
+  fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
+  formatServiceLevelsText,
   parseSalesFlowFromSocial,
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
@@ -36,6 +38,7 @@ type ServiceItem = {
   ui_id: string; name: string; price_text: string;
   duration: string; payment_link: string;
   service_slug: string; location_text: string; description: string;
+  levels_enabled: boolean; levels: string[];
   /** תיאור קצר אחרי בחירת האימון בפלואו (משפט אחד) */
   benefit_line: string;
 };
@@ -140,7 +143,7 @@ function pickServiceReplyOpener(serviceName: string): string {
 function resolveServiceReplyFocus(serviceName: string): string {
   const name = serviceName.trim().toLowerCase();
   if (/אקרו/.test(name)) {
-    return "להתחזק, להשתפר בגמישות, לעבוד על באלאנס ולפתח תקשורת ותיאום מעולים בעבודה בזוגות";
+    return "להתחזק, להתגמש, לכבוש אתגרים חדשים ולהכיר קהילה מדהימה";
   }
   if (/עמיד(?:ת|ו) יד(?:יים|ים)|handstand/.test(name)) {
     return "לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות";
@@ -198,10 +201,11 @@ function isLegacyGeneratedServiceReply(value: string, serviceName: string): bool
   const trimmed = value.trim();
   const phrase = serviceReplyPhrase(serviceName);
   return (
-    trimmed.startsWith("כיף גדול!") &&
+    /^(איזה כיף|אוקיי מדהים|כיף גדול|מהמם|כיף לשמוע)!/.test(trimmed) &&
     (trimmed.includes(`${phrase} מתמקדים ב`) ||
       trimmed.includes(`${phrase} שלנו מתמקדים ב`) ||
-      trimmed.includes(`${phrase} אצלנו עובדים על בניית טכניקה נכונה`))
+      trimmed.includes(`${phrase} אצלנו עובדים על בניית טכניקה נכונה`) ||
+      trimmed.includes(`${phrase} שלנו הם דרך מעולה ל`))
   );
 }
 
@@ -210,7 +214,8 @@ function buildServiceReplyDraft(
   rawDescription: string,
   flowFeatures: string,
   benefits: string[],
-  suggestions: string[]
+  suggestions: string[],
+  includeOpener = true
 ): string {
   const phrase = serviceReplyPhrase(serviceName);
   const opener = pickServiceReplyOpener(serviceName);
@@ -218,11 +223,13 @@ function buildServiceReplyDraft(
   const highlights = extractServiceReplyHighlights(serviceName, rawDescription, flowFeatures, benefits, suggestions);
   const highlight = highlights.find((item) => !hasMeaningfulTextOverlap(item, focus)) ?? "";
   const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
-  return `${opener}! ${phrase} שלנו הם דרך מעולה ל${focus}.${extra}`;
+  const body = `${phrase} שלנו הם דרך מעולה ${focus}.${extra}`.trim();
+  return includeOpener ? `${opener}! ${body}` : body;
 }
 
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
   if (!Array.isArray(products) || products.length === 0) return [];
+  const includeOpener = products.length > 1;
   return products.slice(0, 8).map((raw) => {
     const p = raw as Record<string, unknown>;
     const rowId = uid();
@@ -235,7 +242,7 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
       : [];
     const description = String(p.description ?? "").trim();
     const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
-    const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg);
+    const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg, includeOpener);
     return {
       ui_id: rowId,
       name: pname,
@@ -245,6 +252,8 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
       service_slug: serviceSlugForPersistence("", pname, rowId),
       location_text: String(p.location_text ?? "").trim() || addrFallback,
       description,
+      levels_enabled: false,
+      levels: [],
       benefit_line,
     };
   });
@@ -261,6 +270,16 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
   if (!serviceName.trim()) return typed;
   if (!typed.includes(serviceName)) return typed;
   return typed.split(serviceName).join("{serviceName}");
+}
+
+function afterExperienceForDisplay(stored: string, service: ServiceItem | null): string {
+  return fillAfterExperienceTemplate(stored, service?.levels_enabled ?? false, service?.levels ?? []);
+}
+
+function afterExperienceToStore(typed: string, service: ServiceItem | null): string {
+  if (!service) return typed;
+  const resolved = formatServiceLevelsText(service.levels_enabled, service.levels);
+  return resolved && typed.includes(resolved) ? typed.split(resolved).join("{levelsText}") : typed;
 }
 
 function ctaBodyForDisplay(stored: string, priceText: string, durationText: string): string {
@@ -568,18 +587,20 @@ export default function SlugSettingsPage() {
     () => services.map((s) => s.name.trim()).filter(Boolean),
     [services]
   );
+  const firstNamedService = useMemo(
+    () => services.find((s) => s.name.trim()) ?? null,
+    [services]
+  );
 
   /** דוגמה לתבניות שמכילות פרטי אימון — לפי האימון הראשון ברשימה */
   const firstTrialForTemplates = useMemo(() => {
-    const n = trialServiceNames[0];
-    if (!n) return { name: "", priceText: "", durationText: "" };
-    const row = services.find((s) => s.name.trim() === n);
+    if (!firstNamedService) return { name: "", priceText: "", durationText: "" };
     return {
-      name: n,
-      priceText: (row?.price_text ?? "").trim(),
-      durationText: (row?.duration ?? "").trim(),
+      name: firstNamedService.name.trim(),
+      priceText: firstNamedService.price_text.trim(),
+      durationText: firstNamedService.duration.trim(),
     };
-  }, [trialServiceNames, services]);
+  }, [firstNamedService]);
 
   const prevStepForServicesRef = useRef(step);
   useEffect(() => {
@@ -850,7 +871,7 @@ export default function SlugSettingsPage() {
         );
 
         if (Array.isArray(svcs)) {
-          setServices((svcs as Record<string, unknown>[]).map((s) => {
+          setServices((svcs as Record<string, unknown>[]).map((s, index, arr) => {
             const name = String(s.name ?? "");
             const rawDescription = String(s.description ?? "");
             const meta = parseServiceDescriptionMeta(rawDescription);
@@ -867,7 +888,8 @@ export default function SlugSettingsPage() {
               storedDescriptionText || rawDescription,
               "",
               legacyBenefits,
-              legacySuggestions
+              legacySuggestions,
+              arr.filter((item) => String((item as Record<string, unknown>).name ?? "").trim()).length > 1
             );
             return {
               ui_id: uid(),
@@ -878,6 +900,10 @@ export default function SlugSettingsPage() {
               service_slug: String(s.service_slug ?? ""),
               location_text: String(s.location_text ?? ""),
               description: storedDescriptionText || rawDescription,
+              levels_enabled: meta.levels_enabled === true,
+              levels: Array.isArray(meta.levels)
+                ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
+                : [],
               benefit_line:
                 storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
                   ? storedBenefit
@@ -981,6 +1007,8 @@ export default function SlugSettingsPage() {
           payment_link: s.payment_link,
           benefit_line: s.benefit_line,
           description_text: s.description,
+          levels_enabled: s.levels_enabled,
+          levels: s.levels,
         }),
       })),
       faqs: [] as unknown[],
@@ -1813,6 +1841,76 @@ export default function SlugSettingsPage() {
                   <Field label="מיקום">
                     <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder={address || "תל אביב"} />
                   </Field>
+
+                  <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3">
+                    <label className="flex items-center justify-end gap-2 text-sm font-medium text-zinc-700">
+                      <span>חלוקה לרמות</span>
+                      <input
+                        type="checkbox"
+                        checked={s.levels_enabled}
+                        onChange={(e) => {
+                          const arr = [...services];
+                          arr[i] = {
+                            ...s,
+                            levels_enabled: e.target.checked,
+                            levels:
+                              e.target.checked && s.levels.filter((level) => level.trim()).length === 0
+                                ? ["מתחילים", "מתקדמים"]
+                                : s.levels,
+                          };
+                          setServices(arr);
+                        }}
+                        className="h-4 w-4 rounded border-zinc-300"
+                      />
+                    </label>
+                    {s.levels_enabled ? (
+                      <div className="space-y-2">
+                        {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
+                          <div key={`${s.ui_id}-level-${levelIndex}`} className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const arr = [...services];
+                                const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
+                                nextLevels.splice(levelIndex, 1);
+                                arr[i] = { ...s, levels: nextLevels };
+                                setServices(arr);
+                              }}
+                              className="p-1 text-zinc-400 hover:text-red-400"
+                              aria-label="הסר רמה"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                            <Input
+                              dir="rtl"
+                              value={level}
+                              onChange={(e) => {
+                                const arr = [...services];
+                                const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
+                                nextLevels[levelIndex] = e.target.value;
+                                arr[i] = { ...s, levels: nextLevels };
+                                setServices(arr);
+                              }}
+                              placeholder={levelIndex === 0 ? "מתחילים" : levelIndex === 1 ? "מתקדמים" : "רמה נוספת"}
+                            />
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full gap-2"
+                          onClick={() => {
+                            const arr = [...services];
+                            arr[i] = { ...s, levels: [...s.levels, ""] };
+                            setServices(arr);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                          הוסף רמה
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ))}
 
@@ -1830,6 +1928,8 @@ export default function SlugSettingsPage() {
                       service_slug: "",
                       location_text: address,
                       description: "",
+                      levels_enabled: false,
+                      levels: [],
                       benefit_line: "",
                     },
                   ])
@@ -1959,10 +2059,6 @@ export default function SlugSettingsPage() {
                   </Button>
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
-                  <p className="text-xs text-zinc-600 leading-relaxed text-right">
-                    אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳…
-                  </p>
-
                   <Field label="טקסט פתיחה ללקוח">
                     <Textarea
                       value={
@@ -1995,7 +2091,7 @@ export default function SlugSettingsPage() {
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   {trialServiceNames.length > 1 ? (
                     <>
-                      <Field label="שאלה 1" className="space-y-1">
+                      <Field label="בחירת סוג האימון" className="space-y-1">
                         <p className="text-xs text-zinc-600 text-right leading-relaxed">
                           אלו שאלות החובה הראשונות שברצונך שהליד יענה עליהן לפני שמוצע לו אימון ניסיון, למשל סוג האימון, רמה וכו׳…
                         </p>
@@ -2082,7 +2178,7 @@ export default function SlugSettingsPage() {
                                   arr[firstNamedIndex] = { ...s, benefit_line: v };
                                   setServices(arr);
                                 }}
-                                placeholder="למשל: איזה כיף! שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
+                                placeholder="למשל: שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
                               />
                             </Field>
                           </div>
@@ -2191,9 +2287,12 @@ export default function SlugSettingsPage() {
                       </div>
                       <Field label="מענה אחרי בחירה בשאלת הניסיון">
                         <Textarea
-                          value={salesFlowConfig.after_experience}
+                          value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstNamedService)}
                           onChange={(v) =>
-                            setSalesFlowConfig((c) => ({ ...c, after_experience: v }))
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              after_experience: afterExperienceToStore(v, firstNamedService),
+                            }))
                           }
                           rows={2}
                           placeholder="משפט מעודד קצר לפני המשך הפלואו…"

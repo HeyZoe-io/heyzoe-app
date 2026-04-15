@@ -23,6 +23,7 @@ import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import {
   defaultSalesFlowConfig,
+  fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
   formatAfterTrialRegistrationForWhatsAppDelivery,
@@ -487,7 +488,14 @@ async function processIncoming(
   // Build context
   const knowledge = await getBusinessKnowledgePack(business_slug);
 
-  type SfServiceRow = { name: string; benefit: string; priceText: string; durationText: string };
+  type SfServiceRow = {
+    name: string;
+    benefit: string;
+    priceText: string;
+    durationText: string;
+    levelsEnabled: boolean;
+    levels: string[];
+  };
   let salesFlowServices: SfServiceRow[] = [];
   if (knowledge?.salesFlowConfig && businessId) {
     try {
@@ -509,9 +517,19 @@ async function processIncoming(
                 benefit: String(meta.benefit_line ?? "").trim(),
                 priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
                 durationText: String(meta.duration ?? "").trim(),
+                levelsEnabled: meta.levels_enabled === true,
+                levels: Array.isArray(meta.levels)
+                  ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
+                  : [],
               };
             } catch {
-              return { benefit: "", priceText: String(s.price_text ?? "").trim(), durationText: "" };
+              return {
+                benefit: "",
+                priceText: String(s.price_text ?? "").trim(),
+                durationText: "",
+                levelsEnabled: false,
+                levels: [],
+              };
             }
           })(),
         }))
@@ -945,7 +963,12 @@ async function processIncoming(
             selectedService?.priceText ?? "",
             selectedService?.durationText ?? ""
           ).trim();
-          const bodyOnly = [cfg.after_experience.trim(), "", ctaBody]
+          const afterExperience = fillAfterExperienceTemplate(
+            cfg.after_experience,
+            selectedService?.levelsEnabled ?? false,
+            selectedService?.levels ?? []
+          ).trim();
+          const bodyOnly = [afterExperience, "", ctaBody]
             .filter((x) => x.length > 0)
             .join("\n\n")
             .trim();
