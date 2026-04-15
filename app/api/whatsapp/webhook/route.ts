@@ -493,24 +493,25 @@ async function processIncoming(
     try {
       const { data: services } = await supabase
         .from("services")
-        .select("name, description, service_slug")
+        .select("name, description, service_slug, price_text")
         .eq("business_id", Number(businessId))
         .order("created_at", { ascending: true })
         .limit(24);
       salesFlowServices = (services ?? [])
-        .map((s: { name?: unknown; description?: unknown }) => ({
+        .map((s: { name?: unknown; description?: unknown; price_text?: unknown }) => ({
           name: String(s.name ?? "").trim(),
           ...(() => {
             try {
               const raw = String(s.description ?? "");
-              const meta = JSON.parse(raw || "{}") as Record<string, unknown>;
+              const candidate = raw.trim().startsWith("__META__:") ? raw.trim().slice("__META__:".length) : raw;
+              const meta = JSON.parse(candidate || "{}") as Record<string, unknown>;
               return {
                 benefit: String(meta.benefit_line ?? "").trim(),
-                priceText: String(meta.price_text ?? "").trim(),
+                priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
                 durationText: String(meta.duration ?? "").trim(),
               };
             } catch {
-              return { benefit: "", priceText: "", durationText: "" };
+              return { benefit: "", priceText: String(s.price_text ?? "").trim(), durationText: "" };
             }
           })(),
         }))
