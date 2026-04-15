@@ -19,6 +19,8 @@ export type BusinessKnowledgePack = {
   addressText: string;
   /** הנחיות הגעה (social_links.directions) — לשליחה אוטומטית בווטסאפ וכו׳ */
   directionsText: string;
+  directionsMediaUrl: string;
+  directionsMediaType: "image" | "video" | "";
   /** טלפון לשירות לקוחות כשזואי אינה מוצאת תשובה מדויקת בידע */
   customerServicePhone: string;
   arboxLink: string;
@@ -163,6 +165,12 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const addressText = typeof social.address === "string" ? String(social.address) : "";
     const directionsText = typeof social.directions === "string" ? String(social.directions).trim() : "";
+    const directionsMediaUrl =
+      typeof social.directions_media_url === "string" ? String(social.directions_media_url).trim() : "";
+    const directionsMediaType =
+      social.directions_media_type === "image" || social.directions_media_type === "video"
+        ? (social.directions_media_type as "image" | "video")
+        : "";
     const customerServicePhone =
       typeof social.customer_service_phone === "string"
         ? String(social.customer_service_phone).trim()
@@ -299,6 +307,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       businessDescription: sanitizeText(businessDescriptionRaw, 350),
       addressText,
       directionsText,
+      directionsMediaUrl,
+      directionsMediaType,
       customerServicePhone,
       arboxLink,
       schedulePublicUrl,
