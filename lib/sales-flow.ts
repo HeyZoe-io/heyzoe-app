@@ -69,7 +69,7 @@ const FRIENDLY: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
     { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
-    { id: "cta-address", label: "מה הכתובת?", kind: "address" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
   ],
   cta_extra_steps: [],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
@@ -106,7 +106,7 @@ const FORMAL: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
     { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
-    { id: "cta-address", label: "מה הכתובת?", kind: "address" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
   ],
   followup_after_next_class_body: "שנשריין לכם את האימון? 🙂",
   followup_after_next_class_options: [
@@ -140,7 +140,7 @@ const DIRECT: SalesFlowConfig = {
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
     { id: "cta-schedule", label: "צפייה במערכת השעות", kind: "schedule" },
-    { id: "cta-address", label: "מה הכתובת?", kind: "address" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
   ],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
   followup_after_next_class_options: [
@@ -217,21 +217,23 @@ function migrateLegacyCtaButtons(buttons: SalesFlowCtaButton[], fallback: SalesF
     ...b,
     label: b.label.trim(),
   }));
-  const isLegacyAddressSlot =
+  const shouldNormalizeThirdSlot =
     normalized.length >= 3 &&
     normalized[0]?.kind === "trial" &&
     normalized[1]?.kind === "schedule" &&
     (
+      normalized[2]?.kind === "address" ||
       normalized[2]?.kind === "memberships" ||
+      normalized[2]?.label === "מה הכתובת?" ||
       normalized[2]?.label === "יש לי שאלה אחרת" ||
       normalized[2]?.label === "מה מחירי המנויים?" ||
       normalized[2]?.label === "מחירי מנויים"
     );
-  if (!isLegacyAddressSlot) return buttons;
+  if (!shouldNormalizeThirdSlot) return buttons;
   return [
     normalized[0]!,
     normalized[1]!,
-    { ...normalized[2]!, id: normalized[2]!.id || "cta-address", label: "מה הכתובת?", kind: "address" },
+    { ...normalized[2]!, id: normalized[2]!.id || "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
     ...normalized.slice(3),
   ];
 }
@@ -334,11 +336,7 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     experience_question: c.experience_question,
     experience_options: [...c.experience_options],
     after_experience: c.after_experience,
-    greeting_extra_steps: c.greeting_extra_steps.map((s) => ({
-      id: s.id,
-      question: s.question,
-      options: s.options,
-    })),
+    greeting_extra_steps: [],
     opening_extra_steps: c.opening_extra_steps.map((s) => ({
       id: s.id,
       question: s.question,
@@ -359,7 +357,8 @@ export function composeGreeting(
   c: SalesFlowConfig,
   botName: string,
   businessName: string,
-  taglineText: string
+  taglineText: string,
+  addressText = ""
 ): string {
   if (c.greeting_body_override?.trim()) return c.greeting_body_override.trim();
   const bot = botName.trim() || "זואי";
@@ -367,7 +366,8 @@ export function composeGreeting(
   const tag = taglineText.trim() || "…";
   const lineName = c.greeting_line_name.replace(/\{botName\}/g, bot).replace(/\{businessName\}/g, biz);
   const lineTag = c.greeting_line_tagline.replace(/\{tagline\}/g, tag);
-  return [c.greeting_opener, lineName, lineTag, c.greeting_closer].filter(Boolean).join("\n");
+  const addressLine = addressText.trim() ? `כתובתנו היא ${addressText.trim()}` : "";
+  return [c.greeting_opener, lineName, lineTag, c.greeting_closer, addressLine].filter(Boolean).join("\n");
 }
 
 export type ServiceLike = { name: string; benefit_line?: string; service_slug?: string };
@@ -399,10 +399,11 @@ export function syncWelcomeFromSalesFlow(
   services: ServiceLike[],
   botName: string,
   businessName: string,
-  taglineText: string
+  taglineText: string,
+  addressText = ""
 ): { intro: string; question: string; options: string[] } {
   const named = services.map((s) => s.name.trim()).filter(Boolean);
-  const intro = composeGreeting(c, botName, businessName, taglineText);
+  const intro = composeGreeting(c, botName, businessName, taglineText, addressText);
   if (named.length > 1) {
     return {
       intro,
@@ -427,11 +428,12 @@ export function buildWhatsAppOpeningBody(
   services: ServiceLike[],
   botName: string,
   businessName: string,
-  taglineText: string
+  taglineText: string,
+  addressText = ""
 ): string {
   const named = services.map((s) => s.name.trim()).filter(Boolean);
   const lines: string[] = [];
-  lines.push(composeGreeting(c, botName, businessName, taglineText));
+  lines.push(composeGreeting(c, botName, businessName, taglineText, addressText));
   for (const st of c.greeting_extra_steps) {
     if (!st.question.trim()) continue;
     lines.push("", st.question);
@@ -507,13 +509,14 @@ export function getWhatsAppOpeningPreviewSections(
   services: ServiceLike[],
   botName: string,
   businessName: string,
-  taglineText: string
+  taglineText: string,
+  addressText = ""
 ): WhatsAppOpeningPreviewSection[] {
   const named = services.map((s) => s.name.trim()).filter(Boolean);
   const sections: WhatsAppOpeningPreviewSection[] = [];
   sections.push({
     kind: "text",
-    text: composeGreeting(c, botName, businessName, taglineText),
+    text: composeGreeting(c, botName, businessName, taglineText, addressText),
   });
   for (const st of c.greeting_extra_steps) {
     const q = st.question.trim();

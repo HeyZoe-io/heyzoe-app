@@ -96,6 +96,20 @@ function waLabelMatches(a: string, b: string): boolean {
   return waNormLabel(a) === waNormLabel(b);
 }
 
+function isAddressOrDirectionsIntent(text: string): boolean {
+  const normalized = normalizeGreetingToken(text);
+  return (
+    normalized.includes("מה הכתובת") ||
+    normalized.includes("כתובת") ||
+    normalized.includes("איך מגיעים") ||
+    normalized.includes("איך להגיע") ||
+    normalized.includes("הנחיות הגעה") ||
+    normalized.includes("דרכי הגעה") ||
+    normalized.includes("איך באים") ||
+    normalized.includes("איך מגיעה")
+  );
+}
+
 // ─── GET — Meta webhook verification ─────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -644,10 +658,10 @@ async function processIncoming(
     }
   }
 
-  const sendOpeningMediaIfConfigured = async () => {
+  const sendOpeningMediaIfConfigured = async (): Promise<boolean> => {
     try {
       const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
-      if (!mediaUrl) return;
+      if (!mediaUrl) return false;
       await sendWhatsAppMediaMessage(
         msg.toNumber,
         msg.from,
@@ -664,15 +678,18 @@ async function processIncoming(
         model_used: "opening_media",
         session_id: sessionId,
       });
+      return true;
     } catch (e) {
       console.error("[WA Webhook] sending opening media failed (continuing):", e);
+      return false;
     }
   };
 
   // New lead flow: optional media first, then a default opening message (no AI)
   // If the user just opted back in, continue to Zoe instead of stopping on default opening.
   if (isNewLead && !optedInThisMessage) {
-    await sendOpeningMediaIfConfigured();
+    const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
+    if (didSendOpeningMedia) await sleepMs(650);
 
     const openingText = knowledge
       ? formatWhatsAppOpeningText(knowledge)
@@ -710,7 +727,8 @@ async function processIncoming(
     if (GREETINGS.has(greet)) {
       // Treat greetings as a "reset" — send the full opening message (intro + question + options)
       // even if this contact talked before.
-      await sendOpeningMediaIfConfigured();
+      const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
+      if (didSendOpeningMedia) await sleepMs(650);
       const out = knowledge
         ? formatWhatsAppOpeningText(knowledge)
         : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
@@ -840,7 +858,9 @@ async function processIncoming(
         wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false);
       const wantsMemberships =
         wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
-      const wantsAddress = addressBtn ? waLabelMatches(incomingResolved, addressBtn.label) : false;
+      const wantsAddress =
+        (addressBtn ? waLabelMatches(incomingResolved, addressBtn.label) : false) ||
+        isAddressOrDirectionsIntent(incomingResolved);
 
       const sendPostLinkMenu = async (): Promise<void> => {
         const fuBody = cfg.followup_after_next_class_body.trim();
@@ -978,6 +998,9 @@ async function processIncoming(
           model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
           session_id: sessionId,
         });
+        if (address) {
+          await sendPostLinkMenu();
+        }
         return;
       }
       } catch (e) {
@@ -1122,6 +1145,24 @@ async function processIncoming(
   ].filter(Boolean);
   const matchedPredefinedClosedLabel =
     !matched?.reply && predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label));
+  const lastPickedServiceName =
+    msg.type === "text" && knowledge?.salesFlowConfig && salesFlowServices.length > 1
+      ? await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })
+      : null;
+  const shouldReaskServiceSelection =
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    salesFlowServices.length > 1 &&
+    !lastPickedServiceName &&
+    !matched?.reply &&
+    !matchedPredefinedClosedLabel;
+  const serviceSelectionLabels = shouldReaskServiceSelection
+    ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const serviceSelectionQuestion =
+    shouldReaskServiceSelection && knowledge?.salesFlowConfig?.multi_service_question?.trim()
+      ? knowledge.salesFlowConfig.multi_service_question.trim()
+      : "";
 
   let replyCore: string;
   let replyErrorCode: string | null = null;
@@ -1295,20 +1336,29 @@ async function processIncoming(
   const replyCoreForMenu = shouldStripModelNumberedChoices
     ? stripTrailingNumberedChoiceLines(replyCore)
     : replyCore;
+  const replyCoreClean = replyCoreForMenu
+    .replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
-  let replyText = replyCoreForMenu;
+  let replyText = replyCoreClean;
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
+    const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
+    const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : "";
+    if (menuQuestion) {
+      replyText += `\n\n${menuQuestion}`;
+    }
     const buttonsBlock =
-      buttons.length > 0
-        ? `\n\nבחרו אחת מהאפשרויות:\n${buttons
+      menuLabels.length > 0
+        ? `\n\nבחרו אחת מהאפשרויות:\n${menuLabels
             .map((lbl, idx) => `${idx + 1}. ${lbl}`)
             .join("\n")}`
         : "";
 
-    const ctaText = knowledge?.ctaText?.trim();
-    const ctaLink = knowledge?.ctaLink?.trim();
+    const ctaText = !shouldReaskServiceSelection ? knowledge?.ctaText?.trim() : "";
+    const ctaLink = !shouldReaskServiceSelection ? knowledge?.ctaLink?.trim() : "";
     if (ctaText && ctaLink) {
       replyText += `\n\n${ctaText}: ${ctaLink}`;
     }
@@ -1321,13 +1371,18 @@ async function processIncoming(
     if (isFallbackErrorReply) {
       await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
     } else {
-      const ctaText = knowledge?.ctaText?.trim();
-      const ctaLink = knowledge?.ctaLink?.trim();
-      let body = replyCoreForMenu;
+      const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
+      const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : "";
+      const ctaText = !shouldReaskServiceSelection ? knowledge?.ctaText?.trim() : "";
+      const ctaLink = !shouldReaskServiceSelection ? knowledge?.ctaLink?.trim() : "";
+      let body = replyCoreClean;
+      if (menuQuestion) {
+        body += `\n\n${menuQuestion}`;
+      }
       if (ctaText && ctaLink) {
         body += `\n\n${ctaText}: ${ctaLink}`;
       }
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, buttons, accountSid, authToken, {
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
         footerHint: ZOE_WHATSAPP_MENU_FOOTER,
       });
     }

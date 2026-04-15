@@ -16,7 +16,8 @@ export function getWhatsAppOpeningBodyAndMenuLabels(k: BusinessKnowledgePack): {
       k.serviceNamesForOpening.map((name) => ({ name })),
       k.botName,
       k.businessName,
-      k.taglineText || k.businessDescription
+      k.taglineText || k.businessDescription,
+      k.addressText
     );
     const texts: string[] = [];
     let menuLabels: string[] = [];
@@ -62,7 +63,8 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
       k.serviceNamesForOpening.map((name) => ({ name })),
       k.botName,
       k.businessName,
-      k.taglineText || k.businessDescription
+      k.taglineText || k.businessDescription,
+      k.addressText
     );
     return `${body.trim()}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
   }
