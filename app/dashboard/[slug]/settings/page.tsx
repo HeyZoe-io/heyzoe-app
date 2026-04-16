@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import {
   ArrowLeft, ArrowRight, Check,
   GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
@@ -28,6 +29,7 @@ import {
   trialServicePhraseForAfterPick,
 } from "@/lib/sales-flow";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
+import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -736,34 +738,38 @@ export default function SlugSettingsPage() {
 
   // ─── Load data ─────────────────────────────────────────────────────────────
 
+  const settingsKey = dashboardSettingsKey(slug);
+  const {
+    data: swrSettings,
+    error: swrSettingsError,
+    isLoading: swrSettingsLoading,
+  } = useSWR(settingsKey, dashboardSettingsFetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 5000,
+    keepPreviousData: true,
+    shouldRetryOnError: false,
+  });
+
   useEffect(() => {
-    let cancelled = false;
+    setLoading(Boolean(swrSettingsLoading));
     setSettingsHydrated(false);
     setSettingsLoadError("");
-    fetch(`/api/dashboard/settings?slug=${encodeURIComponent(slug)}`)
-      .then(async (r) => {
-        const data = (await r.json()) as {
-          error?: string;
-          business?: Record<string, unknown> | null;
-          services?: unknown[];
-        };
-        if (cancelled) return;
-        if (!r.ok) {
-          setSettingsLoadError(
-            data.error === "unauthorized"
-              ? "נדרשת התחברות מחדש."
-              : "לא ניתן לטעון את נתוני מסלול המכירה."
-          );
-          return;
-        }
-        const business = data.business;
-        const svcs = data.services;
+    if (swrSettingsError) {
+      setSettingsLoadError("לא ניתן לטעון את נתוני מסלול המכירה.");
+      setLoading(false);
+      return;
+    }
+    if (!swrSettings) return;
+    const business = swrSettings.business;
+    const svcs = swrSettings.services;
         if (!business) {
           setSettingsLoadError("לא נמצא עסק עבור כתובת זו. בדקו את הכתובת או התחברו מחדש.");
+          setLoading(false);
           return;
         }
         if (String(business.slug ?? "").toLowerCase() !== slug.toLowerCase()) {
           setSettingsLoadError("אי-התאמה בין העסק לכתובת. רעננו את הדף.");
+          setLoading(false);
           return;
         }
         const sl = (business.social_links && typeof business.social_links === "object"
@@ -966,17 +972,8 @@ export default function SlugSettingsPage() {
           }));
         }
         setSettingsHydrated(true);
-      })
-      .catch(() => {
-        if (!cancelled) setSettingsLoadError("שגיאת רשת בטעינת מסלול המכירה.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
+    setLoading(false);
+  }, [slug, swrSettings, swrSettingsError, swrSettingsLoading]);
 
   useEffect(() => {
     if (loading || !settingsHydrated) {
