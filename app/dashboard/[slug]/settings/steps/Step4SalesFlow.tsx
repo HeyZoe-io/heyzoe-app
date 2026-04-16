@@ -290,7 +290,7 @@ export default function Step4SalesFlow(props: any) {
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex w-full items-center justify-start gap-3">
             <Button
               type="button"
               variant="outline"
