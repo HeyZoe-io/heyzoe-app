@@ -1070,7 +1070,30 @@ async function processIncoming(
               });
               return;
             }
-            // Finished warmup extras; fall through to CTA handler below (experience→CTA) by continuing.
+            // Finished warmup extras → send CTA deterministically (no AI).
+            const selectedServiceName =
+              salesFlowServices.length === 1
+                ? salesFlowServices[0]!.name
+                : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+            const selectedService =
+              salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+            const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
+            const ctaBody = fillCtaBodyTemplate(
+              cfg.cta_body,
+              selectedService?.priceText ?? "",
+              selectedService?.durationText ?? ""
+            ).trim();
+            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels.slice(0, 3), accountSid, authToken, {
+              footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+            }).catch((e) => console.error("[WA Webhook] Send CTA after warmup extras failed:", e));
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+              model_used: "sales_flow_cta",
+              session_id: sessionId,
+            });
+            return;
           }
         }
       }
