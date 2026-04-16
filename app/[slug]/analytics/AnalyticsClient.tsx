@@ -203,7 +203,7 @@ export default function AnalyticsClient({
               הצעות לשיפור מסלול המכירה
             </div>
             <div style={{ fontSize: 13, color: "#8b7ec0", marginTop: 4 }}>
-              מסלול מכירה/פרטי העסק/כל העובדות שכדאי לציין על העסק
+              מסלול מכירה/על העסק/כל העובדות שכדאי לציין על העסק
             </div>
           </div>
 

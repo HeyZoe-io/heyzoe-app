@@ -527,7 +527,7 @@ export default function Step4SalesFlow(props: any) {
                   >
                     <option value="schedule">מערכת שעות (לינק)</option>
                     <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
-                    <option value="memberships">מחירי מנויים (קישור מ«פרטי העסק»)</option>
+                    <option value="memberships">מחירי מנויים (קישור מ«על העסק»)</option>
                     <option value="address">מה הכתובת? (שדה כתובת)</option>
                   </select>
                 </div>
@@ -550,7 +550,7 @@ export default function Step4SalesFlow(props: any) {
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-            <p className="text-xs text-zinc-600 text-right leading-relaxed">יושלם אוטומטית מהפרטי העסק</p>
+            <p className="text-xs text-zinc-600 text-right leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
             <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
               <Textarea
                 value={salesFlowConfig.after_trial_registration_body}
