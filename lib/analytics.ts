@@ -13,6 +13,8 @@ type MessageLogInput = {
 
 /** מסמן session אחרי בחירת שירות במסלול מכירה (רק role=event — לא נטען ל-Claude). */
 export const HEYZOE_SF_SERVICE_PREFIX = "[heyzoe:sf_service]";
+/** מסמן התקדמות בשאלות נוספות בסשן חימום (index). */
+export const HEYZOE_SF_WARMUP_EXTRA_PREFIX = "[heyzoe:sf_warmup_extra]";
 
 export async function fetchLastAssistantModelUsed(input: {
   business_slug: string;
@@ -57,6 +59,34 @@ export async function fetchLastSfServiceEventName(input: {
       if (!c.startsWith(HEYZOE_SF_SERVICE_PREFIX)) continue;
       const name = c.slice(HEYZOE_SF_SERVICE_PREFIX.length).trim();
       if (name) return name;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLastSfWarmupExtraIndex(input: {
+  business_slug: string;
+  session_id: string;
+}): Promise<number | null> {
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .select("content")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", input.session_id)
+      .eq("role", "event")
+      .order("created_at", { ascending: false })
+      .limit(24);
+    if (error || !data?.length) return null;
+    for (const row of data) {
+      const c = String(row.content ?? "").trim();
+      if (!c.startsWith(HEYZOE_SF_WARMUP_EXTRA_PREFIX)) continue;
+      const raw = c.slice(HEYZOE_SF_WARMUP_EXTRA_PREFIX.length).trim();
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0) return n;
     }
     return null;
   } catch {
