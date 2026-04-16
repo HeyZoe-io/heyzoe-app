@@ -661,9 +661,15 @@ async function processIncoming(
   }
 
   const sendOpeningMediaIfConfigured = async (): Promise<boolean> => {
-    try {
-      const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
-      if (!mediaUrl) return false;
+    const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
+    if (!mediaUrl) return false;
+    const mediaKind =
+      knowledge?.openingMediaType === "video"
+        ? "video"
+        : knowledge?.openingMediaType === "image"
+          ? "image"
+          : undefined;
+    const attempt = async () => {
       await sendWhatsAppMediaMessage(
         msg.toNumber,
         msg.from,
@@ -671,7 +677,7 @@ async function processIncoming(
         accountSid,
         authToken,
         undefined,
-        knowledge?.openingMediaType === "video" ? "video" : knowledge?.openingMediaType === "image" ? "image" : undefined
+        mediaKind
       );
       await logMessage({
         business_slug,
@@ -680,10 +686,20 @@ async function processIncoming(
         model_used: "opening_media",
         session_id: sessionId,
       });
+    };
+    try {
+      await attempt();
       return true;
     } catch (e) {
-      console.error("[WA Webhook] sending opening media failed (continuing):", e);
-      return false;
+      console.error("[WA Webhook] sending opening media failed (retrying once):", { mediaUrl, e });
+      try {
+        await sleepMs(850);
+        await attempt();
+        return true;
+      } catch (e2) {
+        console.error("[WA Webhook] sending opening media failed (giving up):", { mediaUrl, e: e2 });
+        return false;
+      }
     }
   };
 
