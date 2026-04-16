@@ -299,10 +299,16 @@ function SalesFlowExtraStepsEditor({
   steps,
   onChange,
   addButtonLabel,
+  startAt = 1,
+  questionHeaderClassName = "",
 }: {
   steps: SalesFlowExtraStep[];
   onChange: (next: SalesFlowExtraStep[]) => void;
   addButtonLabel: string;
+  /** for warmup extras: start at 2 (since question 1 already exists above) */
+  startAt?: number;
+  /** match typography of surrounding question headers */
+  questionHeaderClassName?: string;
 }) {
   return (
     <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
@@ -312,7 +318,11 @@ function SalesFlowExtraStepsEditor({
           className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/60"
         >
           <div className="flex justify-between items-center gap-2">
-            <span className="text-xs font-medium text-zinc-500">שאלה {si + 1}</span>
+            <span
+              className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
+            >
+              שאלה {si + startAt}
+            </span>
             <button
               type="button"
               className="p-1 text-zinc-400 hover:text-red-500"
@@ -322,16 +332,15 @@ function SalesFlowExtraStepsEditor({
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
-          <Field label="ניסוח השאלה">
-            <Input
-              dir="rtl"
-              value={st.question}
-              onChange={(e) => {
-                const v = e.target.value;
-                onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
-              }}
-            />
-          </Field>
+          <Input
+            dir="rtl"
+            value={st.question}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
+            }}
+            placeholder="כתבו את השאלה כאן…"
+          />
           <p className="text-[11px] text-zinc-500 text-right">כפתורי תשובה</p>
           {st.options.map((o, oi) => (
             <div key={oi} className="flex gap-2">
@@ -2319,6 +2328,7 @@ export default function SlugSettingsPage() {
                           setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))
                         }
                         addButtonLabel="הוסף שאלה בסשן חימום"
+                        startAt={2}
                       />
                     </>
                   )}
