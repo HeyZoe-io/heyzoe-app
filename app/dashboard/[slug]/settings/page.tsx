@@ -1954,7 +1954,7 @@ export default function SlugSettingsPage() {
                   </Field>
 
                   <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3 text-right">
-                    <label className="flex items-center justify-end gap-2 text-right text-sm font-medium text-zinc-700">
+                    <label className="flex flex-row-reverse items-center justify-end gap-2 text-right text-sm font-medium text-zinc-700">
                       <span>חלוקה לרמות</span>
                       <input
                         type="checkbox"

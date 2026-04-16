@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const business = body.business as Record<string, unknown>;
-  const shouldReplaceServices = Array.isArray(body.services);
+  let shouldReplaceServices = Array.isArray(body.services);
   const shouldReplaceFaqs = Array.isArray(body.faqs);
   const services = shouldReplaceServices ? (body.services as Array<Record<string, unknown>>) : [];
   const faqs = shouldReplaceFaqs ? (body.faqs as Array<Record<string, unknown>>) : [];
@@ -187,6 +187,20 @@ export async function POST(req: NextRequest) {
   }
 
   let insertedServices: Array<{ id: number; service_slug: string }> = [];
+  if (shouldReplaceServices) {
+    // Safety: never wipe services due to an empty payload (can happen if the client autosaves before hydrating,
+    // or if a transient load issue results in an empty services array).
+    // If the user truly wants to remove all services, we should add an explicit "danger" action + flag.
+    const hasNamedService = services.some((s) => String(s.name ?? "").trim());
+    if (!hasNamedService) {
+      console.warn(
+        "[api/dashboard/settings] Skipping services replace: empty services payload",
+        JSON.stringify({ slug, user_id: user.id })
+      );
+      shouldReplaceServices = false;
+    }
+  }
+
   if (shouldReplaceServices) {
     await admin.from("services").delete().eq("business_id", savedBiz.id);
 
