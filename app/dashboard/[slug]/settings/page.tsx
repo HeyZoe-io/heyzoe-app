@@ -2503,7 +2503,7 @@ export default function SlugSettingsPage() {
                 />
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-5">
               <div className="flex flex-wrap justify-end">
                 <Button
                   type="button"
@@ -2515,7 +2515,7 @@ export default function SlugSettingsPage() {
                   חידוש טקסטים לפי העסק
                 </Button>
               </div>
-              <Field label="הודעת פולואפ למחרת בבוקר (ליד שאינו מגיב)">
+              <Field label="הודעת פולואפ">
                 <Textarea
                   value={whatsappIdleFollowupMessage}
                   onChange={setWhatsappIdleFollowupMessage}
