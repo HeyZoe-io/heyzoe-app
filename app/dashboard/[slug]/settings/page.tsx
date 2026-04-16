@@ -140,6 +140,16 @@ function pickServiceReplyOpener(serviceName: string): string {
   return options[Math.abs(hash) % options.length] ?? options[0]!;
 }
 
+function formatLevelsForSentence(levels: string[]): string {
+  const clean = (levels ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
+  if (clean.length === 0) return "";
+  if (clean.length === 1) return `לרמת ${clean[0]}`;
+  if (clean.length === 2) return `לרמת ${clean[0]} ולרמת ${clean[1]}`;
+  const last = clean[clean.length - 1]!;
+  const head = clean.slice(0, -1).map((x) => `לרמת ${x}`).join(", ");
+  return `${head} ולרמת ${last}`;
+}
+
 function resolveServiceReplyFocus(serviceName: string): string {
   const name = serviceName.trim().toLowerCase();
   if (/אקרו/.test(name)) {
@@ -215,6 +225,8 @@ function buildServiceReplyDraft(
   flowFeatures: string,
   benefits: string[],
   suggestions: string[],
+  levelsEnabled: boolean,
+  levels: string[],
   includeOpener = true
 ): string {
   const phrase = serviceReplyPhrase(serviceName);
@@ -223,7 +235,9 @@ function buildServiceReplyDraft(
   const highlights = extractServiceReplyHighlights(serviceName, rawDescription, flowFeatures, benefits, suggestions);
   const highlight = highlights.find((item) => !hasMeaningfulTextOverlap(item, focus)) ?? "";
   const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
-  const body = `${phrase} שלנו הם דרך מעולה ${focus}.${extra}`.trim();
+  const levelsText = levelsEnabled ? formatLevelsForSentence(levels) : "";
+  const levelsLine = levelsText ? ` יש לנו שיעורים ${levelsText} :)` : "";
+  const body = `${phrase} שלנו הם דרך מעולה ${focus}.${levelsLine}${extra}`.trim();
   return includeOpener ? `${opener}! ${body}` : body;
 }
 
@@ -242,7 +256,16 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
       : [];
     const description = String(p.description ?? "").trim();
     const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
-    const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg, includeOpener);
+    const benefit_line = buildServiceReplyDraft(
+      pname,
+      description,
+      flowFeatures,
+      benefits,
+      sugg,
+      false,
+      [],
+      includeOpener
+    );
     return {
       ui_id: rowId,
       name: pname,
@@ -916,6 +939,8 @@ export default function SlugSettingsPage() {
               "",
               legacyBenefits,
               legacySuggestions,
+              meta.levels_enabled === true,
+              Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : [],
               arr.filter((item) => String((item as Record<string, unknown>).name ?? "").trim()).length > 1
             );
             return {
@@ -1232,6 +1257,8 @@ export default function SlugSettingsPage() {
                   "",
                   benefits,
                   suggestions,
+                  service.levels_enabled,
+                  service.levels,
                   includeOpener
                 ),
               };
