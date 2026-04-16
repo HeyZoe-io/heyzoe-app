@@ -1156,6 +1156,11 @@ async function processIncoming(
     !lastPickedServiceName &&
     !matched?.reply &&
     !matchedPredefinedClosedLabel;
+  const shouldUseCtaPromptOnly =
+    !shouldReaskServiceSelection &&
+    Boolean(knowledge?.salesFlowConfig) &&
+    quickLabels.length === 0 &&
+    ctaMenuLabels.length > 0;
   const serviceSelectionLabels = shouldReaskServiceSelection
     ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
     : [];
@@ -1163,6 +1168,7 @@ async function processIncoming(
     shouldReaskServiceSelection && knowledge?.salesFlowConfig?.multi_service_question?.trim()
       ? knowledge.salesFlowConfig.multi_service_question.trim()
       : "";
+  const ctaPromptQuestion = shouldUseCtaPromptOnly ? "מה דעתך? שנשריין אימון ניסיון?" : "";
 
   let replyCore: string;
   let replyErrorCode: string | null = null;
@@ -1346,7 +1352,7 @@ async function processIncoming(
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
     const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
-    const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : "";
+    const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
     if (menuQuestion) {
       replyText += `\n\n${menuQuestion}`;
     }
@@ -1372,7 +1378,7 @@ async function processIncoming(
       await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
     } else {
       const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
-      const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : "";
+      const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
       const ctaText = !shouldReaskServiceSelection ? knowledge?.ctaText?.trim() : "";
       const ctaLink = !shouldReaskServiceSelection ? knowledge?.ctaLink?.trim() : "";
       let body = replyCoreClean;

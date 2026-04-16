@@ -387,6 +387,7 @@ export function explainMetaWebhookSkip(payload: unknown): string {
 export function stripTrailingNumberedChoiceLines(text: string): string {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   let end = lines.length;
+  let strippedAnyNumbered = false;
   while (end > 0) {
     const t = lines[end - 1].trim();
     if (t === "") {
@@ -395,9 +396,20 @@ export function stripTrailingNumberedChoiceLines(text: string): string {
     }
     if (/^\d+\.\s+\S/.test(t)) {
       end--;
+      strippedAnyNumbered = true;
       continue;
     }
     break;
+  }
+  // Also strip a trailing "menu header" line if it directly preceded the numbered list.
+  // Examples: "מה הצעד הבא?", "בחרו אחת מהאפשרויות:"
+  if (strippedAnyNumbered) {
+    while (end > 0 && lines[end - 1].trim() === "") end--;
+    const h = (lines[end - 1] ?? "").trim();
+    if (h && (/^מה הצעד הבא\??$/u.test(h) || /^בחרו (אחת|אחד) מהאפשרויות:$/u.test(h))) {
+      end--;
+      while (end > 0 && lines[end - 1].trim() === "") end--;
+    }
   }
   return lines.slice(0, end).join("\n").trimEnd();
 }
