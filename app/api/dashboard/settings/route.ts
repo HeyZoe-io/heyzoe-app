@@ -202,8 +202,6 @@ export async function POST(req: NextRequest) {
   }
 
   if (shouldReplaceServices) {
-    await admin.from("services").delete().eq("business_id", savedBiz.id);
-
     const namedRows = services.filter((s) => String(s.name ?? "").trim());
     const usedServiceSlugs = new Set<string>();
     const servicesPayload = namedRows.map((s, index) => {
@@ -227,8 +225,14 @@ export async function POST(req: NextRequest) {
     });
 
     if (servicesPayload.length) {
+      await admin.from("services").delete().eq("business_id", savedBiz.id);
       const { data } = await admin.from("services").insert(servicesPayload).select("id, service_slug");
       insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
+    } else {
+      console.warn(
+        "[api/dashboard/settings] Skipping services replace: computed empty servicesPayload",
+        JSON.stringify({ slug, user_id: user.id })
+      );
     }
   } else if (shouldReplaceFaqs) {
     const { data } = await admin.from("services").select("id, service_slug").eq("business_id", savedBiz.id);

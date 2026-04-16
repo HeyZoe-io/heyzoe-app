@@ -594,6 +594,7 @@ export default function SlugSettingsPage() {
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
+  const [servicesHydrated, setServicesHydrated] = useState(false);
   const dragIdx = useRef<number | null>(null);
   /** true = יש פתיחה שמורה בשרת או שכבר מילאנו טמפלייט — לא לדרוס אוטומטית */
   const welcomeOpeningLockedRef = useRef(false);
@@ -739,6 +740,7 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     setLoading(Boolean(swrSettingsLoading));
     setSettingsHydrated(false);
+    setServicesHydrated(false);
     setSettingsLoadError("");
     if (swrSettingsError) {
       setSettingsLoadError("לא ניתן לטעון את נתוני מסלול המכירה.");
@@ -956,6 +958,7 @@ export default function SlugSettingsPage() {
                   : regeneratedBenefit,
             };
           }));
+          setServicesHydrated(true);
         }
         setSettingsHydrated(true);
     setLoading(false);
@@ -985,7 +988,7 @@ export default function SlugSettingsPage() {
       businessTagline.trim(),
       address.trim()
     );
-    return {
+    const base = {
       business: {
         slug,
         name,
@@ -1033,27 +1036,32 @@ export default function SlugSettingsPage() {
           memberships_url: membershipsUrl.trim(),
         },
       },
-      services: services.filter((s) => s.name.trim()).map((s) => ({
-        name: truncateTrialServiceName(s.name.trim()),
-        service_slug: serviceSlugForPersistence(
-          s.service_slug,
-          truncateTrialServiceName(s.name.trim()),
-          s.ui_id
-        ),
-        price_text: s.price_text,
-        location_text: s.location_text,
-        location_mode: "location",
-        description: JSON.stringify({
-          duration: s.duration,
-          payment_link: s.payment_link,
-          benefit_line: s.benefit_line,
-          description_text: s.description,
-          levels_enabled: s.levels_enabled,
-          levels: s.levels,
-        }),
-      })),
       faqs: [] as unknown[],
     };
+    return servicesHydrated
+      ? {
+          ...base,
+          services: services.filter((s) => s.name.trim()).map((s) => ({
+            name: truncateTrialServiceName(s.name.trim()),
+            service_slug: serviceSlugForPersistence(
+              s.service_slug,
+              truncateTrialServiceName(s.name.trim()),
+              s.ui_id
+            ),
+            price_text: s.price_text,
+            location_text: s.location_text,
+            location_mode: "location",
+            description: JSON.stringify({
+              duration: s.duration,
+              payment_link: s.payment_link,
+              benefit_line: s.benefit_line,
+              description_text: s.description,
+              levels_enabled: s.levels_enabled,
+              levels: s.levels,
+            }),
+          })),
+        }
+      : base;
   }, [
       slug,
       name,
@@ -1083,6 +1091,7 @@ export default function SlugSettingsPage() {
       whatsappIdleFollowupCtaCustomUrl,
       whatsappIdleFollowupCtaLabel,
       membershipsUrl,
+      servicesHydrated,
       services,
   ]);
 
@@ -1443,6 +1452,7 @@ export default function SlugSettingsPage() {
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
       if (Array.isArray(j.products) && j.products.length > 0) {
         setServices(trialServicesFromSiteProducts(j.products, addrFallback));
+        setServicesHydrated(true);
       }
       setStep(nextStepAfterScan);
     } finally {
