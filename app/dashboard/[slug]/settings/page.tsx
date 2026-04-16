@@ -284,12 +284,15 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
 
 /** תצוגה בשדה — ללא {serviceName} */
 function experienceQuestionForDisplay(stored: string, serviceName: string): string {
-  if (!serviceName.trim()) return stored.replace(/\{serviceName\}/g, "האימון");
-  return stored.replace(/\{serviceName\}/g, serviceName);
+  // בדשבורד לא מציגים שם אימון ספציפי כדי שלא "יתקבע" על האימון הראשון.
+  // בצ׳אט נשמרת התבנית עם {serviceName} כדי שזואי תמלא את השם הנכון לפי הבחירה.
+  const token = "(שם האימון)";
+  return stored.replace(/\{serviceName\}/g, token || (serviceName.trim() ? serviceName : "האימון"));
 }
 
 /** שמירה מהשדה — מחזירה תבנית עם {serviceName} כשמתאים */
 function experienceQuestionToStore(typed: string, serviceName: string): string {
+  if (typed.includes("(שם האימון)")) return typed.split("(שם האימון)").join("{serviceName}");
   if (!serviceName.trim()) return typed;
   if (!typed.includes(serviceName)) return typed;
   return typed.split(serviceName).join("{serviceName}");
@@ -2290,7 +2293,7 @@ export default function SlugSettingsPage() {
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    פשוט שאלות שעושות חשק לבוא. אין לתשובה השפעה על פלואו השיחה. אל תעמיסו 🙂 גם אחת מספיקה.
+                    פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 גם אחת מספיקה. שם האימון יג׳ונרט אוטומטית בצ׳אט, נא לא לשנות.
                   </p>
 
                   {trialServiceNames.length === 0 ? (
