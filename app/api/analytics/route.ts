@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { getBusinessKnowledgePack } from "@/lib/business-context";
+import { getBusinessKnowledgePack, invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
 
 export const runtime = "nodejs";
 
@@ -30,10 +30,12 @@ function pickSuggestions(input: {
   directionsText: string;
   promotionsText: string;
   ageRangeText: string;
+  targetAudienceText: string;
+  genderText: string;
   servicesText: string;
 }): string[] {
   const text =
-    `${input.businessDescription}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}`.toLowerCase();
+    `${input.businessDescription}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}\n${input.targetAudienceText}\n${input.genderText}\n${input.ageRangeText}`.toLowerCase();
   const missing: { msg: string; test: () => boolean }[] = [
     {
       msg: "הוסיפו גילאים / קהל יעד כדי שזואי תדע למי זה מתאים.",
@@ -133,12 +135,16 @@ export async function GET(req: NextRequest) {
   const converted = convertedPhones.size;
   const conversionRate = totalChats ? Math.round((converted / totalChats) * 100) : 0;
 
+  // Ensure suggestions reflect latest dashboard edits immediately (do not serve a cached knowledge pack).
+  invalidateBusinessKnowledgePackCache(businessSlug);
   const knowledge = await getBusinessKnowledgePack(businessSlug);
   const suggestions = pickSuggestions({
     businessDescription: knowledge?.businessDescription ?? "",
     directionsText: knowledge?.directionsText ?? "",
     promotionsText: knowledge?.promotionsText ?? "",
     ageRangeText: knowledge?.ageRangeText ?? "",
+    targetAudienceText: knowledge?.targetAudienceText ?? "",
+    genderText: knowledge?.genderText ?? "",
     servicesText: knowledge?.servicesText ?? "",
   });
 

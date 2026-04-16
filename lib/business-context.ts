@@ -361,6 +361,15 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
   }
 }
 
+export function invalidateBusinessKnowledgePackCache(slug: string): void {
+  const key = String(slug ?? "").trim().toLowerCase();
+  if (!key) return;
+  const cache = (globalThis as unknown as {
+    __hzBizPackCache?: Map<string, { at: number; v: BusinessKnowledgePack | null }>;
+  }).__hzBizPackCache;
+  cache?.delete(key);
+}
+
 function formatSalesFlowBlocksForPrompt(blocks: SalesFlowBlockPack[]): string {
   if (!blocks.length) return "אין שלבים נוספים אחרי הודעת הפתיחה.";
   return blocks
