@@ -1,11 +1,11 @@
-import { redirect } from "next/navigation";
+import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
-import AnalyticsClient from "./AnalyticsClient";
+
+export const runtime = "nodejs";
 
 type RangeKey = "month" | "week" | "all";
-type Props = { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -14,7 +14,7 @@ function isoDaysAgo(days: number): string {
 }
 
 function resolveRangeKey(raw: unknown): RangeKey {
-  const r = String(Array.isArray(raw) ? raw[0] : raw ?? "").trim().toLowerCase();
+  const r = String(raw ?? "").trim().toLowerCase();
   if (r === "week" || r === "all") return r;
   return "month";
 }
@@ -32,60 +32,58 @@ function pickSuggestions(input: {
   ageRangeText: string;
   servicesText: string;
 }): string[] {
-  const text = `${input.businessDescription}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}`.toLowerCase();
-  const missing: { key: string; msg: string; test: () => boolean }[] = [
+  const text =
+    `${input.businessDescription}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}`.toLowerCase();
+  const missing: { msg: string; test: () => boolean }[] = [
     {
-      key: "age",
       msg: "הוסיפו גילאים / קהל יעד כדי שזואי תדע למי זה מתאים.",
-      test: () => !input.ageRangeText.trim() && !/(גיל|ילדים|נוער|מבוגרים|נשים|גברים)/u.test(text),
+      test: () =>
+        !input.ageRangeText.trim() && !/(גיל|ילדים|נוער|מבוגרים|נשים|גברים)/u.test(text),
     },
     {
-      key: "levels",
-      msg: "אם יש חלוקה לרמות — ציינו מתחילים/מתקדמים לכל אימון ניסיון.",
+      msg: "אם יש חלוקה לרמות - ציינו מתחילים/מתקדמים לכל אימון ניסיון.",
       test: () => !/(רמות:|מתחילים|מתקדמים)/u.test(text),
     },
     {
-      key: "parking",
       msg: "הוסיפו מידע על חניה / איך מגיעים כדי שתשובות כתובת יהיו שלמות.",
       test: () => !/(חניה|חנייה|חניון|parking)/u.test(text),
     },
     {
-      key: "showers",
       msg: "ציינו אם יש מקלחות וחדרי הלבשה.",
       test: () => !/(מקלחות|מקלחת|חדרי הלבשה|החלפה|לוקר|locker)/u.test(text),
     },
     {
-      key: "cancel",
       msg: "הוסיפו מדיניות ביטול/הקפאה כדי למנוע שאלות פתוחות ללא תשובה.",
       test: () => !/(מדיניות ביטול|ביטול|הקפאה|דמי ביטול|החזר)/u.test(text),
     },
     {
-      key: "promos",
-      msg: "אם יש מבצע — כתבו אותו ב״הנחות ומבצעים״ כדי שזואי תשלב אותו בזמן הנכון.",
+      msg: "אם יש מבצע - כתבו אותו ב״הנחות ומבצעים״ כדי שזואי תשלב אותו בזמן הנכון.",
       test: () => !input.promotionsText.trim() && /(מבצע|הנחה|%|מתנה)/u.test(text),
     },
   ];
   return missing.filter((m) => m.test()).map((m) => m.msg).slice(0, 3);
 }
 
-export default async function AnalyticsPage({ params, searchParams }: Props) {
-  const { slug } = await params;
-  const sp = (await searchParams) ?? {};
-  const range = resolveRangeKey(sp.range);
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const businessSlug = url.searchParams.get("business_slug")?.trim().toLowerCase() ?? "";
+  const range = resolveRangeKey(url.searchParams.get("range"));
   const startIso = rangeStartIso(range);
 
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
-  if (!user.user) redirect("/dashboard/login");
+  if (!user.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  if (!businessSlug) return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
   const { data: biz } = await admin
     .from("businesses")
     .select("id, slug, user_id")
-    .eq("slug", slug)
+    .eq("slug", businessSlug)
     .maybeSingle();
 
-  if (!biz) redirect("/dashboard/settings");
+  if (!biz) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
 
   const isOwner = String(biz.user_id) === user.user.id;
   if (!isOwner) {
@@ -96,16 +94,15 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
       .eq("user_id", user.user.id)
       .maybeSingle();
     const allowed = bu?.role === "admin";
-    if (!allowed) redirect(`/${slug}/conversations`);
+    if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const msgQuery = admin
     .from("messages")
     .select("session_id, created_at")
-    .eq("business_slug", slug);
+    .eq("business_slug", businessSlug);
   const { data: messages } = startIso ? await msgQuery.gte("created_at", startIso) : await msgQuery;
 
-  // Chats (per phone): session_id is `wa_<to>_<from>` so it is unique per phone.
   const seenSessions = new Set<string>();
   const firstMessageAtBySession = new Map<string, string>();
   for (const m of messages ?? []) {
@@ -117,13 +114,11 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
     if (!prev || (at && at < prev)) firstMessageAtBySession.set(sid, at);
   }
   const totalChats = seenSessions.size;
-  // "New leads" = sessions whose first-ever message is inside the selected range.
   const newLeads =
     startIso
       ? Array.from(firstMessageAtBySession.values()).filter((at) => at && at >= startIso).length
       : totalChats;
 
-  // Conversions = contacts that confirmed "נרשמתי" (trial_registered=true), unique per phone.
   const convQuery = admin
     .from("contacts")
     .select("phone, trial_registered_at")
@@ -138,7 +133,7 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
   const converted = convertedPhones.size;
   const conversionRate = totalChats ? Math.round((converted / totalChats) * 100) : 0;
 
-  const knowledge = await getBusinessKnowledgePack(slug);
+  const knowledge = await getBusinessKnowledgePack(businessSlug);
   const suggestions = pickSuggestions({
     businessDescription: knowledge?.businessDescription ?? "",
     directionsText: knowledge?.directionsText ?? "",
@@ -147,19 +142,14 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
     servicesText: knowledge?.servicesText ?? "",
   });
 
-  return (
-    <AnalyticsClient
-      slug={slug}
-      initialRange={range}
-      initial={{
-        range,
-        newLeads,
-        converted,
-        conversionRate,
-        totalChats,
-        suggestions,
-      }}
-    />
-  );
+  return NextResponse.json({
+    ok: true,
+    range,
+    newLeads,
+    converted,
+    conversionRate,
+    totalChats,
+    suggestions,
+  });
 }
 
