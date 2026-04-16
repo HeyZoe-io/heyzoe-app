@@ -290,7 +290,7 @@ export default function Step4SalesFlow(props: any) {
         </div>
 
         <div className="space-y-2">
-          <div className="flex w-full items-center justify-start gap-3">
+          <div dir="ltr" className="flex w-full flex-row items-center justify-start gap-3">
             <Button
               type="button"
               variant="outline"
@@ -316,7 +316,7 @@ export default function Step4SalesFlow(props: any) {
                   {services.map((s: any, i: number) =>
                     !s.name.trim() ? null : (
                       <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <div className="w-full rounded-xl border border-zinc-200/70 bg-white px-3 py-2 text-right text-sm font-medium text-zinc-900">
+                        <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-right text-sm font-medium text-[#2d1a6e]">
                           {s.name.trim()}
                         </div>
                         <Field label="תשובה">
