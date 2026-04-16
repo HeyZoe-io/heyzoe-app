@@ -45,8 +45,10 @@ import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
   fetchLastSfServiceEventName,
+  fetchLastSfWarmupExtraIndex,
   fetchRecentSessionMessages,
   HEYZOE_SF_SERVICE_PREFIX,
+  HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -1009,6 +1011,58 @@ async function processIncoming(
     }
   }
 
+  // 2.5) Sales flow: שאלות נוספות בסשן חימום (אחרי שאלת ניסיון קודם, לפני CTA)
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
+    try {
+      const cfg = knowledge.salesFlowConfig!;
+      const steps = Array.isArray(cfg.opening_extra_steps) ? cfg.opening_extra_steps : [];
+      const cleanSteps = steps
+        .map((s) => ({
+          question: String((s as any)?.question ?? "").trim(),
+          options: Array.isArray((s as any)?.options)
+            ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+            : [],
+        }))
+        .filter((s) => s.question && s.options.length >= 2);
+      if (cleanSteps.length > 0) {
+        const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+        const lastIdx = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
+        if (lastAssistModel === "sales_flow_warmup_extra" && lastIdx != null) {
+          const current = cleanSteps[lastIdx];
+          const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, current?.options ?? []);
+          const picked = (current?.options ?? []).find((o: string) => waLabelMatches(incomingResolved, o));
+          if (picked) {
+            const nextIdx = lastIdx + 1;
+            if (nextIdx < cleanSteps.length) {
+              const next = cleanSteps[nextIdx]!;
+              await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, next.question, next.options, accountSid, authToken, {
+                footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+              }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
+              await logMessage({
+                business_slug,
+                role: "assistant",
+                content: `${next.question}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+                model_used: "sales_flow_warmup_extra",
+                session_id: sessionId,
+              });
+              await logMessage({
+                business_slug,
+                role: "event",
+                content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${nextIdx}`,
+                model_used: "sf_warmup_extra",
+                session_id: sessionId,
+              });
+              return;
+            }
+            // Finished warmup extras; fall through to CTA handler below (experience→CTA) by continuing.
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] Warmup extra steps handling failed (continuing):", e);
+    }
+  }
+
   // 3) Sales flow: מענה על שאלת ניסיון קודם → הנעה לפעולה + תפריט CTA
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length >= 1) {
     try {
@@ -1038,12 +1092,44 @@ async function processIncoming(
             selectedService?.levelsEnabled ?? false,
             selectedService?.levels ?? []
           ).trim();
+          const steps = Array.isArray(cfg.opening_extra_steps) ? cfg.opening_extra_steps : [];
+          const cleanSteps = steps
+            .map((s) => ({
+              question: String((s as any)?.question ?? "").trim(),
+              options: Array.isArray((s as any)?.options)
+                ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+                : [],
+            }))
+            .filter((s) => s.question && s.options.length >= 2);
+          if (cleanSteps.length > 0) {
+            const first = cleanSteps[0]!;
+            const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
+            const combined = [bodyOnly, first.question].filter(Boolean).join("\n\n").trim();
+            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, first.options, accountSid, authToken, {
+              footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+            }).catch((e) => console.error("[WA Webhook] Send warmup-extra first step failed:", e));
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: `${combined}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+              model_used: "sales_flow_warmup_extra",
+              session_id: sessionId,
+            });
+            await logMessage({
+              business_slug,
+              role: "event",
+              content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}0`,
+              model_used: "sf_warmup_extra",
+              session_id: sessionId,
+            });
+            return;
+          }
+
           const bodyOnly = [afterExperience, "", ctaBody]
             .filter((x) => x.length > 0)
             .join("\n\n")
             .trim();
-          const numbered = ctaLabels.map((l, i) => `${i + 1}. ${l}`).join("\n");
-          const out = [bodyOnly, numbered, ZOE_WHATSAPP_MENU_FOOTER].filter((x) => x.length > 0).join("\n\n");
+          const out = [bodyOnly, ZOE_WHATSAPP_MENU_FOOTER].filter((x) => x.length > 0).join("\n\n");
 
           await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, ctaLabels.slice(0, 3), accountSid, authToken, {
             footerHint: ZOE_WHATSAPP_MENU_FOOTER,
