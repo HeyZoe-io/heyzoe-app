@@ -361,7 +361,11 @@ async function processIncoming(
     console.warn("[WA Webhook] missing business_id; skipping contacts upsert");
   }
 
-  function stripNumberedChoiceLinesAnywhere(text: string): string {
+  function stripNumberedChoiceLinesAnywhere(text: string, candidates?: string[]): string {
+    const normalizedCandidates = (candidates ?? [])
+      .map((x) => String(x ?? "").trim())
+      .filter(Boolean)
+      .map((x) => waNormLabel(x));
     const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
     const out: string[] = [];
     for (const line of lines) {
@@ -370,7 +374,17 @@ async function processIncoming(
         out.push(line);
         continue;
       }
-      if (/^\d+\.\s+\S/.test(t)) continue;
+      const numbered = t.match(/^(\d+)\.\s+(.+)$/);
+      if (numbered) {
+        const item = waNormLabel(numbered[2] ?? "");
+        // If we know the menu candidates, strip only the menu-like numbered lines.
+        if (normalizedCandidates.length > 0) {
+          if (normalizedCandidates.some((c) => c === item)) continue;
+        } else {
+          // Fallback: if we don't know candidates, still strip numbered options (these are almost always menu echoes).
+          continue;
+        }
+      }
       if (/^בחרו (אחת|אחד) מהאפשרויות:$/u.test(t)) continue;
       if (/^מה הצעד הבא\??$/u.test(t)) continue;
       out.push(line);
@@ -1502,10 +1516,17 @@ async function processIncoming(
     }
   }
 
+  const stripCandidates = [
+    ...serviceSelectionLabels,
+    ...buttons,
+    ...quickLabels,
+    ...ctaMenuLabelsRaw,
+  ].filter(Boolean);
+
   const shouldStripModelNumberedChoices =
-    !isFallbackErrorReply && (quickLabels.length > 0 || ctaMenuLabels.length > 0);
+    !isFallbackErrorReply && (contactTrialRegistered === true || stripCandidates.length > 0);
   const replyCoreForMenu = shouldStripModelNumberedChoices
-    ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore))
+    ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore), stripCandidates)
     : replyCore;
   const replyCoreClean = replyCoreForMenu
     .replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "")
