@@ -1569,26 +1569,20 @@ export default function SlugSettingsPage() {
 
         {/* Step indicator */}
         <div className="max-w-6xl mx-auto px-4 pb-4 overflow-x-auto">
-          <div className="flex gap-2 min-w-max">
+        <div className="flex gap-3 min-w-max">
             {STEPS.map((label, i) => {
               const n = i + 1;
               if (!isPremium && label === "חיבור פייסבוק") return null;
               const active  = step === n;
-              const done    = step > n;
               return (
                 <button
                   key={n}
                   onClick={() => setStep(n)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-semibold tracking-[-0.01em] transition-all duration-200 border ${
-                    active  ? "border-white/60 text-white bg-[linear-gradient(135deg,#6434ec_0%,#9350ff_45%,#ff7adc_100%)] shadow-[0_16px_32px_rgba(125,71,233,0.24)]" :
-                    done    ? "border-white/70 bg-white/78 text-[#7133da] shadow-[0_10px_24px_rgba(112,84,182,0.1)] backdrop-blur-sm hover:bg-white" :
-                              "border-transparent bg-white/52 text-zinc-500 backdrop-blur-sm hover:bg-white/76 hover:text-zinc-800"
+                  className={`text-[12px] sm:text-xs tracking-[-0.01em] transition-colors ${
+                    active ? "text-[#2d1a6e] underline underline-offset-8 decoration-[#7133da]" : "text-zinc-600 hover:text-zinc-900"
                   }`}
                 >
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-extrabold ${
-                    active ? "bg-white/24" : done ? "bg-[#efe8ff]" : "bg-zinc-200/80"
-                  }`}>{done ? "✓" : n}</span>
-                  <span className="hidden sm:inline">{label}</span>
+                  {label}
                 </button>
               );
             })}
@@ -1731,7 +1725,14 @@ export default function SlugSettingsPage() {
                 </Field>
               </div>
 
-              <Field label="תיאור העסק">
+              <Field
+                label={
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span>תיאור העסק</span>
+                    <span className="text-[11px] font-medium text-zinc-400">קצר וקולע</span>
+                  </div>
+                }
+              >
                 <Input
                   dir="rtl"
                   value={businessTagline}

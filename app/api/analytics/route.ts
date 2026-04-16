@@ -33,9 +33,11 @@ function pickSuggestions(input: {
   targetAudienceText: string;
   genderText: string;
   servicesText: string;
+  faqsText: string;
+  addressText: string;
 }): string[] {
   const text =
-    `${input.businessDescription}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}\n${input.targetAudienceText}\n${input.genderText}\n${input.ageRangeText}`.toLowerCase();
+    `${input.businessDescription}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}\n${input.faqsText}\n${input.targetAudienceText}\n${input.genderText}\n${input.ageRangeText}\n${input.addressText}`.toLowerCase();
   const missing: { msg: string; test: () => boolean }[] = [
     {
       msg: "הוסיפו גילאים / קהל יעד כדי שזואי תדע למי זה מתאים.",
@@ -48,7 +50,7 @@ function pickSuggestions(input: {
     },
     {
       msg: "הוסיפו מידע על חניה / איך מגיעים כדי שתשובות כתובת יהיו שלמות.",
-      test: () => !/(חניה|חנייה|חניון|parking)/u.test(text),
+      test: () => !input.directionsText.trim() && !/(חניה|חנייה|חניון|parking|park)/u.test(text),
     },
     {
       msg: "ציינו אם יש מקלחות וחדרי הלבשה.",
@@ -146,6 +148,8 @@ export async function GET(req: NextRequest) {
     targetAudienceText: knowledge?.targetAudienceText ?? "",
     genderText: knowledge?.genderText ?? "",
     servicesText: knowledge?.servicesText ?? "",
+    faqsText: knowledge?.faqsText ?? "",
+    addressText: knowledge?.addressText ?? "",
   });
 
   return NextResponse.json({

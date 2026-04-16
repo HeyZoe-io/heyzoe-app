@@ -60,7 +60,7 @@ export default function Step3Trial(props: {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-5 text-center space-y-3">
+        <div className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 text-center space-y-3">
           <Button
             type="button"
             variant="outline"
