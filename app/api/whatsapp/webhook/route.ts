@@ -1004,6 +1004,9 @@ async function processIncoming(
                 ? "image"
                 : undefined
           ).catch((e) => console.error("[WA Webhook] Send address media reply failed:", e));
+          // WhatsApp sometimes delivers a subsequent text/menu before the media finishes processing.
+          // Briefly delay follow-up menus so the media+caption is seen first.
+          await sleepMs(650);
         } else {
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send address reply failed:", e)
