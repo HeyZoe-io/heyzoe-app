@@ -167,8 +167,8 @@ export default function ConversationsClient({
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <div className="space-y-2 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 max-h-[520px] overflow-auto">
+    <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] overflow-x-hidden">
+      <div className="space-y-2 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 max-h-[520px] overflow-y-auto overflow-x-hidden">
         {normalizedFilter ? (
           <div className="flex items-center justify-between gap-2 rounded-xl border border-[rgba(113,51,218,0.12)] bg-[#faf7ff] px-3 py-2">
             <p className="text-xs text-zinc-700 text-right">
@@ -230,7 +230,7 @@ export default function ConversationsClient({
         )}
       </div>
 
-      <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 flex flex-col gap-2 text-right">
+      <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 flex flex-col gap-2 text-right overflow-x-hidden min-w-0">
         {selected ? (
           <>
             <div className="flex items-center justify-between mb-2">
@@ -264,7 +264,7 @@ export default function ConversationsClient({
 
             <div
               id="hz-convo-messages"
-              className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-auto"
+              className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-y-auto overflow-x-hidden"
             >
               {selected.messages.map((m, idx) => (
                 <div
@@ -273,7 +273,7 @@ export default function ConversationsClient({
                 >
                   <div
                     className={
-                      "max-w-[85%] rounded-2xl px-3 py-2 border " +
+                      "max-w-[85%] rounded-2xl px-3 py-2 border overflow-hidden " +
                       (m.role === "user"
                         ? "bg-white text-zinc-800 border-[rgba(113,51,218,0.1)]"
                         : "text-white border-[rgba(113,51,218,0.18)] bg-[linear-gradient(135deg,#7133da,#ff92ff)]")
@@ -282,7 +282,7 @@ export default function ConversationsClient({
                     <p className="text-[10px] opacity-80 mb-1">
                       {m.role === "user" ? "לקוח" : "זואי"}
                     </p>
-                    <p className="text-sm leading-snug">{m.content}</p>
+                    <p className="text-sm leading-snug break-words whitespace-pre-wrap">{m.content}</p>
                     {m.role !== "user" && m.error_code ? (
                       <p className="mt-1 text-[10px] opacity-80">
                         קוד שגיאה: {m.error_code}
