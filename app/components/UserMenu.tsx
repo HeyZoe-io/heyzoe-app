@@ -29,7 +29,7 @@ export default function UserMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
@@ -66,7 +66,15 @@ export default function UserMenu() {
       const btn = buttonRef.current;
       if (!btn) return;
       const r = btn.getBoundingClientRect();
-      setPos({ top: r.bottom + 8, left: r.left });
+      const pad = 10;
+      const preferredWidth = 256; // tailwind w-64
+      const maxWidth = Math.max(180, window.innerWidth - pad * 2);
+      const width = Math.min(preferredWidth, maxWidth);
+
+      // Anchor to button "end" so it behaves correctly in RTL/LTR, then clamp to viewport.
+      const anchorLeft = r.right - width;
+      const left = Math.max(pad, Math.min(anchorLeft, window.innerWidth - width - pad));
+      setPos({ top: r.bottom + 8, left, width });
     }
     updatePos();
     window.addEventListener("scroll", updatePos, true);
@@ -108,8 +116,8 @@ export default function UserMenu() {
             <div
               ref={portalRef}
               role="menu"
-              style={{ position: "fixed", top: pos.top, left: pos.left }}
-              className="w-64 rounded-2xl border border-[rgba(113,51,218,0.14)] bg-white shadow-[0_18px_50px_rgba(113,51,218,0.18)] overflow-hidden z-[2147483647]"
+              style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width }}
+              className="rounded-2xl border border-[rgba(113,51,218,0.14)] bg-white shadow-[0_18px_50px_rgba(113,51,218,0.18)] overflow-hidden z-[2147483647]"
             >
               <div className="px-4 py-3 bg-[linear-gradient(135deg,rgba(113,51,218,0.06),rgba(255,146,255,0.07))]">
                 <p className="text-xs text-zinc-500 truncate">מחובר/ת כ</p>
