@@ -74,6 +74,18 @@ export default function ConversationsClient({
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
 
+  function formatDmy(value: string): string {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(d);
+  }
+
+  const selectedScrollKey = `${selected?.session_id ?? ""}:${selected?.count ?? 0}`;
+
   useEffect(() => {
     if (!normalizedFilter) return;
     // If current selection is not in the filtered list, pick first filtered session.
@@ -81,6 +93,12 @@ export default function ConversationsClient({
     setSelectedId(visibleSessions[0]?.session_id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedFilter, visibleSessions.length]);
+
+  useEffect(() => {
+    const el = document.getElementById("hz-convo-messages");
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [selectedScrollKey]);
 
   function clearPhoneFilter() {
     const sp = new URLSearchParams(searchParams.toString());
@@ -184,7 +202,7 @@ export default function ConversationsClient({
                 {s.phone || "לא זמין"}
               </p>
               <p className="text-[11px] text-zinc-500">
-                {s.count} הודעות · {new Date(s.lastAt).toLocaleString()}
+                {s.count} הודעות · {formatDmy(s.lastAt)}
               </p>
             </div>
             <div className="flex flex-col items-end gap-1">
@@ -223,7 +241,7 @@ export default function ConversationsClient({
                 </p>
                 <p className="text-[11px] text-zinc-500">
                   {selected.count} הודעות ·{" "}
-                  {new Date(selected.lastAt).toLocaleString()}
+                  {formatDmy(selected.lastAt)}
                 </p>
               </div>
               <button
@@ -244,7 +262,10 @@ export default function ConversationsClient({
               </button>
             </div>
 
-            <div className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-auto">
+            <div
+              id="hz-convo-messages"
+              className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-auto"
+            >
               {selected.messages.map((m, idx) => (
                 <div
                   key={`${m.created_at}-${idx}`}
@@ -293,7 +314,7 @@ export default function ConversationsClient({
             )}
             {!selected.isPaused && (
               <p className="mt-2 text-[11px] text-zinc-500">
-                כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על "עצור בוט".
+                כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על "עצור בוט". לא לשכוח להפעיל מחדש :)
               </p>
             )}
           </>

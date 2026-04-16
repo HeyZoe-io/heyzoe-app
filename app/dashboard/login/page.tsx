@@ -17,6 +17,7 @@ export default function DashboardLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [pwShake, setPwShake] = useState(false);
 
   const nextPath = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -55,7 +56,20 @@ export default function DashboardLoginPage() {
       email: email.trim(),
       password,
     });
-    if (error) setMessage(error.message);
+    if (error) {
+      const msg = String(error.message ?? "").toLowerCase();
+      const isWrongPw =
+        msg.includes("invalid login credentials") ||
+        msg.includes("invalid credentials") ||
+        msg.includes("invalid") ||
+        msg.includes("credentials");
+      setMessage(isWrongPw ? "הוזנה סיסמה לא נכונה" : error.message);
+      if (isWrongPw) {
+        setPwShake(false);
+        requestAnimationFrame(() => setPwShake(true));
+        window.setTimeout(() => setPwShake(false), 520);
+      }
+    }
     else await redirectAfterLogin();
     setLoading(false);
   }
@@ -105,7 +119,7 @@ export default function DashboardLoginPage() {
                 placeholder="אימייל"
               />
             </div>
-            <div className="relative">
+            <div className={`relative ${pwShake ? "hz-shake" : ""}`.trim()}>
               <Lock className="absolute left-10 top-2.5 h-4 w-4 text-zinc-400" />
               <button
                 type="button"
