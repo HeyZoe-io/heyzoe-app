@@ -312,11 +312,11 @@ export default function Step4SalesFlow(props: any) {
                     placeholder="למשל: איזה אימון הכי מדבר אליך?"
                   />
                 </Field>
-                <div className="space-y-3 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-3">
+                <div className="space-y-3">
                   {services.map((s: any, i: number) =>
                     !s.name.trim() ? null : (
-                      <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
-                        <div className="w-full rounded-xl border border-[#d1d7db] bg-white px-3 py-2 text-right text-sm font-medium text-zinc-900 shadow-sm">
+                      <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                        <div className="w-full rounded-xl border border-zinc-200/70 bg-white px-3 py-2 text-right text-sm font-medium text-zinc-900">
                           {s.name.trim()}
                         </div>
                         <Field label="תשובה">
@@ -346,7 +346,7 @@ export default function Step4SalesFlow(props: any) {
                   if (firstNamedIndex < 0) return null;
                   const s = services[firstNamedIndex]!;
                   return (
-                    <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
+                    <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
                       <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
                       <Field label="תשובה">
                         <Textarea
