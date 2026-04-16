@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
@@ -59,22 +60,6 @@ export default function DashboardLoginPage() {
     setLoading(false);
   }
 
-  async function signInWithGoogle() {
-    setLoading(true);
-    setMessage("");
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/dashboard/login`,
-      },
-    });
-    if (error) {
-      setMessage(error.message);
-      setLoading(false);
-    }
-    // On success Supabase redirects away; no need to setLoading(false) here.
-  }
-
   async function forgotPassword() {
     setLoading(true);
     setMessage("");
@@ -93,28 +78,31 @@ export default function DashboardLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-zinc-50 flex items-center justify-center p-6" dir="rtl">
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="flex items-center justify-center">
-            <div className="h-12 w-12 rounded-2xl bg-yellow-300 text-zinc-900 font-semibold flex items-center justify-center shadow-sm select-none">
-              HZ
+            <div className="h-14 w-14 rounded-2xl bg-white shadow-[0_12px_28px_rgba(110,78,176,0.10)] ring-1 ring-black/5 flex items-center justify-center overflow-hidden">
+              <Image src="/zoe-logo.png" alt="Zoe" width={56} height={56} priority />
             </div>
           </div>
           <CardTitle className="text-center">HeyZoe</CardTitle>
-          <CardDescription className="text-center">התחברו כדי לנהל את העסק שלכם</CardDescription>
+          <CardDescription className="text-center">
+            כבר עשית שנ״צ היום? כי עם זואי אתה יכול.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={signInWithPassword}>
             <div className="relative">
               <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
               <Input
-                className="pl-9"
+                className="pl-9 text-right placeholder:text-right"
                 type="email"
                 autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="אימייל"
               />
             </div>
             <div className="relative">
@@ -128,7 +116,7 @@ export default function DashboardLoginPage() {
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
               <Input
-                className="pl-16"
+                className="pl-16 text-right placeholder:text-right"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 required
@@ -139,15 +127,6 @@ export default function DashboardLoginPage() {
             </div>
             <Button className="w-full" disabled={loading}>
               {loading ? "מתחבר..." : "התחברות"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={loading}
-              onClick={signInWithGoogle}
-            >
-              התחברות עם Google
             </Button>
             <button
               type="button"
