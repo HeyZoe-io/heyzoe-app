@@ -18,6 +18,7 @@ export default function DashboardLoginPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [pwShake, setPwShake] = useState(false);
+  const [wrongPassword, setWrongPassword] = useState(false);
 
   const nextPath = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -52,6 +53,7 @@ export default function DashboardLoginPage() {
     e.preventDefault();
     setLoading(true);
     setMessage("");
+    setWrongPassword(false);
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
@@ -63,6 +65,7 @@ export default function DashboardLoginPage() {
         msg.includes("invalid credentials") ||
         msg.includes("invalid") ||
         msg.includes("credentials");
+      setWrongPassword(isWrongPw);
       setMessage(isWrongPw ? "הוזנה סיסמה לא נכונה" : error.message);
       if (isWrongPw) {
         setPwShake(false);
@@ -124,7 +127,7 @@ export default function DashboardLoginPage() {
               <button
                 type="button"
                 aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full p-1.5 text-zinc-500 hover:text-zinc-800 hover:bg-white/70"
                 onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -135,10 +138,19 @@ export default function DashboardLoginPage() {
                 autoComplete="current-password"
                 required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (wrongPassword) {
+                    setWrongPassword(false);
+                    setMessage("");
+                  }
+                }}
                 placeholder="סיסמה"
               />
             </div>
+            {wrongPassword ? (
+              <p className="-mt-2 text-[12px] text-red-600 text-right">{message}</p>
+            ) : null}
             <Button className="w-full" disabled={loading}>
               {loading ? "מתחבר..." : "התחברות"}
             </Button>
@@ -150,7 +162,7 @@ export default function DashboardLoginPage() {
             >
               שכחת סיסמה?
             </button>
-            {message ? <p className="text-sm text-zinc-500">{message}</p> : null}
+            {message && !wrongPassword ? <p className="text-sm text-zinc-500">{message}</p> : null}
           </form>
         </CardContent>
       </Card>
