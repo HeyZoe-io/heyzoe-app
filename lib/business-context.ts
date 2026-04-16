@@ -106,6 +106,14 @@ function parseServiceMeta(rawDescription: string): Record<string, unknown> {
 }
 
 export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKnowledgePack | null> {
+  const cache = ((globalThis as unknown as { __hzBizPackCache?: Map<string, { at: number; v: BusinessKnowledgePack | null }> }).__hzBizPackCache ??=
+    new Map<string, { at: number; v: BusinessKnowledgePack | null }>());
+  const now = Date.now();
+  const hit = cache.get(slug);
+  // Short TTL to keep chats snappy while reflecting dashboard edits quickly.
+  if (hit && now - hit.at < 8_000) {
+    return hit.v;
+  }
   try {
     const admin = createSupabaseAdminClient();
     const { data: business } = await admin
@@ -301,7 +309,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         )
       : "";
 
-    return {
+    const packed: BusinessKnowledgePack = {
       businessName: String(business.name ?? slug),
       botName: String(business.bot_name ?? "זואי").trim() || "זואי",
       niche: String(business.niche ?? ""),
@@ -344,8 +352,11 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       instagramUrl,
       promotionsText,
     };
+    cache.set(slug, { at: now, v: packed });
+    return packed;
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
+    cache.set(slug, { at: now, v: null });
     return null;
   }
 }

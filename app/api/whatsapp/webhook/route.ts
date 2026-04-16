@@ -693,7 +693,7 @@ async function processIncoming(
     } catch (e) {
       console.error("[WA Webhook] sending opening media failed (retrying once):", { mediaUrl, e });
       try {
-        await sleepMs(850);
+        await sleepMs(250);
         await attempt();
         return true;
       } catch (e2) {
@@ -706,8 +706,7 @@ async function processIncoming(
   // New lead flow: optional media first, then a default opening message (no AI)
   // If the user just opted back in, continue to Zoe instead of stopping on default opening.
   if (isNewLead && !optedInThisMessage) {
-    const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
-    if (didSendOpeningMedia) await sleepMs(650);
+    await sendOpeningMediaIfConfigured();
 
     const openingText = knowledge
       ? formatWhatsAppOpeningText(knowledge)
@@ -745,8 +744,7 @@ async function processIncoming(
     if (GREETINGS.has(greet)) {
       // Treat greetings as a "reset" — send the full opening message (intro + question + options)
       // even if this contact talked before.
-      const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
-      if (didSendOpeningMedia) await sleepMs(650);
+      await sendOpeningMediaIfConfigured();
       const out = knowledge
         ? formatWhatsAppOpeningText(knowledge)
         : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
