@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import dynamic from "next/dynamic";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -30,6 +31,7 @@ import {
 } from "@/lib/sales-flow";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
+import { Field, StepHeader, Textarea } from "./settings-ui";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -454,59 +456,43 @@ function normalizeTraitsState(arr: string[]): string[] {
   return t;
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
+  ssr: false,
+  loading: () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <StepHeader n={3} title="אימון ניסיון" desc="טוען…" />
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-xl border border-zinc-200 bg-white/70 p-6 text-center text-sm text-zinc-500">
+          <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
+          טוען את הטאב…
+        </div>
+      </CardContent>
+    </Card>
+  ),
+});
 
-function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
-  return (
-    <div className="mb-7">
-      <div className="mb-2 flex items-center gap-3">
-        <span className="hz-glow flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(113,51,218,0.16),rgba(255,146,255,0.22))] text-sm font-extrabold text-[#7133da] shadow-[0_14px_28px_rgba(113,51,218,0.14)] ring-1 ring-white/70">
-          {n}
-        </span>
-        <h2 className="text-[1.45rem] font-extrabold tracking-[-0.03em] text-zinc-900">{title}</h2>
-      </div>
-      {desc && <p className="mr-13 max-w-[42rem] text-[0.95rem] leading-7 text-zinc-500">{desc}</p>}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-  className = "",
-  description,
-}: {
-  label: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-  /** שורת הסבר מתחת לכותרת (למשל לפני שדה הקלט) */
-  description?: string;
-}) {
-  return (
-    <div className={`space-y-2 ${className}`}>
-      <div className="block text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">{label}</div>
-      {description ? (
-        <p className="text-xs leading-6 text-zinc-500 text-right">{description}</p>
-      ) : null}
-      {children}
-    </div>
-  );
-}
-
-function Textarea({ value, onChange, placeholder, rows = 3 }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; rows?: number;
-}) {
-  return (
-    <textarea
-      dir="rtl"
-      rows={rows}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full resize-none rounded-2xl border border-[rgba(124,96,202,0.18)] bg-white/88 px-4 py-3 text-sm leading-6 text-zinc-800 shadow-[0_12px_28px_rgba(110,78,176,0.08)] backdrop-blur-sm transition-all duration-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#7133da]/30 focus:ring-offset-2 focus:ring-offset-white focus:border-[rgba(113,51,218,0.35)] hover:border-[rgba(113,51,218,0.24)]"
-    />
-  );
-}
+const Step4SalesFlow = dynamic(() => import("./steps/Step4SalesFlow"), {
+  ssr: false,
+  loading: () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <StepHeader n={4} title="מסלול מכירה" desc="טוען…" />
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-xl border border-zinc-200 bg-white/70 p-6 text-center text-sm text-zinc-500">
+          <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
+          טוען את הטאב…
+        </div>
+      </CardContent>
+    </Card>
+  ),
+});
 
 function InstagramGlyph({ className }: { className?: string }) {
   return (
@@ -1854,644 +1840,51 @@ export default function SlugSettingsPage() {
 
         {/* ════════════════════ STEP 3 — אימון ניסיון ════════════════════ */}
         {step === 3 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader
-                  n={3}
-                  title="אימון ניסיון"
-                  desc="אילו אימוני ניסיון אתם מציעים? ניתן לסרוק מהאתר, לערוך ולכתוב עצמאית."
-                />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-5 text-center space-y-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-2 h-10 text-sm mx-auto shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
-                  onClick={() => void fetchSite(3)}
-                  disabled={!websiteUrl.trim() || fetchingUrl}
-                >
-                  {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
-                </Button>
-                <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
-                  {!websiteUrl.trim()
-                    ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
-                    : ""}
-                </p>
-              </div>
-
-              {services.map((s, i) => (
-                <div
-                  key={s.ui_id}
-                  onDragOver={(e) => onDragOver(e, i)}
-                  className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
-                >
-                  <div className="flex gap-2 items-center">
-                    <span
-                      draggable
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        onDragStart(i);
-                      }}
-                      onDragEnd={(e) => {
-                        e.stopPropagation();
-                        onDragEnd();
-                      }}
-                      className="inline-flex items-center justify-center p-1 -m-1 rounded-lg cursor-grab active:cursor-grabbing text-zinc-300 hover:text-zinc-500 shrink-0 touch-none select-none"
-                      aria-label="גרירה לשינוי סדר"
-                      title="גררו מהאייקון כדי לסדר מחדש"
-                    >
-                      <GripVertical className="h-4 w-4 pointer-events-none" />
-                    </span>
-                    <div className="flex-1 space-y-1">
-                      <Input
-                        dir="rtl"
-                        value={s.name}
-                        maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
-                        onChange={(e) => {
-                          const arr = [...services];
-                          const newName = [...e.target.value].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
-                          const slugFromName = toSlug(newName);
-                          arr[i] = {
-                            ...s,
-                            name: newName,
-                            service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
-                          };
-                          setServices(arr);
-                        }}
-                        placeholder="שם האימון (עד 15 תווים) *"
-                        className="font-medium w-full"
-                      />
-                      <p className="text-[11px] text-zinc-500 text-right leading-snug pr-0.5">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</p>
-                    </div>
-                    <button onClick={() => setServices(sv => sv.filter((_, j) => j !== i))} className="p-1 text-zinc-400 hover:text-red-400">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="מחיר">
-                      <Input dir="rtl" value={s.price_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, price_text: e.target.value }; setServices(arr); }} placeholder="₪ 80" />
-                    </Field>
-                    <Field label="משך">
-                      <Input dir="rtl" value={s.duration} onChange={e => { const arr = [...services]; arr[i] = { ...s, duration: e.target.value }; setServices(arr); }} placeholder="60 דק׳" />
-                    </Field>
-                  </div>
-
-                  <Field label="לינק סליקה *">
-                    <div className="flex gap-2 items-center">
-                      <Link className="h-4 w-4 text-zinc-400 shrink-0" />
-                      <Input dir="ltr" value={s.payment_link} onChange={e => { const arr = [...services]; arr[i] = { ...s, payment_link: e.target.value }; setServices(arr); }} placeholder="https://..." />
-                    </div>
-                  </Field>
-
-                  <Field label="מיקום">
-                    <Input dir="rtl" value={s.location_text} onChange={e => { const arr = [...services]; arr[i] = { ...s, location_text: e.target.value }; setServices(arr); }} placeholder={address || "תל אביב"} />
-                  </Field>
-
-                  <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3 text-right">
-                    <label className="flex flex-row-reverse items-center justify-end gap-2 text-right text-sm font-medium text-zinc-700">
-                      <span>חלוקה לרמות</span>
-                      <input
-                        type="checkbox"
-                        checked={s.levels_enabled}
-                        onChange={(e) => {
-                          const arr = [...services];
-                          arr[i] = {
-                            ...s,
-                            levels_enabled: e.target.checked,
-                            levels:
-                              e.target.checked && s.levels.filter((level) => level.trim()).length === 0
-                                ? ["מתחילים", "מתקדמים"]
-                                : s.levels,
-                          };
-                          setServices(arr);
-                        }}
-                        className="h-4 w-4 rounded border-zinc-300"
-                      />
-                    </label>
-                    {s.levels_enabled ? (
-                      <div className="space-y-2 text-right">
-                        {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
-                          <div key={`${s.ui_id}-level-${levelIndex}`} className="flex flex-row-reverse items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const arr = [...services];
-                                const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
-                                nextLevels.splice(levelIndex, 1);
-                                arr[i] = { ...s, levels: nextLevels };
-                                setServices(arr);
-                              }}
-                              className="p-1 text-zinc-400 hover:text-red-400"
-                              aria-label="הסר רמה"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                            <Input
-                              dir="rtl"
-                              value={level}
-                              onChange={(e) => {
-                                const arr = [...services];
-                                const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
-                                nextLevels[levelIndex] = e.target.value;
-                                arr[i] = { ...s, levels: nextLevels };
-                                setServices(arr);
-                              }}
-                              placeholder={levelIndex === 0 ? "מתחילים" : levelIndex === 1 ? "מתקדמים" : "רמה נוספת"}
-                            />
-                          </div>
-                        ))}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full gap-2 text-right"
-                          onClick={() => {
-                            const arr = [...services];
-                            arr[i] = { ...s, levels: [...s.levels, ""] };
-                            setServices(arr);
-                          }}
-                        >
-                          <Plus className="h-4 w-4" />
-                          הוסף רמה
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-
-              <Button
-                variant="outline"
-                onClick={() =>
-                  setServices((sv) => [
-                    ...sv,
-                    {
-                      ui_id: uid(),
-                      name: "",
-                      price_text: "",
-                      duration: "",
-                      payment_link: "",
-                      service_slug: "",
-                      location_text: address,
-                      description: "",
-                      levels_enabled: false,
-                      levels: [],
-                      benefit_line: "",
-                    },
-                  ])
-                }
-                className="w-full gap-2"
-              >
-                <Plus className="h-4 w-4" /> הוסף אימון
-              </Button>
-            </CardContent>
-          </Card>
+          <Step3Trial
+            websiteUrl={websiteUrl}
+            address={address}
+            fetchingUrl={fetchingUrl}
+            services={services}
+            setServices={setServices}
+            fetchSite={fetchSite}
+            onDragOver={onDragOver}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            toSlug={toSlug}
+            uid={uid}
+          />
         )}
 
         {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
         {step === 4 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader
-                  n={4}
-                  title="מסלול מכירה"
-                  desc="כאן נוצר תהליך המכירה של זואי. במידה והליד ישאל שאלה פתוחה, זואי תוכל לענות על פי כל המידע שהזנת בטאבים הקודמים."
-                />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <p className="text-sm font-medium text-zinc-700 mb-2">מדיה לפתיחה (אופציונלי)</p>
-                {!openingMediaUrl ? (
-                  <button
-                    type="button"
-                    disabled={uploadingMedia}
-                    onClick={() => !uploadingMedia && mediaInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-zinc-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all disabled:opacity-60 disabled:pointer-events-none"
-                  >
-                    {uploadingMedia ? (
-                      <>
-                        <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
-                        <p className="text-sm text-zinc-500">מעלה…</p>
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="h-8 w-8 text-zinc-400" />
-                        <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
-                        <p className="text-xs text-zinc-400">עד 16MB. JPG, PNG, GIF, MP4 (העלאה ישירה ל-Storage)</p>
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
-                    {openingMediaType === "video" ? (
-                      <div className="relative mx-auto w-fit max-w-full">
-                        <video
-                          src={videoUrlForPreview(openingMediaUrl)}
-                          className="block max-h-72 max-w-full rounded-xl bg-black"
-                          muted
-                          playsInline
-                          preload="metadata"
-                          controls
-                        />
-                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">
-                          הווידאו הועלה - תצוגה מקדימה (אפשר להפעיל)
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="relative mx-auto w-fit max-w-full">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={openingMediaUrl} alt="מדיה לפתיחה" className="mx-auto block max-h-72 max-w-full rounded-xl object-contain" />
-                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה</p>
-                      </div>
-                    )}
-                    <div className="flex flex-wrap justify-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="gap-1 text-xs py-1.5 px-3 h-auto"
-                        disabled={uploadingMedia}
-                        onClick={() => mediaInputRef.current?.click()}
-                      >
-                        <Upload className="h-4 w-4" />
-                        החלף קובץ
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="gap-1 text-xs py-1.5 px-3 h-auto text-red-600 border-red-200 hover:bg-red-50"
-                        onClick={() => {
-                          setOpeningMediaUrl("");
-                          setOpeningMediaType("");
-                          setMediaUploadError("");
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                        הסר מדיה
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                {mediaUploadError ? (
-                  <p className="text-sm text-red-600 mt-2 text-right" role="alert">
-                    {mediaUploadError}
-                  </p>
-                ) : null}
-                <input
-                  ref={mediaInputRef}
-                  type="file"
-                  accept="image/*,video/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (f) void uploadMedia(f, "opening");
-                  }}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() => regenerateSalesFlowSection("opening")}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    ג׳נרט מחדש
-                  </Button>
-                </div>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
-                  <Field label="טקסט פתיחה ללקוח">
-                    <Textarea
-                      value={
-                        salesFlowConfig.greeting_body_override !== undefined
-                          ? salesFlowConfig.greeting_body_override
-                          : salesOpeningAutoText
-                      }
-                      onChange={(v) =>
-                        setSalesFlowConfig((c) => ({ ...c, greeting_body_override: v }))
-                      }
-                      rows={5}
-                      placeholder={salesOpeningAutoText}
-                    />
-                  </Field>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() => regenerateSalesFlowSection("service_pick")}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    ג׳נרט מחדש
-                  </Button>
-                </div>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-                  {trialServiceNames.length > 1 ? (
-                    <>
-                      <Field label="בחירת סוג האימון" className="space-y-1">
-                        <Textarea
-                          value={salesFlowConfig.multi_service_question}
-                          onChange={(v) =>
-                            setSalesFlowConfig((c) => ({ ...c, multi_service_question: v }))
-                          }
-                          rows={2}
-                          placeholder="למשל: איזה אימון הכי מדבר אליך?"
-                        />
-                      </Field>
-                      <div className="space-y-3 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-3">
-                        {services.map((s, i) =>
-                          !s.name.trim() ? null : (
-                            <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="w-full rounded-xl border border-[#d1d7db] bg-white px-3 py-2 text-right text-sm font-medium text-zinc-900 shadow-sm">
-                                {s.name.trim()}
-                              </div>
-                              <Field label="תשובה">
-                                <Textarea
-                                  rows={3}
-                                  value={s.benefit_line}
-                                  onChange={(v) => {
-                                    const arr = [...services];
-                                    arr[i] = { ...s, benefit_line: v };
-                                    setServices(arr);
-                                  }}
-                                  placeholder="למשל: איזה כיף! שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
-                                />
-                              </Field>
-                            </div>
-                          )
-                        )}
-                      </div>
-
-                    </>
-                  ) : trialServiceNames.length === 1 ? (
-                    <>
-                      <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                        מוגדר אימון ניסיון אחד - אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
-                      </p>
-                      {(() => {
-                        const firstNamedIndex = services.findIndex((s) => s.name.trim());
-                        if (firstNamedIndex < 0) return null;
-                        const s = services[firstNamedIndex]!;
-                        return (
-                          <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
-                            <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
-                            <Field label="תשובה">
-                              <Textarea
-                                rows={3}
-                                value={s.benefit_line}
-                                onChange={(v) => {
-                                  const arr = [...services];
-                                  arr[firstNamedIndex] = { ...s, benefit_line: v };
-                                  setServices(arr);
-                                }}
-                                placeholder="למשל: שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
-                              />
-                            </Field>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                        הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() => regenerateSalesFlowSection("warmup")}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    ג׳נרט מחדש
-                  </Button>
-                </div>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-                  <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 גם אחת מספיקה. שם האימון יג׳ונרט אוטומטית בצ׳אט, נא לא לשנות.
-                  </p>
-
-                  {trialServiceNames.length === 0 ? (
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                      כדי לערוך כאן את שאלת הניסיון והכפתורים - הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 3).
-                    </p>
-                  ) : (
-                    <>
-                      <Field
-                        label={
-                          trialServiceNames.length > 1
-                            ? "שאלה 1"
-                            : "שאלה 1"
-                        }
-                      >
-                        <Input
-                          dir="rtl"
-                          value={experienceQuestionForDisplay(
-                            salesFlowConfig.experience_question,
-                            trialServiceNames.length > 1
-                              ? firstTrialForTemplates.name
-                              : trialServiceNames[0] ?? ""
-                          )}
-                          onChange={(e) => {
-                            const sn =
-                              trialServiceNames.length > 1
-                                ? firstTrialForTemplates.name
-                                : trialServiceNames[0] ?? "";
-                            setSalesFlowConfig((c) => ({
-                              ...c,
-                              experience_question: experienceQuestionToStore(e.target.value, sn),
-                            }));
-                          }}
-                          placeholder={
-                            trialServiceNames.length > 1
-                              ? "למשל: יצא לך לנסות בעבר?"
-                              : "למשל: יש לך כבר ניסיון בפילאטיס?"
-                          }
-                        />
-                      </Field>
-                      <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {([0, 1, 2] as const).map((i) => (
-                          <Field key={i} label={`כפתור ${i + 1}`}>
-                            <Input
-                              dir="rtl"
-                              value={salesFlowConfig.experience_options[i]}
-                              onChange={(e) => {
-                                const next = [...salesFlowConfig.experience_options] as [
-                                  string,
-                                  string,
-                                  string,
-                                ];
-                                next[i] = e.target.value;
-                                setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
-                              }}
-                            />
-                          </Field>
-                        ))}
-                      </div>
-                      <Field label="תשובה">
-                        <Textarea
-                          value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstNamedService)}
-                          onChange={(v) =>
-                            setSalesFlowConfig((c) => ({
-                              ...c,
-                              after_experience: afterExperienceToStore(v, firstNamedService),
-                            }))
-                          }
-                          rows={2}
-                          placeholder="משפט מעודד קצר לפני המשך הפלואו…"
-                        />
-                      </Field>
-                      <SalesFlowExtraStepsEditor
-                        steps={salesFlowConfig.opening_extra_steps}
-                        onChange={(next) =>
-                          setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))
-                        }
-                        addButtonLabel="הוסף שאלה בסשן חימום"
-                        startAt={2}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() => regenerateSalesFlowSection("cta")}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    ג׳נרט מחדש
-                  </Button>
-                </div>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
-                <div>
-                  <Textarea
-                    value={ctaBodyForDisplay(
-                      salesFlowConfig.cta_body,
-                      firstTrialForTemplates.priceText,
-                      firstTrialForTemplates.durationText
-                    )}
-                    onChange={(v) =>
-                      setSalesFlowConfig((c) => ({
-                        ...c,
-                        cta_body: ctaBodyToStore(
-                          v,
-                          firstTrialForTemplates.priceText,
-                          firstTrialForTemplates.durationText
-                        ),
-                      }))
-                    }
-                    rows={3}
-                    placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
-                  />
-                  <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
-                    עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
-                  </p>
-                </div>
-                {salesFlowConfig.cta_buttons.map((b, bi) => (
-                  <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
-                    <Field label={`כפתור ${bi + 1} - תווית`}>
-                      <Input
-                        dir="rtl"
-                        className="min-w-[12rem]"
-                        value={b.label}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            cta_buttons: c.cta_buttons.map((x) =>
-                              x.id === b.id ? { ...x, label: v } : x
-                            ),
-                          }));
-                        }}
-                      />
-                    </Field>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-zinc-600 block">סוג</label>
-                      <select
-                        dir="rtl"
-                        className="rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[11rem]"
-                        value={b.kind}
-                        onChange={(e) => {
-                          const kind = e.target.value as SalesFlowCtaButton["kind"];
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            cta_buttons: c.cta_buttons.map((x) =>
-                              x.id === b.id ? { ...x, kind } : x
-                            ),
-                          }));
-                        }}
-                      >
-                        <option value="schedule">מערכת שעות (לינק)</option>
-                        <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
-                        <option value="memberships">מחירי מנויים (קישור מ«פרטי העסק»)</option>
-                        <option value="address">מה הכתובת? (שדה כתובת)</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-zinc-900 text-right">
-                    אחרי הרשמה לשיעור ניסיון
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-1 text-xs py-1.5 px-3 h-auto"
-                    onClick={() => regenerateSalesFlowSection("after_trial_registration")}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    ג׳נרט מחדש
-                  </Button>
-                </div>
-                <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-                  <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    כתובת והגעה: זואי ממלאת מ«פרטי העסק» בידע. אפשר לסיים ב־{"{instagram_cta}"} - יוחלף ב־«מוזמנים לבקר
-                    באינסטגרם שלנו בינתיים» ולינק משדה האינסטגרם ב«לינקים חשובים»; בלי לינק השורה לא תיכנס לפרומפט.
-                  </p>
-                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
-                    <Textarea
-                      value={salesFlowConfig.after_trial_registration_body}
-                      onChange={(v) =>
-                        setSalesFlowConfig((c) => ({ ...c, after_trial_registration_body: v }))
-                      }
-                      rows={12}
-                    />
-                  </Field>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <Step4SalesFlow
+            openingMediaUrl={openingMediaUrl}
+            openingMediaType={openingMediaType}
+            uploadingMedia={uploadingMedia}
+            mediaInputRef={mediaInputRef}
+            uploadMedia={uploadMedia}
+            setOpeningMediaUrl={setOpeningMediaUrl}
+            setOpeningMediaType={setOpeningMediaType}
+            setMediaUploadError={setMediaUploadError}
+            mediaUploadError={mediaUploadError}
+            regenerateSalesFlowSection={regenerateSalesFlowSection}
+            salesFlowConfig={salesFlowConfig}
+            setSalesFlowConfig={setSalesFlowConfig}
+            salesOpeningAutoText={salesOpeningAutoText}
+            trialServiceNames={trialServiceNames}
+            firstNamedService={firstNamedService}
+            firstTrialForTemplates={firstTrialForTemplates}
+            services={services}
+            setServices={setServices}
+            videoUrlForPreview={videoUrlForPreview}
+            experienceQuestionForDisplay={experienceQuestionForDisplay}
+            experienceQuestionToStore={experienceQuestionToStore}
+            afterExperienceForDisplay={afterExperienceForDisplay}
+            afterExperienceToStore={afterExperienceToStore}
+            ctaBodyForDisplay={ctaBodyForDisplay}
+            ctaBodyToStore={ctaBodyToStore}
+            uid={uid}
+          />
         )}
 
         {/* ════════════════════ STEP 5 — פייסבוק ════════════════════ */}
