@@ -656,12 +656,10 @@ export async function sendWhatsAppTextOrMenu(
     return;
   }
 
-  let text = bodyText.trim();
-  if (labels.length > 0) {
-    text += `\n\nבחרו אחת מהאפשרויות:\n${labels.map((lbl, idx) => `${idx + 1}. ${lbl}`).join("\n")}`;
-  }
-  text = withFooterPlain(text);
-  await sendWhatsAppMessage(fromNumber, to, text, accountSid, authToken);
+  // Twilio WhatsApp does not support interactive buttons.
+  // We intentionally do NOT append a numbered list into the text body (product decision: never show CTA options as text).
+  // Send just the body + footer hint (if any).
+  await sendWhatsAppMessage(fromNumber, to, withFooterPlain(bodyText.trim()), accountSid, authToken);
 }
 
 /**
