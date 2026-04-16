@@ -305,6 +305,7 @@ async function processIncoming(
   // If contact is opted out, we may early-return before reaching any automated flow.
   let contactOptedOut: boolean | null = null;
   let contactClaudeCount: number | null = null;
+  let contactTrialRegistered: boolean | null = null;
   if (businessId) {
     try {
       const phone = msg.from;
@@ -327,7 +328,7 @@ async function processIncoming(
         const r = await supabase
           .from("contacts")
           .upsert(upsertPayload, { onConflict: "business_id,phone" })
-          .select("opted_out, claude_message_count")
+          .select("opted_out, claude_message_count, trial_registered")
           .maybeSingle();
         contactRow = r.data;
         upsertErr = r.error;
@@ -349,11 +350,32 @@ async function processIncoming(
         typeof (contactRow as any)?.opted_out === "boolean" ? (contactRow as any).opted_out : null;
       const cc = (contactRow as any)?.claude_message_count;
       contactClaudeCount = typeof cc === "number" && Number.isFinite(cc) ? cc : null;
+      contactTrialRegistered =
+        typeof (contactRow as any)?.trial_registered === "boolean"
+          ? (contactRow as any).trial_registered
+          : null;
     } catch (e) {
       console.warn("[WA Webhook] contacts upsert threw (continuing):", e);
     }
   } else {
     console.warn("[WA Webhook] missing business_id; skipping contacts upsert");
+  }
+
+  function stripNumberedChoiceLinesAnywhere(text: string): string {
+    const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+    const out: string[] = [];
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) {
+        out.push(line);
+        continue;
+      }
+      if (/^\d+\.\s+\S/.test(t)) continue;
+      if (/^בחרו (אחת|אחד) מהאפשרויות:$/u.test(t)) continue;
+      if (/^מה הצעד הבא\??$/u.test(t)) continue;
+      out.push(line);
+    }
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   // Helper: normalize inbound text for matching
@@ -1248,9 +1270,11 @@ async function processIncoming(
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
     .filter((lbl) => lbl.length > 0);
-  const ctaMenuLabels = (knowledge?.salesFlowConfig?.cta_buttons ?? [])
+  const ctaMenuLabelsRaw = (knowledge?.salesFlowConfig?.cta_buttons ?? [])
     .map((b) => String((b as { label?: string }).label ?? "").trim())
     .filter((l) => l.length > 0);
+  // After a confirmed registration ("נרשמתי"), do not push the CTA buttons again.
+  const ctaMenuLabels = contactTrialRegistered ? [] : ctaMenuLabelsRaw;
   const buttons: string[] = [
     ...quickLabels,
     ...ctaMenuLabels.filter((l) => !quickLabels.some((q) => q === l)),
@@ -1481,7 +1505,7 @@ async function processIncoming(
   const shouldStripModelNumberedChoices =
     !isFallbackErrorReply && (quickLabels.length > 0 || ctaMenuLabels.length > 0);
   const replyCoreForMenu = shouldStripModelNumberedChoices
-    ? stripTrailingNumberedChoiceLines(replyCore)
+    ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore))
     : replyCore;
   const replyCoreClean = replyCoreForMenu
     .replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "")
