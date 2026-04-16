@@ -874,9 +874,9 @@ async function processIncoming(
         wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false);
       const wantsMemberships =
         wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
-      const wantsAddress =
-        (addressBtn ? waLabelMatches(incomingResolved, addressBtn.label) : false) ||
-        isAddressOrDirectionsIntent(incomingResolved);
+      const wantsAddressByButton = addressBtn ? waLabelMatches(incomingResolved, addressBtn.label) : false;
+      const wantsAddressByIntent = isAddressOrDirectionsIntent(incomingResolved);
+      const wantsAddress = wantsAddressByButton || wantsAddressByIntent;
 
       const sendPostLinkMenu = async (): Promise<void> => {
         const fuBody = cfg.followup_after_next_class_body.trim();
@@ -1004,9 +1004,6 @@ async function processIncoming(
                 ? "image"
                 : undefined
           ).catch((e) => console.error("[WA Webhook] Send address media reply failed:", e));
-          // WhatsApp sometimes delivers a subsequent text/menu before the media finishes processing.
-          // Briefly delay follow-up menus so the media+caption is seen first.
-          await sleepMs(650);
         } else {
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send address reply failed:", e)
@@ -1019,7 +1016,9 @@ async function processIncoming(
           model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
           session_id: sessionId,
         });
-        if (address) {
+        // If the user explicitly clicked the "address" button, follow with the standard post-link menu.
+        // For open-text intents like "איך מגיעים", do not auto-send the CTA menu (it can arrive before media processing).
+        if (address && wantsAddressByButton) {
           await sendPostLinkMenu();
         }
         return;
