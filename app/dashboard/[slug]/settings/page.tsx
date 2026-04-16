@@ -2248,7 +2248,7 @@ export default function SlugSettingsPage() {
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    פשוט שאלות שעושות חשק לבוא. אין לתשובה השפעה על פלואו השיחה. אל תעמיסו 🙂
+                    פשוט שאלות שעושות חשק לבוא. אין לתשובה השפעה על פלואו השיחה. אל תעמיסו 🙂 גם אחת מספיקה.
                   </p>
 
                   {trialServiceNames.length === 0 ? (
