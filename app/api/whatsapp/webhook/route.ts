@@ -1512,13 +1512,39 @@ async function processIncoming(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  function normalizeLine(s: string): string {
+    return String(s ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function hasLineNearEnd(text: string, needle: string, lookbackLines = 6): boolean {
+    const n = normalizeLine(needle);
+    if (!n) return false;
+    const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n").map((l) => normalizeLine(l)).filter(Boolean);
+    const tail = lines.slice(Math.max(0, lines.length - lookbackLines));
+    return tail.includes(n);
+  }
+
+  function dedupeConsecutiveDuplicateLines(text: string): string {
+    const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+    const out: string[] = [];
+    for (const line of lines) {
+      const prev = out.length ? out[out.length - 1]! : null;
+      if (prev != null && normalizeLine(prev) && normalizeLine(prev) === normalizeLine(line)) continue;
+      out.push(line);
+    }
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
   let replyText = replyCoreClean;
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
     const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
     const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
-    if (menuQuestion) {
+    if (menuQuestion && !hasLineNearEnd(replyText, menuQuestion)) {
       replyText += `\n\n${menuQuestion}`;
     }
     const buttonsBlock =
@@ -1536,6 +1562,7 @@ async function processIncoming(
 
     replyText += buttonsBlock;
     replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+    replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
   try {
@@ -1547,12 +1574,13 @@ async function processIncoming(
       const ctaText = !shouldReaskServiceSelection ? knowledge?.ctaText?.trim() : "";
       const ctaLink = !shouldReaskServiceSelection ? knowledge?.ctaLink?.trim() : "";
       let body = replyCoreClean;
-      if (menuQuestion) {
+      if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
         body += `\n\n${menuQuestion}`;
       }
       if (ctaText && ctaLink) {
         body += `\n\n${ctaText}: ${ctaLink}`;
       }
+      body = dedupeConsecutiveDuplicateLines(body);
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
         footerHint: ZOE_WHATSAPP_MENU_FOOTER,
       });
