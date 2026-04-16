@@ -906,14 +906,14 @@ async function processIncoming(
       };
 
       if (wantsTrial && trialUrl) {
-        const txt = `הרשמה לשיעור ניסיון:\n${trialUrl}`;
+        const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send trial link failed:", e)
         );
         await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
           (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
         );
-        await sendPostLinkMenu();
+        // After "לאחר ההרשמה…" we don't need to push another CTA/menu.
         const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
         await logMessage({
           business_slug,
@@ -967,8 +967,10 @@ async function processIncoming(
       }
       if (wantsMemberships) {
         const mu = knowledge?.membershipsUrl?.trim() ?? "";
+        const promo = knowledge?.promotionsText?.trim() ?? "";
+        const promoIsMemberships = promo && /(מנוי|מנויים|כרטיסי(?:ה|ות)|חבילה)/u.test(promo);
         const txt = mu.length
-          ? `מחירי מנויים:\n${mu}`
+          ? [`מחירי מנויים:`, mu, promoIsMemberships ? promo : ""].filter(Boolean).join("\n")
           : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send memberships reply failed:", e)
@@ -1078,11 +1080,16 @@ async function processIncoming(
             const selectedService =
               salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
             const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
-            const ctaBody = fillCtaBodyTemplate(
+            const baseCtaBody = fillCtaBodyTemplate(
               cfg.cta_body,
               selectedService?.priceText ?? "",
               selectedService?.durationText ?? ""
             ).trim();
+            const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+            const promo = knowledge?.promotionsText?.trim() ?? "";
+            const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
+            const shouldAttachTrialPromo = promoIsTrial && lastAssistModel !== "sales_flow_cta";
+            const ctaBody = [baseCtaBody, shouldAttachTrialPromo ? promo : ""].filter(Boolean).join("\n");
             await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels.slice(0, 3), accountSid, authToken, {
               footerHint: ZOE_WHATSAPP_MENU_FOOTER,
             }).catch((e) => console.error("[WA Webhook] Send CTA after warmup extras failed:", e));
@@ -1121,7 +1128,7 @@ async function processIncoming(
           const selectedService =
             salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
           const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
-          const ctaBody = fillCtaBodyTemplate(
+          const baseCtaBody = fillCtaBodyTemplate(
             cfg.cta_body,
             selectedService?.priceText ?? "",
             selectedService?.durationText ?? ""
@@ -1163,6 +1170,12 @@ async function processIncoming(
             });
             return;
           }
+
+          const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+          const promo = knowledge?.promotionsText?.trim() ?? "";
+          const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
+          const shouldAttachTrialPromo = promoIsTrial && lastAssistModel !== "sales_flow_cta";
+          const ctaBody = [baseCtaBody, shouldAttachTrialPromo ? promo : ""].filter(Boolean).join("\n");
 
           const bodyOnly = [afterExperience, "", ctaBody]
             .filter((x) => x.length > 0)

@@ -531,6 +531,7 @@ export default function SlugSettingsPage() {
   const [directionsMediaType, setDirectionsMediaType] = useState<"image" | "video" | "">("");
   const [businessTagline, setBusinessTagline] = useState("");
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
+  const [promotions, setPromotions] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
   const [membershipsUrl, setMembershipsUrl] = useState("");
@@ -761,6 +762,7 @@ export default function SlugSettingsPage() {
         setDirectionsMediaUrl(String(sl.directions_media_url ?? ""));
         setDirectionsMediaType((sl.directions_media_type as "image" | "video" | "") ?? "");
         setBusinessTagline(typeof sl.tagline === "string" ? sl.tagline : "");
+        setPromotions(typeof sl.promotions === "string" ? sl.promotions : "");
         const f1 = typeof sl.fact1 === "string" ? sl.fact1 : "";
         const f2 = typeof sl.fact2 === "string" ? sl.fact2 : "";
         const f3 = typeof sl.fact3 === "string" ? sl.fact3 : "";
@@ -987,6 +989,7 @@ export default function SlugSettingsPage() {
           fact2: (traits[1] ?? "").trim(),
           fact3: (traits[2] ?? "").trim(),
           business_description: traits.map((s) => s.trim()).filter(Boolean).join("\n"),
+          promotions: promotions.trim(),
           address,
           customer_service_phone: customerServicePhone.trim(),
           directions,
@@ -1310,14 +1313,13 @@ export default function SlugSettingsPage() {
         return;
       }
 
-      const uploadBody = new FormData();
-      uploadBody.append("cacheControl", "3600");
-      uploadBody.append("", file);
-
       const putRes = await fetch(signedUrl, {
         method: "PUT",
-        headers: { "x-upsert": "true" },
-        body: uploadBody,
+        headers: {
+          "x-upsert": "true",
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: file,
       });
 
       if (!putRes.ok) {
@@ -1806,6 +1808,15 @@ export default function SlugSettingsPage() {
                   הוסף
                 </Button>
               </div>
+
+              <Field label="הנחות ומבצעים" description="טקסט קצר שזואי תוכל לשלב כשזה רלוונטי (מנויים/אימון ניסיון).">
+                <Input
+                  dir="rtl"
+                  value={promotions}
+                  onChange={(e) => setPromotions(e.target.value)}
+                  placeholder="20% הנחה על מנויים חדשים עד סוף החודש"
+                />
+              </Field>
 
             </CardContent>
           </Card>

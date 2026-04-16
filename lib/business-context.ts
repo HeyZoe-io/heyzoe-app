@@ -57,6 +57,7 @@ export type BusinessKnowledgePack = {
   salesFlowPromptSection: string;
   /** קישור אינסטגרם (social_links.instagram) */
   instagramUrl: string;
+  promotionsText: string;
 };
 
 function formatMembershipsLinkLine(social: Record<string, unknown>): string {
@@ -213,6 +214,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const legacyDesc = String(social.business_description ?? "").trim();
     const businessDescriptionRaw =
       [tagline, fromTraits].filter(Boolean).join(" • ") || legacyDesc;
+    const promotionsText = typeof social.promotions === "string" ? social.promotions.trim() : "";
 
     const vibeLabels = Array.isArray(social.vibe) ? (social.vibe as string[]).map(String) : [];
     const wo = Array.isArray(social.welcome_options) ? social.welcome_options.map((x) => String(x ?? "").trim()) : [];
@@ -340,6 +342,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       salesFlowConfig,
       salesFlowPromptSection,
       instagramUrl,
+      promotionsText,
     };
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
@@ -436,6 +439,7 @@ ${formatFollowupSnippets(knowledge)}
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
 תיאור עסק: ${knowledge?.businessDescription ?? "לא הוגדר"}
+הנחות ומבצעים: ${knowledge?.promotionsText?.trim() || "לא הוגדר"}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
 ${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${knowledge.membershipsAndCardsText}\n` : ""}FAQ:
