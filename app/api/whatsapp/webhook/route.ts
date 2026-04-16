@@ -575,7 +575,7 @@ async function processIncoming(
 
         if (alreadyRegistered) {
           const repeatTxt =
-            "כבר שלחנו את הוראות ההמשך. אם משהו חסר — כתבו כאן ונעזור 😊";
+            "כבר שלחנו את הוראות ההמשך. אם משהו חסר - כתבו כאן ונעזור 😊";
           await sendWhatsAppMessage(msg.toNumber, msg.from, repeatTxt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send trial-registered repeat reply failed:", e)
           );
@@ -710,7 +710,7 @@ async function processIncoming(
 
     const openingText = knowledge
       ? formatWhatsAppOpeningText(knowledge)
-      : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
+      : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
 
     try {
       if (knowledge) {
@@ -747,7 +747,7 @@ async function processIncoming(
       await sendOpeningMediaIfConfigured();
       const out = knowledge
         ? formatWhatsAppOpeningText(knowledge)
-        : `היי! כאן ${business_slug}.\nאשמח לעזור — שלחו שאלה בקצרה.`;
+        : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
 
       if (knowledge) {
         const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
@@ -924,7 +924,7 @@ async function processIncoming(
       }
       if (wantsTrial && !trialUrl) {
         const txt =
-          "כרגע אין לנו כאן קישור הרשמה — כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
+          "כרגע אין לנו כאן קישור הרשמה - כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
         await logMessage({
           business_slug,
@@ -952,7 +952,7 @@ async function processIncoming(
         return;
       }
       if (wantsSchedule && !scheduleUrl) {
-        const txt = "מערכת השעות תתעדכן בקרוב — כתבו בקצרה ונעזור לקבוע מועד.";
+        const txt = "מערכת השעות תתעדכן בקרוב - כתבו בקצרה ונעזור לקבוע מועד.";
         await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
         await logMessage({
           business_slug,
