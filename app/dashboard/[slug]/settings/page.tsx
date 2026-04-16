@@ -283,11 +283,15 @@ function afterExperienceToStore(typed: string, service: ServiceItem | null): str
 }
 
 function ctaBodyForDisplay(stored: string, priceText: string, durationText: string): string {
-  return fillCtaBodyTemplate(stored, priceText, durationText);
+  // ב־UI מציגים משתנה קבוע (x) כי המחיר/משך תלויים בבחירת סוג האימון
+  return fillCtaBodyTemplate(stored, "x", "x");
 }
 
 function ctaBodyToStore(typed: string, priceText: string, durationText: string): string {
   let s = typed;
+  // אם המשתמש השאיר x כפי שמוצג ב־UI, נשמור חזרה את התבנית.
+  s = s.replace(/\bx\s+שקלים\b/gu, "{priceText} שקלים");
+  s = s.replace(/\bx\s+דקות\b/gu, "{durationText} דקות");
   const p = priceText.trim();
   const d = durationText.trim();
   if (p && s.includes(p)) s = s.split(p).join("{priceText}");
@@ -1309,7 +1313,7 @@ export default function SlugSettingsPage() {
       const signedUrl = signJson.signedUrl?.trim();
       const publicUrl = signJson.publicUrl?.trim();
       if (!signedUrl || !publicUrl) {
-        setMediaUploadError("לא התקבל קישור חתום להעלאה — נסו שוב.");
+        setMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
         return;
       }
 
@@ -1374,12 +1378,12 @@ export default function SlugSettingsPage() {
             : errStr === "missing_website_url"
               ? "חסרה כתובת אתר."
               : errStr === "missing_anthropic_key"
-                ? "חסר מפתח AI בשרת — פנו לתמיכה."
+                ? "חסר מפתח AI בשרת - פנו לתמיכה."
                 : errStr === "ai_parse_failed"
                   ? "לא ניתן לעבד את תוצאת הסריקה. נסו שוב."
                   : msgStr ||
                     (errStr === "blocked_auto_scraping"
-                      ? "האתר חוסם סריקה אוטומטית — מלאו את השדות ידנית."
+                      ? "האתר חוסם סריקה אוטומטית - מלאו את השדות ידנית."
                       : `הסריקה נכשלה (${res.status}).`);
         setFetchSiteError(friendly);
         const hasPayload =
@@ -1544,7 +1548,7 @@ export default function SlugSettingsPage() {
               {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
               {autosaveStatus === "error" && (
                 <span className="text-amber-600 max-w-[min(20rem,55vw)] text-right" title={autoSaveErr || undefined}>
-                  שמירה אוטומטית נכשלה{autoSaveErr ? ` — ${autoSaveErr}` : ""}
+                  שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
                 </span>
               )}
             </div>
@@ -1624,7 +1628,7 @@ export default function SlugSettingsPage() {
               {fetchingUrl && (
                 <p className="text-sm text-[#7133da] flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  מנתח את האתר — זה לוקח כמה שניות...
+                  מנתח את האתר - זה לוקח כמה שניות...
                 </p>
               )}
               {fetchSiteError ? (
@@ -1677,7 +1681,7 @@ export default function SlugSettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={2} title="פרטי העסק" desc="שם, תיאור, כתובת והטון — מה שזואי יודעת עליכם." />
+                <StepHeader n={2} title="פרטי העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -1809,7 +1813,7 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <Field label="הנחות ומבצעים" description="טקסט קצר שזואי תוכל לשלב כשזה רלוונטי (מנויים/אימון ניסיון).">
+              <Field label="הנחות ומבצעים">
                 <Input
                   dir="rtl"
                   value={promotions}
@@ -2070,7 +2074,7 @@ export default function SlugSettingsPage() {
                           controls
                         />
                         <p className="text-center text-xs text-emerald-600 mt-2 font-medium">
-                          הווידאו הועלה — תצוגה מקדימה (אפשר להפעיל)
+                          הווידאו הועלה - תצוגה מקדימה (אפשר להפעיל)
                         </p>
                       </div>
                     ) : (
@@ -2185,7 +2189,7 @@ export default function SlugSettingsPage() {
                         {services.map((s, i) =>
                           !s.name.trim() ? null : (
                             <div key={s.ui_id} className="space-y-1.5 rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="w-full rounded-xl border border-[#d1d7db] bg-white px-3 py-2 text-right text-sm font-medium text-[#027eb5] shadow-sm">
+                              <div className="w-full rounded-xl border border-[#d1d7db] bg-white px-3 py-2 text-right text-sm font-medium text-zinc-900 shadow-sm">
                                 {s.name.trim()}
                               </div>
                               <Field label="תשובה">
@@ -2209,7 +2213,7 @@ export default function SlugSettingsPage() {
                   ) : trialServiceNames.length === 1 ? (
                     <>
                       <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                        מוגדר אימון ניסיון אחד — אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
+                        מוגדר אימון ניסיון אחד - אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
                       </p>
                       {(() => {
                         const firstNamedIndex = services.findIndex((s) => s.name.trim());
@@ -2264,7 +2268,7 @@ export default function SlugSettingsPage() {
 
                   {trialServiceNames.length === 0 ? (
                     <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                      כדי לערוך כאן את שאלת הניסיון והכפתורים — הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 3).
+                      כדי לערוך כאן את שאלת הניסיון והכפתורים - הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 3).
                     </p>
                   ) : (
                     <>
@@ -2378,12 +2382,15 @@ export default function SlugSettingsPage() {
                       }))
                     }
                     rows={3}
-                    placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה 120 שקלים, הוא נמשך 60 דקות ובאמת שהולך להיות כיף."
+                    placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
                   />
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                    עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
+                  </p>
                 </div>
                 {salesFlowConfig.cta_buttons.map((b, bi) => (
                   <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
-                    <Field label={`כפתור ${bi + 1} — תווית`}>
+                    <Field label={`כפתור ${bi + 1} - תווית`}>
                       <Input
                         dir="rtl"
                         className="min-w-[12rem]"
@@ -2443,7 +2450,7 @@ export default function SlugSettingsPage() {
                 </div>
                 <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
                   <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                    כתובת והגעה: זואי ממלאת מ«פרטי העסק» בידע. אפשר לסיים ב־{"{instagram_cta}"} — יוחלף ב־«מוזמנים לבקר
+                    כתובת והגעה: זואי ממלאת מ«פרטי העסק» בידע. אפשר לסיים ב־{"{instagram_cta}"} - יוחלף ב־«מוזמנים לבקר
                     באינסטגרם שלנו בינתיים» ולינק משדה האינסטגרם ב«לינקים חשובים»; בלי לינק השורה לא תיכנס לפרומפט.
                   </p>
                   <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
@@ -2471,14 +2478,14 @@ export default function SlugSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-zinc-900">חבילה 1 — חיבור בסיסי</p>
+                <p className="text-sm font-medium text-zinc-900">חבילה 1 - חיבור בסיסי</p>
                 <p className="text-xs text-zinc-600">
                   שלחו Partner Request והקימו קמפיין "הודעות לוואטסאפ" דרך מנהל המודעות. אין צורך בשדות טכניים בשלב זה.
                 </p>
               </div>
 
               <div className="space-y-2 border-t border-dashed border-zinc-200 pt-3">
-                <p className="text-sm font-medium text-zinc-900">חבילה 2 — פרימיום (Pixel + Conversions API)</p>
+                <p className="text-sm font-medium text-zinc-900">חבילה 2 - פרימיום (Pixel + Conversions API)</p>
                 <Field label="Facebook Pixel ID">
                   <Input dir="ltr" value={facebookPixelId} onChange={e => setFacebookPixelId(e.target.value)} placeholder="123456789012345" />
                 </Field>
@@ -2533,10 +2540,21 @@ export default function SlugSettingsPage() {
                   rows={10}
                   placeholder="בוקר טוב 🙂 …"
                 />
-                <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
-                  אם השדה ריק, המערכת תשתמש בטקסט ה-CTA של העסק. מומלץ למלא טקסט חם וקצר — בלי רשימות נקודות ארוכות.
-                </p>
               </Field>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-right">
+                <p className="text-xs font-semibold text-zinc-700">כפתורי דיפולט</p>
+                <div className="mt-2 flex flex-wrap justify-end gap-2">
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-800">
+                    שיעור ניסיון
+                  </span>
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-800">
+                    מערכת שעות
+                  </span>
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-800">
+                    מחירי מנויים
+                  </span>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
