@@ -160,23 +160,34 @@ export default function AnalyticsClient({
         </div>
       </div>
 
-      <section className={`grid gap-4 md:grid-cols-3 hz-wave hz-wave-2 ${loading ? "opacity-25" : ""}`.trim()}>
-        <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
-          <p className="text-xs text-zinc-500">לידים חדשים</p>
-          <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
-          <p className="text-xs text-zinc-500">המרות (נרשמו לשיעור ניסיון)</p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.converted}</p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
-          <p className="text-xs text-zinc-500">שיעור המרה</p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.conversionRate}%</p>
-          <p className="mt-1 text-[11px] text-zinc-500">מתוך {data.totalChats} צ׳אטים (פר מספר)</p>
-        </div>
+      <section className="grid gap-4 md:grid-cols-3 hz-wave hz-wave-2">
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
+              <div className="h-3 w-28 rounded bg-zinc-200 ml-auto animate-pulse" />
+              <div className="mt-3 h-8 w-20 rounded bg-zinc-200 ml-auto animate-pulse" />
+            </div>
+          ))
+        ) : (
+          <>
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+              <p className="text-xs text-zinc-500">לידים חדשים</p>
+              <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+              <p className="text-xs text-zinc-500">המרות (נרשמו לשיעור ניסיון)</p>
+              <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.converted}</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+              <p className="text-xs text-zinc-500">שיעור המרה</p>
+              <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.conversionRate}%</p>
+              <p className="mt-1 text-[11px] text-zinc-500">מתוך {data.totalChats} צ׳אטים (פר מספר)</p>
+            </div>
+          </>
+        )}
       </section>
 
-      <section className={`grid gap-4 md:grid-cols-1 hz-wave hz-wave-3 ${loading ? "opacity-25" : ""}`.trim()}>
+      <section className="grid gap-4 md:grid-cols-1 hz-wave hz-wave-3">
         <div
           dir="rtl"
           className="text-right"
@@ -298,30 +309,6 @@ export default function AnalyticsClient({
           )}
         </div>
       </section>
-
-      {loading ? (
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="space-y-6 animate-pulse">
-            <section className="grid gap-4 md:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
-                  <div className="h-3 w-28 rounded bg-zinc-200 ml-auto" />
-                  <div className="mt-3 h-8 w-20 rounded bg-zinc-200 ml-auto" />
-                </div>
-              ))}
-            </section>
-            <section className="grid gap-4 md:grid-cols-1">
-              <div className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
-                <div className="h-4 w-48 rounded bg-zinc-200 ml-auto" />
-                <div className="mt-3 h-3 w-72 rounded bg-zinc-200 ml-auto" />
-                <div className="mt-4 h-3 w-[92%] rounded bg-zinc-200 ml-auto" />
-                <div className="mt-2 h-3 w-[82%] rounded bg-zinc-200 ml-auto" />
-                <div className="mt-2 h-3 w-[88%] rounded bg-zinc-200 ml-auto" />
-              </div>
-            </section>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
