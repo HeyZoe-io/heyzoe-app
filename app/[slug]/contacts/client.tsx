@@ -170,7 +170,67 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
           <CardTitle className="text-right">רשימת אנשי קשר</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Mobile: cards (no horizontal scroll). Desktop: table. */}
+          <div className="space-y-3 md:hidden">
+            {contacts.length === 0 ? (
+              <p className="py-8 text-center text-sm text-zinc-500">אין אנשי קשר עדיין.</p>
+            ) : (
+              contacts.map((c, idx) => {
+                const optedOut = Boolean(c.opted_out);
+                return (
+                  <div
+                    key={`${c.phone ?? "row"}-${idx}`}
+                    className="rounded-2xl border border-zinc-200 bg-white p-4 text-right"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <button
+                          type="button"
+                          className="text-sm font-semibold text-zinc-900 underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500 truncate max-w-[78vw]"
+                          onClick={() => (c.phone ? viewConversations(c.phone) : null)}
+                          disabled={!c.phone}
+                        >
+                          {c.phone ?? "—"}
+                        </button>
+                        <p className="mt-1 text-xs text-zinc-600">
+                          {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">הצטרף: {formatDate(c.created_at)}</p>
+                      </div>
+                      <div className="shrink-0">
+                        {optedOut ? (
+                          <Badge className="border-red-200 bg-red-50 text-red-700">הוסר</Badge>
+                        ) : (
+                          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">פעיל</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => (c.phone ? viewConversations(c.phone) : null)}
+                        disabled={!c.phone}
+                      >
+                        צפה בשיחות
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => openSingle(c)}
+                        disabled={sending || optedOut || !c.phone}
+                      >
+                        שלח הודעה
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm" dir="rtl">
               <thead>
                 <tr className="text-right text-xs text-zinc-500 border-b border-zinc-200">
