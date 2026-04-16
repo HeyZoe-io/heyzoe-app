@@ -51,7 +51,7 @@ type ServiceItem = {
 
 const STEPS = [
   "לינקים",
-  "פרטי העסק",
+  "על העסק",
   "אימון ניסיון",
   "מסלול מכירה",
   "חיבור פייסבוק",
@@ -1699,12 +1699,12 @@ export default function SlugSettingsPage() {
           </Card>
         )}
 
-        {/* ════════════════════ STEP 2 — פרטי העסק ════════════════════ */}
+        {/* ════════════════════ STEP 2 — על העסק ════════════════════ */}
         {step === 2 && (
           <Card>
             <CardHeader>
               <CardTitle>
-                <StepHeader n={2} title="פרטי העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
+                <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
