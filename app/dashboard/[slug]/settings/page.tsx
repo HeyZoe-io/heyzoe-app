@@ -235,9 +235,8 @@ function buildServiceReplyDraft(
   const highlights = extractServiceReplyHighlights(serviceName, rawDescription, flowFeatures, benefits, suggestions);
   const highlight = highlights.find((item) => !hasMeaningfulTextOverlap(item, focus)) ?? "";
   const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
-  const levelsText = levelsEnabled ? formatLevelsForSentence(levels) : "";
-  const levelsLine = levelsText ? ` יש לנו שיעורים ${levelsText} :)` : "";
-  const body = `${phrase} שלנו הם דרך מעולה ${focus}.${levelsLine}${extra}`.trim();
+  // חלוקה לרמות שייכת ל"מענה אחרי בחירה בשאלת הניסיון" ולא לתשובה של בחירת סוג האימון.
+  const body = `${phrase} שלנו הם דרך מעולה ${focus}.${extra}`.trim();
   return includeOpener ? `${opener}! ${body}` : body;
 }
 
@@ -2354,7 +2353,7 @@ export default function SlugSettingsPage() {
                           </Field>
                         ))}
                       </div>
-                      <Field label="מענה אחרי בחירה בשאלת הניסיון">
+                      <Field label="תשובה">
                         <Textarea
                           value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstNamedService)}
                           onChange={(v) =>
