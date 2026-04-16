@@ -1004,6 +1004,9 @@ async function processIncoming(
                 ? "image"
                 : undefined
           ).catch((e) => console.error("[WA Webhook] Send address media reply failed:", e));
+          // WhatsApp can show a subsequent text/menu before media finishes processing on the client.
+          // Delay the follow-up menu enough so the media+caption reliably appears first.
+          await sleepMs(knowledge?.directionsMediaType === "video" ? 2200 : 1300);
         } else {
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send address reply failed:", e)
@@ -1016,9 +1019,9 @@ async function processIncoming(
           model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
           session_id: sessionId,
         });
-        // If the user explicitly clicked the "address" button, follow with the standard post-link menu.
-        // For open-text intents like "איך מגיעים", do not auto-send the CTA menu (it can arrive before media processing).
-        if (address && wantsAddressByButton) {
+        // Always follow with the standard post-link menu when we have an address.
+        // (After a delay if media was sent) so the menu appears after the directions message.
+        if (address) {
           await sendPostLinkMenu();
         }
         return;
