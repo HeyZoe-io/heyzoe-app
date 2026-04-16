@@ -50,7 +50,7 @@ type ServiceItem = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
-  "לינקים חשובים",
+  "לינקים",
   "פרטי העסק",
   "אימון ניסיון",
   "מסלול מכירה",
@@ -1569,7 +1569,7 @@ export default function SlugSettingsPage() {
 
         {/* Step indicator */}
         <div className="max-w-6xl mx-auto px-4 pb-4 overflow-x-auto">
-        <div className="flex gap-3 min-w-max">
+        <div className="flex gap-2 sm:gap-2.5 min-w-max items-center">
             {STEPS.map((label, i) => {
               const n = i + 1;
               if (!isPremium && label === "חיבור פייסבוק") return null;
@@ -1578,9 +1578,16 @@ export default function SlugSettingsPage() {
                 <button
                   key={n}
                   onClick={() => setStep(n)}
-                  className={`text-[12px] sm:text-xs tracking-[-0.01em] transition-colors ${
-                    active ? "text-[#2d1a6e] underline underline-offset-8 decoration-[#7133da]" : "text-zinc-600 hover:text-zinc-900"
-                  }`}
+                  className={[
+                    // Mobile: clear separation via pills + border
+                    "px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-all select-none",
+                    // Desktop: slightly bigger and more “tabby”
+                    "sm:text-sm sm:font-semibold sm:px-4 sm:py-2",
+                    active
+                      ? "bg-white text-[#2d1a6e] border-[rgba(113,51,218,0.35)] shadow-[0_10px_22px_rgba(112,84,182,0.14)]"
+                      : "bg-white/55 text-zinc-700 border-white/60 hover:bg-white hover:text-zinc-900",
+                  ].join(" ")}
+                  aria-current={active ? "page" : undefined}
                 >
                   {label}
                 </button>
@@ -1600,14 +1607,14 @@ export default function SlugSettingsPage() {
       <div className="max-w-6xl mx-auto px-4 py-10">
         <div className="max-w-2xl mx-auto w-full">
 
-        {/* ════════════════════ STEP 1 — לינקים חשובים ════════════════════ */}
+        {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
                   n={1}
-                  title="לינקים חשובים"
+                  title="לינקים"
                   desc="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
                 />
               </CardTitle>
