@@ -308,7 +308,7 @@ export default function Step4SalesFlow(props: any) {
                   <Textarea
                     value={salesFlowConfig.multi_service_question}
                     onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, multi_service_question: v }))}
-                    rows={2}
+                    rows={4}
                     placeholder="למשל: איזה אימון הכי מדבר אליך?"
                   />
                 </Field>
@@ -321,7 +321,7 @@ export default function Step4SalesFlow(props: any) {
                         </div>
                         <Field label="תשובה">
                           <Textarea
-                            rows={3}
+                            rows={4}
                             value={s.benefit_line}
                             onChange={(v) => {
                               const arr = [...services];
@@ -350,7 +350,7 @@ export default function Step4SalesFlow(props: any) {
                       <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
                       <Field label="תשובה">
                         <Textarea
-                          rows={3}
+                          rows={4}
                           value={s.benefit_line}
                           onChange={(v) => {
                             const arr = [...services];
@@ -440,7 +440,7 @@ export default function Step4SalesFlow(props: any) {
                         after_experience: afterExperienceToStore(v, firstNamedService),
                       }))
                     }
-                    rows={2}
+                    rows={3}
                     placeholder="משפט מעודד קצר לפני המשך הפלואו…"
                   />
                 </Field>
@@ -488,7 +488,7 @@ export default function Step4SalesFlow(props: any) {
                     ),
                   }))
                 }
-                rows={3}
+                rows={4}
                 placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
               />
               <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
@@ -550,10 +550,7 @@ export default function Step4SalesFlow(props: any) {
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-            <p className="text-xs text-zinc-600 text-right leading-relaxed">
-              כתובת והגעה: זואי ממלאת מ«פרטי העסק» בידע. אפשר לסיים ב-{"{instagram_cta}"} - יוחלף ב-«מוזמנים לבקר
-              באינסטגרם שלנו בינתיים» ולינק משדה האינסטגרם ב«לינקים חשובים»; בלי לינק השורה לא תיכנס לפרומפט.
-            </p>
+            <p className="text-xs text-zinc-600 text-right leading-relaxed">יושלם אוטומטית מהפרטי העסק</p>
             <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
               <Textarea
                 value={salesFlowConfig.after_trial_registration_body}

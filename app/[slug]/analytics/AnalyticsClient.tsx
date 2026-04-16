@@ -42,10 +42,8 @@ export default function AnalyticsClient({
   const [range, setRange] = useState<RangeKey>(initialRange);
   const [data, setData] = useState<AnalyticsPayload>(initial);
   const [loading, setLoading] = useState(false);
-  const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [replacing, setReplacing] = useState<Record<string, boolean>>({});
   const [isNew, setIsNew] = useState<Record<string, boolean>>({});
-  const [savePulse, setSavePulse] = useState(false);
   const lastLoadedRangeRef = useRef<RangeKey>(initialRange);
 
   const subtitle = useMemo(() => {
@@ -100,7 +98,8 @@ export default function AnalyticsClient({
   }, [loading]);
 
   const suggestionCards = useMemo(() => {
-    return (data.suggestions ?? []).map((text) => ({ id: text, text }));
+    const first = (data.suggestions ?? []).map((text) => ({ id: text, text }))[0];
+    return first ? [first] : [];
   }, [data.suggestions]);
 
   function replaceSuggestion(id: string) {
@@ -121,20 +120,6 @@ export default function AnalyticsClient({
       setIsNew((m) => ({ ...m, [pick]: true }));
       setReplacing((m) => ({ ...m, [id]: false }));
     }, 600);
-  }
-
-  async function saveSuggestions() {
-    const chosen = suggestionCards.filter((c) => accepted[c.id]).map((c) => c.text);
-    const text = chosen.join("\n");
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setSavePulse(true);
-      window.setTimeout(() => setSavePulse(false), 650);
-    } catch {
-      setSavePulse(true);
-      window.setTimeout(() => setSavePulse(false), 650);
-    }
   }
 
   return (
@@ -214,7 +199,6 @@ export default function AnalyticsClient({
           {suggestionCards.length ? (
             <div className="space-y-3">
               {suggestionCards.map((c) => {
-                const done = Boolean(accepted[c.id]);
                 const busy = Boolean(replacing[c.id]);
                 const fresh = Boolean(isNew[c.id]);
                 return (
@@ -222,9 +206,9 @@ export default function AnalyticsClient({
                     key={c.id}
                     className={`${fresh ? "hz-fade-in" : ""}`.trim()}
                     style={{
-                      background: done ? "#f5fff8" : "#fff",
+                      background: "#fff",
                       borderRadius: 14,
-                      border: done ? "1.5px solid #35ff70" : "1.5px solid #e8e0ff",
+                      border: "1.5px solid #e8e0ff",
                       padding: "16px 18px",
                       display: "flex",
                       justifyContent: "space-between",
@@ -268,28 +252,6 @@ export default function AnalyticsClient({
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
                         type="button"
-                        aria-label="אישור"
-                        disabled={done}
-                        onClick={() => setAccepted((m) => ({ ...m, [c.id]: true }))}
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: "50%",
-                          border: "none",
-                          background: done ? "#35ff70" : "#e8fff0",
-                          color: done ? "#0a4a1e" : "#27a85a",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: done ? "default" : "pointer",
-                          opacity: busy ? 0.6 : 1,
-                        }}
-                      >
-                        ✓
-                      </button>
-
-                      <button
-                        type="button"
                         aria-label="החלפה"
                         onClick={() => replaceSuggestion(c.id)}
                         disabled={busy}
@@ -304,7 +266,7 @@ export default function AnalyticsClient({
                           alignItems: "center",
                           justifyContent: "center",
                           cursor: busy ? "default" : "pointer",
-                          opacity: done ? 0.9 : 1,
+                          opacity: 1,
                         }}
                         onMouseEnter={(e) => {
                           if (busy) return;
@@ -328,26 +290,6 @@ export default function AnalyticsClient({
                   </div>
                 );
               })}
-
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={saveSuggestions}
-                  style={{
-                    background: "#7133da",
-                    color: "#fff",
-                    borderRadius: 10,
-                    padding: "8px 16px",
-                    fontFamily: "Fredoka, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-                    fontSize: 13,
-                    border: "none",
-                    opacity: savePulse ? 0.88 : 1,
-                    transition: "opacity 180ms ease",
-                  }}
-                >
-                  שמור הצעות
-                </button>
-              </div>
             </div>
           ) : (
             <div style={{ fontSize: 14, color: "#2d1a6e", lineHeight: 1.6 }}>

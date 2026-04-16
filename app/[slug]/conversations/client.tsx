@@ -32,9 +32,7 @@ export default function ConversationsClient({
   const searchParams = useSearchParams();
 
   const [sessions, setSessions] = useState<SessionSummary[]>(initialSessions);
-  const [selectedId, setSelectedId] = useState<string | null>(
-    initialSessions[0]?.session_id ?? null
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [manualText, setManualText] = useState("");
   const [sending, setSending] = useState(false);
   const [pausing, setPausing] = useState<string | null>(null);
@@ -85,6 +83,17 @@ export default function ConversationsClient({
   }
 
   const selectedScrollKey = `${selected?.session_id ?? ""}:${selected?.count ?? 0}`;
+
+  useEffect(() => {
+    // Desktop: open the latest conversation by default. Mobile: keep closed until user clicks a phone number.
+    try {
+      const isDesktop = window.matchMedia?.("(min-width: 768px)")?.matches ?? false;
+      if (isDesktop && !selectedId) setSelectedId(initialSessions[0]?.session_id ?? null);
+    } catch {
+      /* noop */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!normalizedFilter) return;
@@ -186,10 +195,8 @@ export default function ConversationsClient({
         ) : null}
 
         {visibleSessions.map((s) => (
-          <button
+          <div
             key={s.session_id}
-            type="button"
-            onClick={() => setSelectedId(s.session_id)}
             className={`w-full text-right rounded-xl border px-3 py-2 flex items-center justify-between ${
               selectedId === s.session_id
                 ? "border-[rgba(113,51,218,0.35)] bg-[#f0eaff]"
@@ -198,9 +205,13 @@ export default function ConversationsClient({
           >
             <div className="text-right">
               <p className="text-xs text-zinc-500">מספר טלפון</p>
-              <p className="text-sm font-medium text-zinc-900 truncate max-w-[220px]">
+              <button
+                type="button"
+                onClick={() => setSelectedId((prev) => (prev === s.session_id ? null : s.session_id))}
+                className="text-sm font-medium text-zinc-900 truncate max-w-[220px] underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500"
+              >
                 {s.phone || "לא זמין"}
-              </p>
+              </button>
               <p className="text-[11px] text-zinc-500">
                 {s.count} הודעות · {formatDmy(s.lastAt)}
               </p>
@@ -221,7 +232,7 @@ export default function ConversationsClient({
                 </span>
               )}
             </div>
-          </button>
+          </div>
         ))}
         {visibleSessions.length === 0 && (
           <p className="text-xs text-zinc-500 text-right">
