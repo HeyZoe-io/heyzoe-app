@@ -645,7 +645,19 @@ export async function sendWhatsAppTextOrMenu(
           await sendMetaWhatsAppMessage(fromNumber, to, interactive);
           return;
         } catch (e) {
-          console.warn("[Meta WA] interactive send failed, falling back to plain text:", e);
+          // Meta interactive can fail if body text is too long (common with AI answers).
+          // Retry once with a minimal body so the user still gets buttons.
+          console.warn("[Meta WA] interactive send failed, retrying with minimal body:", e);
+          try {
+            const minimalBody = "מה הצעד הבא?";
+            const interactiveRetry = buildMetaInteractivePayload(minimalBody, labels, footer || undefined);
+            if (interactiveRetry) {
+              await sendMetaWhatsAppMessage(fromNumber, to, interactiveRetry);
+              return;
+            }
+          } catch (e2) {
+            console.warn("[Meta WA] interactive retry failed, falling back to plain text:", e2);
+          }
         }
       }
     }
