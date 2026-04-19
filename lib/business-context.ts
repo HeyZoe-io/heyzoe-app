@@ -420,10 +420,32 @@ const RESPONSE_SHAPE_BLOCK_WA = `
 3) הציעי 2-4 תשובות אפשריות כשורות נפרדות, ממוספרות 1. 2. 3. - הלקוח יכול לענות במספר או לפי הטקסט. לפחות מסלול אחד מוביל לשיעור ניסיון / הרשמה.
 גם לשאלות פתוחות: אם יש מענה מדויק בידע - עני ואז (2)+(3). אם אין - אל תנחשי; עברי לסעיף «חוסר ידע מדויק» אחרי בלוק הידע. בלי Markdown.`;
 
+/** שלב פתיחה/חימום — בלי רשימות ממוספרות שמחקות תפריט ההנעה לפעולה (המערכת שולחת כפתורים נפרדים). */
+const RESPONSE_SHAPE_BLOCK_WA_PRE_CTA = `
+מבנה תשובה - בשלב פתיחה או חימום (לפני תפריט ההנעה לפעולה):
+1) מענה קצר מהידע.
+2) שאלת המשך אחת קצרה אם מתאים.
+3) אל תוסיפי רשימות ממוספרות 1. 2. 3. שמחקות כפתורי ווטסאפ / הנעה לפעולה — המערכת תשלח תפריט נפרד כשיגיע התור.
+גם לשאלות פתוחות: עני מהידע; אם אין מענה מדויק — עברי ל«חוסר ידע מדויק». בלי Markdown.`;
+
+/** אחרי "נרשמתי" — בלי מכירת ניסיון / כפתור ניסיון בתשובת המודל. */
+const RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL = `
+מבנה תשובה - הלקוח כבר סימן שנרשם לאימון ניסיון:
+1) מענה קצר מהידע (FAQ, כתובת, הגעה, שעות, אינסטגרם, מחירים/מנויים — לפי מה שיש). אסור למכור ניסיון, אסור להציע הרשמה לניסיון, אסור קישור או ניסוח שמוביל להרשמה לניסיון.
+2) אם מתאים — שאלה תפעולית אחת קצרה או הזמנה רכה לשאול עוד.
+3) בלי רשימות ממוספרות שמחקות כפתורי ווטסאפ. בלי Markdown.`;
+
+/** הקשר לפרומפט וואטסאפ (שלב שיחה + סטטוס הרשמה לניסיון). */
+export type WhatsAppPromptContext = {
+  sessionPhase?: "opening" | "warmup" | "cta" | "registered";
+  trialRegistered?: boolean;
+};
+
 export function buildSystemPrompt(
   knowledge: BusinessKnowledgePack | null,
   slug: string,
-  channel: "web" | "whatsapp" = "web"
+  channel: "web" | "whatsapp" = "web",
+  waCtx?: WhatsAppPromptContext
 ): string {
   const isWhatsApp = channel === "whatsapp";
   const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
@@ -435,6 +457,26 @@ export function buildSystemPrompt(
 - כשמתאים, הציעי בחירות כמספרים (1,2,3…) או כפי שמופיע בממשק.
 - אם יש כפתורי תשובה מהירה (quick replies) בדשבורד - אפשר להפנות אליהם אחרי מסלול המכירה.`
     : "";
+
+  const postTrial = waCtx?.trialRegistered === true;
+  const phase = waCtx?.sessionPhase;
+  const waResponseShapeBlock = !isWhatsApp
+    ? RESPONSE_SHAPE_BLOCK_WEB
+    : postTrial
+      ? RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL
+      : phase && phase !== "cta"
+        ? RESPONSE_SHAPE_BLOCK_WA_PRE_CTA
+        : RESPONSE_SHAPE_BLOCK_WA;
+
+  const registrationPaymentRule = isWhatsApp && postTrial
+    ? "- הלקוח כבר נרשם לאימון ניסיון: אסור למכור ניסיון או להציע הרשמה לניסיון; מותר מידע תפעולי, כתובת, שעות, אינסטגרם, FAQ, מנויים."
+    : "- אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.";
+
+  const structureRule = isWhatsApp
+    ? postTrial || (phase && phase !== "cta")
+      ? "- שמרי על מבנה התשובה לפי בלוק «מבנה תשובה» למטה (בלי לדרוש רשימות ממוספרות שמחקות תפריט המערכת)."
+      : "- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות). הקפידי על קצרנות בכל חלק."
+    : "- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות). בצ'אט האתר מותר להרחיב במענה הראשון אם ביקשו פירוט.";
 
   const bot = knowledge?.botName?.trim() || "זואי";
   const base = `את ${bot}, נציגת השירות של העסק.
@@ -449,12 +491,12 @@ ${vibeDetail}
 - עברית בלבד.
 - לעולם אל תשתמשי במקף הארוך. השתמשי תמיד ב-.
 - זמני שיעורים: השתמשי רק במידע שמופיע בידע העסקי או בלינק מערכת השעות; אל תמציאי שעות.
-- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות).${isWhatsApp ? " הקפידי על קצרנות בכל חלק." : " בצ'אט האתר מותר להרחיב במענה הראשון אם ביקשו פירוט."}
+${structureRule}
 - בלי Markdown, בלי JSON.
 - כתבי תמיד בניסוח ניטרלי שאינו מניח מגדר של איש צוות או מדריך; למשל להעדיף "באימון אנחנו דואגים להוביל" ולא "המורה שלנו מובילה/מוביל".
 - השתמשי בעברית טבעית עם שמות עצם תקינים; לדוגמה "בביטחון ובכיף" ולא "בטוח וכיפי".
-- אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.${channelNote}
-${isWhatsApp ? RESPONSE_SHAPE_BLOCK_WA : RESPONSE_SHAPE_BLOCK_WEB}
+${registrationPaymentRule}${channelNote}
+${waResponseShapeBlock}
 ${formatFollowupSnippets(knowledge)}
 
 ידע עסקי:

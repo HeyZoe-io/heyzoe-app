@@ -414,6 +414,47 @@ export function stripTrailingNumberedChoiceLines(text: string): string {
   return lines.slice(0, end).join("\n").trimEnd();
 }
 
+function waNormLabelStrip(s: string): string {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Removes numbered "menu echo" lines from assistant text before sending to WhatsApp.
+ * If `candidates` is non-empty, only removes numbered lines whose item text matches a known label.
+ * If `candidates` is empty/omitted, removes any line matching `^\d+\.\s+...` (assistant must not send numbered choice lists to WA).
+ */
+export function stripNumberedChoiceLinesAnywhere(text: string, candidates?: string[]): string {
+  const normalizedCandidates = (candidates ?? [])
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean)
+    .map((x) => waNormLabelStrip(x));
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) {
+      out.push(line);
+      continue;
+    }
+    const numbered = t.match(/^(\d+)\.\s+(.+)$/);
+    if (numbered) {
+      const item = waNormLabelStrip(numbered[2] ?? "");
+      if (normalizedCandidates.length > 0) {
+        if (normalizedCandidates.some((c) => c === item)) continue;
+      } else {
+        continue;
+      }
+    }
+    if (/^בחרו (אחת|אחד) מהאפשרויות:$/u.test(t)) continue;
+    if (/^מה הצעד הבא\??$/u.test(t)) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** עטיפת טקסט לכיוון RTL בבועת ווטסאפ (אין API רשמי ליישור — רק בידי). */
 export function formatWhatsAppRtlBody(text: string): string {
   const t = text ?? "";
@@ -635,6 +676,9 @@ export async function sendWhatsAppTextOrMenu(
     const b = base.trim();
     return footer ? `${b}\n\n${footer}` : b;
   };
+
+  // Defense-in-depth: never send assistant-authored numbered choice lists to WhatsApp.
+  bodyText = stripNumberedChoiceLinesAnywhere(bodyText, labels);
 
   if (isMetaCloudPhoneNumberId(fromNumber) && resolveMetaAccessToken()) {
     const baseBody = bodyText.trim();

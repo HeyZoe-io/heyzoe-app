@@ -15,6 +15,10 @@ type MessageLogInput = {
 export const HEYZOE_SF_SERVICE_PREFIX = "[heyzoe:sf_service]";
 /** מסמן התקדמות בשאלות נוספות בסשן חימום (index). */
 export const HEYZOE_SF_WARMUP_EXTRA_PREFIX = "[heyzoe:sf_warmup_extra]";
+/** נשלחה הודעת CTA (cta_body + כפתורים). */
+export const HEYZOE_SF_CTA_REACHED = "[heyzoe:sf_cta_reached]";
+/** הלקוח סימן שנרשם לאימון ניסיון (נרשמתי). */
+export const HEYZOE_SF_REGISTERED = "[heyzoe:sf_registered]";
 
 export async function fetchLastAssistantModelUsed(input: {
   business_slug: string;
