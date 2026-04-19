@@ -414,6 +414,48 @@ export function stripTrailingNumberedChoiceLines(text: string): string {
   return lines.slice(0, end).join("\n").trimEnd();
 }
 
+function waNormLabel(s: string): string {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Removes numbered "menu echo" lines from assistant text before sending to WhatsApp.
+ * If `candidates` is provided, only removes numbered lines whose item text matches a known menu label.
+ * If `candidates` is empty/omitted, removes any trailing-looking numbered menu lines (defense-in-depth).
+ */
+export function stripNumberedChoiceLinesAnywhere(text: string, candidates?: string[]): string {
+  const normalizedCandidates = (candidates ?? [])
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean)
+    .map((x) => waNormLabel(x));
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) {
+      out.push(line);
+      continue;
+    }
+    const numbered = t.match(/^(\d+)\.\s+(.+)$/);
+    if (numbered) {
+      const item = waNormLabel(numbered[2] ?? "");
+      if (normalizedCandidates.length > 0) {
+        if (normalizedCandidates.some((c) => c === item)) continue;
+      } else {
+        // No known menu labels: still strip assistant-authored numbered choice lists (WhatsApp policy).
+        continue;
+      }
+    }
+    if (/^בחרו (אחת|אחד) מהאפשרויות:$/u.test(t)) continue;
+    if (/^מה הצעד הבא\??$/u.test(t)) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** עטיפת טקסט לכיוון RTL בבועת ווטסאפ (אין API רשמי ליישור — רק בידי). */
 export function formatWhatsAppRtlBody(text: string): string {
   const t = text ?? "";
@@ -635,6 +677,9 @@ export async function sendWhatsAppTextOrMenu(
     const b = base.trim();
     return footer ? `${b}\n\n${footer}` : b;
   };
+
+  // INVARIANT (defense-in-depth): never send assistant-authored numbered choice lists to WhatsApp.
+  bodyText = stripNumberedChoiceLinesAnywhere(bodyText, labels);
 
   if (isMetaCloudPhoneNumberId(fromNumber) && resolveMetaAccessToken()) {
     const baseBody = bodyText.trim();
