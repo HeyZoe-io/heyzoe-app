@@ -10,7 +10,6 @@ import {
   sendWhatsAppTextOrMenu,
   sendWhatsAppMediaMessage,
   resolveMetaInteractiveLabel,
-  stripNumberedChoiceLinesAnywhere,
   stripTrailingNumberedChoiceLines,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
@@ -19,11 +18,10 @@ import {
   verifyMetaSignature256,
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
-import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
-import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
+import { getBusinessKnowledgePack, buildSystemPrompt } from "@/lib/business-context";
+import { formatWhatsAppOpeningText, getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import {
-  composeGreeting,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
@@ -49,8 +47,6 @@ import {
   fetchLastSfServiceEventName,
   fetchLastSfWarmupExtraIndex,
   fetchRecentSessionMessages,
-  HEYZOE_SF_CTA_REACHED,
-  HEYZOE_SF_REGISTERED,
   HEYZOE_SF_SERVICE_PREFIX,
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
@@ -72,355 +68,6 @@ function normalizeGreetingToken(s: string): string {
     .toLowerCase()
     .replace(/[!.,?;:~'"`\-]+/g, "")
     .replace(/\s+/g, " ");
-}
-
-type HeyzoeSessionPhase = "opening" | "warmup" | "cta" | "registered";
-
-function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
-  const s = String(raw ?? "").trim();
-  if (s === "warmup" || s === "cta" || s === "registered" || s === "opening") return s;
-  return "opening";
-}
-
-function getWhatsAppOpeningGreetingTextOnly(k: BusinessKnowledgePack): string {
-  if (k.salesFlowConfig) {
-    const c = k.salesFlowConfig;
-    return composeGreeting(
-      c,
-      k.botName,
-      k.businessName,
-      k.taglineText || k.businessDescription,
-      k.addressText ?? ""
-    ).trim();
-  }
-  const { body } = getWhatsAppOpeningBodyAndMenuLabels(k);
-  return body.trim();
-}
-
-async function updateContactSessionPhase(input: {
-  supabase: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: string;
-  phone: string;
-  phase: HeyzoeSessionPhase;
-}): Promise<void> {
-  const { supabase, businessId, phone, phase } = input;
-  try {
-    const { error } = await supabase
-      .from("contacts")
-      .update({ session_phase: phase, flow_step: 0 })
-      .eq("business_id", businessId)
-      .eq("phone", phone);
-    if (error) console.warn("[WA Webhook] session_phase update failed:", error.message);
-  } catch (e) {
-    console.warn("[WA Webhook] session_phase update threw:", e);
-  }
-}
-
-async function bumpContactFlowStep(input: {
-  supabase: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: string;
-  phone: string;
-  nextStep: number;
-}): Promise<void> {
-  const { supabase, businessId, phone, nextStep } = input;
-  const step = Number.isFinite(nextStep) && nextStep >= 0 ? Math.floor(nextStep) : 0;
-  try {
-    const { error } = await supabase.from("contacts").update({ flow_step: step }).eq("business_id", businessId).eq("phone", phone);
-    if (error) console.warn("[WA Webhook] flow_step update failed:", error.message);
-  } catch (e) {
-    console.warn("[WA Webhook] flow_step update threw:", e);
-  }
-}
-
-async function sendSalesFlowCtaMenu(input: {
-  knowledge: BusinessKnowledgePack;
-  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
-  accountSid: string;
-  authToken: string;
-  supabase: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: string;
-  business_slug: string;
-  sessionId: string;
-  salesFlowServices: Array<{
-    name: string;
-    benefit: string;
-    priceText: string;
-    durationText: string;
-    levelsEnabled: boolean;
-    levels: string[];
-  }>;
-  /** Optional promo line to append to CTA body (keeps parity with deterministic sales-flow sends). */
-  extraBodyLines?: string[];
-  /** Log model_used for assistant row */
-  modelUsed: string;
-}): Promise<void> {
-  const {
-    knowledge,
-    msg,
-    accountSid,
-    authToken,
-    supabase,
-    businessId,
-    business_slug,
-    sessionId,
-    salesFlowServices,
-    extraBodyLines,
-    modelUsed,
-  } = input;
-  const cfg = knowledge.salesFlowConfig;
-  if (!cfg || !businessId) return;
-
-  const selectedServiceName =
-    salesFlowServices.length === 1
-      ? salesFlowServices[0]!.name
-      : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-  const selectedService =
-    salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-
-  const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
-  const baseCtaBody = fillCtaBodyTemplate(
-    cfg.cta_body,
-    selectedService?.priceText ?? "",
-    selectedService?.durationText ?? ""
-  ).trim();
-  const ctaBody = [baseCtaBody, ...(extraBodyLines ?? []).map((x) => String(x ?? "").trim()).filter(Boolean)]
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-
-  if (!ctaBody || ctaLabels.length < 2) return;
-
-  await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels.slice(0, 3), accountSid, authToken, {
-    footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-  }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu failed:", e));
-
-  await logMessage({
-    business_slug,
-    role: "assistant",
-    content: `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-    model_used: modelUsed,
-    session_id: sessionId,
-  });
-  await logMessage({
-    business_slug,
-    role: "event",
-    content: HEYZOE_SF_CTA_REACHED,
-    model_used: "sf_cta_reached",
-    session_id: sessionId,
-  });
-  await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "cta" });
-}
-
-function scheduleFlowContinuation(input: {
-  delayMs: number;
-  phase: HeyzoeSessionPhase;
-  contact: { flow_step: number };
-  knowledge: BusinessKnowledgePack;
-  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
-  accountSid: string;
-  authToken: string;
-  supabase: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: string;
-  business_slug: string;
-  sessionId: string;
-  salesFlowServices: Array<{
-    name: string;
-    benefit: string;
-    priceText: string;
-    durationText: string;
-    levelsEnabled: boolean;
-    levels: string[];
-  }>;
-}): void {
-  const delayMs = Number.isFinite(input.delayMs) ? Math.max(0, Math.floor(input.delayMs)) : 0;
-  setTimeout(() => {
-    void sendFlowContinuation(input).catch((e) => console.error("[WA Webhook] sendFlowContinuation failed:", e));
-  }, delayMs);
-}
-
-async function sendFlowContinuation(input: {
-  phase: HeyzoeSessionPhase;
-  contact: { flow_step: number };
-  knowledge: BusinessKnowledgePack;
-  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
-  accountSid: string;
-  authToken: string;
-  supabase: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: string;
-  business_slug: string;
-  sessionId: string;
-  salesFlowServices: Array<{
-    name: string;
-    benefit: string;
-    priceText: string;
-    durationText: string;
-    levelsEnabled: boolean;
-    levels: string[];
-  }>;
-}): Promise<void> {
-  const { phase, contact, knowledge, msg, accountSid, authToken, supabase, businessId, business_slug, sessionId, salesFlowServices } =
-    input;
-  const cfg = knowledge.salesFlowConfig;
-  if (!cfg || !businessId) return;
-
-  if (phase === "registered") {
-    const bodyTemplate =
-      cfg.after_trial_registration_body?.trim() ||
-      defaultSalesFlowConfig(knowledge.vibeLabels ?? []).after_trial_registration_body;
-    const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
-      bodyTemplate,
-      knowledge.instagramUrl ?? "",
-      knowledge.addressText ?? "",
-      knowledge.directionsText ?? ""
-    ).trim();
-    if (!delivered) return;
-    await sendWhatsAppMessage(msg.toNumber, msg.from, delivered, accountSid, authToken).catch((e) =>
-      console.error("[WA Webhook] sendFlowContinuation registered body failed:", e)
-    );
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: delivered,
-      model_used: "flow_continuation_registered",
-      session_id: sessionId,
-    });
-    return;
-  }
-
-  if (phase === "cta") {
-    const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-    const promo = knowledge?.promotionsText?.trim() ?? "";
-    const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
-    const shouldAttachTrialPromo = promoIsTrial && lastAssistModelForCta !== "sales_flow_cta";
-    await sendSalesFlowCtaMenu({
-      knowledge,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      business_slug,
-      sessionId,
-      salesFlowServices,
-      extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
-      modelUsed: "flow_continuation_cta",
-    });
-    return;
-  }
-
-  const step = Number.isFinite(contact.flow_step) ? contact.flow_step : 0;
-
-  if (phase === "opening") {
-    const extras = Array.isArray(cfg.greeting_extra_steps) ? cfg.greeting_extra_steps : [];
-    const cleanExtras = extras
-      .map((s) => ({
-        question: String((s as any)?.question ?? "").trim(),
-        options: Array.isArray((s as any)?.options)
-          ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
-          : [],
-      }))
-      .filter((s) => s.question && s.options.length >= 2);
-
-    if (step === 0 && cleanExtras[0]) {
-      const st = cleanExtras[0]!;
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-      }).catch((e) => console.error("[WA Webhook] sendFlowContinuation opening extra failed:", e));
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: `${st.question}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-        model_used: "flow_continuation_opening_extra",
-        session_id: sessionId,
-      });
-      await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
-      return;
-    }
-
-    const q = cfg.multi_service_question.trim();
-    const labels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
-    if (!q || labels.length < 2) return;
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, labels.slice(0, 3), accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-    }).catch((e) => console.error("[WA Webhook] sendFlowContinuation opening service pick failed:", e));
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: `${q}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-      model_used: "flow_continuation_opening_service_pick",
-      session_id: sessionId,
-    });
-    // Stay in opening; further progress happens via deterministic sales-flow handlers / user picks.
-    return;
-  }
-
-  // warmup
-  if (step === 0) {
-    const named =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0]!.name
-        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-    if (!named) return;
-    const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, named);
-    const opts = [...cfg.experience_options].map((o) => String(o ?? "").trim()).filter(Boolean);
-    if (!q || opts.length < 2) return;
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, opts.slice(0, 3), accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-    }).catch((e) => console.error("[WA Webhook] sendFlowContinuation warmup experience failed:", e));
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: `${q}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-      model_used: "flow_continuation_warmup_experience",
-      session_id: sessionId,
-    });
-    await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
-    return;
-  }
-
-  const warmExtras = Array.isArray(cfg.opening_extra_steps) ? cfg.opening_extra_steps : [];
-  const cleanWarm = warmExtras
-    .map((s) => ({
-      question: String((s as any)?.question ?? "").trim(),
-      options: Array.isArray((s as any)?.options)
-        ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
-        : [],
-    }))
-    .filter((s) => s.question && s.options.length >= 2);
-  const idx = step - 1;
-  const st = cleanWarm[idx];
-  if (st) {
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-    }).catch((e) => console.error("[WA Webhook] sendFlowContinuation warmup extra failed:", e));
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: `${st.question}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-      model_used: "flow_continuation_warmup_extra",
-      session_id: sessionId,
-    });
-    await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: step + 1 });
-    return;
-  }
-
-  const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-  const promo = knowledge?.promotionsText?.trim() ?? "";
-  const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
-  const shouldAttachTrialPromo = promoIsTrial && lastAssistModelForCta !== "sales_flow_cta";
-  await sendSalesFlowCtaMenu({
-    knowledge,
-    msg,
-    accountSid,
-    authToken,
-    supabase,
-    businessId,
-    business_slug,
-    sessionId,
-    salesFlowServices,
-    extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
-    modelUsed: "flow_continuation_cta",
-  });
 }
 
 function resolveWaMenuChoice(
@@ -659,8 +306,6 @@ async function processIncoming(
   let contactOptedOut: boolean | null = null;
   let contactClaudeCount: number | null = null;
   let contactTrialRegistered: boolean | null = null;
-  let contactSessionPhase: HeyzoeSessionPhase = "opening";
-  let contactFlowStep = 0;
   if (businessId) {
     try {
       const phone = msg.from;
@@ -683,19 +328,10 @@ async function processIncoming(
         const r = await supabase
           .from("contacts")
           .upsert(upsertPayload, { onConflict: "business_id,phone" })
-          .select("opted_out, claude_message_count, trial_registered, session_phase, flow_step")
+          .select("opted_out, claude_message_count, trial_registered")
           .maybeSingle();
         contactRow = r.data;
         upsertErr = r.error;
-        if (upsertErr && String(upsertErr.message ?? "").toLowerCase().includes("session_phase")) {
-          const r2 = await supabase
-            .from("contacts")
-            .upsert(upsertPayload, { onConflict: "business_id,phone" })
-            .select("opted_out, claude_message_count, trial_registered")
-            .maybeSingle();
-          contactRow = r2.data;
-          upsertErr = r2.error;
-        }
       } catch {
         const r = await supabase
           .from("contacts")
@@ -718,15 +354,42 @@ async function processIncoming(
         typeof (contactRow as any)?.trial_registered === "boolean"
           ? (contactRow as any).trial_registered
           : null;
-
-      contactSessionPhase = normalizeSessionPhase((contactRow as any)?.session_phase);
-      const fs = (contactRow as any)?.flow_step;
-      contactFlowStep = typeof fs === "number" && Number.isFinite(fs) ? fs : 0;
     } catch (e) {
       console.warn("[WA Webhook] contacts upsert threw (continuing):", e);
     }
   } else {
     console.warn("[WA Webhook] missing business_id; skipping contacts upsert");
+  }
+
+  function stripNumberedChoiceLinesAnywhere(text: string, candidates?: string[]): string {
+    const normalizedCandidates = (candidates ?? [])
+      .map((x) => String(x ?? "").trim())
+      .filter(Boolean)
+      .map((x) => waNormLabel(x));
+    const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+    const out: string[] = [];
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) {
+        out.push(line);
+        continue;
+      }
+      const numbered = t.match(/^(\d+)\.\s+(.+)$/);
+      if (numbered) {
+        const item = waNormLabel(numbered[2] ?? "");
+        // If we know the menu candidates, strip only the menu-like numbered lines.
+        if (normalizedCandidates.length > 0) {
+          if (normalizedCandidates.some((c) => c === item)) continue;
+        } else {
+          // Fallback: if we don't know candidates, still strip numbered options (these are almost always menu echoes).
+          continue;
+        }
+      }
+      if (/^בחרו (אחת|אחד) מהאפשרויות:$/u.test(t)) continue;
+      if (/^מה הצעד הבא\??$/u.test(t)) continue;
+      out.push(line);
+    }
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   // Helper: normalize inbound text for matching
@@ -834,6 +497,49 @@ async function processIncoming(
     console.warn("[WA Webhook] new-lead check failed (continuing):", e);
   }
 
+  // Handle unsupported message types
+  if (msg.type === "unsupported") {
+    await sendWhatsAppMessage(
+      msg.toNumber,
+      msg.from,
+      "שלום! אני מטפלת בהודעות טקסט בלבד. שלחו לי שאלה בכתב ואשמח לעזור 😊",
+      accountSid,
+      authToken
+    ).catch((e) => console.error("[WA Webhook] Send unsupported reply failed:", e));
+    return;
+  }
+
+  // Log user message
+  await logMessage({
+    business_slug,
+    role: "user",
+    content: msg.text,
+    session_id: sessionId,
+  });
+
+  // Check if this session is currently paused (manual takeover by human).
+  try {
+    const nowIso = new Date().toISOString();
+    const { data: paused } = await supabase
+      .from("paused_sessions")
+      .select("id, paused_until")
+      .eq("business_slug", business_slug)
+      .eq("session_id", sessionId)
+      .gt("paused_until", nowIso)
+      .maybeSingle();
+    if (paused) {
+      console.info(
+        `[WA Webhook] Session ${sessionId} for ${business_slug} is paused until ${paused.paused_until}; skipping auto-reply.`
+      );
+      return;
+    }
+  } catch (e) {
+    console.error("[WA Webhook] pause-check failed (continuing anyway):", e);
+  }
+
+  // Build context
+  const knowledge = await getBusinessKnowledgePack(business_slug);
+
   type SfServiceRow = {
     name: string;
     benefit: string;
@@ -842,9 +548,6 @@ async function processIncoming(
     levelsEnabled: boolean;
     levels: string[];
   };
-
-  // Build business knowledge early (needed for deterministic opening + flow continuation scheduling).
-  const knowledge = await getBusinessKnowledgePack(business_slug);
   let salesFlowServices: SfServiceRow[] = [];
   if (knowledge?.salesFlowConfig && businessId) {
     try {
@@ -886,46 +589,6 @@ async function processIncoming(
     } catch (e) {
       console.warn("[WA Webhook] sales-flow services load failed:", e);
     }
-  }
-
-  // Handle unsupported message types
-  if (msg.type === "unsupported") {
-    await sendWhatsAppMessage(
-      msg.toNumber,
-      msg.from,
-      "שלום! אני מטפלת בהודעות טקסט בלבד. שלחו לי שאלה בכתב ואשמח לעזור 😊",
-      accountSid,
-      authToken
-    ).catch((e) => console.error("[WA Webhook] Send unsupported reply failed:", e));
-    return;
-  }
-
-  // Log user message
-  await logMessage({
-    business_slug,
-    role: "user",
-    content: msg.text,
-    session_id: sessionId,
-  });
-
-  // Check if this session is currently paused (manual takeover by human).
-  try {
-    const nowIso = new Date().toISOString();
-    const { data: paused } = await supabase
-      .from("paused_sessions")
-      .select("id, paused_until")
-      .eq("business_slug", business_slug)
-      .eq("session_id", sessionId)
-      .gt("paused_until", nowIso)
-      .maybeSingle();
-    if (paused) {
-      console.info(
-        `[WA Webhook] Session ${sessionId} for ${business_slug} is paused until ${paused.paused_until}; skipping auto-reply.`
-      );
-      return;
-    }
-  } catch (e) {
-    console.error("[WA Webhook] pause-check failed (continuing anyway):", e);
   }
 
   // Trial registration keyword → update contact + send after-trial template (no Claude)
@@ -984,15 +647,6 @@ async function processIncoming(
           .eq("phone", msg.from);
         if (upErr) {
           console.warn("[WA Webhook] trial_registered update failed:", upErr.message);
-        } else {
-          await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "registered" });
-          await logMessage({
-            business_slug,
-            role: "event",
-            content: HEYZOE_SF_REGISTERED,
-            model_used: "sf_registered",
-            session_id: sessionId,
-          });
         }
 
         const directionsMediaUrl = knowledge.directionsMediaUrl?.trim() ?? "";
@@ -1091,13 +745,13 @@ async function processIncoming(
     await sendOpeningMediaIfConfigured();
 
     const openingText = knowledge
-      ? `${getWhatsAppOpeningGreetingTextOnly(knowledge)}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`.trim()
+      ? formatWhatsAppOpeningText(knowledge)
       : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
 
     try {
       if (knowledge) {
-        const greetOnly = getWhatsAppOpeningGreetingTextOnly(knowledge);
-        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, greetOnly, [], accountSid, authToken, {
+        const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
           footerHint: ZOE_WHATSAPP_MENU_FOOTER,
         });
       } else {
@@ -1115,17 +769,6 @@ async function processIncoming(
       session_id: sessionId,
     });
 
-    if (businessId && knowledge?.salesFlowConfig) {
-      const phase: HeyzoeSessionPhase = salesFlowServices.length === 1 ? "warmup" : "opening";
-      await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
-      contactSessionPhase = phase;
-      contactFlowStep = 0;
-      if (phase === "warmup") {
-        await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
-        contactFlowStep = 1;
-      }
-    }
-
     return;
   }
 
@@ -1135,16 +778,16 @@ async function processIncoming(
     const greet = normalizeGreetingToken(msg.text);
     const GREETINGS = new Set(["שלום", "היי", "הי", "אהלן", "hello", "hi"]);
     if (GREETINGS.has(greet)) {
-      // Treat greetings as a "reset" — send greeting intro only; scripted steps continue after open questions.
+      // Treat greetings as a "reset" — send the full opening message (intro + question + options)
       // even if this contact talked before.
       await sendOpeningMediaIfConfigured();
       const out = knowledge
-        ? `${getWhatsAppOpeningGreetingTextOnly(knowledge)}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`.trim()
+        ? formatWhatsAppOpeningText(knowledge)
         : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
 
       if (knowledge) {
-        const greetOnly = getWhatsAppOpeningGreetingTextOnly(knowledge);
-        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, greetOnly, [], accountSid, authToken, {
+        const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(knowledge);
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
           footerHint: ZOE_WHATSAPP_MENU_FOOTER,
         }).catch((e) => console.error("[WA Webhook] Send greeting reply failed:", e));
       } else {
@@ -1159,16 +802,6 @@ async function processIncoming(
         model_used: "greeting",
         session_id: sessionId,
       });
-      if (businessId && knowledge?.salesFlowConfig) {
-        const phase: HeyzoeSessionPhase = salesFlowServices.length === 1 ? "warmup" : "opening";
-        await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
-        contactSessionPhase = phase;
-        contactFlowStep = 0;
-        if (phase === "warmup") {
-          await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
-          contactFlowStep = 1;
-        }
-      }
       return;
     }
   }
@@ -1219,9 +852,6 @@ async function processIncoming(
           model_used: "sf_service_pick",
           session_id: sessionId,
         });
-        await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "warmup" });
-        contactSessionPhase = "warmup";
-        contactFlowStep = 1;
         return;
       }
     } catch (e) {
@@ -1482,25 +1112,33 @@ async function processIncoming(
               return;
             }
             // Finished warmup extras → send CTA deterministically (no AI).
+            const selectedServiceName =
+              salesFlowServices.length === 1
+                ? salesFlowServices[0]!.name
+                : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+            const selectedService =
+              salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+            const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
+            const baseCtaBody = fillCtaBodyTemplate(
+              cfg.cta_body,
+              selectedService?.priceText ?? "",
+              selectedService?.durationText ?? ""
+            ).trim();
             const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
             const promo = knowledge?.promotionsText?.trim() ?? "";
             const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
             const shouldAttachTrialPromo = promoIsTrial && lastAssistModel !== "sales_flow_cta";
-            await sendSalesFlowCtaMenu({
-              knowledge,
-              msg,
-              accountSid,
-              authToken,
-              supabase,
-              businessId,
+            const ctaBody = [baseCtaBody, shouldAttachTrialPromo ? promo : ""].filter(Boolean).join("\n");
+            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels.slice(0, 3), accountSid, authToken, {
+              footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+            }).catch((e) => console.error("[WA Webhook] Send CTA after warmup extras failed:", e));
+            await logMessage({
               business_slug,
-              sessionId,
-              salesFlowServices,
-              extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
-              modelUsed: "sales_flow_cta",
+              role: "assistant",
+              content: `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+              model_used: "sales_flow_cta",
+              session_id: sessionId,
             });
-            contactSessionPhase = "cta";
-            contactFlowStep = 0;
             return;
           }
         }
@@ -1528,6 +1166,12 @@ async function processIncoming(
               : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
           const selectedService =
             salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+          const ctaLabels = cfg.cta_buttons.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
+          const baseCtaBody = fillCtaBodyTemplate(
+            cfg.cta_body,
+            selectedService?.priceText ?? "",
+            selectedService?.durationText ?? ""
+          ).trim();
           const afterExperience = fillAfterExperienceTemplate(
             cfg.after_experience,
             selectedService?.levelsEnabled ?? false,
@@ -1570,38 +1214,24 @@ async function processIncoming(
           const promo = knowledge?.promotionsText?.trim() ?? "";
           const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
           const shouldAttachTrialPromo = promoIsTrial && lastAssistModel !== "sales_flow_cta";
+          const ctaBody = [baseCtaBody, shouldAttachTrialPromo ? promo : ""].filter(Boolean).join("\n");
 
-          const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
+          const bodyOnly = [afterExperience, "", ctaBody]
+            .filter((x) => x.length > 0)
+            .join("\n\n")
+            .trim();
           const out = [bodyOnly, ZOE_WHATSAPP_MENU_FOOTER].filter((x) => x.length > 0).join("\n\n");
 
-          await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
-            console.error("[WA Webhook] Send after-experience reply failed:", e)
-          );
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, ctaLabels.slice(0, 3), accountSid, authToken, {
+            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          }).catch((e) => console.error("[WA Webhook] Send sales-flow CTA menu failed:", e));
           await logMessage({
             business_slug,
             role: "assistant",
             content: out,
-            model_used: "sales_flow_after_experience",
+            model_used: "sales_flow_cta",
             session_id: sessionId,
           });
-
-          await sleepMs(700);
-
-          await sendSalesFlowCtaMenu({
-            knowledge,
-            msg,
-            accountSid,
-            authToken,
-            supabase,
-            businessId,
-            business_slug,
-            sessionId,
-            salesFlowServices,
-            extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
-            modelUsed: "sales_flow_cta",
-          });
-          contactSessionPhase = "cta";
-          contactFlowStep = 0;
           return;
         }
       }
@@ -1658,12 +1288,7 @@ async function processIncoming(
     .map((b) => String((b as { label?: string }).label ?? "").trim())
     .filter((l) => l.length > 0);
   // After a confirmed registration ("נרשמתי"), do not push the CTA buttons again.
-  const ctaMenuLabels =
-    contactTrialRegistered || contactSessionPhase === "registered"
-      ? []
-      : contactSessionPhase === "cta"
-        ? ctaMenuLabelsRaw
-        : [];
+  const ctaMenuLabels = contactTrialRegistered ? [] : ctaMenuLabelsRaw;
   const buttons: string[] = [
     ...quickLabels,
     ...ctaMenuLabels.filter((l) => !quickLabels.some((q) => q === l)),
@@ -1687,12 +1312,14 @@ async function processIncoming(
   const matched = knowledge?.quickReplies?.find(
     (qr) => qr.label.trim().toLowerCase() === incomingAsLabel.trim().toLowerCase()
   );
+  const openingMenuLabels = knowledge ? getWhatsAppOpeningBodyAndMenuLabels(knowledge).menuLabels : [];
   const predefinedClosedLabels = [
     ...quickLabels,
+    ...openingMenuLabels,
     ...(knowledge?.salesFlowConfig?.greeting_extra_steps ?? []).flatMap((step) => step.options.map((option) => option.trim())),
     ...salesFlowServices.map((service) => service.name.trim()),
     ...((knowledge?.salesFlowConfig?.experience_options ?? []).map((option) => String(option ?? "").trim())),
-    ...ctaMenuLabelsRaw,
+    ...ctaMenuLabels,
     ...((knowledge?.salesFlowConfig?.followup_after_next_class_options ?? []).map((option) => String(option ?? "").trim())),
   ].filter(Boolean);
   const matchedPredefinedClosedLabel =
@@ -1712,8 +1339,7 @@ async function processIncoming(
     !shouldReaskServiceSelection &&
     Boolean(knowledge?.salesFlowConfig) &&
     quickLabels.length === 0 &&
-    ctaMenuLabels.length > 0 &&
-    contactSessionPhase === "cta";
+    ctaMenuLabels.length > 0;
   const serviceSelectionLabels = shouldReaskServiceSelection
     ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
     : [];
@@ -1894,7 +1520,7 @@ async function processIncoming(
     ...serviceSelectionLabels,
     ...buttons,
     ...quickLabels,
-    ...(contactSessionPhase === "cta" ? ctaMenuLabelsRaw : []),
+    ...ctaMenuLabelsRaw,
   ].filter(Boolean);
 
   const shouldStripModelNumberedChoices =
@@ -1949,10 +1575,8 @@ async function processIncoming(
             .join("\n")}`
         : "";
 
-    const ctaText =
-      !shouldReaskServiceSelection && contactSessionPhase === "cta" ? knowledge?.ctaText?.trim() : "";
-    const ctaLink =
-      !shouldReaskServiceSelection && contactSessionPhase === "cta" ? knowledge?.ctaLink?.trim() : "";
+    const ctaText = !shouldReaskServiceSelection ? knowledge?.ctaText?.trim() : "";
+    const ctaLink = !shouldReaskServiceSelection ? knowledge?.ctaLink?.trim() : "";
     if (ctaText && ctaLink) {
       replyText += `\n\n${ctaText}: ${ctaLink}`;
     }
@@ -1968,10 +1592,8 @@ async function processIncoming(
     } else {
       const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
       const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
-      const ctaText =
-        !shouldReaskServiceSelection && contactSessionPhase === "cta" ? knowledge?.ctaText?.trim() : "";
-      const ctaLink =
-        !shouldReaskServiceSelection && contactSessionPhase === "cta" ? knowledge?.ctaLink?.trim() : "";
+      const ctaText = !shouldReaskServiceSelection ? knowledge?.ctaText?.trim() : "";
+      const ctaLink = !shouldReaskServiceSelection ? knowledge?.ctaLink?.trim() : "";
       let body = replyCoreClean;
       if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
         body += `\n\n${menuQuestion}`;
@@ -1980,44 +1602,9 @@ async function processIncoming(
         body += `\n\n${ctaText}: ${ctaLink}`;
       }
       body = dedupeConsecutiveDuplicateLines(body);
-      // INVARIANT: text sent to WA must never contain numbered choice lines
-      const bodyForWA = stripNumberedChoiceLinesAnywhere(body, menuLabels);
-      if (/\n\s*\d+\.\s+\S/m.test(bodyForWA)) {
-        console.error("[WA Webhook] INVARIANT_VIOLATION: numbered choice lines would be sent to WhatsApp", {
-          business_slug,
-          sessionId,
-        });
-      }
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, menuLabels, accountSid, authToken, {
         footerHint: ZOE_WHATSAPP_MENU_FOOTER,
       });
-
-      const isFreeTextSalesFlowContinuation =
-        msg.type === "text" &&
-        Boolean(businessId) &&
-        Boolean(knowledge?.salesFlowConfig) &&
-        !isFallbackErrorReply &&
-        !matched?.reply &&
-        !matchedPredefinedClosedLabel &&
-        !msg.metaInteractiveReplyId?.trim() &&
-        !matchesTrialRegisteredMessage(msg.text.trim());
-
-      if (isFreeTextSalesFlowContinuation && knowledge && businessId) {
-        scheduleFlowContinuation({
-          delayMs: 1500,
-          phase: contactSessionPhase,
-          contact: { flow_step: contactFlowStep },
-          knowledge,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          salesFlowServices,
-        });
-      }
     }
   } catch (e) {
     console.error(`[WA Webhook] Send failed to ${msg.from}:`, e);
