@@ -2149,25 +2149,36 @@ async function processIncoming(
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
+    const shouldSplitCtaAnswerAndMenu =
+      !shouldReaskServiceSelection &&
+      contactSessionPhase === "cta" &&
+      !matched?.reply &&
+      !matchedPredefinedClosedLabel;
     const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
     const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
     const shouldShowFooter = Boolean(menuQuestion) || menuLabels.length > 0;
-    if (menuQuestion && !hasLineNearEnd(replyText, menuQuestion)) {
+    if (!shouldSplitCtaAnswerAndMenu && menuQuestion && !hasLineNearEnd(replyText, menuQuestion)) {
       replyText += `\n\n${menuQuestion}`;
     }
     const buttonsBlock =
-      menuLabels.length > 0
+      !shouldSplitCtaAnswerAndMenu && menuLabels.length > 0
         ? `\n\nבחרו אחת מהאפשרויות:\n${menuLabels
             .map((lbl, idx) => `${idx + 1}. ${lbl}`)
             .join("\n")}`
         : "";
 
     const ctaText =
-      !shouldReaskServiceSelection && contactSessionPhase === "cta" && contactTrialRegistered !== true
+      !shouldSplitCtaAnswerAndMenu &&
+      !shouldReaskServiceSelection &&
+      contactSessionPhase === "cta" &&
+      contactTrialRegistered !== true
         ? knowledge?.ctaText?.trim()
         : "";
     const ctaLink =
-      !shouldReaskServiceSelection && contactSessionPhase === "cta" && contactTrialRegistered !== true
+      !shouldSplitCtaAnswerAndMenu &&
+      !shouldReaskServiceSelection &&
+      contactSessionPhase === "cta" &&
+      contactTrialRegistered !== true
         ? knowledge?.ctaLink?.trim()
         : "";
     if (ctaText && ctaLink) {
@@ -2175,7 +2186,7 @@ async function processIncoming(
     }
 
     replyText += buttonsBlock;
-    if (shouldShowFooter) replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+    if (!shouldSplitCtaAnswerAndMenu && shouldShowFooter) replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
@@ -2183,34 +2194,72 @@ async function processIncoming(
     if (isFallbackErrorReply) {
       await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
     } else {
+      const shouldSplitCtaAnswerAndMenu =
+        !shouldReaskServiceSelection &&
+        contactSessionPhase === "cta" &&
+        !matched?.reply &&
+        !matchedPredefinedClosedLabel;
+
       const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
       const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
       const ctaText =
-        !shouldReaskServiceSelection && contactSessionPhase === "cta" && contactTrialRegistered !== true
+        !shouldSplitCtaAnswerAndMenu &&
+        !shouldReaskServiceSelection &&
+        contactSessionPhase === "cta" &&
+        contactTrialRegistered !== true
           ? knowledge?.ctaText?.trim()
           : "";
       const ctaLink =
-        !shouldReaskServiceSelection && contactSessionPhase === "cta" && contactTrialRegistered !== true
+        !shouldSplitCtaAnswerAndMenu &&
+        !shouldReaskServiceSelection &&
+        contactSessionPhase === "cta" &&
+        contactTrialRegistered !== true
           ? knowledge?.ctaLink?.trim()
           : "";
-      let body = replyCoreClean;
-      if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
-        body += `\n\n${menuQuestion}`;
-      }
-      if (ctaText && ctaLink) {
-        body += `\n\n${ctaText}: ${ctaLink}`;
-      }
-      body = dedupeConsecutiveDuplicateLines(body);
-      const bodyForWA = stripNumberedChoiceLinesAnywhere(body, menuLabels);
-      if (/\n\s*\d+\.\s+\S/m.test(bodyForWA)) {
-        console.error("[WA Webhook] INVARIANT_VIOLATION: numbered choice lines would be sent to WhatsApp", {
-          business_slug,
-          sessionId,
+
+      if (shouldSplitCtaAnswerAndMenu) {
+        // CTA phase + free-text question:
+        // 1) answer only (no CTA, no buttons, no footer)
+        // 2) send the CTA menu in a separate message
+        const answerOnly = dedupeConsecutiveDuplicateLines(replyCoreClean);
+        await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
+        await sleepMs(650);
+        if (businessId && knowledge?.salesFlowConfig) {
+          await sendSalesFlowCtaMenuWithPhaseUpdate({
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            modelUsed: "sales_flow_cta",
+          });
+        }
+      } else {
+        let body = replyCoreClean;
+        if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
+          body += `\n\n${menuQuestion}`;
+        }
+        if (ctaText && ctaLink) {
+          body += `\n\n${ctaText}: ${ctaLink}`;
+        }
+        body = dedupeConsecutiveDuplicateLines(body);
+        const bodyForWA = stripNumberedChoiceLinesAnywhere(body, menuLabels);
+        if (/\n\s*\d+\.\s+\S/m.test(bodyForWA)) {
+          console.error("[WA Webhook] INVARIANT_VIOLATION: numbered choice lines would be sent to WhatsApp", {
+            business_slug,
+            sessionId,
+          });
+        }
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
+          footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? ZOE_WHATSAPP_MENU_FOOTER : "",
         });
       }
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
-        footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? ZOE_WHATSAPP_MENU_FOOTER : "",
-      });
 
       const isFreeTextSalesFlowContinuation =
         msg.type === "text" &&
@@ -2222,7 +2271,9 @@ async function processIncoming(
         !msg.metaInteractiveReplyId?.trim() &&
         !matchesTrialRegisteredMessage(msg.text.trim());
 
-      if (isFreeTextSalesFlowContinuation && knowledge && businessId) {
+      // In CTA phase we already send the CTA menu explicitly as a second message (split mode),
+      // so don't also schedule a flow continuation.
+      if (isFreeTextSalesFlowContinuation && knowledge && businessId && !shouldSplitCtaAnswerAndMenu) {
         scheduleFlowContinuation({
           delayMs: 1500,
           phase: contactSessionPhase,
