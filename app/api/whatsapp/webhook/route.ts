@@ -1171,7 +1171,7 @@ async function processIncoming(
         : knowledge?.openingMediaType === "image"
           ? "image"
           : undefined;
-    const attempt = async () => {
+    const attempt = async (kindOverride?: "image" | "video") => {
       await sendWhatsAppMediaMessage(
         msg.toNumber,
         msg.from,
@@ -1179,7 +1179,7 @@ async function processIncoming(
         accountSid,
         authToken,
         undefined,
-        mediaKind
+        kindOverride ?? mediaKind
       );
       await logMessage({
         business_slug,
@@ -1201,10 +1201,22 @@ async function processIncoming(
       });
       try {
         await sleepMs(250);
-        await attempt();
+        // Retry once with auto-detection (kindOverride undefined) in case the configured type mismatched the URL.
+        await attempt(undefined);
         return true;
       } catch (e2) {
         console.error("[WA Webhook] sending opening media failed (giving up):", { mediaUrl, mediaKind, e: e2 });
+        // Fallback: send a link so the user still gets the media.
+        const fallback = `לא הצלחתי להציג את המדיה כרגע, אבל אפשר לצפות כאן:\n${mediaUrl}`;
+        await sendWhatsAppMessage(msg.toNumber, msg.from, fallback, accountSid, authToken).catch(() => {});
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: fallback,
+          model_used: "opening_media_fallback_link",
+          session_id: sessionId,
+          error_code: "opening_media_failed",
+        });
         return false;
       }
     }
