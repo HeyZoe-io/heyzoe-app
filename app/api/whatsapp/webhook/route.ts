@@ -1113,7 +1113,11 @@ async function processIncoming(
   // New lead flow: optional media first, then a default opening message (no AI)
   // If the user just opted back in, continue to Zoe instead of stopping on default opening.
   if (isNewLead && !optedInThisMessage) {
-    await sendOpeningMediaIfConfigured();
+    const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
+    if (didSendOpeningMedia) {
+      // WhatsApp clients can render media later than subsequent texts; delay so the media appears first.
+      await sleepMs(knowledge?.openingMediaType === "video" ? 2200 : 1300);
+    }
 
     const openingText = knowledge
       ? getWhatsAppOpeningGreetingTextOnly(knowledge).trim()
@@ -1172,7 +1176,11 @@ async function processIncoming(
     const GREETINGS = new Set(["שלום", "היי", "הי", "אהלן", "hello", "hi"]);
     if (GREETINGS.has(greet)) {
       // איפוס שלב שיחה בלבד (לא trial_registered) — פלואו מתחיל מחדש.
-      await sendOpeningMediaIfConfigured();
+      const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
+      if (didSendOpeningMedia) {
+        // WhatsApp clients can render media later than subsequent texts; delay so the media appears first.
+        await sleepMs(knowledge?.openingMediaType === "video" ? 2200 : 1300);
+      }
       const out = knowledge
         ? getWhatsAppOpeningGreetingTextOnly(knowledge).trim()
         : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
