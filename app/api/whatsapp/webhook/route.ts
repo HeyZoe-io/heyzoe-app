@@ -171,6 +171,16 @@ function filterCtaButtonsForTrialRegistered(
   return bs.filter((b) => b.kind !== "trial");
 }
 
+function orderCtaButtonsForWhatsApp(buttons: SalesFlowCtaButton[]): SalesFlowCtaButton[] {
+  const order: Record<SalesFlowCtaButton["kind"], number> = {
+    trial: 0,
+    schedule: 1,
+    memberships: 2,
+    address: 3,
+  };
+  return [...buttons].sort((a, b) => (order[a.kind] ?? 99) - (order[b.kind] ?? 99));
+}
+
 function getWhatsAppOpeningGreetingTextOnly(k: BusinessKnowledgePack): string {
   if (k.salesFlowConfig) {
     return composeGreeting(
@@ -227,7 +237,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
 
-  const filtered = filterCtaButtonsForTrialRegistered(cfg, trialRegistered, allowTrialCta);
+  const filtered = orderCtaButtonsForWhatsApp(filterCtaButtonsForTrialRegistered(cfg, trialRegistered, allowTrialCta));
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
   const selectedServiceName =
@@ -740,6 +750,7 @@ async function processIncoming(
   let contactOptedOut: boolean | null = null;
   let contactClaudeCount: number | null = null;
   let contactTrialRegistered: boolean | null = null;
+  let contactTrialRegisteredAt: string | null = null;
   // Session-only override: allow offering the trial CTA again after a greeting reset,
   // without mutating the persisted trial_registered conversion flag.
   let allowTrialCtaThisSession = false;
@@ -767,7 +778,7 @@ async function processIncoming(
         const r = await supabase
           .from("contacts")
           .upsert(upsertPayload, { onConflict: "business_id,phone" })
-          .select("opted_out, claude_message_count, trial_registered, session_phase, flow_step")
+          .select("opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step")
           .maybeSingle();
         contactRow = r.data;
         upsertErr = r.error;
@@ -802,6 +813,8 @@ async function processIncoming(
         typeof (contactRow as any)?.trial_registered === "boolean"
           ? (contactRow as any).trial_registered
           : null;
+      contactTrialRegisteredAt =
+        typeof (contactRow as any)?.trial_registered_at === "string" ? (contactRow as any).trial_registered_at : null;
       allowTrialCtaThisSession = contactTrialRegistered !== true;
 
       contactSessionPhase = normalizeSessionPhase((contactRow as any)?.session_phase);
@@ -905,6 +918,30 @@ async function processIncoming(
   }
 
   const sessionId = `wa_${msg.toNumber}_${msg.from}`;
+
+  // Persisted conversions: allow showing trial CTA again *after a reset* (greeting/opening),
+  // without mutating trial_registered/trial_registered_at.
+  if (businessId && contactTrialRegistered === true) {
+    try {
+      const { data: resetMsg } = await supabase
+        .from("messages")
+        .select("created_at, model_used")
+        .eq("business_slug", business_slug)
+        .eq("session_id", sessionId)
+        .eq("role", "assistant")
+        .in("model_used", ["greeting", "default_opening"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const resetAt = resetMsg?.created_at ? String(resetMsg.created_at) : "";
+      const regAt = contactTrialRegisteredAt ? String(contactTrialRegisteredAt) : "";
+      if (resetAt && (!regAt || resetAt > regAt)) {
+        allowTrialCtaThisSession = true;
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] allowTrialCtaThisSession compute failed (continuing):", e);
+    }
+  }
 
   // Detect "new lead" (first message in this session)
   let isNewLead = false;
