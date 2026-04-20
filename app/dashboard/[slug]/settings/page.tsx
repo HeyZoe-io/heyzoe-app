@@ -717,6 +717,13 @@ export default function SlugSettingsPage() {
     });
   }, [traits, directions, promotions, services, address]);
   const [factAnswers, setFactAnswers] = useState<Record<string, string>>({});
+  const [factQuestionIdx, setFactQuestionIdx] = useState(0);
+  useEffect(() => {
+    setFactQuestionIdx((i) => {
+      if (factQuestions.length === 0) return 0;
+      return Math.max(0, Math.min(i, factQuestions.length - 1));
+    });
+  }, [factQuestions.length]);
   const addFactLine = useCallback((value: string) => {
     const v = String(value ?? "").trim();
     if (!v) return;
@@ -1896,53 +1903,6 @@ export default function SlugSettingsPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-700 block">כל העובדות שכדאי לציין על העסק</label>
 
-                <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-right">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-[#2d1a6e]">שאלות שכדאי לענות עליהן</p>
-                      <p className="text-xs text-[#6b5bb6] mt-0.5">
-                        תשובות יתווספו בלחיצה ישירות ל״כל העובדות שכדאי לציין״.
-                      </p>
-                    </div>
-                  </div>
-
-                  {factQuestions.length ? (
-                    <div className="mt-3 space-y-2">
-                      {factQuestions.map((q) => (
-                        <div key={q.id} className="rounded-xl border border-violet-200/70 bg-white/80 p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm font-medium text-zinc-900">{q.question}</p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-8 px-3 text-xs gap-1"
-                              onClick={() => addFactLine(factFromQuestionAnswer(q.question, factAnswers[q.id] ?? ""))}
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              הוסף לעובדות
-                            </Button>
-                          </div>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Input
-                              dir="rtl"
-                              value={factAnswers[q.id] ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setFactAnswers((m) => ({ ...m, [q.id]: v }));
-                              }}
-                              placeholder={q.placeholder}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm text-zinc-700">
-                      נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.
-                    </p>
-                  )}
-                </div>
-
                 <div className="space-y-2">
                   {traits.map((row, i) => (
                     <div key={i} className="flex gap-2 items-center">
@@ -1975,6 +1935,74 @@ export default function SlugSettingsPage() {
                     </div>
                   ))}
                 </div>
+
+                <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-right">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#2d1a6e]">שאלה אחת שכדאי לענות עליה</p>
+                      <p className="text-xs text-[#6b5bb6] mt-0.5">
+                        אחרי שממלאים תשובה, לוחצים ״הוסף לעובדות״ וזה נכנס לרשימה למעלה.
+                      </p>
+                    </div>
+                    {factQuestions.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 px-3 text-xs"
+                        onClick={() =>
+                          setFactQuestionIdx((i) =>
+                            factQuestions.length ? (i + 1) % factQuestions.length : 0
+                          )
+                        }
+                      >
+                        החלף
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {factQuestions.length ? (
+                    (() => {
+                      const q = factQuestions[factQuestionIdx] ?? factQuestions[0]!;
+                      return (
+                        <div className="mt-3 rounded-xl border border-violet-200/70 bg-white/80 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-zinc-900">{q.question}</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-3 text-xs gap-1"
+                              onClick={() => {
+                                addFactLine(factFromQuestionAnswer(q.question, factAnswers[q.id] ?? ""));
+                                if (factQuestions.length > 1) {
+                                  setFactQuestionIdx((i) => (i + 1) % factQuestions.length);
+                                }
+                              }}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              הוסף לעובדות
+                            </Button>
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Input
+                              dir="rtl"
+                              value={factAnswers[q.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setFactAnswers((m) => ({ ...m, [q.id]: v }));
+                              }}
+                              placeholder={q.placeholder}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-700">
+                      נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.
+                    </p>
+                  )}
+                </div>
+
                 <Button
                   type="button"
                   variant="outline"
