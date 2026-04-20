@@ -1116,14 +1116,14 @@ async function processIncoming(
     await sendOpeningMediaIfConfigured();
 
     const openingText = knowledge
-      ? `${getWhatsAppOpeningGreetingTextOnly(knowledge)}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`.trim()
+      ? getWhatsAppOpeningGreetingTextOnly(knowledge).trim()
       : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
 
     try {
       if (knowledge) {
         const greetOnly = getWhatsAppOpeningGreetingTextOnly(knowledge);
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, greetOnly, [], accountSid, authToken, {
-          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          footerHint: "",
         });
       } else {
         await sendWhatsAppMessage(msg.toNumber, msg.from, openingText, accountSid, authToken);
@@ -1145,6 +1145,21 @@ async function processIncoming(
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
       contactSessionPhase = phase;
       contactFlowStep = 0;
+      scheduleFlowContinuation({
+        delayMs: 1500,
+        phase,
+        contact: { flow_step: 0 },
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered: contactTrialRegistered,
+      });
     }
 
     return;
@@ -1159,13 +1174,13 @@ async function processIncoming(
       // איפוס שלב שיחה בלבד (לא trial_registered) — פלואו מתחיל מחדש.
       await sendOpeningMediaIfConfigured();
       const out = knowledge
-        ? `${getWhatsAppOpeningGreetingTextOnly(knowledge)}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`.trim()
+        ? getWhatsAppOpeningGreetingTextOnly(knowledge).trim()
         : `היי! כאן ${business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
 
       if (knowledge) {
         const greetOnly = getWhatsAppOpeningGreetingTextOnly(knowledge);
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, greetOnly, [], accountSid, authToken, {
-          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          footerHint: "",
         }).catch((e) => console.error("[WA Webhook] Send greeting reply failed:", e));
       } else {
         await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
@@ -1184,6 +1199,21 @@ async function processIncoming(
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
         contactFlowStep = 0;
+        scheduleFlowContinuation({
+          delayMs: 1500,
+          phase,
+          contact: { flow_step: 0 },
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices,
+          trialRegistered: contactTrialRegistered,
+        });
       }
       return;
     }
