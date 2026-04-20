@@ -433,12 +433,36 @@ export function stripNumberedChoiceLinesAnywhere(text: string, candidates?: stri
     .map((x) => waNormLabelStrip(x));
   const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
   const out: string[] = [];
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
     const t = line.trim();
     if (!t) {
       out.push(line);
       continue;
     }
+
+    // Handle "number on its own line" followed by the label on the next line
+    // Example:
+    // 1
+    // הרשמה לשיעור ניסיון
+    if (/^\d{1,2}$/.test(t)) {
+      let j = i + 1;
+      while (j < lines.length && String(lines[j] ?? "").trim() === "") j++;
+      const nextLine = j < lines.length ? String(lines[j] ?? "") : "";
+      const nextTrim = nextLine.trim();
+      const nextNorm = waNormLabelStrip(nextTrim);
+      const matchesCandidate =
+        nextTrim &&
+        (normalizedCandidates.length > 0
+          ? normalizedCandidates.some((c) => c === nextNorm)
+          : nextTrim.length <= 64);
+      if (matchesCandidate) {
+        // Skip the numeric line and the label line (and any blank lines between them).
+        i = j;
+        continue;
+      }
+    }
+
     const numbered = t.match(/^(\d+)\.\s+(.+)$/);
     if (numbered) {
       const item = waNormLabelStrip(numbered[2] ?? "");
