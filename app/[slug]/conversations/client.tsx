@@ -104,6 +104,23 @@ export default function ConversationsClient({
     },
   });
 
+  async function prefetchMessages(sessionId: string) {
+    const sid = String(sessionId ?? "").trim();
+    if (!sid) return;
+    await queryClient.prefetchQuery({
+      queryKey: ["dashboard", "conversation_messages", slug, sid],
+      queryFn: async ({ signal }) => {
+        const res = await fetch(
+          `/api/dashboard/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(sid)}`,
+          { signal }
+        );
+        if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
+        const j = (await res.json()) as { messages?: SessionMessage[] };
+        return (j.messages ?? []) as SessionMessage[];
+      },
+    });
+  }
+
   function formatDmy(value: string): string {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return "";
@@ -253,6 +270,7 @@ export default function ConversationsClient({
               <button
                 type="button"
                 onClick={() => setSelectedId((prev) => (prev === s.session_id ? null : s.session_id))}
+                onPointerDown={() => void prefetchMessages(s.session_id)}
                 className="text-sm font-medium text-zinc-900 truncate max-w-[220px] underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500"
               >
                 {s.phone || "לא זמין"}
