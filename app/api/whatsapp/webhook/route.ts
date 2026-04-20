@@ -1149,8 +1149,10 @@ async function processIncoming(
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
       contactSessionPhase = phase;
       contactFlowStep = 0;
-      scheduleFlowContinuation({
-        delayMs: 1500,
+      // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
+      // We send the continuation within this request to guarantee delivery order.
+      await sleepMs(1500);
+      await sendFlowContinuation({
         phase,
         contact: { flow_step: 0 },
         knowledge,
@@ -1207,8 +1209,10 @@ async function processIncoming(
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
         contactFlowStep = 0;
-        scheduleFlowContinuation({
-          delayMs: 1500,
+        // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
+        // We send the continuation within this request to guarantee delivery order.
+        await sleepMs(1500);
+        await sendFlowContinuation({
           phase,
           contact: { flow_step: 0 },
           knowledge,
