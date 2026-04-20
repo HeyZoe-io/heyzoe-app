@@ -2140,6 +2140,22 @@ async function processIncoming(
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
+  function stripSalesFlowCtaHookFromAnswer(text: string): string {
+    // In CTA phase, when we split into (answer) + (CTA menu), we must keep the first message
+    // as a pure answer without a sales hook line like "מה דעתך להגיע לאימון ניסיון בקרוב...".
+    const raw = String(text ?? "").replace(/\r\n/g, "\n");
+    const lines = raw.split("\n");
+    const isCtaHookLine = (line: string) => {
+      const n = normalizeLine(line);
+      if (!n) return false;
+      if (n.startsWith("מה דעתך? שנשריין אימון ניסיון")) return true;
+      // Common CTA hook variants from the sales-flow templates / model completions
+      return /מה דעתך.*אימון.*ניסיון/u.test(n);
+    };
+    const filtered = lines.filter((l) => !isCtaHookLine(l));
+    return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
   let replyText = replyCoreClean;
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
@@ -2216,7 +2232,7 @@ async function processIncoming(
         // CTA phase + free-text question:
         // 1) answer only (no CTA, no buttons, no footer)
         // 2) send the CTA menu in a separate message
-        const answerOnly = dedupeConsecutiveDuplicateLines(replyCoreClean);
+        const answerOnly = stripSalesFlowCtaHookFromAnswer(dedupeConsecutiveDuplicateLines(replyCoreClean));
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await sleepMs(650);
         if (businessId && knowledge?.salesFlowConfig) {
