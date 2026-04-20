@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 
 type SessionMessage = {
   role: string;
@@ -71,6 +72,21 @@ export default function ConversationsClient({
   }, [sessions, normalizedFilter]);
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
+
+  const sessionsQuery = useQuery({
+    queryKey: ["dashboard", "conversations", slug],
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/dashboard/conversations?slug=${encodeURIComponent(slug)}`, { signal });
+      if (!res.ok) throw new Error(`failed_to_load_conversations:${res.status}`);
+      const j = (await res.json()) as { sessions?: SessionSummary[] };
+      return (j.sessions ?? []) as SessionSummary[];
+    },
+    initialData: initialSessions,
+  });
+
+  useEffect(() => {
+    if (sessionsQuery.data) setSessions(sessionsQuery.data);
+  }, [sessionsQuery.data]);
 
   function formatDmy(value: string): string {
     const d = new Date(value);

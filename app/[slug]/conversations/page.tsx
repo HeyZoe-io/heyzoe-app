@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import ConversationsClient from "./client";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -12,106 +11,6 @@ export default async function ConversationsPage({ params }: Props) {
   const { data: user } = await supabase.auth.getUser();
   if (!user.user) redirect("/dashboard/login");
 
-  const admin = createSupabaseAdminClient();
-  const { data: biz } = await admin
-    .from("businesses")
-    .select("id, slug, user_id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (!biz) redirect("/dashboard/settings");
-
-  const isOwner = String(biz.user_id) === user.user.id;
-  if (!isOwner) {
-    const { data: bu } = await admin
-      .from("business_users")
-      .select("role")
-      .eq("business_id", biz.id)
-      .eq("user_id", user.user.id)
-      .maybeSingle();
-    const allowed = bu?.role === "admin" || bu?.role === "employee";
-    if (!allowed) redirect("/dashboard/settings");
-  }
-
-  const [{ data: messages }, { data: pausedRows }] = await Promise.all([
-    admin
-      .from("messages")
-      .select("session_id, role, content, created_at, error_code")
-      .eq("business_slug", slug)
-      .order("created_at", { ascending: true }),
-    admin
-      .from("paused_sessions")
-      .select("session_id, paused_until")
-      .eq("business_slug", slug)
-      .gt("paused_until", new Date().toISOString()),
-  ]);
-
-  const pausedSet = new Set<string>(
-    (pausedRows ?? []).map((p: any) => p.session_id as string)
-  );
-
-  const bySession = new Map<
-    string,
-    {
-      lastAt: Date;
-      count: number;
-      lastFromUser: boolean;
-      messages: { role: string; content: string; created_at: string; error_code?: string | null }[];
-    }
-  >();
-
-  (messages ?? []).forEach((m: any) => {
-    const sid = (m.session_id || "anon") as string;
-    const at = new Date(m.created_at as string);
-    const existing = bySession.get(sid);
-    const fromUser = m.role === "user";
-    const msg = {
-      role: m.role as string,
-      content: (m.content as string) ?? "",
-      created_at: m.created_at as string,
-      error_code: (m.error_code as string | null) ?? null,
-    };
-    if (!existing) {
-      bySession.set(sid, {
-        lastAt: at,
-        count: 1,
-        lastFromUser: fromUser,
-        messages: [msg],
-      });
-    } else {
-      existing.lastAt = at;
-      existing.count += 1;
-      existing.lastFromUser = fromUser;
-      existing.messages.push(msg);
-    }
-  });
-
-  function extractPhone(sessionId: string): string {
-    if (!sessionId.startsWith("wa_")) return "";
-    const rest = sessionId.slice(3);
-    const firstUnderscore = rest.indexOf("_");
-    if (firstUnderscore < 0) return "";
-    const fromNumber = rest.slice(firstUnderscore + 1);
-    return fromNumber || "";
-  }
-
-  const sessions = [...bySession.entries()].map(([sid, data]) => {
-    const isOpen =
-      data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000;
-    const isPaused = pausedSet.has(sid);
-    return {
-      session_id: sid,
-      lastAt: data.lastAt.toISOString(),
-      count: data.count,
-      isOpen,
-      isPaused,
-      phone: extractPhone(sid),
-      messages: data.messages,
-    };
-  });
-
-  sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-
   return (
     <div className="space-y-6">
       <div className="hz-wave hz-wave-1">
@@ -122,7 +21,7 @@ export default async function ConversationsPage({ params }: Props) {
       </div>
 
       <div className="hz-wave hz-wave-2">
-        <ConversationsClient slug={slug} initialSessions={sessions} />
+        <ConversationsClient slug={slug} initialSessions={[]} />
       </div>
     </div>
   );
