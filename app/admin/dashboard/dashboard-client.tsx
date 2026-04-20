@@ -77,6 +77,11 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
           <div>
             <h1 className="text-2xl font-semibold text-zinc-900">Zoe Admin Dashboard</h1>
             <p className="text-sm text-zinc-500">Multi-tenant analytics, conversions, and model health</p>
+            <p className="text-sm mt-1">
+              <a className="underline underline-offset-4 text-fuchsia-700" href="/admin/requests">
+                Owner help requests
+              </a>
+            </p>
           </div>
           <form onSubmit={applyDateFilter} className="flex flex-wrap gap-2 items-end">
             <div>
