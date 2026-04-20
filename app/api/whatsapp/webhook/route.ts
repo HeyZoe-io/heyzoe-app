@@ -1098,13 +1098,18 @@ async function processIncoming(
       await attempt();
       return true;
     } catch (e) {
-      console.error("[WA Webhook] sending opening media failed (retrying once):", { mediaUrl, e });
+      console.error("[WA Webhook] sending opening media failed (retrying once):", {
+        mediaUrl,
+        mediaKind,
+        provider: msg.toNumber?.trim()?.match(/^\d+$/) ? "meta_or_twilio" : "unknown",
+        e,
+      });
       try {
         await sleepMs(250);
         await attempt();
         return true;
       } catch (e2) {
-        console.error("[WA Webhook] sending opening media failed (giving up):", { mediaUrl, e: e2 });
+        console.error("[WA Webhook] sending opening media failed (giving up):", { mediaUrl, mediaKind, e: e2 });
         return false;
       }
     }
@@ -1205,6 +1210,15 @@ async function processIncoming(
         session_id: sessionId,
       });
       if (businessId && knowledge?.salesFlowConfig) {
+        // NEW RULE: greeting resets the flow and re-enables trial CTA even if this phone previously wrote "נרשמתי".
+        // (Keeps the "נרשמתי" keyword handler for the current run.)
+        await supabase
+          .from("contacts")
+          .update({ trial_registered: false, trial_registered_at: null })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        contactTrialRegistered = false;
+
         const phase: HeyzoeSessionPhase = salesFlowServices.length === 1 ? "warmup" : "opening";
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
@@ -1648,7 +1662,7 @@ async function processIncoming(
           }
 
           const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
-          const out = [bodyOnly, ZOE_WHATSAPP_MENU_FOOTER].filter((x) => x.length > 0).join("\n\n");
+          const out = bodyOnly;
 
           await sendWhatsAppMessage(msg.toNumber, msg.from, out, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send after-experience reply failed:", e)
@@ -2021,6 +2035,7 @@ async function processIncoming(
   if (!isFallbackErrorReply) {
     const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
     const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
+    const shouldShowFooter = Boolean(menuQuestion) || menuLabels.length > 0;
     if (menuQuestion && !hasLineNearEnd(replyText, menuQuestion)) {
       replyText += `\n\n${menuQuestion}`;
     }
@@ -2044,7 +2059,7 @@ async function processIncoming(
     }
 
     replyText += buttonsBlock;
-    replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+    if (shouldShowFooter) replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
@@ -2078,7 +2093,7 @@ async function processIncoming(
         });
       }
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? ZOE_WHATSAPP_MENU_FOOTER : "",
       });
 
       const isFreeTextSalesFlowContinuation =
