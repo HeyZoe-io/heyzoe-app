@@ -42,8 +42,6 @@ export default function AnalyticsClient({
   const [range, setRange] = useState<RangeKey>(initialRange);
   const [data, setData] = useState<AnalyticsPayload>(initial);
   const [loading, setLoading] = useState(false);
-  const [replacing, setReplacing] = useState<Record<string, boolean>>({});
-  const [isNew, setIsNew] = useState<Record<string, boolean>>({});
   const lastLoadedRangeRef = useRef<RangeKey>(initialRange);
 
   const subtitle = useMemo(() => {
@@ -96,31 +94,6 @@ export default function AnalyticsClient({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
-
-  const suggestionCards = useMemo(() => {
-    const first = (data.suggestions ?? []).map((text) => ({ id: text, text }))[0];
-    return first ? [first] : [];
-  }, [data.suggestions]);
-
-  function replaceSuggestion(id: string) {
-    if (replacing[id]) return;
-    setReplacing((m) => ({ ...m, [id]: true }));
-    window.setTimeout(() => {
-      const variants = [
-        "שווה להוסיף גילאים וקהל יעד - כדי שזואי תדע למי זה מתאים בדיוק.",
-        "אם יש חלוקה לרמות - ציינו את הרמות לכל אימון ניסיון, זה חוסך שאלות בצ׳אט.",
-        "כדאי לציין חניה/הנחיות הגעה כדי שהמענה יהיה מלא ומהיר.",
-        "אם יש מדיניות ביטול - הוסיפו אותה כדי למנוע בלבול בשאלות פתוחות.",
-      ];
-      const pick = variants[Math.floor(Math.random() * variants.length)] ?? "כדאי להוסיף עוד פרט קטן שיעזור לזואי לענות.";
-      setData((d) => ({
-        ...d,
-        suggestions: d.suggestions.map((s) => (s === id ? pick : s)),
-      }));
-      setIsNew((m) => ({ ...m, [pick]: true }));
-      setReplacing((m) => ({ ...m, [id]: false }));
-    }, 600);
-  }
 
   return (
     <div className="space-y-6 relative" aria-busy={loading ? "true" : "false"}>
@@ -185,129 +158,6 @@ export default function AnalyticsClient({
             </div>
           </>
         )}
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-1 hz-wave hz-wave-3">
-        <div
-          dir="rtl"
-          className="text-right"
-          style={{
-            background: "#f5f3ff",
-            borderRadius: 16,
-            padding: 24,
-            fontFamily: "Fredoka, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-          }}
-        >
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 17, fontWeight: 600, color: "#2d1a6e" }}>
-              הצעות לשיפור מסלול המכירה
-            </div>
-            <div style={{ fontSize: 13, color: "#8b7ec0", marginTop: 4 }}>
-              מסלול מכירה/על העסק/כל העובדות שכדאי לציין על העסק
-            </div>
-          </div>
-
-          {suggestionCards.length ? (
-            <div className="space-y-3">
-              {suggestionCards.map((c) => {
-                const busy = Boolean(replacing[c.id]);
-                const fresh = Boolean(isNew[c.id]);
-                return (
-                  <div
-                    key={c.id}
-                    className={`${fresh ? "hz-fade-in" : ""}`.trim()}
-                    style={{
-                      background: "#fff",
-                      borderRadius: 14,
-                      border: "1.5px solid #e8e0ff",
-                      padding: "16px 18px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: 14,
-                    }}
-                  >
-                    <div style={{ flex: 1, fontSize: 14, color: "#2d1a6e", lineHeight: 1.6 }}>
-                      {fresh ? (
-                        <span
-                          style={{
-                            display: "inline-block",
-                            background: "#f0edff",
-                            color: "#7133da",
-                            borderRadius: 20,
-                            fontSize: 11,
-                            padding: "2px 8px",
-                            marginBottom: 8,
-                          }}
-                        >
-                          ✨ חדש
-                        </span>
-                      ) : null}
-
-                      {busy ? (
-                        <div>
-                          <div
-                            className="animate-pulse"
-                            style={{ height: 12, borderRadius: 10, background: "#e8e0ff", width: "86%" }}
-                          />
-                          <div
-                            className="animate-pulse"
-                            style={{ height: 12, borderRadius: 10, background: "#e8e0ff", width: "62%", marginTop: 10 }}
-                          />
-                        </div>
-                      ) : (
-                        <div>{c.text}</div>
-                      )}
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        type="button"
-                        aria-label="החלפה"
-                        onClick={() => replaceSuggestion(c.id)}
-                        disabled={busy}
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: "50%",
-                          border: "none",
-                          background: busy ? "#f5f0ff" : "#f5f0ff",
-                          color: "#7133da",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: busy ? "default" : "pointer",
-                          opacity: 1,
-                        }}
-                        onMouseEnter={(e) => {
-                          if (busy) return;
-                          (e.currentTarget as HTMLButtonElement).style.background = "#ede5ff";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.background = "#f5f0ff";
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                          <path
-                            d="M2 8a6 6 0 0 1 10.5-3.9M14 8a6 6 0 0 1-10.5 3.9M11 4l1.5-1.5L14 4M5 12l-1.5 1.5L2 12"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ fontSize: 14, color: "#2d1a6e", lineHeight: 1.6 }}>
-              נראה שהמידע המרכזי כבר מלא. אפשר להוסיף פרטים נקודתיים לפי שאלות שעולות מהלידים.
-            </div>
-          )}
-        </div>
       </section>
     </div>
   );

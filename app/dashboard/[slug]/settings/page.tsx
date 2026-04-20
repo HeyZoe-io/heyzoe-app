@@ -456,6 +456,72 @@ function normalizeTraitsState(arr: string[]): string[] {
   return t;
 }
 
+function buildFactQuestions(input: {
+  traits: string[];
+  directionsText: string;
+  promotionsText: string;
+  servicesText: string;
+  addressText: string;
+}): { id: string; question: string; placeholder: string; kind: string }[] {
+  const text = `${input.traits.join("\n")}\n${input.directionsText}\n${input.promotionsText}\n${input.servicesText}\n${input.addressText}`.toLowerCase();
+  const out: { id: string; question: string; placeholder: string; kind: string; test: () => boolean }[] = [
+    {
+      id: "audience_age",
+      kind: "audience_age",
+      question: "לאילו גילאים זה מתאים?",
+      placeholder: "למשל: מגיל 18 ומעלה / 16+ / ילדים 8–12",
+      test: () => !/(גיל|ילדים|נוער|מבוגרים|\d{1,2}\s*\+|\d{1,2}\s*-\s*\d{1,2})/u.test(text),
+    },
+    {
+      id: "audience_level",
+      kind: "audience_level",
+      question: "זה מתאים למתחילים?",
+      placeholder: "למשל: כן, יש קבוצת מתחילים / צריך ניסיון קודם",
+      test: () => !/(מתחילים|מתקדמים|רמות|לכל הרמות|beginner|advanced)/u.test(text),
+    },
+    {
+      id: "parking",
+      kind: "parking",
+      question: "יש חניה או הנחיות הגעה מיוחדות?",
+      placeholder: "למשל: חניה בכחול לבן / חניון קרוב / קומה 2",
+      test: () => !input.directionsText.trim() && !/(חניה|חנייה|חניון|parking|park|איך מגיעים|הנחיות הגעה)/u.test(text),
+    },
+    {
+      id: "showers",
+      kind: "showers",
+      question: "יש מקלחות וחדרי הלבשה?",
+      placeholder: "למשל: כן, יש מקלחות ולוקרים",
+      test: () => !/(מקלחות|מקלחת|חדרי הלבשה|לוקר|locker|החלפה)/u.test(text),
+    },
+    {
+      id: "what_to_bring",
+      kind: "what_to_bring",
+      question: "מה כדאי להביא / ללבוש לשיעור?",
+      placeholder: "למשל: בגדי ספורט נוחים + בקבוק מים",
+      test: () => !/(מה ללבוש|להביא|בגד|בגדים|נעליים|גרביים|מגבת|מים)/u.test(text),
+    },
+    {
+      id: "cancellation",
+      kind: "cancellation",
+      question: "מה מדיניות הביטול או ההקפאה?",
+      placeholder: "למשל: עד 12 שעות לפני ללא חיוב",
+      test: () => !/(מדיניות ביטול|ביטול|הקפאה|דמי ביטול|החזר)/u.test(text),
+    },
+  ];
+  return out.filter((x) => x.test()).map(({ test: _t, ...rest }) => rest);
+}
+
+function factFromQuestionAnswer(question: string, answer: string): string {
+  const q = String(question ?? "").trim().replace(/\?+$/, "?");
+  const a = String(answer ?? "").trim();
+  if (!a) return q;
+  const normalizedQ = q.replace(/\?+$/, "").trim();
+  // Simple “label: answer” conversion for "יש X" questions.
+  const m = normalizedQ.match(/^יש\s+(.+)$/u);
+  if (m?.[1]) return `${m[1].trim()}: ${a}`;
+  return `${q} ${a}`;
+}
+
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
   loading: () => (
@@ -636,6 +702,35 @@ export default function SlugSettingsPage() {
       durationText: firstNamedService.duration.trim(),
     };
   }, [firstNamedService]);
+
+  const factQuestions = useMemo(() => {
+    const servicesText = services
+      .map((s) => [s.name, s.description, s.price_text, s.duration].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("\n");
+    return buildFactQuestions({
+      traits,
+      directionsText: directions,
+      promotionsText: promotions,
+      servicesText,
+      addressText: address,
+    });
+  }, [traits, directions, promotions, services, address]);
+  const [factAnswers, setFactAnswers] = useState<Record<string, string>>({});
+  const addFactLine = useCallback((value: string) => {
+    const v = String(value ?? "").trim();
+    if (!v) return;
+    setTraits((prev) => {
+      const next = [...prev];
+      const emptyIndex = next.findIndex((x) => !String(x ?? "").trim());
+      if (emptyIndex >= 0) {
+        next[emptyIndex] = v;
+        return next;
+      }
+      next.push(v);
+      return next;
+    });
+  }, []);
 
   const prevStepForServicesRef = useRef(step);
   useEffect(() => {
@@ -1800,6 +1895,54 @@ export default function SlugSettingsPage() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-700 block">כל העובדות שכדאי לציין על העסק</label>
+
+                <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-right">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#2d1a6e]">שאלות שכדאי לענות עליהן</p>
+                      <p className="text-xs text-[#6b5bb6] mt-0.5">
+                        תשובות יתווספו בלחיצה ישירות ל״כל העובדות שכדאי לציין״.
+                      </p>
+                    </div>
+                  </div>
+
+                  {factQuestions.length ? (
+                    <div className="mt-3 space-y-2">
+                      {factQuestions.map((q) => (
+                        <div key={q.id} className="rounded-xl border border-violet-200/70 bg-white/80 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-zinc-900">{q.question}</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 px-3 text-xs gap-1"
+                              onClick={() => addFactLine(factFromQuestionAnswer(q.question, factAnswers[q.id] ?? ""))}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              הוסף לעובדות
+                            </Button>
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Input
+                              dir="rtl"
+                              value={factAnswers[q.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setFactAnswers((m) => ({ ...m, [q.id]: v }));
+                              }}
+                              placeholder={q.placeholder}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-zinc-700">
+                      נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   {traits.map((row, i) => (
                     <div key={i} className="flex gap-2 items-center">
