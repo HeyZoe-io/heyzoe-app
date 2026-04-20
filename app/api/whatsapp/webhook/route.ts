@@ -108,6 +108,10 @@ function isAddressOrDirectionsIntent(text: string): boolean {
   return (
     normalized.includes("מה הכתובת") ||
     normalized.includes("כתובת") ||
+    normalized.includes("איפה זה") ||
+    normalized.includes("איפה אתם") ||
+    normalized.includes("איפה נמצא") ||
+    normalized.includes("מיקום") ||
     normalized.includes("איך מגיעים") ||
     normalized.includes("איך להגיע") ||
     normalized.includes("הנחיות הגעה") ||
@@ -1931,8 +1935,18 @@ async function processIncoming(
   } else {
     // Claude rate limiting per contact (phone+business)
     if (contactClaudeCount != null && contactClaudeCount >= 20) {
-      const txt =
-        'נראה שיש לך שאלות נוספות 😊 כדי שנוכל לעזור לך בצורה\nהטובה ביותר, מומלץ לדבר ישירות עם הצוות שלנו.\nנשמח לחזור אליך בהקדם!';
+      const phone = knowledge?.customerServicePhone?.trim() ?? "";
+      const txt = phone
+        ? [
+            "נראה שיש לך שאלות נוספות 😊",
+            "כדי שנוכל לעזור לך בצורה הטובה ביותר, מומלץ לדבר ישירות עם הצוות שלנו.",
+            `טלפון שירות לקוחות: ${phone}`,
+          ].join("\n")
+        : [
+            "נראה שיש לך שאלות נוספות 😊",
+            "כדי שנוכל לעזור לך בצורה הטובה ביותר, מומלץ לדבר ישירות עם הצוות שלנו.",
+            "נשמח לחזור אליך בהקדם!",
+          ].join("\n");
       await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send claude-limit reply failed:", e)
       );
