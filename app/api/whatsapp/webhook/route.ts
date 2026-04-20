@@ -947,14 +947,16 @@ async function processIncoming(
     }
   }
 
-  // Detect "new lead" (first message in this session)
+  // Detect "new lead" (first inbound user message in this session).
+  // Important: the business may have sent outbound messages (assistant/event logs) before a user ever replies.
   let isNewLead = false;
   try {
     const { count } = await supabase
       .from("messages")
       .select("id", { count: "exact", head: true } as any)
       .eq("business_slug", business_slug)
-      .eq("session_id", sessionId);
+      .eq("session_id", sessionId)
+      .eq("role", "user");
     isNewLead = (count ?? 0) === 0;
   } catch (e) {
     console.warn("[WA Webhook] new-lead check failed (continuing):", e);
