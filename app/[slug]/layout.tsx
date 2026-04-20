@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import SlugDashboardNav from "./Nav";
 import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
+import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
 
 type Props = {
   children: ReactNode;
@@ -18,6 +19,7 @@ export default async function SlugLayout({ children, params }: Props) {
           {children}
         </div>
       </main>
+      <DashboardHelpChatWidget slug={slug} />
       <DashboardPwaPrompt />
     </>
   );
