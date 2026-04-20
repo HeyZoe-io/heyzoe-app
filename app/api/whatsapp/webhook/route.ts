@@ -1933,32 +1933,46 @@ async function processIncoming(
     });
     return;
   } else {
-    // Claude rate limiting per contact (phone+business)
-    if (contactClaudeCount != null && contactClaudeCount >= 20) {
-      const phone = knowledge?.customerServicePhone?.trim() ?? "";
-      const txt = phone
-        ? [
-            "נראה שיש לך שאלות נוספות 😊",
-            "כדי שנוכל לעזור לך בצורה הטובה ביותר, מומלץ לדבר ישירות עם הצוות שלנו.",
-            `טלפון שירות לקוחות: ${phone}`,
-          ].join("\n")
-        : [
-            "נראה שיש לך שאלות נוספות 😊",
-            "כדי שנוכל לעזור לך בצורה הטובה ביותר, מומלץ לדבר ישירות עם הצוות שלנו.",
-            "נשמח לחזור אליך בהקדם!",
-          ].join("\n");
-      await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-        console.error("[WA Webhook] Send claude-limit reply failed:", e)
-      );
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: txt,
-        model_used: "claude_limit",
-        session_id: sessionId,
-        error_code: "claude_limit",
-      });
-      return;
+    // Rate-limit: 20 AI answers in a rolling 24h window (prevents token abuse without blocking forever).
+    // Count only model-generated assistant replies (Claude/Gemini) for this WhatsApp session_id.
+    try {
+      const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from("messages")
+        .select("id", { count: "exact", head: true } as any)
+        .eq("business_slug", business_slug)
+        .eq("session_id", sessionId)
+        .eq("role", "assistant")
+        .in("model_used", [CLAUDE_WHATSAPP_MODEL, GEMINI_WHATSAPP_MODEL])
+        .gte("created_at", sinceIso);
+      const recentAiCount = typeof count === "number" ? count : 0;
+      if (recentAiCount >= 20) {
+        const phone = knowledge?.customerServicePhone?.trim() ?? "";
+        const txt = phone
+          ? [
+              "כדי לשמור על איכות המענה, הגענו למגבלת תשובות אוטומטיות ב־24 שעות האחרונות.",
+              "נשמח לעזור ישירות דרך שירות הלקוחות:",
+              `טלפון שירות לקוחות: ${phone}`,
+            ].join("\n")
+          : [
+              "כדי לשמור על איכות המענה, הגענו למגבלת תשובות אוטומטיות ב־24 שעות האחרונות.",
+              "מומלץ לדבר ישירות עם הצוות שלנו. נשמח לחזור אליך בהקדם!",
+            ].join("\n");
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send AI-24h-limit reply failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: "claude_limit_24h",
+          session_id: sessionId,
+          error_code: "claude_limit_24h",
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] 24h AI rate-limit check failed (continuing):", e);
     }
 
     // Any free-form question → Claude/Gemini (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
