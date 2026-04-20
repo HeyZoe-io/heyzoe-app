@@ -2114,6 +2114,16 @@ async function processIncoming(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  function softenWebsiteAttribution(text: string): string {
+    // Keep replies sounding like the business, not "the website".
+    // Only touch common short patterns; avoid broad replacements.
+    let t = String(text ?? "");
+    t = t.replace(/(\bיש)\s+([^.\n]{1,80})\s+באתר\b/gu, "יש לנו $2");
+    t = t.replace(/(\bכן),?\s+([^.\n]{1,80})\s+באתר\b/gu, "כן, יש לנו $2");
+    t = t.replace(/\b(לפי האתר|מהאתר|באתר שלנו)\b/gu, "אצלנו");
+    return t;
+  }
+
   function normalizeLine(s: string): string {
     return String(s ?? "")
       .trim()
@@ -2157,6 +2167,7 @@ async function processIncoming(
   }
 
   let replyText = replyCoreClean;
+  replyText = softenWebsiteAttribution(replyText);
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
@@ -2225,7 +2236,9 @@ async function processIncoming(
         // CTA phase + free-text question:
         // 1) answer only (no CTA, no buttons, no footer)
         // 2) send the CTA menu in a separate message
-        const answerOnly = stripSalesFlowCtaHookFromAnswer(dedupeConsecutiveDuplicateLines(replyCoreClean));
+        const answerOnly = stripSalesFlowCtaHookFromAnswer(
+          softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean))
+        );
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await sleepMs(650);
         if (businessId && knowledge?.salesFlowConfig) {
@@ -2245,7 +2258,7 @@ async function processIncoming(
           });
         }
       } else {
-        let body = replyCoreClean;
+        let body = softenWebsiteAttribution(replyCoreClean);
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
           body += `\n\n${menuQuestion}`;
         }
