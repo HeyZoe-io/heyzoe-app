@@ -1394,7 +1394,7 @@ async function processIncoming(
         });
       };
 
-      if (wantsTrial && contactTrialRegistered === true) {
+      if (wantsTrial && contactTrialRegistered === true && !allowTrialCtaThisSession) {
         const ig = knowledge?.instagramUrl?.trim() ?? "";
         const soft = [
           "כבר נרשמתם לניסיון — מעולה 🎉",
