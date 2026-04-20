@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 type SessionMessage = {
   role: string;
@@ -18,7 +18,6 @@ type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
-  messages: SessionMessage[];
 };
 
 export default function ConversationsClient({
@@ -31,6 +30,7 @@ export default function ConversationsClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   const [sessions, setSessions] = useState<SessionSummary[]>(initialSessions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -88,6 +88,22 @@ export default function ConversationsClient({
     if (sessionsQuery.data) setSessions(sessionsQuery.data);
   }, [sessionsQuery.data]);
 
+  const messagesQuery = useQuery({
+    queryKey: ["dashboard", "conversation_messages", slug, selectedId ?? ""],
+    enabled: Boolean(selectedId),
+    queryFn: async ({ signal }) => {
+      const res = await fetch(
+        `/api/dashboard/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(
+          selectedId ?? ""
+        )}`,
+        { signal }
+      );
+      if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
+      const j = (await res.json()) as { messages?: SessionMessage[] };
+      return (j.messages ?? []) as SessionMessage[];
+    },
+  });
+
   function formatDmy(value: string): string {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return "";
@@ -98,7 +114,7 @@ export default function ConversationsClient({
     }).format(d);
   }
 
-  const selectedScrollKey = `${selected?.session_id ?? ""}:${selected?.count ?? 0}`;
+  const selectedScrollKey = `${selected?.session_id ?? ""}:${messagesQuery.data?.length ?? 0}`;
 
   useEffect(() => {
     // Desktop: open the latest conversation by default. Mobile: keep closed until user clicks a phone number.
@@ -146,6 +162,9 @@ export default function ConversationsClient({
           s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s
         )
       );
+      queryClient.setQueryData<SessionSummary[]>(["dashboard", "conversations", slug], (prev) =>
+        (prev ?? []).map((s) => (s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s))
+      );
     } finally {
       setPausing(null);
     }
@@ -179,8 +198,18 @@ export default function ConversationsClient({
                   lastAt: nowIso,
                   count: s.count + 1,
                   isOpen: true,
-                  messages: [...s.messages, msg],
                 }
+              : s
+          )
+        );
+        queryClient.setQueryData<SessionMessage[]>(
+          ["dashboard", "conversation_messages", slug, selected.session_id],
+          (prev) => [...(prev ?? []), msg]
+        );
+        queryClient.setQueryData<SessionSummary[]>(["dashboard", "conversations", slug], (prev) =>
+          (prev ?? []).map((s) =>
+            s.session_id === selected.session_id
+              ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: true }
               : s
           )
         );
@@ -293,7 +322,7 @@ export default function ConversationsClient({
               id="hz-convo-messages"
               className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-y-auto overflow-x-hidden"
             >
-              {selected.messages.map((m, idx) => (
+              {(messagesQuery.data ?? []).map((m, idx) => (
                 <div
                   key={`${m.created_at}-${idx}`}
                   className={`mb-2 text-xs flex ${m.role === "user" ? "justify-start" : "justify-end"}`}

@@ -24,7 +24,6 @@ type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
-  messages: SessionMessage[];
 };
 
 async function requireUser() {
@@ -57,7 +56,7 @@ export async function GET(req: NextRequest) {
   const [{ data: messages }, { data: pausedRows }] = await Promise.all([
     admin
       .from("messages")
-      .select("session_id, role, content, created_at, error_code")
+      .select("session_id, role, created_at")
       .eq("business_slug", slug)
       .order("created_at", { ascending: true }),
     admin
@@ -75,7 +74,6 @@ export async function GET(req: NextRequest) {
       lastAt: Date;
       count: number;
       lastFromUser: boolean;
-      messages: SessionMessage[];
     }
   >();
 
@@ -84,19 +82,12 @@ export async function GET(req: NextRequest) {
     const at = new Date(m.created_at as string);
     const existing = bySession.get(sid);
     const fromUser = m.role === "user";
-    const msg: SessionMessage = {
-      role: m.role as string,
-      content: (m.content as string) ?? "",
-      created_at: m.created_at as string,
-      error_code: (m.error_code as string | null) ?? null,
-    };
     if (!existing) {
-      bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser, messages: [msg] });
+      bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser });
     } else {
       existing.lastAt = at;
       existing.count += 1;
       existing.lastFromUser = fromUser;
-      existing.messages.push(msg);
     }
   });
 
@@ -110,7 +101,6 @@ export async function GET(req: NextRequest) {
       isOpen,
       isPaused,
       phone: extractPhone(sid),
-      messages: data.messages,
     };
   });
 
