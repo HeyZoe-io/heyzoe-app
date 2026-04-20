@@ -162,10 +162,12 @@ async function bumpContactFlowStep(input: {
 
 function filterCtaButtonsForTrialRegistered(
   cfg: NonNullable<BusinessKnowledgePack["salesFlowConfig"]>,
-  trialRegistered: boolean | null
+  trialRegistered: boolean | null,
+  allowTrialCta: boolean
 ): SalesFlowCtaButton[] {
   const bs = cfg.cta_buttons ?? [];
   if (trialRegistered !== true) return bs;
+  if (allowTrialCta) return bs;
   return bs.filter((b) => b.kind !== "trial");
 }
 
@@ -203,6 +205,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   sessionId: string;
   salesFlowServices: SfServiceRow[];
   trialRegistered: boolean | null;
+  allowTrialCta: boolean;
   extraBodyLines?: string[];
   modelUsed: string;
 }): Promise<void> {
@@ -217,13 +220,14 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     sessionId,
     salesFlowServices,
     trialRegistered,
+    allowTrialCta,
     extraBodyLines,
     modelUsed,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
 
-  const filtered = filterCtaButtonsForTrialRegistered(cfg, trialRegistered);
+  const filtered = filterCtaButtonsForTrialRegistered(cfg, trialRegistered, allowTrialCta);
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
   const selectedServiceName =
@@ -294,6 +298,7 @@ function scheduleFlowContinuation(input: {
   sessionId: string;
   salesFlowServices: SfServiceRow[];
   trialRegistered: boolean | null;
+  allowTrialCta: boolean;
 }): void {
   const delayMs = Number.isFinite(input.delayMs) ? Math.max(0, Math.floor(input.delayMs)) : 0;
   setTimeout(() => {
@@ -314,8 +319,9 @@ async function sendFlowContinuation(input: {
   sessionId: string;
   salesFlowServices: SfServiceRow[];
   trialRegistered: boolean | null;
+  allowTrialCta: boolean;
 }): Promise<void> {
-  const { phase, contact, knowledge, msg, accountSid, authToken, supabase, businessId, business_slug, sessionId, salesFlowServices, trialRegistered } =
+  const { phase, contact, knowledge, msg, accountSid, authToken, supabase, businessId, business_slug, sessionId, salesFlowServices, trialRegistered, allowTrialCta } =
     input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -358,6 +364,7 @@ async function sendFlowContinuation(input: {
       sessionId,
       salesFlowServices,
       trialRegistered,
+      allowTrialCta,
       extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
       modelUsed: "flow_continuation_cta",
     });
@@ -410,7 +417,7 @@ async function sendFlowContinuation(input: {
       return;
     }
 
-    await sendFlowContinuation({
+      await sendFlowContinuation({
       phase: "warmup",
       contact: { flow_step: 0 },
       knowledge,
@@ -423,6 +430,7 @@ async function sendFlowContinuation(input: {
       sessionId,
       salesFlowServices,
       trialRegistered,
+        allowTrialCta,
     });
     return;
   }
@@ -493,6 +501,7 @@ async function sendFlowContinuation(input: {
     sessionId,
     salesFlowServices,
     trialRegistered,
+    allowTrialCta,
     extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
     modelUsed: "flow_continuation_cta",
   });
@@ -692,6 +701,9 @@ async function processIncoming(
   let contactOptedOut: boolean | null = null;
   let contactClaudeCount: number | null = null;
   let contactTrialRegistered: boolean | null = null;
+  // Session-only override: allow offering the trial CTA again after a greeting reset,
+  // without mutating the persisted trial_registered conversion flag.
+  let allowTrialCtaThisSession = false;
   let contactSessionPhase: HeyzoeSessionPhase = "opening";
   let contactFlowStep = 0;
   if (businessId) {
@@ -751,6 +763,7 @@ async function processIncoming(
         typeof (contactRow as any)?.trial_registered === "boolean"
           ? (contactRow as any).trial_registered
           : null;
+      allowTrialCtaThisSession = contactTrialRegistered !== true;
 
       contactSessionPhase = normalizeSessionPhase((contactRow as any)?.session_phase);
       const fs = (contactRow as any)?.flow_step;
@@ -1170,6 +1183,7 @@ async function processIncoming(
         sessionId,
         salesFlowServices,
         trialRegistered: contactTrialRegistered,
+        allowTrialCta: allowTrialCtaThisSession,
       });
     }
 
@@ -1210,14 +1224,9 @@ async function processIncoming(
         session_id: sessionId,
       });
       if (businessId && knowledge?.salesFlowConfig) {
-        // NEW RULE: greeting resets the flow and re-enables trial CTA even if this phone previously wrote "נרשמתי".
-        // (Keeps the "נרשמתי" keyword handler for the current run.)
-        await supabase
-          .from("contacts")
-          .update({ trial_registered: false, trial_registered_at: null })
-          .eq("business_id", businessId)
-          .eq("phone", msg.from);
-        contactTrialRegistered = false;
+        // Greeting resets the *flow* (session_phase + flow_step) but must NOT mutate trial_registered conversion history.
+        // We allow trial CTA again for this session only.
+        allowTrialCtaThisSession = true;
 
         const phase: HeyzoeSessionPhase = salesFlowServices.length === 1 ? "warmup" : "opening";
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
@@ -1239,6 +1248,7 @@ async function processIncoming(
           sessionId,
           salesFlowServices,
           trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
         });
       }
       return;
@@ -1591,6 +1601,7 @@ async function processIncoming(
                 sessionId,
                 salesFlowServices,
                 trialRegistered: contactTrialRegistered,
+                allowTrialCta: allowTrialCtaThisSession,
                 modelUsed: "sales_flow_cta",
               });
               contactSessionPhase = "cta";
@@ -1689,6 +1700,7 @@ async function processIncoming(
               sessionId,
               salesFlowServices,
               trialRegistered: contactTrialRegistered,
+              allowTrialCta: allowTrialCtaThisSession,
               modelUsed: "sales_flow_cta",
             });
             contactSessionPhase = "cta";
@@ -1749,9 +1761,9 @@ async function processIncoming(
   const ctaMenuLabelsRaw = (knowledge?.salesFlowConfig?.cta_buttons ?? [])
     .map((b) => String((b as { label?: string }).label ?? "").trim())
     .filter((l) => l.length > 0);
-  const filteredCtaButtons =
+      const filteredCtaButtons =
     knowledge?.salesFlowConfig != null
-      ? filterCtaButtonsForTrialRegistered(knowledge.salesFlowConfig, contactTrialRegistered)
+      ? filterCtaButtonsForTrialRegistered(knowledge.salesFlowConfig, contactTrialRegistered, allowTrialCtaThisSession)
       : [];
   const ctaMenuLabelsForAi =
     contactSessionPhase === "cta"
@@ -2121,6 +2133,7 @@ async function processIncoming(
           sessionId,
           salesFlowServices,
           trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
         });
       }
     }
