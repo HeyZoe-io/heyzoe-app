@@ -480,11 +480,25 @@ function buildFactQuestions(input: {
       test: () => !/(מתחילים|מתקדמים|רמות|לכל הרמות|beginner|advanced)/u.test(text),
     },
     {
+      id: "fitness_level",
+      kind: "fitness_level",
+      question: "זה מתאים לכל רמת כושר?",
+      placeholder: "למשל: כן, מתחילים בקצב אישי / נדרש בסיס מסוים",
+      test: () => !/(רמת כושר|כושר|כושר גופני|לכל רמת כושר|מתאים לכל כושר)/u.test(text),
+    },
+    {
       id: "parking",
       kind: "parking",
       question: "יש חניה או הנחיות הגעה מיוחדות?",
       placeholder: "למשל: חניה בכחול לבן / חניון קרוב / קומה 2",
       test: () => !input.directionsText.trim() && !/(חניה|חנייה|חניון|parking|park|איך מגיעים|הנחיות הגעה)/u.test(text),
+    },
+    {
+      id: "parking_nearby",
+      kind: "parking_nearby",
+      question: "יש חניה קרובה?",
+      placeholder: "למשל: יש חניון במרחק 2 דקות / כחול-לבן מסביב",
+      test: () => !/(חניה|חנייה|חניון|parking|park)/u.test(text),
     },
     {
       id: "showers",
@@ -494,11 +508,39 @@ function buildFactQuestions(input: {
       test: () => !/(מקלחות|מקלחת|חדרי הלבשה|לוקר|locker|החלפה)/u.test(text),
     },
     {
+      id: "class_size",
+      kind: "class_size",
+      question: "כמה אנשים יש באימון?",
+      placeholder: "למשל: עד 12 משתתפים באימון",
+      test: () => !/(כמה אנשים|מספר משתתפים|עד \d+|קבוצה של|בקבוצה|משתתפים|אינטימי|קבוצות קטנות)/u.test(text),
+    },
+    {
+      id: "pregnancy",
+      kind: "pregnancy",
+      question: "האם זה מתאים לנשים בהיריון?",
+      placeholder: "למשל: כן, בתיאום מראש / מומלץ להתייעץ עם רופא",
+      test: () => !/(היריון|הריון|בהיריון|בהריון|pregnan)/u.test(text),
+    },
+    {
       id: "what_to_bring",
       kind: "what_to_bring",
       question: "מה כדאי להביא / ללבוש לשיעור?",
       placeholder: "למשל: בגדי ספורט נוחים + בקבוק מים",
       test: () => !/(מה ללבוש|להביא|בגד|בגדים|נעליים|גרביים|מגבת|מים)/u.test(text),
+    },
+    {
+      id: "equipment",
+      kind: "equipment",
+      question: "צריך להביא ציוד או שהכל מחכה בסטודיו?",
+      placeholder: "למשל: לא צריך להביא כלום / רק מגבת אישית",
+      test: () => !/(ציוד|מזרן|מזרונים|הכל מחכה|לא צריך להביא|אביזרים)/u.test(text),
+    },
+    {
+      id: "language",
+      kind: "language",
+      question: "באיזו שפה האימון מתנהל?",
+      placeholder: "למשל: עברית / אנגלית / גם וגם",
+      test: () => !/(עברית|אנגלית|שפה|english)/u.test(text),
     },
     {
       id: "cancellation",
@@ -1939,10 +1981,7 @@ export default function SlugSettingsPage() {
                 <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-right">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-[#2d1a6e]">שאלה אחת שכדאי לענות עליה</p>
-                      <p className="text-xs text-[#6b5bb6] mt-0.5">
-                        אחרי שממלאים תשובה, לוחצים ״הוסף לעובדות״ וזה נכנס לרשימה למעלה.
-                      </p>
+                      <p className="text-sm font-semibold text-[#2d1a6e]">שאלות נוספות</p>
                     </div>
                     {factQuestions.length > 1 ? (
                       <Button
