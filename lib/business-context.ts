@@ -193,7 +193,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
           : "";
     const schedulePublicUrl = schedulePublicUrlRaw;
     const openingMediaUrl =
-      typeof social.opening_media_url === "string" ? String(social.opening_media_url) : "";
+      typeof social.opening_media_url === "string" ? String(social.opening_media_url).trim() : "";
     const openingMediaType =
       social.opening_media_type === "image" || social.opening_media_type === "video"
         ? (social.opening_media_type as "image" | "video")
