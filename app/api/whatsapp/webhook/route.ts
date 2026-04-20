@@ -1893,12 +1893,6 @@ async function processIncoming(
     !lastPickedServiceName &&
     !matched?.reply &&
     !matchedPredefinedClosedLabel;
-  const shouldUseCtaPromptOnly =
-    !shouldReaskServiceSelection &&
-    Boolean(knowledge?.salesFlowConfig) &&
-    quickLabels.length === 0 &&
-    ctaMenuLabelsForAi.length > 0 &&
-    contactSessionPhase === "cta";
   const serviceSelectionLabels = shouldReaskServiceSelection
     ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
     : [];
@@ -1906,7 +1900,8 @@ async function processIncoming(
     shouldReaskServiceSelection && knowledge?.salesFlowConfig?.multi_service_question?.trim()
       ? knowledge.salesFlowConfig.multi_service_question.trim()
       : "";
-  const ctaPromptQuestion = shouldUseCtaPromptOnly ? "מה דעתך? שנשריין אימון ניסיון?" : "";
+  // We send CTA menus deterministically; avoid appending a CTA prompt to free-text answers.
+  const ctaPromptQuestion = "";
 
   let replyCore: string;
   let replyErrorCode: string | null = null;
