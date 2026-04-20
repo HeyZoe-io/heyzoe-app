@@ -274,6 +274,45 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     model_used: modelUsed,
     session_id: sessionId,
   });
+
+  // One-time CTA note per "flow run" (resets on greeting/opening).
+  // We persist the marker in messages to avoid adding more DB columns.
+  const CTA_NOTE_MODEL = "sf_cta_note";
+  try {
+    const { data: markers } = await supabase
+      .from("messages")
+      .select("model_used, created_at")
+      .eq("business_slug", business_slug)
+      .eq("session_id", sessionId)
+      .eq("role", "assistant")
+      .in("model_used", [CTA_NOTE_MODEL, "greeting", "default_opening"])
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const lastResetAt =
+      (markers ?? []).find((m: any) => m?.model_used === "greeting" || m?.model_used === "default_opening")?.created_at ??
+      null;
+    const lastNoteAt = (markers ?? []).find((m: any) => m?.model_used === CTA_NOTE_MODEL)?.created_at ?? null;
+    const shouldSendNote =
+      !lastNoteAt || (lastResetAt && String(lastNoteAt) < String(lastResetAt));
+    if (shouldSendNote) {
+      // Immediate follow-up after CTA buttons: encourage free-text questions.
+      await sleepMs(450);
+      const note = "אגב, אפשר לכתוב לי גם שאלה פתוחה ואני אענה :)";
+      await sendWhatsAppMessage(msg.toNumber, msg.from, note, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] Send CTA note failed:", e)
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: note,
+        model_used: CTA_NOTE_MODEL,
+        session_id: sessionId,
+      });
+    }
+  } catch (e) {
+    console.warn("[WA Webhook] CTA note check failed (continuing):", e);
+  }
+
   await logMessage({
     business_slug,
     role: "event",
