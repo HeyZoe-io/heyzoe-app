@@ -2168,6 +2168,28 @@ async function processIncoming(
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
+  function stripMenuEchoFromAnswer(text: string, menuQuestion: string, menuLabels: string[]): string {
+    const qNorm = normalizeLine(menuQuestion);
+    const labelNorms = (menuLabels ?? []).map((l) => normalizeLine(l)).filter(Boolean);
+    const raw = String(text ?? "").replace(/\r\n/g, "\n");
+    const lines = raw.split("\n");
+    const out: string[] = [];
+    for (const line of lines) {
+      const n = normalizeLine(line);
+      if (!n) {
+        out.push(line);
+        continue;
+      }
+      if (qNorm && n === qNorm) continue;
+      if (labelNorms.length && labelNorms.some((x) => x === n)) continue;
+      if (n === "כפתורים" || n === "כפתורים:" || n === "אפשרויות" || n === "אפשרויות:") continue;
+      // Avoid leaking "בחרו אחת מהאפשרויות" headers in plain text answers
+      if (/^בחרו (אחת|אחד) מהאפשרויות:?$/u.test(line.trim())) continue;
+      out.push(line);
+    }
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
   function stripSalesFlowCtaHookFromAnswer(text: string): string {
     // In CTA phase, when we split into (answer) + (CTA menu), we must keep the first message
     // as a pure answer without a sales hook line like "מה דעתך להגיע לאימון ניסיון בקרוב...".
@@ -2250,6 +2272,21 @@ async function processIncoming(
           ? knowledge?.ctaLink?.trim()
           : "";
 
+      const isFreeTextSalesFlowContinuation =
+        msg.type === "text" &&
+        Boolean(businessId) &&
+        Boolean(knowledge?.salesFlowConfig) &&
+        !isFallbackErrorReply &&
+        !matched?.reply &&
+        !matchedPredefinedClosedLabel &&
+        !msg.metaInteractiveReplyId?.trim() &&
+        !matchesTrialRegisteredMessage(msg.text.trim());
+
+      const shouldSplitOpeningWarmupAnswerAndFlow =
+        isFreeTextSalesFlowContinuation &&
+        contactSessionPhase !== "cta" &&
+        contactSessionPhase !== "registered";
+
       if (shouldSplitCtaAnswerAndMenu) {
         // CTA phase + free-text question:
         // 1) answer only (no CTA, no buttons, no footer)
@@ -2275,6 +2312,36 @@ async function processIncoming(
             modelUsed: "sales_flow_cta",
           });
         }
+      } else if (shouldSplitOpeningWarmupAnswerAndFlow) {
+        // Opening/Warmup phase + free-text question:
+        // 1) answer only
+        // 2) continue the deterministic flow in a separate message (question + WhatsApp buttons)
+        const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
+        const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
+        const answerOnly = stripMenuEchoFromAnswer(
+          softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean)),
+          menuQuestion,
+          menuLabels
+        );
+        await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
+        await sleepMs(1500);
+        if (knowledge && businessId) {
+          await sendFlowContinuation({
+            phase: contactSessionPhase,
+            contact: { flow_step: contactFlowStep },
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+          });
+        }
       } else {
         let body = softenWebsiteAttribution(replyCoreClean);
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
@@ -2296,19 +2363,15 @@ async function processIncoming(
         });
       }
 
-      const isFreeTextSalesFlowContinuation =
-        msg.type === "text" &&
-        Boolean(businessId) &&
-        Boolean(knowledge?.salesFlowConfig) &&
-        !isFallbackErrorReply &&
-        !matched?.reply &&
-        !matchedPredefinedClosedLabel &&
-        !msg.metaInteractiveReplyId?.trim() &&
-        !matchesTrialRegisteredMessage(msg.text.trim());
-
       // In CTA phase we already send the CTA menu explicitly as a second message (split mode),
       // so don't also schedule a flow continuation.
-      if (isFreeTextSalesFlowContinuation && knowledge && businessId && !shouldSplitCtaAnswerAndMenu) {
+      if (
+        isFreeTextSalesFlowContinuation &&
+        knowledge &&
+        businessId &&
+        !shouldSplitCtaAnswerAndMenu &&
+        !shouldSplitOpeningWarmupAnswerAndFlow
+      ) {
         scheduleFlowContinuation({
           delayMs: 1500,
           phase: contactSessionPhase,
