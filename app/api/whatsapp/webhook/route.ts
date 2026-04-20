@@ -2171,12 +2171,6 @@ async function processIncoming(
     if (!shouldSplitCtaAnswerAndMenu && menuQuestion && !hasLineNearEnd(replyText, menuQuestion)) {
       replyText += `\n\n${menuQuestion}`;
     }
-    const buttonsBlock =
-      !shouldSplitCtaAnswerAndMenu && menuLabels.length > 0
-        ? `\n\nבחרו אחת מהאפשרויות:\n${menuLabels
-            .map((lbl, idx) => `${idx + 1}. ${lbl}`)
-            .join("\n")}`
-        : "";
 
     const ctaText =
       !shouldSplitCtaAnswerAndMenu &&
@@ -2196,7 +2190,6 @@ async function processIncoming(
       replyText += `\n\n${ctaText}: ${ctaLink}`;
     }
 
-    replyText += buttonsBlock;
     if (!shouldSplitCtaAnswerAndMenu && shouldShowFooter) replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
