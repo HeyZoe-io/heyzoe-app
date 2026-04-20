@@ -1443,6 +1443,10 @@ export default function SlugSettingsPage() {
     const setUrl = target === "opening" ? setOpeningMediaUrl : setDirectionsMediaUrl;
     const setType = target === "opening" ? setOpeningMediaType : setDirectionsMediaType;
     setError("");
+    if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
+      setError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+      return;
+    }
     if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
       setError(
         "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
