@@ -35,6 +35,7 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   // Public auth callback pages (Supabase redirects here)
   if (pathname === "/register/confirm") return NextResponse.next();
+  if (pathname === "/dashboard/settings") return neutralNotFoundResponse();
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
   const isOwnerAccountPath = pathname.startsWith("/account");
@@ -108,7 +109,7 @@ export async function middleware(req: NextRequest) {
     if (isLoginPath) {
       const url = req.nextUrl.clone();
       const next = req.nextUrl.searchParams.get("next");
-      url.pathname = next && next.startsWith("/") ? next : "/dashboard/settings";
+      url.pathname = next && next.startsWith("/") ? next : "/dashboard";
       return NextResponse.redirect(url);
     }
 
