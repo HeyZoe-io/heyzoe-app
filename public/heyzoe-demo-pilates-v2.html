@@ -1,0 +1,254 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Helvetica Neue',Arial,sans-serif;}
+.wrap{direction:rtl;background:#f5f3ff;border-radius:16px;padding:16px;width:100%;}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:0 4px;}
+.saved{font-size:12px;color:#1d9e75;display:flex;align-items:center;gap:5px;opacity:0;transition:opacity 0.5s;}
+.saved.show{opacity:1;}
+.saved-dot{width:14px;height:14px;border-radius:50%;background:#1d9e75;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.saved-dot::after{content:'';width:4px;height:6px;border:1.5px solid white;border-top:none;border-right:none;transform:rotate(-45deg) translateY(-1px);display:block;margin:auto;}
+.biz-name{font-size:13px;color:#888;direction:ltr;text-align:left;}
+.biz-name span{color:#7133da;font-weight:500;}
+.tabs{display:flex;background:white;border-radius:12px 12px 0 0;border:0.5px solid #e8e4f8;border-bottom:none;padding:6px 6px 0;}
+.tab{padding:8px 10px;font-size:12px;color:#888;cursor:default;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.25s;flex:1;text-align:center;}
+.tab.active{color:#7133da;font-weight:500;border-bottom:2px solid #7133da;}
+.card{background:white;border:0.5px solid #e8e4f8;border-radius:0 0 16px 16px;padding:20px;min-height:340px;}
+.step{display:none;}
+.step.on{display:block;}
+.step-hdr{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:6px;}
+.step-num{width:26px;height:26px;border-radius:50%;background:#f0e8ff;color:#7133da;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.step-title{font-size:16px;font-weight:600;color:#1a1a2e;}
+.step-sub{font-size:12px;color:#aaa;margin-bottom:14px;text-align:right;}
+.field-lbl{font-size:12px;color:#888;margin-bottom:5px;text-align:right;}
+.fg{margin-bottom:14px;}
+.input-row{display:flex;gap:8px;align-items:stretch;flex-direction:row-reverse;}
+.fake-input{flex:1;background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:10px;padding:8px 12px;font-size:12px;color:#1a1a2e;min-height:36px;display:flex;align-items:center;direction:ltr;font-family:monospace;}
+.cursor-blink{display:inline-block;width:1.5px;height:13px;background:#7133da;margin-right:1px;animation:blink 1s infinite;vertical-align:middle;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+.scan-btn{background:linear-gradient(135deg,#7133da,#c45fd8);color:white;border:none;border-radius:10px;padding:8px 14px;font-size:12px;cursor:default;white-space:nowrap;flex-shrink:0;}
+.link-row{display:flex;align-items:center;gap:10px;background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:10px;padding:9px 12px;margin-bottom:7px;opacity:0;transform:translateY(5px);transition:opacity 0.35s,transform 0.35s;}
+.link-row.show{opacity:1;transform:translateY(0);}
+.link-lbl{font-size:11px;color:#aaa;}
+.link-val{font-size:11px;color:#1a1a2e;direction:ltr;font-family:monospace;}
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid #f0edf8;opacity:0;transition:opacity 0.35s;}
+.info-row.show{opacity:1;}
+.info-key{font-size:13px;color:#aaa;}
+.info-val{font-size:13px;color:#1a1a2e;font-weight:500;}
+.svc-card{background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:10px;padding:10px 14px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;opacity:0;transform:translateX(8px);transition:opacity 0.35s,transform 0.35s;}
+.svc-card.show{opacity:1;transform:translateX(0);}
+.svc-name{font-size:13px;font-weight:500;color:#1a1a2e;}
+.svc-sub{font-size:11px;color:#aaa;margin-top:2px;}
+.svc-price{font-size:13px;color:#7133da;font-weight:600;}
+.zoe-lbl{font-size:11px;color:#7133da;font-weight:500;margin-bottom:5px;text-align:right;}
+.subsection-lbl{font-size:11px;color:#aaa;font-weight:500;margin:12px 0 6px;text-align:right;text-transform:uppercase;letter-spacing:0.4px;}
+.bubble{background:#f0e8ff;border-radius:4px 14px 14px 14px;padding:10px 14px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:88%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;}
+.bubble.show{opacity:1;transform:translateY(0);}
+.user-bubble{background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:14px 4px 14px 14px;padding:9px 13px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:75%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;margin-right:auto;margin-left:0;}
+.user-bubble.show{opacity:1;transform:translateY(0);}
+.chat-wrap{display:flex;flex-direction:column;}
+.wa-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;margin-bottom:4px;}
+.wa-btn{background:white;border:0.5px solid #c9b8f0;border-radius:20px;padding:6px 13px;font-size:12px;color:#7133da;opacity:0;transition:opacity 0.35s;}
+.wa-btn.show{opacity:1;}
+.seg-opts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px;}
+.seg-opt{background:white;border:0.5px solid #ddd;border-radius:20px;padding:5px 12px;font-size:12px;color:#555;}
+.progress{display:flex;gap:6px;justify-content:center;margin-top:14px;}
+.pdot{width:7px;height:7px;border-radius:50%;background:#e0d8f8;transition:all 0.3s;}
+.pdot.on{background:#7133da;width:20px;border-radius:4px;}
+</style>
+
+<div class="wrap" dir="rtl">
+  <div class="topbar">
+    <div class="saved" id="saved"><div class="saved-dot"></div>נשמר אוטומטית</div>
+    <div class="biz-name">pilates-tlv / <span>HeyZoe</span></div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" id="tb1">לינקים</div>
+    <div class="tab" id="tb2">על העסק</div>
+    <div class="tab" id="tb3">אימון ניסיון</div>
+    <div class="tab" id="tb4">מכירה</div>
+    <div class="tab" id="tb5">פולואפ</div>
+  </div>
+  <div class="card">
+
+    <div class="step on" id="s1">
+      <div class="step-hdr"><div class="step-title">לינקים</div><div class="step-num">1</div></div>
+      <div class="step-sub">זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים.</div>
+      <div class="fg">
+        <div class="field-lbl">לינק לאתר</div>
+        <div class="input-row">
+          <div class="scan-btn">✦ סרוק</div>
+          <div class="fake-input" id="urlF"><span class="cursor-blink"></span></div>
+        </div>
+      </div>
+      <div id="lr1" class="link-row"><div><div class="link-lbl">מערכת שעות</div><div class="link-val">pilates-tlv.co.il/schedule</div></div></div>
+      <div id="lr2" class="link-row"><div><div class="link-lbl">מנויים וכרטיסיות</div><div class="link-val">pilates-tlv.co.il/membership</div></div></div>
+      <div id="lr3" class="link-row"><div><div class="link-lbl">אינסטגרם</div><div class="link-val">instagram.com/pilatestlv/</div></div></div>
+    </div>
+
+    <div class="step" id="s2">
+      <div class="step-hdr"><div class="step-title">על העסק</div><div class="step-num">2</div></div>
+      <div class="step-sub">שם, תיאור, כתובת והטון — מה שזואי יודעת עליכם.</div>
+      <div class="info-row" id="r1"><span class="info-key">שם העסק</span><span class="info-val">סטודיו פילאטיס TLV</span></div>
+      <div class="info-row" id="r2"><span class="info-key">שם הבוט</span><span class="info-val">זואי</span></div>
+      <div class="info-row" id="r3"><span class="info-key">תיאור</span><span class="info-val">סטודיו פילאטיס בוטיק במרכז תל אביב</span></div>
+      <div class="info-row" id="r4"><span class="info-key">כתובת</span><span class="info-val">דיזנגוף 84, תל אביב</span></div>
+      <div class="info-row" id="r5"><span class="info-key">טלפון</span><span class="info-val">050-000-0000</span></div>
+    </div>
+
+    <div class="step" id="s3">
+      <div class="step-hdr"><div class="step-title">אימון ניסיון</div><div class="step-num">3</div></div>
+      <div class="step-sub">השירותים שזואי מציעה ללידים לנסות.</div>
+      <div class="svc-card" id="sc1"><div><div class="svc-name">פילאטיס מכשירים</div><div class="svc-sub">שיעור ניסיון, עד 6 משתתפים</div></div><div class="svc-price">₪90</div></div>
+      <div class="svc-card" id="sc2"><div><div class="svc-name">פילאטיס מזרן</div><div class="svc-sub">שיעור ניסיון, קבוצתי</div></div><div class="svc-price">₪70</div></div>
+      <div class="svc-card" id="sc3"><div><div class="svc-name">יוגה</div><div class="svc-sub">שיעור ניסיון, קבוצתי</div></div><div class="svc-price">₪70</div></div>
+    </div>
+
+    <div class="step" id="s4">
+      <div class="step-hdr"><div class="step-title">מסלול מכירה</div><div class="step-num">4</div></div>
+      <div class="step-sub">שיחה מלאה — פתיחה, חימום, שאלות פתוחות והנעה לפעולה.</div>
+      <div class="chat-wrap">
+
+        <div class="subsection-lbl">סשן פתיחה</div>
+        <div class="bubble" id="zm1">היי! שמי זואי מסטודיו פילאטיס TLV 😊<br>נשמח לארח אותך אצלנו בדיזנגוף 84!<br>במה אוכל לעזור לך?</div>
+
+        <div class="subsection-lbl" id="lbl2" style="opacity:0;transition:opacity 0.4s;">סשן חימום</div>
+        <div class="bubble" id="zm2">לפני שנתקדם, שאלה קטנה —<br>האם יצא לך לנסות פילאטיס בעבר?</div>
+        <div class="seg-opts" id="sopts1" style="opacity:0;transition:opacity 0.4s;justify-content:flex-end;">
+          <div class="seg-opt">עוד לא יצא לי</div>
+          <div class="seg-opt">פעם פעמיים</div>
+          <div class="seg-opt">כן, לא מעט פעמים!</div>
+        </div>
+
+        <div class="subsection-lbl" id="lbl3" style="opacity:0;transition:opacity 0.4s;">שאלה פתוחה</div>
+        <div class="user-bubble" id="uq1">כמה אנשים בקבוצה?</div>
+        <div class="bubble" id="zm3">הקבוצות שלנו הן עד 10 אנשים,<br>כדי שיהיה יחס אישי ומרחב פתוח 🙏</div>
+
+        <div class="subsection-lbl" id="lbl4" style="opacity:0;transition:opacity 0.4s;">הנעה לפעולה</div>
+        <div class="bubble" id="zm4">מעולה! אז מה הצעד הבא עבורך?</div>
+        <div class="wa-btns" id="wbtns">
+          <div class="wa-btn" id="wb1">הרשמה לשיעור ניסיון</div>
+          <div class="wa-btn" id="wb2">צפייה במערכת שעות</div>
+          <div class="wa-btn" id="wb3">צפייה במנויים וכרטיסיות</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="step" id="s5">
+      <div class="step-hdr"><div class="step-title">פולואפ</div><div class="step-num">5</div></div>
+      <div class="step-sub">הודעות אוטומטיות אחרי שיעור הניסיון.</div>
+      <div class="zoe-lbl">זואי תשלח אחרי ניסיון:</div>
+      <div class="bubble" id="zm5a">כל הכבוד! נרשמת בהצלחה 🎉<br>מתרגשים לראותך בקרוב בדיזנגוף 84!</div>
+      <div class="bubble" id="zm5b">מוזמנ/ת להגיע 10 דקות לפני השיעור,<br>עם בגדים נוחים ובקבוק מים 💧</div>
+    </div>
+
+  </div>
+  <div class="progress">
+    <div class="pdot on" id="pd1"></div>
+    <div class="pdot" id="pd2"></div>
+    <div class="pdot" id="pd3"></div>
+    <div class="pdot" id="pd4"></div>
+    <div class="pdot" id="pd5"></div>
+  </div>
+</div>
+
+<script>
+const urlStr = 'https://pilates-tlv.co.il/';
+function show(id){const el=document.getElementById(id);if(el)el.classList.add('show');}
+function hide(id){const el=document.getElementById(id);if(el)el.classList.remove('show');}
+function fade(id,on){const el=document.getElementById(id);if(el)el.style.opacity=on?'1':'0';}
+function delay(ms){return new Promise(r=>setTimeout(r,ms));}
+
+function setStep(n){
+  for(let i=1;i<=5;i++){
+    const s=document.getElementById('s'+i);
+    const t=document.getElementById('tb'+i);
+    const p=document.getElementById('pd'+i);
+    if(s)s.className='step'+(i===n?' on':'');
+    if(t)t.className='tab'+(i===n?' active':'');
+    if(p)p.className='pdot'+(i===n?' on':'');
+  }
+}
+
+function typeUrl(){return new Promise(resolve=>{
+  const el=document.getElementById('urlF');
+  let pos=0;
+  function tick(){
+    el.innerHTML=urlStr.slice(0,pos)+'<span class="cursor-blink"></span>';
+    pos++;
+    if(pos<=urlStr.length) setTimeout(tick,pos<8?100:55);
+    else{el.innerHTML=urlStr;resolve();}
+  }
+  tick();
+});}
+
+async function runLoop(){
+  while(true){
+    setStep(1);
+    ['lr1','lr2','lr3','saved',
+     'r1','r2','r3','r4','r5',
+     'sc1','sc2','sc3',
+     'zm1','zm2','zm3','zm4','uq1',
+     'wb1','wb2','wb3',
+     'zm5a','zm5b'].forEach(hide);
+    ['lbl2','lbl3','lbl4','sopts1'].forEach(id=>fade(id,false));
+    document.getElementById('urlF').innerHTML='<span class="cursor-blink"></span>';
+
+    await delay(600);
+    await typeUrl();
+    await delay(400);
+    await delay(1200);
+    show('lr1'); await delay(250);
+    show('lr2'); await delay(250);
+    show('lr3'); await delay(250);
+    show('saved');
+    await delay(2000);
+
+    setStep(2);
+    await delay(300);
+    show('r1'); await delay(220);
+    show('r2'); await delay(220);
+    show('r3'); await delay(220);
+    show('r4'); await delay(220);
+    show('r5');
+    await delay(2500);
+
+    setStep(3);
+    await delay(300);
+    show('sc1'); await delay(250);
+    show('sc2'); await delay(250);
+    show('sc3');
+    await delay(2500);
+
+    setStep(4);
+    await delay(400);
+    show('zm1');
+    await delay(2000);
+
+    fade('lbl2',true); await delay(300);
+    show('zm2'); await delay(800);
+    fade('sopts1',true);
+    await delay(2000);
+
+    fade('lbl3',true); await delay(300);
+    show('uq1'); await delay(700);
+    show('zm3');
+    await delay(2000);
+
+    fade('lbl4',true); await delay(300);
+    show('zm4'); await delay(700);
+    show('wb1'); await delay(220);
+    show('wb2'); await delay(220);
+    show('wb3');
+    await delay(2500);
+
+    setStep(5);
+    await delay(300);
+    show('zm5a'); await delay(900);
+    show('zm5b');
+    await delay(2500);
+  }
+}
+
+runLoop();
+</script>
