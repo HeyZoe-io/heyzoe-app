@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
@@ -42,7 +42,7 @@ export default async function ConversationsPage({ params }: Props) {
     const admin = createSupabaseAdminClient();
     const accessible = await loadAccessibleBusinesses(admin, user.user.id);
     const business = pickBusinessBySlug(accessible, normDashboardSlug(slug)) as DashboardBizRow | null;
-    if (!business) redirect("/dashboard");
+    if (!business) notFound();
 
     const [{ data: messages }, { data: pausedRows }] = await Promise.all([
       admin
