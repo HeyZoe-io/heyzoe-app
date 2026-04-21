@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveAdminAllowedEmail,
   resolveSupabaseAnonKey,
@@ -20,6 +21,16 @@ function redirectToDashboardLogin(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+function neutralNotFoundResponse() {
+  return new NextResponse(
+    `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>404</title></head><body style="margin:0;font-family:Arial,sans-serif;background:#fff;color:#18181b"><main style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center"><div><p style="margin:0;color:#a1a1aa;font-size:12px;font-weight:600;letter-spacing:.2em">404</p><h1 style="margin:16px 0 0;font-size:32px;line-height:1.2">העמוד לא נמצא</h1><p style="margin:12px 0 0;color:#71717a;font-size:14px;line-height:1.7">הכתובת שאליה ניסית להגיע אינה זמינה.</p></div></main></body></html>`,
+    {
+      status: 404,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    }
+  );
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   // Public auth callback pages (Supabase redirects here)
@@ -31,6 +42,24 @@ export async function middleware(req: NextRequest) {
     /^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname);
   if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
     return NextResponse.next();
+
+  if (isOwnerSlugPath) {
+    try {
+      const match = pathname.match(/^\/([^/]+)\/(analytics|conversations|contacts|settings)\/?$/);
+      const slug = match?.[1] ?? "";
+      if (slug) {
+        const admin = createSupabaseAdminClient();
+        const { data: business } = await admin
+          .from("businesses")
+          .select("id")
+          .eq("slug", slug)
+          .maybeSingle();
+        if (!business) return neutralNotFoundResponse();
+      }
+    } catch {
+      // If this validation fails, continue to the usual auth flow.
+    }
+  }
 
   const res = NextResponse.next({ request: { headers: req.headers } });
   const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {

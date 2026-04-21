@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
@@ -85,7 +85,7 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
     .eq("slug", slug)
     .maybeSingle();
 
-  if (!biz) redirect("/dashboard/settings");
+  if (!biz) notFound();
 
   const isOwner = String(biz.user_id) === user.user.id;
   if (!isOwner) {
