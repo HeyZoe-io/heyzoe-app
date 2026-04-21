@@ -38,6 +38,17 @@ function buildOwnerHelpSystemPrompt(input: {
 סגנון:
 - עברית בלבד, קצר וברור, בלי Markdown.
 - דברי בגוף ראשון רבים ("אצלנו", "אפשר לעשות") כדי להישמע כמו מוצר.
+- אל תמציאי שמות של מסכים, טאבים או אזורים שלא ידועים לך בוודאות. אסור לכתוב "הגדרות בוט", "ניהול בוט", "תסריט שיחה" או שמות דומים אלא אם הם קיימים במפורש במבנה הניווט הידוע.
+- אם נשאלים "איפה עורכים את השיחה של הבוט עם הליד?" או שאלה דומה על עריכת זרימת השיחה מול לידים, התשובה הנכונה היא: בעמוד "מסלול מכירה".
+
+מבנה ניווט ידוע בדשבורד העסק:
+- "אנליטיקס"
+- "שיחות"
+- "אנשי קשר"
+- "מסלול מכירה"
+
+ידע ניווטי ידוע:
+- עריכת השיחה של הבוט מול הליד, השאלות, התגובות וה-flow נעשית בעמוד "מסלול מכירה".
 
 הקשר עסקי (לרקע, לא לחשוף פרטי לקוחות):
 עסק: ${input.slug}
@@ -85,6 +96,12 @@ export async function POST(req: NextRequest) {
   const threadId = body?.thread_id != null ? Number(body.thread_id) : null;
   if (!slug) return NextResponse.json({ error: "missing_slug" }, { status: 400 });
   if (!message) return NextResponse.json({ error: "missing_message" }, { status: 400 });
+
+  const normalizedMessage = message
+    .toLowerCase()
+    .replace(/[?.,!]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   const apiKey = resolveClaudeApiKey();
   if (!apiKey) return NextResponse.json({ error: "missing_ai_key" }, { status: 500 });
@@ -166,6 +183,42 @@ export async function POST(req: NextRequest) {
     .from("support_requests")
     .update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() } as any)
     .eq("id", requestId);
+
+  // Deterministic support answers for core dashboard navigation to avoid hallucinated screen names.
+  const asksWhereToEditBotConversation =
+    (normalizedMessage.includes("איך עורכים") ||
+      normalizedMessage.includes("איפה עורכים") ||
+      normalizedMessage.includes("איך משנים") ||
+      normalizedMessage.includes("איפה משנים")) &&
+    (normalizedMessage.includes("השיחה של הבוט") ||
+      normalizedMessage.includes("תסריט השיחה") ||
+      normalizedMessage.includes("השיחה מול הליד") ||
+      normalizedMessage.includes("שיחה עם הליד") ||
+      normalizedMessage.includes("flow") ||
+      normalizedMessage.includes("פלואו"));
+
+  if (asksWhereToEditBotConversation) {
+    const clean =
+      'את השיחה של הבוט מול הליד עורכים בעמוד "מסלול מכירה". שם אפשר לעדכן את ה-flow, השאלות וההודעות שהבוט שולח ללידים.';
+    await admin.from("support_request_messages").insert({
+      request_id: requestId,
+      role: "assistant",
+      content: clean,
+      model_used: "owner_help_deterministic_navigation",
+    });
+    await admin
+      .from("support_requests")
+      .update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() } as any)
+      .eq("id", requestId);
+
+    return NextResponse.json({
+      ok: true,
+      thread_id: requestId,
+      reply: clean,
+      needs_human: false,
+      suggested_phone: typeof user.user_metadata?.phone === "string" ? String(user.user_metadata.phone).trim() : "",
+    });
+  }
 
   // Build prompt + history.
   const knowledge = await getBusinessKnowledgePack(slug);
