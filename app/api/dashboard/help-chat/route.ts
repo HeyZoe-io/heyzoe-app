@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
-import { resolveClaudeApiKey, sleepMs } from "@/lib/claude";
+import { CLAUDE_CHAT_MODEL, resolveClaudeApiKey, sleepMs } from "@/lib/claude";
 import { extractErrorCode } from "@/lib/analytics";
 
 export const runtime = "nodejs";
@@ -61,6 +61,14 @@ function redactIfNeeded(text: string): string {
   return t;
 }
 
+function isMissingSupportSchemaError(message: string): boolean {
+  const m = String(message ?? "").toLowerCase();
+  return (
+    (m.includes("support_requests") || m.includes("support_request_messages")) &&
+    (m.includes("does not exist") || m.includes("relation") || m.includes("schema cache"))
+  );
+}
+
 async function requireUser(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
@@ -103,11 +111,20 @@ export async function POST(req: NextRequest) {
   if (requestId != null && !Number.isFinite(requestId)) requestId = null;
 
   if (requestId != null) {
-    const { data: existing } = await admin
+    const { data: existing, error: existingErr } = await admin
       .from("support_requests")
       .select("id, user_id, business_slug")
       .eq("id", requestId)
       .maybeSingle();
+    if (existingErr) {
+      if (isMissingSupportSchemaError(existingErr.message)) {
+        return NextResponse.json(
+          { error: "support_schema_missing", message: "חסרות טבלאות התמיכה. צריך להריץ את המיגרציה `supabase/support_requests.sql`." },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ error: "thread_lookup_failed", message: existingErr.message }, { status: 500 });
+    }
     if (!existing || String(existing.user_id) !== user.id || String(existing.business_slug) !== slug) {
       return NextResponse.json({ error: "thread_not_found" }, { status: 404 });
     }
@@ -117,17 +134,34 @@ export async function POST(req: NextRequest) {
       .insert({ user_id: user.id, business_slug: slug })
       .select("id")
       .maybeSingle();
-    if (error || !created?.id) return NextResponse.json({ error: "failed_to_create_thread" }, { status: 500 });
+    if (error || !created?.id) {
+      if (isMissingSupportSchemaError(error?.message ?? "")) {
+        return NextResponse.json(
+          { error: "support_schema_missing", message: "חסרות טבלאות התמיכה. צריך להריץ את המיגרציה `supabase/support_requests.sql`." },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ error: "failed_to_create_thread", message: error?.message ?? "" }, { status: 500 });
+    }
     requestId = Number(created.id);
   }
 
   // Persist owner message.
-  await admin.from("support_request_messages").insert({
+  const { error: ownerMsgErr } = await admin.from("support_request_messages").insert({
     request_id: requestId,
     role: "owner",
     content: message,
     model_used: "owner_help",
   });
+  if (ownerMsgErr) {
+    if (isMissingSupportSchemaError(ownerMsgErr.message)) {
+      return NextResponse.json(
+        { error: "support_schema_missing", message: "חסרות טבלאות התמיכה. צריך להריץ את המיגרציה `supabase/support_requests.sql`." },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ error: "failed_to_store_message", message: ownerMsgErr.message }, { status: 500 });
+  }
   await admin
     .from("support_requests")
     .update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() } as any)
@@ -165,7 +199,7 @@ export async function POST(req: NextRequest) {
   let errorCode: string | null = null;
   try {
     const response = await client.messages.create({
-      model: "claude-3-5-sonnet-latest",
+      model: CLAUDE_CHAT_MODEL,
       max_tokens: 700,
       system,
       messages: history,
@@ -191,7 +225,7 @@ export async function POST(req: NextRequest) {
     request_id: requestId,
     role: "assistant",
     content: clean,
-    model_used: "claude-3-5-sonnet-latest",
+    model_used: CLAUDE_CHAT_MODEL,
     error_code: errorCode,
   });
   await admin

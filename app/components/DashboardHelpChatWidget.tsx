@@ -68,9 +68,18 @@ export default function DashboardHelpChatWidget({ slug }: { slug: string }) {
       });
       const j = (await res.json().catch(() => null)) as any;
       if (!res.ok || !j?.ok) {
+        const serverMsg =
+          typeof j?.message === "string" && j.message.trim()
+            ? j.message.trim()
+            : typeof j?.error === "string" && j.error.trim()
+              ? j.error.trim()
+              : "";
         setRows((prev) => [
           ...prev,
-          { role: "assistant", content: "הייתה בעיה בשליחת ההודעה. אפשר לנסות שוב." },
+          {
+            role: "assistant",
+            content: serverMsg || "הייתה בעיה בשליחת ההודעה. אפשר לנסות שוב.",
+          },
         ]);
         return;
       }
