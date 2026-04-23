@@ -84,6 +84,7 @@ function OnboardingContent() {
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [showPassword, setShowPassword] = useState(false);
 
   const [form, setForm] = useState<FormData>({
     first_name: "",
@@ -351,15 +352,44 @@ function OnboardingContent() {
 
               <div style={{ marginBottom: "28px" }}>
                 <label style={labelStyle}>סיסמה</label>
-                <input
-                  style={{ ...inputStyle, borderColor: errors.password ? "#e24b4a" : "#e8e4f8" }}
-                  value={form.password}
-                  onChange={(e) => update("password", e.target.value)}
-                  placeholder="לפחות 8 תווים"
-                  type="password"
-                  name="password"
-                  autoComplete="new-password"
-                />
+                <div style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+                    onClick={() => setShowPassword((v) => !v)}
+                    style={{
+                      position: "absolute",
+                      left: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      padding: "6px",
+                      color: "#6b5b9a",
+                      lineHeight: 0,
+                    }}
+                  >
+                    {showPassword ? (
+                      <span style={{ fontSize: "14px" }}>🙈</span>
+                    ) : (
+                      <span style={{ fontSize: "14px" }}>👁️</span>
+                    )}
+                  </button>
+                  <input
+                    style={{
+                      ...inputStyle,
+                      paddingLeft: "44px",
+                      borderColor: errors.password ? "#e24b4a" : "#e8e4f8",
+                    }}
+                    value={form.password}
+                    onChange={(e) => update("password", e.target.value)}
+                    placeholder="לפחות 8 תווים"
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    autoComplete="new-password"
+                  />
+                </div>
                 <div style={{ marginTop: "6px", fontSize: "12px", color: "#8b7aaa", lineHeight: 1.5 }}>
                   לפחות 8 תווים, כולל אות ומספר.
                 </div>
