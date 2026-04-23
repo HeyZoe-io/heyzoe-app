@@ -103,6 +103,13 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
+    console.info("[api/icount-ipn] inbound:", {
+      email,
+      custom,
+      has_session: Boolean(sessionRow),
+      session_plan: sessionRow?.plan ?? null,
+    });
+
     // מניעת כפילויות: אם משתמש כבר קיים — לא עושים כלום
     try {
       const { data: existingAuth } = await admin
@@ -112,6 +119,7 @@ export async function POST(req: NextRequest) {
         .eq("email", email)
         .maybeSingle();
       if (existingAuth?.id) {
+        console.info("[api/icount-ipn] already_exists:", { email, user_id: existingAuth.id });
         return NextResponse.json({ ok: true });
       }
     } catch {
@@ -145,6 +153,8 @@ export async function POST(req: NextRequest) {
     const plan =
       (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
 
+    console.info("[api/icount-ipn] creating_business:", { email, slug, plan });
+
     const { data: insertedBiz, error: bizError } = await admin
       .from("businesses")
       .insert({
@@ -171,6 +181,12 @@ export async function POST(req: NextRequest) {
     await admin
       .from("payment_sessions")
       .insert({ email, slug: insertedBiz.slug, ready: true } as any);
+
+    console.info("[api/icount-ipn] ready:", {
+      email,
+      slug: insertedBiz.slug,
+      business_id: insertedBiz.id,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
