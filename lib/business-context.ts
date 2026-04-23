@@ -161,6 +161,14 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
           .join("\n")
       : "אין שירותים מוגדרים.";
 
+    const firstServicePaymentLink =
+      (services ?? [])
+        .map((s) => {
+          const meta = parseServiceMeta(String(s.description ?? ""));
+          return String(meta.payment_link ?? "").trim();
+        })
+        .find(Boolean) ?? "";
+
     const faqsText = faqs?.length
       ? faqs.slice(0, 8).map((f, i) =>
           `${i + 1}. ש: ${truncateText(String(f.question ?? ""), 110)} | ת: ${truncateText(String(f.answer ?? ""), 150)}`
@@ -330,7 +338,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       serviceNamesForOpening,
       faqsText,
       ctaText: String(business.cta_text ?? ""),
-      ctaLink: String(business.cta_link ?? ""),
+      ctaLink: String(business.cta_link ?? "").trim() || firstServicePaymentLink,
       targetAudienceText: Array.isArray(social.target_audience) ? social.target_audience.join(", ") : "",
       benefitsText: Array.isArray(social.benefits) ? social.benefits.join(", ") : "",
       vibeText: vibeLabels.join(", "),

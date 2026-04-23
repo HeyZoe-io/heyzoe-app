@@ -204,6 +204,7 @@ type SfServiceRow = {
   benefit: string;
   priceText: string;
   durationText: string;
+  paymentLink: string;
   levelsEnabled: boolean;
   levels: string[];
 };
@@ -984,6 +985,7 @@ async function processIncoming(
                 benefit: String(meta.benefit_line ?? "").trim(),
                 priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
                 durationText: String(meta.duration ?? "").trim(),
+                paymentLink: String(meta.payment_link ?? "").trim(),
                 levelsEnabled: meta.levels_enabled === true,
                 levels: Array.isArray(meta.levels)
                   ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
@@ -994,6 +996,7 @@ async function processIncoming(
                 benefit: "",
                 priceText: String(s.price_text ?? "").trim(),
                 durationText: "",
+                paymentLink: "",
                 levelsEnabled: false,
                 levels: [],
               };
@@ -1442,8 +1445,20 @@ async function processIncoming(
         numericScope
       );
 
-      const trialUrl = knowledge.arboxLink?.trim() ?? "";
-      const scheduleUrl = (knowledge.schedulePublicUrl?.trim() || trialUrl).trim();
+      const selectedServiceName =
+        salesFlowServices.length === 1
+          ? salesFlowServices[0]!.name
+          : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+      const selectedService =
+        salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+      const trialUrl = (
+        selectedService?.paymentLink?.trim() ||
+        knowledge.ctaLink?.trim() ||
+        knowledge.arboxLink?.trim() ||
+        ""
+      ).trim();
+      const scheduleUrl = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
 
       const wantsTrialByFollow = follow[0] && waLabelMatches(incomingResolved, follow[0]);
       const wantsScheduleByFollow = follow[1] && waLabelMatches(incomingResolved, follow[1]);
