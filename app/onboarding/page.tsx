@@ -1,0 +1,463 @@
+"use client";
+
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+
+type Plan = "starter" | "pro";
+type Step = 1 | 2 | 3;
+
+interface FormData {
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email: string;
+  password: string;
+  studio_name: string;
+  business_type: string;
+  description: string;
+  address: string;
+}
+
+type FormErrors = Partial<Record<keyof FormData, string>>;
+
+const BUSINESS_TYPES = ["פילאטיס", "יוגה", "ג'ים", "קרוספיט", "אקרובטיקה", "ריקוד", "אחר"];
+
+const PLAN_INFO: Record<Plan, { name: string; price: string; desc: string }> = {
+  starter: { name: "Starter", price: "₪349/חודש", desc: "עד 100 שיחות בחודש" },
+  pro: { name: "Pro", price: "₪499/חודש", desc: "עד 500 שיחות בחודש" },
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "12px 16px",
+  fontSize: "15px",
+  border: "1.5px solid #e8e4f8",
+  borderRadius: "12px",
+  fontFamily: "Heebo, sans-serif",
+  direction: "rtl",
+  outline: "none",
+  background: "white",
+  color: "#1a0a3c",
+  transition: "border-color 0.2s",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: "13px",
+  fontWeight: "500",
+  color: "#6b5b9a",
+  marginBottom: "6px",
+  display: "block",
+};
+
+const btnPrimary: React.CSSProperties = {
+  width: "100%",
+  padding: "14px",
+  fontSize: "16px",
+  fontWeight: "600",
+  background: "linear-gradient(135deg, #7133da, #a855f7)",
+  color: "white",
+  border: "none",
+  borderRadius: "30px",
+  cursor: "pointer",
+  fontFamily: "Heebo, sans-serif",
+  transition: "transform 0.2s, box-shadow 0.2s",
+};
+
+function studioToSlug(input: string): string {
+  const slug = input
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || "business";
+}
+
+function OnboardingContent() {
+  const searchParams = useSearchParams();
+  const requestedPlan = (searchParams.get("plan") || "starter").toLowerCase();
+  const plan: Plan = requestedPlan === "pro" ? "pro" : "starter";
+
+  const [step, setStep] = useState<Step>(1);
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  const [loadingPayment, setLoadingPayment] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const [form, setForm] = useState<FormData>({
+    first_name: "",
+    last_name: "",
+    phone: "",
+    email: "",
+    password: "",
+    studio_name: "",
+    business_type: "",
+    description: "",
+    address: "",
+  });
+
+  const planInfo = PLAN_INFO[plan];
+
+  function update(field: keyof FormData, value: string) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => ({ ...prev, [field]: "" }));
+  }
+
+  function validateStep1() {
+    const e: FormErrors = {};
+    if (!form.first_name.trim()) e.first_name = "שדה חובה";
+    if (!form.last_name.trim()) e.last_name = "שדה חובה";
+    if (!form.phone.trim() || form.phone.replace(/\D/g, "").length < 9) e.phone = "מספר טלפון לא תקין";
+    if (!form.email.trim() || !form.email.includes("@")) e.email = "אימייל לא תקין";
+    if (!form.password || form.password.length < 8) e.password = "סיסמה חייבת להכיל לפחות 8 תווים";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  function validateStep2() {
+    const e: FormErrors = {};
+    if (!form.studio_name.trim()) e.studio_name = "שדה חובה";
+    if (!form.business_type) e.business_type = "נא לבחור סוג עסק";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function goToPayment() {
+    setLoadingPayment(true);
+    try {
+      const res = await fetch("/api/icount-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan,
+          email: form.email,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        throw new Error(typeof data?.error === "string" ? data.error : "checkout_failed");
+      }
+      setIframeUrl(String(data.url));
+      setStep(3);
+    } catch {
+      alert("שגיאה ביצירת דף תשלום, נסו שוב");
+    } finally {
+      setLoadingPayment(false);
+    }
+  }
+
+  useEffect(() => {}, []);
+
+  const progress = useMemo(() => (step === 1 ? 33 : step === 2 ? 66 : 100), [step]);
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: "40px 20px",
+        background: "#f5f3ff",
+      }}
+    >
+      <a href="/" style={{ marginBottom: "32px" }}>
+        <img src="/heyzoe-logo.png" alt="HeyZoe" style={{ height: "36px" }} />
+      </a>
+
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "480px",
+          background: "white",
+          borderRadius: "24px",
+          boxShadow: "0 8px 40px rgba(113,51,218,0.12)",
+          overflow: "hidden",
+        }}
+      >
+        {step < 3 ? (
+          <div style={{ height: "4px", background: "#f0edf8" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${progress}%`,
+                background: "linear-gradient(90deg, #7133da, #ff92ff)",
+                transition: "width 0.4s ease",
+              }}
+            />
+          </div>
+        ) : null}
+
+        <div style={{ padding: "32px 28px" }}>
+          {step < 3 ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "rgba(113,51,218,0.08)",
+                borderRadius: "20px",
+                padding: "4px 12px",
+                marginBottom: "20px",
+                fontSize: "12px",
+                color: "#7133da",
+                fontWeight: "600",
+              }}
+            >
+              חבילת {planInfo.name} - {planInfo.price}
+            </div>
+          ) : null}
+
+          {step === 1 ? (
+            <div>
+              <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#1a0a3c", marginBottom: "4px" }}>
+                נתחיל עם פרטים אישיים
+              </h2>
+              <p style={{ fontSize: "14px", color: "#8b7aaa", marginBottom: "24px" }}>
+                כך נדע עם מי אנחנו עובדים
+              </p>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "12px",
+                  marginBottom: "16px",
+                }}
+              >
+                <div>
+                  <label style={labelStyle}>שם פרטי</label>
+                  <input
+                    style={{ ...inputStyle, borderColor: errors.first_name ? "#e24b4a" : "#e8e4f8" }}
+                    value={form.first_name}
+                    onChange={(e) => update("first_name", e.target.value)}
+                    placeholder="ישראל"
+                  />
+                  {errors.first_name ? (
+                    <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.first_name}</span>
+                  ) : null}
+                </div>
+                <div>
+                  <label style={labelStyle}>שם משפחה</label>
+                  <input
+                    style={{ ...inputStyle, borderColor: errors.last_name ? "#e24b4a" : "#e8e4f8" }}
+                    value={form.last_name}
+                    onChange={(e) => update("last_name", e.target.value)}
+                    placeholder="ישראלי"
+                  />
+                  {errors.last_name ? (
+                    <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.last_name}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={labelStyle}>טלפון</label>
+                <input
+                  style={{ ...inputStyle, borderColor: errors.phone ? "#e24b4a" : "#e8e4f8" }}
+                  value={form.phone}
+                  onChange={(e) => update("phone", e.target.value)}
+                  placeholder="050-0000000"
+                  type="tel"
+                />
+                {errors.phone ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.phone}</span> : null}
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={labelStyle}>אימייל</label>
+                <input
+                  style={{ ...inputStyle, borderColor: errors.email ? "#e24b4a" : "#e8e4f8" }}
+                  value={form.email}
+                  onChange={(e) => update("email", e.target.value)}
+                  placeholder="israel@studio.co.il"
+                  type="email"
+                />
+                {errors.email ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.email}</span> : null}
+              </div>
+
+              <div style={{ marginBottom: "28px" }}>
+                <label style={labelStyle}>סיסמה</label>
+                <input
+                  style={{ ...inputStyle, borderColor: errors.password ? "#e24b4a" : "#e8e4f8" }}
+                  value={form.password}
+                  onChange={(e) => update("password", e.target.value)}
+                  placeholder="לפחות 8 תווים"
+                  type="password"
+                />
+                {errors.password ? (
+                  <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.password}</span>
+                ) : null}
+              </div>
+
+              <button
+                style={btnPrimary}
+                onClick={() => {
+                  if (validateStep1()) setStep(2);
+                }}
+              >
+                המשך
+              </button>
+            </div>
+          ) : null}
+
+          {step === 2 ? (
+            <div>
+              <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#1a0a3c", marginBottom: "4px" }}>
+                ספרו לנו על הסטודיו
+              </h2>
+              <p style={{ fontSize: "14px", color: "#8b7aaa", marginBottom: "24px" }}>
+                זואי תשתמש בפרטים האלה כדי להציג את עצמה
+              </p>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={labelStyle}>שם הסטודיו</label>
+                <input
+                  style={{ ...inputStyle, borderColor: errors.studio_name ? "#e24b4a" : "#e8e4f8" }}
+                  value={form.studio_name}
+                  onChange={(e) => update("studio_name", e.target.value)}
+                  placeholder="סטודיו X"
+                />
+                {errors.studio_name ? (
+                  <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.studio_name}</span>
+                ) : null}
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={labelStyle}>סוג עסק</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {BUSINESS_TYPES.map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => update("business_type", type)}
+                      style={{
+                        padding: "7px 16px",
+                        borderRadius: "20px",
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        fontFamily: "Heebo, sans-serif",
+                        border:
+                          form.business_type === type ? "2px solid #7133da" : "1.5px solid #e8e4f8",
+                        background:
+                          form.business_type === type ? "rgba(113,51,218,0.08)" : "white",
+                        color: form.business_type === type ? "#7133da" : "#555",
+                        fontWeight: form.business_type === type ? "600" : "400",
+                      }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+                {errors.business_type ? (
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "#e24b4a",
+                      marginTop: "4px",
+                      display: "block",
+                    }}
+                  >
+                    {errors.business_type}
+                  </span>
+                ) : null}
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={labelStyle}>תיאור קצר (אופציונלי)</label>
+                <textarea
+                  style={{ ...inputStyle, height: "80px", resize: "none" }}
+                  value={form.description}
+                  onChange={(e) => update("description", e.target.value)}
+                  placeholder="סטודיו פילאטיס בוטיק במרכז תל אביב..."
+                />
+              </div>
+
+              <div style={{ marginBottom: "28px" }}>
+                <label style={labelStyle}>כתובת (אופציונלי)</label>
+                <input
+                  style={inputStyle}
+                  value={form.address}
+                  onChange={(e) => update("address", e.target.value)}
+                  placeholder="רחוב, עיר"
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  onClick={() => setStep(1)}
+                  style={{
+                    ...btnPrimary,
+                    background: "transparent",
+                    color: "#7133da",
+                    border: "2px solid #7133da",
+                    width: "80px",
+                    flexShrink: 0,
+                  }}
+                >
+                  חזרה
+                </button>
+                <button
+                  style={btnPrimary}
+                  onClick={() => {
+                    if (validateStep2()) void goToPayment();
+                  }}
+                  disabled={loadingPayment}
+                >
+                  {loadingPayment ? "מכין תשלום..." : "המשך לתשלום"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {step === 3 ? (
+            <div>
+              <div style={{ textAlign: "center", marginBottom: "20px" }}>
+                <h2 style={{ fontSize: "20px", fontWeight: "700", color: "#1a0a3c", marginBottom: "4px" }}>
+                  שלב אחרון - תשלום
+                </h2>
+                <div
+                  style={{
+                    display: "inline-block",
+                    background: "rgba(53,255,112,0.12)",
+                    border: "1px solid rgba(53,255,112,0.4)",
+                    borderRadius: "20px",
+                    padding: "4px 14px",
+                    fontSize: "12px",
+                    color: "#1a6b35",
+                    fontWeight: "600",
+                  }}
+                >
+                  7 ימים ראשונים חינם - ביטול בכל עת
+                </div>
+              </div>
+
+              {iframeUrl ? (
+                <iframe
+                  src={iframeUrl}
+                  style={{ width: "100%", height: "560px", border: "none", borderRadius: "12px" }}
+                  title="דף תשלום מאובטח"
+                />
+              ) : (
+                <div style={{ textAlign: "center", padding: "60px 0", color: "#8b7aaa" }}>
+                  טוען דף תשלום...
+                </div>
+              )}
+
+              <div style={{ textAlign: "center", marginTop: "12px", fontSize: "12px", color: "#aaa" }}>
+                🔒 תשלום מאובטח דרך iCount
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense>
+      <OnboardingContent />
+    </Suspense>
+  );
+}
+
