@@ -3,6 +3,8 @@ import { truncateTrialServiceName } from "@/lib/trial-service";
 import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { resolveClaudeApiKey } from "@/lib/server-env";
+import dns from "dns/promises";
+import net from "net";
 import {
   CLAUDE_FETCH_SITE_MODEL,
   CLAUDE_FETCH_SITE_MAX_TOKENS,
@@ -99,6 +101,53 @@ function normalizeWebsiteUrl(input: string): string {
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   return `https://${raw}`;
+}
+
+function isPrivateIp(ip: string): boolean {
+  if (!net.isIP(ip)) return false;
+  // IPv6 loopback / link-local / unique local
+  if (ip === "::1") return true;
+  if (ip.toLowerCase().startsWith("fc") || ip.toLowerCase().startsWith("fd")) return true;
+  if (ip.toLowerCase().startsWith("fe80:")) return true;
+
+  const parts = ip.split(".").map((x) => Number(x));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return false;
+  const [a, b] = parts;
+  if (a === 127) return true;
+  if (a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true; // link-local incl. metadata
+  if (a === 0) return true;
+  return false;
+}
+
+async function assertSafePublicUrl(input: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  let u: URL;
+  try {
+    u = new URL(input);
+  } catch {
+    return { ok: false, error: "invalid_url" };
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, error: "invalid_protocol" };
+  // Prefer https to reduce MITM surface (allow http only for now)
+  const host = u.hostname;
+  if (!host) return { ok: false, error: "invalid_host" };
+  if (host === "localhost" || host.endsWith(".localhost")) return { ok: false, error: "blocked_host" };
+
+  // Block credentials in URL (user:pass@host)
+  if (u.username || u.password) return { ok: false, error: "blocked_credentials" };
+
+  // DNS resolution guard against internal networks
+  try {
+    const addrs = await dns.lookup(host, { all: true });
+    if (!addrs.length) return { ok: false, error: "dns_failed" };
+    if (addrs.some((a) => isPrivateIp(a.address))) return { ok: false, error: "blocked_private_ip" };
+  } catch {
+    return { ok: false, error: "dns_failed" };
+  }
+
+  return { ok: true, url: u.toString() };
 }
 
 function scoreBookingUrl(url: string): number {
@@ -347,7 +396,15 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { website_url, business_name, niche } = await req.json();
-  const url = normalizeWebsiteUrl(String(website_url ?? ""));
+  const normalized = normalizeWebsiteUrl(String(website_url ?? ""));
+  const safe = await assertSafePublicUrl(normalized);
+  if (!safe.ok) {
+    return NextResponse.json(
+      { error: "unsafe_website_url", message: "כתובת האתר אינה נתמכת לסריקה אוטומטית. אנא הזן כתובת ציבורית תקינה." },
+      { status: 400 }
+    );
+  }
+  const url = safe.url;
   if (!url) return NextResponse.json({ error: "missing_website_url" }, { status: 400 });
 
   let pageText = "";

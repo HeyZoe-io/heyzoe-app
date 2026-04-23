@@ -110,7 +110,10 @@ function buildFollowupBody(ctaText: string, ctaLink: string): string {
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
   if (!secret) {
-    console.warn("[cron/followup] CRON_SECRET not set — allowing request (set CRON_SECRET in production)");
+    // In production this must be protected; in dev allow convenience.
+    const isProd = process.env.NODE_ENV === "production";
+    if (isProd) return false;
+    console.warn("[cron/followup] CRON_SECRET not set — allowing request in dev only");
     return true;
   }
   const auth = req.headers.get("authorization") ?? "";
