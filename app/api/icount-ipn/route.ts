@@ -120,7 +120,9 @@ export async function POST(req: NextRequest) {
 
     const passwordCipher = String(sessionRow?.password_ciphertext ?? "").trim();
     const password = passwordCipher ? decryptPaymentSessionSecret(passwordCipher) : "";
-    if (!password || password.length < 8) {
+    const hasLetter = /[a-zA-Zא-ת]/.test(password);
+    const hasDigit = /\d/.test(password);
+    if (!password || password.length < 8 || !hasLetter || !hasDigit) {
       console.warn("[api/icount-ipn] missing password session for email:", email);
       return NextResponse.json({ ok: true });
     }

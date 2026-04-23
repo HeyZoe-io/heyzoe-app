@@ -111,7 +111,12 @@ function OnboardingContent() {
     if (!form.last_name.trim()) e.last_name = "שדה חובה";
     if (!form.phone.trim() || form.phone.replace(/\D/g, "").length < 9) e.phone = "מספר טלפון לא תקין";
     if (!form.email.trim() || !form.email.includes("@")) e.email = "אימייל לא תקין";
-    if (!form.password || form.password.length < 8) e.password = "סיסמה חייבת להכיל לפחות 8 תווים";
+    const pw = String(form.password || "");
+    const hasLetter = /[a-zA-Zא-ת]/.test(pw);
+    const hasDigit = /\d/.test(pw);
+    if (!pw || pw.length < 8 || !hasLetter || !hasDigit) {
+      e.password = "סיסמה חייבת להכיל לפחות 8 תווים, כולל אות ומספר";
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -343,7 +348,7 @@ function OnboardingContent() {
                   autoComplete="new-password"
                 />
                 <div style={{ marginTop: "6px", fontSize: "12px", color: "#8b7aaa", lineHeight: 1.5 }}>
-                  לפחות 8 תווים.
+                  לפחות 8 תווים, כולל אות ומספר.
                 </div>
                 {errors.password ? (
                   <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.password}</span>
