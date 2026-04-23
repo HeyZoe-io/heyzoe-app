@@ -35,7 +35,11 @@ export async function POST(req: NextRequest) {
     const resolvedPlan = plan === "pro" ? "pro" : "starter";
 
     const pw = String(password ?? "");
-    if (pw.length < 8) return NextResponse.json({ error: "weak_password" }, { status: 400 });
+    const hasLetter = /[a-zA-Zא-ת]/.test(pw);
+    const hasDigit = /\d/.test(pw);
+    if (pw.length < 8 || !hasLetter || !hasDigit) {
+      return NextResponse.json({ error: "weak_password" }, { status: 400 });
+    }
 
     const admin = createSupabaseAdminClient();
 
