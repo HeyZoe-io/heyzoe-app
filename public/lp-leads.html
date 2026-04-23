@@ -69,9 +69,11 @@ nav{
   background:rgba(113,51,218,0.06);border:1px solid rgba(113,51,218,0.13);
   border-radius:30px;padding:7px 22px;
 }
-.hero-pain p:last-child{
-  background:none;border:none;padding:2px 0;
-  font-size:13px;opacity:0.5;font-style:italic;margin-top:4px;
+.hero-punchline{
+  font-family:'Fredoka',sans-serif;
+  font-size:clamp(20px,2.8vw,30px);font-weight:600;
+  color:var(--dark);margin-bottom:32px;
+  animation:fadeUp 0.6s 0.12s ease both;
 }
 
 .hero-tagline{
@@ -367,12 +369,11 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <!-- HERO -->
 <section class="hero">
   <div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div>
-  <div class="hero-badge"><span class="badge-dot"></span>בוטית מכירות מומחית לעסקי כושר</div>
   <div class="hero-pain">
     <p>😓 עדיין רודפים טלפונית אחר לידים?</p>
     <p>😓 מתרוצצים בין ספקי אוטומציה ומערכות מסובכות?</p>
-    <p>את הדופק הגבוה - כדאי שתשמרו לאימון.</p>
   </div>
+  <div class="hero-punchline">את הדופק הגבוה - כדאי שתשמרו לאימון.</div>
   <h1 style="font-family:'Fredoka',sans-serif;font-size:clamp(32px,5.5vw,62px);font-weight:700;color:var(--dark);line-height:1.15;margin-bottom:8px;animation:fadeUp 0.6s 0.2s ease both;">הכירו את <span style="background:linear-gradient(135deg,var(--purple),var(--pink));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Hey Zoe</span></h1>
   <p style="font-family:'Fredoka',sans-serif;font-size:clamp(18px,3vw,30px);font-weight:500;color:var(--muted);margin-bottom:10px;animation:fadeUp 0.6s 0.28s ease both;">בוטית מכירות ספורטיבית לוואטסאפ</p>
   <div class="hero-tagline2">לתהליך מכירה פשוט, מהיר ושלם.</div>
