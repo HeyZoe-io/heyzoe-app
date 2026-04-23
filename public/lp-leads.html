@@ -61,10 +61,18 @@ nav{
 .hero-logo img{height:54px;object-fit:contain;}
 
 .hero-pain{
-  display:flex;flex-direction:column;gap:5px;
-  margin-bottom:28px;animation:fadeUp 0.6s 0.1s ease both;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  margin-bottom:36px;animation:fadeUp 0.6s 0.05s ease both;
 }
-.hero-pain p{font-size:15px;color:var(--text);opacity:0.7;}
+.hero-pain p{
+  font-size:15px;color:var(--text);opacity:0.85;
+  background:rgba(113,51,218,0.06);border:1px solid rgba(113,51,218,0.13);
+  border-radius:30px;padding:7px 22px;
+}
+.hero-pain p:last-child{
+  background:none;border:none;padding:2px 0;
+  font-size:13px;opacity:0.5;font-style:italic;margin-top:4px;
+}
 
 .hero-tagline{
   font-family:'Fredoka',sans-serif;
@@ -78,7 +86,7 @@ nav{
   font-size:clamp(22px,3.3vw,34px);font-weight:700;
   background:linear-gradient(135deg,var(--purple),var(--pink));
   background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  margin-bottom:28px;animation:fadeUp 0.6s 0.2s ease both;
+  margin-bottom:28px;animation:fadeUp 0.6s 0.35s ease both;
 }
 
 .hero-cta-row{
@@ -360,14 +368,13 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <section class="hero">
   <div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div>
   <div class="hero-badge"><span class="badge-dot"></span>בוטית מכירות מומחית לעסקי כושר</div>
-  <h1 style="font-family:'Fredoka',sans-serif;font-size:clamp(32px,5.5vw,62px);font-weight:700;color:var(--dark);line-height:1.15;margin-bottom:8px;animation:fadeUp 0.6s 0.08s ease both;">הכירו את <span style="background:linear-gradient(135deg,var(--purple),var(--pink));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Hey Zoe</span></h1>
-  <p style="font-family:'Fredoka',sans-serif;font-size:clamp(18px,3vw,30px);font-weight:500;color:var(--muted);margin-bottom:22px;animation:fadeUp 0.6s 0.12s ease both;">בוטית מכירות ספורטיבית לוואטסאפ</p>
   <div class="hero-pain">
     <p>😓 עדיין רודפים טלפונית אחר לידים?</p>
     <p>😓 מתרוצצים בין ספקי אוטומציה ומערכות מסובכות?</p>
-    <p style="opacity:0.5;font-size:13px;margin-top:4px;">את הדופק הגבוה - כדאי שתשמרו לאימון.</p>
+    <p>את הדופק הגבוה - כדאי שתשמרו לאימון.</p>
   </div>
-  <div class="hero-tagline">צרפו את זואי לעסק</div>
+  <h1 style="font-family:'Fredoka',sans-serif;font-size:clamp(32px,5.5vw,62px);font-weight:700;color:var(--dark);line-height:1.15;margin-bottom:8px;animation:fadeUp 0.6s 0.2s ease both;">הכירו את <span style="background:linear-gradient(135deg,var(--purple),var(--pink));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Hey Zoe</span></h1>
+  <p style="font-family:'Fredoka',sans-serif;font-size:clamp(18px,3vw,30px);font-weight:500;color:var(--muted);margin-bottom:10px;animation:fadeUp 0.6s 0.28s ease both;">בוטית מכירות ספורטיבית לוואטסאפ</p>
   <div class="hero-tagline2">לתהליך מכירה פשוט, מהיר ושלם.</div>
   <div class="hero-cta-row">
     <a href="#pricing" class="btn-primary">בואו נתחיל!</a>
