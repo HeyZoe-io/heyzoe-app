@@ -15,9 +15,9 @@
 .card{background:white;border:0.5px solid #e8e4f8;border-radius:0 0 16px 16px;padding:20px;min-height:340px;}
 .step{display:none;}
 .step.on{display:block;}
-.step-hdr{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:6px;}
+.step-hdr{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin-bottom:6px;}
 .step-num{width:26px;height:26px;border-radius:50%;background:#f0e8ff;color:#7133da;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.step-title{font-size:16px;font-weight:600;color:#1a1a2e;}
+.step-title{font-size:16px;font-weight:600;color:#1a1a2e;text-align:right;}
 .step-sub{font-size:12px;color:#aaa;margin-bottom:14px;text-align:right;}
 .field-lbl{font-size:12px;color:#888;margin-bottom:5px;text-align:right;}
 .fg{margin-bottom:14px;}
@@ -41,15 +41,15 @@
 .svc-price{font-size:13px;color:#7133da;font-weight:600;}
 .zoe-lbl{font-size:11px;color:#7133da;font-weight:500;margin-bottom:5px;text-align:right;}
 .subsection-lbl{font-size:11px;color:#aaa;font-weight:500;margin:12px 0 6px;text-align:right;text-transform:uppercase;letter-spacing:0.4px;}
-.bubble{background:#f0e8ff;border-radius:4px 14px 14px 14px;padding:10px 14px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:88%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-end;text-align:right;direction:rtl;}
+.bubble{background:#f0e8ff;border-radius:14px 4px 14px 14px;padding:10px 14px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:88%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;text-align:right;direction:rtl;}
 .bubble.show{opacity:1;transform:translateY(0);}
-.user-bubble{background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:14px 4px 14px 14px;padding:9px 13px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:75%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-end;margin-right:0;margin-left:0;text-align:right;direction:rtl;}
+.user-bubble{background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:14px 4px 14px 14px;padding:9px 13px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:75%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;margin-right:0;margin-left:0;text-align:right;direction:rtl;}
 .user-bubble.show{opacity:1;transform:translateY(0);}
-.chat-wrap{display:flex;flex-direction:column;align-items:flex-end;}
-.wa-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;margin-bottom:4px;justify-content:flex-end;}
+.chat-wrap{display:flex;flex-direction:column;align-items:flex-start;}
+.wa-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;margin-bottom:4px;justify-content:flex-start;}
 .wa-btn{background:white;border:0.5px solid #c9b8f0;border-radius:20px;padding:6px 13px;font-size:12px;color:#7133da;opacity:0;transition:opacity 0.35s;}
 .wa-btn.show{opacity:1;}
-.seg-opts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px;}
+.seg-opts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-start;margin-top:6px;}
 .seg-opt{background:white;border:0.5px solid #ddd;border-radius:20px;padding:5px 12px;font-size:12px;color:#555;}
 .progress{display:flex;gap:6px;justify-content:center;margin-top:14px;}
 .pdot{width:7px;height:7px;border-radius:50%;background:#e0d8f8;transition:all 0.3s;}
@@ -109,7 +109,7 @@
       <div class="chat-wrap">
 
         <div class="subsection-lbl">סשן פתיחה</div>
-        <div class="bubble" id="zm1">היי! שמי זואי מסטודיו פילאטיס TLV 😊<br>נשמח לארח אותך אצלנו בדיזנגוף 84!<br>במה אוכל לעזור לך?</div>
+        <div class="bubble" id="zm1">היי! איזה כיף שהגעת אלינו 🙂<br>שמי זואי מ סטודיו פילאטיס TLV<br>סטודיו הפילאטיס הגדול בתל אביב<br>נשמח מאוד לארח אותך אצלנו!<br>כתובתנו היא דיזנגוף 84 תל אביב</div>
 
         <div class="subsection-lbl" id="lbl2" style="opacity:0;transition:opacity 0.4s;">סשן חימום</div>
         <div class="bubble" id="zm2">לפני שנתקדם, שאלה קטנה —<br>האם יצא לך לנסות פילאטיס בעבר?</div>
