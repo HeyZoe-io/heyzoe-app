@@ -14,6 +14,7 @@ interface FormData {
   password: string;
   studio_name: string;
   business_type: string;
+  business_type_other: string;
   description: string;
   address: string;
 }
@@ -92,6 +93,7 @@ function OnboardingContent() {
     password: "",
     studio_name: "",
     business_type: "",
+    business_type_other: "",
     description: "",
     address: "",
   });
@@ -118,6 +120,9 @@ function OnboardingContent() {
     const e: FormErrors = {};
     if (!form.studio_name.trim()) e.studio_name = "שדה חובה";
     if (!form.business_type) e.business_type = "נא לבחור סוג עסק";
+    if (form.business_type === "אחר" && !form.business_type_other.trim()) e.business_type_other = "שדה חובה";
+    if (!form.description.trim()) e.description = "שדה חובה";
+    if (!form.address.trim()) e.address = "שדה חובה";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -125,6 +130,45 @@ function OnboardingContent() {
   async function goToPayment() {
     setLoadingPayment(true);
     try {
+      const resolvedBusinessType =
+        form.business_type === "אחר" ? form.business_type_other.trim() : form.business_type.trim();
+
+      const emailRes = await fetch(
+        `/api/onboarding/email-status?email=${encodeURIComponent(form.email.trim())}`,
+        { method: "GET", cache: "no-store" }
+      );
+      const emailStatus = (await emailRes.json().catch(() => ({}))) as {
+        state?: string;
+        slug?: string | null;
+      };
+      if (emailStatus?.state === "existing_paying") {
+        const next = emailStatus.slug ? `/${emailStatus.slug}/analytics` : "/dashboard";
+        window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}&msg=${encodeURIComponent(
+          "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך."
+        )}`;
+        return;
+      }
+
+      const saveRes = await fetch("/api/onboarding/save-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan,
+          email: form.email,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone,
+          password: form.password,
+          studio_name: form.studio_name,
+          business_type: resolvedBusinessType,
+          description: form.description,
+          address: form.address,
+        }),
+      });
+      if (!saveRes.ok) {
+        throw new Error("save_session_failed");
+      }
+
       const res = await fetch("/api/icount-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -134,6 +178,7 @@ function OnboardingContent() {
           first_name: form.first_name,
           last_name: form.last_name,
           phone: form.phone,
+          custom: plan,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -235,6 +280,8 @@ function OnboardingContent() {
                     value={form.first_name}
                     onChange={(e) => update("first_name", e.target.value)}
                     placeholder="ישראל"
+                    name="first_name"
+                    autoComplete="given-name"
                   />
                   {errors.first_name ? (
                     <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.first_name}</span>
@@ -247,6 +294,8 @@ function OnboardingContent() {
                     value={form.last_name}
                     onChange={(e) => update("last_name", e.target.value)}
                     placeholder="ישראלי"
+                    name="last_name"
+                    autoComplete="family-name"
                   />
                   {errors.last_name ? (
                     <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.last_name}</span>
@@ -262,6 +311,8 @@ function OnboardingContent() {
                   onChange={(e) => update("phone", e.target.value)}
                   placeholder="050-0000000"
                   type="tel"
+                  name="phone"
+                  autoComplete="tel"
                 />
                 {errors.phone ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.phone}</span> : null}
               </div>
@@ -274,6 +325,8 @@ function OnboardingContent() {
                   onChange={(e) => update("email", e.target.value)}
                   placeholder="israel@studio.co.il"
                   type="email"
+                  name="email"
+                  autoComplete="email"
                 />
                 {errors.email ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.email}</span> : null}
               </div>
@@ -286,7 +339,12 @@ function OnboardingContent() {
                   onChange={(e) => update("password", e.target.value)}
                   placeholder="לפחות 8 תווים"
                   type="password"
+                  name="password"
+                  autoComplete="new-password"
                 />
+                <div style={{ marginTop: "6px", fontSize: "12px", color: "#8b7aaa", lineHeight: 1.5 }}>
+                  לפחות 8 תווים.
+                </div>
                 {errors.password ? (
                   <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.password}</span>
                 ) : null}
@@ -362,26 +420,51 @@ function OnboardingContent() {
                     {errors.business_type}
                   </span>
                 ) : null}
+                {form.business_type === "אחר" ? (
+                  <div style={{ marginTop: "12px" }}>
+                    <input
+                      style={{ ...inputStyle, borderColor: errors.business_type_other ? "#e24b4a" : "#e8e4f8" }}
+                      value={form.business_type_other}
+                      onChange={(e) => update("business_type_other", e.target.value)}
+                      placeholder="כתבו את סוג העסק"
+                      name="business_type_other"
+                      autoComplete="off"
+                    />
+                    {errors.business_type_other ? (
+                      <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.business_type_other}</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               <div style={{ marginBottom: "16px" }}>
-                <label style={labelStyle}>תיאור קצר (אופציונלי)</label>
+                <label style={labelStyle}>תיאור קצר</label>
                 <textarea
-                  style={{ ...inputStyle, height: "80px", resize: "none" }}
+                  style={{ ...inputStyle, height: "80px", resize: "none", borderColor: errors.description ? "#e24b4a" : "#e8e4f8" }}
                   value={form.description}
                   onChange={(e) => update("description", e.target.value)}
                   placeholder="סטודיו פילאטיס בוטיק במרכז תל אביב..."
+                  name="description"
+                  autoComplete="off"
                 />
+                {errors.description ? (
+                  <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.description}</span>
+                ) : null}
               </div>
 
               <div style={{ marginBottom: "28px" }}>
-                <label style={labelStyle}>כתובת (אופציונלי)</label>
+                <label style={labelStyle}>כתובת</label>
                 <input
-                  style={inputStyle}
+                  style={{ ...inputStyle, borderColor: errors.address ? "#e24b4a" : "#e8e4f8" }}
                   value={form.address}
                   onChange={(e) => update("address", e.target.value)}
                   placeholder="רחוב, עיר"
+                  name="address"
+                  autoComplete="street-address"
                 />
+                {errors.address ? (
+                  <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.address}</span>
+                ) : null}
               </div>
 
               <div style={{ display: "flex", gap: "10px" }}>

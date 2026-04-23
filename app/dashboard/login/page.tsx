@@ -27,6 +27,13 @@ export default function DashboardLoginPage() {
     return next.startsWith("/") ? next : "";
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const msg = sp.get("msg") ?? "";
+    if (msg && !message) setMessage(msg);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function redirectAfterLogin() {
     if (nextPath) {
       router.replace(nextPath);
