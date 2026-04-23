@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 
 export const runtime = "nodejs";
 
@@ -92,6 +93,16 @@ export async function POST(req: NextRequest) {
 
     const admin = createSupabaseAdminClient();
 
+    const { data: sessionRow } = await admin
+      .from("payment_sessions")
+      .select(
+        "email,plan,first_name,last_name,phone,studio_name,business_type,description,address,password_ciphertext"
+      )
+      .eq("email", email)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     // מניעת כפילויות: אם משתמש כבר קיים — לא עושים כלום
     try {
       const { data: existingAuth } = await admin
@@ -107,26 +118,43 @@ export async function POST(req: NextRequest) {
       // אם query ל-auth.users נכשל, נמשיך בזהירות
     }
 
+    const passwordCipher = String(sessionRow?.password_ciphertext ?? "").trim();
+    const password = passwordCipher ? decryptPaymentSessionSecret(passwordCipher) : "";
+    if (!password || password.length < 8) {
+      console.warn("[api/icount-ipn] missing password session for email:", email);
+      return NextResponse.json({ ok: true });
+    }
+
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
+      password,
+      phone: sessionRow?.phone ? String(sessionRow.phone).trim() || undefined : undefined,
+      user_metadata: {
+        first_name: sessionRow?.first_name ? String(sessionRow.first_name).trim() : "",
+        last_name: sessionRow?.last_name ? String(sessionRow.last_name).trim() : "",
+      },
     });
     if (authError || !authData.user) throw authError ?? new Error("user_create_failed");
 
-    const baseSlug = buildUniqueSlugFromEmail(email);
+    const baseSlug = toSlugBase(String(sessionRow?.studio_name ?? "").trim()) || buildUniqueSlugFromEmail(email);
     const slug = await ensureUniqueSlug(admin, baseSlug);
 
-    const plan = custom === "pro" ? "premium" : "basic";
+    const plan =
+      (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
 
     const { data: insertedBiz, error: bizError } = await admin
       .from("businesses")
       .insert({
         user_id: authData.user.id,
         slug,
-        name: (email.split("@")[0] ?? "HeyZoe").trim(),
-        niche: "",
+        name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+        niche: String(sessionRow?.business_type ?? "").trim(),
         bot_name: "זואי",
-        social_links: {},
+        social_links: {
+          address: String(sessionRow?.address ?? "").trim(),
+          business_description: String(sessionRow?.description ?? "").trim(),
+        },
         plan,
         email,
         status: "active",
@@ -138,11 +166,9 @@ export async function POST(req: NextRequest) {
 
     await ensurePrimaryBusinessUser(admin, Number(insertedBiz.id), authData.user.id);
 
-    await admin.from("payment_sessions").insert({
-      email,
-      slug: insertedBiz.slug,
-      ready: true,
-    } as any);
+    await admin
+      .from("payment_sessions")
+      .insert({ email, slug: insertedBiz.slug, ready: true } as any);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
