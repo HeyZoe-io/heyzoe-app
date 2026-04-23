@@ -192,8 +192,21 @@ function OnboardingContent() {
       }
       setIframeUrl(String(data.url));
       setStep(3);
-    } catch {
-      alert("שגיאה ביצירת דף תשלום, נסו שוב");
+    } catch (e) {
+      const msg = String((e as any)?.message ?? "");
+      const nice =
+        msg === "missing_icount_cid_starter"
+          ? "חסרה הגדרת סליקה לחבילת Starter (ICOUNT_CID_STARTER)."
+          : msg === "missing_icount_paypage_id_starter"
+            ? "חסרה הגדרת סליקה לחבילת Starter (ICOUNT_PAYPAGE_ID_STARTER)."
+            : msg === "missing_icount_cid_pro"
+              ? "חסרה הגדרת סליקה לחבילת Pro (ICOUNT_CID_PRO)."
+              : msg === "missing_icount_paypage_id_pro"
+                ? "חסרה הגדרת סליקה לחבילת Pro (ICOUNT_PAYPAGE_ID_PRO)."
+                : msg === "missing_email"
+                  ? "חסר אימייל."
+                  : "שגיאה ביצירת דף תשלום, נסו שוב";
+      alert(nice);
     } finally {
       setLoadingPayment(false);
     }

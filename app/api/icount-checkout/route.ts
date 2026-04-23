@@ -28,8 +28,23 @@ export async function POST(req: NextRequest) {
         : process.env.ICOUNT_PAYPAGE_ID_STARTER
       )?.trim() || "";
 
-    if (!cid) return NextResponse.json({ error: "missing_icount_cid" }, { status: 500 });
-    if (!payPageId) return NextResponse.json({ error: "missing_icount_paypage_id" }, { status: 500 });
+    if (!cid) {
+      return NextResponse.json(
+        { error: resolvedPlan === "pro" ? "missing_icount_cid_pro" : "missing_icount_cid_starter" },
+        { status: 500 }
+      );
+    }
+    if (!payPageId) {
+      return NextResponse.json(
+        {
+          error:
+            resolvedPlan === "pro"
+              ? "missing_icount_paypage_id_pro"
+              : "missing_icount_paypage_id_starter",
+        },
+        { status: 500 }
+      );
+    }
 
     const url = new URL(
       `https://app.icount.co.il/m/${encodeURIComponent(cid)}/${encodeURIComponent(payPageId)}`
