@@ -131,6 +131,9 @@ function OnboardingContent() {
         body: JSON.stringify({
           plan,
           email: form.email,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone,
         }),
       });
       const data = await res.json().catch(() => ({}));
