@@ -73,6 +73,17 @@ async function parseIcountPayload(req: NextRequest): Promise<Record<string, any>
 export async function POST(req: NextRequest) {
   // iCount חייב לקבל 200 תמיד כדי לא לעשות retries אינסופיים
   try {
+    const expected = process.env.ICOUNT_IPN_SECRET?.trim() || "";
+    if (process.env.NODE_ENV === "production" && expected) {
+      const qsSecret = req.nextUrl.searchParams.get("secret") ?? "";
+      const headerSecret = req.headers.get("x-icount-secret") ?? "";
+      const provided = (qsSecret || headerSecret).trim();
+      if (!provided || provided !== expected) {
+        console.warn("[api/icount-ipn] unauthorized ipn request (missing/invalid secret)");
+        return NextResponse.json({ ok: true });
+      }
+    }
+
     const payload = await parseIcountPayload(req);
 
     const emailRaw =

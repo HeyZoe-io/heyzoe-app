@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logConversion, logMessage } from "@/lib/analytics";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 
@@ -30,55 +29,6 @@ export async function POST(req: NextRequest) {
       model_used: null,
       error_code: null,
     });
-
-    // If business has Facebook Pixel + CAPI token configured, send a basic S2S event.
-    try {
-      const admin = createSupabaseAdminClient();
-      const { data: biz } = await admin
-        .from("businesses")
-        .select("facebook_pixel_id, conversions_api_token")
-        .eq("slug", businessSlug)
-        .maybeSingle();
-
-      const pixelId = biz?.facebook_pixel_id?.trim();
-      const capiToken = biz?.conversions_api_token?.trim();
-
-      if (pixelId && capiToken) {
-        const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(
-          pixelId
-        )}/events`;
-        const event = {
-          data: [
-            {
-              event_name: "Lead",
-              event_time: Math.floor(Date.now() / 1000),
-              action_source: "system_generated",
-              event_source_url: "", // optional
-              custom_data: {
-                business_slug: businessSlug,
-                session_id: sessionId || null,
-                type,
-              },
-            },
-          ],
-        };
-
-        await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            ...event,
-            access_token: capiToken,
-          }),
-        }).catch((e) => {
-          console.error("[api/conversions] Facebook CAPI forward failed:", e);
-        });
-      }
-    } catch (fbErr) {
-      console.error("[api/conversions] Facebook CAPI lookup failed:", fbErr);
-    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {

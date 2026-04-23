@@ -627,9 +627,13 @@ export async function POST(req: NextRequest) {
         return new Response("Unauthorized", { status: 401 });
       }
     } else {
+      const isProd = process.env.NODE_ENV === "production";
       console.warn(
-        "[WA Webhook] WHATSAPP_APP_SECRET (or META_APP_SECRET) missing — skipping Meta signature verification"
+        "[WA Webhook] WHATSAPP_APP_SECRET (or META_APP_SECRET) missing — cannot verify Meta signature"
       );
+      if (isProd) {
+        return new Response("Service Unavailable", { status: 503 });
+      }
     }
     msg = parseMetaWebhook(metaPayload);
     if (!msg) {
