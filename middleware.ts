@@ -31,6 +31,14 @@ function neutralNotFoundResponse() {
   );
 }
 
+function redirectToBillingReactivate(req: NextRequest) {
+  const url = req.nextUrl.clone();
+  url.pathname = "/account/billing";
+  url.searchParams.set("reactivate", "1");
+  url.searchParams.set("next", req.nextUrl.pathname);
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   // Public auth callback pages (Supabase redirects here)
@@ -41,6 +49,7 @@ export async function middleware(req: NextRequest) {
   const isOwnerAccountPath = pathname.startsWith("/account");
   const isOwnerSlugPath =
     /^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname);
+  const isDashboardSlugSettingsPath = /^\/dashboard\/[^/]+\/settings\/?$/.test(pathname);
   if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
     return NextResponse.next();
 
@@ -118,15 +127,21 @@ export async function middleware(req: NextRequest) {
       const m = pathname.match(/^\/([^/]+)\/(analytics|conversations|contacts|settings)\/?$/);
       const slug = m?.[1] ?? "";
       const section = m?.[2] ?? "";
-      if (slug && section && section !== "conversations") {
+      if (slug && section) {
         try {
           const { data: biz } = await supabase
             .from("businesses")
-            .select("id, user_id")
+            .select("id, user_id, is_active")
             .eq("slug", slug)
             .maybeSingle();
           const isOwner = biz?.user_id && String(biz.user_id) === user.id;
-          if (!isOwner && biz?.id) {
+          const isPaidActive = Boolean((biz as any)?.is_active);
+
+          // Paywall: if business subscription isn't active, only allow /account/* (personal details)
+          if (!isPaidActive) {
+            return redirectToBillingReactivate(req);
+          }
+          if (section !== "conversations" && !isOwner && biz?.id) {
             const { data: bu } = await supabase
               .from("business_users")
               .select("role")
@@ -142,6 +157,25 @@ export async function middleware(req: NextRequest) {
           }
         } catch {
           // If we can't check role here, let page-level auth handle it.
+        }
+      }
+    }
+
+    // Paywall for dashboard settings (edit-heavy area)
+    if (isDashboardSlugSettingsPath) {
+      const m = pathname.match(/^\/dashboard\/([^/]+)\/settings\/?$/);
+      const slug = m?.[1] ?? "";
+      if (slug) {
+        try {
+          const { data: biz } = await supabase
+            .from("businesses")
+            .select("is_active")
+            .eq("slug", slug)
+            .maybeSingle();
+          const isPaidActive = Boolean((biz as any)?.is_active);
+          if (!isPaidActive) return redirectToBillingReactivate(req);
+        } catch {
+          // Let page-level handle if needed
         }
       }
     }

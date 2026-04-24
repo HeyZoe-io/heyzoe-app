@@ -85,7 +85,9 @@ function OnboardingContent() {
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPassword, setShowPassword] = useState(false);
-  const [existingModal, setExistingModal] = useState<null | { next: string }>(null);
+  const [existingModal, setExistingModal] = useState<
+    null | { next: string; title: string; body: string; msg: string }
+  >(null);
   const emailCheckRef = useMemo(() => ({ ac: null as AbortController | null }), []);
 
   const [form, setForm] = useState<FormData>({
@@ -150,7 +152,20 @@ function OnboardingContent() {
       const data = (await res.json().catch(() => ({}))) as { state?: string; slug?: string | null };
       if (data?.state === "existing_paying") {
         const next = data.slug ? `/${data.slug}/analytics` : "/dashboard";
-        setExistingModal({ next });
+        setExistingModal({
+          next,
+          title: "מצאנו חשבון קיים",
+          body: "נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.",
+          msg: "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך.",
+        });
+      } else if (data?.state === "existing_unpaid") {
+        const next = "/account/billing?reactivate=1";
+        setExistingModal({
+          next,
+          title: "מצאנו חשבון קיים",
+          body: "החשבון קיים אבל המנוי לא פעיל כרגע. התחברי כדי להפעיל מחדש את המנוי ולחזור לדשבורד.",
+          msg: "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי.",
+        });
       }
     } catch {
       // ignore
@@ -175,6 +190,13 @@ function OnboardingContent() {
         const next = emailStatus.slug ? `/${emailStatus.slug}/analytics` : "/dashboard";
         window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}&msg=${encodeURIComponent(
           "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך."
+        )}`;
+        return;
+      }
+      if (emailStatus?.state === "existing_unpaid") {
+        const next = "/account/billing?reactivate=1";
+        window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}&msg=${encodeURIComponent(
+          "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי."
         )}`;
         return;
       }
@@ -281,9 +303,11 @@ function OnboardingContent() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ fontWeight: 800, color: "#1a0a3c", fontSize: "18px" }}>מצאנו חשבון קיים</div>
+            <div style={{ fontWeight: 800, color: "#1a0a3c", fontSize: "18px" }}>
+              {existingModal.title}
+            </div>
             <div style={{ marginTop: "8px", color: "#6b5b9a", fontSize: "14px", lineHeight: 1.6 }}>
-              נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.
+              {existingModal.body}
             </div>
             <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
               <button
@@ -297,7 +321,7 @@ function OnboardingContent() {
                 onClick={() => {
                   const next = existingModal.next;
                   window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}&msg=${encodeURIComponent(
-                    "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך."
+                    existingModal.msg
                   )}`;
                 }}
               >

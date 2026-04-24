@@ -122,6 +122,12 @@ export async function POST(req: NextRequest) {
   const accessible = await loadAccessibleBusinesses(admin, user.id);
   const existingForUser = pickBusinessBySlug(accessible, slug);
 
+  // Paywall: prevent edits when subscription isn't active
+  const isPaidActive = Boolean((existingForUser as any)?.is_active);
+  if (existingForUser && !isPaidActive) {
+    return NextResponse.json({ error: "subscription_inactive" }, { status: 403 });
+  }
+
   const { data: rowExactSlug } = await admin.from("businesses").select("id, user_id, slug").eq("slug", slug).maybeSingle();
 
   if (rowExactSlug && (!existingForUser || Number(rowExactSlug.id) !== Number(existingForUser.id))) {
