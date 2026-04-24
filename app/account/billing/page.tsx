@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 function PlanCard({
@@ -66,6 +67,10 @@ function PlanCard({
 
 export default function AccountBillingPage() {
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
+  const [checkoutLoading, setCheckoutLoading] = useState<null | "starter" | "pro">(null);
+  const [checkoutError, setCheckoutError] = useState<string>("");
+  const sp = useSearchParams();
+  const reactivate = sp.get("reactivate") === "1";
 
   useEffect(() => {
     void fetch("/api/dashboard/settings")
@@ -79,12 +84,66 @@ export default function AccountBillingPage() {
 
   const invoices: Array<{ month: string; amount: string; status: string; href: string }> = [];
 
+  async function startCheckout(target: "starter" | "pro") {
+    try {
+      setCheckoutError("");
+      setCheckoutLoading(target);
+      const res = await fetch("/api/account/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: target === "pro" ? "pro" : "starter" }),
+      });
+      const data = (await res.json().catch(() => null)) as any;
+      const url = typeof data?.url === "string" ? data.url : "";
+      if (!res.ok || !url) {
+        throw new Error(typeof data?.error === "string" ? data.error : "checkout_failed");
+      }
+      window.location.href = url;
+    } catch (e) {
+      setCheckoutError(e instanceof Error ? e.message : "checkout_failed");
+      setCheckoutLoading(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="text-right">
         <h1 className="text-2xl font-semibold text-zinc-900">חיוב וחבילות</h1>
         <p className="text-sm text-zinc-600">בחר/י חבילה שמתאימה לעסק שלך</p>
       </div>
+
+      {reactivate ? (
+        <div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-right">
+          <p className="text-sm font-semibold text-zinc-900">המנוי לא פעיל כרגע</p>
+          <p className="mt-1 text-sm text-zinc-700">
+            כדי להמשיך לערוך את הדשבורד, יש לבחור חבילה ולהפעיל מחדש את המנוי.
+          </p>
+          {checkoutError ? (
+            <p className="mt-2 text-sm text-red-600">שגיאה בתשלום: {checkoutError}</p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => void startCheckout("starter")}
+              disabled={checkoutLoading != null}
+              className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+            >
+              הפעלת Starter
+            </button>
+            <button
+              type="button"
+              onClick={() => void startCheckout("pro")}
+              disabled={checkoutLoading != null}
+              className="rounded-xl bg-fuchsia-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-fuchsia-700 disabled:opacity-60"
+            >
+              הפעלת Pro
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-zinc-600">
+            לאחר התשלום תחזרו למערכת אוטומטית. אם לא קורה, רעננו את הדף.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <PlanCard

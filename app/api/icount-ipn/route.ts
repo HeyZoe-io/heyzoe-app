@@ -130,7 +130,32 @@ export async function POST(req: NextRequest) {
         .eq("email", email)
         .maybeSingle();
       if (existingAuth?.id) {
-        console.info("[api/icount-ipn] already_exists:", { email, user_id: existingAuth.id });
+        const paidPlan = (String(custom || sessionRow?.plan || "").trim().toLowerCase() === "pro")
+          ? "premium"
+          : "basic";
+        // Reactivation flow: mark existing business as active + update plan tier.
+        const { data: biz } = await admin
+          .from("businesses")
+          .select("id, slug")
+          .eq("user_id", existingAuth.id)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (biz?.id) {
+          await admin
+            .from("businesses")
+            .update({ is_active: true, plan: paidPlan } as any)
+            .eq("id", biz.id);
+          console.info("[api/icount-ipn] reactivated:", {
+            email,
+            user_id: existingAuth.id,
+            business_id: biz.id,
+            slug: biz.slug,
+            plan: paidPlan,
+          });
+        } else {
+          console.info("[api/icount-ipn] already_exists_no_business:", { email, user_id: existingAuth.id });
+        }
         return NextResponse.json({ ok: true });
       }
     } catch {
@@ -179,6 +204,7 @@ export async function POST(req: NextRequest) {
           business_description: String(sessionRow?.description ?? "").trim(),
         },
         plan,
+        is_active: true,
         email,
         status: "active",
       } as any)
