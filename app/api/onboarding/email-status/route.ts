@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
     const { data: biz } = await admin
       .from("businesses")
-      .select("slug,status")
+      .select("slug,status,plan")
       .eq("user_id", authUser.id)
       .order("created_at", { ascending: true })
       .limit(1)
@@ -30,9 +30,12 @@ export async function GET(req: Request) {
 
     const slug = biz?.slug ? String(biz.slug) : "";
     const status = biz?.status ? String(biz.status) : "";
+    const plan = biz?.plan ? String(biz.plan) : "";
 
     // אם יש עסק פעיל — נחשב "משלם / מחובר"
-    if (slug && status.toLowerCase() === "active") {
+    const isActive = status.toLowerCase() === "active";
+    const isPaidPlan = plan === "basic" || plan === "premium";
+    if (slug && (isActive || isPaidPlan)) {
       return NextResponse.json({ state: "existing_paying", slug });
     }
 
