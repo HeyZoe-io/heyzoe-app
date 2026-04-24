@@ -102,6 +102,13 @@ export async function POST(req: NextRequest) {
 
     if (!email) return NextResponse.json({ ok: true });
 
+    // Minimal observability: verify plan marker arrives from iCount
+    if (custom && custom !== "starter" && custom !== "pro") {
+      console.warn("[api/icount-ipn] unexpected_custom:", { email, custom });
+    } else if (!custom) {
+      console.warn("[api/icount-ipn] missing_custom:", { email });
+    }
+
     const admin = createSupabaseAdminClient();
 
     const { data: sessionRow } = await admin
