@@ -85,6 +85,8 @@ function OnboardingContent() {
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPassword, setShowPassword] = useState(false);
+  const [existingModal, setExistingModal] = useState<null | { next: string }>(null);
+  const emailCheckRef = useMemo(() => ({ ac: null as AbortController | null }), []);
 
   const [form, setForm] = useState<FormData>({
     first_name: "",
@@ -131,6 +133,28 @@ function OnboardingContent() {
     if (!form.address.trim()) e.address = "שדה חובה";
     setErrors(e);
     return Object.keys(e).length === 0;
+  }
+
+  async function checkExistingEmailIfNeeded(rawEmail: string) {
+    const email = String(rawEmail || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) return;
+    try {
+      emailCheckRef.ac?.abort();
+      const ac = new AbortController();
+      emailCheckRef.ac = ac;
+      const res = await fetch(`/api/onboarding/email-status?email=${encodeURIComponent(email)}`, {
+        method: "GET",
+        cache: "no-store",
+        signal: ac.signal,
+      });
+      const data = (await res.json().catch(() => ({}))) as { state?: string; slug?: string | null };
+      if (data?.state === "existing_paying") {
+        const next = data.slug ? `/${data.slug}/analytics` : "/dashboard";
+        setExistingModal({ next });
+      }
+    } catch {
+      // ignore
+    }
   }
 
   async function goToPayment() {
@@ -228,6 +252,76 @@ function OnboardingContent() {
         background: "#f5f3ff",
       }}
     >
+      {existingModal ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(17, 11, 26, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "18px",
+            zIndex: 1000,
+          }}
+          onClick={() => setExistingModal(null)}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "420px",
+              background: "white",
+              borderRadius: "16px",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.25)",
+              padding: "18px 18px 16px",
+              textAlign: "right",
+              border: "1px solid rgba(113,51,218,0.12)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 800, color: "#1a0a3c", fontSize: "18px" }}>מצאנו חשבון קיים</div>
+            <div style={{ marginTop: "8px", color: "#6b5b9a", fontSize: "14px", lineHeight: 1.6 }}>
+              נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.
+            </div>
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+              <button
+                type="button"
+                style={{
+                  ...btnPrimary,
+                  flex: 1,
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                }}
+                onClick={() => {
+                  const next = existingModal.next;
+                  window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}&msg=${encodeURIComponent(
+                    "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך."
+                  )}`;
+                }}
+              >
+                התחברות
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...btnPrimary,
+                  background: "transparent",
+                  color: "#7133da",
+                  border: "2px solid #7133da",
+                  width: "110px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                }}
+                onClick={() => setExistingModal(null)}
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <a href="/" style={{ marginBottom: "32px" }}>
         <img src="/heyzoe-logo.png" alt="HeyZoe" style={{ height: "36px" }} />
       </a>
@@ -342,6 +436,7 @@ function OnboardingContent() {
                   style={{ ...inputStyle, borderColor: errors.email ? "#e24b4a" : "#e8e4f8" }}
                   value={form.email}
                   onChange={(e) => update("email", e.target.value)}
+                  onBlur={(e) => void checkExistingEmailIfNeeded(e.target.value)}
                   placeholder="israel@studio.co.il"
                   type="email"
                   name="email"
