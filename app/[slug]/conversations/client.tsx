@@ -354,7 +354,7 @@ export default function ConversationsClient({
                     }
                   >
                     <p className="text-[10px] opacity-80 mb-1">
-                      {m.role === "user" ? "לקוח" : "זואי"}
+                      {m.role === "user" ? "לקוח" : "הבוט"}
                     </p>
                     <p className="text-sm leading-snug break-words whitespace-pre-wrap">{m.content}</p>
                     {m.role !== "user" && m.error_code ? (
