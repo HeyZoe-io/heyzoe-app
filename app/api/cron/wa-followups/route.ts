@@ -75,6 +75,24 @@ async function hasUserReplyAfter(input: {
   return Boolean(data?.id);
 }
 
+async function fetchLatestUserMessageAt(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  business_slug: string;
+  session_id: string;
+}): Promise<string | null> {
+  const { data } = await input.admin
+    .from("messages")
+    .select("created_at, role")
+    .eq("business_slug", input.business_slug)
+    .eq("session_id", input.session_id)
+    .eq("role", "user")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const at = data?.created_at ? String(data.created_at) : "";
+  return at || null;
+}
+
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -153,6 +171,18 @@ export async function GET(req: NextRequest) {
 
       const lastAssistAtIso = lastAssist.created_at;
       if (!lastAssistAtIso) {
+        skipped += 1;
+        continue;
+      }
+
+      // Meta 24h rule: do not send any non-template messages >24h after the user's last message.
+      const lastUserAtIso = await fetchLatestUserMessageAt({ admin, business_slug, session_id: sessionId });
+      if (!lastUserAtIso) {
+        skipped += 1;
+        continue;
+      }
+      const hoursSinceUser = (Date.now() - new Date(lastUserAtIso).getTime()) / (1000 * 60 * 60);
+      if (!Number.isFinite(hoursSinceUser) || hoursSinceUser >= 24) {
         skipped += 1;
         continue;
       }
