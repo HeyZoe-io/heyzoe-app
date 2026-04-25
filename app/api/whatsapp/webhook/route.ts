@@ -67,6 +67,36 @@ function waNormLabel(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+async function classifyOptOutWithClaude(input: { apiKey: string; text: string }): Promise<boolean> {
+  const apiKey = input.apiKey.trim();
+  const text = input.text.trim();
+  if (!apiKey || !text) return false;
+  if (text.length > 800) return false;
+  try {
+    const anthropic = new Anthropic({ apiKey });
+    const resp = await anthropic.messages.create({
+      model: CLAUDE_WHATSAPP_MODEL,
+      max_tokens: 12,
+      temperature: 0,
+      messages: [
+        {
+          role: "user",
+          content: `האם המשפט הבא מביע רצון להפסיק לקבל הודעות או חוסר עניין?\nענה רק "כן" או "לא".\nמשפט: "${text}"`,
+        },
+      ],
+    });
+    const out = (resp.content ?? [])
+      .map((c) => ("text" in c ? String((c as any).text ?? "") : ""))
+      .join("\n")
+      .trim()
+      .toLowerCase();
+    return out.startsWith("כן");
+  } catch (e) {
+    console.warn("[WA Webhook] opt-out Claude classify failed (continuing):", e);
+    return false;
+  }
+}
+
 function normalizeGreetingToken(s: string): string {
   return s
     .trim()
@@ -891,6 +921,37 @@ async function processIncoming(
       authToken
     ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
     return;
+  }
+
+  // 2.1) OPT-OUT DETECTION (Claude) — before any other automation
+  // Skip for explicit opt-in, menu numeric, and short "trial registered" confirmations (handled elsewhere).
+  if (
+    msg.type === "text" &&
+    !optedInThisMessage &&
+    businessId &&
+    incomingText.length >= 3 &&
+    incomingText.length <= 300 &&
+    !matchesTrialRegisteredMessage(incomingTextRaw)
+  ) {
+    const apiKey = resolveClaudeApiKey();
+    if (apiKey) {
+      const wantsOptOut = await classifyOptOutWithClaude({ apiKey, text: incomingTextRaw });
+      if (wantsOptOut) {
+        await supabase
+          .from("contacts")
+          .update({ opted_out: true, opted_out_at: nowIso })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
+          accountSid,
+          authToken
+        ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+        return;
+      }
+    }
   }
 
   // 3) OPT-IN DETECTION (for users who previously opted out)
