@@ -72,6 +72,8 @@ function PlanCard({
 
 export default function AccountBillingPage() {
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
+  /** מנוי משולם פעיל — בלי זה לא מציגים «החבילה שלך» גם אם plan ב-DB נשאר basic/premium */
+  const [subscriptionActive, setSubscriptionActive] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<null | "starter" | "pro">(null);
   const [checkoutError, setCheckoutError] = useState<string>("");
   const sp = useSearchParams();
@@ -83,6 +85,7 @@ export default function AccountBillingPage() {
       .then((j) => {
         const p = j?.business?.plan === "premium" ? "premium" : "basic";
         setPlan(p);
+        setSubscriptionActive(Boolean(j?.business?.is_active));
       })
       .catch(() => void 0);
   }, []);
@@ -162,10 +165,10 @@ export default function AccountBillingPage() {
             "דשבורד ניהול",
             "תמיכה בצ'אט",
           ]}
-          isCurrent={plan === "basic"}
-          actionLabel={plan === "basic" ? undefined : "הפעלה"}
+          isCurrent={subscriptionActive && plan === "basic"}
+          actionLabel={subscriptionActive && plan === "basic" ? undefined : "הפעלה"}
           actionDisabled={checkoutLoading != null}
-          onAction={plan === "basic" ? undefined : () => void startCheckout("starter")}
+          onAction={subscriptionActive && plan === "basic" ? undefined : () => void startCheckout("starter")}
         />
         <PlanCard
           title="Pro"
@@ -179,10 +182,10 @@ export default function AccountBillingPage() {
             "העלאת מדיה לצ'אט",
           ]}
           primary
-          isCurrent={plan === "premium"}
-          actionLabel={plan === "premium" ? undefined : "שדרוג ל־Pro"}
+          isCurrent={subscriptionActive && plan === "premium"}
+          actionLabel={subscriptionActive && plan === "premium" ? undefined : "שדרוג ל־Pro"}
           actionDisabled={checkoutLoading != null}
-          onAction={plan === "premium" ? undefined : () => void startCheckout("pro")}
+          onAction={subscriptionActive && plan === "premium" ? undefined : () => void startCheckout("pro")}
         />
       </div>
 
