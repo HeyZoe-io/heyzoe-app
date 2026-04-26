@@ -285,6 +285,22 @@ section{padding:80px 6%;}
 .setup-section .section-title{color:var(--dark);}
 .setup-section .section-sub{color:var(--muted);}
 .setup-section .section-tag.tag-dark{background:rgba(113,51,218,0.1);color:var(--purple);border:1px solid rgba(113,51,218,0.22);}
+.setup-section .setup-intro{
+  text-align:center;
+  max-width:780px;
+  margin-inline:auto;
+}
+.setup-section .setup-intro .section-title{
+  font-size:clamp(32px,5vw,50px);
+  line-height:1.18;
+  margin-bottom:16px;
+}
+.setup-section .setup-intro .section-sub{
+  font-size:clamp(19px,2.5vw,24px);
+  line-height:1.75;
+  margin-inline:auto;
+  max-width:640px;
+}
 .setup-inner{max-width:1100px;margin:0 auto;}
 .steps-list{display:flex;flex-direction:column;margin-top:40px;max-width:680px;}
 .setup-step{display:flex;gap:20px;align-items:flex-start;padding:24px 0;border-bottom:1px solid rgba(113,51,218,0.08);}
@@ -617,7 +633,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <!-- SETUP -->
 <section class="setup-section" id="setup-section">
   <div class="setup-inner">
-    <div class="reveal">
+    <div class="reveal setup-intro">
       <div class="section-tag tag-dark">תהליך הקמה</div>
       <h2 class="section-title">תוך 10 דקות יש לכם זואי</h2>
       <p class="section-sub">בלי מפתחים, בלי הדרכות ארוכות. פשוט ממש.</p>
