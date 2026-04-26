@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Plan = "starter" | "pro";
@@ -744,8 +744,11 @@ function OnboardingContent() {
                 <div
                   style={{
                     width: "100%",
+                    maxWidth: "100%",
                     overflowX: "hidden",
                     overflowY: "visible",
+                    overscrollBehaviorX: "none",
+                    touchAction: "pan-y",
                     borderRadius: "12px",
                     background: "#f0eef8",
                     lineHeight: 0,
@@ -754,17 +757,21 @@ function OnboardingContent() {
                   <iframe
                     src={iframeUrl}
                     title="דף תשלום מאובטח"
-                    style={{
-                      width: "100%",
-                      maxWidth: "100%",
-                      minWidth: 0,
-                      height: "2400px",
-                      minHeight: "2400px",
-                      border: "none",
-                      borderRadius: "12px",
-                      display: "block",
-                      overflow: "auto",
-                    }}
+                    style={
+                      {
+                        width: "100%",
+                        maxWidth: "100%",
+                        minWidth: 0,
+                        height: "2400px",
+                        minHeight: "2400px",
+                        border: "none",
+                        borderRadius: "12px",
+                        display: "block",
+                        overflowX: "hidden",
+                        overflowY: "auto",
+                        zoom: 0.94,
+                      } as CSSProperties
+                    }
                   />
                 </div>
               ) : (
