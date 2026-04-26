@@ -752,7 +752,6 @@ function OnboardingContent() {
                   }}
                 >
                   <iframe
-                    scrolling="no"
                     src={iframeUrl}
                     title="דף תשלום מאובטח"
                     style={{
@@ -764,7 +763,7 @@ function OnboardingContent() {
                       border: "none",
                       borderRadius: "12px",
                       display: "block",
-                      overflow: "hidden",
+                      overflow: "auto",
                     }}
                   />
                 </div>
