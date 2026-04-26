@@ -5,6 +5,7 @@ export default function OnboardingLayout({
 }) {
   return (
     <div
+      className="overflow-x-hidden"
       style={{
         margin: 0,
         minHeight: "100vh",
