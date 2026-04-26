@@ -2127,7 +2127,7 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={6}
                   title="פולואפ"
-                  desc="שלוש הודעות מעקב אחרי שתיקה מהבוט: בערך 20 דקות, שעתיים ו־23 שעות. השליחה מכבדת חלון זמן בישראל (לילות ושישי–שבת), ואינה נשלחת אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
+                  desc="הודעות פולואפ לליד שהפסיק לענות. השליחה לא תתבצע בלילות ובמהלך השבת, או אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
                 />
               </CardTitle>
             </CardHeader>
@@ -2143,13 +2143,6 @@ export default function SlugSettingsPage() {
                   איפוס לטקסטי ברירת מחדל
                 </Button>
               </div>
-              <p className="text-xs text-zinc-600 leading-relaxed">
-                בשלב 2 וב־3 אפשר להשתמש בתבניות:{" "}
-                <span className="font-mono text-[11px] dir-ltr inline-block">{"{{bot_name}}"}</span>,{" "}
-                <span className="font-mono text-[11px] dir-ltr inline-block">{"{{business_name}}"}</span>,{" "}
-                <span className="font-mono text-[11px] dir-ltr inline-block">{"{{phone}}"}</span> (מספר התצוגה של
-                ווטסאפ העסקי).
-              </p>
               <Field label="הודעה ראשונה (~20 דקות אחרי תשובת הבוט)">
                 <Textarea value={waSalesFollowup1} onChange={setWaSalesFollowup1} rows={5} />
               </Field>
