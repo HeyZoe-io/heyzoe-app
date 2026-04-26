@@ -222,7 +222,11 @@ export async function GET(req: NextRequest) {
 
       const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as any)?.social_links);
       const raw =
-        nextStage === 1 ? t1 : nextStage === 2 ? fillTemplate(t2, vars) : fillTemplate(t3, vars);
+        nextStage === 1
+          ? fillTemplate(t1, vars)
+          : nextStage === 2
+            ? fillTemplate(t2, vars)
+            : fillTemplate(t3, vars);
       const body = `${raw}${FOLLOWUP_FOOTER}`;
 
       await sendWhatsAppMessage(phoneNumberId, phone, body, accountSid, authToken);
