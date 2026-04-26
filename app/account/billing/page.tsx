@@ -83,28 +83,82 @@ function PlanCard({
   );
 }
 
+function formatHebrewDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString("he-IL", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function AccountBillingPage() {
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
   /** מנוי משולם פעיל — בלי זה לא מציגים «החבילה שלך» גם אם plan ב-DB נשאר basic/premium */
   const [subscriptionActive, setSubscriptionActive] = useState(false);
+  const [cancellationEffectiveAt, setCancellationEffectiveAt] = useState<string | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState<null | "starter" | "pro">(null);
   const [checkoutError, setCheckoutError] = useState<string>("");
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState<string>("");
   const sp = useSearchParams();
   const reactivate = sp.get("reactivate") === "1";
 
-  useEffect(() => {
+  const previewEndDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return formatHebrewDate(d.toISOString());
+  }, []);
+
+  function loadBillingState() {
     void fetch("/api/dashboard/settings")
       .then((r) => r.json())
       .then((j) => {
         const p = j?.business?.plan === "premium" ? "premium" : "basic";
         setPlan(p);
         setSubscriptionActive(Boolean(j?.business?.is_active));
+        const eff = j?.business?.cancellation_effective_at;
+        setCancellationEffectiveAt(typeof eff === "string" && eff ? eff : null);
       })
       .catch(() => void 0);
+  }
+
+  useEffect(() => {
+    loadBillingState();
   }, []);
 
   const invoices: Array<{ month: string; amount: string; status: string; href: string }> = [];
   const promoPriceNote = useMemo(() => promoVatAndMonthLine(), []);
+
+  async function confirmCancelSubscription() {
+    setCancelError("");
+    setCancelLoading(true);
+    try {
+      const res = await fetch("/api/account/cancel-subscription", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; effective_at?: string; error?: string };
+      if (!res.ok) {
+        if (data?.error === "already_cancelled") {
+          setCancelError("בקשת הביטול כבר נרשמה.");
+        } else {
+          setCancelError("לא ניתן לבטל כרגע, נסו שוב.");
+        }
+        return;
+      }
+      if (data?.effective_at) {
+        setCancellationEffectiveAt(data.effective_at);
+        loadBillingState();
+      }
+      setCancelModalOpen(false);
+    } catch {
+      setCancelError("שגיאה, נסו שוב.");
+    } finally {
+      setCancelLoading(false);
+    }
+  }
 
   async function startCheckout(target: "starter" | "pro") {
     try {
@@ -243,6 +297,92 @@ export default function AccountBillingPage() {
       </div>
 
       <p className="text-sm text-zinc-600 text-right">חשבוניות נשלחות למייל לאחר התשלום.</p>
+
+      {subscriptionActive ? (
+        <div
+          className="rounded-2xl border border-zinc-200 bg-white p-5 text-right"
+          style={{ fontFamily: "Fredoka, Heebo, system-ui, sans-serif", borderRadius: "16px" }}
+        >
+          <h2 className="text-lg font-semibold text-zinc-900">ביטול מנוי</h2>
+          {cancellationEffectiveAt ? (
+            <div className="mt-3 space-y-2 text-sm text-zinc-700">
+              <p>
+                המנוי יסתיים בתאריך{" "}
+                <span className="font-semibold text-zinc-900">
+                  {formatHebrewDate(cancellationEffectiveAt)}
+                </span>
+                . לפרטים פנה ל־
+                <a
+                  className="text-[#7133da] underline underline-offset-2"
+                  href="mailto:office@heyzoe.io"
+                >
+                  office@heyzoe.io
+                </a>
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-zinc-600">
+                ביטול אינו מיידי: השירות ימשיך בפעולה 30 יום מתאריך הבקשה, ואז מסתיימת הגישה.
+              </p>
+              {cancelError ? <p className="mt-2 text-sm text-red-600">{cancelError}</p> : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelError("");
+                  setCancelModalOpen(true);
+                }}
+                className="mt-4 inline-flex w-full sm:w-auto cursor-pointer items-center justify-center rounded-2xl border-2 border-red-500 bg-transparent px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"
+              >
+                ביטול מנוי
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {cancelModalOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(17, 11, 26, 0.5)" }}
+          onClick={() => !cancelLoading && setCancelModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl"
+            style={{ fontFamily: "Fredoka, Heebo, system-ui, sans-serif", borderRadius: "16px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-zinc-900">אישור ביטול</h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-700">
+              האם אתה בטוח שברצונך לבטל? השירות ימשיך לפעול עד {previewEndDate}. לאחר מכן תופסק הגישה
+              לדשבורד.
+            </p>
+            {cancelError ? <p className="mt-2 text-sm text-red-600">{cancelError}</p> : null}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={cancelLoading}
+                onClick={() => setCancelModalOpen(false)}
+                className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-200 disabled:opacity-50"
+                style={{ borderRadius: "16px" }}
+              >
+                חזור
+              </button>
+              <button
+                type="button"
+                disabled={cancelLoading}
+                onClick={() => void confirmCancelSubscription()}
+                className="inline-flex cursor-pointer items-center justify-center rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                style={{ borderRadius: "16px" }}
+              >
+                {cancelLoading ? "שולח..." : "בטל מנוי"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
