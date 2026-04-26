@@ -72,7 +72,26 @@ nav{
     scrollbar-width:none;
   }
   .nav-links::-webkit-scrollbar{display:none;}
+  .nav-logo{position:static;transform:none;}
 }
+
+@media (min-width:741px){
+  .nav-logo{
+    position:absolute;
+    right:6%;
+    top:50%;
+    transform:translateY(-50%);
+    z-index:2;
+  }
+  .nav-links{
+    width:100%;
+    max-width:100%;
+    justify-content:center;
+    padding-inline:clamp(100px,16vw,220px);
+    box-sizing:border-box;
+  }
+}
+
 .nav-logo{display:flex;align-items:center;justify-content:center;}
 .nav-logo img{height:30px;object-fit:contain;}
 .nav-links{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-size:16px;font-family:'Fredoka',sans-serif;}
