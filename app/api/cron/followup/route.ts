@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 const FOLLOWUP_FOOTER = "\n\n_לביטול קבלת הודעות שלח *הסר*_";
 const DEFAULT_CORE = "היי! רצינו לבדוק אם יש לך שאלות נוספות 😊";
-/** מינימום זמן ללא מענה לפני שליחה (יום לפחות); הסליחוס היומי רץ בבוקר (~11:00 ישראל, לפי UTC ב-vercel.json) */
+/** מינימום זמן ללא מענה לפני שליחה (יום לפחות); הסליחוס היומי רץ בבוקר (~11:00 ישראל, לפי UTC ב-vercel.json)  */
 const HOURS = 24;
 const BATCH = 100;
 

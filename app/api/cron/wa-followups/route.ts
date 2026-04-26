@@ -8,7 +8,7 @@ import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-default
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
+ 
 const BATCH = 200;
 const FOLLOWUP_FOOTER = "\n\n_לביטול קבלת הודעות שלח *הסר*_";
 
