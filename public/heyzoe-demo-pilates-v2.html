@@ -134,6 +134,10 @@
       <div class="info-row" id="r3"><span class="info-key">תיאור</span><span class="info-val">סטודיו פילאטיס בוטיק במרכז תל אביב</span></div>
       <div class="info-row" id="r4"><span class="info-key">כתובת</span><span class="info-val">דיזנגוף 84, תל אביב</span></div>
       <div class="info-row" id="r5"><span class="info-key">טלפון</span><span class="info-val">050-000-0000</span></div>
+      <div class="subsection-lbl" id="traitsSec" style="opacity:0;transition:opacity 0.35s;">מאפיינים</div>
+      <div class="info-row" id="r6" style="justify-content:flex-end"><span class="info-val" style="width:100%;text-align:right">יש חניה זמינה</span></div>
+      <div class="info-row" id="r7" style="justify-content:flex-end"><span class="info-val" style="width:100%;text-align:right">קבוצות עד 10 אנשים</span></div>
+      <div class="info-row" id="r8" style="justify-content:flex-end"><span class="info-val" style="width:100%;text-align:right">מתאים לכל הגילאים</span></div>
     </div>
 
     <div class="step" id="s3">
@@ -257,12 +261,12 @@ function setStep(n){
 
 function resetAllVisuals(){
   ['lr1','lr2','lr3','saved',
-   'r1','r2','r3','r4','r5',
+   'r1','r2','r3','r4','r5','r6','r7','r8',
    'sc1','sc2','sc3',
    'zm1','zm2','zm3','zm4','uq1',
    'wb1','wb2','wb3',
    'zm5a'].forEach(hide);
-  ['lbl2','lbl3','lbl4','sopts1'].forEach(id=>fade(id,false));
+  ['lbl2','lbl3','lbl4','sopts1','traitsSec'].forEach(id=>fade(id,false));
   const urlEl=document.getElementById('urlF');
   if(urlEl) urlEl.innerHTML='<span class="cursor-blink"></span>';
 }
@@ -312,6 +316,14 @@ async function playStep2(){
   show('r3'); await delay(200);
   show('r4'); await delay(200);
   show('r5');
+  if(t!==playToken)return;
+  fade('traitsSec',true);
+  await delay(180);
+  if(t!==playToken)return;
+  show('r6'); await delay(200);
+  if(t!==playToken)return;
+  show('r7'); await delay(200);
+  show('r8');
   if (t === playToken) showTabHint(3);
 }
 
