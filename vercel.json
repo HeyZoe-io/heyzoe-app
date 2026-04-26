@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/wa-followups",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 9 * * *"
     }
   ]
 }
