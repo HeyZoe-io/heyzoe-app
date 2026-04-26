@@ -23,9 +23,12 @@ type FormErrors = Partial<Record<keyof FormData, string>>;
 
 const BUSINESS_TYPES = ["פילאטיס", "יוגה", "ג'ים", "קרוספיט", "אקרובטיקה", "ריקוד", "אחר"];
 
-const PLAN_INFO: Record<Plan, { name: string; price: string; desc: string }> = {
-  starter: { name: "Starter", price: "₪349/חודש", desc: "עד 100 שיחות בחודש" },
-  pro: { name: "Pro", price: "₪499/חודש", desc: "עד 500 שיחות בחודש" },
+const PLAN_INFO: Record<
+  Plan,
+  { name: string; priceNow: string; priceWas: string; desc: string }
+> = {
+  starter: { name: "Starter", priceNow: "₪349", priceWas: "₪500", desc: "עד 100 שיחות בחודש" },
+  pro: { name: "Pro", priceNow: "₪499", priceWas: "₪650", desc: "עד 500 שיחות בחודש" },
 };
 
 const inputStyle: React.CSSProperties = {
@@ -389,7 +392,19 @@ function OnboardingContent() {
                 fontWeight: "600",
               }}
             >
-              חבילת {planInfo.name} - {planInfo.price}
+              <span style={{ display: "block", fontWeight: 700 }}>
+                חבילת {planInfo.name}
+              </span>
+              <span style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "8px", marginTop: "4px" }}>
+                <span>{planInfo.priceNow}</span>
+                <span style={{ textDecoration: "line-through", opacity: 0.65, fontSize: "11px", fontWeight: 600 }}>
+                  {planInfo.priceWas}
+                </span>
+                <span style={{ fontSize: "11px", fontWeight: 600 }}>לחודש</span>
+              </span>
+              <span style={{ display: "block", fontSize: "10px", fontWeight: 600, opacity: 0.9, marginTop: "4px" }}>
+                כולל מע״מ · מבצע חודש מאי
+              </span>
             </div>
           ) : null}
 
@@ -679,7 +694,7 @@ function OnboardingContent() {
                     fontWeight: "600",
                   }}
                 >
-                  7 ימי ניסיון חינם - ביטול בכל עת
+                  מבצע חודש מאי · כולל מע״מ · ניתן לבטל בכל עת
                 </div>
               </div>
 
