@@ -479,7 +479,7 @@ section{padding:80px 6%;}
 .faq-arrow{width:24px;height:24px;border-radius:50%;background:rgba(113,51,218,0.1);display:flex;align-items:center;justify-content:center;color:var(--purple);font-size:16px;flex-shrink:0;transition:transform 0.3s;}
 .faq-item.open .faq-arrow{transform:rotate(45deg);}
 .faq-a{font-size:16px;color:var(--muted);line-height:1.75;max-height:0;overflow:hidden;transition:max-height 0.4s ease,margin-top 0.3s;}
-.faq-item.open .faq-a{max-height:200px;margin-top:10px;}
+.faq-item.open .faq-a{max-height:420px;margin-top:10px;}
 
 /* PRICING */
 .pricing-section{background:white;padding:80px 6%;}
@@ -1021,6 +1021,8 @@ const faqs = [
   {q:'האם אני חייב אתר כדי שזואי תעבוד?', a:'ממש לא :) סריקת האתר היא הדרך המהירה ביותר להפעיל את זואי, אבל ברגע שתמלא את המידע הבסיסי על הסטודיו - פלואו המכירה יהיה מוכן תוך דקות.'},
   {q:"האם אני חייב מערכת כמו ארבוקס, בוסטאפ וכו'?", a:'זואי שולחת את הליד לעמוד הסליקה שלכם. במידה ויש לכם לינקים למערכת שעות, דף מנויים וסליקה - מכל תוכנה שהיא - אתם מסודרים לחלוטין.'},
   {q:'האם אני יכול לצפות בשיחות שזואי מנהלת?', a:'כמובן! דרך הדשבורד, בטאב שיחות, תוכלו לראות את כל השיחות בזמן אמת, לעצור את זואי ולהתערב בשיחה עצמאית.'},
+  {q:'האם אני חייב לקרוא לבוטית שלי זואי?', a:'האמת שלא :) מרגע שזואי תהיה שלך, היא יכולה להיקרא איך שתרצה, והיא תציג את עצמה ללקוחות באיזה שם שתבחר, אפילו אם השם יהיה אמנון.'},
+  {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'לא, המחיר נשאר איתכם זהה לכל החיים. אם שילמת מחיר הנחה על החודש הראשון, הוא ישאר המחיר שלכם.'},
 ];
 const fl = document.getElementById('faqList');
 faqs.forEach(f=>{
