@@ -1,8 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { promoMonthExclaim, promoVatAndMonthLine } from "@/lib/promo-month";
 
 type Plan = "starter" | "pro";
 type Step = 1 | 2 | 3;
@@ -24,12 +23,9 @@ type FormErrors = Partial<Record<keyof FormData, string>>;
 
 const BUSINESS_TYPES = ["פילאטיס", "יוגה", "ג'ים", "קרוספיט", "אקרובטיקה", "ריקוד", "אחר"];
 
-const PLAN_INFO: Record<
-  Plan,
-  { name: string; priceNow: string; priceWas: string; desc: string }
-> = {
-  starter: { name: "Starter", priceNow: "₪349", priceWas: "₪500", desc: "עד 100 שיחות בחודש" },
-  pro: { name: "Pro", priceNow: "₪499", priceWas: "₪650", desc: "עד 500 שיחות בחודש" },
+const PLAN_INFO: Record<Plan, { name: string }> = {
+  starter: { name: "Starter" },
+  pro: { name: "Pro" },
 };
 
 const inputStyle: React.CSSProperties = {
@@ -82,7 +78,9 @@ function studioToSlug(input: string): string {
 function OnboardingContent() {
   const searchParams = useSearchParams();
   const requestedPlan = (searchParams.get("plan") || "starter").toLowerCase();
-  const plan: Plan = requestedPlan === "pro" ? "pro" : "starter";
+  const [selectedPlan, setSelectedPlan] = useState<Plan>(requestedPlan === "pro" ? "pro" : "starter");
+  const [planMenuOpen, setPlanMenuOpen] = useState(false);
+  const planPickerRef = useRef<HTMLDivElement>(null);
 
   const [step, setStep] = useState<Step>(1);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
@@ -107,9 +105,7 @@ function OnboardingContent() {
     address: "",
   });
 
-  const planInfo = PLAN_INFO[plan];
-  const promoTag = useMemo(() => promoMonthExclaim(), []);
-  const promoVatLine = useMemo(() => promoVatAndMonthLine(), []);
+  const planInfo = PLAN_INFO[selectedPlan];
 
   function update(field: keyof FormData, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -211,7 +207,7 @@ function OnboardingContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan,
+          plan: selectedPlan,
           email: form.email,
           first_name: form.first_name,
           last_name: form.last_name,
@@ -231,12 +227,12 @@ function OnboardingContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan,
+          plan: selectedPlan,
           email: form.email,
           first_name: form.first_name,
           last_name: form.last_name,
           phone: form.phone,
-          custom: plan,
+          custom: selectedPlan,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -265,7 +261,16 @@ function OnboardingContent() {
     }
   }
 
-  useEffect(() => {}, []);
+  useEffect(() => {
+    if (!planMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (planPickerRef.current && !planPickerRef.current.contains(e.target as Node)) {
+        setPlanMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [planMenuOpen]);
 
   const progress = useMemo(() => (step === 1 ? 33 : step === 2 ? 66 : 100), [step]);
 
@@ -381,33 +386,79 @@ function OnboardingContent() {
 
         <div style={{ padding: "32px 28px" }}>
           {step < 3 ? (
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "rgba(113,51,218,0.08)",
-                borderRadius: "20px",
-                padding: "4px 12px",
-                marginBottom: "20px",
-                fontSize: "12px",
-                color: "#7133da",
-                fontWeight: "600",
-              }}
-            >
-              <span style={{ display: "block", fontWeight: 700 }}>
+            <div ref={planPickerRef} style={{ position: "relative", marginBottom: "20px" }}>
+              <button
+                type="button"
+                onClick={() => setPlanMenuOpen((o) => !o)}
+                aria-expanded={planMenuOpen}
+                aria-haspopup="listbox"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  background: "rgba(113,51,218,0.08)",
+                  border: "1px solid rgba(113,51,218,0.2)",
+                  borderRadius: "20px",
+                  padding: "8px 14px",
+                  fontSize: "14px",
+                  color: "#7133da",
+                  fontWeight: 700,
+                  fontFamily: "Heebo, sans-serif",
+                  cursor: "pointer",
+                }}
+              >
                 חבילת {planInfo.name}
-              </span>
-              <span style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "8px", marginTop: "4px" }}>
-                <span>{planInfo.priceNow}</span>
-                <span style={{ textDecoration: "line-through", opacity: 0.65, fontSize: "11px", fontWeight: 600 }}>
-                  {planInfo.priceWas}
+                <span style={{ fontSize: "10px", opacity: 0.75 }} aria-hidden>
+                  ▼
                 </span>
-                <span style={{ fontSize: "11px", fontWeight: 600 }}>לחודש</span>
-              </span>
-              <span style={{ display: "block", fontSize: "10px", fontWeight: 600, opacity: 0.9, marginTop: "4px" }}>
-                {promoVatLine}
-              </span>
+              </button>
+              {planMenuOpen ? (
+                <div
+                  role="listbox"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    right: 0,
+                    zIndex: 40,
+                    minWidth: "200px",
+                    background: "white",
+                    border: "1px solid rgba(113,51,218,0.15)",
+                    borderRadius: "14px",
+                    boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
+                    padding: "6px",
+                    textAlign: "right",
+                  }}
+                >
+                  {(["starter", "pro"] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      role="option"
+                      aria-selected={selectedPlan === p}
+                      onClick={() => {
+                        setSelectedPlan(p);
+                        setPlanMenuOpen(false);
+                      }}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        border: "none",
+                        background: selectedPlan === p ? "rgba(113,51,218,0.1)" : "transparent",
+                        borderRadius: "10px",
+                        padding: "10px 12px",
+                        fontSize: "14px",
+                        fontWeight: selectedPlan === p ? 700 : 500,
+                        color: "#1a0a3c",
+                        fontFamily: "Heebo, sans-serif",
+                        cursor: "pointer",
+                        textAlign: "right",
+                      }}
+                    >
+                      חבילת {PLAN_INFO[p].name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -685,28 +736,36 @@ function OnboardingContent() {
                 <h2 style={{ fontSize: "20px", fontWeight: "700", color: "#1a0a3c", marginBottom: "4px" }}>
                   שלב אחרון - תשלום
                 </h2>
-                <div
-                  style={{
-                    display: "inline-block",
-                    background: "rgba(53,255,112,0.12)",
-                    border: "1px solid rgba(53,255,112,0.4)",
-                    borderRadius: "20px",
-                    padding: "4px 14px",
-                    fontSize: "12px",
-                    color: "#1a6b35",
-                    fontWeight: "600",
-                  }}
-                >
-                  {promoTag}
-                </div>
+                <p style={{ fontSize: "13px", color: "#8b7aaa", margin: 0 }}>חבילת {planInfo.name}</p>
               </div>
 
               {iframeUrl ? (
-                <iframe
-                  src={iframeUrl}
-                  style={{ width: "100%", height: "560px", border: "none", borderRadius: "12px" }}
-                  title="דף תשלום מאובטח"
-                />
+                <div
+                  style={{
+                    width: "100%",
+                    maxWidth: "100%",
+                    overflowX: "hidden",
+                    overflowY: "visible",
+                    borderRadius: "12px",
+                    background: "#f0eef8",
+                    lineHeight: 0,
+                  }}
+                >
+                  <iframe
+                    src={iframeUrl}
+                    title="דף תשלום מאובטח"
+                    style={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      minWidth: 0,
+                      height: "min(78vh, 800px)",
+                      minHeight: "560px",
+                      border: "none",
+                      borderRadius: "12px",
+                      display: "block",
+                    }}
+                  />
+                </div>
               ) : (
                 <div style={{ textAlign: "center", padding: "60px 0", color: "#8b7aaa" }}>
                   טוען דף תשלום...
