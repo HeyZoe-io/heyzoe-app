@@ -276,12 +276,14 @@ function OnboardingContent() {
 
   return (
     <div
+      className="px-0 sm:px-4 overflow-x-hidden w-full"
       style={{
         minHeight: "100vh",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "40px 20px",
+        paddingTop: "40px",
+        paddingBottom: "40px",
         background: "#f5f3ff",
       }}
     >
@@ -362,9 +364,8 @@ function OnboardingContent() {
       </a>
 
       <div
+        className="w-full max-w-[480px] min-w-0 overflow-x-hidden"
         style={{
-          width: "100%",
-          maxWidth: "480px",
           background: "white",
           borderRadius: "24px",
           boxShadow: "0 8px 40px rgba(113,51,218,0.12)",
@@ -743,7 +744,6 @@ function OnboardingContent() {
                 <div
                   style={{
                     width: "100%",
-                    maxWidth: "100%",
                     overflowX: "hidden",
                     overflowY: "visible",
                     borderRadius: "12px",
@@ -752,6 +752,7 @@ function OnboardingContent() {
                   }}
                 >
                   <iframe
+                    scrolling="no"
                     src={iframeUrl}
                     title="דף תשלום מאובטח"
                     style={{
@@ -763,6 +764,7 @@ function OnboardingContent() {
                       border: "none",
                       borderRadius: "12px",
                       display: "block",
+                      overflow: "hidden",
                     }}
                   />
                 </div>
