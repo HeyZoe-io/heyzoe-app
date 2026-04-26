@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -11,14 +10,18 @@ function PlanCard({
   bullets,
   primary,
   isCurrent,
-  showUpgrade,
+  actionLabel,
+  actionDisabled,
+  onAction,
 }: {
   title: string;
   price: string;
   bullets: string[];
   primary?: boolean;
   isCurrent?: boolean;
-  showUpgrade?: boolean;
+  actionLabel?: string;
+  actionDisabled?: boolean;
+  onAction?: () => void;
 }) {
   return (
     <Card
@@ -47,9 +50,11 @@ function PlanCard({
             <li key={b}>- {b}</li>
           ))}
         </ul>
-        {showUpgrade ? (
-          <Link
-            href="/account/contact"
+        {actionLabel ? (
+          <button
+            type="button"
+            disabled={actionDisabled}
+            onClick={onAction}
             className={
               "inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400 disabled:pointer-events-none disabled:opacity-50 " +
               (primary
@@ -57,8 +62,8 @@ function PlanCard({
                 : "bg-zinc-900 text-white hover:bg-zinc-800")
             }
           >
-            שדרוג
-          </Link>
+            {actionLabel}
+          </button>
         ) : null}
       </CardContent>
     </Card>
@@ -147,19 +152,23 @@ export default function AccountBillingPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <PlanCard
-          title="Basic"
-          price="₪0 / חודש"
-          bullets={["ניהול עסק ודשבורד", "שיחות ומסלול מכירה", "תמיכה בסיסית"]}
+          title="Starter"
+          price="₪… / חודש"
+          bullets={["דשבורד עסק מלא", "וואטסאפ + פולואפים אוטומטיים", "מסלול מכירה ותבניות"]}
           isCurrent={plan === "basic"}
-          showUpgrade={false}
+          actionLabel={plan === "basic" ? undefined : "הפעלה"}
+          actionDisabled={checkoutLoading != null}
+          onAction={plan === "basic" ? undefined : () => void startCheckout("starter")}
         />
         <PlanCard
-          title="Premium"
-          price="החל מ־₪… / חודש"
-          bullets={["חיבור פייסבוק (Pixel + CAPI)", "פיצ'רים מתקדמים", "תמיכה מועדפת"]}
+          title="Pro"
+          price="₪… / חודש"
+          bullets={["הכול ב־Starter", "אופטימיזציות ופיצ'רים מתקדמים", "תמיכה מועדפת"]}
           primary
           isCurrent={plan === "premium"}
-          showUpgrade={plan !== "premium"}
+          actionLabel={plan === "premium" ? undefined : "שדרוג ל־Pro"}
+          actionDisabled={checkoutLoading != null}
+          onAction={plan === "premium" ? undefined : () => void startCheckout("pro")}
         />
       </div>
 
