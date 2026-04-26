@@ -153,8 +153,15 @@ export default function AccountBillingPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <PlanCard
           title="Starter"
-          price="₪… / חודש"
-          bullets={["דשבורד עסק מלא", "וואטסאפ + פולואפים אוטומטיים", "מסלול מכירה ותבניות"]}
+          price="₪349 / חודש"
+          bullets={[
+            "מספר ווטסאפ ייעודי",
+            "פלואו מכירה מלא",
+            "ללא עלות הקמה",
+            "עד 100 שיחות בחודש",
+            "דשבורד ניהול",
+            "תמיכה בצ'אט",
+          ]}
           isCurrent={plan === "basic"}
           actionLabel={plan === "basic" ? undefined : "הפעלה"}
           actionDisabled={checkoutLoading != null}
@@ -162,8 +169,15 @@ export default function AccountBillingPage() {
         />
         <PlanCard
           title="Pro"
-          price="₪… / חודש"
-          bullets={["הכול ב־Starter", "אופטימיזציות ופיצ'רים מתקדמים", "תמיכה מועדפת"]}
+          price="₪499 / חודש"
+          bullets={[
+            "כל מה שב-Starter",
+            "ללא עלות הקמה",
+            "עד 500 שיחות בחודש",
+            "ליווי צמוד בהקמה",
+            "אנליטיקס מתקדם",
+            "העלאת מדיה לצ'אט",
+          ]}
           primary
           isCurrent={plan === "premium"}
           actionLabel={plan === "premium" ? undefined : "שדרוג ל־Pro"}
