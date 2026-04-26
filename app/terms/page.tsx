@@ -74,20 +74,43 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-zinc-900">5. Opt-out</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             Users can opt out of messages at any time by sending{" "}
-            <span className="font-medium text-zinc-900">הסר</span> in the WhatsApp conversation.
+            <span className="font-medium text-zinc-900" dir="rtl" lang="he">
+              הסר
+            </span>{" "}
+            in the WhatsApp conversation.
           </p>
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">6. Limitation of Liability</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">6. WhatsApp Number Usage</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
-            Hey Zoe is not responsible for the content sent by business owners through the
+            The WhatsApp number provided to the business as part of the Hey Zoe service is allocated
+            exclusively for use during an active subscription period. Upon cancellation or expiration
+            of the subscription, access to the WhatsApp number will be revoked and the number may be
+            reassigned. Hey Zoe retains ownership of all WhatsApp numbers provided through the
             platform.
           </p>
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">7. Changes to Terms</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">7. Dashboard Access</h2>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            Access to the Hey Zoe business dashboard is granted solely to authorized users of the
+            subscribing business. Account credentials must not be shared with unauthorized third
+            parties. Hey Zoe reserves the right to suspend dashboard access in cases of misuse,
+            non-payment, or violation of these Terms of Service.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-900">8. Limitation of Liability</h2>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            Hey Zoe is not responsible for the content sent by business owners through the platform.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-900">9. Changes to Terms</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             We reserve the right to update these terms at any time. Continued use of the service
             constitutes acceptance.
@@ -95,7 +118,7 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">8. Contact</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">10. Contact</h2>
           <p className="text-sm text-zinc-700">
             <a
               className="text-zinc-900 underline decoration-zinc-400 underline-offset-2 hover:decoration-zinc-600"
