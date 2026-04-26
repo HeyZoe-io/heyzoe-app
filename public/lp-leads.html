@@ -409,10 +409,11 @@ section{padding:80px 6%;}
   background:rgba(53,255,112,0.15);border:1px solid rgba(53,255,112,0.4);
   border-radius:30px;padding:8px 20px;font-size:14px;color:#1a6b35;font-weight:600;margin-bottom:32px;
 }
-.pricing-price-row{display:flex;flex-direction:row;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap;}
+.pricing-price-row{display:flex;flex-direction:row;align-items:baseline;justify-content:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
 .pricing-old{font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;color:var(--muted);text-decoration:line-through;opacity:0.88;line-height:1;}
 .pricing-card.featured .pricing-old{color:rgba(255,255,255,0.45);}
-.pricing-vat{font-size:11px;color:var(--muted);line-height:1.35;margin:2px 0 6px;}
+.pricing-vat{font-size:12px;color:var(--muted);line-height:1.2;white-space:nowrap;}
+.pricing-price-row .pricing-vat{margin:0;align-self:baseline;}
 .pricing-card.featured .pricing-vat{color:rgba(255,255,255,0.5);}
 .pricing-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
 .pricing-card{
@@ -422,12 +423,13 @@ section{padding:80px 6%;}
 .pricing-card:hover{transform:translateY(-4px);}
 .pricing-card.featured{background:var(--dark);border:2px solid var(--purple);}
 .pricing-badge{position:absolute;top:-12px;right:24px;background:linear-gradient(135deg,var(--purple),var(--pink));color:white;font-size:12px;font-weight:600;border-radius:20px;padding:4px 14px;}
-.pricing-name{font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;color:var(--dark);margin-bottom:8px;}
+.pricing-name{font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;color:var(--dark);margin-bottom:4px;}
 .pricing-card.featured .pricing-name{color:white;}
 .pricing-price{font-family:'Fredoka',sans-serif;font-size:44px;font-weight:700;color:var(--purple);line-height:1;flex-shrink:0;}
 .pricing-period{font-size:13px;color:var(--muted);margin-bottom:6px;}
 .pricing-card.featured .pricing-period{color:rgba(255,255,255,0.5);}
-.pricing-trial{font-size:12px;color:#1d9e75;font-weight:600;margin-bottom:16px;}
+.pricing-trial{font-size:12px;color:#1d9e75;font-weight:600;margin-bottom:12px;}
+.pricing-card.featured .pricing-trial{color:rgba(255,255,255,0.55);}
 .pricing-features{list-style:none;display:flex;flex-direction:column;gap:10px;margin-bottom:24px;}
 .pricing-features li{font-size:16px;color:var(--text);display:flex;align-items:center;gap:8px;}
 .pricing-features li::before{content:'';display:inline-block;width:16px;height:16px;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 8l3.5 3.5L13 4.5' stroke='%2335ff70' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;flex-shrink:0;}
@@ -779,13 +781,13 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     <div class="pricing-grid reveal">
       <div class="pricing-card">
         <div class="pricing-name">Starter</div>
+        <div class="pricing-trial" id="promoStarter">מבצע חודש מאי!</div>
         <div class="pricing-price-row">
           <div class="pricing-price">₪349</div>
           <div class="pricing-old">₪500</div>
+          <span class="pricing-vat">כולל מע״מ</span>
         </div>
-        <div class="pricing-vat">כולל מע״מ</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial" id="promoStarter">מבצע חודש מאי!</div>
         <ul class="pricing-features">
           <li>ללא עלות הקמה</li>
           <li>מספר ווטסאפ ייעודי</li>
@@ -799,13 +801,13 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
         <div class="pricing-name">Pro</div>
+        <div class="pricing-trial" id="promoPro">מבצע חודש מאי!</div>
         <div class="pricing-price-row">
           <div class="pricing-price" style="color:var(--pink);">₪499</div>
           <div class="pricing-old">₪650</div>
+          <span class="pricing-vat">כולל מע״מ</span>
         </div>
-        <div class="pricing-vat">כולל מע״מ</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial" id="promoPro" style="color:rgba(255,255,255,0.55);">מבצע חודש מאי!</div>
         <ul class="pricing-features">
           <li>כל מה שב-Starter</li>
           <li>העלאת מדיה לצ'אט</li>
