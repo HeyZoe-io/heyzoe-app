@@ -114,7 +114,7 @@ export default function AccountBillingPage() {
     <div className="space-y-6">
       <div className="text-right">
         <h1 className="text-2xl font-semibold text-zinc-900">חיוב וחבילות</h1>
-        <p className="text-sm text-zinc-600">בחר/י חבילה שמתאימה לעסק שלך</p>
+        <p className="text-sm text-zinc-600">בחר/י חבילה שמתאימה לעסק שלך (Starter / Pro)</p>
       </div>
 
       {reactivate ? (
