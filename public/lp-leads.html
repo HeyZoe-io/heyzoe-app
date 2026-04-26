@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HeyZoe - בוטית מכירות מומחית לעסקי כושר</title>
 <link rel="icon" type="image/png" href="/zoe-browser-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 <style>
 :root{
   --purple:#7133da;
@@ -344,21 +344,29 @@ section{padding:80px 6%;}
 .pricing-btn-outline{background:transparent;color:var(--purple);border:2px solid var(--purple);}
 .pricing-btn-filled{background:linear-gradient(135deg,var(--purple),#a855f7);color:white;}
 
-/* FOLLOWUP */
-.followup-section{background:#ffffff;padding:80px 6%;text-align:center;border-top:1px solid rgba(113,51,218,0.08);}
-.followup-inner{max-width:680px;margin:0 auto;}
-.followup-section .section-title{color:var(--dark);}
-.followup-wa-wrap{
-  margin:0 auto;text-align:right;max-width:560px;
-  background:#e5ddd5;border-radius:20px;padding:20px 16px 16px;
-  box-shadow:0 12px 40px rgba(0,0,0,0.1);
+/* BOT */
+.bot-section{background:var(--dark);padding:80px 6%;text-align:center;}
+.bot-section .section-title{color:white;}
+.bot-section .section-sub{color:rgba(255,255,255,0.75);margin:0 auto 32px;font-size:18px;line-height:1.75;}
+.bot-input-wrap{
+  max-width:560px;margin:0 auto;
+  display:flex;gap:10px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:16px;padding:6px;
 }
-.followup-wa-bubble{
-  display:inline-block;max-width:100%;
-  background:#dcf8c6;border-radius:12px 4px 12px 12px;
-  padding:12px 14px;font-size:15px;line-height:1.65;color:#111827;
-  box-shadow:0 1px 2px rgba(0,0,0,0.08);
-}
+.bot-input{flex:1;background:transparent;border:none;outline:none;color:white;font-size:15px;font-family:'Heebo',sans-serif;direction:rtl;padding:8px 10px;}
+.bot-input::placeholder{color:rgba(255,255,255,0.3);}
+.bot-send{background:linear-gradient(135deg,var(--purple),var(--pink));color:white;border:none;border-radius:10px;padding:10px 18px;font-size:14px;cursor:pointer;font-family:'Heebo',sans-serif;font-weight:500;white-space:nowrap;}
+.bot-stack{max-width:560px;margin:28px auto 0;display:flex;flex-direction:column;gap:14px;}
+.bot-chat{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:10px;}
+.bot-bubble-user{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:16px 4px 16px 16px;padding:10px 16px;font-size:14px;color:rgba(255,255,255,0.9);text-align:right;align-self:flex-start;}
+.bot-bubble-zoe{background:rgba(113,51,218,0.3);border:1px solid rgba(113,51,218,0.35);border-radius:4px 16px 16px 16px;padding:12px 16px;font-size:14px;color:rgba(255,255,255,0.9);line-height:1.7;text-align:right;align-self:flex-end;}
+.bot-typing{display:flex;align-items:center;gap:6px;padding:10px 16px;background:rgba(113,51,218,0.2);border-radius:4px 16px 16px 16px;align-self:flex-end;width:fit-content;margin-right:auto;}
+.bot-typing span{width:7px;height:7px;border-radius:50%;background:var(--pink);animation:tdot 1s infinite;}
+.bot-typing span:nth-child(2){animation-delay:0.2s;}
+.bot-typing span:nth-child(3){animation-delay:0.4s;}
+@keyframes tdot{0%,80%,100%{transform:scale(0.6);opacity:0.4;}40%{transform:scale(1);opacity:1;}}
 
 /* FINAL CTA */
 .final-cta{background:linear-gradient(135deg,var(--purple),#a855f7);padding:80px 6%;text-align:center;position:relative;overflow:hidden;}
@@ -559,13 +567,17 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 
 
 
-<!-- FOLLOWUP -->
-<section class="followup-section reveal" id="followup">
-  <div class="followup-inner">
-    <h2 class="section-title" style="margin-bottom:24px;">פולואפ - הודעות פולואפ לליד שהפסיק לענות</h2>
-    <div class="followup-wa-wrap reveal">
-      <div class="followup-wa-bubble">היי! 😊 רציתי לוודא שהכל בסדר - לפעמים ההודעות הולכות לאיבוד, אבל בונדינג חזק נשאר לנצח. ממש אשמח לשמור לך מקום לשיעור ניסיון אם יש בך רצון כזה, או לענות על כל שאלה.</div>
+<!-- BOT -->
+<section class="bot-section">
+  <div class="section-tag" style="background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.85);">שאלו את זואי</div>
+  <h2 class="section-title" style="margin:12px 0;">רוצים לראות את זואי בפעולה?</h2>
+  <p class="section-sub">שאלו אותה כל שאלה - היא תענה</p>
+  <div class="bot-stack">
+    <div class="bot-input-wrap" id="botInputWrap">
+      <input class="bot-input" type="text" placeholder="כתבו שאלה לזואי..." id="botInput">
+      <button class="bot-send" id="botSend">שלחו</button>
     </div>
+    <div class="bot-chat" id="botChat"></div>
   </div>
 </section>
 
@@ -755,6 +767,100 @@ new IntersectionObserver((entries)=>{ entries.forEach(e=>{ if(e.isIntersecting) 
 document.querySelectorAll('.reveal').forEach(el=>{
   new IntersectionObserver((entries)=>{ if(entries[0].isIntersecting) entries[0].target.classList.add('visible'); },{threshold:0.1}).observe(el);
 });
+
+// ZOE BOT
+const zoeBrain = [
+  {keys:['שלומ','מה המצב','היי','הי','שלום','בוקר','ערב','מה נשמ','מה קורה','כפרה','מה ענין','נו מה','יאללה','ברוך','ברוכ'],
+   ans:'וואלה אני עובדת נון סטופ, השכר לא להיט אבל אני סוגרת פה עסקאות בטירוף, אז טפו טפו חמסה אני בטוב 😄 מה אפשר לעשות בשבילך?'},
+  {keys:['מבסוט','אוהב','אהוב','שמח','נהנ','כיף','נהנית','אושר'],
+   ans:'בטח! אני יודעת שאני בוט, אבל מה שאני עושה זה לסגור עסקאות ולחסוך לבעלי הסטודיו שלי המון זמן - וזה ממש ממלא אותי 🤍 בוא נדבר על הסטודיו שלך - מה אתה צריך?'},
+  {keys:['מי את','מה את','איך את','מה זואי','מה זה','ספר','ספרי'],
+   ans:'אני זואי - בוטית המכירות של HeyZoe 😊 יודעת שאני רק בוט, אבל אני גאה בזה. אני חרוצה, תמיד זמינה, ואף פעם לא עונה "עוד רגע". כל המהות שלי היא לסגור עסקאות בשביל הסטודיו שלכם. מה תרצה לדעת?'},
+  {keys:['מחיר','עולה','עלות','כמה','תשלום','חבילה'],
+   ans:'349 שח ל-Starter, 499 ל-Pro. ו-7 ימים ראשונים? בחינם, בלי כרטיס אשראי. כלומר אתם לא מוציאים שקל עד שאתם בטוחים שאני שווה את זה. וספוילר - אני שווה 😎'},
+  {keys:['הקמ','מורכב','קשה','טכנולוגי','מסובך','זמן','דקות'],
+   ans:'10 דקות. ממש. מזינים לינק לאתר, אני סורקת הכל לבד, אתם בודקים - וסיימנו. אין IT, אין מפתחים, אין דרמות. הדרמות תשמרו לשיעור הזומבה 💃'},
+  {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
+   ans:'מובן לגמרי. אבל תחשוב על זה - 7 ימים בחינם, ניתן לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
+  {keys:['שיחות','מגבל','לידים','100','500'],
+   ans:'Starter עד 100 שיחות בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
+  {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
+   ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
+  {keys:['ניסיון','לנסות','חינם','בחינם'],
+   ans:'7 ימים בחינם, בלי כרטיס אשראי, בלי התחייבות. פשוט נרשמים ומתחילים. אני ממש ממש בטוחה שתישארו 🤍'},
+  {keys:['ביטול','לבטל','חוזה','קשור','כלוא'],
+   ans:'ניתן לבטל בכל עת, אין חוזים ואין קנסות. אנחנו מאמינים שאם אתם נשארים, זה כי אני שווה את זה 😄'},
+  {keys:['עייפ','נמאס','לחוץ','שחיקה','לא יכול'],
+   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. 7 ימים חינם - בוא נסגור את זה 💪'},
+];
+
+let botCount = 0;
+const BOT_LIMIT = 10;
+const botChat = document.getElementById('botChat');
+
+function addMsg(t,isZoe){
+  const d=document.createElement('div');
+  d.className=isZoe?'bot-bubble-zoe':'bot-bubble-user';
+  d.textContent=t;
+  botChat.appendChild(d);
+  botChat.scrollTop=botChat.scrollHeight;
+}
+function addTyping(){
+  const d=document.createElement('div');
+  d.className='bot-typing';
+  d.innerHTML='<span></span><span></span><span></span>';
+  botChat.appendChild(d);
+  botChat.scrollTop=botChat.scrollHeight;
+  return d;
+}
+function disableBot(){
+  const wrap = document.getElementById('botInputWrap');
+  if(wrap) wrap.style.display='none';
+}
+
+let botHistory = [];
+
+async function askZoe(){
+  if(botCount >= BOT_LIMIT) return;
+  const inp=document.getElementById('botInput');
+  const q=inp.value.trim();
+  if(!q) return;
+  inp.value='';
+  botCount++;
+  addMsg(q,false);
+  botHistory.push({ role: 'user', content: q });
+
+  if(botCount >= BOT_LIMIT){
+    const t=addTyping();
+    await new Promise(r=>setTimeout(r,800));
+    t.remove();
+    addMsg('טוב, קראו לי לחזור לעבוד! מתנצלת 😄 היה כיף לדבר. אם יש לך עוד שאלות - פנו אלינו בווטסאפ בכפתור למטה 👇',true);
+    disableBot();
+    return;
+  }
+
+  const t=addTyping();
+  try {
+    const res = await fetch('/api/zoe-bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: q,
+        history: botHistory.slice(0, -1)
+      })
+    });
+    const data = await res.json();
+    const ans = data.answer || 'אופס 😅';
+    t.remove();
+    addMsg(ans,true);
+    botHistory.push({ role: 'assistant', content: ans });
+  } catch(err) {
+    t.remove();
+    addMsg('אופס, נתקעתי רגע. נסו שוב 😅', true);
+  }
+}
+document.getElementById('botSend').onclick=askZoe;
+document.getElementById('botInput').onkeydown=e=>{ if(e.key==='Enter') askZoe(); };
 
 </script>
 </body>

@@ -136,10 +136,9 @@
 
     <div class="step" id="s5">
       <div class="step-hdr"><div class="step-title">פולואפ</div><div class="step-num">5</div></div>
-      <div class="step-sub">הודעות אוטומטיות אחרי שיעור הניסיון.</div>
-      <div class="zoe-lbl">זואי תשלח אחרי ניסיון:</div>
-      <div class="bubble" id="zm5a">כל הכבוד! נרשמת בהצלחה 🎉<br>מתרגשים לראותך בקרוב בדיזנגוף 84!</div>
-      <div class="bubble" id="zm5b">מוזמנ/ת להגיע 10 דקות לפני השיעור,<br>עם בגדים נוחים ובקבוק מים 💧</div>
+      <div class="step-sub">פולואפ - הודעות פולואפ לליד שהפסיק לענות.</div>
+      <div class="zoe-lbl">דוגמה להודעה מזואי:</div>
+      <div class="bubble" id="zm5a">היי! 😊 רציתי לוודא שהכל בסדר - לפעמים ההודעות הולכות לאיבוד, אבל בונדינג חזק נשאר לנצח. ממש אשמח לשמור לך מקום לשיעור ניסיון אם יש בך רצון כזה, או לענות על כל שאלה.</div>
     </div>
 
   </div>
@@ -178,7 +177,7 @@ function resetAllVisuals(){
    'sc1','sc2','sc3',
    'zm1','zm2','zm3','zm4','uq1',
    'wb1','wb2','wb3',
-   'zm5a','zm5b'].forEach(hide);
+   'zm5a'].forEach(hide);
   ['lbl2','lbl3','lbl4','sopts1'].forEach(id=>fade(id,false));
   const urlEl=document.getElementById('urlF');
   if(urlEl) urlEl.innerHTML='<span class="cursor-blink"></span>';
@@ -273,9 +272,7 @@ async function playStep5(){
   setStep(5);
   await delay(350);
   if(t!==playToken)return;
-  show('zm5a'); await delay(700);
-  if(t!==playToken)return;
-  show('zm5b');
+  show('zm5a');
 }
 
 function playStep(n){
