@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 function PlanCard({
   title,
   price,
+  priceCompare,
+  priceNote,
   bullets,
   primary,
   isCurrent,
@@ -16,6 +18,8 @@ function PlanCard({
 }: {
   title: string;
   price: string;
+  priceCompare?: string;
+  priceNote?: string;
   bullets: string[];
   primary?: boolean;
   isCurrent?: boolean;
@@ -42,7 +46,15 @@ function PlanCard({
             </span>
           ) : null}
         </div>
-        <CardDescription className="text-right">{price}</CardDescription>
+        <CardDescription className="text-right space-y-1">
+          <div className="flex flex-wrap items-baseline justify-end gap-2">
+            <span className="text-lg font-semibold text-zinc-900">{price}</span>
+            {priceCompare ? (
+              <span className="text-sm text-zinc-400 line-through">{priceCompare}</span>
+            ) : null}
+          </div>
+          {priceNote ? <p className="text-[11px] text-zinc-500">{priceNote}</p> : null}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-right">
         <ul className="space-y-1 text-sm text-zinc-700">
@@ -157,6 +169,8 @@ export default function AccountBillingPage() {
         <PlanCard
           title="Starter"
           price="₪349 / חודש"
+          priceCompare="₪500"
+          priceNote="כולל מע״מ · מבצע חודש מאי"
           bullets={[
             "מספר ווטסאפ ייעודי",
             "פלואו מכירה מלא",
@@ -173,13 +187,14 @@ export default function AccountBillingPage() {
         <PlanCard
           title="Pro"
           price="₪499 / חודש"
+          priceCompare="₪650"
+          priceNote="כולל מע״מ · מבצע חודש מאי"
           bullets={[
             "כל מה שב-Starter",
-            "ללא עלות הקמה",
+            "העלאת מדיה לצ'אט",
             "עד 500 שיחות בחודש",
             "ליווי צמוד בהקמה",
             "אנליטיקס מתקדם",
-            "העלאת מדיה לצ'אט",
           ]}
           primary
           isCurrent={subscriptionActive && plan === "premium"}

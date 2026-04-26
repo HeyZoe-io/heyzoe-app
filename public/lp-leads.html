@@ -409,6 +409,11 @@ section{padding:80px 6%;}
   background:rgba(53,255,112,0.15);border:1px solid rgba(53,255,112,0.4);
   border-radius:30px;padding:8px 20px;font-size:14px;color:#1a6b35;font-weight:600;margin-bottom:32px;
 }
+.pricing-price-row{display:flex;flex-direction:row;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap;}
+.pricing-old{font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;color:var(--muted);text-decoration:line-through;opacity:0.88;line-height:1;}
+.pricing-card.featured .pricing-old{color:rgba(255,255,255,0.45);}
+.pricing-vat{font-size:11px;color:var(--muted);line-height:1.35;margin:2px 0 6px;}
+.pricing-card.featured .pricing-vat{color:rgba(255,255,255,0.5);}
 .pricing-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
 .pricing-card{
   background:var(--bg);border:1.5px solid rgba(113,51,218,0.12);
@@ -419,7 +424,7 @@ section{padding:80px 6%;}
 .pricing-badge{position:absolute;top:-12px;right:24px;background:linear-gradient(135deg,var(--purple),var(--pink));color:white;font-size:12px;font-weight:600;border-radius:20px;padding:4px 14px;}
 .pricing-name{font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;color:var(--dark);margin-bottom:8px;}
 .pricing-card.featured .pricing-name{color:white;}
-.pricing-price{font-family:'Fredoka',sans-serif;font-size:44px;font-weight:700;color:var(--purple);line-height:1;}
+.pricing-price{font-family:'Fredoka',sans-serif;font-size:44px;font-weight:700;color:var(--purple);line-height:1;flex-shrink:0;}
 .pricing-period{font-size:13px;color:var(--muted);margin-bottom:6px;}
 .pricing-card.featured .pricing-period{color:rgba(255,255,255,0.5);}
 .pricing-trial{font-size:12px;color:#1d9e75;font-weight:600;margin-bottom:16px;}
@@ -758,7 +763,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <!-- FINAL CTA -->
 <section class="final-cta">
   <h2 class="section-title" style="font-size:clamp(30px,5vw,50px);">מוכנים להשתחרר משיחות מכירה?</h2>
-  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br>7 ימי ניסיון חינם. ללא התחייבות. ללא דמי הקמה.</p>
+  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br>מבצע חודש מאי — מחירים מיוחדים כולל מע״מ.</p>
   <a href="#pricing" class="btn-white">בואו נתחיל!</a>
 </section>
 
@@ -769,14 +774,18 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="section-tag tag-light">מחירים</div>
       <h2 class="section-title" style="color:var(--dark);">השקעה שמחזירה את עצמה</h2>
       <p class="section-sub" style="color:var(--muted);margin:0 auto 24px;">תמחור פשוט, ללא הפתעות.</p>
-      <div class="trial-badge">✓ 7 ימי ניסיון חינם - ללא התחייבות</div>
+      <div class="trial-badge">מבצע חודש מאי</div>
     </div>
     <div class="pricing-grid reveal">
       <div class="pricing-card">
         <div class="pricing-name">Starter</div>
-        <div class="pricing-price">₪349</div>
+        <div class="pricing-price-row">
+          <div class="pricing-price">₪349</div>
+          <div class="pricing-old">₪500</div>
+        </div>
+        <div class="pricing-vat">כולל מע״מ</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial">7 ימי ניסיון חינם</div>
+        <div class="pricing-trial">מבצע חודש מאי</div>
         <ul class="pricing-features">
           <li>ללא עלות הקמה</li>
           <li>מספר ווטסאפ ייעודי</li>
@@ -790,9 +799,13 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
         <div class="pricing-name">Pro</div>
-        <div class="pricing-price" style="color:var(--pink);">₪499</div>
+        <div class="pricing-price-row">
+          <div class="pricing-price" style="color:var(--pink);">₪499</div>
+          <div class="pricing-old">₪650</div>
+        </div>
+        <div class="pricing-vat">כולל מע״מ</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial" style="color:rgba(255,255,255,0.5);">7 ימי ניסיון חינם</div>
+        <div class="pricing-trial" style="color:rgba(255,255,255,0.55);">מבצע חודש מאי</div>
         <ul class="pricing-features">
           <li>כל מה שב-Starter</li>
           <li>העלאת מדיה לצ'אט</li>
@@ -879,21 +892,21 @@ const zoeBrain = [
   {keys:['מי את','מה את','איך את','מה זואי','מה זה','ספר','ספרי'],
    ans:'אני זואי - בוטית המכירות של HeyZoe 😊 יודעת שאני רק בוט, אבל אני גאה בזה. אני חרוצה, תמיד זמינה, ואף פעם לא עונה "עוד רגע". כל המהות שלי היא לסגור עסקאות בשביל הסטודיו שלכם. מה תרצה לדעת?'},
   {keys:['מחיר','עולה','עלות','כמה','תשלום','חבילה'],
-   ans:'349 שח ל-Starter, 499 ל-Pro. ו-7 ימי ניסיון? בחינם, בלי כרטיס אשראי. כלומר אתם לא מוציאים שקל עד שאתם בטוחים שאני שווה את זה. וספוילר - אני שווה 😎'},
+   ans:'במבצע חודש מאי: Starter 349 שח לחודש (במקום 500), Pro 499 (במקום 650) — כולל מע״מ. וספוילר - אני שווה את זה 😎'},
   {keys:['הקמ','מורכב','קשה','טכנולוגי','מסובך','זמן','דקות'],
    ans:'10 דקות. ממש. מזינים לינק לאתר, אני סורקת הכל לבד, אתם בודקים - וסיימנו. אין IT, אין מפתחים, אין דרמות. הדרמות תשמרו לשיעור הזומבה 💃'},
   {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
-   ans:'מובן לגמרי. אבל תחשוב על זה - 7 ימי ניסיון חינם, ניתן לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
+   ans:'מובן לגמרי. אבל תחשוב על זה — מבצע חודש מאי, מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
   {keys:['שיחות','מגבל','לידים','100','500'],
    ans:'Starter עד 100 שיחות בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
   {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
    ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
-  {keys:['ניסיון','לנסות','חינם','בחינם'],
-   ans:'7 ימי ניסיון חינם, בלי כרטיס אשראי, בלי התחייבות. פשוט נרשמים ומתחילים. אני ממש ממש בטוחה שתישארו 🤍'},
+  {keys:['מאי','מבצע','חודש מאי','מחיר'],
+   ans:'יש מבצע חודש מאי: Starter ב־349 שח לחודש (במקום 500), Pro ב־499 (במקום 650) — הכול כולל מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
   {keys:['ביטול','לבטל','חוזה','קשור','כלוא'],
    ans:'ניתן לבטל בכל עת, אין חוזים ואין קנסות. אנחנו מאמינים שאם אתם נשארים, זה כי אני שווה את זה 😄'},
   {keys:['עייפ','נמאס','לחוץ','שחיקה','לא יכול'],
-   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. 7 ימי ניסיון חינם - בוא נסגור את זה 💪'},
+   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע מאי המחירים כוללים מע״מ — בוא נסגור את זה 💪'},
 ];
 
 let botCount = 0;
