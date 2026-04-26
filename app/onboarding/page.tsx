@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { promoMonthExclaim, promoVatAndMonthLine } from "@/lib/promo-month";
 
 type Plan = "starter" | "pro";
 type Step = 1 | 2 | 3;
@@ -107,6 +108,8 @@ function OnboardingContent() {
   });
 
   const planInfo = PLAN_INFO[plan];
+  const promoTag = useMemo(() => promoMonthExclaim(), []);
+  const promoVatLine = useMemo(() => promoVatAndMonthLine(), []);
 
   function update(field: keyof FormData, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -403,7 +406,7 @@ function OnboardingContent() {
                 <span style={{ fontSize: "11px", fontWeight: 600 }}>לחודש</span>
               </span>
               <span style={{ display: "block", fontSize: "10px", fontWeight: 600, opacity: 0.9, marginTop: "4px" }}>
-                כולל מע״מ · מבצע חודש מאי
+                {promoVatLine}
               </span>
             </div>
           ) : null}
@@ -694,7 +697,7 @@ function OnboardingContent() {
                     fontWeight: "600",
                   }}
                 >
-                  מבצע חודש מאי · כולל מע״מ · ניתן לבטל בכל עת
+                  {promoTag}
                 </div>
               </div>
 

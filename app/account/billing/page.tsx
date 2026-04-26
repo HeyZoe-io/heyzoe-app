@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { promoVatAndMonthLine } from "@/lib/promo-month";
 
 function PlanCard({
   title,
@@ -103,6 +104,7 @@ export default function AccountBillingPage() {
   }, []);
 
   const invoices: Array<{ month: string; amount: string; status: string; href: string }> = [];
+  const promoPriceNote = useMemo(() => promoVatAndMonthLine(), []);
 
   async function startCheckout(target: "starter" | "pro") {
     try {
@@ -170,7 +172,7 @@ export default function AccountBillingPage() {
           title="Starter"
           price="₪349 / חודש"
           priceCompare="₪500"
-          priceNote="כולל מע״מ · מבצע חודש מאי"
+          priceNote={promoPriceNote}
           bullets={[
             "מספר ווטסאפ ייעודי",
             "פלואו מכירה מלא",
@@ -188,7 +190,7 @@ export default function AccountBillingPage() {
           title="Pro"
           price="₪499 / חודש"
           priceCompare="₪650"
-          priceNote="כולל מע״מ · מבצע חודש מאי"
+          priceNote={promoPriceNote}
           bullets={[
             "כל מה שב-Starter",
             "העלאת מדיה לצ'אט",
