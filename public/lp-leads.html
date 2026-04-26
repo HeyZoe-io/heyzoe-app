@@ -763,7 +763,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <!-- FINAL CTA -->
 <section class="final-cta">
   <h2 class="section-title" style="font-size:clamp(30px,5vw,50px);">מוכנים להשתחרר משיחות מכירה?</h2>
-  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br>מבצע חודש מאי — מחירים מיוחדים כולל מע״מ.</p>
+  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br><span id="promoFinalCtaLine">מבצע חודש מאי — מחירים מיוחדים כולל מע״מ.</span></p>
   <a href="#pricing" class="btn-white">בואו נתחיל!</a>
 </section>
 
@@ -774,7 +774,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="section-tag tag-light">מחירים</div>
       <h2 class="section-title" style="color:var(--dark);">השקעה שמחזירה את עצמה</h2>
       <p class="section-sub" style="color:var(--muted);margin:0 auto 24px;">תמחור פשוט, ללא הפתעות.</p>
-      <div class="trial-badge">מבצע חודש מאי</div>
+      <div class="trial-badge" id="promoBadge">מבצע חודש מאי!</div>
     </div>
     <div class="pricing-grid reveal">
       <div class="pricing-card">
@@ -785,7 +785,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         </div>
         <div class="pricing-vat">כולל מע״מ</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial">מבצע חודש מאי</div>
+        <div class="pricing-trial" id="promoStarter">מבצע חודש מאי!</div>
         <ul class="pricing-features">
           <li>ללא עלות הקמה</li>
           <li>מספר ווטסאפ ייעודי</li>
@@ -805,7 +805,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         </div>
         <div class="pricing-vat">כולל מע״מ</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial" style="color:rgba(255,255,255,0.55);">מבצע חודש מאי</div>
+        <div class="pricing-trial" id="promoPro" style="color:rgba(255,255,255,0.55);">מבצע חודש מאי!</div>
         <ul class="pricing-features">
           <li>כל מה שב-Starter</li>
           <li>העלאת מדיה לצ'אט</li>
@@ -844,6 +844,19 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 </a>
 
 <script>
+const HEBREW_MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+function calendarMonthIndexIsrael(){
+  var mStr=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jerusalem',month:'numeric'}).format(new Date());
+  var i=parseInt(mStr,10)-1;
+  return (i>=0&&i<12)?i:new Date().getMonth();
+}
+const promoMonth=HEBREW_MONTHS[calendarMonthIndexIsrael()];
+(function applyPromoMonthToLp(){
+  var ex='מבצע חודש '+promoMonth+'!';
+  var subline='מבצע חודש '+promoMonth+' — מחירים מיוחדים כולל מע״מ.';
+  var map={promoFinalCtaLine:subline,promoBadge:ex,promoStarter:ex,promoPro:ex};
+  for (var k in map){ var el=document.getElementById(k); if(el) el.textContent=map[k]; }
+})();
 // Logo in nav - invert for dark bg not needed since transparent
 // WA chat animation - triggers on scroll
 const waMsgs = ['wm1','wm2','wm3','wm4'];
@@ -892,21 +905,21 @@ const zoeBrain = [
   {keys:['מי את','מה את','איך את','מה זואי','מה זה','ספר','ספרי'],
    ans:'אני זואי - בוטית המכירות של HeyZoe 😊 יודעת שאני רק בוט, אבל אני גאה בזה. אני חרוצה, תמיד זמינה, ואף פעם לא עונה "עוד רגע". כל המהות שלי היא לסגור עסקאות בשביל הסטודיו שלכם. מה תרצה לדעת?'},
   {keys:['מחיר','עולה','עלות','כמה','תשלום','חבילה'],
-   ans:'במבצע חודש מאי: Starter 349 שח לחודש (במקום 500), Pro 499 (במקום 650) — כולל מע״מ. וספוילר - אני שווה את זה 😎'},
+   ans:'במבצע חודש '+promoMonth+': Starter 349 שח לחודש (במקום 500), Pro 499 (במקום 650) — כולל מע״מ. וספוילר - אני שווה את זה 😎'},
   {keys:['הקמ','מורכב','קשה','טכנולוגי','מסובך','זמן','דקות'],
    ans:'10 דקות. ממש. מזינים לינק לאתר, אני סורקת הכל לבד, אתם בודקים - וסיימנו. אין IT, אין מפתחים, אין דרמות. הדרמות תשמרו לשיעור הזומבה 💃'},
   {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
-   ans:'מובן לגמרי. אבל תחשוב על זה — מבצע חודש מאי, מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
+   ans:'מובן לגמרי. אבל תחשוב על זה — מבצע חודש '+promoMonth+', מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
   {keys:['שיחות','מגבל','לידים','100','500'],
    ans:'Starter עד 100 שיחות בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
   {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
    ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
-  {keys:['מאי','מבצע','חודש מאי','מחיר'],
-   ans:'יש מבצע חודש מאי: Starter ב־349 שח לחודש (במקום 500), Pro ב־499 (במקום 650) — הכול כולל מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
+  {keys:['מאי','מבצע','חודש','מחיר'],
+   ans:'יש מבצע חודש '+promoMonth+': Starter ב־349 שח לחודש (במקום 500), Pro ב־499 (במקום 650) — הכול כולל מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
   {keys:['ביטול','לבטל','חוזה','קשור','כלוא'],
    ans:'ניתן לבטל בכל עת, אין חוזים ואין קנסות. אנחנו מאמינים שאם אתם נשארים, זה כי אני שווה את זה 😄'},
   {keys:['עייפ','נמאס','לחוץ','שחיקה','לא יכול'],
-   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע מאי המחירים כוללים מע״מ — בוא נסגור את זה 💪'},
+   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע חודש '+promoMonth+' המחירים כוללים מע״מ — בוא נסגור את זה 💪'},
 ];
 
 let botCount = 0;

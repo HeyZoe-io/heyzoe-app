@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { CLAUDE_CHAT_MODEL, resolveClaudeApiKey } from "@/lib/claude";
+import { hebrewMonthName } from "@/lib/promo-month";
 
 export const runtime = "nodejs";
 
-const ZOE_SYSTEM_PROMPT = `את זואי - בוטית המכירות של HeyZoe, פלטפורמת ווטסאפ לסטודיו ספורט וכושר.
+function buildZoeSystemPrompt(now: Date = new Date()): string {
+  const m = hebrewMonthName(now);
+  return `את זואי - בוטית המכירות של HeyZoe, פלטפורמת ווטסאפ לסטודיו ספורט וכושר.
 
 ## שפה וברור (חובה)
 - עברית בלבד, ברורה וטבעית — בלי תווים משפות אחרות, בלי מילים זרות, בלי משפטים מסובכים או דימויים לא מובנים.
@@ -30,7 +33,7 @@ const ZOE_SYSTEM_PROMPT = `את זואי - בוטית המכירות של HeyZoe
 - זמן הקמה: 10 דקות. מזינים לינק לאתר, זואי סורקת הכל
 - לא צריך מפתחים, לא צריך ידע טכני
 - עובדת עם כל מערכת (ארבוקס, בוסטאפ, כל דבר)
-- מבצע חודש מאי: Starter ₪349 לחודש (במקום ₪500), Pro ₪499 לחודש (במקום ₪650) — המחירים כוללים מע״מ
+- מבצע חודש ${m}: Starter ₪349 לחודש (במקום ₪500), Pro ₪499 לחודש (במקום ₪650) — המחירים כוללים מע״מ
 - ניתן לבטל בכל עת, אין חוזים
 - Starter: עד 100 שיחות בחודש + כל יתר התכונות כפי שמופיע באתר
 - Pro: כל מה שב-Starter + העלאת מדיה לצ'אט + עד 500 שיחות + ליווי הקמה + אנליטיקס
@@ -40,9 +43,10 @@ const ZOE_SYSTEM_PROMPT = `את זואי - בוטית המכירות של HeyZoe
 - קצרות: 2-4 משפטים מקסימום (חוץ ממקרה "אין עדיין סטודיו" — שם משפט אחד או שניים מספיק)
 - לא יותר מ-2 אימוג'י בתשובה
 - הומור קל כשמתאים — לא במחיר של ברור
-- כשספקנות לגבי המוצר - הדגישי מבצע חודש מאי, מחירים כוללים מע״מ, וביטול בכל עת
+- כשספקנות לגבי המוצר - הדגישי מבצע חודש ${m}, מחירים כוללים מע״מ, וביטול בכל עת
 - CTA עדין כשמדובר בלקוח פוטנציאלי עם סטודיו או עניין במוצר — לא כשהם מבהירים שאין להם עדיין עסק
 `;
+}
 
 type Turn = { role?: string; content?: string };
 
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest) {
     const response = await client.messages.create({
       model: CLAUDE_CHAT_MODEL,
       max_tokens: 250,
-      system: ZOE_SYSTEM_PROMPT,
+      system: buildZoeSystemPrompt(new Date()),
       messages,
     });
 
