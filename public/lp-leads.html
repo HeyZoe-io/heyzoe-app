@@ -360,9 +360,18 @@ section{padding:80px 6%;}
 /* SAVINGS */
 .savings-section{background:white;padding:80px 6%;}
 .savings-inner{max-width:900px;margin:0 auto;text-align:center;}
+@media (max-width:740px){
+  .setup-section{padding:48px 5% 22px;}
+  .setup-section .steps-list{margin-top:20px;}
+  .setup-step{padding:16px 0;}
+  .savings-section{padding:28px 5% 48px;}
+}
 .peace-card{
   background:var(--bg);border:2px solid rgba(113,51,218,0.1);
   border-radius:24px;padding:48px 40px;margin-top:40px;position:relative;overflow:hidden;
+}
+@media (max-width:740px){
+  .peace-card{margin-top:22px;padding:32px 20px;}
 }
 .peace-before-after{display:grid;grid-template-columns:1fr auto 1fr;gap:24px;align-items:center;margin-bottom:40px;}
 .peace-col{background:white;border-radius:16px;padding:24px 20px;text-align:center;}
@@ -681,7 +690,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <p class="section-sub" style="color:var(--muted);margin:0 auto 0;">מזינים לינקים, המידע נכנס, אתם עורכים ומוסיפים אם צריך וטדה - זואי דואגת ללידים.</p>
     </div>
     <div class="demo-frame reveal" id="demoEmbed">
-      <iframe class="demo-embed-frame" src="/heyzoe-demo-pilates-v2.html" title="דמו מונפש של זואי" loading="lazy"></iframe>
+      <iframe class="demo-embed-frame" src="/heyzoe-demo-pilates-v2.html" title="דמו מונפש של זואי" loading="eager"></iframe>
     </div>
   </div>
 </section>
@@ -954,8 +963,9 @@ document.getElementById('botInput').onkeydown=e=>{ if(e.key==='Enter') askZoe();
 
 (function(){
   var iframe=document.querySelector('iframe.demo-embed-frame');
-  if(!iframe||typeof IntersectionObserver==='undefined')return;
-  var sent=false, armed=false, wantStart=false;
+  var demoEl=document.getElementById('demo');
+  if(!iframe||typeof IntersectionObserver==='undefined'||!demoEl)return;
+  var sent=false, wantStart=false;
   function pageUrlForDemo(){
     try{
       var sp=new URLSearchParams(window.location.search);
@@ -980,24 +990,23 @@ document.getElementById('botInput').onkeydown=e=>{ if(e.key==='Enter') askZoe();
     if(e.source!==iframe.contentWindow)return;
     if(e.data&&e.data.type==='heyzoe-demo-ready')trySendDemoStart();
   });
+  function kickDemoStart(){
+    wantStart=true;
+    trySendDemoStart();
+    var n=0;
+    var tmr=setInterval(function(){
+      trySendDemoStart();
+      if(sent||++n>40)clearInterval(tmr);
+    },100);
+  }
   var obs=new IntersectionObserver(function(ent){
     if(ent[0]&&ent[0].isIntersecting){
-      wantStart=true;
-      trySendDemoStart();
+      kickDemoStart();
       obs.disconnect();
     }
-  },{threshold:0.12,rootMargin:'0px 0px -10% 0px'});
-  function arm(){
-    if(armed)return;
-    armed=true;
-    obs.observe(iframe);
-  }
-  iframe.addEventListener('load',arm,{once:true});
-  setTimeout(function(){
-    try{
-      if(iframe.contentDocument&&iframe.contentDocument.readyState==='complete')arm();
-    }catch(e){}
-  },0);
+  },{threshold:0.02,rootMargin:'100px 0px 160px 0px'});
+  obs.observe(demoEl);
+  iframe.addEventListener('load',function(){ if(wantStart)trySendDemoStart(); });
 })();
 
 </script>
