@@ -50,7 +50,16 @@ export default function TermsPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-zinc-900">4. Data &amp; Privacy</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
-            See our Privacy Policy at{" "}
+            Hey Zoe stores all WhatsApp conversations conducted through the platform. These
+            conversations may be accessed by the Hey Zoe team for purposes of technical support,
+            service improvement, and platform monitoring.
+          </p>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            Business owners acknowledge and consent to this data access as a condition of using the
+            service.
+          </p>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            For full details, see our Privacy Policy at{" "}
             <a
               className="text-zinc-900 underline decoration-zinc-400 underline-offset-2 hover:decoration-zinc-600"
               href="https://heyzoe.io/privacy"
