@@ -10,11 +10,11 @@
 .biz-name{font-size:13px;color:#888;direction:ltr;text-align:left;}
 .biz-name span{color:#7133da;font-weight:500;}
 .tabs{display:flex;background:white;border-radius:12px 12px 0 0;border:0.5px solid #e8e4f8;border-bottom:none;padding:6px 6px 0;}
-.tab{padding:8px 10px;font-size:12px;color:#888;cursor:default;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.25s;flex:1;text-align:center;}
+.tab{padding:8px 10px;font-size:12px;color:#888;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.25s;flex:1;text-align:center;}
 .tab.active{color:#7133da;font-weight:500;border-bottom:2px solid #7133da;}
-.card{background:white;border:0.5px solid #e8e4f8;border-radius:0 0 16px 16px;padding:20px;min-height:340px;}
-.step{display:none;}
-.step.on{display:block;}
+.card{background:white;border:0.5px solid #e8e4f8;border-radius:0 0 16px 16px;padding:16px;height:360px;max-height:360px;overflow:hidden;display:flex;flex-direction:column;}
+.step{display:none;flex:1;min-height:0;overflow-y:auto;}
+.step.on{display:flex;flex-direction:column;}
 .step-hdr{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin-bottom:6px;}
 .step-num{width:26px;height:26px;border-radius:50%;background:#f0e8ff;color:#7133da;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .step-title{font-size:16px;font-weight:600;color:#1a1a2e;text-align:right;}
@@ -40,10 +40,10 @@
 .svc-sub{font-size:11px;color:#aaa;margin-top:2px;}
 .svc-price{font-size:13px;color:#7133da;font-weight:600;}
 .zoe-lbl{font-size:11px;color:#7133da;font-weight:500;margin-bottom:5px;text-align:right;}
-.subsection-lbl{font-size:11px;color:#aaa;font-weight:500;margin:12px 0 6px;text-align:right;text-transform:uppercase;letter-spacing:0.4px;}
-.bubble{background:#f0e8ff;border-radius:14px 4px 14px 14px;padding:10px 14px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:88%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;text-align:right;direction:rtl;}
+.subsection-lbl{font-size:11px;color:#aaa;font-weight:500;margin:8px 0 4px;text-align:right;text-transform:uppercase;letter-spacing:0.4px;}
+.bubble{background:#f0e8ff;border-radius:14px 4px 14px 14px;padding:8px 12px;font-size:11px;color:#1a1a2e;margin-bottom:5px;max-width:88%;line-height:1.5;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;text-align:right;direction:rtl;}
 .bubble.show{opacity:1;transform:translateY(0);}
-.user-bubble{background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:14px 4px 14px 14px;padding:9px 13px;font-size:12px;color:#1a1a2e;margin-bottom:7px;max-width:75%;line-height:1.6;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;margin-right:0;margin-left:0;text-align:right;direction:rtl;}
+.user-bubble{background:#f8f7ff;border:0.5px solid #e8e4f8;border-radius:14px 4px 14px 14px;padding:7px 11px;font-size:11px;color:#1a1a2e;margin-bottom:5px;max-width:75%;line-height:1.5;opacity:0;transform:translateY(5px);transition:opacity 0.4s,transform 0.4s;align-self:flex-start;margin-right:0;margin-left:0;text-align:right;direction:rtl;}
 .user-bubble.show{opacity:1;transform:translateY(0);}
 .chat-wrap{display:flex;flex-direction:column;align-items:flex-start;}
 .wa-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;margin-bottom:4px;justify-content:flex-start;}
@@ -104,8 +104,8 @@
     </div>
 
     <div class="step" id="s4">
-      <div class="step-hdr"><div class="step-title">מסלול מכירה</div><div class="step-num">4</div></div>
-      <div class="step-sub">שיחה מלאה — פתיחה, חימום, שאלות פתוחות והנעה לפעולה.</div>
+      <div class="step-hdr"><div class="step-title">מכירה</div><div class="step-num">4</div></div>
+      <div class="step-sub">פתיחה, חימום, שאלה והנעה לפעולה.</div>
       <div class="chat-wrap">
 
         <div class="subsection-lbl">סשן פתיחה</div>
@@ -159,6 +159,8 @@ function hide(id){const el=document.getElementById(id);if(el)el.classList.remove
 function fade(id,on){const el=document.getElementById(id);if(el)el.style.opacity=on?'1':'0';}
 function delay(ms){return new Promise(r=>setTimeout(r,ms));}
 
+let playToken = 0;
+
 function setStep(n){
   for(let i=1;i<=5;i++){
     const s=document.getElementById('s'+i);
@@ -168,6 +170,18 @@ function setStep(n){
     if(t)t.className='tab'+(i===n?' active':'');
     if(p)p.className='pdot'+(i===n?' on':'');
   }
+}
+
+function resetAllVisuals(){
+  ['lr1','lr2','lr3','saved',
+   'r1','r2','r3','r4','r5',
+   'sc1','sc2','sc3',
+   'zm1','zm2','zm3','zm4','uq1',
+   'wb1','wb2','wb3',
+   'zm5a','zm5b'].forEach(hide);
+  ['lbl2','lbl3','lbl4','sopts1'].forEach(id=>fade(id,false));
+  const urlEl=document.getElementById('urlF');
+  if(urlEl) urlEl.innerHTML='<span class="cursor-blink"></span>';
 }
 
 function typeUrl(){return new Promise(resolve=>{
@@ -182,73 +196,101 @@ function typeUrl(){return new Promise(resolve=>{
   tick();
 });}
 
-async function runLoop(){
-  while(true){
-    setStep(1);
-    ['lr1','lr2','lr3','saved',
-     'r1','r2','r3','r4','r5',
-     'sc1','sc2','sc3',
-     'zm1','zm2','zm3','zm4','uq1',
-     'wb1','wb2','wb3',
-     'zm5a','zm5b'].forEach(hide);
-    ['lbl2','lbl3','lbl4','sopts1'].forEach(id=>fade(id,false));
-    document.getElementById('urlF').innerHTML='<span class="cursor-blink"></span>';
-
-    await delay(600);
-    await typeUrl();
-    await delay(400);
-    await delay(1200);
-    show('lr1'); await delay(250);
-    show('lr2'); await delay(250);
-    show('lr3'); await delay(250);
-    show('saved');
-    await delay(2000);
-
-    setStep(2);
-    await delay(300);
-    show('r1'); await delay(220);
-    show('r2'); await delay(220);
-    show('r3'); await delay(220);
-    show('r4'); await delay(220);
-    show('r5');
-    await delay(2500);
-
-    setStep(3);
-    await delay(300);
-    show('sc1'); await delay(250);
-    show('sc2'); await delay(250);
-    show('sc3');
-    await delay(2500);
-
-    setStep(4);
-    await delay(400);
-    show('zm1');
-    await delay(2000);
-
-    fade('lbl2',true); await delay(300);
-    show('zm2'); await delay(800);
-    fade('sopts1',true);
-    await delay(2000);
-
-    fade('lbl3',true); await delay(300);
-    show('uq1'); await delay(700);
-    show('zm3');
-    await delay(2000);
-
-    fade('lbl4',true); await delay(300);
-    show('zm4'); await delay(700);
-    show('wb1'); await delay(220);
-    show('wb2'); await delay(220);
-    show('wb3');
-    await delay(2500);
-
-    setStep(5);
-    await delay(300);
-    show('zm5a'); await delay(900);
-    show('zm5b');
-    await delay(2500);
-  }
+async function playStep1(){
+  const t=++playToken;
+  resetAllVisuals();
+  setStep(1);
+  await delay(500);
+  if(t!==playToken)return;
+  await typeUrl();
+  if(t!==playToken)return;
+  await delay(400);
+  await delay(900);
+  if(t!==playToken)return;
+  show('lr1'); await delay(220);
+  if(t!==playToken)return;
+  show('lr2'); await delay(220);
+  show('lr3'); await delay(220);
+  show('saved');
 }
 
-runLoop();
+async function playStep2(){
+  const t=++playToken;
+  resetAllVisuals();
+  setStep(2);
+  await delay(350);
+  if(t!==playToken)return;
+  show('r1'); await delay(200);
+  if(t!==playToken)return;
+  show('r2'); await delay(200);
+  show('r3'); await delay(200);
+  show('r4'); await delay(200);
+  show('r5');
+}
+
+async function playStep3(){
+  const t=++playToken;
+  resetAllVisuals();
+  setStep(3);
+  await delay(350);
+  if(t!==playToken)return;
+  show('sc1'); await delay(220);
+  if(t!==playToken)return;
+  show('sc2'); await delay(220);
+  show('sc3');
+}
+
+async function playStep4(){
+  const t=++playToken;
+  resetAllVisuals();
+  setStep(4);
+  await delay(350);
+  if(t!==playToken)return;
+  show('zm1');
+  await delay(1400);
+  if(t!==playToken)return;
+  fade('lbl2',true); await delay(250);
+  if(t!==playToken)return;
+  show('zm2'); await delay(650);
+  fade('sopts1',true);
+  await delay(1200);
+  if(t!==playToken)return;
+  fade('lbl3',true); await delay(250);
+  show('uq1'); await delay(550);
+  show('zm3');
+  await delay(1200);
+  if(t!==playToken)return;
+  fade('lbl4',true); await delay(250);
+  show('zm4'); await delay(550);
+  show('wb1'); await delay(200);
+  show('wb2'); await delay(200);
+  show('wb3');
+}
+
+async function playStep5(){
+  const t=++playToken;
+  resetAllVisuals();
+  setStep(5);
+  await delay(350);
+  if(t!==playToken)return;
+  show('zm5a'); await delay(700);
+  if(t!==playToken)return;
+  show('zm5b');
+}
+
+function playStep(n){
+  if(n===1) return playStep1();
+  if(n===2) return playStep2();
+  if(n===3) return playStep3();
+  if(n===4) return playStep4();
+  if(n===5) return playStep5();
+}
+
+for(let i=1;i<=5;i++){
+  const tb=document.getElementById('tb'+i);
+  if(tb) tb.addEventListener('click',()=>{ void playStep(i); });
+}
+
+setStep(1);
+resetAllVisuals();
 </script>
