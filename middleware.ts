@@ -47,8 +47,20 @@ export async function middleware(req: NextRequest) {
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
   const isOwnerAccountPath = pathname.startsWith("/account");
+  // IMPORTANT: don't treat reserved prefixes (e.g. /account/settings) as business slugs.
+  const isReservedPrefix =
+    pathname.startsWith("/account") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/lp-leads") ||
+    pathname === "/" ||
+    pathname === "/privacy" ||
+    pathname === "/terms";
   const isOwnerSlugPath =
-    /^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname);
+    !isReservedPrefix && /^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname);
   const isDashboardSlugSettingsPath = /^\/dashboard\/[^/]+\/settings\/?$/.test(pathname);
   if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
     return NextResponse.next();
