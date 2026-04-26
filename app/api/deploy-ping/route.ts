@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Tiny endpoint to verify which commit Vercel deployed.
- * Vercel sets VERCEL_GIT_COMMIT_SHA at build/runtime for Git deployments.
+ * Vercel sets VERCEL_GIT_COMMIT_SHA at build/runtime for Git deployments. 
  */
 export async function GET() {
   const sha = (process.env.VERCEL_GIT_COMMIT_SHA ?? "").trim();
