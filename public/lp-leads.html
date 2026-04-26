@@ -884,7 +884,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     <div class="pricing-grid reveal">
       <div class="pricing-card">
         <div class="pricing-name">Starter</div>
-        <div class="pricing-trial" id="promoStarter">ללא דמי הקמה, ללא התחייבות.</div>
+        <div class="pricing-trial" id="promoStarter">מחיר לכל החיים</div>
         <div class="pricing-price-row">
           <div class="pricing-price">₪349</div>
           <div class="pricing-old">₪500</div>
@@ -904,7 +904,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
         <div class="pricing-name">Pro</div>
-        <div class="pricing-trial" id="promoPro">ללא דמי הקמה, ללא התחייבות.</div>
+        <div class="pricing-trial" id="promoPro">מחיר לכל החיים</div>
         <div class="pricing-price-row">
           <div class="pricing-price" style="color:var(--pink);">₪499</div>
           <div class="pricing-old">₪650</div>
@@ -958,7 +958,8 @@ function calendarMonthIndexIsrael(){
 const promoMonth=HEBREW_MONTHS[calendarMonthIndexIsrael()];
 (function applyPromoMonthToLp(){
   var line='ללא דמי הקמה, ללא התחייבות.';
-  var map={promoFinalCtaLine:line,promoBadge:line,promoStarter:line,promoPro:line};
+  var lineUnderPlans='מחיר לכל החיים';
+  var map={promoFinalCtaLine:line,promoBadge:line,promoStarter:lineUnderPlans,promoPro:lineUnderPlans};
   for (var k in map){ var el=document.getElementById(k); if(el) el.textContent=map[k]; }
 })();
 // Logo in nav - invert for dark bg not needed since transparent
