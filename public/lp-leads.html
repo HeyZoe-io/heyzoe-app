@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>HeyZoe - בוטית מכירות מומחית לעסקי כושר</title>
 <link rel="icon" type="image/png" href="/zoe-browser-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
@@ -17,8 +17,8 @@
   --muted:#555560;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-html{scroll-behavior:smooth;scroll-padding-top:110px;}
-body{font-family:'Fredoka',sans-serif;background:var(--bg);color:var(--text);direction:rtl;overflow-x:hidden;font-size:17px;}
+html{scroll-behavior:smooth;scroll-padding-top:110px;overflow-x:hidden;overflow-x:clip;}
+body{font-family:'Fredoka',sans-serif;background:var(--bg);color:var(--text);direction:rtl;overflow-x:hidden;overflow-x:clip;font-size:17px;overscroll-behavior-x:none;}
 
 nav{
   position:fixed;top:0;right:0;left:0;z-index:100;
@@ -134,9 +134,9 @@ nav{
 
 /* HERO */
 .hero{
-  min-height:100vh;min-height:100svh;display:flex;flex-direction:column;
+  min-height:100svh;display:flex;flex-direction:column;
   align-items:center;justify-content:center;
-  padding:128px 6% 40px;position:relative;overflow:hidden;text-align:center;
+  padding:128px 6% 40px;position:relative;overflow:hidden;overflow-anchor:none;text-align:center;
 }
 .blob{position:absolute;border-radius:50%;filter:blur(80px);pointer-events:none;}
 .blob1{width:500px;height:500px;background:var(--purple);opacity:0.22;top:-120px;right:-150px;}
@@ -432,23 +432,23 @@ section{padding:80px 6%;}
 .pricing-btn-filled{background:linear-gradient(135deg,var(--purple),#a855f7);color:white;}
 
 /* BOT */
-.bot-section{background:var(--dark);padding:80px 6%;text-align:center;}
+.bot-section{background:var(--dark);padding:80px 6%;text-align:center;overflow-x:clip;}
 .bot-section .section-title{color:white;}
 .bot-section .section-sub{color:rgba(255,255,255,0.75);margin:0 auto 32px;font-size:18px;line-height:1.75;}
 .bot-input-wrap{
-  max-width:560px;margin:0 auto;
+  max-width:560px;width:100%;min-width:0;margin:0 auto;
   display:flex;gap:10px;
   background:rgba(255,255,255,0.06);
   border:1px solid rgba(255,255,255,0.12);
   border-radius:16px;padding:6px;
 }
-.bot-input{flex:1;background:transparent;border:none;outline:none;color:white;font-size:15px;font-family:'Heebo',sans-serif;direction:rtl;padding:8px 10px;}
+.bot-input{flex:1 1 0%;min-width:0;background:transparent;border:none;outline:none;color:white;font-size:15px;font-family:'Heebo',sans-serif;direction:rtl;padding:8px 10px;}
 .bot-input::placeholder{color:rgba(255,255,255,0.3);}
 .bot-send{background:linear-gradient(135deg,var(--purple),var(--pink));color:white;border:none;border-radius:10px;padding:10px 18px;font-size:14px;cursor:pointer;font-family:'Heebo',sans-serif;font-weight:500;white-space:nowrap;}
-.bot-stack{max-width:560px;margin:28px auto 0;display:flex;flex-direction:column;gap:14px;}
+.bot-stack{max-width:560px;width:100%;min-width:0;margin:28px auto 0;display:flex;flex-direction:column;gap:14px;}
 .bot-input-wrap{flex-shrink:0;}
 .bot-chat{
-  max-width:560px;width:100%;margin:0 auto;
+  max-width:560px;width:100%;min-width:0;margin:0 auto;
   display:flex;flex-direction:column;gap:10px;
   min-height:0;
 }
@@ -460,8 +460,8 @@ section{padding:80px 6%;}
 }
 .bot-chat:not(:empty)::-webkit-scrollbar{width:6px;}
 .bot-chat:not(:empty)::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.25);border-radius:6px;}
-.bot-bubble-user{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:16px 4px 16px 16px;padding:10px 16px;font-size:14px;color:rgba(255,255,255,0.9);text-align:right;align-self:flex-start;}
-.bot-bubble-zoe{background:rgba(113,51,218,0.3);border:1px solid rgba(113,51,218,0.35);border-radius:4px 16px 16px 16px;padding:12px 16px;font-size:14px;color:rgba(255,255,255,0.9);line-height:1.7;text-align:right;align-self:flex-end;}
+.bot-bubble-user{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:16px 4px 16px 16px;padding:10px 16px;font-size:14px;color:rgba(255,255,255,0.9);text-align:right;align-self:flex-start;max-width:100%;overflow-wrap:anywhere;word-break:break-word;}
+.bot-bubble-zoe{background:rgba(113,51,218,0.3);border:1px solid rgba(113,51,218,0.35);border-radius:4px 16px 16px 16px;padding:12px 16px;font-size:14px;color:rgba(255,255,255,0.9);line-height:1.7;text-align:right;align-self:flex-end;max-width:min(100%,520px);overflow-wrap:anywhere;word-break:break-word;}
 .bot-typing{display:flex;align-items:center;gap:6px;padding:10px 16px;background:rgba(113,51,218,0.2);border-radius:4px 16px 16px 16px;align-self:flex-end;width:fit-content;margin-right:auto;}
 .bot-typing span{width:7px;height:7px;border-radius:50%;background:var(--pink);animation:tdot 1s infinite;}
 .bot-typing span:nth-child(2){animation-delay:0.2s;}
@@ -488,6 +488,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 .reveal.visible{opacity:1;transform:translateY(0);}
 
 @media(max-width:768px){
+  html{scroll-behavior:auto;}
   .chat-inner,.flow-grid,.pricing-grid{grid-template-columns:1fr;}
   .chat-inner{gap:28px;}
   .chat-left{order:1;text-align:center;margin-inline:auto;max-width:560px;}
@@ -497,7 +498,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   .peace-before-after{grid-template-columns:1fr;gap:12px;}
   .peace-arrow{transform:rotate(90deg);}
   .funnel-diagram{height:280px;}
-  .hero{padding:76px 5% 76px;min-height:auto;}
+  .hero{padding:76px 5% 76px;min-height:100svh;}
 }
 
 .funnel-source-card{display:flex;align-items:center;gap:10px;background:white;border:1px solid rgba(113,51,218,0.1);border-radius:14px;padding:10px 14px;box-shadow:0 2px 12px rgba(113,51,218,0.07);transition:transform 0.2s;}
@@ -757,7 +758,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <!-- FINAL CTA -->
 <section class="final-cta">
   <h2 class="section-title" style="font-size:clamp(30px,5vw,50px);">מוכנים להשתחרר משיחות מכירה?</h2>
-  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br>7 ימים ראשונים חינם. ללא התחייבות. ללא דמי הקמה.</p>
+  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br>7 ימי ניסיון חינם. ללא התחייבות. ללא דמי הקמה.</p>
   <a href="#pricing" class="btn-white">בואו נתחיל!</a>
 </section>
 
@@ -768,14 +769,14 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="section-tag tag-light">מחירים</div>
       <h2 class="section-title" style="color:var(--dark);">השקעה שמחזירה את עצמה</h2>
       <p class="section-sub" style="color:var(--muted);margin:0 auto 24px;">תמחור פשוט, ללא הפתעות.</p>
-      <div class="trial-badge">✓ 7 ימים בחינם - ללא התחייבות</div>
+      <div class="trial-badge">✓ 7 ימי ניסיון חינם - ללא התחייבות</div>
     </div>
     <div class="pricing-grid reveal">
       <div class="pricing-card">
         <div class="pricing-name">Starter</div>
         <div class="pricing-price">₪349</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial">7 ימים ראשונים חינם</div>
+        <div class="pricing-trial">7 ימי ניסיון חינם</div>
         <ul class="pricing-features">
           <li>ללא עלות הקמה</li>
           <li>מספר ווטסאפ ייעודי</li>
@@ -791,13 +792,13 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="pricing-name">Pro</div>
         <div class="pricing-price" style="color:var(--pink);">₪499</div>
         <div class="pricing-period">לחודש</div>
-        <div class="pricing-trial" style="color:rgba(255,255,255,0.5);">7 ימים ראשונים חינם</div>
+        <div class="pricing-trial" style="color:rgba(255,255,255,0.5);">7 ימי ניסיון חינם</div>
         <ul class="pricing-features">
           <li>כל מה שב-Starter</li>
+          <li>העלאת מדיה לצ'אט</li>
           <li>עד 500 שיחות בחודש</li>
           <li>ליווי צמוד בהקמה</li>
           <li>אנליטיקס מתקדם</li>
-          <li>העלאת מדיה לצ'אט</li>
         </ul>
         <button class="pricing-btn pricing-btn-filled" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
       </div>
@@ -878,21 +879,21 @@ const zoeBrain = [
   {keys:['מי את','מה את','איך את','מה זואי','מה זה','ספר','ספרי'],
    ans:'אני זואי - בוטית המכירות של HeyZoe 😊 יודעת שאני רק בוט, אבל אני גאה בזה. אני חרוצה, תמיד זמינה, ואף פעם לא עונה "עוד רגע". כל המהות שלי היא לסגור עסקאות בשביל הסטודיו שלכם. מה תרצה לדעת?'},
   {keys:['מחיר','עולה','עלות','כמה','תשלום','חבילה'],
-   ans:'349 שח ל-Starter, 499 ל-Pro. ו-7 ימים ראשונים? בחינם, בלי כרטיס אשראי. כלומר אתם לא מוציאים שקל עד שאתם בטוחים שאני שווה את זה. וספוילר - אני שווה 😎'},
+   ans:'349 שח ל-Starter, 499 ל-Pro. ו-7 ימי ניסיון? בחינם, בלי כרטיס אשראי. כלומר אתם לא מוציאים שקל עד שאתם בטוחים שאני שווה את זה. וספוילר - אני שווה 😎'},
   {keys:['הקמ','מורכב','קשה','טכנולוגי','מסובך','זמן','דקות'],
    ans:'10 דקות. ממש. מזינים לינק לאתר, אני סורקת הכל לבד, אתם בודקים - וסיימנו. אין IT, אין מפתחים, אין דרמות. הדרמות תשמרו לשיעור הזומבה 💃'},
   {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
-   ans:'מובן לגמרי. אבל תחשוב על זה - 7 ימים בחינם, ניתן לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
+   ans:'מובן לגמרי. אבל תחשוב על זה - 7 ימי ניסיון חינם, ניתן לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
   {keys:['שיחות','מגבל','לידים','100','500'],
    ans:'Starter עד 100 שיחות בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
   {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
    ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
   {keys:['ניסיון','לנסות','חינם','בחינם'],
-   ans:'7 ימים בחינם, בלי כרטיס אשראי, בלי התחייבות. פשוט נרשמים ומתחילים. אני ממש ממש בטוחה שתישארו 🤍'},
+   ans:'7 ימי ניסיון חינם, בלי כרטיס אשראי, בלי התחייבות. פשוט נרשמים ומתחילים. אני ממש ממש בטוחה שתישארו 🤍'},
   {keys:['ביטול','לבטל','חוזה','קשור','כלוא'],
    ans:'ניתן לבטל בכל עת, אין חוזים ואין קנסות. אנחנו מאמינים שאם אתם נשארים, זה כי אני שווה את זה 😄'},
   {keys:['עייפ','נמאס','לחוץ','שחיקה','לא יכול'],
-   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. 7 ימים חינם - בוא נסגור את זה 💪'},
+   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. 7 ימי ניסיון חינם - בוא נסגור את זה 💪'},
 ];
 
 let botCount = 0;

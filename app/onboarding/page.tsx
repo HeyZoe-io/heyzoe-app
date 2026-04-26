@@ -679,7 +679,7 @@ function OnboardingContent() {
                     fontWeight: "600",
                   }}
                 >
-                  7 ימים ראשונים חינם - ביטול בכל עת
+                  7 ימי ניסיון חינם - ביטול בכל עת
                 </div>
               </div>
 
