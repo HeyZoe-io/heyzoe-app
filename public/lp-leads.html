@@ -881,6 +881,54 @@ async function askZoe(){
 document.getElementById('botSend').onclick=askZoe;
 document.getElementById('botInput').onkeydown=e=>{ if(e.key==='Enter') askZoe(); };
 
+(function(){
+  var iframe=document.querySelector('iframe.demo-embed-frame');
+  if(!iframe||typeof IntersectionObserver==='undefined')return;
+  var sent=false, armed=false, wantStart=false;
+  function pageUrlForDemo(){
+    try{
+      var sp=new URLSearchParams(window.location.search);
+      var o=sp.get('demo_url');
+      if(o){
+        var u=new URL(o);
+        if(u.protocol==='http:'||u.protocol==='https:')return u.href;
+      }
+    }catch(e){}
+    return String((window.location.href||'').split('#')[0]);
+  }
+  function trySendDemoStart(){
+    if(!wantStart||sent)return;
+    var w=iframe.contentWindow;
+    if(!w)return;
+    try{
+      w.postMessage({type:'heyzoe-demo-start',pageUrl:pageUrlForDemo()},'*');
+      sent=true;
+    }catch(e){}
+  }
+  window.addEventListener('message',function(e){
+    if(e.source!==iframe.contentWindow)return;
+    if(e.data&&e.data.type==='heyzoe-demo-ready')trySendDemoStart();
+  });
+  var obs=new IntersectionObserver(function(ent){
+    if(ent[0]&&ent[0].isIntersecting){
+      wantStart=true;
+      trySendDemoStart();
+      obs.disconnect();
+    }
+  },{threshold:0.12,rootMargin:'0px 0px -10% 0px'});
+  function arm(){
+    if(armed)return;
+    armed=true;
+    obs.observe(iframe);
+  }
+  iframe.addEventListener('load',arm,{once:true});
+  setTimeout(function(){
+    try{
+      if(iframe.contentDocument&&iframe.contentDocument.readyState==='complete')arm();
+    }catch(e){}
+  },0);
+})();
+
 </script>
 </body>
 </html>
