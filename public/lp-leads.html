@@ -235,13 +235,16 @@ nav{
   width:40px;height:40px;overflow:visible;
   filter:drop-shadow(0 0 1px rgba(196,100,255,0.95)) drop-shadow(0 0 6px rgba(255,90,200,0.5));
 }
-.hero-neon-path{
+.hero-neon-halo{display:none;}
+.hero-neon-halo,.hero-neon-path{
   fill:none;
-  stroke-width:2.45;
   stroke-linecap:round;stroke-linejoin:round;
-  stroke:url(#heroNeonArrowGrad);
   stroke-dasharray:100;stroke-dashoffset:100;
   animation:heroNeonDraw 3.4s ease-in-out infinite;
+}
+.hero-neon-path{
+  stroke-width:2.45;
+  stroke:url(#heroNeonArrowGrad);
 }
 @keyframes heroNeonDraw{
   0%{stroke-dashoffset:100;opacity:0.2;}
@@ -587,6 +590,19 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   .peace-arrow{transform:rotate(90deg);}
   .funnel-diagram{height:280px;}
   .hero{padding:38px 5% 38px;min-height:100svh;}
+  .hero-pain{margin-bottom:26px;}
+  .hero-punchline{margin-top:-4px;margin-bottom:22px;}
+  .hero-h1-arrow{margin-top:-6px;}
+  .hero-neon-arrow{
+    width:44px;height:44px;
+    filter:drop-shadow(0 0 2px rgba(196,100,255,0.95)) drop-shadow(0 0 8px rgba(255,90,200,0.5)) drop-shadow(0 0 1px rgba(255,255,255,0.55));
+  }
+  .hero-neon-halo{
+    display:block;
+    stroke:rgba(255,255,255,0.62);
+    stroke-width:6.2;
+  }
+  .hero-neon-path{stroke-width:4.15;}
 }
 
 .funnel-source-card{display:flex;align-items:center;gap:10px;background:white;border:1px solid rgba(113,51,218,0.1);border-radius:14px;padding:10px 14px;box-shadow:0 2px 12px rgba(113,51,218,0.07);transition:transform 0.2s;}
@@ -631,7 +647,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <stop offset="100%" stop-color="#ff92ff"/>
         </linearGradient>
       </defs>
-      <path class="hero-neon-path" d="M32 4 L32 40 M 14 32 L32 50 L50 32" pathLength="100"/>
+      <!-- fatter chevron: outline layer (visible on mobile) then neon draw -->
+      <path class="hero-neon-halo" d="M32 2 L32 40 M 8 30 L32 50 L56 30" pathLength="100" fill="none"/>
+      <path class="hero-neon-path" d="M32 2 L32 40 M 8 30 L32 50 L56 30" pathLength="100" fill="none"/>
     </svg>
   </div>
   <h1 style="font-family:'Fredoka',sans-serif;font-size:clamp(32px,5.5vw,62px);font-weight:700;color:var(--dark);line-height:1.15;margin-bottom:8px;animation:fadeUp 0.6s 0.2s ease both;">הכירו את <span style="background:linear-gradient(135deg,var(--purple),var(--pink));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Hey Zoe</span></h1>
