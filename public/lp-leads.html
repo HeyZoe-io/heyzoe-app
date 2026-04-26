@@ -948,6 +948,20 @@ function disableBot(){
 
 let botHistory = [];
 
+function getLpZoeSessionId(){
+  try{
+    var k='heyzoeLpZoeSid';
+    var s=localStorage.getItem(k);
+    if(!s){
+      s=(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():('s'+Date.now()+'-'+Math.random().toString(36).slice(2));
+      localStorage.setItem(k,s);
+    }
+    return s;
+  }catch(_){
+    return 'anon-'+Date.now();
+  }
+}
+
 async function askZoe(){
   if(botCount >= BOT_LIMIT) return;
   const inp=document.getElementById('botInput');
@@ -974,7 +988,8 @@ async function askZoe(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: q,
-        history: botHistory.slice(0, -1)
+        history: botHistory.slice(0, -1),
+        sessionId: getLpZoeSessionId()
       })
     });
     const data = await res.json();
