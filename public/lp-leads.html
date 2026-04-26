@@ -253,45 +253,50 @@ section{padding:80px 6%;}
 .wa-avatar img{width:100%;height:100%;object-fit:contain;}
 .wa-name{color:white;font-size:14px;font-weight:500;}
 .wa-status{color:rgba(255,255,255,0.7);font-size:11px;}
-.wa-body{padding:12px 10px;display:flex;flex-direction:column;gap:8px;min-height:360px;max-height:min(70vh,520px);overflow-y:auto;background:#e5ddd5;}
+.wa-body{padding:12px 10px;display:flex;flex-direction:column;gap:8px;align-items:stretch;min-height:360px;max-height:min(70vh,520px);overflow-y:auto;overflow-x:hidden;background:#e5ddd5;}
 .wa-msg{
   background:white;border-radius:4px 12px 12px 12px;
   padding:8px 12px;font-size:12px;line-height:1.55;color:#1a1a2e;max-width:88%;
+  min-width:0;
   opacity:0;transform:translateY(8px);
   transition:opacity 0.5s,transform 0.5s;
-  direction:rtl;box-shadow:0 1px 2px rgba(0,0,0,0.1);
+  direction:rtl;box-shadow:0 1px 2px rgba(0,0,0,0.1);box-sizing:border-box;
 }
 .wa-msg.show{opacity:1;transform:translateY(0);}
 .wa-time{font-size:10px;color:#aaa;text-align:left;margin-top:3px;}
 .wa-msg.wa-msg-has-replies{
-  display:flex;flex-direction:column;padding:0;overflow:hidden;
-  border-radius:4px 12px 12px 12px;max-width:88%;
+  display:flex;flex-direction:column;padding:0;overflow:visible;
+  border-radius:4px 12px 12px 12px;max-width:88%;min-width:0;
 }
-.wa-msg.wa-msg-has-replies .wa-msg-top{padding:8px 12px 4px;}
-.wa-msg.wa-msg-has-replies > .wa-time{margin-top:0;padding:0 12px 6px !important;}
+.wa-msg.wa-msg-has-replies .wa-msg-top{
+  padding:7px 9px 6px;font-size:11.5px;line-height:1.5;box-sizing:border-box;max-width:100%;
+}
+.wa-msg.wa-msg-has-replies > .wa-time{margin-top:0;padding:0 9px 5px !important;}
+.wa-msg-top .wa-quick{
+  margin-top:5px;padding-top:4px;border-top:1px dashed rgba(13,128,80,0.25);
+}
 .wa-quick{
-  display:flex;flex-direction:column;align-self:stretch;width:100%;
-  flex-shrink:0;gap:0;
+  display:flex;flex-direction:column;align-self:stretch;width:100%;max-width:100%;
+  flex-shrink:0;gap:3px;
   opacity:0;max-height:0;overflow:hidden;transition:opacity 0.45s ease,max-height 0.45s ease;
-  border:0;padding:0;align-items:stretch;
+  border:0;padding:0;align-items:stretch;box-sizing:border-box;
 }
 .wa-quick.show{
-  border-top:1px solid #e0ddd8;
-  opacity:1;max-height:280px;
+  opacity:1;max-height:120px;
 }
 .wa-qr{
-  width:100%;text-align:center;background:#f0fff4;color:#0a3d0a;
-  border:0;border-top:1px solid #c4e4cd;border-radius:0;
-  padding:7px 8px;font-size:10.5px;font-weight:600;font-family:'Heebo',sans-serif;
-  cursor:default;line-height:1.45;
+  width:100%;max-width:100%;box-sizing:border-box;
+  text-align:center;background:rgba(240,255,244,0.95);color:#0a3d0a;
+  border:1px solid #b5dec0;border-radius:6px;
+  padding:3px 5px;font-size:9px;font-weight:600;font-family:'Heebo',sans-serif;
+  cursor:default;line-height:1.25;word-wrap:break-word;overflow-wrap:break-word;
 }
-.wa-qr:first-of-type{border-top:0;}
 .wa-msg.wa-msg-has-replies .wa-quick .wa-qr:last-child{
-  border-bottom-left-radius:5px;border-bottom-right-radius:5px;
+  margin-bottom:0;
 }
 .wa-qr.picked{
-  background:#c8f0d6;color:#04351f;
-  box-shadow:inset 0 0 0 1px rgba(13,128,80,0.35);
+  background:#c8f0d6;color:#04351f;border-color:#0d8050;
+  box-shadow:inset 0 0 0 1px rgba(13,128,80,0.2);
 }
 .wa-msg-punch{
   background:linear-gradient(145deg,#5b2db8 0%,#7133da 40%,#9d4edd 100%);
@@ -622,11 +627,12 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="wa-body">
           <div class="wa-msg" id="wm1">היי! איזה כיף שהגעת אלינו 🙂<br>שמי זואי מ־יוגי בוגי<br>סטודיו היוגה על בוגי הגדול במדינה!<br>נשמח שתבואי להתאמן איתנו.<br>כתובתנו היא אשטנגה 32 תל אביב.<div class="wa-time">10:32</div></div>
           <div class="wa-msg wa-msg-has-replies" id="wm2">
-            <div class="wa-msg-top">כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,<br>איזה אימון הכי קורץ לך?</div>
+            <div class="wa-msg-top">כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,<br>איזה אימון הכי קורץ לך?
             <div class="wa-quick" id="waQuick" aria-hidden="true">
               <div class="wa-qr">יוגה על בוגי</div>
               <div class="wa-qr">יוגה עם דולפינים</div>
               <div class="wa-qr" id="waQrCrocs">יוגה על תנינים</div>
+            </div>
             </div>
             <div class="wa-time">10:33</div>
           </div>
