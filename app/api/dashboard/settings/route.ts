@@ -9,6 +9,7 @@ import {
   pickFirstBusiness,
   type DashboardBizRow,
 } from "@/lib/dashboard-business-access";
+import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
 
 export const runtime = "nodejs";
 
@@ -122,8 +123,10 @@ export async function POST(req: NextRequest) {
   const accessible = await loadAccessibleBusinesses(admin, user.id);
   const existingForUser = pickBusinessBySlug(accessible, slug);
 
-  // Paywall: prevent edits when subscription isn't active
-  const isPaidActive = Boolean((existingForUser as any)?.is_active);
+  // Paywall: prevent edits when subscription isn't active (חריג לחשבונות דמו ברשימה)
+  const slugForAccess = String(existingForUser?.slug ?? "").trim().toLowerCase();
+  const isPaidActive =
+    Boolean((existingForUser as any)?.is_active) || hasComplimentaryDashboardAccess(slugForAccess);
   if (existingForUser && !isPaidActive) {
     return NextResponse.json({ error: "subscription_inactive" }, { status: 403 });
   }

@@ -6,6 +6,7 @@ import {
   resolveSupabaseAnonKey,
   resolveSupabaseUrl,
 } from "@/lib/server-env";
+import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
 
 function redirectToLogin(req: NextRequest) {
   const url = req.nextUrl.clone();
@@ -147,7 +148,8 @@ export async function middleware(req: NextRequest) {
             .eq("slug", slug)
             .maybeSingle();
           const isOwner = biz?.user_id && String(biz.user_id) === user.id;
-          const isPaidActive = Boolean((biz as any)?.is_active);
+          const isPaidActive =
+            Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
 
           // Paywall: if business subscription isn't active, only allow /account/* (personal details)
           if (!isPaidActive) {
@@ -184,7 +186,8 @@ export async function middleware(req: NextRequest) {
             .select("is_active")
             .eq("slug", slug)
             .maybeSingle();
-          const isPaidActive = Boolean((biz as any)?.is_active);
+          const isPaidActive =
+            Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
           if (!isPaidActive) return redirectToBillingReactivate(req);
         } catch {
           // Let page-level handle if needed
