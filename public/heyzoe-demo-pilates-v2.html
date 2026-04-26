@@ -54,6 +54,28 @@
 .progress{display:flex;gap:6px;justify-content:center;margin-top:14px;}
 .pdot{width:7px;height:7px;border-radius:50%;background:#e0d8f8;transition:all 0.3s;}
 .pdot.on{background:#7133da;width:20px;border-radius:4px;}
+.tabs-wrap{position:relative;padding-top:26px;margin-bottom:2px;}
+.tab-next-hint{
+  display:none;
+  position:absolute;
+  top:0;
+  z-index:8;
+  transform:translateX(-50%);
+  font-size:22px;
+  line-height:1;
+  color:#7133da;
+  text-shadow:0 0 10px rgba(255,255,255,0.9),0 1px 2px rgba(113,51,218,0.45);
+  pointer-events:none;
+}
+.tab-next-hint.visible{display:block;}
+.tab-next-hint .tab-next-hint-arr{
+  display:inline-block;
+  animation:tabHintPulse 1.1s ease-in-out infinite;
+}
+@keyframes tabHintPulse{
+  0%,100%{transform:translateY(0);opacity:1;}
+  50%{transform:translateY(5px);opacity:0.88;}
+}
 </style>
 
 <div class="wrap" dir="rtl">
@@ -61,12 +83,15 @@
     <div class="saved" id="saved"><div class="saved-dot"></div>נשמר אוטומטית</div>
     <div class="biz-name">pilates-tlv / <span>HeyZoe</span></div>
   </div>
-  <div class="tabs">
-    <div class="tab active" id="tb1">לינקים</div>
-    <div class="tab" id="tb2">על העסק</div>
-    <div class="tab" id="tb3">אימון ניסיון</div>
-    <div class="tab" id="tb4">מכירה</div>
-    <div class="tab" id="tb5">פולואפ</div>
+  <div class="tabs-wrap">
+    <div id="tabNextHint" class="tab-next-hint" aria-hidden="true"><span class="tab-next-hint-arr">↓</span></div>
+    <div class="tabs">
+      <div class="tab active" id="tb1">לינקים</div>
+      <div class="tab" id="tb2">על העסק</div>
+      <div class="tab" id="tb3">אימון ניסיון</div>
+      <div class="tab" id="tb4">מכירה</div>
+      <div class="tab" id="tb5">פולואפ</div>
+    </div>
   </div>
   <div class="card">
 
@@ -162,6 +187,46 @@ function fade(id,on){const el=document.getElementById(id);if(el)el.style.opacity
 function delay(ms){return new Promise(r=>setTimeout(r,ms));}
 
 let playToken = 0;
+let hintTargetTab = null;
+
+function hideTabHint(){
+  hintTargetTab = null;
+  const h = document.getElementById('tabNextHint');
+  if (h) {
+    h.classList.remove('visible');
+    h.style.left = '';
+    h.style.transform = '';
+  }
+}
+function syncTabHintPosition(){
+  if (hintTargetTab == null) return;
+  const tab = document.getElementById('tb' + hintTargetTab);
+  const wrap = document.querySelector('.tabs-wrap');
+  const hint = document.getElementById('tabNextHint');
+  if (!tab || !wrap || !hint) return;
+  const tr = tab.getBoundingClientRect();
+  const wr = wrap.getBoundingClientRect();
+  const cx = tr.left + tr.width / 2 - wr.left;
+  hint.style.left = cx + 'px';
+  hint.style.transform = 'translateX(-50%)';
+}
+function showTabHint(nextTabNum){
+  if (nextTabNum < 2 || nextTabNum > 5) {
+    hideTabHint();
+    return;
+  }
+  hintTargetTab = nextTabNum;
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      syncTabHintPosition();
+      const hint = document.getElementById('tabNextHint');
+      if (hint) hint.classList.add('visible');
+    });
+  });
+}
+window.addEventListener('resize', function () {
+  if (hintTargetTab != null) syncTabHintPosition();
+});
 
 function setStep(n){
   for(let i=1;i<=5;i++){
@@ -200,6 +265,7 @@ function typeUrl(){return new Promise(resolve=>{
 
 async function playStep1(){
   const t=++playToken;
+  hideTabHint();
   resetAllVisuals();
   setStep(1);
   await delay(500);
@@ -214,10 +280,12 @@ async function playStep1(){
   show('lr2'); await delay(220);
   show('lr3'); await delay(220);
   show('saved');
+  if (t === playToken) showTabHint(2);
 }
 
 async function playStep2(){
   const t=++playToken;
+  hideTabHint();
   resetAllVisuals();
   setStep(2);
   await delay(350);
@@ -228,10 +296,12 @@ async function playStep2(){
   show('r3'); await delay(200);
   show('r4'); await delay(200);
   show('r5');
+  if (t === playToken) showTabHint(3);
 }
 
 async function playStep3(){
   const t=++playToken;
+  hideTabHint();
   resetAllVisuals();
   setStep(3);
   await delay(350);
@@ -240,10 +310,12 @@ async function playStep3(){
   if(t!==playToken)return;
   show('sc2'); await delay(220);
   show('sc3');
+  if (t === playToken) showTabHint(4);
 }
 
 async function playStep4(){
   const t=++playToken;
+  hideTabHint();
   resetAllVisuals();
   setStep(4);
   await delay(350);
@@ -267,15 +339,18 @@ async function playStep4(){
   show('wb1'); await delay(200);
   show('wb2'); await delay(200);
   show('wb3');
+  if (t === playToken) showTabHint(5);
 }
 
 async function playStep5(){
   const t=++playToken;
+  hideTabHint();
   resetAllVisuals();
   setStep(5);
   await delay(350);
   if(t!==playToken)return;
   show('zm5a');
+  hideTabHint();
 }
 
 function playStep(n){
@@ -288,7 +363,7 @@ function playStep(n){
 
 for(let i=1;i<=5;i++){
   const tb=document.getElementById('tb'+i);
-  if(tb) tb.addEventListener('click',()=>{ void playStep(i); });
+  if(tb) tb.addEventListener('click',()=>{ hideTabHint(); void playStep(i); });
 }
 
 let demoIntroStarted=false;
