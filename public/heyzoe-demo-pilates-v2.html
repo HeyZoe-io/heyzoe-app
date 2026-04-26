@@ -152,7 +152,10 @@
 </div>
 
 <script>
-const urlStr = 'https://pilates-tlv.co.il/';
+let displayUrl = 'https://pilates-tlv.co.il/';
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 function show(id){const el=document.getElementById(id);if(el)el.classList.add('show');}
 function hide(id){const el=document.getElementById(id);if(el)el.classList.remove('show');}
 function fade(id,on){const el=document.getElementById(id);if(el)el.style.opacity=on?'1':'0';}
@@ -187,10 +190,10 @@ function typeUrl(){return new Promise(resolve=>{
   const el=document.getElementById('urlF');
   let pos=0;
   function tick(){
-    el.innerHTML=urlStr.slice(0,pos)+'<span class="cursor-blink"></span>';
+    el.innerHTML=escapeHtml(displayUrl.slice(0,pos))+'<span class="cursor-blink"></span>';
     pos++;
-    if(pos<=urlStr.length) setTimeout(tick,pos<8?100:55);
-    else{el.innerHTML=urlStr;resolve();}
+    if(pos<=displayUrl.length) setTimeout(tick,pos<8?100:55);
+    else{el.innerHTML=escapeHtml(displayUrl);resolve();}
   }
   tick();
 });}
@@ -288,6 +291,38 @@ for(let i=1;i<=5;i++){
   if(tb) tb.addEventListener('click',()=>{ void playStep(i); });
 }
 
-setStep(1);
-resetAllVisuals();
+let demoIntroStarted=false;
+function sanitizeDisplayUrl(raw){
+  if(!raw||typeof raw!=='string')return null;
+  try{
+    const u=new URL(raw.trim());
+    if(u.protocol!=='http:'&&u.protocol!=='https:')return null;
+    var h=u.href;
+    if(h.length>220)h=h.slice(0,217)+'…';
+    return h;
+  }catch(e){return null;}
+}
+function startDemoFromParent(payload){
+  if(demoIntroStarted)return;
+  demoIntroStarted=true;
+  var u=payload&&payload.pageUrl?sanitizeDisplayUrl(payload.pageUrl):null;
+  if(u)displayUrl=u;
+  void playStep1();
+}
+window.addEventListener('message',function(e){
+  if(!e.data||e.data.type!=='heyzoe-demo-start')return;
+  startDemoFromParent(e.data);
+});
+
+if(window.parent!==window){
+  try{ window.parent.postMessage({type:'heyzoe-demo-ready'},'*'); }catch(e){}
+}
+
+if(window.parent===window){
+  void playStep1();
+  demoIntroStarted=true;
+}else{
+  setStep(1);
+  resetAllVisuals();
+}
 </script>
