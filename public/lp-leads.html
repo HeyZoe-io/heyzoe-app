@@ -425,9 +425,10 @@ section{padding:80px 6%;}
 .pricing-section{background:white;padding:80px 6%;}
 .pricing-inner{max-width:860px;margin:0 auto;text-align:center;}
 .trial-badge{
-  display:inline-flex;align-items:center;gap:8px;
+  display:inline-flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;
   background:rgba(53,255,112,0.15);border:1px solid rgba(53,255,112,0.4);
-  border-radius:30px;padding:8px 20px;font-size:14px;color:#1a6b35;font-weight:600;margin-bottom:32px;
+  border-radius:30px;padding:8px 16px;font-size:14px;color:#1a6b35;font-weight:600;margin-bottom:32px;
+  max-width:100%;line-height:1.35;text-align:center;
 }
 .pricing-price-row{display:flex;flex-direction:row;align-items:baseline;justify-content:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
 .pricing-old{font-family:'Fredoka',sans-serif;font-size:22px;font-weight:600;color:var(--muted);text-decoration:line-through;opacity:0.88;line-height:1;}
@@ -525,7 +526,10 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   .peace-before-after{grid-template-columns:1fr;gap:12px;}
   .peace-arrow{transform:rotate(90deg);}
   .funnel-diagram{height:280px;}
-  .hero{padding:76px 5% 76px;min-height:100svh;}
+  .hero{
+    padding:62px 5% 16px;
+    min-height:auto;
+  }
 }
 
 .funnel-source-card{display:flex;align-items:center;gap:10px;background:white;border:1px solid rgba(113,51,218,0.1);border-radius:14px;padding:10px 14px;box-shadow:0 2px 12px rgba(113,51,218,0.07);transition:transform 0.2s;}
@@ -791,8 +795,8 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 
 <!-- FINAL CTA -->
 <section class="final-cta">
-  <h2 class="section-title" style="font-size:clamp(30px,5vw,50px);">מוכנים להשתחרר משיחות מכירה?</h2>
-  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br><span id="promoFinalCtaLine">מבצע חודש מאי — מחירים מיוחדים כולל מע״מ.</span></p>
+  <h2 class="section-title" style="font-size:clamp(30px,5vw,50px);">מוכנים להשתחרר מהמכירות?</h2>
+  <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br><span id="promoFinalCtaLine">ללא דמי הקמה, ללא התחייבות.</span></p>
   <a href="#pricing" class="btn-white">בואו נתחיל!</a>
 </section>
 
@@ -803,12 +807,12 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="section-tag tag-light">מחירים</div>
       <h2 class="section-title" style="color:var(--dark);">השקעה שמחזירה את עצמה</h2>
       <p class="section-sub" style="color:var(--muted);margin:0 auto 24px;">תמחור פשוט, ללא הפתעות.</p>
-      <div class="trial-badge" id="promoBadge">מבצע חודש מאי!</div>
+      <div class="trial-badge" id="promoBadge">ללא דמי הקמה, ללא התחייבות.</div>
     </div>
     <div class="pricing-grid reveal">
       <div class="pricing-card">
         <div class="pricing-name">Starter</div>
-        <div class="pricing-trial" id="promoStarter">מבצע חודש מאי!</div>
+        <div class="pricing-trial" id="promoStarter">ללא דמי הקמה, ללא התחייבות.</div>
         <div class="pricing-price-row">
           <div class="pricing-price">₪349</div>
           <div class="pricing-old">₪500</div>
@@ -828,7 +832,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
         <div class="pricing-name">Pro</div>
-        <div class="pricing-trial" id="promoPro">מבצע חודש מאי!</div>
+        <div class="pricing-trial" id="promoPro">ללא דמי הקמה, ללא התחייבות.</div>
         <div class="pricing-price-row">
           <div class="pricing-price" style="color:var(--pink);">₪499</div>
           <div class="pricing-old">₪650</div>
@@ -881,9 +885,8 @@ function calendarMonthIndexIsrael(){
 }
 const promoMonth=HEBREW_MONTHS[calendarMonthIndexIsrael()];
 (function applyPromoMonthToLp(){
-  var ex='מבצע חודש '+promoMonth+'!';
-  var subline='מבצע חודש '+promoMonth+' — מחירים מיוחדים כולל מע״מ.';
-  var map={promoFinalCtaLine:subline,promoBadge:ex,promoStarter:ex,promoPro:ex};
+  var line='ללא דמי הקמה, ללא התחייבות.';
+  var map={promoFinalCtaLine:line,promoBadge:line,promoStarter:line,promoPro:line};
   for (var k in map){ var el=document.getElementById(k); if(el) el.textContent=map[k]; }
 })();
 // Logo in nav - invert for dark bg not needed since transparent
