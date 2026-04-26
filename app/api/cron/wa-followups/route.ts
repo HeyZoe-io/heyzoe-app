@@ -4,6 +4,7 @@ import { logMessage } from "@/lib/analytics";
 import { sendWhatsAppMessage, resolveTwilioAccountSid, resolveTwilioAuthToken } from "@/lib/whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +31,6 @@ function fillTemplate(tpl: string, vars: Record<string, string>): string {
   }
   return out;
 }
-
-const T1 =
-  "היי! 😊 רציתי לוודא שהכל בסדר - לפעמים ההודעות הולכות לאיבוד, אבל בונדינג חזק נשאר לנצח. ממש אשמח לשמור לך מקום לשיעור ניסיון אם יש בך רצון כזה, או לענות על כל שאלה.";
-const T2 =
-  "היי, {{bot_name}} כאן 👋 מ{{business_name}}. אני אומנם בוטית ואין לי ממש חיי חברה או עיסוקים, אבל רק מזכירה שאני עוד כאן ממתינה לתשובתך :) יש לך שאלה? אפשר לכתוב לי.";
-const T3 =
-  "הולה! זו {{bot_name}} מ{{business_name}} 🌟 זו הפעם האחרונה שאני אצור איתך קשר - כי אז יקראו לי חופרת 😊 אם יש בך רצון להתאהב בשגרת האימונים החדשה שלך, אני כאן כדי לגרום לזה לקרות. ואם יש עוד שאלות, תמיד אפשר לשאול אותי כאן או להרים טלפון ישירות למספר {{phone}} אנחנו כאן בשבילך! שיהיה המשך יום קסום.";
 
 /** Last assistant turn that is not our own WA follow-up (those must not reset the silence clock). */
 async function fetchLatestRealAssistantMessageAt(input: {
@@ -213,7 +207,7 @@ export async function GET(req: NextRequest) {
 
       const { data: biz } = await admin
         .from("businesses")
-        .select("name, bot_name")
+        .select("name, bot_name, social_links")
         .eq("id", businessId)
         .maybeSingle();
       const businessName = String((biz as any)?.name ?? "").trim() || business_slug;
@@ -226,8 +220,9 @@ export async function GET(req: NextRequest) {
         phone: phoneDisplay || "",
       };
 
+      const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as any)?.social_links);
       const raw =
-        nextStage === 1 ? T1 : nextStage === 2 ? fillTemplate(T2, vars) : fillTemplate(T3, vars);
+        nextStage === 1 ? t1 : nextStage === 2 ? fillTemplate(t2, vars) : fillTemplate(t3, vars);
       const body = `${raw}${FOLLOWUP_FOOTER}`;
 
       await sendWhatsAppMessage(phoneNumberId, phone, body, accountSid, authToken);

@@ -13,7 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
-import { buildDefaultWhatsAppIdleFollowup } from "@/lib/default-followups";
+import {
+  WA_SALES_FOLLOWUP_1_DEFAULT,
+  WA_SALES_FOLLOWUP_2_DEFAULT,
+  WA_SALES_FOLLOWUP_3_DEFAULT,
+} from "@/lib/wa-sales-followup-defaults";
 import {
   type SalesFlowConfig,
   type SalesFlowCtaButton,
@@ -691,13 +695,10 @@ export default function SlugSettingsPage() {
 
   // ── Objections (will live inside "Questions & menu")
   const [objections, setObjections] = useState<Objection[]>([]);
-  // ── פולואפ אוטומטי בווטסאפ (למחרת בבוקר)
-  const [whatsappIdleFollowupMessage, setWhatsappIdleFollowupMessage] = useState("");
-  const [whatsappIdleFollowupCtaKind, setWhatsappIdleFollowupCtaKind] = useState<
-    "trial" | "schedule" | "custom"
-  >("trial");
-  const [whatsappIdleFollowupCtaCustomUrl, setWhatsappIdleFollowupCtaCustomUrl] = useState("");
-  const [whatsappIdleFollowupCtaLabel, setWhatsappIdleFollowupCtaLabel] = useState("");
+  // ── מעקב אחרי שתיקה בווטסאפ (קרון חיצוני → /api/cron/wa-followups)
+  const [waSalesFollowup1, setWaSalesFollowup1] = useState("");
+  const [waSalesFollowup2, setWaSalesFollowup2] = useState("");
+  const [waSalesFollowup3, setWaSalesFollowup3] = useState("");
 
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
@@ -1016,48 +1017,20 @@ export default function SlugSettingsPage() {
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
 
-        const svcNamesForFollowup = Array.isArray(svcs)
-          ? (svcs as Record<string, unknown>[])
-              .map((s) => String(s.name ?? "").trim())
-              .filter(Boolean)
-          : [];
-        const followupDefaultsInput = {
-          botName: String(business.bot_name ?? "זואי"),
-          businessName: String(business.name ?? "").trim() || displayNameFromSlug(slug),
-          niche: String(business.niche ?? ""),
-          vibeLabels: Array.isArray(sl.vibe) ? (sl.vibe as string[]) : [],
-          serviceNames: svcNamesForFollowup,
-          address: String(sl.address ?? ""),
-          tagline: typeof sl.tagline === "string" ? sl.tagline.trim() : "",
-          hasBookingLink: Boolean(String(sl.arbox_link ?? "").trim()),
-        };
-        const defaultWaFollowup = buildDefaultWhatsAppIdleFollowup(followupDefaultsInput);
-        const waSaved =
-          typeof sl.whatsapp_idle_followup_message === "string"
-            ? sl.whatsapp_idle_followup_message.trim()
-            : "";
-        const hourLegacy =
-          typeof sl.followup_after_hour_no_registration === "string"
-            ? sl.followup_after_hour_no_registration.trim()
-            : "";
-        const trialLegacy =
-          typeof sl.followup_day_after_trial === "string" ? sl.followup_day_after_trial.trim() : "";
-        setWhatsappIdleFollowupMessage(waSaved || hourLegacy || trialLegacy || defaultWaFollowup);
-        const k = String(sl.whatsapp_idle_followup_cta_kind ?? "trial").trim();
-        setWhatsappIdleFollowupCtaKind(k === "schedule" || k === "custom" ? k : "trial");
-        setWhatsappIdleFollowupCtaCustomUrl(
-          typeof sl.whatsapp_idle_followup_cta_custom_url === "string"
-            ? sl.whatsapp_idle_followup_cta_custom_url.trim()
-            : ""
+        setWaSalesFollowup1(
+          typeof sl.wa_sales_followup_1 === "string" && sl.wa_sales_followup_1.trim()
+            ? sl.wa_sales_followup_1.trim()
+            : WA_SALES_FOLLOWUP_1_DEFAULT
         );
-        setWhatsappIdleFollowupCtaLabel(
-          typeof sl.whatsapp_idle_followup_cta_label === "string" && sl.whatsapp_idle_followup_cta_label.trim()
-            ? sl.whatsapp_idle_followup_cta_label.trim()
-            : k === "schedule"
-              ? "צפייה במערכת השעות"
-              : k === "custom"
-                ? "לחצו כאן"
-                : "הרשמה לשיעור ניסיון"
+        setWaSalesFollowup2(
+          typeof sl.wa_sales_followup_2 === "string" && sl.wa_sales_followup_2.trim()
+            ? sl.wa_sales_followup_2.trim()
+            : WA_SALES_FOLLOWUP_2_DEFAULT
+        );
+        setWaSalesFollowup3(
+          typeof sl.wa_sales_followup_3 === "string" && sl.wa_sales_followup_3.trim()
+            ? sl.wa_sales_followup_3.trim()
+            : WA_SALES_FOLLOWUP_3_DEFAULT
         );
 
         if (Array.isArray(svcs)) {
@@ -1168,10 +1141,9 @@ export default function SlugSettingsPage() {
           quick_replies: quickReplies,
           arbox_link: arboxLink,
           objections,
-          whatsapp_idle_followup_message: whatsappIdleFollowupMessage.trim(),
-          whatsapp_idle_followup_cta_kind: whatsappIdleFollowupCtaKind,
-          whatsapp_idle_followup_cta_custom_url: whatsappIdleFollowupCtaCustomUrl.trim(),
-          whatsapp_idle_followup_cta_label: whatsappIdleFollowupCtaLabel.trim(),
+          wa_sales_followup_1: waSalesFollowup1.trim(),
+          wa_sales_followup_2: waSalesFollowup2.trim(),
+          wa_sales_followup_3: waSalesFollowup3.trim(),
           followup_after_registration: "",
           followup_after_hour_no_registration: "",
           followup_day_after_trial: "",
@@ -1230,10 +1202,9 @@ export default function SlugSettingsPage() {
       quickReplies,
       arboxLink,
       objections,
-      whatsappIdleFollowupMessage,
-      whatsappIdleFollowupCtaKind,
-      whatsappIdleFollowupCtaCustomUrl,
-      whatsappIdleFollowupCtaLabel,
+      waSalesFollowup1,
+      waSalesFollowup2,
+      waSalesFollowup3,
       membershipsUrl,
       servicesHydrated,
       services,
@@ -1331,23 +1302,11 @@ export default function SlugSettingsPage() {
     }
   }, [postSettings]);
 
-  const applyFollowupTemplate = useCallback(() => {
-    setWhatsappIdleFollowupMessage(
-      buildDefaultWhatsAppIdleFollowup({
-        botName: botName.trim() || "זואי",
-        businessName: name.trim() || displayNameFromSlug(slug),
-        niche: niche.trim(),
-        vibeLabels: vibe,
-        serviceNames: services.map((s) => s.name.trim()).filter(Boolean),
-        address: address.trim(),
-        tagline: businessTagline.trim(),
-        hasBookingLink: Boolean(arboxLink.trim()),
-      })
-    );
-    setWhatsappIdleFollowupCtaKind("trial");
-    setWhatsappIdleFollowupCtaLabel("הרשמה לשיעור ניסיון");
-    setWhatsappIdleFollowupCtaCustomUrl("");
-  }, [arboxLink, botName, businessTagline, name, niche, services, slug, vibe, address]);
+  const applyWaSalesFollowupDefaults = useCallback(() => {
+    setWaSalesFollowup1(WA_SALES_FOLLOWUP_1_DEFAULT);
+    setWaSalesFollowup2(WA_SALES_FOLLOWUP_2_DEFAULT);
+    setWaSalesFollowup3(WA_SALES_FOLLOWUP_3_DEFAULT);
+  }, []);
 
   const regenerateSalesFlowSection = useCallback(
     (
@@ -2168,7 +2127,7 @@ export default function SlugSettingsPage() {
                 <StepHeader
                   n={6}
                   title="פולואפ"
-                  desc="הודעה לליד שלא נרשם לשיעור ניסיון, יום למחרת ב10-11 בבוקר."
+                  desc="שלוש הודעות מעקב אחרי שתיקה מהבוט: בערך 20 דקות, שעתיים ו־23 שעות. השליחה מכבדת חלון זמן בישראל (לילות ושישי–שבת), ואינה נשלחת אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
                 />
               </CardTitle>
             </CardHeader>
@@ -2178,34 +2137,28 @@ export default function SlugSettingsPage() {
                   type="button"
                   variant="outline"
                   className="gap-1 text-xs py-1.5 px-3 h-auto"
-                  onClick={applyFollowupTemplate}
+                  onClick={applyWaSalesFollowupDefaults}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  חידוש טקסטים לפי העסק
+                  איפוס לטקסטי ברירת מחדל
                 </Button>
               </div>
-              <Field label="הודעת פולואפ">
-                <Textarea
-                  value={whatsappIdleFollowupMessage}
-                  onChange={setWhatsappIdleFollowupMessage}
-                  rows={10}
-                  placeholder="בוקר טוב 🙂 …"
-                />
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                בשלב 2 וב־3 אפשר להשתמש בתבניות:{" "}
+                <span className="font-mono text-[11px] dir-ltr inline-block">{"{{bot_name}}"}</span>,{" "}
+                <span className="font-mono text-[11px] dir-ltr inline-block">{"{{business_name}}"}</span>,{" "}
+                <span className="font-mono text-[11px] dir-ltr inline-block">{"{{phone}}"}</span> (מספר התצוגה של
+                ווטסאפ העסקי).
+              </p>
+              <Field label="הודעה ראשונה (~20 דקות אחרי תשובת הבוט)">
+                <Textarea value={waSalesFollowup1} onChange={setWaSalesFollowup1} rows={5} />
               </Field>
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-right">
-                <p className="text-xs font-semibold text-zinc-700">כפתורי דיפולט</p>
-                <div className="mt-2 flex flex-wrap justify-end gap-2">
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-800">
-                    שיעור ניסיון
-                  </span>
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-800">
-                    מערכת שעות
-                  </span>
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-800">
-                    מחירי מנויים
-                  </span>
-                </div>
-              </div>
+              <Field label="הודעה שנייה (~שעתיים)">
+                <Textarea value={waSalesFollowup2} onChange={setWaSalesFollowup2} rows={5} />
+              </Field>
+              <Field label="הודעה שלישית (~23 שעות)">
+                <Textarea value={waSalesFollowup3} onChange={setWaSalesFollowup3} rows={6} />
+              </Field>
             </CardContent>
           </Card>
         )}
