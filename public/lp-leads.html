@@ -1042,10 +1042,63 @@ try{
     }catch(e){}
   }
 
-  // time-on-page thresholds
-  setTimeout(function(){ hzFireOnce('lp_10s'); }, 10*1000);
-  setTimeout(function(){ hzFireOnce('lp_30s'); }, 30*1000);
-  setTimeout(function(){ hzFireOnce('lp_60s'); }, 60*1000);
+  // time-on-page thresholds (robust): count only time while page is visible.
+  // Mobile browsers throttle timers heavily in background; visibility-aware accumulation avoids false gaps.
+  (function(){
+    var msKey = 'hz_lp_visible_ms_v1';
+    var visibleMs = 0;
+    try{
+      var stored = Number(sessionStorage.getItem(msKey) || '0');
+      visibleMs = Number.isFinite(stored) && stored > 0 ? stored : 0;
+    }catch(e){ visibleMs = 0; }
+
+    var last = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+    function nowMs(){
+      return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    }
+
+    function flush(){
+      try{
+        sessionStorage.setItem(msKey, String(Math.max(0, Math.floor(visibleMs))));
+      }catch(e){}
+    }
+
+    function step(){
+      var n = nowMs();
+      if(document && document.hidden){
+        last = n;
+        return;
+      }
+      var delta = n - last;
+      last = n;
+      if(delta > 0 && Number.isFinite(delta)){
+        // Guard against huge jumps (sleep/resume) while still visible; cap to 5s per tick.
+        visibleMs += Math.min(delta, 5000);
+      }
+
+      if(visibleMs >= 10*1000) hzFireOnce('lp_10s');
+      if(visibleMs >= 30*1000) hzFireOnce('lp_30s');
+      if(visibleMs >= 60*1000) hzFireOnce('lp_60s');
+      flush();
+    }
+
+    // Tick while visible; also update on visibility transitions.
+    var t = setInterval(step, 500);
+    if(typeof document !== 'undefined' && document.addEventListener){
+      document.addEventListener('visibilitychange', function(){
+        last = nowMs();
+        // run one step immediately when becoming visible
+        if(!document.hidden) setTimeout(step, 0);
+      }, {passive:true});
+    }
+    if(typeof window !== 'undefined' && window.addEventListener){
+      window.addEventListener('pagehide', function(){ try{ step(); }catch(e){} }, {passive:true});
+      window.addEventListener('beforeunload', function(){ try{ step(); }catch(e){} }, {capture:true});
+    }
+    // Initial run in case we load already past thresholds (restored state).
+    try{ step(); }catch(e){}
+  })();
 
   // scroll depth thresholds (50% / 75%)
   function docScrollPct(){
