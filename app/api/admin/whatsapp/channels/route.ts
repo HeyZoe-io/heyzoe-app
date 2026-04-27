@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { resolveAdminAllowedEmail } from "@/lib/server-env";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 
@@ -9,7 +9,7 @@ async function requireAdmin(): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   if (!data.user?.email) return false;
-  return data.user.email.toLowerCase() === resolveAdminAllowedEmail();
+  return isAdminAllowedEmail(data.user.email);
 }
 
 // GET /api/admin/whatsapp/channels — list all channels

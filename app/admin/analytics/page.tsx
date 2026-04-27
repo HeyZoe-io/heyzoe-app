@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { resolveAdminAllowedEmail } from "@/lib/server-env";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -50,9 +50,8 @@ export default async function AdminAnalyticsPage({
 }) {
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
-  const allowedEmail = resolveAdminAllowedEmail();
   const email = user.user?.email?.trim().toLowerCase() ?? "";
-  if (!email || email !== allowedEmail) redirect("/admin/login");
+  if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
   const sp = await searchParams;
   const range = resolveRangeKey(typeof sp.range === "string" ? sp.range : Array.isArray(sp.range) ? sp.range[0] : "");
@@ -200,7 +199,7 @@ export default async function AdminAnalyticsPage({
             <a className={pill} href="/admin/analytics" style={{ background: "#7133da", color: "white", textDecoration: "none" }}>
               analytics
             </a>
-            <a className={pill} href="/admin/dashboard" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
+            <a className={pill} href="/admin/businesses" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
               עסקים
             </a>
             <a className={pill} href="/admin/requests" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>

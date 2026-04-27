@@ -1,5 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { resolveAdminAllowedEmail } from "@/lib/server-env";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
@@ -24,9 +24,8 @@ function daysAgo(n: number) {
 export default async function AdminDashboardPage({ searchParams }: Props) {
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
-  const allowedEmail = resolveAdminAllowedEmail();
   const email = user.user?.email?.trim().toLowerCase() ?? "";
-  if (!email || email !== allowedEmail) redirect("/admin/login");
+  if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
   const sp = await searchParams;
   const fromRaw = typeof sp.from === "string" ? sp.from : Array.isArray(sp.from) ? sp.from[0] : "";
@@ -267,7 +266,7 @@ function DashboardV2(props: {
             <Link href="/admin/analytics" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               analytics
             </Link>
-            <Link href="/admin/dashboard#businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+            <Link href="/admin/businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               עסקים
             </Link>
             <Link href="/admin/requests" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>

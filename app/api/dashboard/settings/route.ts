@@ -9,6 +9,7 @@ import {
   pickFirstBusiness,
   type DashboardBizRow,
 } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
 
 export const runtime = "nodejs";
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
   const slugFilter = normSlug(req.nextUrl.searchParams.get("slug") ?? "");
 
   const admin = createSupabaseAdminClient();
-  const accessible = await loadAccessibleBusinesses(admin, user.id);
+  const accessible = await loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") });
   const business = slugFilter
     ? pickBusinessBySlug(accessible, slugFilter)
     : pickFirstBusiness(accessible);
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
   if (!slug) return NextResponse.json({ error: "slug_required" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const accessible = await loadAccessibleBusinesses(admin, user.id);
+  const accessible = await loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") });
   const existingForUser = pickBusinessBySlug(accessible, slug);
 
   // Paywall: prevent edits when subscription isn't active (חריג לחשבונות דמו ברשימה)
