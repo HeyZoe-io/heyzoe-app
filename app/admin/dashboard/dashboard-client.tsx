@@ -1,12 +1,13 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, CalendarDays } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type DashboardPayload = {
   range: { from: string; to: string };
@@ -49,6 +50,8 @@ type SessionMessage = {
 export default function DashboardClient({ data }: { data: DashboardPayload }) {
   const router = useRouter();
   const search = useSearchParams();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const [adminEmail, setAdminEmail] = useState("");
   const [planBySlug, setPlanBySlug] = useState<Record<string, "basic" | "premium">>(() => {
     const rec: Record<string, "basic" | "premium"> = {};
     data.businessOverview.forEach((b) => {
@@ -63,6 +66,29 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
   const [selectedSessionBySlug, setSelectedSessionBySlug] = useState<Record<string, string>>({});
   const [messagesByKey, setMessagesByKey] = useState<Record<string, SessionMessage[]>>({});
   const [loadingBiz, setLoadingBiz] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let mounted = true;
+    void supabase.auth.getUser().then(({ data: u }) => {
+      if (!mounted) return;
+      setAdminEmail(u.user?.email ?? "");
+    });
+    const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.replace("/admin/login");
+    });
+    return () => {
+      mounted = false;
+      authSub.subscription.unsubscribe();
+    };
+  }, [router, supabase]);
+
+  async function signOut() {
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      router.replace("/admin/login");
+    }
+  }
 
   async function updatePlan(slug: string, plan: "basic" | "premium") {
     setSavingSlug(slug);
@@ -152,19 +178,31 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
               </a>
             </p>
           </div>
-          <form onSubmit={applyDateFilter} className="flex flex-wrap gap-2 items-end">
-            <div>
-              <label className="text-xs text-zinc-500">מ־</label>
-              <Input name="from" type="date" defaultValue={data.range.from} />
+          <div className="flex flex-wrap items-end justify-end gap-3">
+            <div className="flex items-center gap-2">
+              {adminEmail ? (
+                <span className="text-xs text-zinc-500" dir="ltr">
+                  {adminEmail}
+                </span>
+              ) : null}
+              <Button type="button" variant="outline" onClick={() => void signOut()}>
+                התנתקות
+              </Button>
             </div>
-            <div>
-              <label className="text-xs text-zinc-500">עד</label>
-              <Input name="to" type="date" defaultValue={data.range.to} />
-            </div>
-            <Button type="submit" className="gap-2 bg-[linear-gradient(135deg,#7133da,#ff92ff)] hover:opacity-95">
-              <CalendarDays className="h-4 w-4" /> עדכן
-            </Button>
-          </form>
+            <form onSubmit={applyDateFilter} className="flex flex-wrap gap-2 items-end">
+              <div>
+                <label className="text-xs text-zinc-500">מ־</label>
+                <Input name="from" type="date" defaultValue={data.range.from} />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500">עד</label>
+                <Input name="to" type="date" defaultValue={data.range.to} />
+              </div>
+              <Button type="submit" className="gap-2 bg-[linear-gradient(135deg,#7133da,#ff92ff)] hover:opacity-95">
+                <CalendarDays className="h-4 w-4" /> עדכן
+              </Button>
+            </form>
+          </div>
         </div>
 
         <section className="grid gap-4">
