@@ -25,6 +25,33 @@ function twilioAuthHeader(accountSid: string, authToken: string) {
   return `Basic ${basic}`;
 }
 
+function normalizeE164(s: string) {
+  return String(s ?? "").trim().replace(/\s+/g, "");
+}
+
+function isIlTelAvivLandline(e164: string): boolean {
+  const n = normalizeE164(e164);
+  return n.startsWith("+9723") || n.startsWith("+972-3") || n.startsWith("+972 3");
+}
+
+function parseMonthlyUsd(row: any): number | null {
+  const direct =
+    typeof row?.monthly_cost === "number"
+      ? row.monthly_cost
+      : typeof row?.price === "number"
+        ? row.price
+        : typeof row?.cost === "number"
+          ? row.cost
+          : null;
+  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+  const s = String(row?.monthly_cost ?? row?.price ?? row?.cost ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/(\d+(\.\d+)?)/);
+  if (!m?.[1]) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function twilioFetchJson(url: string, opts: { method?: string; headers?: Record<string, string>; body?: URLSearchParams | null }) {
   const res = await fetch(url, {
     method: opts.method || "GET",
@@ -114,10 +141,14 @@ export async function POST(req: NextRequest) {
         write({ type: "step", step: "searching" });
         const availableUrl =
           `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-          "/AvailablePhoneNumbers/IL/Local.json?VoiceEnabled=true&ExcludeAllAddressRequired=true&ExcludeLocalAddressRequired=true&ExcludeForeignAddressRequired=true&Beta=false&PageSize=5";
+          "/AvailablePhoneNumbers/IL/Local.json?VoiceEnabled=true&ExcludeAllAddressRequired=true&ExcludeLocalAddressRequired=true&ExcludeForeignAddressRequired=true&Beta=false&Contains=%2B9723*&PageSize=20";
         const avail = await twilioFetchJson(availableUrl, { headers: { Authorization: twilioAuth }, body: null });
-        const first = Array.isArray(avail?.available_phone_numbers) ? avail.available_phone_numbers[0] : null;
-        const phone_number = String(first?.phone_number ?? "").trim();
+        const list = Array.isArray(avail?.available_phone_numbers) ? avail.available_phone_numbers : [];
+        const picked =
+          list.find((r: any) => isIlTelAvivLandline(String(r?.phone_number ?? "")) && ((parseMonthlyUsd(r) ?? 0) <= 10 && (parseMonthlyUsd(r) ?? 0) > 0)) ||
+          list.find((r: any) => isIlTelAvivLandline(String(r?.phone_number ?? ""))) ||
+          null;
+        const phone_number = String(picked?.phone_number ?? "").trim();
         if (!phone_number) throw new Error("no_available_numbers");
 
         write({ type: "step", step: "purchasing" });
