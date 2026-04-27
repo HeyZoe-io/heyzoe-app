@@ -153,6 +153,30 @@ export async function POST(req: NextRequest) {
             .from("businesses")
             .update({ is_active: true, plan: paidPlan } as any)
             .eq("id", biz.id);
+
+          // Trigger async WhatsApp provisioning *after successful payment* (reactivation flow):
+          // enqueue a job only if there's no active channel yet.
+          try {
+            const { data: existingChannel } = await admin
+              .from("whatsapp_channels")
+              .select("id, provisioning_status, is_active")
+              .eq("business_slug", String(biz.slug).trim().toLowerCase())
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            const hasActive = Boolean((existingChannel as any)?.is_active) || (existingChannel as any)?.provisioning_status === "active";
+            if (!hasActive) {
+              await admin.from("wa_provision_jobs").insert({
+                business_id: biz.id,
+                business_slug: String(biz.slug).trim().toLowerCase(),
+                business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
+                status: "queued",
+              } as any);
+            }
+          } catch (e) {
+            console.error("[api/icount-ipn] enqueue wa_provision_jobs (reactivation) failed:", e);
+          }
+
           console.info("[api/icount-ipn] reactivated:", {
             email,
             user_id: existingAuth.id,
@@ -225,6 +249,19 @@ export async function POST(req: NextRequest) {
     await admin
       .from("payment_sessions")
       .insert({ email, slug: insertedBiz.slug, ready: true } as any);
+
+    // Trigger async WhatsApp provisioning *only after payment success* (this webhook).
+    // We enqueue a job and let /api/cron/wa-provision process it.
+    try {
+      await admin.from("wa_provision_jobs").insert({
+        business_id: insertedBiz.id,
+        business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+        business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+        status: "queued",
+      } as any);
+    } catch (e) {
+      console.error("[api/icount-ipn] enqueue wa_provision_jobs failed:", e);
+    }
 
     console.info("[api/icount-ipn] ready:", {
       email,
