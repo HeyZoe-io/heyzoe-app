@@ -241,7 +241,7 @@ function DashboardV2(props: {
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
 }) {
   const pillBase =
-    "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:600;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
+    "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:400;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
 
   return (
     <main
@@ -257,7 +257,7 @@ function DashboardV2(props: {
       <div style={{ maxWidth: 1120, margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
           <div style={{ textAlign: "right" }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600 }}>דשבורד סופר אדמין</h1>
+            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>דשבורד סופר אדמין</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>סקירה מערכתית + עסקים + התראות</p>
           </div>
           <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
@@ -332,7 +332,7 @@ function DashboardV2(props: {
                 border: "1px solid rgba(113,51,218,0.18)",
                 background: "linear-gradient(135deg,#7133da,#ff92ff)",
                 color: "white",
-                fontWeight: 600,
+                fontWeight: 400,
                 cursor: "pointer",
               }}
             >
@@ -360,8 +360,8 @@ function DashboardV2(props: {
                 textAlign: "right",
               }}
             >
-              <div style={{ fontSize: 12, color: "#6b5b9a", fontWeight: 500 }}>{m.label}</div>
-              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 600, color: "#1a0a3c" }}>{m.value}</div>
+              <div style={{ fontSize: 12, color: "#6b5b9a", fontWeight: 400 }}>{m.label}</div>
+              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 300, color: "#1a0a3c" }}>{m.value}</div>
             </div>
           ))}
         </section>
@@ -377,8 +377,8 @@ function DashboardV2(props: {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>פניות מבעלי עסקים</h2>
-              <Link href="/admin/contacts" prefetch style={{ color: "#7133da", fontWeight: 500, textDecoration: "none", fontSize: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>פניות מבעלי עסקים</h2>
+              <Link href="/admin/contacts" prefetch style={{ color: "#7133da", fontWeight: 400, textDecoration: "none", fontSize: 12 }}>
                 כל הפניות
               </Link>
             </div>
@@ -405,7 +405,7 @@ function DashboardV2(props: {
                         <span
                           style={{
                             fontSize: 12,
-                            fontWeight: 600,
+                            fontWeight: 400,
                             padding: "4px 10px",
                             borderRadius: 999,
                             background: "rgba(255,146,255,0.16)",
@@ -438,11 +438,11 @@ function DashboardV2(props: {
               padding: 16,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>מספרי WhatsApp פעילים</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>מספרי WhatsApp פעילים</h2>
             <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>מקור: whatsapp_channels · שיחות נכנסות (7 ימים)</p>
             <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
               <details>
-                <summary style={{ cursor: "pointer", color: "#7133da", fontWeight: 600, fontSize: 12 }}>הוסף מספר +</summary>
+                <summary style={{ cursor: "pointer", color: "#7133da", fontWeight: 400, fontSize: 12 }}>הוסף מספר +</summary>
                 <div style={{ marginTop: 8, fontSize: 13, color: "#6b5b9a", lineHeight: 1.6 }}>
                   לרכישת מספר חדש פנה ל־Twilio Console ואז הגדר אותו ב־Supabase
                 </div>
@@ -453,7 +453,7 @@ function DashboardV2(props: {
                 props.waNumbers.slice(0, 10).map((n, idx) => (
                   <div key={idx} style={{ border: "1px solid rgba(113,51,218,0.12)", borderRadius: 16, padding: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                      <span style={{ fontWeight: 500 }}>{n.phone}</span>
+                      <span style={{ fontWeight: 400 }}>{n.phone}</span>
                       <span style={{ color: "#6b5b9a" }}>{n.incoming_7d} נכנסות</span>
                     </div>
                     <div style={{ marginTop: 4, fontSize: 12, color: "#6b5b9a" }}>{n.business_slug}</div>
@@ -477,7 +477,7 @@ function DashboardV2(props: {
             padding: 16,
           }}
         >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Business Overview</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>Business Overview</h2>
           <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>לחיצה על שורה → /admin/businesses/[slug]</p>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
@@ -500,7 +500,7 @@ function DashboardV2(props: {
                         <Link
                           href={`/admin/businesses/${encodeURIComponent(b.slug)}`}
                           prefetch
-                          style={{ color: "#1a0a3c", fontWeight: 600, textDecoration: "none" }}
+                          style={{ color: "#1a0a3c", fontWeight: 400, textDecoration: "none" }}
                         >
                           {b.name || b.slug}
                         </Link>
@@ -515,15 +515,15 @@ function DashboardV2(props: {
                             background: "rgba(113,51,218,0.10)",
                             color: "#7133da",
                             fontSize: 12,
-                            fontWeight: 600,
+                            fontWeight: 400,
                             border: "1px solid rgba(113,51,218,0.18)",
                           }}
                         >
                           {b.plan === "premium" ? "premium" : "basic"}
                         </span>
                       </td>
-                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>{b.conversations_total}</td>
-                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>{b.conversations_week}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 400 }}>{b.conversations_total}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 400 }}>{b.conversations_week}</td>
                       <td style={{ padding: "10px 8px" }}>
                         <span
                           style={{
@@ -531,7 +531,7 @@ function DashboardV2(props: {
                             padding: "4px 10px",
                             borderRadius: 999,
                             fontSize: 12,
-                            fontWeight: 600,
+                            fontWeight: 400,
                             border: "1px solid rgba(0,0,0,0.06)",
                             background: b.active ? "rgba(53,255,112,0.12)" : "rgba(226,75,74,0.10)",
                             color: b.active ? "#0f5132" : "#8a1c1c",
@@ -557,13 +557,13 @@ function DashboardV2(props: {
             padding: 16,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>System Health</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>System Health</h2>
           <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
             {props.health.map((h) => (
               <div key={h.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ width: 10, height: 10, borderRadius: 999, background: dotColor(h.status) }} />
-                  <span style={{ fontWeight: 500 }}>{h.label}</span>
+                  <span style={{ fontWeight: 400 }}>{h.label}</span>
                 </div>
                 <span style={{ color: "#6b5b9a", fontSize: 13 }}>{h.detail}</span>
               </div>

@@ -66,7 +66,7 @@ export default async function AdminRequestsPage() {
       <div className="mx-auto max-w-6xl space-y-4">
         <div className="flex items-end justify-between gap-3">
           <div className="text-right">
-            <h1 className="text-2xl font-semibold text-zinc-900">פניות מבעלי עסקים</h1>
+            <h1 className="text-2xl font-normal text-zinc-900">פניות מבעלי עסקים</h1>
             <p className="text-sm text-zinc-500">
               צ׳אט עזרה מהדשבורד + בקשות לחזרה טלפונית (מודגשות)
             </p>
@@ -94,7 +94,7 @@ export default async function AdminRequestsPage() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-zinc-900">
+                      <p className="text-sm font-normal text-zinc-900">
                         עסק: <span className="font-mono">{t.business_slug}</span>
                       </p>
                       <p className="text-xs text-zinc-500">
@@ -104,7 +104,7 @@ export default async function AdminRequestsPage() {
                     <div className="text-left">
                       {callback ? (
                         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-                          <p className="text-xs font-semibold text-amber-900">בקשת חזרה טלפונית</p>
+                          <p className="text-xs font-normal text-amber-900">בקשת חזרה טלפונית</p>
                           <p className="text-sm font-mono text-amber-900">{callback}</p>
                           <p className="text-[11px] text-amber-700">{callbackAt}</p>
                         </div>
@@ -128,7 +128,7 @@ export default async function AdminRequestsPage() {
                   ) : null}
 
                   <details className="mt-3">
-                    <summary className="cursor-pointer text-sm text-[#7133da] font-medium">
+                    <summary className="cursor-pointer text-sm text-[#7133da] font-normal">
                       הצג התכתבות
                     </summary>
                     <AdminThreadMessages threadId={t.id} />

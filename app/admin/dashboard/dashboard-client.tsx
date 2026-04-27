@@ -167,7 +167,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="text-right">
-            <h1 className="text-2xl font-semibold text-zinc-900">דשבורד סופר אדמין</h1>
+            <h1 className="text-2xl font-normal text-zinc-900">דשבורד סופר אדמין</h1>
             <p className="text-sm text-zinc-500">סקירה מערכתית + עסקים + התראות</p>
             <p className="text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1 justify-end">
               <a className="underline underline-offset-4 text-[#7133da]" href="/admin/requests">
@@ -219,14 +219,14 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-zinc-900">הודעות נכנסות ללא מענה (10 דקות+)</p>
+                <p className="text-sm font-normal text-zinc-900">הודעות נכנסות ללא מענה (10 דקות+)</p>
                 {data.alerts.unanswered.length ? (
                   <div className="grid gap-2 md:grid-cols-2">
                     {data.alerts.unanswered.map((a) => (
                       <div key={`${a.slug}-${a.session_id}`} className="rounded-2xl border border-red-200 bg-red-50 p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="text-right">
-                            <p className="text-sm font-semibold text-red-900">{a.businessName}</p>
+                            <p className="text-sm font-normal text-red-900">{a.businessName}</p>
                             <p className="text-xs text-red-700 font-mono">{a.slug}</p>
                           </div>
                           <Badge className="border-red-300 text-red-800 bg-white">
@@ -251,14 +251,14 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
               </div>
 
               <div className="space-y-2 pt-2 border-t border-zinc-200">
-                <p className="text-sm font-semibold text-zinc-900">Fallback חוזר של זואי (יותר מפעם אחת)</p>
+                <p className="text-sm font-normal text-zinc-900">Fallback חוזר של זואי (יותר מפעם אחת)</p>
                 {data.alerts.repeatedFallback.length ? (
                   <div className="grid gap-2 md:grid-cols-2">
                     {data.alerts.repeatedFallback.map((a) => (
                       <div key={`${a.slug}-${a.session_id}`} className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="text-right">
-                            <p className="text-sm font-semibold text-amber-900">{a.businessName}</p>
+                            <p className="text-sm font-normal text-amber-900">{a.businessName}</p>
                             <p className="text-xs text-amber-700 font-mono">{a.slug}</p>
                           </div>
                           <Badge className="border-amber-300 text-amber-900 bg-white">
@@ -311,7 +311,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="text-right">
-                            <p className="text-sm font-semibold text-zinc-900">{b.name}</p>
+                            <p className="text-sm font-normal text-zinc-900">{b.name}</p>
                             <p className="text-xs text-zinc-500 font-mono">{b.slug}</p>
                           </div>
                           <div className="flex flex-col items-end gap-1">
@@ -333,20 +333,20 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-zinc-700">
                           <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                             <p className="text-[11px] text-zinc-500">שיחות כולל</p>
-                            <p className="text-sm font-semibold text-zinc-900">{b.conversationsTotal}</p>
+                            <p className="text-sm font-normal text-zinc-900">{b.conversationsTotal}</p>
                           </div>
                           <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                             <p className="text-[11px] text-zinc-500">שיחות שבוע</p>
-                            <p className="text-sm font-semibold text-zinc-900">{b.conversationsWeek}</p>
+                            <p className="text-sm font-normal text-zinc-900">{b.conversationsWeek}</p>
                           </div>
                           <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                             <p className="text-[11px] text-zinc-500">Onboarding step</p>
-                            <p className="text-sm font-semibold text-zinc-900">{b.onboardingStep ?? "—"}</p>
+                            <p className="text-sm font-normal text-zinc-900">{b.onboardingStep ?? "—"}</p>
                           </div>
                           <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                             <p className="text-[11px] text-zinc-500">חבילה</p>
                             <div className="mt-1 flex items-center justify-between gap-2">
-                              <span className="text-sm font-semibold text-zinc-900">{planBySlug[b.slug] ?? b.plan}</span>
+                              <span className="text-sm font-normal text-zinc-900">{planBySlug[b.slug] ?? b.plan}</span>
                               <select
                                 value={planBySlug[b.slug] ?? "basic"}
                                 disabled={savingSlug === b.slug}
@@ -368,7 +368,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                               <button
                                 type="button"
                                 onClick={() => setTabBySlug((m) => ({ ...m, [b.slug]: "dashboard" }))}
-                                className={`rounded-full px-3 py-1.5 text-xs font-semibold border ${
+                                className={`rounded-full px-3 py-1.5 text-xs font-normal border ${
                                   (tabBySlug[b.slug] ?? "dashboard") === "dashboard"
                                     ? "bg-white border-[rgba(113,51,218,0.35)] text-[#2d1a6e]"
                                     : "bg-transparent border-zinc-200 text-zinc-700"
@@ -382,7 +382,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                   setTabBySlug((m) => ({ ...m, [b.slug]: "conversations" }));
                                   void ensureBusinessSessionsLoaded(b.slug);
                                 }}
-                                className={`rounded-full px-3 py-1.5 text-xs font-semibold border ${
+                                className={`rounded-full px-3 py-1.5 text-xs font-normal border ${
                                   (tabBySlug[b.slug] ?? "dashboard") === "conversations"
                                     ? "bg-white border-[rgba(113,51,218,0.35)] text-[#2d1a6e]"
                                     : "bg-transparent border-zinc-200 text-zinc-700"
@@ -403,17 +403,17 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                             <div className="mt-3 grid gap-2 md:grid-cols-3">
                               <div className="rounded-2xl border border-zinc-200 bg-white p-3 text-right">
                                 <p className="text-xs text-zinc-500">אחוז השלמה (הערכה)</p>
-                                <p className="mt-1 text-lg font-semibold text-zinc-900">
+                                <p className="mt-1 text-lg font-normal text-zinc-900">
                                   {typeof b.onboardingStep === "number" ? Math.min(100, Math.round((b.onboardingStep / 6) * 100)) : "—"}%
                                 </p>
                               </div>
                               <div className="rounded-2xl border border-zinc-200 bg-white p-3 text-right">
                                 <p className="text-xs text-zinc-500">סה״כ שיחות</p>
-                                <p className="mt-1 text-lg font-semibold text-zinc-900">{b.conversationsTotal}</p>
+                                <p className="mt-1 text-lg font-normal text-zinc-900">{b.conversationsTotal}</p>
                               </div>
                               <div className="rounded-2xl border border-zinc-200 bg-white p-3 text-right">
                                 <p className="text-xs text-zinc-500">שיחות השבוע</p>
-                                <p className="mt-1 text-lg font-semibold text-zinc-900">{b.conversationsWeek}</p>
+                                <p className="mt-1 text-lg font-normal text-zinc-900">{b.conversationsWeek}</p>
                               </div>
                             </div>
                           ) : (
@@ -437,7 +437,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                       }`}
                                     >
                                       <p className="text-xs text-zinc-500">טלפון</p>
-                                      <p className="text-sm font-medium text-zinc-900">{s.phone || "—"}</p>
+                                      <p className="text-sm font-normal text-zinc-900">{s.phone || "—"}</p>
                                       <p className="text-[11px] text-zinc-500">
                                         {s.count} הודעות · {new Date(s.lastAt).toLocaleString()}
                                       </p>
