@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, whatsappReadyEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -298,20 +298,22 @@ export async function GET(req: NextRequest) {
       .update({ whatsapp_number: phoneE164 } as any)
       .eq("id", (locked as any).business_id);
 
-    // Email customer (best-effort)
+    // Email customer (best-effort) - whatsappReadyEmail
     try {
       const { data: biz } = await admin
         .from("businesses")
-        .select("name,email,slug")
+        .select("name,email,slug,whatsapp_number")
         .eq("id", (locked as any).business_id)
         .maybeSingle();
       const to = String((biz as any)?.email ?? "").trim().toLowerCase();
       const businessName = String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((locked as any).business_slug ?? "");
+      const whatsappNumber = String((biz as any)?.whatsapp_number ?? phoneE164 ?? "").trim();
       if (to) {
+        const tpl = whatsappReadyEmail(businessName, whatsappNumber);
         await sendEmail({
           to,
-          subject: "מספר ה-WhatsApp שלך מוכן 🎉",
-          htmlContent: `שלום ${businessName},<br/><br/>מספר ה-WhatsApp שלך הוא <b>${phoneE164}</b>.<br/>זואי מוכנה לענות ללקוחות שלך!<br/><br/>— Hey Zoe`,
+          subject: tpl.subject,
+          htmlContent: tpl.htmlContent,
         });
       }
     } catch (e) {
@@ -363,7 +365,7 @@ export async function GET(req: NextRequest) {
       } as any)
       .eq("id", Number(locked.id));
 
-    // Email admin on failure (best-effort)
+    // Email business on failure (best-effort)
     try {
       const { data: biz } = await admin
         .from("businesses")
@@ -372,25 +374,26 @@ export async function GET(req: NextRequest) {
         .maybeSingle();
       const businessName = String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((locked as any).business_slug ?? "");
       const slug = String((biz as any)?.slug ?? (locked as any)?.business_slug ?? "").trim().toLowerCase();
-      const email = String((biz as any)?.email ?? "").trim().toLowerCase();
-      await sendEmail({
-        to: "liornativ@hotmail.com",
-        subject: `⚠️ פרוויז'ן נכשל — ${businessName}`,
-        htmlContent: [
-          `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif">`,
-          `<p><b>פרוויז'ן נכשל</b></p>`,
-          `<p><b>עסק:</b> ${businessName}</p>`,
-          `<p><b>slug:</b> ${slug}</p>`,
-          `<p><b>email:</b> ${email || "—"}</p>`,
-          `<p><b>שגיאה:</b> ${String(msg).replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p>`,
-          `<p><b>Twilio SID:</b> ${twilioSid || "—"}</p>`,
-          `<p><b>Meta phone_number_id:</b> ${metaPhoneNumberId || "—"}</p>`,
-          `<p><b>Phone:</b> ${phoneE164 || "—"}</p>`,
-          `</div>`,
-        ].join(""),
-      });
+      const to = String((biz as any)?.email ?? "").trim().toLowerCase();
+      if (to) {
+        await sendEmail({
+          to,
+          subject: `⚠️ פרוויז'ן נכשל - ${businessName}`,
+          htmlContent: [
+            `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif">`,
+            `<p><b>פרוויז'ן נכשל</b></p>`,
+            `<p><b>עסק:</b> ${businessName}</p>`,
+            `<p><b>slug:</b> ${slug}</p>`,
+            `<p><b>שגיאה:</b> ${String(msg).replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p>`,
+            `<p><b>Twilio SID:</b> ${twilioSid || "-"}</p>`,
+            `<p><b>Meta phone_number_id:</b> ${metaPhoneNumberId || "-"}</p>`,
+            `<p><b>Phone:</b> ${phoneE164 || "-"}</p>`,
+            `</div>`,
+          ].join(""),
+        });
+      }
     } catch (err) {
-      console.error("[cron/wa-provision] admin failure email failed:", err);
+      console.error("[cron/wa-provision] failure email failed:", err);
     }
 
     return NextResponse.json({ ok: true, processed: 1, status: "failed" });

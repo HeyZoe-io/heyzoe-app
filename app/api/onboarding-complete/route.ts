@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { sendEmail, welcomeEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -107,6 +108,17 @@ export async function POST(req: NextRequest) {
     if (bizError || !insertedBiz) throw bizError ?? new Error("business_create_failed");
 
     await ensurePrimaryBusinessUser(admin, Number(insertedBiz.id), authData.user.id);
+
+    // Welcome email (best-effort)
+    try {
+      const to = email.trim().toLowerCase();
+      const businessName = studio_name.trim();
+      const dashboardUrl = `https://heyzoe.io/${String(insertedBiz.slug).trim().toLowerCase()}/analytics`;
+      const tpl = welcomeEmail(businessName, dashboardUrl);
+      await sendEmail({ to, subject: tpl.subject, htmlContent: tpl.htmlContent });
+    } catch (e) {
+      console.error("[api/onboarding-complete] welcome email failed:", e);
+    }
 
     return NextResponse.json({ success: true, slug: insertedBiz.slug });
   } catch (error) {
