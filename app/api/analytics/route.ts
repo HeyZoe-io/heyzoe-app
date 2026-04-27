@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
   const businessSlug = url.searchParams.get("business_slug")?.trim().toLowerCase() ?? "";
   const range = resolveRangeKey(url.searchParams.get("range"));
   const startIso = rangeStartIso(range);
+  const lite = String(url.searchParams.get("lite") ?? "").trim() === "1";
 
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
@@ -101,27 +102,42 @@ export async function GET(req: NextRequest) {
     if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const msgQuery = admin
-    .from("messages")
-    .select("session_id, created_at")
-    .eq("business_slug", businessSlug);
-  const { data: messages } = startIso ? await msgQuery.gte("created_at", startIso) : await msgQuery;
+  // Metrics: prefer DB-side aggregation (fast, no large payloads).
+  // Fallback to the old JS aggregation if RPC isn't deployed yet.
+  let totalChats = 0;
+  let newLeads = 0;
+  try {
+    const { data: rpcData, error: rpcErr } = await admin.rpc("analytics_metrics_v1", {
+      p_business_slug: businessSlug,
+      p_start_iso: startIso,
+    });
+    if (rpcErr) throw rpcErr;
+    const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+    totalChats = Number((row as any)?.total_chats ?? 0) || 0;
+    newLeads = Number((row as any)?.new_leads ?? 0) || 0;
+  } catch {
+    const msgQuery = admin
+      .from("messages")
+      .select("session_id, created_at")
+      .eq("business_slug", businessSlug);
+    const { data: messages } = startIso ? await msgQuery.gte("created_at", startIso) : await msgQuery;
 
-  const seenSessions = new Set<string>();
-  const firstMessageAtBySession = new Map<string, string>();
-  for (const m of messages ?? []) {
-    const sid = (m as any).session_id ? String((m as any).session_id) : "";
-    const at = (m as any).created_at ? String((m as any).created_at) : "";
-    if (!sid) continue;
-    seenSessions.add(sid);
-    const prev = firstMessageAtBySession.get(sid);
-    if (!prev || (at && at < prev)) firstMessageAtBySession.set(sid, at);
+    const seenSessions = new Set<string>();
+    const firstMessageAtBySession = new Map<string, string>();
+    for (const m of messages ?? []) {
+      const sid = (m as any).session_id ? String((m as any).session_id) : "";
+      const at = (m as any).created_at ? String((m as any).created_at) : "";
+      if (!sid) continue;
+      seenSessions.add(sid);
+      const prev = firstMessageAtBySession.get(sid);
+      if (!prev || (at && at < prev)) firstMessageAtBySession.set(sid, at);
+    }
+    totalChats = seenSessions.size;
+    newLeads =
+      startIso
+        ? Array.from(firstMessageAtBySession.values()).filter((at) => at && at >= startIso).length
+        : totalChats;
   }
-  const totalChats = seenSessions.size;
-  const newLeads =
-    startIso
-      ? Array.from(firstMessageAtBySession.values()).filter((at) => at && at >= startIso).length
-      : totalChats;
 
   const convQuery = admin
     .from("contacts")
@@ -137,20 +153,25 @@ export async function GET(req: NextRequest) {
   const converted = convertedPhones.size;
   const conversionRate = totalChats ? Math.round((converted / totalChats) * 100) : 0;
 
-  // Ensure suggestions reflect latest dashboard edits immediately (do not serve a cached knowledge pack).
-  invalidateBusinessKnowledgePackCache(businessSlug);
-  const knowledge = await getBusinessKnowledgePack(businessSlug);
-  const suggestions = pickSuggestions({
-    businessDescription: knowledge?.businessDescription ?? "",
-    directionsText: knowledge?.directionsText ?? "",
-    promotionsText: knowledge?.promotionsText ?? "",
-    ageRangeText: knowledge?.ageRangeText ?? "",
-    targetAudienceText: knowledge?.targetAudienceText ?? "",
-    genderText: knowledge?.genderText ?? "",
-    servicesText: knowledge?.servicesText ?? "",
-    faqsText: knowledge?.faqsText ?? "",
-    addressText: knowledge?.addressText ?? "",
-  });
+  const suggestions = lite
+    ? []
+    : (() => {
+        // Ensure suggestions reflect latest dashboard edits immediately (do not serve a cached knowledge pack).
+        invalidateBusinessKnowledgePackCache(businessSlug);
+        return getBusinessKnowledgePack(businessSlug).then((knowledge) =>
+          pickSuggestions({
+            businessDescription: knowledge?.businessDescription ?? "",
+            directionsText: knowledge?.directionsText ?? "",
+            promotionsText: knowledge?.promotionsText ?? "",
+            ageRangeText: knowledge?.ageRangeText ?? "",
+            targetAudienceText: knowledge?.targetAudienceText ?? "",
+            genderText: knowledge?.genderText ?? "",
+            servicesText: knowledge?.servicesText ?? "",
+            faqsText: knowledge?.faqsText ?? "",
+            addressText: knowledge?.addressText ?? "",
+          })
+        );
+      })();
 
   return NextResponse.json({
     ok: true,
@@ -159,7 +180,7 @@ export async function GET(req: NextRequest) {
     converted,
     conversionRate,
     totalChats,
-    suggestions,
+    suggestions: await suggestions,
   });
 }
 
