@@ -32,6 +32,7 @@ type EventRow = {
   event_type: string;
   value: number | null;
   source: string | null;
+  label: string | null;
   session_id: string;
   created_at: string;
 };
@@ -55,7 +56,7 @@ export default async function AdminAnalyticsPage({
   const admin = createSupabaseAdminClient();
   const { data: eventsRaw, error } = await admin
     .from("analytics_events")
-    .select("event_type, value, source, session_id, created_at")
+    .select("event_type, value, source, label, session_id, created_at")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(200_000);
@@ -68,6 +69,7 @@ export default async function AdminAnalyticsPage({
   const purchasesBySession = new Map<string, number>(); // value sum
   const sessionsByType = new Map<string, Set<string>>();
   const sourceCounts = new Map<string, number>();
+  const ctaClicksByLabel = new Map<string, number>();
   let purchaseRevenue = 0;
 
   for (const e of events) {
@@ -100,6 +102,11 @@ export default async function AdminAnalyticsPage({
       }
     }
 
+    if (t === "cta_click") {
+      const lbl = (e.label ?? "").trim() || "לא מזוהה";
+      ctaClicksByLabel.set(lbl, (ctaClicksByLabel.get(lbl) ?? 0) + 1);
+    }
+
     const src = (e.source ?? "").trim() || "direct";
     sourceCounts.set(src, (sourceCounts.get(src) ?? 0) + 1);
   }
@@ -128,6 +135,7 @@ export default async function AdminAnalyticsPage({
 
   const sourcesSorted = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
   const sourcesMax = sourcesSorted[0]?.[1] ?? 1;
+  const ctaLabelsSorted = [...ctaClicksByLabel.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
 
   const pill =
     "rounded-full px-3 py-1.5 text-xs font-semibold transition border border-[rgba(113,51,218,0.18)]";
@@ -264,6 +272,27 @@ export default async function AdminAnalyticsPage({
                       }}
                     />
                   </div>
+                  {step === "cta_click" && ctaLabelsSorted.length ? (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        padding: "10px 12px",
+                        borderRadius: 14,
+                        border: "1px solid rgba(113,51,218,0.12)",
+                        background: "rgba(245,243,255,0.65)",
+                      }}
+                    >
+                      <div style={{ fontSize: 12, color: "#6b5b9a", marginBottom: 6 }}>כפתורים שנלחצו</div>
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {ctaLabelsSorted.map(([lbl, n]) => (
+                          <div key={lbl} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
+                            <span style={{ color: "#1a0a3c" }}>{lbl}</span>
+                            <span style={{ color: "#6b5b9a" }}>{n}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
