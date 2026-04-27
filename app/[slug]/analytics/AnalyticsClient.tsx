@@ -54,7 +54,7 @@ export default function AnalyticsClient({
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/analytics?business_slug=${encodeURIComponent(slug)}&range=${encodeURIComponent(next)}`,
+        `/api/analytics?business_slug=${encodeURIComponent(slug)}&range=${encodeURIComponent(next)}&lite=1`,
         { method: "GET" }
       );
       const j = (await res.json().catch(() => null)) as any;
@@ -65,7 +65,10 @@ export default function AnalyticsClient({
         converted: Number(j.converted ?? 0) || 0,
         conversionRate: Number(j.conversionRate ?? 0) || 0,
         totalChats: Number(j.totalChats ?? 0) || 0,
-        suggestions: Array.isArray(j.suggestions) ? j.suggestions.map((x: any) => String(x ?? "")) : [],
+        suggestions:
+          Array.isArray(j.suggestions) && j.suggestions.length
+            ? j.suggestions.map((x: any) => String(x ?? ""))
+            : data.suggestions,
       };
       setData(payload);
       updateUrlRange(slug, payload.range);
