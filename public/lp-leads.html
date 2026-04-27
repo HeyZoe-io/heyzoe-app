@@ -662,7 +662,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   <p style="font-family:'Fredoka',sans-serif;font-size:clamp(18px,3vw,30px);font-weight:500;color:var(--muted);margin-bottom:10px;animation:fadeUp 0.6s 0.28s ease both;">בוטית מכירות ספורטיבית לוואטסאפ</p>
   <div class="hero-tagline2">לתהליך מכירה פשוט, מהיר ושלם.</div>
   <div class="hero-cta-row">
-    <a href="#pricing" class="btn-primary">בואו נתחיל!</a>
+    <a href="#pricing" class="btn-primary" data-hz-label="בואו נתחיל! (הירו)">בואו נתחיל!</a>
     <a href="#demo" class="btn-secondary">צפו בדמו</a>
   </div>
   <div class="hero-stats">
@@ -893,7 +893,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <section class="final-cta">
   <h2 class="section-title" style="font-size:clamp(30px,5vw,50px);">מוכנים להשתחרר מהמכירות?</h2>
   <p class="section-sub" style="max-width:460px;">תוך 10 דקות זואי עובדת בשבילכם.<br><span id="promoFinalCtaLine">ללא דמי הקמה, ללא התחייבות.</span></p>
-  <a href="#pricing" class="btn-white">בואו נתחיל!</a>
+  <a href="#pricing" class="btn-white" data-hz-label="בואו נתחיל! (סוף דף)">בואו נתחיל!</a>
 </section>
 
 <!-- PRICING -->
@@ -923,7 +923,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>דשבורד ניהול</li>
           <li>תמיכה בצ'אט</li>
         </ul>
-        <button class="pricing-btn pricing-btn-outline" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
+        <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter — בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
       </div>
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
@@ -942,7 +942,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>ליווי צמוד בהקמה</li>
           <li>אנליטיקס מתקדם</li>
         </ul>
-        <button class="pricing-btn pricing-btn-filled" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
+        <button class="pricing-btn pricing-btn-filled" data-hz-label="מחירים: Pro — קבלו את זואי" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
       </div>
     </div>
   </div>
@@ -1128,20 +1128,39 @@ try{
   onScroll();
 }catch(e){}
 
-// hero CTA click (use capture + pointerdown for reliability)
+  // CTA clicks: track all main CTAs with unique labels (by visible text + context)
 try{
-  var heroCta=document.querySelector('.hero .btn-primary');
-  var heroCtaFired=false;
-  function fireHeroCta(){
-    if(heroCtaFired) return;
-    heroCtaFired=true;
-    var t=(heroCta && heroCta.textContent ? String(heroCta.textContent) : '').trim();
-    hzTrack('cta_click', null, t||'hero_primary');
+  function pickText(el){
+    try{
+      return (el && el.textContent ? String(el.textContent) : '').trim();
+    }catch(e){ return ''; }
   }
-  if(heroCta){
-    heroCta.addEventListener('pointerdown', fireHeroCta, {capture:true, passive:true});
-    heroCta.addEventListener('click', fireHeroCta, {capture:true});
+  function addCta(el, fallbackLabel){
+    if(!el) return;
+    var fired=false;
+    function fire(){
+      if(fired) return;
+      fired=true;
+      var ctx = (el.getAttribute && el.getAttribute('data-hz-label')) ? String(el.getAttribute('data-hz-label')||'') : '';
+      var t = pickText(el);
+      var label = (ctx || t || fallbackLabel || 'cta').trim();
+      hzTrack('cta_click', null, label.slice(0, 80));
+    }
+    el.addEventListener('pointerdown', fire, {capture:true, passive:true});
+    el.addEventListener('click', fire, {capture:true});
   }
+
+  // Hero CTA
+  addCta(document.querySelector('.hero .btn-primary'), 'בואו נתחיל! (הירו)');
+
+  // Final CTA (white button) if present
+  addCta(document.querySelector('a.btn-white[href="#pricing"]'), 'בואו נתחיל! (סוף דף)');
+
+  // Pricing CTAs
+  document.querySelectorAll('button.pricing-btn').forEach(function(btn){
+    var plan = /plan=pro/.test(String(btn.getAttribute('onclick')||'')) ? 'pro' : /plan=starter/.test(String(btn.getAttribute('onclick')||'')) ? 'starter' : '';
+    addCta(btn, plan ? ('מחירים: '+plan) : 'מחירים');
+  });
 }catch(e){}
 
 // chat_open should represent "started a chat with Zoe" (send button / Enter)

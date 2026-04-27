@@ -146,7 +146,7 @@ export default async function AdminAnalyticsPage({
 
   const sourcesSorted = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
   const sourcesMax = sourcesSorted[0]?.[1] ?? 1;
-  const ctaLabelsSorted = [...ctaClicksByLabel.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const ctaLabelsSorted = [...ctaClicksByLabel.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
 
   const pill =
     "rounded-full px-3 py-1.5 text-xs font-semibold transition border border-[rgba(113,51,218,0.18)]";
@@ -283,7 +283,7 @@ export default async function AdminAnalyticsPage({
                       }}
                     />
                   </div>
-                  {step === "cta_click" && ctaLabelsSorted.length ? (
+                  {step === "cta_click" ? (
                     <div
                       style={{
                         marginTop: 6,
@@ -294,14 +294,18 @@ export default async function AdminAnalyticsPage({
                       }}
                     >
                       <div style={{ fontSize: 12, color: "#6b5b9a", marginBottom: 6 }}>כפתורים שנלחצו</div>
-                      <div style={{ display: "grid", gap: 6 }}>
-                        {ctaLabelsSorted.map(([lbl, n]) => (
-                          <div key={lbl} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                            <span style={{ color: "#1a0a3c" }}>{lbl}</span>
-                            <span style={{ color: "#6b5b9a" }}>{n}</span>
-                          </div>
-                        ))}
-                      </div>
+                      {ctaLabelsSorted.length ? (
+                        <div style={{ display: "grid", gap: 6 }}>
+                          {ctaLabelsSorted.map(([lbl, n]) => (
+                            <div key={lbl} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
+                              <span style={{ color: "#1a0a3c" }}>{lbl}</span>
+                              <span style={{ color: "#6b5b9a" }}>{n}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 13, color: "#6b5b9a" }}>אין קליקים עדיין.</div>
+                      )}
                     </div>
                   ) : null}
                 </div>
