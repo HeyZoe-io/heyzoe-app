@@ -49,7 +49,7 @@ export default async function AdminLpZoeLandingPage() {
       <div className="mx-auto max-w-5xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="text-right">
-            <h1 className="text-2xl font-semibold text-zinc-900">שיחות זואי - דף נחיתה</h1>
+            <h1 className="text-2xl font-normal text-zinc-900">שיחות זואי - דף נחיתה</h1>
             <p className="text-sm text-zinc-500">
               סשנים מדף הלידים (lp-leads) · עד 500 תגובות אחרונות · מקובצים לפי session
             </p>
@@ -94,11 +94,11 @@ export default async function AdminLpZoeLandingPage() {
                         {new Date(t.created_at).toLocaleString("he-IL")} · #{t.id}
                       </p>
                       <div>
-                        <p className="text-[11px] font-semibold text-zinc-600 mb-0.5">מבקר</p>
+                        <p className="text-[11px] font-normal text-zinc-600 mb-0.5">מבקר</p>
                         <p className="text-sm text-zinc-900 whitespace-pre-wrap">{t.user_message}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold text-[#7133da] mb-0.5">זואי</p>
+                        <p className="text-[11px] font-normal text-[#7133da] mb-0.5">זואי</p>
                         <p className="text-sm text-zinc-800 whitespace-pre-wrap">
                           {t.assistant_message}
                         </p>

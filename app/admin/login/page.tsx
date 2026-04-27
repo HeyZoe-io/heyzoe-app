@@ -99,7 +99,7 @@ export default function AdminLoginPage() {
             <button
               type="button"
               className={
-                "rounded-full px-3 py-1.5 text-xs font-semibold transition " +
+                "rounded-full px-3 py-1.5 text-xs font-normal transition " +
                 (mode === "magic" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200")
               }
               onClick={() => {
@@ -113,7 +113,7 @@ export default function AdminLoginPage() {
             <button
               type="button"
               className={
-                "rounded-full px-3 py-1.5 text-xs font-semibold transition " +
+                "rounded-full px-3 py-1.5 text-xs font-normal transition " +
                 (mode === "password" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200")
               }
               onClick={() => {
@@ -127,7 +127,7 @@ export default function AdminLoginPage() {
           </div>
 
           <form onSubmit={mode === "magic" ? handleMagicLink : handlePassword} className="space-y-4">
-            <label className="text-sm font-medium text-zinc-700">Email</label>
+            <label className="text-sm font-normal text-zinc-700">Email</label>
             <div className="relative">
               <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
               <Input
@@ -142,7 +142,7 @@ export default function AdminLoginPage() {
             </div>
             {mode === "password" ? (
               <div>
-                <label className="text-sm font-medium text-zinc-700">Password</label>
+                <label className="text-sm font-normal text-zinc-700">Password</label>
                 <div className="relative mt-1">
                   <button
                     type="button"

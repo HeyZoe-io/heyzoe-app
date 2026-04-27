@@ -169,7 +169,7 @@ export default async function AdminAnalyticsPage({
   const ctaLabelsSorted = [...ctaClicksByLabel.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
 
   const pill =
-    "rounded-full px-3 py-1.5 text-xs font-semibold transition border border-[rgba(113,51,218,0.18)]";
+    "rounded-full px-3 py-1.5 text-xs font-normal transition border border-[rgba(113,51,218,0.18)]";
 
   return (
     <main
@@ -184,7 +184,7 @@ export default async function AdminAnalyticsPage({
       <div style={{ maxWidth: 1120, margin: "0 auto" }}>
         <header style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "end", justifyContent: "space-between" }}>
           <div style={{ textAlign: "right" }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: "#1a0a3c" }}>אנליטיקס — דף נחיתה</h1>
+            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400, color: "#1a0a3c" }}>אנליטיקס — דף נחיתה</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>
               סקירה של אירועי tracking שנשמרו ב־Supabase
             </p>
@@ -260,8 +260,8 @@ export default async function AdminAnalyticsPage({
                 textAlign: "right",
               }}
             >
-              <div style={{ fontSize: 12, color: "#6b5b9a", fontWeight: 600 }}>{m.label}</div>
-              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 700, color: "#1a0a3c" }}>{m.value}</div>
+              <div style={{ fontSize: 12, color: "#6b5b9a", fontWeight: 400 }}>{m.label}</div>
+              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 300, color: "#1a0a3c" }}>{m.value}</div>
             </div>
           ))}
         </section>
@@ -276,7 +276,7 @@ export default async function AdminAnalyticsPage({
             padding: 16,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a0a3c" }}>Funnel</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>Funnel</h2>
           <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
             pageview → cta_click → chat_open → checkout_start → purchase (אחוזים מתוך pageview)
           </p>
@@ -288,7 +288,7 @@ export default async function AdminAnalyticsPage({
               return (
                 <div key={step} style={{ display: "grid", gap: 6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                    <span style={{ color: "#1a0a3c", fontWeight: 700 }}>{step}</span>
+                    <span style={{ color: "#1a0a3c", fontWeight: 400 }}>{step}</span>
                     <span style={{ color: "#6b5b9a" }}>
                       {c} ({pct}%)
                     </span>
@@ -351,7 +351,7 @@ export default async function AdminAnalyticsPage({
               padding: 16,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a0a3c" }}>מקור תנועה</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>מקור תנועה</h2>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
               <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
                 קיבוץ לפי utm_source · {sourceMode === "purchases" ? "רוכשים (unique sessions)" : "כל האירועים"}
@@ -388,7 +388,7 @@ export default async function AdminAnalyticsPage({
                   return (
                     <div key={src} style={{ display: "grid", gap: 6 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                        <span style={{ color: "#1a0a3c", fontWeight: 700 }}>{src}</span>
+                        <span style={{ color: "#1a0a3c", fontWeight: 400 }}>{src}</span>
                         <span style={{ color: "#6b5b9a" }}>{c}</span>
                       </div>
                       <div style={{ height: 10, background: "#f5f3ff", borderRadius: 999 }}>
@@ -412,23 +412,23 @@ export default async function AdminAnalyticsPage({
               padding: 16,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a0a3c" }}>נטישת צ׳קאאוט</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>נטישת צ׳קאאוט</h2>
             <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
               checkout_start מול purchase
             </p>
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ fontWeight: 700, color: "#1a0a3c" }}>checkout_start</span>
+                <span style={{ fontWeight: 400, color: "#1a0a3c" }}>checkout_start</span>
                 <span style={{ color: "#6b5b9a" }}>{checkoutStarts}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ fontWeight: 700, color: "#1a0a3c" }}>purchase</span>
+                <span style={{ fontWeight: 400, color: "#1a0a3c" }}>purchase</span>
                 <span style={{ color: "#6b5b9a" }}>{purchases}</span>
               </div>
               <div style={{ height: 1, background: "rgba(113,51,218,0.10)" }} />
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <span style={{ fontWeight: 700, color: "#c81e5b" }}>נטשו</span>
-                <span style={{ color: "#c81e5b", fontWeight: 700 }}>
+                <span style={{ fontWeight: 400, color: "#c81e5b" }}>נטשו</span>
+                <span style={{ color: "#c81e5b", fontWeight: 400 }}>
                   {abandoned} ({abandonmentRate}%)
                 </span>
               </div>
@@ -446,7 +446,7 @@ export default async function AdminAnalyticsPage({
             padding: 16,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a0a3c" }}>הקלטות מבקרים — דף הנחיתה</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>הקלטות מבקרים — דף הנחיתה</h2>
           <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a", lineHeight: 1.6 }}>
             צפה בהקלטות אמיתיות של מה שמבקרים עשו בדף — איפה לחצו, איפה נתקעו, מתי עזבו
           </p>
