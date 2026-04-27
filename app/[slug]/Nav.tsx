@@ -10,10 +10,10 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
   const base = `/${slug}`;
 
   const items: { href: string; label: string }[] = [
-    { href: `${base}/analytics`, label: "אנליטיקס" },
+    { href: `${base}/settings`, label: "מסלול מכירה" },
     { href: `${base}/conversations`, label: "שיחות" },
     { href: `${base}/contacts`, label: "אנשי קשר" },
-    { href: `${base}/settings`, label: "מסלול מכירה" },
+    { href: `${base}/analytics`, label: "אנליטיקס" },
   ];
 
   return (
