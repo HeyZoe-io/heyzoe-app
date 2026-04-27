@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, whatsappReadyEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -74,15 +74,16 @@ export async function POST(req: NextRequest) {
   try {
     const slug = String(channel?.business_slug ?? business_slug ?? "").trim().toLowerCase();
     if (slug) {
-      const { data: biz } = await admin.from("businesses").select("name,email").eq("slug", slug).maybeSingle();
+      const { data: biz } = await admin.from("businesses").select("name,email,whatsapp_number").eq("slug", slug).maybeSingle();
       const to = String((biz as any)?.email ?? "").trim().toLowerCase();
       const businessName = String((biz as any)?.name ?? "").trim() || slug;
-      const number = String(channel?.phone_display ?? phone_display ?? "").trim();
+      const number = String((biz as any)?.whatsapp_number ?? channel?.phone_display ?? phone_display ?? "").trim();
       if (to && number) {
+        const tpl = whatsappReadyEmail(businessName, number);
         await sendEmail({
           to,
-          subject: "מספר ה-WhatsApp שלך מוכן 🎉",
-          htmlContent: `שלום ${businessName},<br/><br/>מספר ה-WhatsApp שלך הוא <b>${number}</b>.<br/>זואי מוכנה לענות ללקוחות שלך!<br/><br/>— Hey Zoe`,
+          subject: tpl.subject,
+          htmlContent: tpl.htmlContent,
         });
       }
     }

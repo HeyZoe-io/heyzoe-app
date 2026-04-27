@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requestIcountStandingOrderStop } from "@/lib/icount-standing-order";
+import { cancellationEmail, sendEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,7 @@ export async function POST() {
   const admin = createSupabaseAdminClient();
   const { data: business } = await admin
     .from("businesses")
-    .select("id, user_id, cancellation_requested_at, cancellation_effective_at")
+    .select("id, user_id, slug, name, email, cancellation_requested_at, cancellation_effective_at")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1)
@@ -53,6 +54,21 @@ export async function POST() {
 
   if (user.email) {
     void requestIcountStandingOrderStop({ customerEmail: user.email });
+  }
+
+  // Cancellation email (best-effort)
+  try {
+    const to = String((business as any)?.email ?? user.email ?? "").trim().toLowerCase();
+    const businessName = String((business as any)?.name ?? "").trim();
+    const slug = String((business as any)?.slug ?? "").trim().toLowerCase();
+    const accessUntil = effective.toLocaleDateString("he-IL");
+    const dashboardUrl = slug ? `https://heyzoe.io/${slug}/analytics` : "https://heyzoe.io";
+    if (to && businessName) {
+      const tpl = cancellationEmail(businessName, accessUntil, dashboardUrl);
+      await sendEmail({ to, subject: tpl.subject, htmlContent: tpl.htmlContent });
+    }
+  } catch (e) {
+    console.error("[api/account/cancel-subscription] cancellation email failed:", e);
   }
 
   return NextResponse.json({ ok: true, effective_at: effective.toISOString() });
