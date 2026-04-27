@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { resolveAdminAllowedEmail } from "@/lib/server-env";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -20,9 +20,8 @@ function relTime(iso: string) {
 export default async function AdminContactsPage() {
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
-  const allowedEmail = resolveAdminAllowedEmail();
   const email = user.user?.email?.trim().toLowerCase() ?? "";
-  if (!email || email !== allowedEmail) redirect("/admin/login");
+  if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
   const admin = createSupabaseAdminClient();
   const { data: inquiries } = await admin

@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import AnalyticsClient from "./AnalyticsClient";
 
 type RangeKey = "month" | "week" | "all";
@@ -88,7 +89,8 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
   if (!biz) notFound();
 
   const isOwner = String(biz.user_id) === user.user.id;
-  if (!isOwner) {
+  const isAdminViewer = isAdminAllowedEmail(user.user.email ?? "");
+  if (!isOwner && !isAdminViewer) {
     const { data: bu } = await admin
       .from("business_users")
       .select("role")

@@ -14,8 +14,14 @@ export function normDashboardSlug(s: unknown): string {
 /** עסקים שהמשתמש רשאי לראות: בעלות + חברות ב-business_users */
 export async function loadAccessibleBusinesses(
   admin: ReturnType<typeof createSupabaseAdminClient>,
-  userId: string
+  userId: string,
+  opts?: { adminAll?: boolean }
 ): Promise<DashboardBizRow[]> {
+  if (opts?.adminAll) {
+    const { data } = await admin.from("businesses").select("*").limit(10_000);
+    return (data ?? []) as any as DashboardBizRow[];
+  }
+
   const [{ data: owned }, { data: memberships }] = await Promise.all([
     admin.from("businesses").select("*").eq("user_id", userId),
     admin.from("business_users").select("business_id").eq("user_id", userId),

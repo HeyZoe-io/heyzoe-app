@@ -7,6 +7,7 @@ import {
   pickBusinessBySlug,
   type DashboardBizRow,
 } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   if (!sessionId) return NextResponse.json({ error: "missing_session_id" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const accessible = await loadAccessibleBusinesses(admin, user.id);
+  const accessible = await loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") });
   const business = pickBusinessBySlug(accessible, slug) as DashboardBizRow | null;
   if (!business) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 

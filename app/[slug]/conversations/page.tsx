@@ -7,6 +7,7 @@ import {
   pickBusinessBySlug,
   type DashboardBizRow,
 } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import ConversationsClient from "./client";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -40,7 +41,7 @@ export default async function ConversationsPage({ params }: Props) {
   let initialSessions: SessionSummary[] = [];
   try {
     const admin = createSupabaseAdminClient();
-    const accessible = await loadAccessibleBusinesses(admin, user.user.id);
+    const accessible = await loadAccessibleBusinesses(admin, user.user.id, { adminAll: isAdminAllowedEmail(user.user.email ?? "") });
     const business = pickBusinessBySlug(accessible, normDashboardSlug(slug)) as DashboardBizRow | null;
     if (!business) notFound();
 

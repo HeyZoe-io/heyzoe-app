@@ -58,6 +58,26 @@ export function resolveAdminAllowedEmail(): string {
   return process.env.ADMIN_ALLOWED_EMAIL?.trim().toLowerCase() || "liornativ@hotmail.com";
 }
 
+export function resolveAdminAllowedEmails(): string[] {
+  const single = resolveAdminAllowedEmail();
+  const rawList =
+    process.env.ADMIN_ALLOWED_EMAILS?.trim() ||
+    process.env.ADMIN_ALLOWED_EMAIL_LIST?.trim() ||
+    "";
+  const fromList = rawList
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  // Always include the single env + liornativ@hotmail.com for safety.
+  return Array.from(new Set([single, "liornativ@hotmail.com", ...fromList]));
+}
+
+export function isAdminAllowedEmail(email: string): boolean {
+  const clean = String(email ?? "").trim().toLowerCase();
+  if (!clean) return false;
+  return resolveAdminAllowedEmails().includes(clean);
+}
+
 export function listMissingBusinessBootstrapKeys(): string[] {
   const missing: string[] = [];
   if (!resolveClaudeApiKey()) {
