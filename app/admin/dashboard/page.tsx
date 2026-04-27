@@ -3,6 +3,7 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
+import ProvisionNumberModal from "./ProvisionNumberModal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       .select("id, business_id, message, created_at, is_read")
       .order("created_at", { ascending: false })
       .limit(3),
-    admin.from("whatsapp_channels").select("business_slug, phone_display, is_active").eq("is_active", true).limit(200),
+    admin.from("whatsapp_channels").select("business_slug, phone_display, is_active, provisioning_status").limit(200),
     admin
       .from("messages")
       .select("business_slug, session_id, created_at, role")
@@ -181,6 +182,7 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
         phone: String(c.phone_display ?? "") || "—",
         business_slug: String(c.business_slug ?? "").trim().toLowerCase(),
         incoming_7d: incomingSessionsBySlug.get(String(c.business_slug ?? "").trim().toLowerCase())?.size ?? 0,
+        provisioning_status: String((c as any).provisioning_status ?? "").trim() || "active",
       }))}
       businessOverview={businesses.map((b) => ({
         slug: String((b as any).slug ?? ""),
@@ -228,7 +230,7 @@ function DashboardV2(props: {
   churn: number;
   leadingBusiness: string;
   inquiries: Array<{ id: number; business_id: number | null; message: string; created_at: string; is_read: boolean }>;
-  waNumbers: Array<{ phone: string; business_slug: string; incoming_7d: number }>;
+  waNumbers: Array<{ phone: string; business_slug: string; incoming_7d: number; provisioning_status: string }>;
   businessOverview: Array<{
     slug: string;
     name: string;
@@ -440,12 +442,7 @@ function DashboardV2(props: {
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>מספרי WhatsApp פעילים</h2>
             <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>מקור: whatsapp_channels · שיחות נכנסות (7 ימים)</p>
             <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
-              <details>
-                <summary style={{ cursor: "pointer", color: "#7133da", fontWeight: 400, fontSize: 12 }}>הוסף מספר +</summary>
-                <div style={{ marginTop: 8, fontSize: 13, color: "#6b5b9a", lineHeight: 1.6 }}>
-                  לרכישת מספר חדש פנה ל־Twilio Console ואז הגדר אותו ב־Supabase
-                </div>
-              </details>
+              <ProvisionNumberModal />
             </div>
             <div style={{ display: "grid", gap: 8 }}>
               {props.waNumbers.length ? (
@@ -453,7 +450,9 @@ function DashboardV2(props: {
                   <div key={idx} style={{ border: "1px solid rgba(113,51,218,0.12)", borderRadius: 16, padding: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
                       <span style={{ fontWeight: 400 }}>{n.phone}</span>
-                      <span style={{ color: "#6b5b9a" }}>{n.incoming_7d} נכנסות</span>
+                      <span style={{ color: "#6b5b9a" }}>
+                        {n.incoming_7d} נכנסות · {n.provisioning_status}
+                      </span>
                     </div>
                     <div style={{ marginTop: 4, fontSize: 12, color: "#6b5b9a" }}>{n.business_slug}</div>
                   </div>
