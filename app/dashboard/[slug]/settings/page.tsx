@@ -51,6 +51,11 @@ type ServiceItem = {
   benefit_line: string;
 };
 
+type WhatsAppChannel = {
+  phone_display: string;
+  provisioning_status: "pending" | "active" | "failed" | null;
+} | null;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
@@ -89,6 +94,137 @@ function videoUrlForPreview(url: string) {
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function toSlug(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
+}
+
+function formatIlWhatsAppPhoneFriendly(input: string): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) return "";
+  const digits = raw.replace(/[^\d+]/g, "");
+  const onlyDigits = digits.replace(/[^\d]/g, "");
+  // Prefer formatting +972XXXXXXXXX -> +972-XX-XXX-XXXX (best-effort for IL locals)
+  if (digits.startsWith("+972") || onlyDigits.startsWith("972")) {
+    const rest = onlyDigits.startsWith("972") ? onlyDigits.slice(3) : onlyDigits;
+    const local = rest.startsWith("972") ? rest.slice(3) : rest.slice(0); // safety
+    if (local.length === 9) {
+      const p1 = local.slice(0, 2);
+      const p2 = local.slice(2, 5);
+      const p3 = local.slice(5, 9);
+      return `+972-${p1}-${p2}-${p3}`;
+    }
+  }
+  // If already contains +972, at least normalize spacing.
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function WhatsAppNumberSection({ slug }: { slug: string }) {
+  const fetcher = useCallback(async (key: string) => {
+    const res = await fetch(key, { method: "GET" });
+    const j = (await res.json()) as { channel?: WhatsAppChannel; error?: string };
+    if (!res.ok) throw new Error(j.error || `request_failed (${res.status})`);
+    return (j.channel ?? null) as WhatsAppChannel;
+  }, []);
+
+  const key = useMemo(() => `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`, [slug]);
+  const { data, error, isLoading } = useSWR(key, fetcher, {
+    revalidateOnFocus: true,
+    keepPreviousData: true,
+    refreshInterval: (latest) => {
+      const st = (latest as WhatsAppChannel)?.provisioning_status ?? null;
+      return st === "pending" ? 10_000 : 0;
+    },
+  });
+
+  const status = data?.provisioning_status ?? null;
+  const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
+
+  const copy = useCallback(async () => {
+    const value = String(data?.phone_display ?? "").trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // fallback
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+  }, [data?.phone_display]);
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white/70 p-4 shadow-[0_16px_44px_rgba(95,64,178,0.08)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-right">
+          <div className="text-sm font-semibold text-zinc-900">מספר ה‑WhatsApp שלך</div>
+          <div className="mt-0.5 text-xs text-zinc-500">המספר שעליו זואי עונה ללקוחות שלך</div>
+        </div>
+        {status === "active" ? (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+            פעיל
+          </span>
+        ) : status === "pending" ? (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 text-[11px] font-medium">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            בהקמה
+          </span>
+        ) : status === "failed" ? (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
+            תקלה
+          </span>
+        ) : (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
+            לא הוגדר
+          </span>
+        )}
+      </div>
+
+      {error ? (
+        <div className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+          לא ניתן לטעון את סטטוס המספר כרגע.
+        </div>
+      ) : null}
+
+      {isLoading && !data ? (
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-right text-sm text-zinc-600 flex items-center justify-between gap-3">
+          <span>טוען…</span>
+          <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
+        </div>
+      ) : null}
+
+      {status === "active" ? (
+        <div className="mt-3 space-y-2 text-right">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+            <span className="text-sm font-semibold text-zinc-900" dir="ltr">
+              {friendly || data?.phone_display || "—"}
+            </span>
+            <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => void copy()}>
+              העתק מספר
+            </Button>
+          </div>
+          <p className="text-sm text-zinc-700">
+            זואי עונה על המספר הזה. שתפי אותו עם לקוחות שלך!
+          </p>
+        </div>
+      ) : status === "pending" ? (
+        <div className="mt-3 rounded-xl border border-violet-200/70 bg-violet-50/60 p-4 text-right">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-zinc-900">המספר שלך נוצר… זה לוקח כמה דקות</p>
+            <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
+          </div>
+          <p className="mt-1 text-xs text-zinc-600">הדף יעדכן אוטומטית כל 10 שניות עד שהמספר יהפוך לפעיל.</p>
+        </div>
+      ) : (
+        <div className="mt-3 rounded-xl border border-rose-200/70 bg-rose-50/70 p-4 text-right">
+          <p className="text-sm font-medium text-rose-800">אירעה בעיה בהגדרת המספר</p>
+          <p className="mt-1 text-xs text-rose-700">צוות זואי יצור איתך קשר בקרוב</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** סלאג לשמירה — שמות בעברית בלבד נותנים toSlug ריק והשרת היה מדלג על השירות */
@@ -1815,6 +1951,8 @@ export default function SlugSettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
+              <WhatsAppNumberSection slug={slug} />
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="שם העסק *">
                   {name.trim() && !businessNameEditing ? (
