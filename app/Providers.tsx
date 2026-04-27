@@ -2,7 +2,33 @@
 
 import { SWRConfig } from "swr";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import posthog from "posthog-js";
+
+function shouldRecordSession(pathname: string): boolean {
+  // Limit Session Replay to landing only.
+  return pathname === "/" || pathname === "/landing";
+}
+
+function PostHogSessionReplayGate() {
+  const pathname = usePathname() || "/";
+
+  useEffect(() => {
+    // Wizard init runs in instrumentation-client.ts. Here we only toggle recording.
+    try {
+      if (shouldRecordSession(pathname)) {
+        posthog.startSessionRecording();
+      } else {
+        posthog.stopSessionRecording();
+      }
+    } catch {
+      // Ignore if posthog wasn't initialized (missing key, adblock, etc.)
+    }
+  }, [pathname]);
+
+  return null;
+}
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -28,7 +54,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         shouldRetryOnError: false,
       }}
     >
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <PostHogSessionReplayGate />
+        {children}
+      </QueryClientProvider>
     </SWRConfig>
   );
 }
