@@ -1009,11 +1009,21 @@ function hzGetSessionId(){
 function hzTrack(event_type, value, label){
   try{
     var payload={event_type:event_type, value:value==null?null:value, label:label||null, source:hzUtmSource(), session_id:hzGetSessionId()};
-    navigator.sendBeacon
-      ? navigator.sendBeacon('/api/track', new Blob([JSON.stringify(payload)],{type:'application/json'}))
-      : fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});
+    // Prefer sendBeacon, but fall back to fetch if it returns false.
+    var ok = false;
+    if(navigator.sendBeacon){
+      try{
+        ok = navigator.sendBeacon('/api/track', new Blob([JSON.stringify(payload)],{type:'application/json'}));
+      }catch(e){ ok = false; }
+    }
+    if(!ok){
+      fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});
+    }
   }catch(e){}
 }
+
+// Expose helpers for quick debugging from DevTools
+try{ window.hzTrack = hzTrack; window.hzGetSessionId = hzGetSessionId; }catch(e){}
 
 // pageview on load
 try{ hzTrack('pageview', null, null); }catch(e){}
