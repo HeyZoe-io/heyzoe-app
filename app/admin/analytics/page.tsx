@@ -7,11 +7,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RangeKey = "7" | "30" | "90";
+type SourceMode = "all" | "purchases";
 
 function resolveRangeKey(raw: unknown): RangeKey {
   const r = String(raw ?? "").trim();
   if (r === "30" || r === "90") return r;
   return "7";
+}
+
+function resolveSourceMode(raw: unknown): SourceMode {
+  const r = String(raw ?? "").trim();
+  return r === "purchases" ? "purchases" : "all";
 }
 
 function daysAgoIso(days: number) {
@@ -50,6 +56,9 @@ export default async function AdminAnalyticsPage({
 
   const sp = await searchParams;
   const range = resolveRangeKey(typeof sp.range === "string" ? sp.range : Array.isArray(sp.range) ? sp.range[0] : "");
+  const sourceMode = resolveSourceMode(
+    typeof sp.source === "string" ? sp.source : Array.isArray(sp.source) ? sp.source[0] : ""
+  );
   const days = range === "90" ? 90 : range === "30" ? 30 : 7;
   const since = daysAgoIso(days);
 
@@ -69,6 +78,7 @@ export default async function AdminAnalyticsPage({
   const purchasesBySession = new Map<string, number>(); // value sum
   const sessionsByType = new Map<string, Set<string>>();
   const sourceCounts = new Map<string, number>();
+  const purchaserSessionsBySource = new Map<string, Set<string>>();
   const ctaClicksByLabel = new Map<string, number>();
   let purchaseRevenue = 0;
 
@@ -109,6 +119,11 @@ export default async function AdminAnalyticsPage({
 
     const src = (e.source ?? "").trim() || "direct";
     sourceCounts.set(src, (sourceCounts.get(src) ?? 0) + 1);
+    if (t === "purchase") {
+      const set = purchaserSessionsBySource.get(src) ?? new Set<string>();
+      set.add(sid);
+      purchaserSessionsBySource.set(src, set);
+    }
   }
 
   const pageviews = countByType.get("pageview") ?? 0;
@@ -144,7 +159,12 @@ export default async function AdminAnalyticsPage({
   const abandoned = Math.max(0, checkoutStarts - purchases);
   const abandonmentRate = checkoutStarts ? Math.round((abandoned / checkoutStarts) * 100) : 0;
 
-  const sourcesSorted = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const sourcesAllSorted = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const sourcesPurchSorted = [...purchaserSessionsBySource.entries()]
+    .map(([src, set]) => [src, set.size] as const)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12);
+  const sourcesSorted = sourceMode === "purchases" ? sourcesPurchSorted : sourcesAllSorted;
   const sourcesMax = sourcesSorted[0]?.[1] ?? 1;
   const ctaLabelsSorted = [...ctaClicksByLabel.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
 
@@ -332,7 +352,35 @@ export default async function AdminAnalyticsPage({
             }}
           >
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a0a3c" }}>מקור תנועה</h2>
-            <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>קיבוץ לפי utm_source</p>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+              <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
+                קיבוץ לפי utm_source · {sourceMode === "purchases" ? "רוכשים (unique sessions)" : "כל האירועים"}
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <a
+                  href={`/admin/analytics?range=${range}&source=all`}
+                  className={pill}
+                  style={{
+                    background: sourceMode === "all" ? "linear-gradient(135deg,#7133da,#ff92ff)" : "white",
+                    color: sourceMode === "all" ? "white" : "#3a2a6c",
+                    textDecoration: "none",
+                  }}
+                >
+                  כולם
+                </a>
+                <a
+                  href={`/admin/analytics?range=${range}&source=purchases`}
+                  className={pill}
+                  style={{
+                    background: sourceMode === "purchases" ? "linear-gradient(135deg,#7133da,#ff92ff)" : "white",
+                    color: sourceMode === "purchases" ? "white" : "#3a2a6c",
+                    textDecoration: "none",
+                  }}
+                >
+                  רכישות
+                </a>
+              </div>
+            </div>
             {sourcesSorted.length ? (
               <div style={{ display: "grid", gap: 10 }}>
                 {sourcesSorted.map(([src, c]) => {
