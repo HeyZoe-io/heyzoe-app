@@ -21,6 +21,7 @@ export default function DashboardResetPasswordPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     async function run() {
@@ -105,8 +106,8 @@ export default function DashboardResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password: pw });
     if (error) setMessage(error.message);
     else {
-      setMessage("הסיסמה עודכנה בהצלחה. אפשר להתחבר מחדש.");
-      window.setTimeout(() => router.replace("/dashboard/login?reset=1"), 700);
+      setRedirecting(true);
+      window.setTimeout(() => router.replace("/dashboard"), 900);
     }
     setLoading(false);
   }
@@ -128,6 +129,15 @@ export default function DashboardResetPasswordPage() {
         <CardContent>
           {!ready ? (
             <p className="text-sm text-zinc-500 text-center">טוען...</p>
+          ) : redirecting ? (
+            <div className="py-4 text-center">
+              <div className="text-[#7133da] font-semibold text-lg">מעבירים אותך לדשבורד…</div>
+              <div className="mt-3 flex items-center justify-center gap-2" aria-hidden>
+                <span className="h-2.5 w-2.5 rounded-full bg-[#7133da] animate-bounce [animation-delay:0ms]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#7133da] animate-bounce [animation-delay:150ms]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#7133da] animate-bounce [animation-delay:300ms]" />
+              </div>
+            </div>
           ) : exchanged ? (
             <form className="space-y-3" onSubmit={onSubmit}>
               <div className="text-xs text-zinc-500 text-right leading-relaxed">
