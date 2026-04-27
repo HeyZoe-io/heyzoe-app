@@ -43,6 +43,20 @@ export default function AnalyticsClient({
   const [data, setData] = useState<AnalyticsPayload>(initial);
   const [loading, setLoading] = useState(false);
   const lastLoadedRangeRef = useRef<RangeKey>(initialRange);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef<{ ac: AbortController | null; reqId: number }>({ ac: null, reqId: 0 });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      try {
+        inFlightRef.current.ac?.abort();
+      } catch {
+        /* noop */
+      }
+    };
+  }, []);
 
   const subtitle = useMemo(() => {
     const suffix =
@@ -51,14 +65,36 @@ export default function AnalyticsClient({
   }, [range]);
 
   async function load(next: RangeKey) {
+    // Cancel any previous request to avoid late-arriving responses writing URL/state
+    // after the user already navigated away.
+    try {
+      inFlightRef.current.ac?.abort();
+    } catch {
+      /* noop */
+    }
+    const ac = new AbortController();
+    inFlightRef.current.ac = ac;
+    const reqId = ++inFlightRef.current.reqId;
+
     setLoading(true);
     try {
       const res = await fetch(
         `/api/analytics?business_slug=${encodeURIComponent(slug)}&range=${encodeURIComponent(next)}&lite=1`,
-        { method: "GET" }
+        { method: "GET", signal: ac.signal }
       );
       const j = (await res.json().catch(() => null)) as any;
       if (!res.ok || !j?.ok) return;
+
+      if (!mountedRef.current) return;
+      if (reqId !== inFlightRef.current.reqId) return;
+      // Only update URL/state if we're still on the analytics route.
+      try {
+        const path = window.location.pathname || "";
+        if (!path.endsWith(`/${slug}/analytics`) && !path.includes(`/${slug}/analytics`)) return;
+      } catch {
+        /* noop */
+      }
+
       const payload: AnalyticsPayload = {
         range: resolveRangeKey(j.range),
         newLeads: Number(j.newLeads ?? 0) || 0,
@@ -73,8 +109,10 @@ export default function AnalyticsClient({
       setData(payload);
       updateUrlRange(slug, payload.range);
       lastLoadedRangeRef.current = payload.range;
+    } catch (e: any) {
+      if (e?.name === "AbortError") return;
     } finally {
-      setLoading(false);
+      if (mountedRef.current && reqId === inFlightRef.current.reqId) setLoading(false);
     }
   }
 
