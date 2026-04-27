@@ -1013,6 +1013,52 @@ function hzTrack(event_type, value, label){
 // pageview on load
 try{ hzTrack('pageview', null, null); }catch(e){}
 
+// engagement events (fire once per visit/session)
+try{
+  var fireOnceKey = 'hz_lp_fired_v1';
+  var fired = {};
+  try{ fired = JSON.parse(sessionStorage.getItem(fireOnceKey)||'{}') || {}; }catch(e){ fired = {}; }
+  function hzFireOnce(name){
+    try{
+      if(fired && fired[name]) return;
+      fired[name] = 1;
+      try{ sessionStorage.setItem(fireOnceKey, JSON.stringify(fired)); }catch(e){}
+      hzTrack(name, null, null);
+    }catch(e){}
+  }
+
+  // time-on-page thresholds
+  setTimeout(function(){ hzFireOnce('lp_10s'); }, 10*1000);
+  setTimeout(function(){ hzFireOnce('lp_30s'); }, 30*1000);
+  setTimeout(function(){ hzFireOnce('lp_60s'); }, 60*1000);
+
+  // scroll depth thresholds (50% / 75%)
+  function docScrollPct(){
+    var de = document.documentElement;
+    var body = document.body;
+    var scrollTop = (window.pageYOffset != null ? window.pageYOffset : de.scrollTop) || 0;
+    var docH = Math.max(de.scrollHeight, body ? body.scrollHeight : 0);
+    var winH = window.innerHeight || de.clientHeight || 1;
+    var maxScroll = Math.max(1, docH - winH);
+    return scrollTop / maxScroll;
+  }
+  var raf = 0;
+  function onScroll(){
+    if(raf) return;
+    raf = requestAnimationFrame(function(){
+      raf = 0;
+      var pct = docScrollPct();
+      if(pct >= 0.75) hzFireOnce('lp_scroll_75');
+      else if(pct >= 0.50) hzFireOnce('lp_scroll_50');
+      if((fired.lp_scroll_50 && fired.lp_scroll_75) || (fired.lp_scroll_75)) {
+        window.removeEventListener('scroll', onScroll, { passive:true });
+      }
+    });
+  }
+  window.addEventListener('scroll', onScroll, { passive:true });
+  onScroll();
+}catch(e){}
+
 // hero CTA click
 try{
   var heroCta=document.querySelector('.hero .btn-primary');

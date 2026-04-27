@@ -125,7 +125,18 @@ export default async function AdminAnalyticsPage({
   const avgDaysToPurchase =
     deltasDays.length ? deltasDays.reduce((a, b) => a + b, 0) / deltasDays.length : 0;
 
-  const funnelSteps = ["pageview", "cta_click", "chat_open", "checkout_start", "purchase"] as const;
+  const funnelSteps = [
+    "pageview",
+    "lp_10s",
+    "lp_30s",
+    "lp_60s",
+    "lp_scroll_50",
+    "lp_scroll_75",
+    "cta_click",
+    "chat_open",
+    "checkout_start",
+    "purchase",
+  ] as const;
   const funnelCounts = funnelSteps.map((s) => countByType.get(s) ?? 0);
   const funnelBase = funnelCounts[0] || 0;
 
