@@ -1001,9 +1001,9 @@ function hzGetSessionId(){
     return 'lp_'+Math.random().toString(16).slice(2)+Date.now().toString(16);
   }
 }
-function hzTrack(event_type, value){
+function hzTrack(event_type, value, label){
   try{
-    var payload={event_type:event_type, value:value==null?null:value, source:hzUtmSource(), session_id:hzGetSessionId()};
+    var payload={event_type:event_type, value:value==null?null:value, label:label||null, source:hzUtmSource(), session_id:hzGetSessionId()};
     navigator.sendBeacon
       ? navigator.sendBeacon('/api/track', new Blob([JSON.stringify(payload)],{type:'application/json'}))
       : fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});
@@ -1011,12 +1011,15 @@ function hzTrack(event_type, value){
 }
 
 // pageview on load
-try{ hzTrack('pageview', null); }catch(e){}
+try{ hzTrack('pageview', null, null); }catch(e){}
 
 // hero CTA click
 try{
   var heroCta=document.querySelector('.hero .btn-primary');
-  if(heroCta) heroCta.addEventListener('click',function(){ hzTrack('cta_click', null); });
+  if(heroCta) heroCta.addEventListener('click',function(){
+    var t=(heroCta.textContent||'').trim();
+    hzTrack('cta_click', null, t||'hero_primary');
+  });
 }catch(e){}
 
 // chat_open when chat section first becomes visible + when WA floating button clicked
@@ -1028,14 +1031,14 @@ try{
       if(chatSeen) return;
       if(entries && entries[0] && entries[0].isIntersecting){
         chatSeen=true;
-        hzTrack('chat_open', null);
+        hzTrack('chat_open', null, 'chat_section');
       }
     },{threshold:0.35}).observe(chatEl);
   }
 }catch(e){}
 try{
   var waFloat=document.querySelector('.wa-float');
-  if(waFloat) waFloat.addEventListener('click',function(){ hzTrack('chat_open', null); });
+  if(waFloat) waFloat.addEventListener('click',function(){ hzTrack('chat_open', null, 'wa_float'); });
 }catch(e){}
 
 // checkout_start (pricing buttons lead to /onboarding?plan=...)
@@ -1051,7 +1054,7 @@ try{
         if(value) sessionStorage.setItem('hz_lp_plan_value', String(value));
         var src=hzUtmSource(); if(src) sessionStorage.setItem('hz_lp_source', src);
       }catch(e){}
-      hzTrack('checkout_start', null);
+      hzTrack('checkout_start', null, plan||null);
     },{capture:true});
   });
 }catch(e){}

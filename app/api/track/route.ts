@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
     const event_type = typeof body?.event_type === "string" ? body.event_type.trim() : "";
     const source = typeof body?.source === "string" ? body.source.trim().slice(0, 120) : null;
     const session_id = typeof body?.session_id === "string" ? body.session_id.trim().slice(0, 180) : "";
+    const label =
+      typeof body?.label === "string" ? body.label.trim().slice(0, 80) : null;
 
     const valueRaw = body?.value;
     const value =
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
       value: event_type === "purchase" ? value : null,
       source,
       session_id,
+      label,
     });
 
     if (error) {
