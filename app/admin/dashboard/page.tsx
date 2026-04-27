@@ -10,6 +10,16 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+function isoDateOnly(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function daysAgo(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
+}
+
 export default async function AdminDashboardPage({ searchParams }: Props) {
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
@@ -18,8 +28,12 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   if (!email || email !== allowedEmail) redirect("/admin/login");
 
   const sp = await searchParams;
-  const modeRaw = typeof sp.mode === "string" ? sp.mode : Array.isArray(sp.mode) ? sp.mode[0] : "";
-  const mode: "monthly" | "annual" = modeRaw === "annual" ? "annual" : "monthly";
+  const fromRaw = typeof sp.from === "string" ? sp.from : Array.isArray(sp.from) ? sp.from[0] : "";
+  const toRaw = typeof sp.to === "string" ? sp.to : Array.isArray(sp.to) ? sp.to[0] : "";
+  const fromDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : isoDateOnly(daysAgo(30));
+  const toDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(toRaw) ? toRaw : isoDateOnly(new Date());
+  const fromTs = `${fromDateOnly}T00:00:00.000Z`;
+  const toTs = `${toDateOnly}T23:59:59.999Z`;
 
   const admin = createSupabaseAdminClient();
 
@@ -38,27 +52,26 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     const n = typeof v === "number" ? v : v != null ? Number(v) : 0;
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
-  const mrrDisplay = mode === "annual" ? mrr * 12 : mrr;
+  const mrrDisplay = mrr;
 
-  // Churn: businesses that became inactive this month (best-effort using cancellation_effective_at, else updated_at).
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // Churn: businesses that became inactive in selected range (best-effort).
   const churn = businesses.filter((b) => {
     const inactive = !Boolean((b as any).is_active);
     if (!inactive) return false;
     const eff = (b as any).cancellation_effective_at ? new Date(String((b as any).cancellation_effective_at)) : null;
     const upd = (b as any).updated_at ? new Date(String((b as any).updated_at)) : null;
     const at = eff && !Number.isNaN(eff.getTime()) ? eff : upd && !Number.isNaN(upd.getTime()) ? upd : null;
-    return at ? at.getTime() >= monthStart.getTime() : false;
+    if (!at) return false;
+    const ms = at.getTime();
+    return ms >= new Date(fromTs).getTime() && ms <= new Date(toTs).getTime();
   }).length;
 
-  // Leading business: most messages rows in the selected period (monthly=30d, annual=365d).
-  const periodDays = mode === "annual" ? 365 : 30;
-  const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
+  // Leading business: most message rows in the selected period.
   const { data: msgRows } = await admin
     .from("messages")
     .select("business_slug, created_at")
-    .gte("created_at", since)
+    .gte("created_at", fromTs)
+    .lte("created_at", toTs)
     .order("created_at", { ascending: false })
     .limit(120000);
   const bySlug = new Map<string, number>();
@@ -83,11 +96,11 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     .eq("is_active", true)
     .limit(200);
 
-  const weeklySince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: msgWeek } = await admin
     .from("messages")
     .select("business_slug, session_id, created_at, role")
-    .gte("created_at", weeklySince)
+    .gte("created_at", fromTs)
+    .lte("created_at", toTs)
     .order("created_at", { ascending: true })
     .limit(80000);
   const incomingSessionsBySlug = new Map<string, Set<string>>();
@@ -178,7 +191,8 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
 
   return (
     <DashboardV2
-      mode={mode}
+      from={fromDateOnly}
+      to={toDateOnly}
       activeCustomers={activeCustomers}
       mrr={mrrDisplay}
       churn={churn}
@@ -228,7 +242,8 @@ function moneyIls(n: number) {
 }
 
 function DashboardV2(props: {
-  mode: "monthly" | "annual";
+  from: string;
+  to: string;
   activeCustomers: number;
   mrr: number;
   churn: number;
@@ -245,7 +260,6 @@ function DashboardV2(props: {
   }>;
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
 }) {
-  const { mode } = props;
   const pillBase =
     "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:800;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
 
@@ -296,41 +310,56 @@ function DashboardV2(props: {
             alignItems: "center",
           }}
         >
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <a
-              href="/admin/dashboard?mode=monthly"
+          <form method="get" action="/admin/dashboard" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#6b5b9a", marginBottom: 4 }}>מ־</label>
+              <input
+                name="from"
+                type="date"
+                defaultValue={props.from}
+                style={{
+                  height: 38,
+                  padding: "0 12px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(113,51,218,0.18)",
+                  background: "white",
+                  color: "#1a0a3c",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "#6b5b9a", marginBottom: 4 }}>עד</label>
+              <input
+                name="to"
+                type="date"
+                defaultValue={props.to}
+                style={{
+                  height: 38,
+                  padding: "0 12px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(113,51,218,0.18)",
+                  background: "white",
+                  color: "#1a0a3c",
+                }}
+              />
+            </div>
+            <button
+              type="submit"
               style={{
-                padding: "8px 12px",
+                height: 38,
+                padding: "0 14px",
                 borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 600,
-                textDecoration: "none",
                 border: "1px solid rgba(113,51,218,0.18)",
-                background: mode === "monthly" ? "linear-gradient(135deg,#7133da,#ff92ff)" : "white",
-                color: mode === "monthly" ? "white" : "#3a2a6c",
+                background: "linear-gradient(135deg,#7133da,#ff92ff)",
+                color: "white",
+                fontWeight: 600,
+                cursor: "pointer",
               }}
             >
-              חודשי
-            </a>
-            <a
-              href="/admin/dashboard?mode=annual"
-              style={{
-                padding: "8px 12px",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 600,
-                textDecoration: "none",
-                border: "1px solid rgba(113,51,218,0.18)",
-                background: mode === "annual" ? "linear-gradient(135deg,#7133da,#ff92ff)" : "white",
-                color: mode === "annual" ? "white" : "#3a2a6c",
-              }}
-            >
-              שנתי
-            </a>
-          </div>
-          <div style={{ fontSize: 12, color: "#6b5b9a" }}>
-            מסנן: {mode === "annual" ? "שנתי (365 ימים)" : "חודשי (30 ימים)"}
-          </div>
+              עדכן
+            </button>
+          </form>
+          <div style={{ fontSize: 12, color: "#6b5b9a" }}>ברירת מחדל: חודש אחרון</div>
         </section>
 
         <section style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
