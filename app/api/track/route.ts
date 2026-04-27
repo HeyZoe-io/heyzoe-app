@@ -9,6 +9,11 @@ const ALLOWED_EVENT_TYPES = new Set([
   "chat_open",
   "checkout_start",
   "purchase",
+  "lp_10s",
+  "lp_30s",
+  "lp_60s",
+  "lp_scroll_50",
+  "lp_scroll_75",
 ]);
 
 function withCors(res: NextResponse) {

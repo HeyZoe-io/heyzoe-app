@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { resolveAdminAllowedEmail } from "@/lib/server-env";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import Link from "next/link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,12 +38,33 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
 
   const admin = createSupabaseAdminClient();
 
-  // Active customers + MRR (sum plan_price) — computed from businesses table.
-  const { data: bizRows } = await admin
-    .from("businesses")
-    .select("id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at")
-    .order("created_at", { ascending: true })
-    .limit(5000);
+  const [{ data: bizRows }, { data: msgRows }, { data: inquiries }, { data: waChannels }, { data: msgWeek }] = await Promise.all([
+    admin
+      .from("businesses")
+      .select("id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at")
+      .order("created_at", { ascending: true })
+      .limit(5000),
+    admin
+      .from("messages")
+      .select("business_slug, created_at")
+      .gte("created_at", fromTs)
+      .lte("created_at", toTs)
+      .order("created_at", { ascending: false })
+      .limit(120000),
+    admin
+      .from("business_inquiries")
+      .select("id, business_id, message, created_at, is_read")
+      .order("created_at", { ascending: false })
+      .limit(3),
+    admin.from("whatsapp_channels").select("business_slug, phone_display, is_active").eq("is_active", true).limit(200),
+    admin
+      .from("messages")
+      .select("business_slug, session_id, created_at, role")
+      .gte("created_at", fromTs)
+      .lte("created_at", toTs)
+      .order("created_at", { ascending: true })
+      .limit(80000),
+  ]);
 
   const businesses = (bizRows ?? []) as any[];
   const activeBusinesses = businesses.filter((b) => Boolean((b as any).is_active));
@@ -66,14 +88,6 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     return ms >= new Date(fromTs).getTime() && ms <= new Date(toTs).getTime();
   }).length;
 
-  // Leading business: most message rows in the selected period.
-  const { data: msgRows } = await admin
-    .from("messages")
-    .select("business_slug, created_at")
-    .gte("created_at", fromTs)
-    .lte("created_at", toTs)
-    .order("created_at", { ascending: false })
-    .limit(120000);
   const bySlug = new Map<string, number>();
   for (const r of msgRows ?? []) {
     const slug = String((r as any).business_slug ?? "").trim().toLowerCase();
@@ -82,27 +96,6 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   }
   const leadingBusiness = [...bySlug.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
 
-  // Business inquiries (top 3)
-  const { data: inquiries } = await admin
-    .from("business_inquiries")
-    .select("id, business_id, message, created_at, is_read")
-    .order("created_at", { ascending: false })
-    .limit(3);
-
-  // WhatsApp numbers — use whatsapp_channels as source of truth.
-  const { data: waChannels } = await admin
-    .from("whatsapp_channels")
-    .select("business_slug, phone_display, is_active")
-    .eq("is_active", true)
-    .limit(200);
-
-  const { data: msgWeek } = await admin
-    .from("messages")
-    .select("business_slug, session_id, created_at, role")
-    .gte("created_at", fromTs)
-    .lte("created_at", toTs)
-    .order("created_at", { ascending: true })
-    .limit(80000);
   const incomingSessionsBySlug = new Map<string, Set<string>>();
   for (const m of msgWeek ?? []) {
     const slug = String((m as any).business_slug ?? "").trim().toLowerCase();
@@ -115,79 +108,66 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     incomingSessionsBySlug.set(slug, set);
   }
 
-  // System health (best-effort; show N/A if missing deps/tables)
-  const health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }> = [];
-  // Twilio
-  try {
-    const sid = process.env.TWILIO_ACCOUNT_SID?.trim() || "";
-    const tok = process.env.TWILIO_AUTH_TOKEN?.trim() || "";
-    if (!sid || !tok) {
-      health.push({ key: "twilio", label: "Twilio", status: "warn", detail: "חסרים credentials" });
-    } else {
-      const auth = Buffer.from(`${sid}:${tok}`).toString("base64");
-      const r = await fetch("https://api.twilio.com/2010-04-01/Accounts.json", {
-        headers: { Authorization: `Basic ${auth}` },
-        cache: "no-store",
-      });
-      health.push({ key: "twilio", label: "Twilio", status: r.ok ? "ok" : "bad", detail: r.ok ? "פעיל" : `שגיאה (${r.status})` });
-    }
-  } catch {
-    health.push({ key: "twilio", label: "Twilio", status: "bad", detail: "שגיאת בדיקה" });
-  }
-  // Claude / Anthropic
-  try {
-    const key = process.env.ANTHROPIC_API_KEY?.trim() || "";
-    if (!key) {
-      health.push({ key: "claude", label: "Claude API", status: "warn", detail: "חסר ANTHROPIC_API_KEY" });
-    } else {
-      const r = await fetch("https://api.anthropic.com/v1/models", {
-        method: "GET",
-        headers: {
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-        },
-        cache: "no-store",
-      });
-      health.push({ key: "claude", label: "Claude API", status: r.ok ? "ok" : "bad", detail: r.ok ? "תקין" : `שגיאה (${r.status})` });
-    }
-  } catch {
-    health.push({ key: "claude", label: "Claude API", status: "bad", detail: "שגיאת בדיקה" });
-  }
-  // Supabase DB: conversations rows (fallback to messages)
-  try {
-    const { count, error } = await admin.from("conversations").select("id", { count: "exact", head: true });
-    if (error) throw error;
-    health.push({ key: "db_conversations", label: "Supabase DB (conversations)", status: "ok", detail: `${count ?? 0} שורות` });
-  } catch {
-    const { count } = await admin.from("messages").select("id", { count: "exact", head: true });
-    health.push({ key: "db_conversations", label: "Supabase DB (messages)", status: "warn", detail: `${count ?? 0} שורות` });
-  }
-  // Webhook errors 24h
-  try {
-    const dayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count, error } = await admin
-      .from("webhook_logs")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "error")
-      .gte("created_at", dayIso);
-    if (error) throw error;
-    health.push({ key: "webhook_errors", label: "שגיאות webhook (24 שעות)", status: (count ?? 0) > 0 ? "warn" : "ok", detail: `${count ?? 0}` });
-  } catch {
-    health.push({ key: "webhook_errors", label: "שגיאות webhook (24 שעות)", status: "warn", detail: "N/A" });
-  }
-  // Fallback 24h
-  try {
-    const dayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count, error } = await admin
-      .from("conversations")
-      .select("id", { count: "exact", head: true })
-      .eq("fallback", true)
-      .gte("created_at", dayIso);
-    if (error) throw error;
-    health.push({ key: "fallback_24h", label: "Fallback זואי (24 שעות)", status: (count ?? 0) > 10 ? "warn" : "ok", detail: `${count ?? 0}` });
-  } catch {
-    health.push({ key: "fallback_24h", label: "Fallback זואי (24 שעות)", status: "warn", detail: "N/A" });
-  }
+  const health = (
+    await Promise.all([
+      (async () => {
+        try {
+          const sid = process.env.TWILIO_ACCOUNT_SID?.trim() || "";
+          const tok = process.env.TWILIO_AUTH_TOKEN?.trim() || "";
+          if (!sid || !tok) return { key: "twilio", label: "Twilio", status: "warn" as const, detail: "חסרים credentials" };
+          const auth = Buffer.from(`${sid}:${tok}`).toString("base64");
+          const r = await fetch("https://api.twilio.com/2010-04-01/Accounts.json", { headers: { Authorization: `Basic ${auth}` }, cache: "no-store" });
+          return { key: "twilio", label: "Twilio", status: (r.ok ? "ok" : "bad") as "ok" | "bad", detail: r.ok ? "פעיל" : `שגיאה (${r.status})` };
+        } catch {
+          return { key: "twilio", label: "Twilio", status: "bad" as const, detail: "שגיאת בדיקה" };
+        }
+      })(),
+      (async () => {
+        try {
+          const key = process.env.ANTHROPIC_API_KEY?.trim() || "";
+          if (!key) return { key: "claude", label: "Claude API", status: "warn" as const, detail: "חסר ANTHROPIC_API_KEY" };
+          const r = await fetch("https://api.anthropic.com/v1/models", {
+            method: "GET",
+            headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+            cache: "no-store",
+          });
+          return { key: "claude", label: "Claude API", status: (r.ok ? "ok" : "bad") as "ok" | "bad", detail: r.ok ? "תקין" : `שגיאה (${r.status})` };
+        } catch {
+          return { key: "claude", label: "Claude API", status: "bad" as const, detail: "שגיאת בדיקה" };
+        }
+      })(),
+      (async () => {
+        try {
+          const { count, error } = await admin.from("conversations").select("id", { count: "exact", head: true });
+          if (error) throw error;
+          return { key: "db_conversations", label: "Supabase DB (conversations)", status: "ok" as const, detail: `${count ?? 0} שורות` };
+        } catch {
+          const { count } = await admin.from("messages").select("id", { count: "exact", head: true });
+          return { key: "db_conversations", label: "Supabase DB (messages)", status: "warn" as const, detail: `${count ?? 0} שורות` };
+        }
+      })(),
+      (async () => {
+        try {
+          const dayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const { count, error } = await admin.from("webhook_logs").select("id", { count: "exact", head: true }).eq("status", "error").gte("created_at", dayIso);
+          if (error) throw error;
+          return { key: "webhook_errors", label: "שגיאות webhook (24 שעות)", status: ((count ?? 0) > 0 ? "warn" : "ok") as "warn" | "ok", detail: `${count ?? 0}` };
+        } catch {
+          return { key: "webhook_errors", label: "שגיאות webhook (24 שעות)", status: "warn" as const, detail: "N/A" };
+        }
+      })(),
+      (async () => {
+        try {
+          const dayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const { count, error } = await admin.from("conversations").select("id", { count: "exact", head: true }).eq("fallback", true).gte("created_at", dayIso);
+          if (error) throw error;
+          return { key: "fallback_24h", label: "Fallback זואי (24 שעות)", status: ((count ?? 0) > 10 ? "warn" : "ok") as "warn" | "ok", detail: `${count ?? 0}` };
+        } catch {
+          return { key: "fallback_24h", label: "Fallback זואי (24 שעות)", status: "warn" as const, detail: "N/A" };
+        }
+      })(),
+    ])
+  ) as Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
 
   return (
     <DashboardV2
@@ -261,7 +241,7 @@ function DashboardV2(props: {
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
 }) {
   const pillBase =
-    "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:800;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
+    "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:600;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
 
   return (
     <main
@@ -277,22 +257,22 @@ function DashboardV2(props: {
       <div style={{ maxWidth: 1120, margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
           <div style={{ textAlign: "right" }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>דשבורד סופר אדמין</h1>
+            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600 }}>דשבורד סופר אדמין</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>סקירה מערכתית + עסקים + התראות</p>
           </div>
           <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
-            <a href="/admin/dashboard" style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}>
+            <Link href="/admin/dashboard" prefetch style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}>
               ראשי
-            </a>
-            <a href="/admin/analytics" style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+            </Link>
+            <Link href="/admin/analytics" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               analytics
-            </a>
-            <a href="/admin/dashboard#businesses" style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+            </Link>
+            <Link href="/admin/dashboard#businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               עסקים
-            </a>
-            <a href="/admin/requests" style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+            </Link>
+            <Link href="/admin/requests" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               פניות מבעלי עסקים
-            </a>
+            </Link>
           </nav>
         </header>
 
@@ -380,8 +360,8 @@ function DashboardV2(props: {
                 textAlign: "right",
               }}
             >
-              <div style={{ fontSize: 12, color: "#6b5b9a", fontWeight: 700 }}>{m.label}</div>
-              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 700, color: "#1a0a3c" }}>{m.value}</div>
+              <div style={{ fontSize: 12, color: "#6b5b9a", fontWeight: 500 }}>{m.label}</div>
+              <div style={{ marginTop: 8, fontSize: 26, fontWeight: 600, color: "#1a0a3c" }}>{m.value}</div>
             </div>
           ))}
         </section>
@@ -397,17 +377,18 @@ function DashboardV2(props: {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>פניות מבעלי עסקים</h2>
-              <a href="/admin/contacts" style={{ color: "#7133da", fontWeight: 600, textDecoration: "none", fontSize: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>פניות מבעלי עסקים</h2>
+              <Link href="/admin/contacts" prefetch style={{ color: "#7133da", fontWeight: 500, textDecoration: "none", fontSize: 12 }}>
                 כל הפניות
-              </a>
+              </Link>
             </div>
             <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
               {props.inquiries.length ? (
                 props.inquiries.map((i) => (
-                  <a
+                  <Link
                     key={i.id}
                     href="/admin/contacts"
+                    prefetch
                     style={{
                       textDecoration: "none",
                       color: "inherit",
@@ -440,7 +421,7 @@ function DashboardV2(props: {
                       {String(i.message ?? "").slice(0, 50)}
                       {String(i.message ?? "").length > 50 ? "…" : ""}
                     </div>
-                  </a>
+                  </Link>
                 ))
               ) : (
                 <div style={{ color: "#6b5b9a", fontSize: 13, textAlign: "center", padding: 10 }}>אין פניות עדיין.</div>
@@ -457,7 +438,7 @@ function DashboardV2(props: {
               padding: 16,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>מספרי WhatsApp פעילים</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>מספרי WhatsApp פעילים</h2>
             <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>מקור: whatsapp_channels · שיחות נכנסות (7 ימים)</p>
             <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
               <details>
@@ -472,7 +453,7 @@ function DashboardV2(props: {
                 props.waNumbers.slice(0, 10).map((n, idx) => (
                   <div key={idx} style={{ border: "1px solid rgba(113,51,218,0.12)", borderRadius: 16, padding: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                      <span style={{ fontWeight: 600 }}>{n.phone}</span>
+                      <span style={{ fontWeight: 500 }}>{n.phone}</span>
                       <span style={{ color: "#6b5b9a" }}>{n.incoming_7d} נכנסות</span>
                     </div>
                     <div style={{ marginTop: 4, fontSize: 12, color: "#6b5b9a" }}>{n.business_slug}</div>
@@ -496,7 +477,7 @@ function DashboardV2(props: {
             padding: 16,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Business Overview</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Business Overview</h2>
           <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>לחיצה על שורה → /admin/businesses/[slug]</p>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
@@ -516,9 +497,13 @@ function DashboardV2(props: {
                   .map((b) => (
                     <tr key={b.slug} style={{ borderBottom: "1px solid rgba(113,51,218,0.08)" }}>
                       <td style={{ padding: "10px 8px" }}>
-                        <a href={`/admin/businesses/${encodeURIComponent(b.slug)}`} style={{ color: "#1a0a3c", fontWeight: 700, textDecoration: "none" }}>
+                        <Link
+                          href={`/admin/businesses/${encodeURIComponent(b.slug)}`}
+                          prefetch
+                          style={{ color: "#1a0a3c", fontWeight: 600, textDecoration: "none" }}
+                        >
                           {b.name || b.slug}
-                        </a>
+                        </Link>
                         <div style={{ fontSize: 12, color: "#6b5b9a" }}>{b.slug}</div>
                       </td>
                       <td style={{ padding: "10px 8px" }}>
@@ -537,8 +522,8 @@ function DashboardV2(props: {
                           {b.plan === "premium" ? "premium" : "basic"}
                         </span>
                       </td>
-                      <td style={{ padding: "10px 8px", fontWeight: 600 }}>{b.conversations_total}</td>
-                      <td style={{ padding: "10px 8px", fontWeight: 600 }}>{b.conversations_week}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>{b.conversations_total}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>{b.conversations_week}</td>
                       <td style={{ padding: "10px 8px" }}>
                         <span
                           style={{
@@ -572,13 +557,13 @@ function DashboardV2(props: {
             padding: 16,
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>System Health</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>System Health</h2>
           <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
             {props.health.map((h) => (
               <div key={h.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ width: 10, height: 10, borderRadius: 999, background: dotColor(h.status) }} />
-                  <span style={{ fontWeight: 600 }}>{h.label}</span>
+                  <span style={{ fontWeight: 500 }}>{h.label}</span>
                 </div>
                 <span style={{ color: "#6b5b9a", fontSize: 13 }}>{h.detail}</span>
               </div>
