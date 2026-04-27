@@ -981,6 +981,80 @@ const promoMonth=HEBREW_MONTHS[calendarMonthIndexIsrael()];
   var map={promoFinalCtaLine:line,promoBadge:line,promoStarter:lineUnderPlans,promoPro:lineUnderPlans};
   for (var k in map){ var el=document.getElementById(k); if(el) el.textContent=map[k]; }
 })();
+
+// --- LP tracking (server-side storage via /api/track) ---
+function hzUtmSource(){
+  try{
+    var u=new URL(window.location.href);
+    return (u.searchParams.get('utm_source')||'').trim()||null;
+  }catch(e){return null;}
+}
+function hzGetSessionId(){
+  try{
+    var key='hz_lp_session_id';
+    var existing=sessionStorage.getItem(key);
+    if(existing) return existing;
+    var sid='lp_'+Math.random().toString(16).slice(2)+Date.now().toString(16);
+    sessionStorage.setItem(key,sid);
+    return sid;
+  }catch(e){
+    return 'lp_'+Math.random().toString(16).slice(2)+Date.now().toString(16);
+  }
+}
+function hzTrack(event_type, value){
+  try{
+    var payload={event_type:event_type, value:value==null?null:value, source:hzUtmSource(), session_id:hzGetSessionId()};
+    navigator.sendBeacon
+      ? navigator.sendBeacon('/api/track', new Blob([JSON.stringify(payload)],{type:'application/json'}))
+      : fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});
+  }catch(e){}
+}
+
+// pageview on load
+try{ hzTrack('pageview', null); }catch(e){}
+
+// hero CTA click
+try{
+  var heroCta=document.querySelector('.hero .btn-primary');
+  if(heroCta) heroCta.addEventListener('click',function(){ hzTrack('cta_click', null); });
+}catch(e){}
+
+// chat_open when chat section first becomes visible + when WA floating button clicked
+try{
+  var chatSeen=false;
+  var chatEl=document.querySelector('.chat-section');
+  if(chatEl && typeof IntersectionObserver!=='undefined'){
+    new IntersectionObserver(function(entries){
+      if(chatSeen) return;
+      if(entries && entries[0] && entries[0].isIntersecting){
+        chatSeen=true;
+        hzTrack('chat_open', null);
+      }
+    },{threshold:0.35}).observe(chatEl);
+  }
+}catch(e){}
+try{
+  var waFloat=document.querySelector('.wa-float');
+  if(waFloat) waFloat.addEventListener('click',function(){ hzTrack('chat_open', null); });
+}catch(e){}
+
+// checkout_start (pricing buttons lead to /onboarding?plan=...)
+try{
+  document.querySelectorAll('button.pricing-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      try{
+        // infer plan + value from text
+        var href=String(btn.getAttribute('onclick')||'');
+        var plan=/plan=pro/.test(href)?'pro':/plan=starter/.test(href)?'starter':null;
+        var value = plan==='pro'?499:plan==='starter'?349:null;
+        if(plan) sessionStorage.setItem('hz_lp_plan', plan);
+        if(value) sessionStorage.setItem('hz_lp_plan_value', String(value));
+        var src=hzUtmSource(); if(src) sessionStorage.setItem('hz_lp_source', src);
+      }catch(e){}
+      hzTrack('checkout_start', null);
+    },{capture:true});
+  });
+}catch(e){}
 // Logo in nav - invert for dark bg not needed since transparent
 // WA chat animation - triggers on scroll
 let waDone = false;

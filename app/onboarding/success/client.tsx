@@ -36,6 +36,23 @@ export default function OnboardingSuccessClient() {
         const data = (await res.json()) as { ready?: boolean; slug?: string };
         if (data?.ready && data.slug) {
           const slug = data.slug;
+          // LP purchase tracking (best-effort): relies on sessionStorage values set on /lp-leads.
+          try {
+            const sid = sessionStorage.getItem("hz_lp_session_id") || "";
+            const src = sessionStorage.getItem("hz_lp_source");
+            const valRaw = sessionStorage.getItem("hz_lp_plan_value");
+            const value = valRaw ? Number(valRaw) : null;
+            if (sid && typeof value === "number" && Number.isFinite(value) && value > 0) {
+              void fetch("/api/track", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ event_type: "purchase", value, source: src, session_id: sid }),
+                keepalive: true,
+              });
+            }
+          } catch {
+            /* ignore */
+          }
           setReady({ slug });
           redirectTimerRef.current = setTimeout(() => {
             if (!cancelled) router.replace(`/${slug}/analytics?welcome=1`);
