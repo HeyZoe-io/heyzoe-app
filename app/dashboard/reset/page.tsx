@@ -151,13 +151,13 @@ export default function DashboardResetPasswordPage() {
                 <button
                   type="button"
                   aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full p-1.5 text-zinc-500 hover:text-zinc-800 hover:bg-white/70"
                   onClick={() => setShowPassword((v) => !v)}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
                 <Input
-                  className="pl-10"
+                  className="pl-16 text-right placeholder:text-right"
                   type={showPassword ? "text" : "password"}
                   placeholder="סיסמה חדשה"
                   value={password}
@@ -170,13 +170,13 @@ export default function DashboardResetPasswordPage() {
                 <button
                   type="button"
                   aria-label={showConfirm ? "הסתר סיסמה" : "הצג סיסמה"}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full p-1.5 text-zinc-500 hover:text-zinc-800 hover:bg-white/70"
                   onClick={() => setShowConfirm((v) => !v)}
                 >
                   {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
                 <Input
-                  className="pl-10"
+                  className="pl-16 text-right placeholder:text-right"
                   type={showConfirm ? "text" : "password"}
                   placeholder="אישור סיסמה"
                   value={confirm}
