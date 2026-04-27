@@ -1074,32 +1074,41 @@ try{
   onScroll();
 }catch(e){}
 
-// hero CTA click
+// hero CTA click (use capture + pointerdown for reliability)
 try{
   var heroCta=document.querySelector('.hero .btn-primary');
-  if(heroCta) heroCta.addEventListener('click',function(){
-    var t=(heroCta.textContent||'').trim();
+  var heroCtaFired=false;
+  function fireHeroCta(){
+    if(heroCtaFired) return;
+    heroCtaFired=true;
+    var t=(heroCta && heroCta.textContent ? String(heroCta.textContent) : '').trim();
     hzTrack('cta_click', null, t||'hero_primary');
-  });
-}catch(e){}
-
-// chat_open when chat section first becomes visible + when WA floating button clicked
-try{
-  var chatSeen=false;
-  var chatEl=document.querySelector('.chat-section');
-  if(chatEl && typeof IntersectionObserver!=='undefined'){
-    new IntersectionObserver(function(entries){
-      if(chatSeen) return;
-      if(entries && entries[0] && entries[0].isIntersecting){
-        chatSeen=true;
-        hzTrack('chat_open', null, 'chat_section');
-      }
-    },{threshold:0.35}).observe(chatEl);
+  }
+  if(heroCta){
+    heroCta.addEventListener('pointerdown', fireHeroCta, {capture:true, passive:true});
+    heroCta.addEventListener('click', fireHeroCta, {capture:true});
   }
 }catch(e){}
+
+// chat_open should represent "started a chat with Zoe" (send button / Enter)
 try{
-  var waFloat=document.querySelector('.wa-float');
-  if(waFloat) waFloat.addEventListener('click',function(){ hzTrack('chat_open', null, 'wa_float'); });
+  var chatStartedKey='hz_lp_chat_started_v1';
+  function fireChatOpen(label){
+    try{
+      if(sessionStorage.getItem(chatStartedKey)) return;
+      sessionStorage.setItem(chatStartedKey,'1');
+    }catch(e){}
+    hzTrack('chat_open', null, label||'bot_send');
+  }
+  var botSend=document.getElementById('botSend');
+  var botInput=document.getElementById('botInput');
+  if(botSend) botSend.addEventListener('click', function(){ fireChatOpen('bot_send'); }, {capture:true});
+  if(botInput) botInput.addEventListener('keydown', function(e){
+    var k = e && (e.key || e.keyCode);
+    if(k === 'Enter' || k === 13){
+      fireChatOpen('bot_enter');
+    }
+  }, {capture:true});
 }catch(e){}
 
 // checkout_start (pricing buttons lead to /onboarding?plan=...)
