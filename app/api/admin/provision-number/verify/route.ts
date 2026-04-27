@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { sendEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -67,6 +68,26 @@ export async function POST(req: NextRequest) {
     await admin.from("businesses").update({ whatsapp_number: channel.phone_display } as any).eq("slug", String(channel.business_slug).trim().toLowerCase());
   } else if (business_slug && phone_display) {
     await admin.from("businesses").update({ whatsapp_number: phone_display } as any).eq("slug", business_slug);
+  }
+
+  // Email customer after manual verification (best-effort)
+  try {
+    const slug = String(channel?.business_slug ?? business_slug ?? "").trim().toLowerCase();
+    if (slug) {
+      const { data: biz } = await admin.from("businesses").select("name,email").eq("slug", slug).maybeSingle();
+      const to = String((biz as any)?.email ?? "").trim().toLowerCase();
+      const businessName = String((biz as any)?.name ?? "").trim() || slug;
+      const number = String(channel?.phone_display ?? phone_display ?? "").trim();
+      if (to && number) {
+        await sendEmail({
+          to,
+          subject: "מספר ה-WhatsApp שלך מוכן 🎉",
+          htmlContent: `שלום ${businessName},<br/><br/>מספר ה-WhatsApp שלך הוא <b>${number}</b>.<br/>זואי מוכנה לענות ללקוחות שלך!<br/><br/>— Hey Zoe`,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[api/admin/provision-number/verify] customer email failed:", e);
   }
 
   return NextResponse.json({ ok: true });
