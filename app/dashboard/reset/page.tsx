@@ -90,16 +90,19 @@ export default function DashboardResetPasswordPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
-    if (password.length < 8) {
-      setMessage("הסיסמה חייבת להיות לפחות 8 תווים.");
+    const pw = password.trim();
+    const hasLetter = /[A-Za-z]/.test(pw);
+    const hasNumber = /\d/.test(pw);
+    if (pw.length < 8 || !hasLetter || !hasNumber) {
+      setMessage("הסיסמה חייבת להיות לפחות 8 תווים, ולכלול אות ומספר.");
       return;
     }
-    if (password !== confirm) {
+    if (pw !== confirm.trim()) {
       setMessage("הסיסמאות לא תואמות.");
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await supabase.auth.updateUser({ password: pw });
     if (error) setMessage(error.message);
     else {
       setMessage("הסיסמה עודכנה בהצלחה. אפשר להתחבר מחדש.");
@@ -109,12 +112,12 @@ export default function DashboardResetPasswordPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
-      <Card className="w-full max-w-md">
+    <main className="min-h-screen bg-[#f5f3ff] flex items-center justify-center p-6" dir="rtl">
+      <Card className="w-full max-w-md rounded-[24px] shadow-[0_8px_40px_rgba(113,51,218,0.12)] border border-[rgba(113,51,218,0.12)]">
         <CardHeader>
           <div className="flex items-center justify-center">
-            <div className="h-12 w-12 rounded-2xl bg-yellow-300 text-zinc-900 font-semibold flex items-center justify-center shadow-sm select-none">
-              HZ
+            <div className="h-14 w-14 rounded-2xl bg-white shadow-[0_12px_28px_rgba(110,78,176,0.10)] ring-1 ring-black/5 flex items-center justify-center overflow-hidden">
+              <img src="/heyzoe-logo.png" alt="HeyZoe" className="h-10 w-auto" />
             </div>
           </div>
           <CardTitle className="text-center">איפוס סיסמה</CardTitle>
@@ -127,9 +130,13 @@ export default function DashboardResetPasswordPage() {
             <p className="text-sm text-zinc-500 text-center">טוען...</p>
           ) : exchanged ? (
             <form className="space-y-3" onSubmit={onSubmit}>
-              <p className="text-xs text-zinc-500 text-center">
-                בחרו סיסמה חזקה (לפחות 8 תווים).
-              </p>
+              <div className="text-xs text-zinc-500 text-right leading-relaxed">
+                <div>בחרו סיסמה חזקה:</div>
+                <ul className="mt-1 list-disc pr-5 space-y-0.5">
+                  <li>לפחות 8 תווים</li>
+                  <li>כולל אות ומספר</li>
+                </ul>
+              </div>
               <div className="relative">
                 <button
                   type="button"
