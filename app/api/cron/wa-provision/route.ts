@@ -80,7 +80,15 @@ async function twilioFetchJson(
   return json;
 }
 
-async function metaFetchJson(url: string, token: string, body: Record<string, any>) {
+async function metaFetchJson(
+  url: string,
+  token: string,
+  body: Record<string, any>,
+  debug?: { label: string; includeOk?: boolean }
+) {
+  if (debug?.label) {
+    console.info(`[cron/wa-provision] meta request (${debug.label}):`, { url, body });
+  }
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -95,6 +103,14 @@ async function metaFetchJson(url: string, token: string, body: Record<string, an
     json = text ? JSON.parse(text) : null;
   } catch {
     json = null;
+  }
+  if (debug?.label && (debug.includeOk || !res.ok)) {
+    console.info(`[cron/wa-provision] meta response (${debug.label}):`, {
+      status: res.status,
+      ok: res.ok,
+      text,
+      json,
+    });
   }
   if (!res.ok) {
     const msg = (json && (json.error?.message || json.message)) || text || `meta_failed (${res.status})`;
@@ -192,11 +208,16 @@ export async function GET(req: NextRequest) {
 
     // Step 3: Meta register + request voice code
     const metaRegUrl = `https://graph.facebook.com/v21.0/${metaBusinessId}/phone_numbers`;
-    const metaReg = await metaFetchJson(metaRegUrl, whatsappSystemToken, {
+    const metaReg = await metaFetchJson(
+      metaRegUrl,
+      whatsappSystemToken,
+      {
       cc: "972",
       phone_number: stripCc972(phoneE164),
       verified_name: String((locked as any).business_name ?? "").trim() || String((locked as any).business_slug ?? ""),
-    });
+      },
+      { label: "register_phone_number", includeOk: true }
+    );
     metaPhoneNumberId = String(metaReg?.id ?? metaReg?.phone_number_id ?? "").trim();
     if (!metaPhoneNumberId) throw new Error("meta_register_missing_id");
 
