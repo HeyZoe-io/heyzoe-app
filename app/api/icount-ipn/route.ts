@@ -121,6 +121,25 @@ function isSchemaColumnMissing(error: any, column: string): boolean {
   return code === "PGRST204" && msg.toLowerCase().includes(`'${column}' column`);
 }
 
+async function insertBusinessResilient(admin: ReturnType<typeof createSupabaseAdminClient>, payload: any) {
+  // First attempt
+  let r = await admin.from("businesses").insert(payload).select("id, slug").single();
+  if (!r.error) return r;
+
+  // Retry removing missing columns (limited to known optional ones)
+  const optionalCols = ["email", "status"];
+  let nextPayload = { ...payload };
+  for (const col of optionalCols) {
+    if (r.error && isSchemaColumnMissing(r.error, col) && col in nextPayload) {
+      const { [col]: _omit, ...rest } = nextPayload as any;
+      nextPayload = rest;
+      r = await admin.from("businesses").insert(nextPayload).select("id, slug").single();
+      if (!r.error) return r;
+    }
+  }
+  return r;
+}
+
 export async function POST(req: NextRequest) {
   // iCount חייב לקבל 200 תמיד כדי לא לעשות retries אינסופיים
   try {
@@ -269,19 +288,9 @@ export async function POST(req: NextRequest) {
             status: "active",
           };
 
-          let insertedBiz: any = null;
-          let bizError: any = null;
-          {
-            const r = await admin.from("businesses").insert(insertPayloadBase).select("id, slug").single();
-            insertedBiz = r.data;
-            bizError = r.error;
-          }
-          if (bizError && isSchemaColumnMissing(bizError, "email")) {
-            const { email: _omit, ...withoutEmail } = insertPayloadBase;
-            const r2 = await admin.from("businesses").insert(withoutEmail).select("id, slug").single();
-            insertedBiz = r2.data;
-            bizError = r2.error;
-          }
+          const r = await insertBusinessResilient(admin, insertPayloadBase);
+          const insertedBiz = r.data as any;
+          const bizError = r.error as any;
           if (bizError || !insertedBiz) throw bizError ?? new Error("business_create_failed_existing_user");
 
           await ensurePrimaryBusinessUser(admin, Number(insertedBiz.id), existingAuth.id);
@@ -356,19 +365,9 @@ export async function POST(req: NextRequest) {
       status: "active",
     };
 
-    let insertedBiz: any = null;
-    let bizError: any = null;
-    {
-      const r = await admin.from("businesses").insert(insertPayloadBase).select("id, slug").single();
-      insertedBiz = r.data;
-      bizError = r.error;
-    }
-    if (bizError && isSchemaColumnMissing(bizError, "email")) {
-      const { email: _omit, ...withoutEmail } = insertPayloadBase;
-      const r2 = await admin.from("businesses").insert(withoutEmail).select("id, slug").single();
-      insertedBiz = r2.data;
-      bizError = r2.error;
-    }
+    const r = await insertBusinessResilient(admin, insertPayloadBase);
+    const insertedBiz = r.data as any;
+    const bizError = r.error as any;
 
     if (bizError || !insertedBiz) throw bizError ?? new Error("business_create_failed");
 
