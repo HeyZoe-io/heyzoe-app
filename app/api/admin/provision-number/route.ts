@@ -193,7 +193,7 @@ export async function POST(req: NextRequest) {
 
         write({ type: "step", step: "meta_request_code" });
         const metaRequestCodeUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/request_code`;
-        await metaFetchJson(metaRequestCodeUrl, whatsappSystemToken, { method: "VOICE" });
+        await metaFetchJson(metaRequestCodeUrl, whatsappSystemToken, { code_method: "VOICE" });
 
         write({ type: "step", step: "waiting_recording" });
         await sleep(30_000);
