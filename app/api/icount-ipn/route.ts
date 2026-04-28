@@ -127,7 +127,7 @@ async function insertBusinessResilient(admin: ReturnType<typeof createSupabaseAd
   if (!r.error) return r;
 
   // Retry removing missing columns (limited to known optional ones)
-  const optionalCols = ["email", "status"];
+  const optionalCols = ["email", "status", "plan_price"];
   let nextPayload = { ...payload };
   for (const col of optionalCols) {
     if (r.error && isSchemaColumnMissing(r.error, col) && col in nextPayload) {
@@ -211,6 +211,7 @@ export async function POST(req: NextRequest) {
         const paidPlan = (String(custom || sessionRow?.plan || "").trim().toLowerCase() === "pro")
           ? "premium"
           : "basic";
+        const paidPlanPrice = paidPlan === "premium" ? 499 : 349;
         // Reactivation flow: mark existing business as active + update plan tier.
         const { data: biz } = await admin
           .from("businesses")
@@ -222,7 +223,7 @@ export async function POST(req: NextRequest) {
         if (biz?.id) {
           await admin
             .from("businesses")
-            .update({ is_active: true, plan: paidPlan } as any)
+            .update({ is_active: true, plan: paidPlan, plan_price: paidPlanPrice } as any)
             .eq("id", biz.id);
 
           // Mark ready for /onboarding/success
@@ -269,6 +270,7 @@ export async function POST(req: NextRequest) {
           const slug = await ensureUniqueSlug(admin, baseSlug);
           const plan =
             (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
+          const plan_price = plan === "premium" ? 499 : 349;
 
           console.info("[api/icount-ipn] existing_user_creating_business:", { email, slug, plan });
 
@@ -283,6 +285,7 @@ export async function POST(req: NextRequest) {
               business_description: String(sessionRow?.description ?? "").trim(),
             },
             plan,
+            plan_price,
             is_active: true,
             email,
             status: "active",
@@ -346,6 +349,7 @@ export async function POST(req: NextRequest) {
 
     const plan =
       (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
+    const plan_price = plan === "premium" ? 499 : 349;
 
     console.info("[api/icount-ipn] creating_business:", { email, slug, plan });
 
@@ -360,6 +364,7 @@ export async function POST(req: NextRequest) {
         business_description: String(sessionRow?.description ?? "").trim(),
       },
       plan,
+      plan_price,
       is_active: true,
       email,
       status: "active",
