@@ -126,6 +126,22 @@ function stripCc972(e164: string) {
   return clean.replace(/^\+/, "");
 }
 
+function isoNow() {
+  return new Date().toISOString();
+}
+
+function msSince(iso: string | null | undefined): number {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return Number.POSITIVE_INFINITY;
+  return Date.now() - t;
+}
+
+function extract6DigitCode(s: string) {
+  const m = String(s ?? "").match(/\b\d{6}\b/);
+  return m?.[0] ?? "";
+}
+
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -139,28 +155,27 @@ export async function GET(req: NextRequest) {
 
   const admin = createSupabaseAdminClient();
 
-  // Pick one queued job
+  // Pick one job to progress (avoid long waits inside a single invocation).
   const { data: job } = await admin
     .from("wa_provision_jobs")
-    .select("id, business_id, business_slug, business_name, attempts")
-    .eq("status", "queued")
+    .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
+    .in("status", ["queued", "waiting_recording", "transcribing"])
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (!job?.id) return NextResponse.json({ ok: true, processed: 0 });
 
-  // Lock it optimistically
+  // Lock it optimistically (do not overwrite status here; we will update as needed).
   const { data: locked } = await admin
     .from("wa_provision_jobs")
     .update({
-      status: "running",
       attempts: Number((job as any).attempts ?? 0) + 1,
-      updated_at: new Date().toISOString(),
+      updated_at: isoNow(),
     } as any)
     .eq("id", Number(job.id))
-    .eq("status", "queued")
-    .select("id, business_id, business_slug, business_name, attempts")
+    .eq("status", String((job as any).status ?? "queued"))
+    .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
     .maybeSingle();
 
   if (!locked?.id) return NextResponse.json({ ok: true, processed: 0, raced: true });
@@ -172,6 +187,8 @@ export async function GET(req: NextRequest) {
   let phoneE164 = "";
   let twilioSid = "";
   let metaPhoneNumberId = "";
+  let recordingSid = String((locked as any).recording_sid ?? "").trim();
+  let transcriptionStartedAt = (locked as any).transcription_started_at ? String((locked as any).transcription_started_at) : "";
   const businessSlug = String((locked as any).business_slug ?? "").trim().toLowerCase();
   let verifiedName = "";
   try {
@@ -192,6 +209,189 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const status = String((locked as any).status ?? "queued");
+    console.info("[cron/wa-provision] job:", {
+      id: Number((locked as any).id),
+      status,
+      business_slug: businessSlug,
+      phone_e164: String((locked as any).phone_e164 ?? ""),
+      meta_phone_number_id: String((locked as any).meta_phone_number_id ?? ""),
+      twilio_sid: String((locked as any).twilio_sid ?? ""),
+      recording_sid: recordingSid,
+    });
+
+    if (status === "waiting_recording" || status === "transcribing") {
+      phoneE164 = String((locked as any).phone_e164 ?? "").trim();
+      metaPhoneNumberId = String((locked as any).meta_phone_number_id ?? "").trim();
+      twilioSid = String((locked as any).twilio_sid ?? "").trim();
+
+      if (!phoneE164 || !metaPhoneNumberId || !twilioSid) {
+        throw new Error("missing_state_for_progress");
+      }
+    }
+
+    if (status === "waiting_recording") {
+      // Try to fetch recording (no sleeping in-function).
+      const recordingsUrl =
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
+        `/Recordings.json?To=${encodeURIComponent(phoneE164)}&PageSize=3`;
+      console.info("[cron/wa-provision] twilio recordings fetch:", { url: recordingsUrl, to: phoneE164 });
+      const rec = await twilioFetchJson(recordingsUrl, { headers: { Authorization: twilioAuth }, body: null });
+      const list = Array.isArray(rec?.recordings) ? rec.recordings : [];
+      const rec0 = list[0] ?? null;
+      recordingSid = String(rec0?.sid ?? "").trim();
+      console.info("[cron/wa-provision] twilio recordings result:", {
+        count: list.length,
+        recording_sid: recordingSid || null,
+        first_created_at: rec0?.date_created ?? null,
+        first_status: rec0?.status ?? null,
+      });
+
+      if (!recordingSid) {
+        // Still waiting. After ~5 minutes, fallback to manual code.
+        const waitedMs = msSince(String((locked as any).updated_at ?? ""));
+        if (waitedMs > 5 * 60_000) {
+          await admin
+            .from("wa_provision_jobs")
+            .update({
+              status: "awaiting_manual_code",
+              updated_at: isoNow(),
+              phone_e164: phoneE164,
+              meta_phone_number_id: metaPhoneNumberId,
+              twilio_sid: twilioSid,
+              last_error: "recording_not_found_timeout",
+            } as any)
+            .eq("id", Number(locked.id));
+          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
+        }
+
+        await admin
+          .from("wa_provision_jobs")
+          .update({ status: "waiting_recording", updated_at: isoNow() } as any)
+          .eq("id", Number(locked.id));
+        return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
+      }
+
+      // Start transcription and continue in next cron call.
+      const startTxUrl =
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
+        `/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
+      console.info("[cron/wa-provision] twilio transcription start:", { url: startTxUrl, recording_sid: recordingSid });
+      await twilioFetchJson(startTxUrl, {
+        method: "POST",
+        headers: { Authorization: twilioAuth },
+        body: new URLSearchParams(),
+      });
+
+      await admin
+        .from("wa_provision_jobs")
+        .update({
+          status: "transcribing",
+          updated_at: isoNow(),
+          recording_sid: recordingSid,
+          transcription_started_at: isoNow(),
+          phone_e164: phoneE164,
+          meta_phone_number_id: metaPhoneNumberId,
+          twilio_sid: twilioSid,
+        } as any)
+        .eq("id", Number(locked.id));
+
+      return NextResponse.json({ ok: true, processed: 1, status: "transcribing" });
+    }
+
+    if (status === "transcribing") {
+      if (!recordingSid) {
+        throw new Error("missing_recording_sid");
+      }
+      const listTxUrl =
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
+        `/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
+      console.info("[cron/wa-provision] twilio transcription fetch:", { url: listTxUrl, recording_sid: recordingSid });
+      const txList = await twilioFetchJson(listTxUrl, { headers: { Authorization: twilioAuth }, body: null });
+      const t0 = Array.isArray(txList?.transcriptions) ? txList.transcriptions[0] : null;
+      const text = String(t0?.transcription_text ?? "").trim();
+      console.info("[cron/wa-provision] twilio transcription result:", {
+        transcription_sid: t0?.sid ?? null,
+        status: t0?.status ?? null,
+        has_text: Boolean(text),
+        text_preview: text ? text.slice(0, 120) : "",
+      });
+
+      const code = extract6DigitCode(text);
+      if (!code) {
+        const startedIso = transcriptionStartedAt || String((locked as any).transcription_started_at ?? "");
+        const waitedMs = msSince(startedIso);
+        if (waitedMs > 2 * 60_000) {
+          await admin
+            .from("wa_provision_jobs")
+            .update({
+              status: "awaiting_manual_code",
+              updated_at: isoNow(),
+              last_error: "transcription_timeout_or_no_code",
+              phone_e164: phoneE164,
+              meta_phone_number_id: metaPhoneNumberId,
+              twilio_sid: twilioSid,
+              recording_sid: recordingSid,
+            } as any)
+            .eq("id", Number(locked.id));
+          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
+        }
+
+        await admin
+          .from("wa_provision_jobs")
+          .update({ status: "transcribing", updated_at: isoNow() } as any)
+          .eq("id", Number(locked.id));
+        return NextResponse.json({ ok: true, processed: 1, status: "transcribing" });
+      }
+
+      // Verify in Meta
+      const verifyUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/verify_code`;
+      await metaFetchJson(verifyUrl, whatsappSystemToken, { code }, { label: "verify_code", includeOk: true });
+
+      // Save active
+      await admin
+        .from("whatsapp_channels")
+        .update({ is_active: true, provisioning_status: "active" } as any)
+        .eq("phone_number_id", metaPhoneNumberId);
+
+      await admin
+        .from("businesses")
+        .update({ whatsapp_number: phoneE164 } as any)
+        .eq("id", (locked as any).business_id);
+
+      // Email customer (best-effort)
+      try {
+        const { data: biz } = await admin
+          .from("businesses")
+          .select("name,email,slug,whatsapp_number")
+          .eq("id", (locked as any).business_id)
+          .maybeSingle();
+        const to = String((biz as any)?.email ?? "").trim().toLowerCase();
+        const businessName = String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((locked as any).business_slug ?? "");
+        const whatsappNumber = String((biz as any)?.whatsapp_number ?? phoneE164 ?? "").trim();
+        if (to) {
+          const tpl = whatsappReadyEmail(businessName, whatsappNumber);
+          await sendEmail({ to, subject: tpl.subject, htmlContent: tpl.htmlContent });
+        }
+      } catch (e) {
+        console.error("[cron/wa-provision] customer email failed:", e);
+      }
+
+      await admin
+        .from("wa_provision_jobs")
+        .update({
+          status: "done",
+          updated_at: isoNow(),
+          phone_e164: phoneE164,
+          meta_phone_number_id: metaPhoneNumberId,
+          twilio_sid: twilioSid,
+          recording_sid: recordingSid,
+        } as any)
+        .eq("id", Number(locked.id));
+
+      return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164 });
+    }
+
     // Step 1: search + purchase
     const availableUrl =
       `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
@@ -264,119 +464,21 @@ export async function GET(req: NextRequest) {
       { label: "request_code", includeOk: true }
     );
 
-    // Step 4: wait + recording + transcription
-    await sleep(30_000);
-    const recordingsUrl =
-      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-      `/Recordings.json?To=${encodeURIComponent(phoneE164)}&PageSize=1`;
-    const rec = await twilioFetchJson(recordingsUrl, { headers: { Authorization: twilioAuth }, body: null });
-    const rec0 = Array.isArray(rec?.recordings) ? rec.recordings[0] : null;
-    const recordingSid = String(rec0?.sid ?? "").trim();
-
-    if (!recordingSid) {
-      await admin
-        .from("wa_provision_jobs")
-        .update({
-          status: "awaiting_manual_code",
-          updated_at: new Date().toISOString(),
-          phone_e164: phoneE164,
-          meta_phone_number_id: metaPhoneNumberId,
-          twilio_sid: twilioSid,
-        } as any)
-        .eq("id", Number(locked.id));
-      return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
-    }
-
-    const startTxUrl =
-      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-      `/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
-    await twilioFetchJson(startTxUrl, {
-      method: "POST",
-      headers: { Authorization: twilioAuth },
-      body: new URLSearchParams(),
-    });
-
-    const deadline = Date.now() + 20_000;
-    let transcript = "";
-    while (Date.now() < deadline) {
-      await sleep(2_000);
-      const listTxUrl =
-        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-        `/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
-      const txList = await twilioFetchJson(listTxUrl, { headers: { Authorization: twilioAuth }, body: null });
-      const t0 = Array.isArray(txList?.transcriptions) ? txList.transcriptions[0] : null;
-      const text = String(t0?.transcription_text ?? "").trim();
-      if (text) {
-        transcript = text;
-        break;
-      }
-    }
-
-    const match = transcript.match(/\b\d{6}\b/);
-    const code = match ? match[0] : "";
-    if (!code) {
-      await admin
-        .from("wa_provision_jobs")
-        .update({
-          status: "awaiting_manual_code",
-          updated_at: new Date().toISOString(),
-          phone_e164: phoneE164,
-          meta_phone_number_id: metaPhoneNumberId,
-          twilio_sid: twilioSid,
-        } as any)
-        .eq("id", Number(locked.id));
-      return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
-    }
-
-    // Step 5: verify
-    const verifyUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/verify_code`;
-    await metaFetchJson(verifyUrl, whatsappSystemToken, { code });
-
-    // Step 6: save active
-    await admin
-      .from("whatsapp_channels")
-      .update({ is_active: true, provisioning_status: "active" } as any)
-      .eq("phone_number_id", metaPhoneNumberId);
-
-    await admin
-      .from("businesses")
-      .update({ whatsapp_number: phoneE164 } as any)
-      .eq("id", (locked as any).business_id);
-
-    // Email customer (best-effort) - whatsappReadyEmail
-    try {
-      const { data: biz } = await admin
-        .from("businesses")
-        .select("name,email,slug,whatsapp_number")
-        .eq("id", (locked as any).business_id)
-        .maybeSingle();
-      const to = String((biz as any)?.email ?? "").trim().toLowerCase();
-      const businessName = String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((locked as any).business_slug ?? "");
-      const whatsappNumber = String((biz as any)?.whatsapp_number ?? phoneE164 ?? "").trim();
-      if (to) {
-        const tpl = whatsappReadyEmail(businessName, whatsappNumber);
-        await sendEmail({
-          to,
-          subject: tpl.subject,
-          htmlContent: tpl.htmlContent,
-        });
-      }
-    } catch (e) {
-      console.error("[cron/wa-provision] customer email failed:", e);
-    }
-
+    // Persist and continue in next cron invocation (avoid sleeping in this request).
     await admin
       .from("wa_provision_jobs")
       .update({
-        status: "done",
-        updated_at: new Date().toISOString(),
+        status: "waiting_recording",
+        updated_at: isoNow(),
         phone_e164: phoneE164,
         meta_phone_number_id: metaPhoneNumberId,
         twilio_sid: twilioSid,
+        recording_sid: null,
+        transcription_started_at: null,
       } as any)
       .eq("id", Number(locked.id));
 
-    return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164 });
+    return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
 
