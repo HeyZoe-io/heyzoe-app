@@ -633,6 +633,28 @@ export async function GET(req: NextRequest) {
     const lockedPhone = String((locked as any)?.phone_e164 ?? "").trim();
     const lockedMeta = String((locked as any)?.meta_phone_number_id ?? "").trim();
     const lockedTwilio = String((locked as any)?.twilio_sid ?? "").trim();
+    const lockedRecording = String((locked as any)?.recording_sid ?? "").trim();
+    const lockedStatus = String((locked as any)?.status ?? "").trim();
+    const missingState =
+      msg === "missing_state_for_progress"
+        ? {
+            status: lockedStatus,
+            missing: {
+              phone_e164: !(phoneE164 || lockedPhone),
+              meta_phone_number_id: !(metaPhoneNumberId || lockedMeta),
+              twilio_sid: !(twilioSid || lockedTwilio),
+              recording_sid: lockedStatus === "transcribing" || lockedStatus === "awaiting_manual_code"
+                ? !(recordingSid || lockedRecording)
+                : false,
+            },
+            seen: {
+              phone_e164: phoneE164 || lockedPhone || null,
+              meta_phone_number_id: metaPhoneNumberId || lockedMeta || null,
+              twilio_sid: twilioSid || lockedTwilio || null,
+              recording_sid: recordingSid || lockedRecording || null,
+            },
+          }
+        : null;
 
     // Best-effort persist failure state
     if (metaPhoneNumberId) {
@@ -695,7 +717,14 @@ export async function GET(req: NextRequest) {
       console.error("[cron/wa-provision] failure email failed:", err);
     }
 
-    return NextResponse.json({ ok: true, processed: 1, status: "failed", build, error: msg });
+    return NextResponse.json({
+      ok: true,
+      processed: 1,
+      status: "failed",
+      build,
+      error: msg,
+      ...(missingState ? { missing_state: missingState } : {}),
+    });
   }
 }
 
