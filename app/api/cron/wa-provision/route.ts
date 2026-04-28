@@ -170,6 +170,8 @@ function utcDateOnly(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
+const TRANSCRIPTION_WAIT_MS = 10 * 60_000; // Twilio transcription can take several minutes
+
 export async function GET(req: NextRequest) {
   const build = buildTag();
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -502,7 +504,7 @@ export async function GET(req: NextRequest) {
       if (!code) {
         const startedIso = transcriptionStartedAt || String((locked as any).transcription_started_at ?? "");
         const waitedMs = msSince(startedIso);
-        if (waitedMs > 2 * 60_000) {
+        if (waitedMs > TRANSCRIPTION_WAIT_MS) {
           const { error } = await admin
             .from("wa_provision_jobs")
             .update({
