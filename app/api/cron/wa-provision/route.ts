@@ -222,7 +222,7 @@ export async function GET(req: NextRequest) {
 
     const { data: sample } = await admin
       .from("wa_provision_jobs")
-      .select("id,status,updated_at")
+      .select("id,status,updated_at,last_error")
       .order("created_at", { ascending: true })
       .limit(5);
     return NextResponse.json(
@@ -237,6 +237,7 @@ export async function GET(req: NextRequest) {
             id: Number(r.id),
             status: String(r.status ?? ""),
             updated_at: String(r.updated_at ?? ""),
+            last_error: String(r.last_error ?? ""),
           })),
         },
       },
@@ -689,7 +690,7 @@ export async function GET(req: NextRequest) {
       console.error("[cron/wa-provision] failure email failed:", err);
     }
 
-    return NextResponse.json({ ok: true, processed: 1, status: "failed", build });
+    return NextResponse.json({ ok: true, processed: 1, status: "failed", build, error: msg });
   }
 }
 
