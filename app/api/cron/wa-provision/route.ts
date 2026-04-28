@@ -458,18 +458,6 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Start transcription and continue in next cron call.
-      const startTxUrl =
-        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-        `/Recordings/${encodeURIComponent(recordingSid)}/Transcriptions.json`;
-      console.info("[cron/wa-provision] twilio transcription start:", { url: startTxUrl, recording_sid: recordingSid });
-      await twilioFetchJson(startTxUrl, {
-        method: "POST",
-        headers: { Authorization: twilioAuth },
-        body: new URLSearchParams(),
-        debugLabel: "transcription_start",
-      });
-
       const { error: txErr } = await admin
         .from("wa_provision_jobs")
         .update({
@@ -516,6 +504,33 @@ export async function GET(req: NextRequest) {
         txStatus === "queued" ||
         txStatus === "processing" ||
         txStatus === "running";
+      const completed = txStatus === "completed" || txStatus === "completed-successfully" || txStatus === "completed_successfully";
+      // If Twilio returns an explicit status that's not completed yet (and no text), wait for next cron tick.
+      const shouldWait = (inProgress || (txStatus && !completed)) && !text;
+      if (shouldWait) {
+        if (transcriptionPolls >= 2) {
+          const { error } = await admin
+            .from("wa_provision_jobs")
+            .update({
+              status: "awaiting_manual_code",
+              updated_at: isoNow(),
+              last_error: "transcription_not_completed_3_polls",
+              phone_e164: phoneE164,
+              meta_phone_number_id: metaPhoneNumberId,
+              twilio_sid: twilioSid,
+              recording_sid: recordingSid,
+            } as any)
+            .eq("id", Number(locked.id));
+          if (error) throw error;
+          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code", build });
+        }
+        const { error } = await admin
+          .from("wa_provision_jobs")
+          .update({ status: "transcribing", updated_at: isoNow(), transcription_polls: transcriptionPolls + 1 } as any)
+          .eq("id", Number(locked.id));
+        if (error) throw error;
+        return NextResponse.json({ ok: true, processed: 1, status: "transcribing", build });
+      }
       if (inProgress) {
         if (transcriptionPolls >= 2) {
           const { error } = await admin
