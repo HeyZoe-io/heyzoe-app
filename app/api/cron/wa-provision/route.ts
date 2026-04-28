@@ -257,7 +257,7 @@ export async function GET(req: NextRequest) {
       );
 
     const metaRequestCodeUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/request_code`;
-    await metaFetchJson(metaRequestCodeUrl, whatsappSystemToken, { method: "VOICE" });
+    await metaFetchJson(metaRequestCodeUrl, whatsappSystemToken, { code_method: "VOICE" }, { label: "request_code", includeOk: true });
 
     // Step 4: wait + recording + transcription
     await sleep(30_000);
