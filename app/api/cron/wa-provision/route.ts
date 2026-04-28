@@ -6,6 +6,11 @@ import { sendEmail, whatsappReadyEmail } from "@/lib/email";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function buildTag() {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.trim() ?? "";
+  return sha ? sha.slice(0, 7) : "";
+}
+
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
   if (!secret) {
@@ -166,6 +171,7 @@ function utcDateOnly(d = new Date()) {
 }
 
 export async function GET(req: NextRequest) {
+  const build = buildTag();
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
@@ -173,7 +179,7 @@ export async function GET(req: NextRequest) {
   const whatsappSystemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
   const metaWabaId = process.env.META_WABA_ID?.trim() ?? "";
   if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken || !metaWabaId) {
-    return NextResponse.json({ error: "missing_env" }, { status: 500 });
+    return NextResponse.json({ error: "missing_env", build }, { status: 500 });
   }
 
   const admin = createSupabaseAdminClient();
@@ -187,7 +193,7 @@ export async function GET(req: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  if (!job?.id) return NextResponse.json({ ok: true, processed: 0 });
+  if (!job?.id) return NextResponse.json({ ok: true, processed: 0, build });
 
   // Lock it optimistically. For queued jobs, bump to running so we don't double-purchase.
   const initialStatus = String((job as any).status ?? "queued");
@@ -203,7 +209,7 @@ export async function GET(req: NextRequest) {
     .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
     .maybeSingle();
 
-  if (!locked?.id) return NextResponse.json({ ok: true, processed: 0, raced: true });
+  if (!locked?.id) return NextResponse.json({ ok: true, processed: 0, raced: true, build });
 
   const twilioAuth = twilioAuthHeader(twilioAccountSid, twilioAuthToken);
   const twimlVoiceUrl = "https://handler.twilio.com/twiml/EH3a2831d7f10a000887d9678027077ad9";
@@ -259,7 +265,7 @@ export async function GET(req: NextRequest) {
         .update({ status: "waiting_recording", updated_at: isoNow() } as any)
         .eq("id", Number(locked.id));
       if (error) throw error;
-      return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
+      return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
     }
 
     // If we previously fell back to manual code but we *do* have a recording_sid,
@@ -277,7 +283,7 @@ export async function GET(req: NextRequest) {
         recordingSid = existingRecordingSid;
       } else {
         // Still needs manual intervention.
-        return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
+        return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code", build });
       }
     }
 
@@ -329,7 +335,7 @@ export async function GET(req: NextRequest) {
             } as any)
             .eq("id", Number(locked.id));
           if (error) throw error;
-          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
+          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code", build });
         }
 
         const { error } = await admin
@@ -337,7 +343,7 @@ export async function GET(req: NextRequest) {
           .update({ status: "waiting_recording", updated_at: isoNow() } as any)
           .eq("id", Number(locked.id));
         if (error) throw error;
-        return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
+        return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
       }
 
       // Persist recording SID immediately (defense-in-depth: even if next update fails).
@@ -378,7 +384,7 @@ export async function GET(req: NextRequest) {
         .eq("id", Number(locked.id));
       if (txErr) throw txErr;
 
-      return NextResponse.json({ ok: true, processed: 1, status: "transcribing" });
+      return NextResponse.json({ ok: true, processed: 1, status: "transcribing", build });
     }
 
     if (status === "transcribing") {
@@ -417,7 +423,7 @@ export async function GET(req: NextRequest) {
             } as any)
             .eq("id", Number(locked.id));
           if (error) throw error;
-          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
+          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code", build });
         }
 
         const { error } = await admin
@@ -425,7 +431,7 @@ export async function GET(req: NextRequest) {
           .update({ status: "transcribing", updated_at: isoNow() } as any)
           .eq("id", Number(locked.id));
         if (error) throw error;
-        return NextResponse.json({ ok: true, processed: 1, status: "transcribing" });
+        return NextResponse.json({ ok: true, processed: 1, status: "transcribing", build });
       }
 
       // Verify in Meta
@@ -474,7 +480,7 @@ export async function GET(req: NextRequest) {
         .eq("id", Number(locked.id));
       if (doneErr) throw doneErr;
 
-      return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164 });
+      return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
     }
 
     if (status !== "running") {
@@ -569,7 +575,7 @@ export async function GET(req: NextRequest) {
       .eq("id", Number(locked.id));
     if (waitErr) throw waitErr;
 
-    return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
+    return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
 
@@ -634,7 +640,7 @@ export async function GET(req: NextRequest) {
       console.error("[cron/wa-provision] failure email failed:", err);
     }
 
-    return NextResponse.json({ ok: true, processed: 1, status: "failed" });
+    return NextResponse.json({ ok: true, processed: 1, status: "failed", build });
   }
 }
 
