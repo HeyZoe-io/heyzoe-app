@@ -193,7 +193,9 @@ export async function GET(req: NextRequest) {
 
   const admin = createSupabaseAdminClient();
 
-  const statusesToProcess = ["queued", "running", "waiting_recording", "transcribing", "awaiting_manual_code"] as const;
+  // We prefer selecting "non-terminal" jobs rather than exact status matching.
+  // This makes the worker resilient to accidental whitespace/casing issues in `status`.
+  const terminalStatuses = ["done", "failed"] as const;
 
   const diagBase = {
     build,
@@ -205,7 +207,8 @@ export async function GET(req: NextRequest) {
   const { data: job } = await admin
     .from("wa_provision_jobs")
     .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
-    .in("status", [...statusesToProcess])
+    .neq("status", "done")
+    .neq("status", "failed")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -214,7 +217,14 @@ export async function GET(req: NextRequest) {
     const { count, error } = await admin
       .from("wa_provision_jobs")
       .select("id", { count: "exact", head: true })
-      .in("status", [...statusesToProcess]);
+      .neq("status", "done")
+      .neq("status", "failed");
+
+    const { data: sample } = await admin
+      .from("wa_provision_jobs")
+      .select("id,status,updated_at")
+      .order("created_at", { ascending: true })
+      .limit(5);
     return NextResponse.json(
       {
         ok: true,
@@ -223,6 +233,11 @@ export async function GET(req: NextRequest) {
         diag: {
           selectable_count: count ?? null,
           selectable_count_error: error?.message ?? null,
+          sample: (sample ?? []).map((r: any) => ({
+            id: Number(r.id),
+            status: String(r.status ?? ""),
+            updated_at: String(r.updated_at ?? ""),
+          })),
         },
       },
       { status: 200 }
