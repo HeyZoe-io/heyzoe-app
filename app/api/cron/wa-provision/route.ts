@@ -178,22 +178,56 @@ export async function GET(req: NextRequest) {
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
   const whatsappSystemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
   const metaWabaId = process.env.META_WABA_ID?.trim() ?? "";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+  const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  const supabaseHost = (() => {
+    try {
+      return supabaseUrl ? new URL(supabaseUrl).host : "";
+    } catch {
+      return "";
+    }
+  })();
   if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken || !metaWabaId) {
     return NextResponse.json({ error: "missing_env", build }, { status: 500 });
   }
 
   const admin = createSupabaseAdminClient();
 
+  const statusesToProcess = ["queued", "running", "waiting_recording", "transcribing", "awaiting_manual_code"] as const;
+
+  const diagBase = {
+    build,
+    supabaseHost,
+    hasServiceRoleKey,
+  };
+
   // Pick one job to progress (avoid long waits inside a single invocation).
   const { data: job } = await admin
     .from("wa_provision_jobs")
     .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
-    .in("status", ["queued", "running", "waiting_recording", "transcribing", "awaiting_manual_code"])
+    .in("status", [...statusesToProcess])
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
-  if (!job?.id) return NextResponse.json({ ok: true, processed: 0, build });
+  if (!job?.id) {
+    const { count, error } = await admin
+      .from("wa_provision_jobs")
+      .select("id", { count: "exact", head: true })
+      .in("status", [...statusesToProcess]);
+    return NextResponse.json(
+      {
+        ok: true,
+        processed: 0,
+        ...diagBase,
+        diag: {
+          selectable_count: count ?? null,
+          selectable_count_error: error?.message ?? null,
+        },
+      },
+      { status: 200 }
+    );
+  }
 
   // Lock it optimistically. For queued jobs, bump to running so we don't double-purchase.
   const initialStatus = String((job as any).status ?? "queued");
