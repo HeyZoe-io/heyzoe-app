@@ -321,6 +321,18 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
       }
 
+      // Persist recording SID immediately (defense-in-depth: even if next update fails).
+      {
+        const { error } = await admin
+          .from("wa_provision_jobs")
+          .update({ recording_sid: recordingSid, updated_at: isoNow() } as any)
+          .eq("id", Number(locked.id));
+        if (error) {
+          console.error("[cron/wa-provision] failed to persist recording_sid:", { id: Number(locked.id), error });
+          throw error;
+        }
+      }
+
       // Start transcription and continue in next cron call.
       const startTxUrl =
         `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
@@ -330,6 +342,7 @@ export async function GET(req: NextRequest) {
         method: "POST",
         headers: { Authorization: twilioAuth },
         body: new URLSearchParams(),
+        debugLabel: "transcription_start",
       });
 
       const { error: txErr } = await admin
