@@ -4,6 +4,21 @@ import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 
 export const runtime = "nodejs";
 
+function normalizeEmail(input: unknown): string {
+  const raw = String(input ?? "").trim();
+  if (!raw) return "";
+  // Handle markdown mailto pattern: [a@b.com](mailto:a@b.com)
+  const m = raw.match(/\bmailto:([^\s)]+)\b/i);
+  const candidate = m?.[1] ? m[1] : raw;
+  // If wrapped in [] take inside, otherwise keep.
+  const bracket = candidate.match(/^\[([^\]]+)\]$/);
+  const unwrapped = bracket?.[1] ? bracket[1] : candidate;
+  const email = unwrapped.trim().toLowerCase();
+  // Basic sanity: must contain @ and a dot after it.
+  if (!email.includes("@")) return "";
+  return email;
+}
+
 function toSlugBase(input: string): string {
   return input
     .trim()
@@ -97,7 +112,7 @@ export async function POST(req: NextRequest) {
       (typeof payload.plan === "string" && payload.plan) ||
       "";
 
-    const email = String(emailRaw).trim().toLowerCase();
+    const email = normalizeEmail(emailRaw);
     const custom = String(customRaw).trim().toLowerCase();
 
     if (!email) return NextResponse.json({ ok: true });
@@ -128,7 +143,8 @@ export async function POST(req: NextRequest) {
       session_plan: sessionRow?.plan ?? null,
     });
 
-    // מניעת כפילויות: אם משתמש כבר קיים — לא עושים כלום
+    // מניעת כפילויות: אם משתמש כבר קיים — לא מנסים createUser.
+    // IMPORTANT: we must still mark payment_sessions.ready so /onboarding/success can proceed.
     try {
       const { data: existingAuth } = await admin
         .schema("auth")
@@ -153,6 +169,13 @@ export async function POST(req: NextRequest) {
             .from("businesses")
             .update({ is_active: true, plan: paidPlan } as any)
             .eq("id", biz.id);
+
+          // Mark ready for /onboarding/success
+          try {
+            await admin.from("payment_sessions").insert({ email, slug: biz.slug, ready: true } as any);
+          } catch (e) {
+            console.error("[api/icount-ipn] payment_sessions ready insert failed (existing biz):", e);
+          }
 
           // Trigger async WhatsApp provisioning *after successful payment* (reactivation flow):
           // enqueue a job only if there's no active channel yet.
@@ -185,7 +208,54 @@ export async function POST(req: NextRequest) {
             plan: paidPlan,
           });
         } else {
-          console.info("[api/icount-ipn] already_exists_no_business:", { email, user_id: existingAuth.id });
+          // User exists but business missing - create it now (paid), then mark ready.
+          const baseSlug =
+            toSlugBase(String(sessionRow?.studio_name ?? "").trim()) || buildUniqueSlugFromEmail(email);
+          const slug = await ensureUniqueSlug(admin, baseSlug);
+          const plan =
+            (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
+
+          console.info("[api/icount-ipn] existing_user_creating_business:", { email, slug, plan });
+
+          const { data: insertedBiz, error: bizError } = await admin
+            .from("businesses")
+            .insert({
+              user_id: existingAuth.id,
+              slug,
+              name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+              niche: String(sessionRow?.business_type ?? "").trim(),
+              bot_name: "זואי",
+              social_links: {
+                address: String(sessionRow?.address ?? "").trim(),
+                business_description: String(sessionRow?.description ?? "").trim(),
+              },
+              plan,
+              is_active: true,
+              email,
+              status: "active",
+            } as any)
+            .select("id, slug")
+            .single();
+          if (bizError || !insertedBiz) throw bizError ?? new Error("business_create_failed_existing_user");
+
+          await ensurePrimaryBusinessUser(admin, Number(insertedBiz.id), existingAuth.id);
+
+          try {
+            await admin.from("payment_sessions").insert({ email, slug: insertedBiz.slug, ready: true } as any);
+          } catch (e) {
+            console.error("[api/icount-ipn] payment_sessions ready insert failed (created biz):", e);
+          }
+
+          try {
+            await admin.from("wa_provision_jobs").insert({
+              business_id: insertedBiz.id,
+              business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+              business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+              status: "queued",
+            } as any);
+          } catch (e) {
+            console.error("[api/icount-ipn] enqueue wa_provision_jobs failed (created biz):", e);
+          }
         }
         return NextResponse.json({ ok: true });
       }
