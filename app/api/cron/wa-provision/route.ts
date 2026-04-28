@@ -342,6 +342,49 @@ export async function GET(req: NextRequest) {
       metaPhoneNumberId = String((locked as any).meta_phone_number_id ?? "").trim();
       twilioSid = String((locked as any).twilio_sid ?? "").trim();
 
+      // Self-heal: if progress fields are missing, try to hydrate from whatsapp_channels.
+      if (!phoneE164 || !metaPhoneNumberId || !twilioSid) {
+        try {
+          const bid = Number((locked as any).business_id);
+          const slug = String((locked as any).business_slug ?? "").trim().toLowerCase();
+          const { data: ch } = await admin
+            .from("whatsapp_channels")
+            .select("phone_display, phone_number_id, twilio_sid, business_id, business_slug")
+            .or(`business_id.eq.${bid},business_slug.eq.${slug}`)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const hydratedPhone = String((ch as any)?.phone_display ?? "").trim();
+          const hydratedMeta = String((ch as any)?.phone_number_id ?? "").trim();
+          const hydratedTwilio = String((ch as any)?.twilio_sid ?? "").trim();
+          if (hydratedPhone || hydratedMeta || hydratedTwilio) {
+            phoneE164 = phoneE164 || hydratedPhone;
+            metaPhoneNumberId = metaPhoneNumberId || hydratedMeta;
+            twilioSid = twilioSid || hydratedTwilio;
+            const { error } = await admin
+              .from("wa_provision_jobs")
+              .update(
+                {
+                  updated_at: isoNow(),
+                  ...(phoneE164 ? { phone_e164: phoneE164 } : {}),
+                  ...(metaPhoneNumberId ? { meta_phone_number_id: metaPhoneNumberId } : {}),
+                  ...(twilioSid ? { twilio_sid: twilioSid } : {}),
+                } as any
+              )
+              .eq("id", Number(locked.id));
+            if (error) throw error;
+            console.info("[cron/wa-provision] hydrated missing progress fields from whatsapp_channels", {
+              id: Number((locked as any).id),
+              phone_e164: Boolean(phoneE164),
+              meta_phone_number_id: Boolean(metaPhoneNumberId),
+              twilio_sid: Boolean(twilioSid),
+            });
+          }
+        } catch (err) {
+          console.warn("[cron/wa-provision] hydration attempt failed:", err);
+        }
+      }
+
       if (!phoneE164 || !metaPhoneNumberId || !twilioSid) {
         throw new Error("missing_state_for_progress");
       }
