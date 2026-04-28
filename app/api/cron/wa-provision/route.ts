@@ -506,6 +506,9 @@ export async function GET(req: NextRequest) {
         has_text: Boolean(text),
         text_preview: text ? text.slice(0, 120) : "",
       });
+      if (text) {
+        console.info("[cron/wa-provision] twilio transcription text:", text);
+      }
 
       // If transcription is still running, retry on next cron tick (max 3 polls).
       const inProgress =
