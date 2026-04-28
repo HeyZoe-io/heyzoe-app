@@ -56,8 +56,15 @@ function parseMonthlyUsd(row: any): number | null {
 
 async function twilioFetchJson(
   url: string,
-  opts: { method?: string; headers?: Record<string, string>; body?: URLSearchParams | null }
+  opts: { method?: string; headers?: Record<string, string>; body?: URLSearchParams | null; debugLabel?: string }
 ) {
+  if (opts.debugLabel) {
+    console.info(`[cron/wa-provision] twilio request (${opts.debugLabel}):`, {
+      method: opts.method || "GET",
+      url,
+      hasBody: Boolean(opts.body),
+    });
+  }
   const res = await fetch(url, {
     method: opts.method || "GET",
     headers: {
@@ -72,6 +79,18 @@ async function twilioFetchJson(
     json = text ? JSON.parse(text) : null;
   } catch {
     json = null;
+  }
+  if (opts.debugLabel) {
+    const count =
+      Array.isArray(json?.recordings) ? json.recordings.length :
+      Array.isArray(json?.transcriptions) ? json.transcriptions.length :
+      null;
+    console.info(`[cron/wa-provision] twilio response (${opts.debugLabel}):`, {
+      status: res.status,
+      ok: res.ok,
+      count,
+      body: json ?? text,
+    });
   }
   if (!res.ok) {
     const msg = (json && (json.message || json.error_message)) || text || `twilio_failed (${res.status})`;
@@ -140,6 +159,10 @@ function msSince(iso: string | null | undefined): number {
 function extract6DigitCode(s: string) {
   const m = String(s ?? "").match(/\b\d{6}\b/);
   return m?.[0] ?? "";
+}
+
+function utcDateOnly(d = new Date()) {
+  return d.toISOString().slice(0, 10);
 }
 
 export async function GET(req: NextRequest) {
@@ -251,19 +274,24 @@ export async function GET(req: NextRequest) {
 
     if (status === "waiting_recording") {
       // Try to fetch recording (no sleeping in-function).
+      const dateOnly = utcDateOnly();
       const recordingsUrl =
         `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-        `/Recordings.json?To=${encodeURIComponent(phoneE164)}&PageSize=3`;
-      console.info("[cron/wa-provision] twilio recordings fetch:", { url: recordingsUrl, to: phoneE164 });
-      const rec = await twilioFetchJson(recordingsUrl, { headers: { Authorization: twilioAuth }, body: null });
+        `/Recordings.json?To=${encodeURIComponent(phoneE164)}&PageSize=3&DateCreated%3E%3D=${encodeURIComponent(dateOnly)}`;
+      const rec = await twilioFetchJson(recordingsUrl, {
+        headers: { Authorization: twilioAuth },
+        body: null,
+        debugLabel: "recordings_list",
+      });
       const list = Array.isArray(rec?.recordings) ? rec.recordings : [];
       const rec0 = list[0] ?? null;
       recordingSid = String(rec0?.sid ?? "").trim();
-      console.info("[cron/wa-provision] twilio recordings result:", {
-        count: list.length,
-        recording_sid: recordingSid || null,
-        first_created_at: rec0?.date_created ?? null,
-        first_status: rec0?.status ?? null,
+      console.info("[cron/wa-provision] twilio recordings pick:", {
+        to: phoneE164,
+        dateCreatedGte: dateOnly,
+        picked_recording_sid: recordingSid || null,
+        picked_created_at: rec0?.date_created ?? null,
+        picked_status: rec0?.status ?? null,
       });
 
       if (!recordingSid) {
