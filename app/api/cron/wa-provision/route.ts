@@ -629,6 +629,11 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
 
+    // Avoid clobbering persisted progress fields with NULLs.
+    const lockedPhone = String((locked as any)?.phone_e164 ?? "").trim();
+    const lockedMeta = String((locked as any)?.meta_phone_number_id ?? "").trim();
+    const lockedTwilio = String((locked as any)?.twilio_sid ?? "").trim();
+
     // Best-effort persist failure state
     if (metaPhoneNumberId) {
       await admin
@@ -653,9 +658,9 @@ export async function GET(req: NextRequest) {
         status: "failed",
         updated_at: new Date().toISOString(),
         last_error: msg,
-        phone_e164: phoneE164 || null,
-        meta_phone_number_id: metaPhoneNumberId || null,
-        twilio_sid: twilioSid || null,
+        phone_e164: (phoneE164 || lockedPhone) || null,
+        meta_phone_number_id: (metaPhoneNumberId || lockedMeta) || null,
+        twilio_sid: (twilioSid || lockedTwilio) || null,
       } as any)
       .eq("id", Number(locked.id));
 
