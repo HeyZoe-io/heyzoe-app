@@ -132,7 +132,8 @@ export async function GET(req: NextRequest) {
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
   const whatsappSystemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
-  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken) {
+  const metaWabaId = process.env.META_WABA_ID?.trim() ?? "";
+  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken || !metaWabaId) {
     return NextResponse.json({ error: "missing_env" }, { status: 500 });
   }
 
@@ -166,11 +167,29 @@ export async function GET(req: NextRequest) {
 
   const twilioAuth = twilioAuthHeader(twilioAccountSid, twilioAuthToken);
   const twimlVoiceUrl = "https://handler.twilio.com/twiml/EH3a2831d7f10a000887d9678027077ad9";
-  const metaBusinessId = "414529741736731";
+  const metaBusinessId = metaWabaId;
 
   let phoneE164 = "";
   let twilioSid = "";
   let metaPhoneNumberId = "";
+  const businessSlug = String((locked as any).business_slug ?? "").trim().toLowerCase();
+  let verifiedName = "";
+  try {
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("name")
+      .eq("id", Number((locked as any).business_id))
+      .maybeSingle();
+    verifiedName = String((biz as any)?.name ?? "").trim();
+  } catch {
+    verifiedName = "";
+  }
+  if (!verifiedName) {
+    verifiedName =
+      String((locked as any).business_name ?? "").trim() ||
+      businessSlug ||
+      "HeyZoe";
+  }
 
   try {
     // Step 1: search + purchase
@@ -214,7 +233,7 @@ export async function GET(req: NextRequest) {
       {
       cc: "972",
       phone_number: stripCc972(phoneE164),
-      verified_name: String((locked as any).business_name ?? "").trim() || String((locked as any).business_slug ?? ""),
+      verified_name: verifiedName,
       },
       { label: "register_phone_number", includeOk: true }
     );

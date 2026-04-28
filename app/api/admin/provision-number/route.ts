@@ -113,21 +113,22 @@ export async function POST(req: NextRequest) {
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
   const whatsappSystemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
+  const metaWabaId = process.env.META_WABA_ID?.trim() ?? "";
 
-  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken) {
+  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken || !metaWabaId) {
     return NextResponse.json({ error: "missing_env" }, { status: 500 });
   }
 
   const body = await req.json().catch(() => ({} as any));
   const business_slug = String(body?.business_slug ?? "").trim().toLowerCase();
-  const verified_name = String(body?.verified_name ?? "").trim();
-  if (!business_slug || !verified_name) {
+  const verified_name_in = String(body?.verified_name ?? "").trim();
+  if (!business_slug) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
   }
 
   const twilioAuth = twilioAuthHeader(twilioAccountSid, twilioAuthToken);
   const twimlVoiceUrl = "https://handler.twilio.com/twiml/EH3a2831d7f10a000887d9678027077ad9";
-  const metaBusinessId = "414529741736731";
+  const metaBusinessId = metaWabaId;
 
   const enc = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -138,6 +139,15 @@ export async function POST(req: NextRequest) {
       let metaPhoneNumberId = "";
 
       try {
+        // Prefer verified_name from DB (businesses.name); fallback to user input.
+        const admin = createSupabaseAdminClient();
+        const { data: biz } = await admin
+          .from("businesses")
+          .select("name")
+          .eq("slug", business_slug)
+          .maybeSingle();
+        const verified_name = String((biz as any)?.name ?? "").trim() || verified_name_in || business_slug;
+
         write({ type: "step", step: "searching" });
         const availableUrl =
           `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
@@ -248,7 +258,6 @@ export async function POST(req: NextRequest) {
         await metaFetchJson(verifyUrl, whatsappSystemToken, { code });
 
         write({ type: "step", step: "saving" });
-        const admin = createSupabaseAdminClient();
         const { data: business } = await admin.from("businesses").select("id").eq("slug", business_slug).maybeSingle();
         if (!business?.id) throw new Error("business_not_found");
 
