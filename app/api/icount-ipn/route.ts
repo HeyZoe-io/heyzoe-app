@@ -19,6 +19,36 @@ function normalizeEmail(input: unknown): string {
   return email;
 }
 
+function normalizePhone(input: unknown): string | null {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d+]/g, "");
+  if (!digits) return null;
+
+  // 05XXXXXXXX -> +9725XXXXXXX (best-effort)
+  if (digits.startsWith("05")) {
+    const rest = digits.slice(1).replace(/\D/g, "");
+    if (rest.length < 9) return null;
+    return `+972${rest}`;
+  }
+
+  // 972XXXXXXXXX -> +972XXXXXXXXX
+  if (digits.startsWith("972")) {
+    const rest = digits.replace(/\D/g, "");
+    if (rest.length < 11) return null;
+    return `+${rest}`;
+  }
+
+  // Already E.164
+  if (digits.startsWith("+")) {
+    const rest = digits.slice(1).replace(/\D/g, "");
+    if (rest.length < 10) return null;
+    return `+${rest}`;
+  }
+
+  return null;
+}
+
 function toSlugBase(input: string): string {
   return input
     .trim()
@@ -272,11 +302,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    const phoneE164 = normalizePhone(sessionRow?.phone);
+
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
       password,
-      phone: sessionRow?.phone ? String(sessionRow.phone).trim() || undefined : undefined,
+      phone: phoneE164 ?? undefined,
       user_metadata: {
         first_name: sessionRow?.first_name ? String(sessionRow.first_name).trim() : "",
         last_name: sessionRow?.last_name ? String(sessionRow.last_name).trim() : "",
