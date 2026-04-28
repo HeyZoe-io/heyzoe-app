@@ -624,28 +624,45 @@ export async function GET(req: NextRequest) {
       throw new Error(`unsupported_status:${status}`);
     }
 
-    // Step 1: search + purchase
-    const availableUrl =
-      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-      "/AvailablePhoneNumbers/IL/Local.json?VoiceEnabled=true&ExcludeAllAddressRequired=true&ExcludeLocalAddressRequired=true&ExcludeForeignAddressRequired=true&Beta=false&Contains=%2B9723*&PageSize=20";
-    const avail = await twilioFetchJson(availableUrl, { headers: { Authorization: twilioAuth }, body: null });
-    const list = Array.isArray(avail?.available_phone_numbers) ? avail.available_phone_numbers : [];
-    const picked =
-      list.find((r: any) => isIlTelAvivLandline(String(r?.phone_number ?? "")) && ((parseMonthlyUsd(r) ?? 0) <= 10 && (parseMonthlyUsd(r) ?? 0) > 0)) ||
-      list.find((r: any) => isIlTelAvivLandline(String(r?.phone_number ?? ""))) ||
-      null;
-    const phone_number = String(picked?.phone_number ?? "").trim();
-    if (!phone_number) throw new Error("no_available_numbers");
+    // Step 1: reuse existing Twilio number if provided; otherwise search + purchase
+    const existingPhoneE164 = String((locked as any).phone_e164 ?? "").trim();
+    const existingJobTwilioSid = String((locked as any).twilio_sid ?? "").trim();
+    if (existingPhoneE164 && existingJobTwilioSid) {
+      phoneE164 = existingPhoneE164;
+      twilioSid = existingJobTwilioSid;
+      console.info("[cron/wa-provision] reuse existing Twilio number (skip purchase):", {
+        id: Number((locked as any).id),
+        phone_e164: phoneE164,
+        twilio_sid: twilioSid,
+      });
+    } else {
+      const availableUrl =
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
+        "/AvailablePhoneNumbers/IL/Local.json?VoiceEnabled=true&ExcludeAllAddressRequired=true&ExcludeLocalAddressRequired=true&ExcludeForeignAddressRequired=true&Beta=false&Contains=%2B9723*&PageSize=20";
+      const avail = await twilioFetchJson(availableUrl, { headers: { Authorization: twilioAuth }, body: null });
+      const list = Array.isArray(avail?.available_phone_numbers) ? avail.available_phone_numbers : [];
+      const picked =
+        list.find(
+          (r: any) =>
+            isIlTelAvivLandline(String(r?.phone_number ?? "")) &&
+            (parseMonthlyUsd(r) ?? 0) <= 10 &&
+            (parseMonthlyUsd(r) ?? 0) > 0
+        ) ||
+        list.find((r: any) => isIlTelAvivLandline(String(r?.phone_number ?? ""))) ||
+        null;
+      const phone_number = String(picked?.phone_number ?? "").trim();
+      if (!phone_number) throw new Error("no_available_numbers");
 
-    const buyUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}/IncomingPhoneNumbers.json`;
-    const buy = await twilioFetchJson(buyUrl, {
-      method: "POST",
-      headers: { Authorization: twilioAuth },
-      body: new URLSearchParams({ PhoneNumber: phone_number }),
-    });
-    twilioSid = String(buy?.sid ?? "").trim();
-    phoneE164 = String(buy?.phone_number ?? phone_number).trim();
-    if (!twilioSid) throw new Error("twilio_purchase_missing_sid");
+      const buyUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}/IncomingPhoneNumbers.json`;
+      const buy = await twilioFetchJson(buyUrl, {
+        method: "POST",
+        headers: { Authorization: twilioAuth },
+        body: new URLSearchParams({ PhoneNumber: phone_number }),
+      });
+      twilioSid = String(buy?.sid ?? "").trim();
+      phoneE164 = String(buy?.phone_number ?? phone_number).trim();
+      if (!twilioSid) throw new Error("twilio_purchase_missing_sid");
+    }
 
     // Step 2: TwiML
     const updateUrl =
