@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const POLL_MS = 2000;
-const TIMEOUT_MS = 120_000;
+const POLL_MS = 2500;
+const TIMEOUT_MS = 10 * 60_000;
 
 export default function OnboardingSuccessClient() {
   const router = useRouter();
@@ -13,6 +13,7 @@ export default function OnboardingSuccessClient() {
 
   const [ready, setReady] = useState<null | { slug: string }>(null);
   const [timedOut, setTimedOut] = useState(false);
+  const [lastCheckAt, setLastCheckAt] = useState<string>("");
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -34,6 +35,7 @@ export default function OnboardingSuccessClient() {
           cache: "no-store",
         });
         const data = (await res.json()) as { ready?: boolean; slug?: string };
+        setLastCheckAt(new Date().toISOString());
         if (data?.ready && data.slug) {
           const slug = data.slug;
           // LP purchase tracking (best-effort): relies on sessionStorage values set on /lp-leads.
@@ -79,9 +81,10 @@ export default function OnboardingSuccessClient() {
       style={{
         minHeight: "100vh",
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "center",
         padding: "24px",
+        paddingTop: "32px",
         background: "#f5f3ff",
         fontFamily: "Fredoka, Heebo, system-ui, sans-serif",
       }}
@@ -113,6 +116,7 @@ export default function OnboardingSuccessClient() {
           padding: "28px 24px",
           textAlign: "center",
           border: "1px solid rgba(113,51,218,0.12)",
+          marginTop: "10px",
         }}
       >
         <div style={{ marginBottom: "20px" }}>
@@ -126,6 +130,11 @@ export default function OnboardingSuccessClient() {
         ) : timedOut ? (
           <div style={{ color: "#6b5b9a", fontSize: "14px", lineHeight: 1.7 }}>
             משהו תקע, פנו אלינו בוואטסאפ ונבדוק את זה איתכם.
+            {lastCheckAt ? (
+              <div style={{ marginTop: 10, fontSize: 12, color: "#8b7aaa" }} dir="ltr">
+                last check: {new Date(lastCheckAt).toLocaleString("he-IL")}
+              </div>
+            ) : null}
           </div>
         ) : ready ? (
           <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da" }}>הכל מוכן! 🎉 מעבירים אותך...</div>
@@ -146,13 +155,18 @@ export default function OnboardingSuccessClient() {
               מכינים את הדשבורד שלך ✨
             </h1>
             <p style={{ margin: "0 0 20px", color: "#6b5b9a", fontSize: "15px", lineHeight: 1.6 }}>
-              זה לוקח כמה שניות, אל תסגרי את הדף
+              זה לוקח עד כמה דקות, אל תסגרי את הדף
             </p>
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }} aria-hidden>
               <span className="success-bounce-dot" />
               <span className="success-bounce-dot" />
               <span className="success-bounce-dot" />
             </div>
+            {lastCheckAt ? (
+              <div style={{ marginTop: 14, fontSize: 12, color: "#8b7aaa" }} dir="ltr">
+                last check: {new Date(lastCheckAt).toLocaleString("he-IL")}
+              </div>
+            ) : null}
           </>
         )}
       </div>
