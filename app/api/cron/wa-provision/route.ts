@@ -182,7 +182,7 @@ export async function GET(req: NextRequest) {
   const { data: job } = await admin
     .from("wa_provision_jobs")
     .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
-    .in("status", ["queued", "running", "waiting_recording", "transcribing"])
+    .in("status", ["queued", "running", "waiting_recording", "transcribing", "awaiting_manual_code"])
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -260,6 +260,25 @@ export async function GET(req: NextRequest) {
         .eq("id", Number(locked.id));
       if (error) throw error;
       return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
+    }
+
+    // If we previously fell back to manual code but we *do* have a recording_sid,
+    // we can attempt the transcription flow automatically.
+    if (status === "awaiting_manual_code") {
+      const existingRecordingSid = String((locked as any).recording_sid ?? "").trim();
+      if (existingMetaId && existingPhone && existingTwilioSid && existingRecordingSid) {
+        const { error } = await admin
+          .from("wa_provision_jobs")
+          .update({ status: "transcribing", updated_at: isoNow() } as any)
+          .eq("id", Number(locked.id));
+        if (error) throw error;
+        // Continue in the same invocation as transcribing.
+        (locked as any).status = "transcribing";
+        recordingSid = existingRecordingSid;
+      } else {
+        // Still needs manual intervention.
+        return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
+      }
     }
 
     if (status === "waiting_recording" || status === "transcribing") {
