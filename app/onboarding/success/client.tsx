@@ -176,7 +176,7 @@ export default function OnboardingSuccessClient() {
               מכינים את הדשבורד שלך ✨
             </h1>
             <p style={{ margin: "0 0 20px", color: "#6b5b9a", fontSize: "15px", lineHeight: 1.6 }}>
-              זה לוקח כמה שניות, אל תסגרי את הדף
+              זה לוקח בערך דקה, לא לסגור את הדף
             </p>
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }} aria-hidden>
               <span className="success-bounce-dot" />
