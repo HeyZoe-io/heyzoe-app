@@ -159,22 +159,24 @@ export async function GET(req: NextRequest) {
   const { data: job } = await admin
     .from("wa_provision_jobs")
     .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
-    .in("status", ["queued", "waiting_recording", "transcribing"])
+    .in("status", ["queued", "running", "waiting_recording", "transcribing"])
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (!job?.id) return NextResponse.json({ ok: true, processed: 0 });
 
-  // Lock it optimistically (do not overwrite status here; we will update as needed).
+  // Lock it optimistically. For queued jobs, bump to running so we don't double-purchase.
+  const initialStatus = String((job as any).status ?? "queued");
   const { data: locked } = await admin
     .from("wa_provision_jobs")
     .update({
+      ...(initialStatus === "queued" ? { status: "running" } : {}),
       attempts: Number((job as any).attempts ?? 0) + 1,
       updated_at: isoNow(),
     } as any)
     .eq("id", Number(job.id))
-    .eq("status", String((job as any).status ?? "queued"))
+    .eq("status", initialStatus)
     .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
     .maybeSingle();
 
@@ -220,6 +222,23 @@ export async function GET(req: NextRequest) {
       recording_sid: recordingSid,
     });
 
+    // If we already have Meta + Twilio state, never re-purchase/re-register.
+    const existingMetaId = String((locked as any).meta_phone_number_id ?? "").trim();
+    const existingPhone = String((locked as any).phone_e164 ?? "").trim();
+    const existingTwilioSid = String((locked as any).twilio_sid ?? "").trim();
+    if (status === "running" && existingMetaId && existingPhone && existingTwilioSid) {
+      console.warn("[cron/wa-provision] job has meta id already; skipping purchase and continuing to waiting_recording", {
+        id: Number((locked as any).id),
+        meta_phone_number_id: existingMetaId,
+      });
+      const { error } = await admin
+        .from("wa_provision_jobs")
+        .update({ status: "waiting_recording", updated_at: isoNow() } as any)
+        .eq("id", Number(locked.id));
+      if (error) throw error;
+      return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
+    }
+
     if (status === "waiting_recording" || status === "transcribing") {
       phoneE164 = String((locked as any).phone_e164 ?? "").trim();
       metaPhoneNumberId = String((locked as any).meta_phone_number_id ?? "").trim();
@@ -251,7 +270,7 @@ export async function GET(req: NextRequest) {
         // Still waiting. After ~5 minutes, fallback to manual code.
         const waitedMs = msSince(String((locked as any).updated_at ?? ""));
         if (waitedMs > 5 * 60_000) {
-          await admin
+          const { error } = await admin
             .from("wa_provision_jobs")
             .update({
               status: "awaiting_manual_code",
@@ -262,13 +281,15 @@ export async function GET(req: NextRequest) {
               last_error: "recording_not_found_timeout",
             } as any)
             .eq("id", Number(locked.id));
+          if (error) throw error;
           return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
         }
 
-        await admin
+        const { error } = await admin
           .from("wa_provision_jobs")
           .update({ status: "waiting_recording", updated_at: isoNow() } as any)
           .eq("id", Number(locked.id));
+        if (error) throw error;
         return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
       }
 
@@ -283,7 +304,7 @@ export async function GET(req: NextRequest) {
         body: new URLSearchParams(),
       });
 
-      await admin
+      const { error: txErr } = await admin
         .from("wa_provision_jobs")
         .update({
           status: "transcribing",
@@ -295,6 +316,7 @@ export async function GET(req: NextRequest) {
           twilio_sid: twilioSid,
         } as any)
         .eq("id", Number(locked.id));
+      if (txErr) throw txErr;
 
       return NextResponse.json({ ok: true, processed: 1, status: "transcribing" });
     }
@@ -322,7 +344,7 @@ export async function GET(req: NextRequest) {
         const startedIso = transcriptionStartedAt || String((locked as any).transcription_started_at ?? "");
         const waitedMs = msSince(startedIso);
         if (waitedMs > 2 * 60_000) {
-          await admin
+          const { error } = await admin
             .from("wa_provision_jobs")
             .update({
               status: "awaiting_manual_code",
@@ -334,13 +356,15 @@ export async function GET(req: NextRequest) {
               recording_sid: recordingSid,
             } as any)
             .eq("id", Number(locked.id));
+          if (error) throw error;
           return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code" });
         }
 
-        await admin
+        const { error } = await admin
           .from("wa_provision_jobs")
           .update({ status: "transcribing", updated_at: isoNow() } as any)
           .eq("id", Number(locked.id));
+        if (error) throw error;
         return NextResponse.json({ ok: true, processed: 1, status: "transcribing" });
       }
 
@@ -377,7 +401,7 @@ export async function GET(req: NextRequest) {
         console.error("[cron/wa-provision] customer email failed:", e);
       }
 
-      await admin
+      const { error: doneErr } = await admin
         .from("wa_provision_jobs")
         .update({
           status: "done",
@@ -388,8 +412,14 @@ export async function GET(req: NextRequest) {
           recording_sid: recordingSid,
         } as any)
         .eq("id", Number(locked.id));
+      if (doneErr) throw doneErr;
 
       return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164 });
+    }
+
+    if (status !== "running") {
+      // Unknown/unsupported status for this worker loop.
+      throw new Error(`unsupported_status:${status}`);
     }
 
     // Step 1: search + purchase
@@ -465,7 +495,7 @@ export async function GET(req: NextRequest) {
     );
 
     // Persist and continue in next cron invocation (avoid sleeping in this request).
-    await admin
+    const { error: waitErr } = await admin
       .from("wa_provision_jobs")
       .update({
         status: "waiting_recording",
@@ -477,6 +507,7 @@ export async function GET(req: NextRequest) {
         transcription_started_at: null,
       } as any)
       .eq("id", Number(locked.id));
+    if (waitErr) throw waitErr;
 
     return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording" });
   } catch (e) {
