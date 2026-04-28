@@ -115,6 +115,12 @@ async function parseIcountPayload(req: NextRequest): Promise<Record<string, any>
   return {};
 }
 
+function isSchemaColumnMissing(error: any, column: string): boolean {
+  const code = String(error?.code ?? "");
+  const msg = String(error?.message ?? "");
+  return code === "PGRST204" && msg.toLowerCase().includes(`'${column}' column`);
+}
+
 export async function POST(req: NextRequest) {
   // iCount חייב לקבל 200 תמיד כדי לא לעשות retries אינסופיים
   try {
@@ -247,25 +253,35 @@ export async function POST(req: NextRequest) {
 
           console.info("[api/icount-ipn] existing_user_creating_business:", { email, slug, plan });
 
-          const { data: insertedBiz, error: bizError } = await admin
-            .from("businesses")
-            .insert({
-              user_id: existingAuth.id,
-              slug,
-              name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
-              niche: String(sessionRow?.business_type ?? "").trim(),
-              bot_name: "זואי",
-              social_links: {
-                address: String(sessionRow?.address ?? "").trim(),
-                business_description: String(sessionRow?.description ?? "").trim(),
-              },
-              plan,
-              is_active: true,
-              email,
-              status: "active",
-            } as any)
-            .select("id, slug")
-            .single();
+          const insertPayloadBase: any = {
+            user_id: existingAuth.id,
+            slug,
+            name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+            niche: String(sessionRow?.business_type ?? "").trim(),
+            bot_name: "זואי",
+            social_links: {
+              address: String(sessionRow?.address ?? "").trim(),
+              business_description: String(sessionRow?.description ?? "").trim(),
+            },
+            plan,
+            is_active: true,
+            email,
+            status: "active",
+          };
+
+          let insertedBiz: any = null;
+          let bizError: any = null;
+          {
+            const r = await admin.from("businesses").insert(insertPayloadBase).select("id, slug").single();
+            insertedBiz = r.data;
+            bizError = r.error;
+          }
+          if (bizError && isSchemaColumnMissing(bizError, "email")) {
+            const { email: _omit, ...withoutEmail } = insertPayloadBase;
+            const r2 = await admin.from("businesses").insert(withoutEmail).select("id, slug").single();
+            insertedBiz = r2.data;
+            bizError = r2.error;
+          }
           if (bizError || !insertedBiz) throw bizError ?? new Error("business_create_failed_existing_user");
 
           await ensurePrimaryBusinessUser(admin, Number(insertedBiz.id), existingAuth.id);
@@ -324,25 +340,35 @@ export async function POST(req: NextRequest) {
 
     console.info("[api/icount-ipn] creating_business:", { email, slug, plan });
 
-    const { data: insertedBiz, error: bizError } = await admin
-      .from("businesses")
-      .insert({
-        user_id: authData.user.id,
-        slug,
-        name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
-        niche: String(sessionRow?.business_type ?? "").trim(),
-        bot_name: "זואי",
-        social_links: {
-          address: String(sessionRow?.address ?? "").trim(),
-          business_description: String(sessionRow?.description ?? "").trim(),
-        },
-        plan,
-        is_active: true,
-        email,
-        status: "active",
-      } as any)
-      .select("id, slug")
-      .single();
+    const insertPayloadBase: any = {
+      user_id: authData.user.id,
+      slug,
+      name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+      niche: String(sessionRow?.business_type ?? "").trim(),
+      bot_name: "זואי",
+      social_links: {
+        address: String(sessionRow?.address ?? "").trim(),
+        business_description: String(sessionRow?.description ?? "").trim(),
+      },
+      plan,
+      is_active: true,
+      email,
+      status: "active",
+    };
+
+    let insertedBiz: any = null;
+    let bizError: any = null;
+    {
+      const r = await admin.from("businesses").insert(insertPayloadBase).select("id, slug").single();
+      insertedBiz = r.data;
+      bizError = r.error;
+    }
+    if (bizError && isSchemaColumnMissing(bizError, "email")) {
+      const { email: _omit, ...withoutEmail } = insertPayloadBase;
+      const r2 = await admin.from("businesses").insert(withoutEmail).select("id, slug").single();
+      insertedBiz = r2.data;
+      bizError = r2.error;
+    }
 
     if (bizError || !insertedBiz) throw bizError ?? new Error("business_create_failed");
 
