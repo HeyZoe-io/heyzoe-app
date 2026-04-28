@@ -170,7 +170,7 @@ function utcDateOnly(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-const TRANSCRIPTION_WAIT_MS = 10 * 60_000; // Twilio transcription can take several minutes
+const TRANSCRIPTION_WAIT_MS = 2 * 60_000;
 
 export async function GET(req: NextRequest) {
   const build = buildTag();
@@ -208,7 +208,9 @@ export async function GET(req: NextRequest) {
   // Pick one job to progress (avoid long waits inside a single invocation).
   const { data: job } = await admin
     .from("wa_provision_jobs")
-    .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
+    .select(
+      "id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at, transcription_polls"
+    )
     .neq("status", "done")
     .neq("status", "failed")
     .order("created_at", { ascending: true })
@@ -258,7 +260,9 @@ export async function GET(req: NextRequest) {
     } as any)
     .eq("id", Number(job.id))
     .eq("status", initialStatus)
-    .select("id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at")
+    .select(
+      "id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at, transcription_polls"
+    )
     .maybeSingle();
 
   if (!locked?.id) return NextResponse.json({ ok: true, processed: 0, raced: true, build });
@@ -272,6 +276,7 @@ export async function GET(req: NextRequest) {
   let metaPhoneNumberId = "";
   let recordingSid = String((locked as any).recording_sid ?? "").trim();
   let transcriptionStartedAt = (locked as any).transcription_started_at ? String((locked as any).transcription_started_at) : "";
+  let transcriptionPolls = Number((locked as any).transcription_polls ?? 0) || 0;
   const businessSlug = String((locked as any).business_slug ?? "").trim().toLowerCase();
   let verifiedName = "";
   try {
@@ -472,6 +477,7 @@ export async function GET(req: NextRequest) {
           updated_at: isoNow(),
           recording_sid: recordingSid,
           transcription_started_at: isoNow(),
+          transcription_polls: 0,
           phone_e164: phoneE164,
           meta_phone_number_id: metaPhoneNumberId,
           twilio_sid: twilioSid,
@@ -493,12 +499,44 @@ export async function GET(req: NextRequest) {
       const txList = await twilioFetchJson(listTxUrl, { headers: { Authorization: twilioAuth }, body: null });
       const t0 = Array.isArray(txList?.transcriptions) ? txList.transcriptions[0] : null;
       const text = String(t0?.transcription_text ?? "").trim();
+      const txStatus = String(t0?.status ?? "").trim().toLowerCase();
       console.info("[cron/wa-provision] twilio transcription result:", {
         transcription_sid: t0?.sid ?? null,
         status: t0?.status ?? null,
         has_text: Boolean(text),
         text_preview: text ? text.slice(0, 120) : "",
       });
+
+      // If transcription is still running, retry on next cron tick (max 3 polls).
+      const inProgress =
+        txStatus === "in-progress" ||
+        txStatus === "queued" ||
+        txStatus === "processing" ||
+        txStatus === "running";
+      if (inProgress) {
+        if (transcriptionPolls >= 2) {
+          const { error } = await admin
+            .from("wa_provision_jobs")
+            .update({
+              status: "awaiting_manual_code",
+              updated_at: isoNow(),
+              last_error: "transcription_in_progress_3_polls",
+              phone_e164: phoneE164,
+              meta_phone_number_id: metaPhoneNumberId,
+              twilio_sid: twilioSid,
+              recording_sid: recordingSid,
+            } as any)
+            .eq("id", Number(locked.id));
+          if (error) throw error;
+          return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code", build });
+        }
+        const { error } = await admin
+          .from("wa_provision_jobs")
+          .update({ status: "transcribing", updated_at: isoNow(), transcription_polls: transcriptionPolls + 1 } as any)
+          .eq("id", Number(locked.id));
+        if (error) throw error;
+        return NextResponse.json({ ok: true, processed: 1, status: "transcribing", build });
+      }
 
       const code = extract6DigitCode(text);
       if (!code) {
