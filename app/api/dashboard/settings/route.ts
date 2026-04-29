@@ -62,7 +62,8 @@ export async function GET(req: NextRequest) {
         // This prevents flapping between "member" businesses and the user's own business,
         // which can cause subscription UI to flicker.
         const owned = accessible.filter((b) => String(b.user_id ?? "") === String(user.id));
-        return pickFirstBusiness(owned.length ? owned : accessible);
+        const ownedActive = owned.filter((b) => Boolean((b as any)?.is_active));
+        return pickFirstBusiness(ownedActive.length ? ownedActive : owned.length ? owned : accessible);
       })();
 
   if (!business) return NextResponse.json({ business: null, services: [], faqs: [] });
