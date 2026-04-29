@@ -7,6 +7,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import useSWR from "swr";
 import {
   ArrowLeft, ArrowRight, Check,
+  Copy,
   GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,14 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
     }
   }, [data?.phone_display]);
 
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
+
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white/70 p-4 shadow-[0_16px_44px_rgba(95,64,178,0.08)]">
       <div className="flex items-start justify-between gap-3">
@@ -201,10 +210,24 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
             <span className="text-sm font-semibold text-zinc-900" dir="ltr">
               {friendly || data?.phone_display || "—"}
             </span>
-            <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={() => void copy()}>
-              העתק מספר
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 w-9 px-0"
+              aria-label="העתקת מספר"
+              onClick={() => {
+                void (async () => {
+                  await copy();
+                  setCopied(true);
+                  if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+                  copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1400);
+                })();
+              }}
+            >
+              <Copy className="h-4 w-4" aria-hidden />
             </Button>
           </div>
+          {copied ? <div className="text-xs text-emerald-700">המספר הועתק</div> : null}
           <p className="text-sm text-zinc-700">
             זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!
           </p>
