@@ -411,6 +411,7 @@ export async function GET(req: NextRequest) {
       const list = Array.isArray(rec?.recordings) ? rec.recordings : [];
       const rec0 = list[0] ?? null;
       recordingSid = String(rec0?.sid ?? "").trim();
+      const recordingStatus = String(rec0?.status ?? "").trim().toLowerCase();
       console.info("[cron/wa-provision] twilio recordings pick:", {
         to: phoneE164,
         dateCreatedGte: dateOnly,
@@ -444,6 +445,30 @@ export async function GET(req: NextRequest) {
           .eq("id", Number(locked.id));
         if (error) throw error;
         return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
+      }
+
+      // TwiML now uses transcribe="true", so only advance when recording is completed.
+      // If Twilio reports "absent" (or anything non-completed), keep waiting for next cron tick.
+      if (recordingStatus !== "completed") {
+        const { error } = await admin
+          .from("wa_provision_jobs")
+          .update({
+            status: "waiting_recording",
+            updated_at: isoNow(),
+            recording_sid: recordingSid,
+            phone_e164: phoneE164,
+            meta_phone_number_id: metaPhoneNumberId,
+            twilio_sid: twilioSid,
+          } as any)
+          .eq("id", Number(locked.id));
+        if (error) throw error;
+        return NextResponse.json({
+          ok: true,
+          processed: 1,
+          status: "waiting_recording",
+          build,
+          recording_status: recordingStatus || "unknown",
+        });
       }
 
       // Persist recording SID immediately (defense-in-depth: even if next update fails).
