@@ -194,6 +194,9 @@ export default function AccountBillingPage() {
     if (!stable.nextParam) return;
     if (redirectingRef.current) return;
 
+    const stableNextParam = stable.nextParam;
+    const stableWelcome = stable.welcome;
+
     let cancelled = false;
     let timeoutId: number | null = null;
     const startedAt = Date.now();
@@ -211,10 +214,10 @@ export default function AccountBillingPage() {
         const data = (await res.json().catch(() => ({}))) as { ready?: boolean; slug?: string };
         if (data?.ready) {
           redirectingRef.current = true;
-          const target = stable.nextParam.startsWith("/") ? stable.nextParam : `/${stable.nextParam}`;
+          const target = stableNextParam.startsWith("/") ? stableNextParam : `/${stableNextParam}`;
           window.location.href =
             target +
-            (stable.welcome ? (target.includes("?") ? "&welcome=1" : "?welcome=1") : "");
+            (stableWelcome ? (target.includes("?") ? "&welcome=1" : "?welcome=1") : "");
           return;
         }
       } catch {
