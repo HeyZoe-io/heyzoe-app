@@ -18,17 +18,35 @@ export default function AdminLoginPage() {
   const [message, setMessage] = useState("");
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
+  async function redirectIfAllowed() {
+    try {
+      const res = await fetch("/api/admin/is-allowed", { method: "GET", cache: "no-store" });
+      const j = (await res.json().catch(() => ({}))) as { allowed?: boolean };
+      if (j.allowed) {
+        window.location.href = "/admin/dashboard";
+        return true;
+      }
+      await supabase.auth.signOut();
+      setMessage("האימייל הזה לא מורשה להיכנס לאזור האדמין.");
+      return false;
+    } catch {
+      // If we can't verify, fail closed (keep user on login).
+      setMessage("לא ניתן לאמת הרשאת אדמין כרגע. נסו שוב.");
+      return false;
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (mounted && data.session) {
-        router.replace("/admin/dashboard");
+        void redirectIfAllowed();
       }
     });
 
     const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        router.replace("/admin/dashboard");
+        void redirectIfAllowed();
       }
     });
 
@@ -75,7 +93,7 @@ export default function AdminLoginPage() {
       if (error) {
         setMessage(`Login failed: ${error.message}`);
       } else {
-        router.replace("/admin/dashboard");
+        await redirectIfAllowed();
       }
     } catch (err) {
       setMessage(`Login failed: ${err instanceof Error ? err.message : String(err)}`);
