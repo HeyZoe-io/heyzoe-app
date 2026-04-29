@@ -142,10 +142,13 @@ export async function middleware(req: NextRequest) {
       const section = m?.[2] ?? "";
       if (slug && section) {
         try {
-          const { data: biz } = await supabase
+          // Use service-role client and enforce ownership explicitly (avoid any RLS/session edge cases).
+          const admin = createSupabaseAdminClient();
+          const { data: biz } = await admin
             .from("businesses")
             .select("id, user_id, is_active")
             .eq("slug", slug)
+            .eq("user_id", user.id)
             .maybeSingle();
           const isOwner = biz?.user_id && String(biz.user_id) === user.id;
           const isPaidActive =
@@ -186,10 +189,12 @@ export async function middleware(req: NextRequest) {
       const slug = m?.[1] ?? "";
       if (slug) {
         try {
-          const { data: biz } = await supabase
+          const admin = createSupabaseAdminClient();
+          const { data: biz } = await admin
             .from("businesses")
             .select("is_active")
             .eq("slug", slug)
+            .eq("user_id", user.id)
             .maybeSingle();
           const isPaidActive =
             Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
