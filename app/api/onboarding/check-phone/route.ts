@@ -33,30 +33,55 @@ function normalizePhoneE164(input: unknown): string | null {
   return null;
 }
 
+function normalizeComparablePhone(input: unknown): string | null {
+  const e164 = normalizePhoneE164(input);
+  if (e164) return e164;
+  // Fallback: keep digits only (for odd formats) but don't "invent" a number.
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+  const onlyDigits = raw.replace(/[^\d]/g, "");
+  if (onlyDigits.length < 9) return null;
+  return onlyDigits;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const phoneParam = (searchParams.get("phone") || "").trim();
   if (!phoneParam) return NextResponse.json({ exists: false });
 
-  const phone = normalizePhoneE164(phoneParam);
+  const phone = normalizeComparablePhone(phoneParam);
   // Important: do not block onboarding on invalid phone formats.
   if (!phone) return NextResponse.json({ exists: false });
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin
-      .schema("auth")
-      .from("users")
-      .select("id")
-      .eq("phone", phone)
-      .limit(1);
+    // We cannot query auth.users via PostgREST in some Supabase projects because the `auth`
+    // schema is not exposed. Use the Admin Auth API instead (paginated).
+    const perPage = 1000;
+    for (let page = 1; page <= 20; page += 1) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage } as any);
+      if (error) {
+        console.error("[api/onboarding/check-phone] listUsers error:", error);
+        return NextResponse.json({ exists: false });
+      }
+      const users = (data?.users ?? []) as Array<{ phone?: string | null }>;
+      if (users.length === 0) break;
 
-    if (error) {
-      console.error("[api/onboarding/check-phone] error:", error);
-      return NextResponse.json({ exists: false });
+      const found = users.some((u) => {
+        const uPhone = normalizeComparablePhone(u.phone ?? "");
+        if (!uPhone) return false;
+        // Compare both normalized E.164 and digits-only when needed.
+        if (uPhone === phone) return true;
+        const a = String(uPhone).replace(/[^\d]/g, "");
+        const b = String(phone).replace(/[^\d]/g, "");
+        return a && b && a === b;
+      });
+      if (found) return NextResponse.json({ exists: true });
+
+      if (users.length < perPage) break;
     }
 
-    return NextResponse.json({ exists: Boolean(data && data.length > 0) });
+    return NextResponse.json({ exists: false });
   } catch (e) {
     console.error("[api/onboarding/check-phone] error:", e);
     return NextResponse.json({ exists: false });
