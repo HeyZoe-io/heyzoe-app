@@ -227,7 +227,7 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
       return "זואי מחוברת ועונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!";
     }
     if (metaStatus === "PENDING") {
-      return "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות — אין צורך בפעולה מצידך.";
+      return "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות - אין צורך בפעולה מצידך.";
     }
     if (metaStatus === "UNVERIFIED") {
       return "המספר טרם אומת. אנא צור קשר עם התמיכה של HeyZoe לסיוע.";
