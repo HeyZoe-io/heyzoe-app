@@ -282,6 +282,7 @@ export async function POST(req: NextRequest) {
             bot_name: "זואי",
             social_links: {
               address: String(sessionRow?.address ?? "").trim(),
+              tagline: String(sessionRow?.description ?? "").trim(),
               business_description: String(sessionRow?.description ?? "").trim(),
             },
             plan,
@@ -361,6 +362,7 @@ export async function POST(req: NextRequest) {
       bot_name: "זואי",
       social_links: {
         address: String(sessionRow?.address ?? "").trim(),
+        tagline: String(sessionRow?.description ?? "").trim(),
         business_description: String(sessionRow?.description ?? "").trim(),
       },
       plan,

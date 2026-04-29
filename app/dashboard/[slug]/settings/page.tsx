@@ -206,7 +206,7 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
             </Button>
           </div>
           <p className="text-sm text-zinc-700">
-            זואי עונה על המספר הזה. שתפי אותו עם לקוחות שלך!
+            זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!
           </p>
         </div>
       ) : status === "pending" ? (
@@ -1065,12 +1065,20 @@ export default function SlugSettingsPage() {
         setDirections(String(sl.directions ?? ""));
         setDirectionsMediaUrl(String(sl.directions_media_url ?? ""));
         setDirectionsMediaType((sl.directions_media_type as "image" | "video" | "") ?? "");
-        setBusinessTagline(typeof sl.tagline === "string" ? sl.tagline : "");
+        const taglineLoaded =
+          (typeof sl.tagline === "string" && sl.tagline.trim())
+            ? sl.tagline
+            : (typeof sl.business_description === "string" && sl.business_description.trim())
+              ? String(sl.business_description).split("\n")[0] ?? ""
+              : "";
+        setBusinessTagline(taglineLoaded);
         setPromotions(typeof sl.promotions === "string" ? sl.promotions : "");
         const f1 = typeof sl.fact1 === "string" ? sl.fact1 : "";
         const f2 = typeof sl.fact2 === "string" ? sl.fact2 : "";
         const f3 = typeof sl.fact3 === "string" ? sl.fact3 : "";
-        const legacy = String(sl.business_description ?? business.business_description ?? "");
+        const legacy = taglineLoaded.trim()
+          ? ""
+          : String(sl.business_description ?? business.business_description ?? "");
         const fromArr = Array.isArray(sl.traits) ? sl.traits.map((x) => String(x ?? "")) : null;
         const hasLegacyFacts = f1.trim() || f2.trim() || f3.trim();
         if (fromArr) {
@@ -1613,7 +1621,7 @@ export default function SlugSettingsPage() {
 
   // ─── Fetch site ────────────────────────────────────────────────────────────
 
-  async function fetchSite(nextStepAfterScan = 2) {
+  async function fetchSite(nextStepAfterScan = 1) {
     if (!websiteUrl) return;
     setFetchingUrl(true);
     setFetchSiteError("");
@@ -1676,8 +1684,8 @@ export default function SlugSettingsPage() {
         (typeof j.tagline === "string" && j.tagline.trim()) ||
         (typeof j.business_description === "string" && j.business_description.trim()) ||
         "";
-      if (tag) setBusinessTagline(tag.split("\n")[0].trim());
-      if (typeof j.address === "string" && j.address.trim()) setAddress(j.address.trim());
+      if (!businessTagline.trim() && tag) setBusinessTagline(tag.split("\n")[0].trim());
+      if (!address.trim() && typeof j.address === "string" && j.address.trim()) setAddress(j.address.trim());
       if (typeof j.directions === "string" && j.directions.trim()) setDirections(j.directions.trim());
       if (typeof j.customer_service_phone === "string" && j.customer_service_phone.trim()) {
         setCustomerServicePhone(j.customer_service_phone.trim());
