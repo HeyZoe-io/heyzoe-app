@@ -153,6 +153,11 @@ export async function middleware(req: NextRequest) {
 
           // Paywall: if business subscription isn't active, only allow /account/* (personal details)
           if (!isPaidActive) {
+            console.log("[middleware] redirectToBillingReactivate", {
+              slug,
+              user_id: user.id,
+              biz,
+            });
             return redirectToBillingReactivate(req);
           }
           if (section !== "conversations" && !isOwner && biz?.id) {
