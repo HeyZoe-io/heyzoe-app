@@ -101,6 +101,10 @@ function OnboardingContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [phoneTaken, setPhoneTaken] = useState(false);
   const [phoneChecking, setPhoneChecking] = useState(false);
+  const [emailTaken, setEmailTaken] = useState(false);
+  const [emailChecking, setEmailChecking] = useState(false);
+  const [showPhoneTakenTip, setShowPhoneTakenTip] = useState(false);
+  const [showEmailTakenTip, setShowEmailTakenTip] = useState(false);
   const [existingModal, setExistingModal] = useState<
     null | { next: string; title: string; body: string; msg: string }
   >(null);
@@ -162,6 +166,53 @@ function OnboardingContent() {
     } finally {
       if (phoneCheckRef.reqId !== myReqId) return;
       setPhoneChecking(false);
+    }
+  }
+
+  async function runEmailDupCheck(rawEmail: string) {
+    const email = String(rawEmail || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      setEmailChecking(false);
+      setEmailTaken(false);
+      return false;
+    }
+    emailCheckRef.ac?.abort();
+    const ac = new AbortController();
+    emailCheckRef.ac = ac;
+    setEmailChecking(true);
+    try {
+      const res = await fetch(`/api/onboarding/email-status?email=${encodeURIComponent(email)}`, {
+        method: "GET",
+        cache: "no-store",
+        signal: ac.signal,
+      });
+      const data = (await res.json().catch(() => ({}))) as { state?: string; slug?: string | null };
+      const taken = data?.state === "existing_paying" || data?.state === "existing_unpaid";
+      setEmailTaken(Boolean(taken));
+      if (data?.state === "existing_paying") {
+        const next = data.slug ? `/${data.slug}/analytics` : "/dashboard";
+        setExistingModal({
+          next,
+          title: "מצאנו חשבון קיים",
+          body: "נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.",
+          msg: "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך.",
+        });
+      } else if (data?.state === "existing_unpaid") {
+        const next = "/account/billing?reactivate=1";
+        setExistingModal({
+          next,
+          title: "מצאנו חשבון קיים",
+          body: "החשבון קיים אבל המנוי לא פעיל כרגע. התחברי כדי להפעיל מחדש את המנוי ולחזור לדשבורד.",
+          msg: "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי.",
+        });
+      }
+      return Boolean(taken);
+    } catch {
+      // Network/server error: do not block onboarding.
+      setEmailTaken(false);
+      return false;
+    } finally {
+      setEmailChecking(false);
     }
   }
 
@@ -278,38 +329,7 @@ function OnboardingContent() {
   }
 
   async function checkExistingEmailIfNeeded(rawEmail: string) {
-    const email = String(rawEmail || "").trim().toLowerCase();
-    if (!email || !email.includes("@")) return;
-    try {
-      emailCheckRef.ac?.abort();
-      const ac = new AbortController();
-      emailCheckRef.ac = ac;
-      const res = await fetch(`/api/onboarding/email-status?email=${encodeURIComponent(email)}`, {
-        method: "GET",
-        cache: "no-store",
-        signal: ac.signal,
-      });
-      const data = (await res.json().catch(() => ({}))) as { state?: string; slug?: string | null };
-      if (data?.state === "existing_paying") {
-        const next = data.slug ? `/${data.slug}/analytics` : "/dashboard";
-        setExistingModal({
-          next,
-          title: "מצאנו חשבון קיים",
-          body: "נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.",
-          msg: "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך.",
-        });
-      } else if (data?.state === "existing_unpaid") {
-        const next = "/account/billing?reactivate=1";
-        setExistingModal({
-          next,
-          title: "מצאנו חשבון קיים",
-          body: "החשבון קיים אבל המנוי לא פעיל כרגע. התחברי כדי להפעיל מחדש את המנוי ולחזור לדשבורד.",
-          msg: "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי.",
-        });
-      }
-    } catch {
-      // ignore
-    }
+    void runEmailDupCheck(rawEmail);
   }
 
   async function goToPayment() {
@@ -607,19 +627,38 @@ function OnboardingContent() {
               onSubmit={(e) => {
                 e.preventDefault();
                 void (async () => {
+                  setShowPhoneTakenTip(false);
+                  setShowEmailTakenTip(false);
+
                   const rawPhone = String(form.phone || "").trim();
                   if (rawPhone) {
                     // Prevent bypass: if there's a pending debounce or an in-flight request,
                     // force an immediate check before proceeding.
                     if (phoneChecking || phoneCheckRef.t) {
                       const exists = await runPhoneDupCheck(rawPhone, { immediate: true });
-                      if (exists) return;
+                      if (exists) {
+                        setShowPhoneTakenTip(true);
+                        return;
+                      }
                     } else if (!phoneTaken) {
                       const exists = await runPhoneDupCheck(rawPhone, { immediate: true });
-                      if (exists) return;
+                      if (exists) {
+                        setShowPhoneTakenTip(true);
+                        return;
+                      }
                     }
                   }
-                  if (validateStep1() && !phoneTaken) setStep(2);
+
+                  const rawEmail = String(form.email || "").trim();
+                  if (rawEmail) {
+                    const existsEmail = await runEmailDupCheck(rawEmail);
+                    if (existsEmail) {
+                      setShowEmailTakenTip(true);
+                      return;
+                    }
+                  }
+
+                  if (validateStep1() && !phoneTaken && !emailTaken) setStep(2);
                 })();
               }}
             >
@@ -684,6 +723,7 @@ function OnboardingContent() {
                   value={form.phone}
                   onChange={(e) => {
                     setPhoneTaken(false);
+                    setShowPhoneTakenTip(false);
                     update("phone", e.target.value);
                   }}
                   onBlur={(e) => {
@@ -697,7 +737,7 @@ function OnboardingContent() {
                   autoComplete="tel"
                 />
                 {errors.phone ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.phone}</span> : null}
-                {!errors.phone && phoneTaken ? (
+                {!errors.phone && phoneTaken && showPhoneTakenTip ? (
                   <span style={{ fontSize: "12px", color: "#e24b4a" }}>מספר הטלפון כבר רשום במערכת</span>
                 ) : null}
                 {phoneChecking ? (
@@ -713,7 +753,11 @@ function OnboardingContent() {
                   id="onboarding_email"
                   style={{ ...inputStyle, borderColor: errors.email ? "#e24b4a" : "#e8e4f8" }}
                   value={form.email}
-                  onChange={(e) => update("email", e.target.value)}
+                  onChange={(e) => {
+                    setEmailTaken(false);
+                    setShowEmailTakenTip(false);
+                    update("email", e.target.value);
+                  }}
                   onBlur={(e) => void checkExistingEmailIfNeeded(e.target.value)}
                   placeholder="israel@studio.co.il"
                   type="email"
@@ -724,6 +768,12 @@ function OnboardingContent() {
                   spellCheck={false}
                 />
                 {errors.email ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.email}</span> : null}
+                {!errors.email && emailTaken && showEmailTakenTip ? (
+                  <span style={{ fontSize: "12px", color: "#e24b4a" }}>האימייל כבר רשום במערכת</span>
+                ) : null}
+                {emailChecking ? (
+                  <div style={{ fontSize: "12px", color: "#8b7aaa", marginTop: "6px" }}>בודקים אימייל…</div>
+                ) : null}
               </div>
 
               <div style={{ marginBottom: "28px" }}>
@@ -780,7 +830,12 @@ function OnboardingContent() {
               <button
                 type="submit"
                 style={btnPrimary}
-                disabled={phoneTaken || (phoneChecking && Boolean(String(form.phone || "").trim()))}
+                disabled={
+                  (phoneTaken && showPhoneTakenTip) ||
+                  (emailTaken && showEmailTakenTip) ||
+                  (phoneChecking && Boolean(String(form.phone || "").trim())) ||
+                  (emailChecking && Boolean(String(form.email || "").trim()))
+                }
               >
                 המשך
               </button>
