@@ -139,6 +139,7 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
   const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
+  const [metaChecked, setMetaChecked] = useState(false);
   const pollRef = useRef<number | null>(null);
   const metaReqIdRef = useRef(0);
 
@@ -171,6 +172,7 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
     void (async () => {
       const st = await fetchMetaStatus();
       if (cancelled) return;
+      setMetaChecked(true);
       if (!st) return;
       setMetaStatus(st);
       if (st === "PENDING" || st === "UNVERIFIED") {
@@ -347,12 +349,17 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
           </div>
           <p className="mt-1 text-xs text-zinc-600">הדף יעדכן אוטומטית כל 10 שניות עד שהמספר יהפוך לפעיל.</p>
         </div>
-      ) : (
+      ) : status === "failed" ? (
         <div className="mt-3 rounded-xl border border-rose-200/70 bg-rose-50/70 p-4 text-right">
           <p className="text-sm font-medium text-rose-800">אירעה בעיה בהגדרת המספר</p>
           <p className="mt-1 text-xs text-rose-700">צוות זואי יצור איתך קשר בקרוב</p>
         </div>
-      )}
+      ) : !metaChecked && (isLoading || !data) ? (
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-right text-sm text-zinc-600 flex items-center justify-between gap-3">
+          <span>טוען…</span>
+          <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
+        </div>
+      ) : null}
     </div>
   );
 }
