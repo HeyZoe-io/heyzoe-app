@@ -2,6 +2,7 @@
 
 import { type CSSProperties, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type Plan = "starter" | "pro";
 type Step = 1 | 2 | 3;
@@ -82,6 +83,7 @@ function studioToSlug(input: string): string {
 
 function OnboardingContent() {
   const searchParams = useSearchParams();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const requestedPlan = (searchParams.get("plan") || "starter").toLowerCase();
   const [selectedPlan, setSelectedPlan] = useState<Plan>(requestedPlan === "pro" ? "pro" : "starter");
   const [planMenuOpen, setPlanMenuOpen] = useState(false);
@@ -108,6 +110,10 @@ function OnboardingContent() {
   const [existingModal, setExistingModal] = useState<
     null | { next: string; title: string; body: string; msg: string }
   >(null);
+  const [sessionEmail, setSessionEmail] = useState<string>("");
+  const [switchAccountModal, setSwitchAccountModal] = useState<
+    null | { sessionEmail: string; typedEmail: string }
+  >(null);
   const emailCheckRef = useMemo(
     () => ({ ac: null as AbortController | null, t: null as number | null, reqId: 0 }),
     []
@@ -127,6 +133,19 @@ function OnboardingContent() {
   });
 
   const planInfo = PLAN_INFO[selectedPlan];
+
+  // Detect existing session email to prevent "sign up with a different email while logged in".
+  useEffect(() => {
+    let cancelled = false;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (cancelled) return;
+      const email = String(data.user?.email ?? "").trim().toLowerCase();
+      setSessionEmail(email);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   async function runPhoneDupCheck(rawPhone: string, opts?: { immediate?: boolean }) {
     const raw = String(rawPhone || "").trim();
@@ -565,6 +584,95 @@ function OnboardingContent() {
           </div>
         </div>
       ) : null}
+      {switchAccountModal ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(17, 11, 26, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "18px",
+            zIndex: 1000,
+          }}
+          onClick={() => setSwitchAccountModal(null)}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "460px",
+              background: "white",
+              borderRadius: "16px",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.25)",
+              padding: "18px 18px 16px",
+              textAlign: "right",
+              border: "1px solid rgba(113,51,218,0.12)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 800, color: "#1a0a3c", fontSize: "18px" }}>את/ה כבר מחובר/ת למערכת</div>
+            <div style={{ marginTop: "8px", color: "#6b5b9a", fontSize: "14px", lineHeight: 1.6 }}>
+              כרגע את/ה מחובר/ת עם{" "}
+              <span dir="ltr" style={{ fontWeight: 700 }}>
+                {switchAccountModal.sessionEmail}
+              </span>
+              , אבל בטופס הוקלד{" "}
+              <span dir="ltr" style={{ fontWeight: 700 }}>
+                {switchAccountModal.typedEmail}
+              </span>
+              .
+              <div style={{ marginTop: 8 }}>כדי לפתוח חשבון חדש עם אימייל אחר, צריך להתנתק קודם.</div>
+            </div>
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+              <button
+                type="button"
+                style={{
+                  ...btnPrimary,
+                  flex: 1,
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                }}
+                onClick={() => {
+                  const email = switchAccountModal.sessionEmail;
+                  setForm((prev) => ({ ...prev, email }));
+                  setSwitchAccountModal(null);
+                }}
+              >
+                המשך עם האימייל המחובר
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...btnPrimary,
+                  background: "transparent",
+                  color: "#7133da",
+                  border: "2px solid #7133da",
+                  width: "150px",
+                  padding: "12px 14px",
+                  borderRadius: "14px",
+                }}
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await supabase.auth.signOut();
+                    } catch {
+                      // ignore
+                    } finally {
+                      setSessionEmail("");
+                      setSwitchAccountModal(null);
+                    }
+                  })();
+                }}
+              >
+                התנתקות והמשך
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <a href="/" style={{ marginBottom: "32px" }}>
         <img src="/heyzoe-logo.png" alt="HeyZoe" style={{ height: "36px" }} />
       </a>
@@ -677,6 +785,12 @@ function OnboardingContent() {
                 void (async () => {
                   setShowPhoneTakenTip(false);
                   setShowEmailTakenTip(false);
+
+                  const typedEmail = String(form.email || "").trim().toLowerCase();
+                  if (sessionEmail && typedEmail && sessionEmail !== typedEmail) {
+                    setSwitchAccountModal({ sessionEmail, typedEmail });
+                    return;
+                  }
 
                   const rawPhone = String(form.phone || "").trim();
                   if (rawPhone) {
