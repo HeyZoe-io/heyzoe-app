@@ -13,6 +13,7 @@ type BizRow = {
   name: string | null;
   plan: string | null;
   is_active: boolean | null;
+  whatsapp_number: string | null;
 };
 
 export default async function AdminBusinessesPage() {
@@ -24,7 +25,7 @@ export default async function AdminBusinessesPage() {
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("businesses")
-    .select("id, slug, name, plan, is_active")
+    .select("id, slug, name, plan, is_active, whatsapp_number")
     .order("created_at", { ascending: false })
     .limit(2000);
 
@@ -84,11 +85,12 @@ export default async function AdminBusinessesPage() {
           }}
         >
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
               <thead>
                 <tr style={{ textAlign: "right", fontSize: 12, color: "#6b5b9a" }}>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>עסק</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>slug</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>מספר ווטסאפ</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>חבילה</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>סטטוס</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>לינקים</th>
@@ -99,11 +101,15 @@ export default async function AdminBusinessesPage() {
                   const slug = String(b.slug ?? "").trim();
                   const active = Boolean(b.is_active);
                   const plan = planLabel(b.plan);
+                  const whatsappNumber = String(b.whatsapp_number ?? "").trim();
                   return (
                     <tr key={String(b.id)} style={{ borderBottom: "1px solid rgba(113,51,218,0.08)" }}>
                       <td style={{ padding: "10px 8px", fontWeight: 400, color: "#1a0a3c" }}>{b.name || slug}</td>
                       <td style={{ padding: "10px 8px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontSize: 12, color: "#6b5b9a" }}>
                         {slug}
+                      </td>
+                      <td style={{ padding: "10px 8px", fontSize: 12, color: whatsappNumber ? "#1a0a3c" : "#9b8dbf" }}>
+                        {whatsappNumber || "—"}
                       </td>
                       <td style={{ padding: "10px 8px" }}>
                         <span
