@@ -36,14 +36,14 @@ export default function DashboardLoginPage() {
 
   async function redirectAfterLogin() {
     if (nextPath) {
-      router.replace(nextPath);
+      window.location.href = nextPath;
       return;
     }
     const res = await fetch("/api/dashboard/settings", { method: "GET" });
     const j = await res.json().catch(() => ({}));
     const slug =
       j?.business && typeof j.business.slug === "string" ? String(j.business.slug).trim() : "";
-    router.replace(slug ? `/${encodeURIComponent(slug)}/analytics` : "/register");
+    window.location.href = slug ? `/${encodeURIComponent(slug)}/analytics` : "/register";
   }
 
   useEffect(() => {
