@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { promoVatAndMonthLine } from "@/lib/promo-month";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 function PlanCard({
   title,
@@ -96,6 +97,7 @@ function formatHebrewDate(iso: string) {
 }
 
 export default function AccountBillingPage() {
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
   /** מנוי משולם פעיל — בלי זה לא מציגים «החבילה שלך» גם אם plan ב-DB נשאר basic/premium */
   const [subscriptionActive, setSubscriptionActive] = useState(false);
@@ -107,6 +109,9 @@ export default function AccountBillingPage() {
   const [cancelError, setCancelError] = useState<string>("");
   const sp = useSearchParams();
   const reactivate = sp.get("reactivate") === "1";
+  const nextParam = sp.get("next") || "";
+  const welcome = sp.get("welcome") === "1";
+  const redirectingRef = useRef(false);
 
   const previewEndDate = useMemo(() => {
     const d = new Date();
@@ -130,6 +135,56 @@ export default function AccountBillingPage() {
   useEffect(() => {
     loadBillingState();
   }, []);
+
+  // Reactivation flow: after successful payment, iCount IPN may not navigate the user
+  // back to the dashboard. Poll readiness by email and redirect to `next` when ready.
+  useEffect(() => {
+    if (!reactivate) return;
+    if (!nextParam) return;
+    if (redirectingRef.current) return;
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    const startedAt = Date.now();
+    const POLL_MS = 2500;
+    const TIMEOUT_MS = 120_000;
+
+    async function tick(email: string) {
+      if (cancelled || redirectingRef.current) return;
+      if (Date.now() - startedAt > TIMEOUT_MS) return;
+      try {
+        // First try the explicit "ready" flag (set by the IPN).
+        const res = await fetch(`/api/check-payment-ready?email=${encodeURIComponent(email)}`, {
+          cache: "no-store",
+        });
+        const data = (await res.json().catch(() => ({}))) as { ready?: boolean; slug?: string };
+        if (data?.ready) {
+          redirectingRef.current = true;
+          const target = nextParam.startsWith("/") ? nextParam : `/${nextParam}`;
+          window.location.href = target + (welcome ? (target.includes("?") ? "&welcome=1" : "?welcome=1") : "");
+          return;
+        }
+      } catch {
+        // network error: stay quiet, keep polling
+      }
+
+      // Also refresh local billing state, so UI updates quickly when business flips is_active.
+      loadBillingState();
+
+      timeoutId = window.setTimeout(() => tick(email), POLL_MS);
+    }
+
+    void supabase.auth.getUser().then(({ data }) => {
+      const email = String(data.user?.email ?? "").trim().toLowerCase();
+      if (cancelled || !email) return;
+      void tick(email);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [reactivate, nextParam, welcome, supabase]);
 
   const invoices: Array<{ month: string; amount: string; status: string; href: string }> = [];
   const promoPriceNote = useMemo(() => promoVatAndMonthLine(), []);
