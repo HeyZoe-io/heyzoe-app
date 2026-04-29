@@ -138,6 +138,103 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
   const status = data?.provisioning_status ?? null;
   const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
 
+  const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
+  const pollRef = useRef<number | null>(null);
+  const metaReqIdRef = useRef(0);
+
+  const fetchMetaStatus = useCallback(async () => {
+    const my = (metaReqIdRef.current += 1);
+    try {
+      const res = await fetch(`/api/dashboard/whatsapp-status?slug=${encodeURIComponent(slug)}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const j = (await res.json().catch(() => ({}))) as { status?: string };
+      if (metaReqIdRef.current !== my) return null;
+      const st = String(j?.status ?? "").trim().toUpperCase();
+      if (st === "NOT_PROVISIONED" || st === "not_provisioned") return null;
+      if (st === "CONNECTED" || st === "PENDING" || st === "UNVERIFIED") return st as any;
+      return null;
+    } catch {
+      return null;
+    }
+  }, [slug]);
+
+  useEffect(() => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    setMetaStatus(null);
+
+    let cancelled = false;
+    void (async () => {
+      const st = await fetchMetaStatus();
+      if (cancelled) return;
+      if (!st) return;
+      setMetaStatus(st);
+      if (st === "PENDING" || st === "UNVERIFIED") {
+        pollRef.current = window.setInterval(() => {
+          void (async () => {
+            const next = await fetchMetaStatus();
+            if (!next) return;
+            setMetaStatus(next);
+            if (next === "CONNECTED" && pollRef.current) {
+              window.clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+          })();
+        }, 300_000);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [fetchMetaStatus]);
+
+  const badge = useMemo(() => {
+    if (metaStatus === "CONNECTED") {
+      return (
+        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+          פעיל
+        </span>
+      );
+    }
+    if (metaStatus === "PENDING") {
+      return (
+        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 text-[11px] font-medium">
+          בתהליך אישור
+        </span>
+      );
+    }
+    if (metaStatus === "UNVERIFIED") {
+      return (
+        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
+          לא מאומת
+        </span>
+      );
+    }
+    return null;
+  }, [metaStatus]);
+
+  const metaText = useMemo(() => {
+    if (metaStatus === "CONNECTED") {
+      return "זואי מחוברת ועונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!";
+    }
+    if (metaStatus === "PENDING") {
+      return "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות — אין צורך בפעולה מצידך.";
+    }
+    if (metaStatus === "UNVERIFIED") {
+      return "המספר טרם אומת. אנא צור קשר עם התמיכה של HeyZoe לסיוע.";
+    }
+    return "";
+  }, [metaStatus]);
+
   const copy = useCallback(async () => {
     const value = String(data?.phone_display ?? "").trim();
     if (!value) return;
@@ -171,7 +268,9 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
           <div className="text-sm font-semibold text-zinc-900">מספר ה‑WhatsApp שלך</div>
           <div className="mt-0.5 text-xs text-zinc-500">המספר שעליו זואי עונה ללקוחות שלך</div>
         </div>
-        {status === "active" ? (
+        {badge ? (
+          badge
+        ) : status === "active" ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
             פעיל
           </span>
@@ -204,7 +303,7 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
         </div>
       ) : null}
 
-      {status === "active" ? (
+      {metaStatus === "CONNECTED" || status === "active" ? (
         <div className="mt-3 space-y-2 text-right">
           <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
             <span className="text-sm font-semibold text-zinc-900" dir="ltr">
@@ -229,8 +328,16 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
           </div>
           {copied ? <div className="text-xs text-emerald-700">המספר הועתק</div> : null}
           <p className="text-sm text-zinc-700">
-            זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!
+            {metaText || "זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!"}
           </p>
+        </div>
+      ) : metaStatus === "PENDING" ? (
+        <div className="mt-3 rounded-xl border border-amber-200/70 bg-amber-50/70 p-4 text-right">
+          <p className="text-sm font-medium text-zinc-900">{metaText}</p>
+        </div>
+      ) : metaStatus === "UNVERIFIED" ? (
+        <div className="mt-3 rounded-xl border border-rose-200/70 bg-rose-50/70 p-4 text-right">
+          <p className="text-sm font-medium text-rose-800">{metaText}</p>
         </div>
       ) : status === "pending" ? (
         <div className="mt-3 rounded-xl border border-violet-200/70 bg-violet-50/60 p-4 text-right">
