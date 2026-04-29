@@ -209,22 +209,21 @@ export default function AccountBillingPage() {
     }
   }, [authReady, authed]);
 
-  // If the subscription is already active, avoid showing the "reactivate" banner and
-  // clean the URL so it won't keep flashing on refresh/navigation.
+  // If arriving with reactivate=1 and the subscription is already active, redirect
+  // immediately to `next` (billing is a transition page in this flow).
   useEffect(() => {
     const stable = initialParamsRef.current;
     if (!stable?.reactivate) return;
+    if (!stable.nextParam) return;
     if (!authReady || !authed) return;
     if (!subscriptionActive) return;
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("reactivate");
-      url.searchParams.delete("welcome");
-      url.searchParams.delete("next");
-      window.history.replaceState({}, "", url.toString());
-    } catch {
-      // ignore
-    }
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    const stableNextParam = stable.nextParam;
+    const stableWelcome = stable.welcome;
+    const target = stableNextParam.startsWith("/") ? stableNextParam : `/${stableNextParam}`;
+    window.location.href =
+      target + (stableWelcome ? (target.includes("?") ? "&welcome=1" : "?welcome=1") : "");
   }, [reactivate, subscriptionActive]);
 
   // Reactivation flow: after successful payment, iCount IPN may not navigate the user
