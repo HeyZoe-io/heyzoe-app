@@ -113,6 +113,7 @@ export default function AccountBillingPage() {
   const welcome = sp.get("welcome") === "1";
   const redirectingRef = useRef(false);
   const billingSlugRef = useRef<string>("");
+  const initialParamsRef = useRef<null | { reactivate: boolean; nextParam: string; welcome: boolean }>(null);
 
   function slugFromNextParam(next: string): string {
     const raw = String(next || "").trim();
@@ -123,6 +124,18 @@ export default function AccountBillingPage() {
     return first.trim().toLowerCase();
   }
 
+  // Keep the first set of query params stable even if we later clean the URL
+  // (useSearchParams updates when history.replaceState runs).
+  if (!initialParamsRef.current) {
+    initialParamsRef.current = {
+      reactivate,
+      nextParam,
+      welcome,
+    };
+    const fromNext = slugFromNextParam(nextParam);
+    if (fromNext) billingSlugRef.current = fromNext;
+  }
+
   const previewEndDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 30);
@@ -130,7 +143,8 @@ export default function AccountBillingPage() {
   }, []);
 
   function loadBillingState() {
-    const fromNext = slugFromNextParam(nextParam);
+    const stableNext = initialParamsRef.current?.nextParam ?? "";
+    const fromNext = slugFromNextParam(stableNext);
     const slug = billingSlugRef.current || fromNext;
     const url = slug
       ? `/api/dashboard/settings?slug=${encodeURIComponent(slug)}`
@@ -158,7 +172,8 @@ export default function AccountBillingPage() {
   // If the subscription is already active, avoid showing the "reactivate" banner and
   // clean the URL so it won't keep flashing on refresh/navigation.
   useEffect(() => {
-    if (!reactivate) return;
+    const stable = initialParamsRef.current;
+    if (!stable?.reactivate) return;
     if (!subscriptionActive) return;
     try {
       const url = new URL(window.location.href);
@@ -174,8 +189,9 @@ export default function AccountBillingPage() {
   // Reactivation flow: after successful payment, iCount IPN may not navigate the user
   // back to the dashboard. Poll readiness by email and redirect to `next` when ready.
   useEffect(() => {
-    if (!reactivate) return;
-    if (!nextParam) return;
+    const stable = initialParamsRef.current;
+    if (!stable?.reactivate) return;
+    if (!stable.nextParam) return;
     if (redirectingRef.current) return;
 
     let cancelled = false;
@@ -195,8 +211,10 @@ export default function AccountBillingPage() {
         const data = (await res.json().catch(() => ({}))) as { ready?: boolean; slug?: string };
         if (data?.ready) {
           redirectingRef.current = true;
-          const target = nextParam.startsWith("/") ? nextParam : `/${nextParam}`;
-          window.location.href = target + (welcome ? (target.includes("?") ? "&welcome=1" : "?welcome=1") : "");
+          const target = stable.nextParam.startsWith("/") ? stable.nextParam : `/${stable.nextParam}`;
+          window.location.href =
+            target +
+            (stable.welcome ? (target.includes("?") ? "&welcome=1" : "?welcome=1") : "");
           return;
         }
       } catch {
@@ -219,7 +237,7 @@ export default function AccountBillingPage() {
       cancelled = true;
       if (timeoutId) window.clearTimeout(timeoutId);
     };
-  }, [reactivate, nextParam, welcome, supabase]);
+  }, [reactivate, supabase]);
 
   const invoices: Array<{ month: string; amount: string; status: string; href: string }> = [];
   const promoPriceNote = useMemo(() => promoVatAndMonthLine(), []);
