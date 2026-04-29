@@ -87,6 +87,10 @@ function OnboardingContent() {
   const [planMenuOpen, setPlanMenuOpen] = useState(false);
   const planPickerRef = useRef<HTMLDivElement>(null);
   const emailParam = (searchParams.get("email") || "").trim();
+  const phoneCheckRef = useMemo(
+    () => ({ ac: null as AbortController | null, t: null as number | null, reqId: 0 }),
+    []
+  );
 
   const [step, setStep] = useState<Step>(1);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
@@ -95,6 +99,8 @@ function OnboardingContent() {
   const [paymentReadyTimedOut, setPaymentReadyTimedOut] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPassword, setShowPassword] = useState(false);
+  const [phoneTaken, setPhoneTaken] = useState(false);
+  const [phoneChecking, setPhoneChecking] = useState(false);
   const [existingModal, setExistingModal] = useState<
     null | { next: string; title: string; body: string; msg: string }
   >(null);
@@ -123,6 +129,57 @@ function OnboardingContent() {
       return { ...prev, email: emailParam };
     });
   }, [emailParam]);
+
+  // Debounced "phone already exists" check (does not validate format).
+  useEffect(() => {
+    const raw = String(form.phone || "").trim();
+
+    if (phoneCheckRef.t) {
+      window.clearTimeout(phoneCheckRef.t);
+      phoneCheckRef.t = null;
+    }
+    phoneCheckRef.ac?.abort();
+    phoneCheckRef.ac = null;
+
+    if (!raw) {
+      setPhoneChecking(false);
+      setPhoneTaken(false);
+      return;
+    }
+
+    const myReqId = (phoneCheckRef.reqId += 1);
+    phoneCheckRef.t = window.setTimeout(async () => {
+      const ac = new AbortController();
+      phoneCheckRef.ac = ac;
+      setPhoneChecking(true);
+      try {
+        const res = await fetch(`/api/onboarding/check-phone?phone=${encodeURIComponent(raw)}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const data = (await res.json().catch(() => ({}))) as { exists?: boolean };
+        if (phoneCheckRef.reqId !== myReqId) return;
+        setPhoneTaken(Boolean(data?.exists));
+      } catch {
+        // Network/server error: do not block onboarding.
+        if (phoneCheckRef.reqId !== myReqId) return;
+        setPhoneTaken(false);
+      } finally {
+        if (phoneCheckRef.reqId !== myReqId) return;
+        setPhoneChecking(false);
+      }
+    }, 600);
+
+    return () => {
+      if (phoneCheckRef.t) {
+        window.clearTimeout(phoneCheckRef.t);
+        phoneCheckRef.t = null;
+      }
+      phoneCheckRef.ac?.abort();
+      phoneCheckRef.ac = null;
+    };
+  }, [form.phone, phoneCheckRef]);
 
   // When in step 3 (payment iframe), poll server readiness and redirect automatically.
   useEffect(() => {
@@ -587,13 +644,22 @@ function OnboardingContent() {
                   id="onboarding_phone"
                   style={{ ...inputStyle, borderColor: errors.phone ? "#e24b4a" : "#e8e4f8" }}
                   value={form.phone}
-                  onChange={(e) => update("phone", e.target.value)}
+                  onChange={(e) => {
+                    setPhoneTaken(false);
+                    update("phone", e.target.value);
+                  }}
                   placeholder="050-0000000"
                   type="tel"
                   name="phone"
                   autoComplete="tel"
                 />
                 {errors.phone ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.phone}</span> : null}
+                {!errors.phone && phoneTaken ? (
+                  <span style={{ fontSize: "12px", color: "#e24b4a" }}>מספר הטלפון כבר רשום במערכת</span>
+                ) : null}
+                {phoneChecking ? (
+                  <div style={{ fontSize: "12px", color: "#8b7aaa", marginTop: "6px" }}>בודקים מספר…</div>
+                ) : null}
               </div>
 
               <div style={{ marginBottom: "16px" }}>
@@ -671,6 +737,7 @@ function OnboardingContent() {
               <button
                 type="submit"
                 style={btnPrimary}
+                disabled={phoneTaken}
               >
                 המשך
               </button>
