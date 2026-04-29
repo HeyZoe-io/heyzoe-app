@@ -112,6 +112,16 @@ export default function AccountBillingPage() {
   const nextParam = sp.get("next") || "";
   const welcome = sp.get("welcome") === "1";
   const redirectingRef = useRef(false);
+  const billingSlugRef = useRef<string>("");
+
+  function slugFromNextParam(next: string): string {
+    const raw = String(next || "").trim();
+    if (!raw) return "";
+    const path = raw.startsWith("http") ? (() => { try { return new URL(raw).pathname; } catch { return raw; } })() : raw;
+    const s = path.startsWith("/") ? path.slice(1) : path;
+    const first = s.split("/")[0] ?? "";
+    return first.trim().toLowerCase();
+  }
 
   const previewEndDate = useMemo(() => {
     const d = new Date();
@@ -120,7 +130,12 @@ export default function AccountBillingPage() {
   }, []);
 
   function loadBillingState() {
-    void fetch("/api/dashboard/settings")
+    const fromNext = slugFromNextParam(nextParam);
+    const slug = billingSlugRef.current || fromNext;
+    const url = slug
+      ? `/api/dashboard/settings?slug=${encodeURIComponent(slug)}`
+      : "/api/dashboard/settings";
+    void fetch(url)
       .then((r) => r.json())
       .then((j) => {
         const p = j?.business?.plan === "premium" ? "premium" : "basic";
@@ -128,6 +143,10 @@ export default function AccountBillingPage() {
         setSubscriptionActive(Boolean(j?.business?.is_active));
         const eff = j?.business?.cancellation_effective_at;
         setCancellationEffectiveAt(typeof eff === "string" && eff ? eff : null);
+        const gotSlug = typeof j?.business?.slug === "string" ? String(j.business.slug).trim().toLowerCase() : "";
+        if (gotSlug && !billingSlugRef.current) {
+          billingSlugRef.current = gotSlug;
+        }
       })
       .catch(() => void 0);
   }
