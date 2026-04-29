@@ -102,6 +102,9 @@ export default function AccountBillingPage() {
   /** מנוי משולם פעיל — בלי זה לא מציגים «החבילה שלך» גם אם plan ב-DB נשאר basic/premium */
   const [subscriptionActive, setSubscriptionActive] = useState(false);
   const [cancellationEffectiveAt, setCancellationEffectiveAt] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authed, setAuthed] = useState(false);
+  const [billingStateLoaded, setBillingStateLoaded] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState<null | "starter" | "pro">(null);
   const [checkoutError, setCheckoutError] = useState<string>("");
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -143,6 +146,7 @@ export default function AccountBillingPage() {
   }, []);
 
   function loadBillingState() {
+    setBillingStateLoaded(false);
     const stableNext = initialParamsRef.current?.nextParam ?? "";
     const fromNext = slugFromNextParam(stableNext);
     const slug = billingSlugRef.current || fromNext;
@@ -161,19 +165,56 @@ export default function AccountBillingPage() {
         if (gotSlug && !billingSlugRef.current) {
           billingSlugRef.current = gotSlug;
         }
+        setBillingStateLoaded(true);
       })
-      .catch(() => void 0);
+      .catch(() => {
+        // If auth cookies are not ready yet, we'll retry after authReady flips.
+        setBillingStateLoaded(true);
+      });
   }
 
   useEffect(() => {
-    loadBillingState();
-  }, []);
+    let cancelled = false;
+    // Gate everything on session readiness to avoid client-side flicker.
+    void supabase.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      const has = Boolean(data.session);
+      setAuthed(has);
+      setAuthReady(true);
+      if (has) loadBillingState();
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_ev, session) => {
+      if (cancelled) return;
+      const has = Boolean(session);
+      setAuthed(has);
+      setAuthReady(true);
+      if (has) loadBillingState();
+    });
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, [supabase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If we know there is no session, redirect to login (with next back to billing).
+  useEffect(() => {
+    if (!authReady) return;
+    if (authed) return;
+    try {
+      const url = new URL(window.location.href);
+      const next = url.pathname + url.search;
+      window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}`;
+    } catch {
+      window.location.href = "/dashboard/login";
+    }
+  }, [authReady, authed]);
 
   // If the subscription is already active, avoid showing the "reactivate" banner and
   // clean the URL so it won't keep flashing on refresh/navigation.
   useEffect(() => {
     const stable = initialParamsRef.current;
     if (!stable?.reactivate) return;
+    if (!authReady || !authed) return;
     if (!subscriptionActive) return;
     try {
       const url = new URL(window.location.href);
@@ -192,6 +233,7 @@ export default function AccountBillingPage() {
     const stable = initialParamsRef.current;
     if (!stable?.reactivate) return;
     if (!stable.nextParam) return;
+    if (!authReady || !authed) return;
     if (redirectingRef.current) return;
 
     const stableNextParam = stable.nextParam;
@@ -299,7 +341,13 @@ export default function AccountBillingPage() {
         <p className="text-sm text-zinc-600">בחר/י חבילה שמתאימה לעסק שלך (Starter / Pro)</p>
       </div>
 
-      {reactivate && !subscriptionActive ? (
+      {!authReady || !authed || !billingStateLoaded ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-right text-sm text-zinc-600">
+          טוען…
+        </div>
+      ) : null}
+
+      {reactivate && authReady && authed && billingStateLoaded && !subscriptionActive ? (
         <div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-right">
           <p className="text-sm font-semibold text-zinc-900">המנוי לא פעיל כרגע</p>
           <p className="mt-1 text-sm text-zinc-700">
