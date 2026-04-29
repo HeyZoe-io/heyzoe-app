@@ -121,6 +121,50 @@ function OnboardingContent() {
 
   const planInfo = PLAN_INFO[selectedPlan];
 
+  async function runPhoneDupCheck(rawPhone: string, opts?: { immediate?: boolean }) {
+    const raw = String(rawPhone || "").trim();
+
+    if (!raw) {
+      setPhoneChecking(false);
+      setPhoneTaken(false);
+      return false;
+    }
+
+    if (opts?.immediate) {
+      if (phoneCheckRef.t) {
+        window.clearTimeout(phoneCheckRef.t);
+        phoneCheckRef.t = null;
+      }
+    }
+
+    phoneCheckRef.ac?.abort();
+    const ac = new AbortController();
+    phoneCheckRef.ac = ac;
+
+    const myReqId = (phoneCheckRef.reqId += 1);
+    setPhoneChecking(true);
+    try {
+      const res = await fetch(`/api/onboarding/check-phone?phone=${encodeURIComponent(raw)}`, {
+        method: "GET",
+        cache: "no-store",
+        signal: ac.signal,
+      });
+      const data = (await res.json().catch(() => ({}))) as { exists?: boolean };
+      if (phoneCheckRef.reqId !== myReqId) return false;
+      const exists = Boolean(data?.exists);
+      setPhoneTaken(exists);
+      return exists;
+    } catch {
+      // Network/server error: do not block onboarding.
+      if (phoneCheckRef.reqId !== myReqId) return false;
+      setPhoneTaken(false);
+      return false;
+    } finally {
+      if (phoneCheckRef.reqId !== myReqId) return;
+      setPhoneChecking(false);
+    }
+  }
+
   // Optional: allow prefilling email via /onboarding?plan=starter&email=user@example.com
   useEffect(() => {
     if (!emailParam) return;
@@ -147,28 +191,8 @@ function OnboardingContent() {
       return;
     }
 
-    const myReqId = (phoneCheckRef.reqId += 1);
     phoneCheckRef.t = window.setTimeout(async () => {
-      const ac = new AbortController();
-      phoneCheckRef.ac = ac;
-      setPhoneChecking(true);
-      try {
-        const res = await fetch(`/api/onboarding/check-phone?phone=${encodeURIComponent(raw)}`, {
-          method: "GET",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const data = (await res.json().catch(() => ({}))) as { exists?: boolean };
-        if (phoneCheckRef.reqId !== myReqId) return;
-        setPhoneTaken(Boolean(data?.exists));
-      } catch {
-        // Network/server error: do not block onboarding.
-        if (phoneCheckRef.reqId !== myReqId) return;
-        setPhoneTaken(false);
-      } finally {
-        if (phoneCheckRef.reqId !== myReqId) return;
-        setPhoneChecking(false);
-      }
+      await runPhoneDupCheck(raw);
     }, 600);
 
     return () => {
@@ -582,7 +606,21 @@ function OnboardingContent() {
               autoComplete="on"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (validateStep1()) setStep(2);
+                void (async () => {
+                  const rawPhone = String(form.phone || "").trim();
+                  if (rawPhone) {
+                    // Prevent bypass: if there's a pending debounce or an in-flight request,
+                    // force an immediate check before proceeding.
+                    if (phoneChecking || phoneCheckRef.t) {
+                      const exists = await runPhoneDupCheck(rawPhone, { immediate: true });
+                      if (exists) return;
+                    } else if (!phoneTaken) {
+                      const exists = await runPhoneDupCheck(rawPhone, { immediate: true });
+                      if (exists) return;
+                    }
+                  }
+                  if (validateStep1() && !phoneTaken) setStep(2);
+                })();
               }}
             >
               <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#1a0a3c", marginBottom: "4px" }}>
@@ -647,6 +685,11 @@ function OnboardingContent() {
                   onChange={(e) => {
                     setPhoneTaken(false);
                     update("phone", e.target.value);
+                  }}
+                  onBlur={(e) => {
+                    const raw = String(e.target.value || "").trim();
+                    if (!raw) return;
+                    void runPhoneDupCheck(raw, { immediate: true });
                   }}
                   placeholder="050-0000000"
                   type="tel"
@@ -737,7 +780,7 @@ function OnboardingContent() {
               <button
                 type="submit"
                 style={btnPrimary}
-                disabled={phoneTaken}
+                disabled={phoneTaken || (phoneChecking && Boolean(String(form.phone || "").trim()))}
               >
                 המשך
               </button>
