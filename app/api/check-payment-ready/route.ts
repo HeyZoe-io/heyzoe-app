@@ -20,6 +20,7 @@ export async function GET(req: Request) {
       .maybeSingle();
 
     if (data?.ready && data.slug) {
+      const slug = String(data.slug).trim().toLowerCase();
       // Self-heal: ensure business is marked active once the payment session is ready.
       // This prevents redirect loops where the IPN succeeded but `businesses.is_active`
       // wasn't updated (or was delayed).
@@ -27,11 +28,25 @@ export async function GET(req: Request) {
         await admin
           .from("businesses")
           .update({ is_active: true, status: "active" } as any)
-          .eq("slug", String(data.slug).trim().toLowerCase());
+          .eq("slug", slug);
       } catch (e) {
         console.error("[api/check-payment-ready] business activate failed:", e);
       }
-      return NextResponse.json({ ready: true, slug: data.slug });
+
+      // Only return ready=true once the business row exists and is_active is true.
+      const { data: biz, error: bizErr } = await admin
+        .from("businesses")
+        .select("is_active")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (bizErr) {
+        console.error("[api/check-payment-ready] business check failed:", bizErr);
+        return NextResponse.json({ ready: false });
+      }
+      if (!biz) return NextResponse.json({ ready: false });
+      if (!Boolean((biz as any)?.is_active)) return NextResponse.json({ ready: false });
+
+      return NextResponse.json({ ready: true, slug });
     }
     return NextResponse.json({ ready: false });
   } catch (e) {
