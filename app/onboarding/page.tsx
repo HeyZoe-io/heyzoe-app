@@ -108,7 +108,10 @@ function OnboardingContent() {
   const [existingModal, setExistingModal] = useState<
     null | { next: string; title: string; body: string; msg: string }
   >(null);
-  const emailCheckRef = useMemo(() => ({ ac: null as AbortController | null }), []);
+  const emailCheckRef = useMemo(
+    () => ({ ac: null as AbortController | null, t: null as number | null, reqId: 0 }),
+    []
+  );
 
   const [form, setForm] = useState<FormData>({
     first_name: "",
@@ -169,16 +172,25 @@ function OnboardingContent() {
     }
   }
 
-  async function runEmailDupCheck(rawEmail: string) {
+  async function runEmailDupCheck(rawEmail: string, opts?: { showModal?: boolean; immediate?: boolean }) {
     const email = String(rawEmail || "").trim().toLowerCase();
     if (!email || !email.includes("@")) {
       setEmailChecking(false);
       setEmailTaken(false);
       return false;
     }
+
+    if (opts?.immediate) {
+      if (emailCheckRef.t) {
+        window.clearTimeout(emailCheckRef.t);
+        emailCheckRef.t = null;
+      }
+    }
+
     emailCheckRef.ac?.abort();
     const ac = new AbortController();
     emailCheckRef.ac = ac;
+    const myReqId = (emailCheckRef.reqId += 1);
     setEmailChecking(true);
     try {
       const res = await fetch(`/api/onboarding/email-status?email=${encodeURIComponent(email)}`, {
@@ -188,30 +200,35 @@ function OnboardingContent() {
       });
       const data = (await res.json().catch(() => ({}))) as { state?: string; slug?: string | null };
       const taken = data?.state === "existing_paying" || data?.state === "existing_unpaid";
+      if (emailCheckRef.reqId !== myReqId) return false;
       setEmailTaken(Boolean(taken));
-      if (data?.state === "existing_paying") {
-        const next = data.slug ? `/${data.slug}/analytics` : "/dashboard";
-        setExistingModal({
-          next,
-          title: "מצאנו חשבון קיים",
-          body: "נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.",
-          msg: "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך.",
-        });
-      } else if (data?.state === "existing_unpaid") {
-        const next = "/account/billing?reactivate=1";
-        setExistingModal({
-          next,
-          title: "מצאנו חשבון קיים",
-          body: "החשבון קיים אבל המנוי לא פעיל כרגע. התחברי כדי להפעיל מחדש את המנוי ולחזור לדשבורד.",
-          msg: "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי.",
-        });
+      if (opts?.showModal) {
+        if (data?.state === "existing_paying") {
+          const next = data.slug ? `/${data.slug}/analytics` : "/dashboard";
+          setExistingModal({
+            next,
+            title: "מצאנו חשבון קיים",
+            body: "נראה שהאימייל הזה כבר מחובר לדשבורד פעיל. כדי להמשיך, צריך להתחבר.",
+            msg: "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך.",
+          });
+        } else if (data?.state === "existing_unpaid") {
+          const next = "/account/billing?reactivate=1";
+          setExistingModal({
+            next,
+            title: "מצאנו חשבון קיים",
+            body: "החשבון קיים אבל המנוי לא פעיל כרגע. התחברי כדי להפעיל מחדש את המנוי ולחזור לדשבורד.",
+            msg: "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי.",
+          });
+        }
       }
       return Boolean(taken);
     } catch {
       // Network/server error: do not block onboarding.
+      if (emailCheckRef.reqId !== myReqId) return false;
       setEmailTaken(false);
       return false;
     } finally {
+      if (emailCheckRef.reqId !== myReqId) return;
       setEmailChecking(false);
     }
   }
@@ -329,8 +346,39 @@ function OnboardingContent() {
   }
 
   async function checkExistingEmailIfNeeded(rawEmail: string) {
-    void runEmailDupCheck(rawEmail);
+    void runEmailDupCheck(rawEmail, { showModal: true, immediate: true });
   }
+
+  // Debounced "email already exists" check while typing (does not block on invalid/empty inputs).
+  useEffect(() => {
+    const raw = String(form.email || "").trim();
+
+    if (emailCheckRef.t) {
+      window.clearTimeout(emailCheckRef.t);
+      emailCheckRef.t = null;
+    }
+    emailCheckRef.ac?.abort();
+    emailCheckRef.ac = null;
+
+    if (!raw || !raw.includes("@")) {
+      setEmailChecking(false);
+      setEmailTaken(false);
+      return;
+    }
+
+    emailCheckRef.t = window.setTimeout(async () => {
+      await runEmailDupCheck(raw, { showModal: false });
+    }, 600);
+
+    return () => {
+      if (emailCheckRef.t) {
+        window.clearTimeout(emailCheckRef.t);
+        emailCheckRef.t = null;
+      }
+      emailCheckRef.ac?.abort();
+      emailCheckRef.ac = null;
+    };
+  }, [form.email, emailCheckRef]);
 
   async function goToPayment() {
     setLoadingPayment(true);
@@ -651,7 +699,7 @@ function OnboardingContent() {
 
                   const rawEmail = String(form.email || "").trim();
                   if (rawEmail) {
-                    const existsEmail = await runEmailDupCheck(rawEmail);
+                    const existsEmail = await runEmailDupCheck(rawEmail, { showModal: true, immediate: true });
                     if (existsEmail) {
                       setShowEmailTakenTip(true);
                       return;
@@ -737,8 +785,13 @@ function OnboardingContent() {
                   autoComplete="tel"
                 />
                 {errors.phone ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.phone}</span> : null}
-                {!errors.phone && phoneTaken && showPhoneTakenTip ? (
+                {!errors.phone && phoneTaken ? (
                   <span style={{ fontSize: "12px", color: "#e24b4a" }}>מספר הטלפון כבר רשום במערכת</span>
+                ) : null}
+                {!errors.phone && phoneTaken && showPhoneTakenTip ? (
+                  <div style={{ fontSize: "12px", color: "#6b5b9a", marginTop: "4px" }}>
+                    כדי להמשיך — צריך להכניס מספר אחר או להתחבר לחשבון הקיים.
+                  </div>
                 ) : null}
                 {phoneChecking ? (
                   <div style={{ fontSize: "12px", color: "#8b7aaa", marginTop: "6px" }}>בודקים מספר…</div>
@@ -768,8 +821,13 @@ function OnboardingContent() {
                   spellCheck={false}
                 />
                 {errors.email ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.email}</span> : null}
-                {!errors.email && emailTaken && showEmailTakenTip ? (
+                {!errors.email && emailTaken ? (
                   <span style={{ fontSize: "12px", color: "#e24b4a" }}>האימייל כבר רשום במערכת</span>
+                ) : null}
+                {!errors.email && emailTaken && showEmailTakenTip ? (
+                  <div style={{ fontSize: "12px", color: "#6b5b9a", marginTop: "4px" }}>
+                    כדי להמשיך — צריך להכניס אימייל אחר או להתחבר לחשבון הקיים.
+                  </div>
                 ) : null}
                 {emailChecking ? (
                   <div style={{ fontSize: "12px", color: "#8b7aaa", marginTop: "6px" }}>בודקים אימייל…</div>
@@ -831,8 +889,8 @@ function OnboardingContent() {
                 type="submit"
                 style={btnPrimary}
                 disabled={
-                  (phoneTaken && showPhoneTakenTip) ||
-                  (emailTaken && showEmailTakenTip) ||
+                  phoneTaken ||
+                  emailTaken ||
                   (phoneChecking && Boolean(String(form.phone || "").trim())) ||
                   (emailChecking && Boolean(String(form.email || "").trim()))
                 }
