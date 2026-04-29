@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
         bot_name: "זואי",
         social_links: {
           address: address?.trim() || "",
+          tagline: description?.trim() || "",
           business_description: description?.trim() || "",
         },
         plan: plan === "pro" ? "premium" : "basic",
