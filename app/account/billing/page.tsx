@@ -105,6 +105,7 @@ export default function AccountBillingPage() {
   const [authReady, setAuthReady] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [billingStateLoaded, setBillingStateLoaded] = useState(false);
+  const [activeSlug, setActiveSlug] = useState<string>("");
   const [checkoutLoading, setCheckoutLoading] = useState<null | "starter" | "pro">(null);
   const [checkoutError, setCheckoutError] = useState<string>("");
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -165,6 +166,7 @@ export default function AccountBillingPage() {
         if (gotSlug && !billingSlugRef.current) {
           billingSlugRef.current = gotSlug;
         }
+        setActiveSlug(gotSlug || billingSlugRef.current || "");
         setBillingStateLoaded(true);
       })
       .catch(() => {
@@ -339,6 +341,26 @@ export default function AccountBillingPage() {
         <h1 className="text-2xl font-semibold text-zinc-900">חיוב וחבילות</h1>
         <p className="text-sm text-zinc-600">בחר/י חבילה שמתאימה לעסק שלך (Starter / Pro)</p>
       </div>
+
+      {authReady && authed && billingStateLoaded && subscriptionActive && activeSlug && !reactivate ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-right">
+          <p className="text-sm font-semibold text-emerald-900">המנוי פעיל</p>
+          <p className="mt-1 text-sm text-emerald-800">
+            אפשר לחזור לדשבורד של העסק ולהמשיך משם.
+          </p>
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = `/${encodeURIComponent(activeSlug)}/analytics`;
+              }}
+              className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              מעבר לדשבורד
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {!authReady || !authed || !billingStateLoaded ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-right text-sm text-zinc-600">
