@@ -136,6 +136,22 @@ export default function AccountBillingPage() {
     loadBillingState();
   }, []);
 
+  // If the subscription is already active, avoid showing the "reactivate" banner and
+  // clean the URL so it won't keep flashing on refresh/navigation.
+  useEffect(() => {
+    if (!reactivate) return;
+    if (!subscriptionActive) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("reactivate");
+      url.searchParams.delete("welcome");
+      url.searchParams.delete("next");
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [reactivate, subscriptionActive]);
+
   // Reactivation flow: after successful payment, iCount IPN may not navigate the user
   // back to the dashboard. Poll readiness by email and redirect to `next` when ready.
   useEffect(() => {
@@ -243,7 +259,7 @@ export default function AccountBillingPage() {
         <p className="text-sm text-zinc-600">בחר/י חבילה שמתאימה לעסק שלך (Starter / Pro)</p>
       </div>
 
-      {reactivate ? (
+      {reactivate && !subscriptionActive ? (
         <div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4 text-right">
           <p className="text-sm font-semibold text-zinc-900">המנוי לא פעיל כרגע</p>
           <p className="mt-1 text-sm text-zinc-700">
