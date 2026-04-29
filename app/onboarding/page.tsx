@@ -86,6 +86,7 @@ function OnboardingContent() {
   const [selectedPlan, setSelectedPlan] = useState<Plan>(requestedPlan === "pro" ? "pro" : "starter");
   const [planMenuOpen, setPlanMenuOpen] = useState(false);
   const planPickerRef = useRef<HTMLDivElement>(null);
+  const emailParam = (searchParams.get("email") || "").trim();
 
   const [step, setStep] = useState<Step>(1);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
@@ -113,6 +114,15 @@ function OnboardingContent() {
   });
 
   const planInfo = PLAN_INFO[selectedPlan];
+
+  // Optional: allow prefilling email via /onboarding?plan=starter&email=user@example.com
+  useEffect(() => {
+    if (!emailParam) return;
+    setForm((prev) => {
+      if (String(prev.email || "").trim()) return prev;
+      return { ...prev, email: emailParam };
+    });
+  }, [emailParam]);
 
   // When in step 3 (payment iframe), poll server readiness and redirect automatically.
   useEffect(() => {
@@ -511,7 +521,13 @@ function OnboardingContent() {
           ) : null}
 
           {step === 1 ? (
-            <div>
+            <form
+              autoComplete="on"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (validateStep1()) setStep(2);
+              }}
+            >
               <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#1a0a3c", marginBottom: "4px" }}>
                 נתחיל עם פרטים אישיים
               </h2>
@@ -528,8 +544,11 @@ function OnboardingContent() {
                 }}
               >
                 <div>
-                  <label style={labelStyle}>שם פרטי</label>
+                  <label style={labelStyle} htmlFor="onboarding_first_name">
+                    שם פרטי
+                  </label>
                   <input
+                    id="onboarding_first_name"
                     style={{ ...inputStyle, borderColor: errors.first_name ? "#e24b4a" : "#e8e4f8" }}
                     value={form.first_name}
                     onChange={(e) => update("first_name", e.target.value)}
@@ -542,8 +561,11 @@ function OnboardingContent() {
                   ) : null}
                 </div>
                 <div>
-                  <label style={labelStyle}>שם משפחה</label>
+                  <label style={labelStyle} htmlFor="onboarding_last_name">
+                    שם משפחה
+                  </label>
                   <input
+                    id="onboarding_last_name"
                     style={{ ...inputStyle, borderColor: errors.last_name ? "#e24b4a" : "#e8e4f8" }}
                     value={form.last_name}
                     onChange={(e) => update("last_name", e.target.value)}
@@ -558,8 +580,11 @@ function OnboardingContent() {
               </div>
 
               <div style={{ marginBottom: "16px" }}>
-                <label style={labelStyle}>טלפון</label>
+                <label style={labelStyle} htmlFor="onboarding_phone">
+                  טלפון
+                </label>
                 <input
+                  id="onboarding_phone"
                   style={{ ...inputStyle, borderColor: errors.phone ? "#e24b4a" : "#e8e4f8" }}
                   value={form.phone}
                   onChange={(e) => update("phone", e.target.value)}
@@ -572,8 +597,11 @@ function OnboardingContent() {
               </div>
 
               <div style={{ marginBottom: "16px" }}>
-                <label style={labelStyle}>אימייל</label>
+                <label style={labelStyle} htmlFor="onboarding_email">
+                  אימייל
+                </label>
                 <input
+                  id="onboarding_email"
                   style={{ ...inputStyle, borderColor: errors.email ? "#e24b4a" : "#e8e4f8" }}
                   value={form.email}
                   onChange={(e) => update("email", e.target.value)}
@@ -581,13 +609,18 @@ function OnboardingContent() {
                   placeholder="israel@studio.co.il"
                   type="email"
                   name="email"
-                  autoComplete="email"
+                  autoComplete="username"
+                  inputMode="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
                 />
                 {errors.email ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.email}</span> : null}
               </div>
 
               <div style={{ marginBottom: "28px" }}>
-                <label style={labelStyle}>סיסמה</label>
+                <label style={labelStyle} htmlFor="onboarding_password">
+                  סיסמה
+                </label>
                 <div style={{ position: "relative" }}>
                   <button
                     type="button"
@@ -613,6 +646,7 @@ function OnboardingContent() {
                     )}
                   </button>
                   <input
+                    id="onboarding_password"
                     style={{
                       ...inputStyle,
                       paddingLeft: "44px",
@@ -635,14 +669,12 @@ function OnboardingContent() {
               </div>
 
               <button
+                type="submit"
                 style={btnPrimary}
-                onClick={() => {
-                  if (validateStep1()) setStep(2);
-                }}
               >
                 המשך
               </button>
-            </div>
+            </form>
           ) : null}
 
           {step === 2 ? (
