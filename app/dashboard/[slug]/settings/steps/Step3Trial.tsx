@@ -1,6 +1,7 @@
 "use client";
 
-import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
+import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,134 @@ type ServiceItem = {
   trial_pick_media_type: "" | "image" | "video";
 };
 
+function TrialPickMediaUploadRow(props: {
+  planIsStarter?: boolean;
+  onStarterMediaBlocked?: () => void;
+  uploadTrialPickMedia: (file: File, uiId: string) => void | Promise<void>;
+  uploadingTrialPickUiId: string | null;
+  trialPickMediaUploadError: string;
+  trialPickFailedUiId: string | null;
+  videoUrlForPreview: (url: string) => string;
+  service: ServiceItem;
+  setServices: Dispatch<SetStateAction<ServiceItem[]>>;
+}) {
+  const {
+    planIsStarter,
+    onStarterMediaBlocked,
+    uploadTrialPickMedia,
+    uploadingTrialPickUiId,
+    trialPickMediaUploadError,
+    trialPickFailedUiId,
+    videoUrlForPreview,
+    service,
+    setServices,
+  } = props;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const url = String(service.trial_pick_media_url ?? "").trim();
+  const isVideo = service.trial_pick_media_type === "video";
+  const busy = uploadingTrialPickUiId === service.ui_id;
+  const err = String(trialPickMediaUploadError ?? "").trim();
+  const showPreview = Boolean(url) && !(err && trialPickFailedUiId === service.ui_id);
+
+  return (
+    <div className="pt-3 mt-3 border-t border-zinc-100 space-y-2">
+      <div className="flex flex-row-reverse items-center gap-2 justify-start flex-wrap">
+        <span className="text-xs font-medium text-zinc-700">מדיה עם התשובה בבחירת אימון (אופציונלי)</span>
+        {planIsStarter ? (
+          <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
+            ⭐ Pro
+          </span>
+        ) : null}
+      </div>
+      {!showPreview ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (planIsStarter) {
+              onStarterMediaBlocked?.();
+              return;
+            }
+            inputRef.current?.click();
+          }}
+          className="w-full border-2 border-dashed border-zinc-200 rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-[#7133da]/40 hover:bg-[#f7f3ff]/50 transition-all disabled:opacity-60"
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-6 w-6 animate-spin text-[#7133da]/60" />
+              <p className="text-xs text-zinc-500">מעלה…</p>
+            </>
+          ) : (
+            <>
+              <Upload className="h-6 w-6 text-zinc-400" />
+              <p className="text-xs text-zinc-600">לחץ להעלאת תמונה או סרטון</p>
+              <p className="text-[11px] text-zinc-400">עד 16MB · JPG, PNG, GIF, MP4</p>
+            </>
+          )}
+        </button>
+      ) : (
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-2">
+          {isVideo ? (
+            <video
+              src={videoUrlForPreview(url)}
+              className="mx-auto block max-h-48 max-w-full rounded-lg bg-black"
+              muted
+              playsInline
+              preload="metadata"
+              controls
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={url} alt="" className="mx-auto block max-h-48 max-w-full rounded-lg object-contain" />
+          )}
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1 text-xs h-8"
+              disabled={busy}
+              onClick={() => {
+                if (planIsStarter) {
+                  onStarterMediaBlocked?.();
+                  return;
+                }
+                inputRef.current?.click();
+              }}
+            >
+              <Upload className="h-3.5 w-3.5" /> החלף
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1 text-xs h-8 text-red-600 border-red-200"
+              onClick={() =>
+                setServices((prev) =>
+                  prev.map((x) =>
+                    x.ui_id === service.ui_id ? { ...x, trial_pick_media_url: "", trial_pick_media_type: "" } : x
+                  )
+                )
+              }
+            >
+              <X className="h-3.5 w-3.5" /> הסר
+            </Button>
+          </div>
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void uploadTrialPickMedia(f, service.ui_id);
+        }}
+      />
+    </div>
+  );
+}
+
 export default function Step3Trial(props: {
   websiteUrl: string;
   address: string;
@@ -35,6 +164,13 @@ export default function Step3Trial(props: {
   onDragEnd: () => void;
   toSlug: (name: string) => string;
   uid: () => string;
+  planIsStarter?: boolean;
+  onStarterMediaBlocked?: () => void;
+  uploadTrialPickMedia: (file: File, uiId: string) => void | Promise<void>;
+  uploadingTrialPickUiId: string | null;
+  trialPickMediaUploadError: string;
+  trialPickFailedUiId: string | null;
+  videoUrlForPreview: (url: string) => string;
 }) {
   const {
     websiteUrl,
@@ -48,6 +184,13 @@ export default function Step3Trial(props: {
     onDragEnd,
     toSlug,
     uid,
+    planIsStarter,
+    onStarterMediaBlocked,
+    uploadTrialPickMedia,
+    uploadingTrialPickUiId,
+    trialPickMediaUploadError,
+    trialPickFailedUiId,
+    videoUrlForPreview,
   } = props;
 
   return (
@@ -62,6 +205,11 @@ export default function Step3Trial(props: {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {String(trialPickMediaUploadError ?? "").trim() ? (
+          <p className="text-sm text-red-600 text-right -mt-2" role="alert">
+            {trialPickMediaUploadError}
+          </p>
+        ) : null}
         <div className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 text-center space-y-3">
           <Button
             type="button"
@@ -261,6 +409,18 @@ export default function Step3Trial(props: {
                 </div>
               ) : null}
             </div>
+
+            <TrialPickMediaUploadRow
+              planIsStarter={planIsStarter}
+              onStarterMediaBlocked={onStarterMediaBlocked}
+              uploadTrialPickMedia={uploadTrialPickMedia}
+              uploadingTrialPickUiId={uploadingTrialPickUiId}
+              trialPickMediaUploadError={trialPickMediaUploadError}
+              trialPickFailedUiId={trialPickFailedUiId}
+              videoUrlForPreview={videoUrlForPreview}
+              service={s}
+              setServices={setServices}
+            />
           </div>
         ))}
 
