@@ -17,6 +17,7 @@ import {
   resolveMetaAppSecret,
   resolveMetaVerifyToken,
   verifyMetaSignature256,
+  isMetaCloudPhoneNumberId,
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
@@ -243,20 +244,19 @@ async function sendTrialPickMediaIfAllowed(input: {
   caption?: string;
 }): Promise<void> {
   const url = input.mediaUrl.trim();
-  if (!url || input.blockMedia) return;
-  const kind =
+  if (!url) return;
+  if (input.blockMedia) {
+    console.info("[WA Webhook] trial_pick_media skipped (plan blocks media)");
+    return;
+  }
+  const caption = input.caption?.trim();
+  const preferredKind: "image" | "video" | undefined =
     input.mediaType === "video" ? "video" : input.mediaType === "image" ? "image" : undefined;
-  try {
-    await sendWhatsAppMediaMessage(
-      input.msg.toNumber,
-      input.msg.from,
-      url,
-      input.accountSid,
-      input.authToken,
-      input.caption?.trim() || undefined,
-      kind
-    );
-    const cap = input.caption?.trim();
+  const sleepAfterMs = (k: "image" | "video" | undefined) =>
+    k === "video" || /\.(mp4|mov|webm)(\?|$)/i.test(url) ? 2200 : 1300;
+
+  const logMediaRow = async () => {
+    const cap = caption;
     await logMessage({
       business_slug: input.business_slug,
       role: "assistant",
@@ -264,10 +264,75 @@ async function sendTrialPickMediaIfAllowed(input: {
       model_used: "trial_pick_media",
       session_id: input.sessionId,
     });
-    await sleepMs(kind === "video" ? 2200 : 1300);
-  } catch (e) {
-    console.error("[WA Webhook] trial_pick_media send failed:", e);
+  };
+
+  const sendOnce = async (kind: "image" | "video" | undefined) => {
+    await sendWhatsAppMediaMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      url,
+      input.accountSid,
+      input.authToken,
+      caption || undefined,
+      kind
+    );
+  };
+
+  try {
+    await sendOnce(preferredKind);
+    await logMediaRow();
+    await sleepMs(sleepAfterMs(preferredKind));
+    return;
+  } catch (e1) {
+    console.error("[WA Webhook] trial_pick_media send failed (primary):", {
+      provider: isMetaCloudPhoneNumberId(String(input.msg.toNumber ?? "").trim()) ? "meta" : "twilio",
+      preferredKind,
+      urlHost: (() => {
+        try {
+          return new URL(url).hostname;
+        } catch {
+          return "invalid-url";
+        }
+      })(),
+      e: e1,
+    });
   }
+
+  try {
+    await sleepMs(280);
+    await sendOnce(undefined);
+    await logMediaRow();
+    await sleepMs(sleepAfterMs(undefined));
+    return;
+  } catch (e2) {
+    console.error("[WA Webhook] trial_pick_media send failed (retry auto kind):", e2);
+  }
+
+  const flipped: "image" | "video" =
+    preferredKind === "video" ? "image" : preferredKind === "image" ? "video" : "video";
+  try {
+    await sleepMs(280);
+    await sendOnce(flipped);
+    await logMediaRow();
+    await sleepMs(flipped === "video" ? 2200 : 1300);
+    return;
+  } catch (e3) {
+    console.error("[WA Webhook] trial_pick_media send failed (retry flipped kind):", e3);
+  }
+
+  const fallback = `לא הצלחתי להציג את המדיה כרגע, אבל אפשר לצפות כאן:\n${url}`;
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, fallback, input.accountSid, input.authToken).catch(
+    (e) => console.error("[WA Webhook] trial_pick_media fallback link send failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: fallback,
+    model_used: "trial_pick_media_fallback_link",
+    session_id: input.sessionId,
+    error_code: "trial_pick_media_failed",
+  });
+  await sleepMs(900);
 }
 
 type SfServiceRow = {
@@ -281,6 +346,17 @@ type SfServiceRow = {
   trialPickMediaUrl: string;
   trialPickMediaType: "image" | "video" | "";
 };
+
+/** כש-JSON ב-description שבור — משחזרים לפחות את שדות מדיית בחירת השירות */
+function fallbackTrialPickFromRawDescription(raw: string): Pick<SfServiceRow, "trialPickMediaUrl" | "trialPickMediaType"> {
+  const text = raw.trim();
+  if (!text) return { trialPickMediaUrl: "", trialPickMediaType: "" };
+  const url = (text.match(/"trial_pick_media_url"\s*:\s*"([^"]*)"/)?.[1] ?? "").trim();
+  const t = (text.match(/"trial_pick_media_type"\s*:\s*"(video|image)"/i)?.[1] ?? "").toLowerCase();
+  const trialPickMediaType =
+    t === "video" ? ("video" as const) : t === "image" ? ("image" as const) : ("" as const);
+  return { trialPickMediaUrl: url, trialPickMediaType };
+}
 
 async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   knowledge: BusinessKnowledgePack;
@@ -1148,8 +1224,11 @@ async function processIncoming(
           ...(() => {
             try {
               const raw = String(s.description ?? "");
-              const candidate = raw.trim().startsWith("__META__:") ? raw.trim().slice("__META__:".length) : raw;
-              const meta = JSON.parse(candidate || "{}") as Record<string, unknown>;
+              const stripped = raw.trim().startsWith("__META__:") ? raw.trim().slice("__META__:".length) : raw;
+              const candidate = stripped.replace(/^\uFEFF/, "").trimStart();
+              const jsonStart = candidate.indexOf("{");
+              const toParse = jsonStart >= 0 ? candidate.slice(jsonStart) : candidate;
+              const meta = JSON.parse(toParse.trim() || "{}") as Record<string, unknown>;
               return {
                 benefit: String(meta.benefit_line ?? "").trim(),
                 priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
@@ -1168,6 +1247,8 @@ async function processIncoming(
                       : ("" as const),
               };
             } catch {
+              const raw = String(s.description ?? "");
+              const fb = fallbackTrialPickFromRawDescription(raw);
               return {
                 benefit: "",
                 priceText: String(s.price_text ?? "").trim(),
@@ -1175,8 +1256,8 @@ async function processIncoming(
                 paymentLink: "",
                 levelsEnabled: false,
                 levels: [],
-                trialPickMediaUrl: "",
-                trialPickMediaType: "" as const,
+                trialPickMediaUrl: fb.trialPickMediaUrl,
+                trialPickMediaType: fb.trialPickMediaType,
               };
             }
           })(),
@@ -1610,6 +1691,12 @@ async function processIncoming(
           .filter((x) => String(x ?? "").trim().length > 0)
           .join("\n\n")
           .trim();
+
+        if (!starterBlocksMedia && !picked.trialPickMediaUrl?.trim()) {
+          console.warn(
+            `[WA Webhook] sf_service_pick: מדיה למסלול שיעור הניסיון חסרה ב-DB בשירות "${picked.name}" (בודקים ש-description כולל trial_pick_media_url בשמירת ההגדרות).`
+          );
+        }
 
         await sendTrialPickMediaIfAllowed({
           blockMedia: starterBlocksMedia,
