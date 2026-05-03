@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack, invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
+import { computePremiumAnalytics, type PremiumRangeKey } from "@/lib/analytics-pro-metrics";
 
 export const runtime = "nodejs";
+
+function dbPlanIsPremium(plan: unknown) {
+  return String(plan ?? "").trim().toLowerCase() === "premium";
+}
 
 type RangeKey = "month" | "week" | "all";
 
@@ -74,6 +79,7 @@ export async function GET(req: NextRequest) {
   const range = resolveRangeKey(url.searchParams.get("range"));
   const startIso = rangeStartIso(range);
   const lite = String(url.searchParams.get("lite") ?? "").trim() === "1";
+  const extended = String(url.searchParams.get("extended") ?? "").trim() === "1";
 
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
@@ -84,11 +90,13 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const { data: biz } = await admin
     .from("businesses")
-    .select("id, slug, user_id")
+    .select("id, slug, user_id, plan")
     .eq("slug", businessSlug)
     .maybeSingle();
 
   if (!biz) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+
+  const isPremiumBiz = dbPlanIsPremium((biz as { plan?: unknown }).plan);
 
   const isOwner = String(biz.user_id) === user.user.id;
   if (!isOwner) {
@@ -173,7 +181,7 @@ export async function GET(req: NextRequest) {
         );
       })();
 
-  return NextResponse.json({
+  const base = {
     ok: true,
     range,
     newLeads,
@@ -181,6 +189,34 @@ export async function GET(req: NextRequest) {
     conversionRate,
     totalChats,
     suggestions: await suggestions,
-  });
+  };
+
+  if (extended && !isPremiumBiz) {
+    return NextResponse.json({ ...base, pro: false, proError: "plan_required" });
+  }
+
+  if (extended && isPremiumBiz) {
+    try {
+      const premium = await computePremiumAnalytics({
+        admin,
+        businessId: Number(biz.id),
+        businessSlug,
+        range: range as PremiumRangeKey,
+      });
+      return NextResponse.json({
+        ...base,
+        pro: true,
+        leadsByDay: premium.leadsByDay,
+        inboundMessagesByHour: premium.inboundMessagesByHour,
+        followupReturnCount: premium.followupReturnCount,
+        popularTrainings: premium.popularTrainings,
+      });
+    } catch (e) {
+      console.error("[api/analytics] premium metrics:", e);
+      return NextResponse.json({ ...base, pro: false, proError: "premium_compute_failed" });
+    }
+  }
+
+  return NextResponse.json(base);
 }
 

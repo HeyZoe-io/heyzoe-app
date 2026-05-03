@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { computePremiumAnalytics, type PremiumAnalyticsResult } from "@/lib/analytics-pro-metrics";
 import AnalyticsClient from "./AnalyticsClient";
 
 type RangeKey = "month" | "week" | "all";
@@ -82,11 +83,13 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
   const admin = createSupabaseAdminClient();
   const { data: biz } = await admin
     .from("businesses")
-    .select("id, slug, user_id")
+    .select("id, slug, user_id, plan")
     .eq("slug", slug)
     .maybeSingle();
 
   if (!biz) notFound();
+
+  const planIsPremium = String((biz as { plan?: unknown }).plan ?? "").trim().toLowerCase() === "premium";
 
   const isOwner = String(biz.user_id) === user.user.id;
   const isAdminViewer = isAdminAllowedEmail(user.user.email ?? "");
@@ -149,9 +152,24 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
     servicesText: knowledge?.servicesText ?? "",
   });
 
+  let premiumInitial: PremiumAnalyticsResult | null = null;
+  if (planIsPremium) {
+    try {
+      premiumInitial = await computePremiumAnalytics({
+        admin: admin as any,
+        businessId: Number(biz.id),
+        businessSlug: slug,
+        range,
+      });
+    } catch {
+      premiumInitial = null;
+    }
+  }
+
   return (
     <AnalyticsClient
       slug={slug}
+      planIsPremium={planIsPremium}
       initialRange={range}
       initial={{
         range,
@@ -161,6 +179,7 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
         totalChats,
         suggestions,
       }}
+      premiumInitial={premiumInitial}
     />
   );
 }
