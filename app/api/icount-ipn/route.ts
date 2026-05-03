@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
+import { extractIcountClientIdFromPayload } from "@/lib/icount-v3";
 
 export const runtime = "nodejs";
 
@@ -127,7 +128,7 @@ async function insertBusinessResilient(admin: ReturnType<typeof createSupabaseAd
   if (!r.error) return r;
 
   // Retry removing missing columns (limited to known optional ones)
-  const optionalCols = ["email", "status", "plan_price"];
+  const optionalCols = ["email", "status", "plan_price", "icount_client_id"];
   let nextPayload = { ...payload };
   for (const col of optionalCols) {
     if (r.error && isSchemaColumnMissing(r.error, col) && col in nextPayload) {
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = await parseIcountPayload(req);
+    const icountClientId = extractIcountClientIdFromPayload(payload as Record<string, unknown>);
 
     const emailRaw =
       (typeof payload.email === "string" && payload.email) ||
@@ -196,6 +198,7 @@ export async function POST(req: NextRequest) {
       custom,
       has_session: Boolean(sessionRow),
       session_plan: sessionRow?.plan ?? null,
+      icount_client_id: icountClientId ?? null,
     });
 
     // מניעת כפילויות: אם משתמש כבר קיים — לא מנסים createUser.
@@ -223,7 +226,12 @@ export async function POST(req: NextRequest) {
         if (biz?.id) {
           await admin
             .from("businesses")
-            .update({ is_active: true, plan: paidPlan, plan_price: paidPlanPrice } as any)
+            .update({
+              is_active: true,
+              plan: paidPlan,
+              plan_price: paidPlanPrice,
+              ...(icountClientId ? { icount_client_id: icountClientId } : {}),
+            } as any)
             .eq("id", biz.id);
 
           // Mark ready for /onboarding/success
@@ -290,6 +298,7 @@ export async function POST(req: NextRequest) {
             is_active: true,
             email,
             status: "active",
+            ...(icountClientId ? { icount_client_id: icountClientId } : {}),
           };
 
           const r = await insertBusinessResilient(admin, insertPayloadBase);
@@ -370,6 +379,7 @@ export async function POST(req: NextRequest) {
       is_active: true,
       email,
       status: "active",
+      ...(icountClientId ? { icount_client_id: icountClientId } : {}),
     };
 
     const r = await insertBusinessResilient(admin, insertPayloadBase);
