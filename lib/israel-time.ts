@@ -76,6 +76,24 @@ function makeUtcDateFromLocalInTz(input: { year: number; month: number; day: num
   return new Date(guess.getTime() - offset * 60_000);
 }
 
+/** תחילת חודש קלנדרי בישראל (00:00 Asia/Jerusalem) כמועד UTC */
+export function getIsraelMonthStartUtc(referenceUtc: Date = new Date()): Date {
+  const p = getLocalPartsInTz(referenceUtc, IL_TZ);
+  return makeUtcDateFromLocalInTz({ year: p.year, month: p.month, day: 1, hour: 0, minute: 0 });
+}
+
+/** מפתח חודש ישראלי לדוגמה 2026-04 */
+export function formatIsraelYearMonth(referenceUtc: Date = new Date()): string {
+  const p = getLocalPartsInTz(referenceUtc, IL_TZ);
+  return `${p.year}-${String(p.month).padStart(2, "0")}`;
+}
+
+/** יום בחודש בלוח ישראלי (1–31) — לאיפוס cron ודומה */
+export function getIsraelCalendarDay(referenceUtc: Date = new Date()): number {
+  const p = getLocalPartsInTz(referenceUtc, IL_TZ);
+  return p.day;
+}
+
 export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
 
