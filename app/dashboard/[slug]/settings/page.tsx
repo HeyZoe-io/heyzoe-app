@@ -51,6 +51,9 @@ type ServiceItem = {
   levels_enabled: boolean; levels: string[];
   /** תיאור קצר אחרי בחירת האימון בפלואו (משפט אחד) */
   benefit_line: string;
+  /** מדיה שנשלחת לפני תשובת «בחירת סוג האימון» בווטסאפ */
+  trial_pick_media_url: string;
+  trial_pick_media_type: "image" | "video" | "";
 };
 
 type WhatsAppChannel = {
@@ -559,6 +562,8 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
       levels_enabled: false,
       levels: [],
       benefit_line,
+      trial_pick_media_url: "",
+      trial_pick_media_type: "",
     };
   });
 }
@@ -953,6 +958,8 @@ export default function SlugSettingsPage() {
   const [directionsMediaUploadError, setDirectionsMediaUploadError] = useState("");
   const [showDirectionsMediaModal, setShowDirectionsMediaModal] = useState(false);
   const [showStarterMediaProModal, setShowStarterMediaProModal] = useState(false);
+  const [uploadingTrialPickUiId, setUploadingTrialPickUiId] = useState<string | null>(null);
+  const [trialPickMediaUploadError, setTrialPickMediaUploadError] = useState("");
 
   // ── מסלול מכירה: פתיחה + כפתורים
   const [welcomeIntro, setWelcomeIntro] = useState("");
@@ -1356,6 +1363,13 @@ export default function SlugSettingsPage() {
                 storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
                   ? storedBenefit
                   : regeneratedBenefit,
+              trial_pick_media_url: String(meta.trial_pick_media_url ?? "").trim(),
+              trial_pick_media_type:
+                meta.trial_pick_media_type === "video"
+                  ? "video"
+                  : meta.trial_pick_media_type === "image"
+                    ? "image"
+                    : "",
             };
           }));
           setServicesHydrated(true);
@@ -1457,6 +1471,13 @@ export default function SlugSettingsPage() {
               description_text: s.description,
               levels_enabled: s.levels_enabled,
               levels: s.levels,
+              trial_pick_media_url: (s.trial_pick_media_url ?? "").trim(),
+              trial_pick_media_type:
+                s.trial_pick_media_type === "video"
+                  ? "video"
+                  : s.trial_pick_media_type === "image"
+                    ? "image"
+                    : "",
             }),
           })),
         }
@@ -1755,6 +1776,78 @@ export default function SlugSettingsPage() {
       setError("בעיית רשת בהעלאה.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function uploadTrialPickMedia(file: File, serviceUiId: string) {
+    setTrialPickMediaUploadError("");
+    if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
+      setTrialPickMediaUploadError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+      return;
+    }
+    if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+      setTrialPickMediaUploadError(
+        "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
+      );
+      return;
+    }
+    setUploadingTrialPickUiId(serviceUiId);
+    try {
+      const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          fileSize: file.size,
+        }),
+      });
+      let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
+      try {
+        signJson = (await signRes.json()) as typeof signJson;
+      } catch {
+        setTrialPickMediaUploadError("תשובת שרת לא תקינה.");
+        return;
+      }
+      if (!signRes.ok) {
+        setTrialPickMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+        return;
+      }
+      const signedUrl = signJson.signedUrl?.trim();
+      const publicUrl = signJson.publicUrl?.trim();
+      if (!signedUrl || !publicUrl) {
+        setTrialPickMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+        return;
+      }
+      const putRes = await fetch(signedUrl, {
+        method: "PUT",
+        headers: {
+          "x-upsert": "true",
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: file,
+      });
+      if (!putRes.ok) {
+        let errText = "";
+        try {
+          const errJson = (await putRes.json()) as { message?: string; error?: string };
+          errText = (errJson.message || errJson.error || "").trim();
+        } catch {
+          errText = putRes.statusText || "";
+        }
+        setTrialPickMediaUploadError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+        return;
+      }
+      const mt: "image" | "video" = file.type.startsWith("video") ? "video" : "image";
+      setServices((prev) =>
+        prev.map((svc) =>
+          svc.ui_id === serviceUiId ? { ...svc, trial_pick_media_url: publicUrl, trial_pick_media_type: mt } : svc
+        )
+      );
+    } catch {
+      setTrialPickMediaUploadError("בעיית רשת בהעלאה.");
+    } finally {
+      setUploadingTrialPickUiId(null);
     }
   }
 
@@ -2342,6 +2435,10 @@ export default function SlugSettingsPage() {
           <Step4SalesFlow
             planIsStarter={plan === "basic"}
             onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
+            uploadTrialPickMedia={uploadTrialPickMedia}
+            uploadingTrialPickUiId={uploadingTrialPickUiId}
+            trialPickMediaUploadError={trialPickMediaUploadError}
+            setTrialPickMediaUploadError={setTrialPickMediaUploadError}
             openingMediaUrl={openingMediaUrl}
             openingMediaType={openingMediaType}
             uploadingMedia={uploadingMedia}

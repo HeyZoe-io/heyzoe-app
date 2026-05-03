@@ -19,6 +19,8 @@ type ServiceItem = {
   levels_enabled: boolean;
   levels: string[];
   benefit_line: string;
+  trial_pick_media_url: string;
+  trial_pick_media_type: "" | "image" | "video";
 };
 
 export default function Step3Trial(props: {
@@ -279,6 +281,8 @@ export default function Step3Trial(props: {
                 levels_enabled: false,
                 levels: [],
                 benefit_line: "",
+                trial_pick_media_url: "",
+                trial_pick_media_type: "",
               },
             ])
           }

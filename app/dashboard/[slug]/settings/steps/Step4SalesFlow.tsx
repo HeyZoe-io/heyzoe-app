@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Loader2,
   Sparkles,
@@ -14,10 +15,136 @@ import { Input } from "@/components/ui/input";
 import { Field, StepHeader, Textarea } from "../settings-ui";
 import type { SalesFlowCtaButton, SalesFlowExtraStep } from "@/lib/sales-flow";
 
+function TrialPickMediaUploadRow(props: {
+  planIsStarter?: boolean;
+  onStarterMediaBlocked?: () => void;
+  uploadTrialPickMedia: (file: File, uiId: string) => void | Promise<void>;
+  uploadingTrialPickUiId: string | null;
+  videoUrlForPreview: (url: string) => string;
+  service: { ui_id: string; trial_pick_media_url?: string; trial_pick_media_type?: string };
+  setServices: Dispatch<SetStateAction<any[]>>;
+}) {
+  const {
+    planIsStarter,
+    onStarterMediaBlocked,
+    uploadTrialPickMedia,
+    uploadingTrialPickUiId,
+    videoUrlForPreview,
+    service,
+    setServices,
+  } = props;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const url = String(service.trial_pick_media_url ?? "").trim();
+  const isVideo = service.trial_pick_media_type === "video";
+  const busy = uploadingTrialPickUiId === service.ui_id;
+
+  return (
+    <div className="pt-3 mt-3 border-t border-zinc-100 space-y-2">
+      <div className="flex flex-row-reverse items-center gap-2 justify-start flex-wrap">
+        <span className="text-xs font-medium text-zinc-700">מדיה עם התשובה (אופציונלי)</span>
+        {planIsStarter ? (
+          <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
+            ⭐ Pro
+          </span>
+        ) : null}
+      </div>
+      {!url ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (planIsStarter) {
+              onStarterMediaBlocked?.();
+              return;
+            }
+            inputRef.current?.click();
+          }}
+          className="w-full border-2 border-dashed border-zinc-200 rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-[#7133da]/40 hover:bg-[#f7f3ff]/50 transition-all disabled:opacity-60"
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-6 w-6 animate-spin text-[#7133da]/60" />
+              <p className="text-xs text-zinc-500">מעלה…</p>
+            </>
+          ) : (
+            <>
+              <Upload className="h-6 w-6 text-zinc-400" />
+              <p className="text-xs text-zinc-600">לחץ להעלאת תמונה או סרטון</p>
+              <p className="text-[11px] text-zinc-400">עד 16MB · JPG, PNG, GIF, MP4</p>
+            </>
+          )}
+        </button>
+      ) : (
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-2">
+          {isVideo ? (
+            <video
+              src={videoUrlForPreview(url)}
+              className="mx-auto block max-h-48 max-w-full rounded-lg bg-black"
+              muted
+              playsInline
+              preload="metadata"
+              controls
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={url} alt="" className="mx-auto block max-h-48 max-w-full rounded-lg object-contain" />
+          )}
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1 text-xs h-8"
+              disabled={busy}
+              onClick={() => {
+                if (planIsStarter) {
+                  onStarterMediaBlocked?.();
+                  return;
+                }
+                inputRef.current?.click();
+              }}
+            >
+              <Upload className="h-3.5 w-3.5" /> החלף
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1 text-xs h-8 text-red-600 border-red-200"
+              onClick={() =>
+                setServices((prev: any[]) =>
+                  prev.map((x) =>
+                    x.ui_id === service.ui_id ? { ...x, trial_pick_media_url: "", trial_pick_media_type: "" } : x
+                  )
+                )
+              }
+            >
+              <X className="h-3.5 w-3.5" /> הסר
+            </Button>
+          </div>
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void uploadTrialPickMedia(f, service.ui_id);
+        }}
+      />
+    </div>
+  );
+}
+
 export default function Step4SalesFlow(props: any) {
   const {
     planIsStarter,
     onStarterMediaBlocked,
+    uploadTrialPickMedia,
+    uploadingTrialPickUiId,
+    trialPickMediaUploadError,
+    setTrialPickMediaUploadError,
     openingMediaUrl,
     openingMediaType,
     uploadingMedia,
@@ -39,17 +166,14 @@ export default function Step4SalesFlow(props: any) {
     videoUrlForPreview,
     experienceQuestionForDisplay,
     experienceQuestionToStore,
-    fillAfterExperienceTemplate,
-    fillAfterServicePickTemplate,
-    fillCtaBodyTemplate,
     ctaBodyForDisplay,
     ctaBodyToStore,
-    afterPickForDisplay,
-    afterPickToStore,
     afterExperienceForDisplay,
     afterExperienceToStore,
     uid,
   } = props as any;
+
+  const [sfSubTab, setSfSubTab] = useState<"trial" | "flow">("flow");
 
   function SalesFlowExtraStepsEditor({
     steps,
@@ -166,6 +290,155 @@ export default function Step4SalesFlow(props: any) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="flex flex-wrap gap-2 justify-end pb-3 border-b border-zinc-200/90">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sfSubTab === "trial"}
+            onClick={() => {
+              setTrialPickMediaUploadError("");
+              setSfSubTab("trial");
+            }}
+            className={[
+              "px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-all select-none sm:text-sm sm:px-4 sm:py-2",
+              sfSubTab === "trial"
+                ? "bg-white text-[#2d1a6e] border-[rgba(113,51,218,0.35)] shadow-[0_8px_18px_rgba(112,84,182,0.12)]"
+                : "bg-white/55 text-zinc-700 border-white/70 hover:bg-white hover:text-zinc-900",
+            ].join(" ")}
+          >
+            אימון ניסיון
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sfSubTab === "flow"}
+            onClick={() => {
+              setTrialPickMediaUploadError("");
+              setSfSubTab("flow");
+            }}
+            className={[
+              "px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-all select-none sm:text-sm sm:px-4 sm:py-2",
+              sfSubTab === "flow"
+                ? "bg-white text-[#2d1a6e] border-[rgba(113,51,218,0.35)] shadow-[0_8px_18px_rgba(112,84,182,0.12)]"
+                : "bg-white/55 text-zinc-700 border-white/70 hover:bg-white hover:text-zinc-900",
+            ].join(" ")}
+          >
+            מסלול מכירה
+          </button>
+        </div>
+
+        {sfSubTab === "trial" && trialPickMediaUploadError ? (
+          <p className="text-sm text-red-600 text-right" role="alert">
+            {trialPickMediaUploadError}
+          </p>
+        ) : null}
+
+        {sfSubTab === "trial" ? (
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <div dir="ltr" className="flex w-full flex-row items-center justify-start gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1 text-xs py-1.5 px-3 h-auto"
+                  onClick={() => regenerateSalesFlowSection("service_pick")}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  ג׳נרט מחדש
+                </Button>
+              </div>
+              <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
+                {trialServiceNames.length > 1 ? (
+                  <>
+                    <Field label="בחירת סוג האימון" className="space-y-1">
+                      <Textarea
+                        value={salesFlowConfig.multi_service_question}
+                        onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, multi_service_question: v }))}
+                        rows={4}
+                        placeholder="למשל: איזה אימון הכי מדבר אליך?"
+                      />
+                    </Field>
+                    <div className="space-y-3">
+                      {services.map((s: any, i: number) =>
+                        !s.name.trim() ? null : (
+                          <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                            <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-right text-sm font-medium text-[#2d1a6e]">
+                              {s.name.trim()}
+                            </div>
+                            <Field label="תשובה">
+                              <Textarea
+                                rows={4}
+                                value={s.benefit_line}
+                                onChange={(v) => {
+                                  const arr = [...services];
+                                  arr[i] = { ...s, benefit_line: v };
+                                  setServices(arr);
+                                }}
+                                placeholder="למשל: איזה כיף! שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
+                              />
+                            </Field>
+                            <TrialPickMediaUploadRow
+                              planIsStarter={planIsStarter}
+                              onStarterMediaBlocked={onStarterMediaBlocked}
+                              uploadTrialPickMedia={uploadTrialPickMedia}
+                              uploadingTrialPickUiId={uploadingTrialPickUiId}
+                              videoUrlForPreview={videoUrlForPreview}
+                              service={s}
+                              setServices={setServices}
+                            />
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </>
+                ) : trialServiceNames.length === 1 ? (
+                  <>
+                    <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                      מוגדר אימון ניסיון אחד - אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום»
+                      בטאב מסלול מכירה.
+                    </p>
+                    {(() => {
+                      const firstNamedIndex = services.findIndex((s: any) => s.name.trim());
+                      if (firstNamedIndex < 0) return null;
+                      const s = services[firstNamedIndex]!;
+                      return (
+                        <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                          <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
+                          <Field label="תשובה">
+                            <Textarea
+                              rows={4}
+                              value={s.benefit_line}
+                              onChange={(v) => {
+                                const arr = [...services];
+                                arr[firstNamedIndex] = { ...s, benefit_line: v };
+                                setServices(arr);
+                              }}
+                              placeholder="למשל: שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
+                            />
+                          </Field>
+                          <TrialPickMediaUploadRow
+                            planIsStarter={planIsStarter}
+                            onStarterMediaBlocked={onStarterMediaBlocked}
+                            uploadTrialPickMedia={uploadTrialPickMedia}
+                            uploadingTrialPickUiId={uploadingTrialPickUiId}
+                            videoUrlForPreview={videoUrlForPreview}
+                            service={s}
+                            setServices={setServices}
+                          />
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+                    הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         <div>
           <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-start">
             <p className="text-sm font-medium text-zinc-700">מדיה לפתיחה (אופציונלי)</p>
@@ -307,89 +580,6 @@ export default function Step4SalesFlow(props: any) {
                 placeholder={salesOpeningAutoText}
               />
             </Field>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <div dir="ltr" className="flex w-full flex-row items-center justify-start gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              onClick={() => regenerateSalesFlowSection("service_pick")}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              ג׳נרט מחדש
-            </Button>
-          </div>
-          <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-            {trialServiceNames.length > 1 ? (
-              <>
-                <Field label="בחירת סוג האימון" className="space-y-1">
-                  <Textarea
-                    value={salesFlowConfig.multi_service_question}
-                    onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, multi_service_question: v }))}
-                    rows={4}
-                    placeholder="למשל: איזה אימון הכי מדבר אליך?"
-                  />
-                </Field>
-                <div className="space-y-3">
-                  {services.map((s: any, i: number) =>
-                    !s.name.trim() ? null : (
-                      <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-right text-sm font-medium text-[#2d1a6e]">
-                          {s.name.trim()}
-                        </div>
-                        <Field label="תשובה">
-                          <Textarea
-                            rows={4}
-                            value={s.benefit_line}
-                            onChange={(v) => {
-                              const arr = [...services];
-                              arr[i] = { ...s, benefit_line: v };
-                              setServices(arr);
-                            }}
-                            placeholder="למשל: איזה כיף! שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
-                          />
-                        </Field>
-                      </div>
-                    )
-                  )}
-                </div>
-              </>
-            ) : trialServiceNames.length === 1 ? (
-              <>
-                <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  מוגדר אימון ניסיון אחד - אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום».
-                </p>
-                {(() => {
-                  const firstNamedIndex = services.findIndex((s: any) => s.name.trim());
-                  if (firstNamedIndex < 0) return null;
-                  const s = services[firstNamedIndex]!;
-                  return (
-                    <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                      <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
-                      <Field label="תשובה">
-                        <Textarea
-                          rows={4}
-                          value={s.benefit_line}
-                          onChange={(v) => {
-                            const arr = [...services];
-                            arr[firstNamedIndex] = { ...s, benefit_line: v };
-                            setServices(arr);
-                          }}
-                          placeholder="למשל: שיעורי עמידות ידיים שלנו הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
-                        />
-                      </Field>
-                    </div>
-                  );
-                })()}
-              </>
-            ) : (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
-              </p>
-            )}
           </div>
         </div>
 
@@ -581,6 +771,8 @@ export default function Step4SalesFlow(props: any) {
             </Field>
           </div>
         </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

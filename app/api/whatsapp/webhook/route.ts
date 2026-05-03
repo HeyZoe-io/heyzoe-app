@@ -230,6 +230,46 @@ function getWhatsAppOpeningGreetingTextOnly(k: BusinessKnowledgePack): string {
   return body.trim();
 }
 
+/** מדיה לתשובת «בחירת סוג האימון» — לפני טקסט, עם השהיה כמו בפתיחה */
+async function sendTrialPickMediaIfAllowed(input: {
+  blockMedia: boolean;
+  mediaUrl: string;
+  mediaType: "image" | "video" | "";
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  caption?: string;
+}): Promise<void> {
+  const url = input.mediaUrl.trim();
+  if (!url || input.blockMedia) return;
+  const kind =
+    input.mediaType === "video" ? "video" : input.mediaType === "image" ? "image" : undefined;
+  try {
+    await sendWhatsAppMediaMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      url,
+      input.accountSid,
+      input.authToken,
+      input.caption?.trim() || undefined,
+      kind
+    );
+    const cap = input.caption?.trim();
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: cap ? `[media] ${url}\n\n${cap}` : `[media] ${url}`,
+      model_used: "trial_pick_media",
+      session_id: input.sessionId,
+    });
+    await sleepMs(kind === "video" ? 2200 : 1300);
+  } catch (e) {
+    console.error("[WA Webhook] trial_pick_media send failed:", e);
+  }
+}
+
 type SfServiceRow = {
   name: string;
   benefit: string;
@@ -238,6 +278,8 @@ type SfServiceRow = {
   paymentLink: string;
   levelsEnabled: boolean;
   levels: string[];
+  trialPickMediaUrl: string;
+  trialPickMediaType: "image" | "video" | "";
 };
 
 async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
@@ -384,6 +426,7 @@ function scheduleFlowContinuation(input: {
   salesFlowServices: SfServiceRow[];
   trialRegistered: boolean | null;
   allowTrialCta: boolean;
+  blockTrialPickMedia: boolean;
 }): void {
   const delayMs = Number.isFinite(input.delayMs) ? Math.max(0, Math.floor(input.delayMs)) : 0;
   setTimeout(() => {
@@ -405,9 +448,24 @@ async function sendFlowContinuation(input: {
   salesFlowServices: SfServiceRow[];
   trialRegistered: boolean | null;
   allowTrialCta: boolean;
+  blockTrialPickMedia?: boolean;
 }): Promise<void> {
-  const { phase, contact, knowledge, msg, accountSid, authToken, supabase, businessId, business_slug, sessionId, salesFlowServices, trialRegistered, allowTrialCta } =
-    input;
+  const {
+    phase,
+    contact,
+    knowledge,
+    msg,
+    accountSid,
+    authToken,
+    supabase,
+    businessId,
+    business_slug,
+    sessionId,
+    salesFlowServices,
+    trialRegistered,
+    allowTrialCta,
+    blockTrialPickMedia = false,
+  } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
 
@@ -516,6 +574,7 @@ async function sendFlowContinuation(input: {
       salesFlowServices,
       trialRegistered,
         allowTrialCta,
+      blockTrialPickMedia,
     });
     return;
   }
@@ -527,6 +586,20 @@ async function sendFlowContinuation(input: {
         ? salesFlowServices[0]!.name
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     if (!named) return;
+    const svcRow =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0] ?? null
+        : salesFlowServices.find((s) => s.name === named) ?? null;
+    await sendTrialPickMediaIfAllowed({
+      blockMedia: blockTrialPickMedia,
+      mediaUrl: svcRow?.trialPickMediaUrl ?? "",
+      mediaType: svcRow?.trialPickMediaType ?? "",
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+    });
     const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, named);
     const opts = [...cfg.experience_options].map((o) => String(o ?? "").trim()).filter(Boolean);
     if (!q || opts.length < 2) return;
@@ -1086,6 +1159,13 @@ async function processIncoming(
                 levels: Array.isArray(meta.levels)
                   ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
                   : [],
+                trialPickMediaUrl: String(meta.trial_pick_media_url ?? "").trim(),
+                trialPickMediaType:
+                  meta.trial_pick_media_type === "video"
+                    ? ("video" as const)
+                    : meta.trial_pick_media_type === "image"
+                      ? ("image" as const)
+                      : ("" as const),
               };
             } catch {
               return {
@@ -1095,6 +1175,8 @@ async function processIncoming(
                 paymentLink: "",
                 levelsEnabled: false,
                 levels: [],
+                trialPickMediaUrl: "",
+                trialPickMediaType: "" as const,
               };
             }
           })(),
@@ -1419,6 +1501,7 @@ async function processIncoming(
         salesFlowServices,
         trialRegistered: contactTrialRegistered,
         allowTrialCta: allowTrialCtaThisSession,
+        blockTrialPickMedia: starterBlocksMedia,
       });
     }
 
@@ -1484,6 +1567,7 @@ async function processIncoming(
           salesFlowServices,
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
+          blockTrialPickMedia: starterBlocksMedia,
         });
       }
       return;
@@ -1519,6 +1603,16 @@ async function processIncoming(
           .join("\n\n")
           .trim();
 
+        await sendTrialPickMediaIfAllowed({
+          blockMedia: starterBlocksMedia,
+          mediaUrl: picked.trialPickMediaUrl,
+          mediaType: picked.trialPickMediaType,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+        });
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
           footerHint: ZOE_WHATSAPP_MENU_FOOTER,
         }).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
@@ -2493,6 +2587,7 @@ async function processIncoming(
             salesFlowServices,
             trialRegistered: contactTrialRegistered,
             allowTrialCta: allowTrialCtaThisSession,
+            blockTrialPickMedia: starterBlocksMedia,
           });
         }
       } else {
@@ -2540,6 +2635,7 @@ async function processIncoming(
           salesFlowServices,
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
+          blockTrialPickMedia: starterBlocksMedia,
         });
       }
     }
