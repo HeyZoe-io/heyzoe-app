@@ -1578,14 +1578,22 @@ async function processIncoming(
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
     try {
       const named = salesFlowServices;
-      const raw = msg.text.trim();
-      const rawLower = raw.toLowerCase();
+      const serviceLabels = named.map((s) => s.name.trim()).filter(Boolean);
+      const resolved = resolveWaMenuChoice(
+        msg.text,
+        msg.metaInteractiveReplyId,
+        serviceLabels,
+        serviceLabels
+      ).trim();
+      const rawLower = resolved.toLowerCase();
       const num = Number(rawLower);
       const picked =
         Number.isFinite(num) && num >= 1 && num <= named.length
           ? named[num - 1]
-          : named.find((s) => s.name.toLowerCase() === rawLower) ??
-            named.find((s) => rawLower && s.name.toLowerCase().includes(rawLower));
+          : named.find((s) => waLabelMatches(resolved, s.name)) ??
+            named.find((s) => s.name.trim().toLowerCase() === rawLower) ??
+            named.find((s) => rawLower && s.name.toLowerCase().includes(rawLower)) ??
+            named.find((s) => rawLower && rawLower.includes(s.name.toLowerCase()));
 
       if (picked) {
         const cfg = knowledge.salesFlowConfig;
