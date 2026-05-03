@@ -71,12 +71,14 @@ export default async function AdminRequestsPage() {
               צ׳אט עזרה מהדשבורד + בקשות לחזרה טלפונית (מודגשות)
             </p>
           </div>
-          <a
-            href="/admin/dashboard"
-            className="text-sm text-zinc-700 underline underline-offset-4"
-          >
-            חזרה לדשבורד
-          </a>
+          <div className="flex flex-wrap items-center gap-3">
+            <a href="/admin/dashboard" className="text-sm text-zinc-700 underline underline-offset-4">
+              חזרה לדשבורד
+            </a>
+            <a href="/admin/cancellations" className="text-sm text-zinc-700 underline underline-offset-4">
+              ביטולים
+            </a>
+          </div>
         </div>
 
         <div className="grid gap-3">

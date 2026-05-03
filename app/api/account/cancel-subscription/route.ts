@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { tryCancelStandingOrder } from "@/lib/icount-v3";
+import {
+  cancellationSurveyRequiresDetail,
+  isAllowedCancellationReason,
+} from "@/lib/cancellation-survey";
 import {
   cancellationRequestReceivedEmail,
   adminPlainAlertEmail,
@@ -16,9 +20,10 @@ function opsAlertEmail(): string {
 }
 
 /**
- * ביטול מנוי (שלב 1): תאריכים ב-DB + ניסיון hk/cancel ב-iCount (לא חוסם) + מיילים.
+ * ביטול מנוי (שלב 1): שאלון → תאריכים ב-DB + ניסיון hk/cancel ב-iCount (לא חוסם) + מיילים.
+ * Body JSON: { reason: string, reason_detail?: string }
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const { data: auth } = await supabase.auth.getUser();
   const user = auth.user;
@@ -45,6 +50,24 @@ export async function POST() {
     return NextResponse.json({ error: "already_cancelled" }, { status: 400 });
   }
 
+  let body: { reason?: unknown; reason_detail?: unknown } = {};
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    body = {};
+  }
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  const reason_detail = typeof body.reason_detail === "string" ? body.reason_detail.trim() : "";
+
+  if (!reason || !isAllowedCancellationReason(reason)) {
+    console.warn("[api/account/cancel-subscription] invalid survey reason:", { reason });
+    return NextResponse.json({ error: "invalid_or_missing_reason" }, { status: 400 });
+  }
+  if (cancellationSurveyRequiresDetail(reason) && !reason_detail) {
+    console.warn("[api/account/cancel-subscription] missing reason_detail for:", reason);
+    return NextResponse.json({ error: "missing_reason_detail" }, { status: 400 });
+  }
+
   const now = new Date();
   const effective = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const businessId = Number((business as any).id);
@@ -55,7 +78,21 @@ export async function POST() {
     business_id: businessId,
     slug,
     user_id: user.id,
+    survey_reason: reason,
   });
+
+  const { error: surveyInsertErr } = await admin.from("cancellation_surveys").insert({
+    business_id: businessId,
+    business_slug: slug || null,
+    reason,
+    reason_detail: reason_detail || null,
+  } as any);
+
+  if (surveyInsertErr) {
+    console.error("[api/account/cancel-subscription] cancellation_surveys insert failed:", surveyInsertErr);
+    return NextResponse.json({ error: "survey_save_failed" }, { status: 500 });
+  }
+  console.info("[api/account/cancel-subscription] survey saved", { business_id: businessId });
 
   const { error: updateErr } = await admin
     .from("businesses")
@@ -81,6 +118,9 @@ export async function POST() {
     const notifyTpl = adminPlainAlertEmail(notifySubject, [
       `לקוח ${businessName || "—"} (${slug || "—"}) ביטל את המנוי.`,
       `גישה פעילה עד: ${untilDdMm}`,
+      "",
+      `שאלון — סיבה: ${reason}`,
+      reason_detail ? `פירוט: ${reason_detail}` : "פירוט: —",
     ]);
     const nr = await sendEmail({
       to: "liornativ@hotmail.com",

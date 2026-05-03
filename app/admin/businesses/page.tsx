@@ -68,6 +68,9 @@ export default async function AdminBusinessesPage() {
             <Link className={pill} href="/admin/businesses" style={{ background: "#7133da", color: "white", textDecoration: "none" }}>
               עסקים
             </Link>
+            <Link className={pill} href="/admin/cancellations" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
+              ביטולים
+            </Link>
             <Link className={pill} href="/admin/requests" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
               פניות מבעלי עסקים
             </Link>
