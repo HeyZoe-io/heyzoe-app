@@ -150,6 +150,78 @@ export function renewalReminderEmail(
   };
 }
 
+/** DD/MM/YYYY */
+export function formatDateDdMmYyyy(isoOrDate: Date | string): string {
+  try {
+    const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+    if (Number.isNaN(d.getTime())) return String(isoOrDate);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  } catch {
+    return String(isoOrDate ?? "");
+  }
+}
+
+/** אחרי לחיצת «אשר ביטול» — גישה עד תאריך */
+export function cancellationRequestReceivedEmail(customer_name: string, access_until_dd_mm_yyyy: string): EmailTemplateResult {
+  const name = String(customer_name ?? "").trim();
+  const until = String(access_until_dd_mm_yyyy ?? "").trim();
+  return {
+    subject: "בקשת הביטול שלך התקבלה",
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "שלום " + name + ",",
+        "",
+        "בקשת הביטול שלך התקבלה.",
+        "",
+        "הגישה שלך ל-HeyZoe תישאר פעילה עד " + until + ".",
+        "",
+        "לכל שאלה: office@heyzoe.io",
+        "",
+        "צוות HeyZoe",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+/** Cron סגירת גישה — סיום תוקף */
+export function subscriptionAccessEndedEmail(customer_name: string): EmailTemplateResult {
+  const name = String(customer_name ?? "").trim();
+  return {
+    subject: "גישתך ל-HeyZoe הסתיימה",
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "שלום " + name + ",",
+        "",
+        "גישתך ל-HeyZoe הסתיימה היום.",
+        "",
+        "תודה שהיית איתנו — נשמח לראותך שוב בעתיד.",
+        "",
+        "לכל שאלה: office@heyzoe.io",
+        "",
+        "צוות HeyZoe",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+export function adminPlainAlertEmail(title: string, lines: string[]): EmailTemplateResult {
+  return {
+    subject: title,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p(lines)}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
 export function cancellationEmail(business_name: string, access_until: string, dashboard_url: string): EmailTemplateResult {
   const bn = String(business_name ?? "").trim();
   const au = String(access_until ?? "").trim();
