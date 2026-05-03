@@ -52,6 +52,7 @@ function TrialPickMediaUploadRow(props: {
   const busy = uploadingTrialPickUiId === service.ui_id;
   const err = String(trialPickMediaUploadError ?? "").trim();
   const showPreview = Boolean(url) && !(err && trialPickFailedUiId === service.ui_id);
+  const showRowUploadError = Boolean(err && trialPickFailedUiId === service.ui_id);
 
   return (
     <div className="pt-3 mt-3 border-t border-zinc-100 space-y-2">
@@ -137,6 +138,14 @@ function TrialPickMediaUploadRow(props: {
           </div>
         </div>
       )}
+      {showRowUploadError ? (
+        <p
+          className="text-sm text-red-700 text-right mt-2 px-3 py-2 rounded-xl border border-red-200 bg-red-50/80 leading-snug"
+          role="alert"
+        >
+          {err}
+        </p>
+      ) : null}
       <input
         ref={inputRef}
         type="file"
@@ -205,11 +214,6 @@ export default function Step3Trial(props: {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {String(trialPickMediaUploadError ?? "").trim() ? (
-          <p className="text-sm text-red-600 text-right -mt-2" role="alert">
-            {trialPickMediaUploadError}
-          </p>
-        ) : null}
         <div className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 text-center space-y-3">
           <Button
             type="button"
