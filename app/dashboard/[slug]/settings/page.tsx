@@ -68,7 +68,6 @@ const STEPS = [
   "על העסק",
   "אימון ניסיון",
   "מכירה",
-  "חיבור פייסבוק",
   "פולואפ",
 ];
 
@@ -945,7 +944,6 @@ export default function SlugSettingsPage() {
   const [membershipsUrl, setMembershipsUrl] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
-  const [showTokenHelp, setShowTokenHelp] = useState(false);
 
   // ── Step 2: Opening media
   const [openingMediaUrl, setOpeningMediaUrl]   = useState("");
@@ -991,7 +989,6 @@ export default function SlugSettingsPage() {
   const dragIdx = useRef<number | null>(null);
   /** true = יש פתיחה שמורה בשרת או שכבר מילאנו טמפלייט — לא לדרוס אוטומטית */
   const welcomeOpeningLockedRef = useRef(false);
-  const welcomePrevStepRef = useRef(step);
   const servicesSignatureRef = useRef("");
 
   const servicesSignature = useMemo(
@@ -1077,17 +1074,6 @@ export default function SlugSettingsPage() {
   }, [step, servicesSignature]);
 
   useEffect(() => {
-    const prev = welcomePrevStepRef.current;
-    welcomePrevStepRef.current = step;
-    if (!settingsHydrated || step !== 5) return;
-    if (welcomeOpeningLockedRef.current) return;
-    if (prev !== 4) return;
-
-    setSalesFlowConfig(defaultSalesFlowConfig(vibe));
-    welcomeOpeningLockedRef.current = true;
-  }, [settingsHydrated, step, vibe]);
-
-  useEffect(() => {
     if (!settingsHydrated) return;
     const wf = syncWelcomeFromSalesFlow(
       salesFlowConfig,
@@ -1115,12 +1101,6 @@ export default function SlugSettingsPage() {
     address,
   ]);
 
-  const isPremium = plan === "premium";
-
-  useEffect(() => {
-    if (!isPremium && step === 5) setStep(6);
-  }, [isPremium, step]);
-
   // ─── Step persistence in URL (?step=) ─────────────────────────────────────
   // Without this, refresh resets step to 1.
   const stepSyncFromUrlRef = useRef(false);
@@ -1133,12 +1113,11 @@ export default function SlugSettingsPage() {
     const parsed = Number(sp);
     if (!Number.isFinite(parsed)) return;
     const n = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
-    const coerced = !isPremium && n === 5 ? 6 : n;
-    if (coerced !== stepRef.current) {
+    if (n !== stepRef.current) {
       stepSyncFromUrlRef.current = true;
-      setStep(coerced);
+      setStep(n);
     }
-  }, [searchParams, isPremium]);
+  }, [searchParams]);
 
   useEffect(() => {
     if (stepSyncFromUrlRef.current) {
@@ -2027,19 +2006,11 @@ export default function SlugSettingsPage() {
   const isLast  = step === STEPS.length;
 
   function nextStep() {
-    setStep((s) => {
-      let n = Math.min(STEPS.length, s + 1);
-      if (!isPremium && n === 5) n = 6;
-      return n;
-    });
+    setStep((s) => Math.min(STEPS.length, s + 1));
   }
 
   function prevStep() {
-    setStep((s) => {
-      let n = Math.max(1, s - 1);
-      if (!isPremium && s === 6 && n === 5) n = 4;
-      return n;
-    });
+    setStep((s) => Math.max(1, s - 1));
   }
 
   return (
@@ -2076,7 +2047,6 @@ export default function SlugSettingsPage() {
         <div className="flex gap-2 sm:gap-2.5 min-w-max items-center">
             {STEPS.map((label, i) => {
               const n = i + 1;
-              if (!isPremium && label === "חיבור פייסבוק") return null;
               const active  = step === n;
               return (
                 <button
@@ -2482,54 +2452,13 @@ export default function SlugSettingsPage() {
           />
         )}
 
-        {/* ════════════════════ STEP 5 — פייסבוק ════════════════════ */}
-        {step === 5 && isPremium ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader n={5} title="חיבור פייסבוק" desc="חבילה בסיסית + Pixel (פרימיום)" />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-zinc-900">חבילה 1 - חיבור בסיסי</p>
-                <p className="text-xs text-zinc-600">
-                  שלחו Partner Request והקימו קמפיין "הודעות לוואטסאפ" דרך מנהל המודעות. אין צורך בשדות טכניים בשלב זה.
-                </p>
-              </div>
-
-              <div className="space-y-2 border-t border-dashed border-zinc-200 pt-3">
-                <p className="text-sm font-medium text-zinc-900">חבילה 2 - פרימיום (Pixel + Conversions API)</p>
-                <Field label="Facebook Pixel ID">
-                  <Input dir="ltr" value={facebookPixelId} onChange={e => setFacebookPixelId(e.target.value)} placeholder="123456789012345" />
-                </Field>
-                <Field label="Conversions API Access Token">
-                  <Input dir="ltr" type="password" value={conversionsApiToken} onChange={e => setConversionsApiToken(e.target.value)} placeholder="הדבק כאן את הטוקן" />
-                </Field>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowTokenHelp(true)}
-                    className="text-[11px] underline underline-offset-4 text-zinc-500 hover:text-zinc-700 cursor-pointer"
-                  >
-                    איך מוצאים את הטוקן?
-                  </button>
-                </div>
-                <p className="text-[11px] text-zinc-500">
-                  כאשר שני השדות מלאים, נשלח אירוע Server-to-Server לפייסבוק על כל המרה.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {/* ════════════════════ STEP 6 — פולואפ ════════════════════ */}
-        {step === 6 && (
+        {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
+        {step === 5 && (
           <Card>
             <CardHeader>
               <CardTitle>
                 <StepHeader
-                  n={6}
+                  n={5}
                   title="פולואפ"
                   desc="הודעות פולואפ לליד שהפסיק לענות. השליחה לא תתבצע בלילות ובמהלך השבת, או אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
                 />
@@ -2605,34 +2534,6 @@ export default function SlugSettingsPage() {
             </Button>
           )}
         </div>
-
-        {showTokenHelp ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-base font-semibold text-zinc-900">איך מוצאים את הטוקן?</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">Conversions API Access Token</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTokenHelp(false)}
-                  className="rounded-full p-1 text-zinc-500 hover:text-zinc-800 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <ol className="mt-4 space-y-2 text-sm text-zinc-700 list-decimal pr-5">
-                <li>כנס ל־Events Manager.</li>
-                <li>בחר את ה־Dataset שלך.</li>
-                <li>לך ל־Settings והעתק את ה־Access Token.</li>
-              </ol>
-              <div className="mt-5 flex justify-start">
-                <Button onClick={() => setShowTokenHelp(false)} className="px-4">סגור</Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         {showStarterMediaProModal ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
