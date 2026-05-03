@@ -5,6 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { promoVatAndMonthLine } from "@/lib/promo-month";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  CANCELLATION_SURVEY_REASONS,
+  cancellationSurveyDetailLabel,
+  cancellationSurveyRequiresDetail,
+} from "@/lib/cancellation-survey";
 
 function PlanCard({
   title,
@@ -109,6 +114,8 @@ export default function AccountBillingPage() {
   const [checkoutLoading, setCheckoutLoading] = useState<null | "starter" | "pro">(null);
   const [checkoutError, setCheckoutError] = useState<string>("");
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelSurveyReason, setCancelSurveyReason] = useState<string>("");
+  const [cancelSurveyDetail, setCancelSurveyDetail] = useState<string>("");
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelError, setCancelError] = useState<string>("");
   const sp = useSearchParams();
@@ -290,13 +297,33 @@ export default function AccountBillingPage() {
 
   async function confirmCancelSubscription() {
     setCancelError("");
+    if (!cancelSurveyReason.trim()) {
+      setCancelError("נא לבחור סיבה לביטול.");
+      return;
+    }
+    if (cancellationSurveyRequiresDetail(cancelSurveyReason) && !cancelSurveyDetail.trim()) {
+      setCancelError("נא למלא את שדה הפירוט.");
+      return;
+    }
+
     setCancelLoading(true);
     try {
-      const res = await fetch("/api/account/cancel-subscription", { method: "POST" });
+      const res = await fetch("/api/account/cancel-subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: cancelSurveyReason,
+          reason_detail: cancellationSurveyRequiresDetail(cancelSurveyReason) ? cancelSurveyDetail.trim() : "",
+        }),
+      });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; effective_at?: string; error?: string };
       if (!res.ok) {
         if (data?.error === "already_cancelled") {
           setCancelError("בקשת הביטול כבר נרשמה.");
+        } else if (data?.error === "invalid_or_missing_reason" || data?.error === "missing_reason_detail") {
+          setCancelError("נא למלא את השאלון כנדרש.");
+        } else if (data?.error === "survey_save_failed") {
+          setCancelError("שגיאה בשמירת השאלון, נסו שוב.");
         } else {
           setCancelError("לא ניתן לבטל כרגע, נסו שוב.");
         }
@@ -306,6 +333,8 @@ export default function AccountBillingPage() {
         setCancellationEffectiveAt(data.effective_at);
         loadBillingState();
       }
+      setCancelSurveyReason("");
+      setCancelSurveyDetail("");
       setCancelModalOpen(false);
     } catch {
       setCancelError("שגיאה, נסו שוב.");
@@ -510,6 +539,8 @@ export default function AccountBillingPage() {
                 type="button"
                 onClick={() => {
                   setCancelError("");
+                  setCancelSurveyReason("");
+                  setCancelSurveyDetail("");
                   setCancelModalOpen(true);
                 }}
                 className="mt-4 inline-flex w-full sm:w-auto cursor-pointer items-center justify-center rounded-2xl border-2 border-red-500 bg-transparent px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"
@@ -527,24 +558,89 @@ export default function AccountBillingPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: "rgba(17, 11, 26, 0.5)" }}
-          onClick={() => !cancelLoading && setCancelModalOpen(false)}
+          onClick={() => {
+            if (!cancelLoading) {
+              setCancelModalOpen(false);
+              setCancelSurveyReason("");
+              setCancelSurveyDetail("");
+              setCancelError("");
+            }
+          }}
         >
           <div
-            className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl"
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 text-right shadow-xl"
             style={{ fontFamily: "Fredoka, Heebo, system-ui, sans-serif", borderRadius: "16px" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold text-zinc-900">אישור ביטול</h3>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-700">
-              האם אתה בטוח שברצונך לבטל? השירות ימשיך לפעול עד {previewEndDate}. לאחר מכן תופסק הגישה
-              לדשבורד.
+            <h3 className="text-lg font-semibold text-zinc-900">ביטול מנוי</h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+              לפני הביטול נשמח לשמוע למה. אי אפשר לדלג על השאלון. השירות ימשיך לפעול עד{" "}
+              <span className="font-semibold text-zinc-800">{previewEndDate}</span>, ואז תיסגר הגישה לדשבורד.
             </p>
-            {cancelError ? <p className="mt-2 text-sm text-red-600">{cancelError}</p> : null}
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
+
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-zinc-900">מה הסיבה לביטול? <span className="text-red-600">*</span></p>
+              <div className="mt-2 space-y-2" role="radiogroup" aria-label="סיבת ביטול">
+                {CANCELLATION_SURVEY_REASONS.map((r) => (
+                  <label
+                    key={r}
+                    className={
+                      "flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-100 " +
+                      (cancelSurveyReason === r
+                        ? "border-fuchsia-300 bg-fuchsia-50/60"
+                        : "border-zinc-200 bg-zinc-50/80")
+                    }
+                  >
+                    <input
+                      type="radio"
+                      name="cancel-reason"
+                      className="mt-0.5"
+                      checked={cancelSurveyReason === r}
+                      onChange={() => {
+                        setCancelSurveyReason(r);
+                        setCancelError("");
+                      }}
+                    />
+                    <span>{r}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {cancellationSurveyRequiresDetail(cancelSurveyReason) ? (
+              <div className="mt-4">
+                <label htmlFor="cancel-survey-detail" className="text-sm font-semibold text-zinc-900">
+                  {cancellationSurveyDetailLabel(cancelSurveyReason)}{" "}
+                  <span className="text-red-600">*</span>
+                </label>
+                <textarea
+                  id="cancel-survey-detail"
+                  dir="rtl"
+                  rows={3}
+                  value={cancelSurveyDetail}
+                  onChange={(e) => {
+                    setCancelSurveyDetail(e.target.value);
+                    setCancelError("");
+                  }}
+                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+                  placeholder=""
+                />
+              </div>
+            ) : null}
+
+            {cancelError ? <p className="mt-3 text-sm text-red-600">{cancelError}</p> : null}
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-zinc-100 pt-4">
               <button
                 type="button"
                 disabled={cancelLoading}
-                onClick={() => setCancelModalOpen(false)}
+                onClick={() => {
+                  if (cancelLoading) return;
+                  setCancelModalOpen(false);
+                  setCancelSurveyReason("");
+                  setCancelSurveyDetail("");
+                  setCancelError("");
+                }}
                 className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-300 bg-zinc-100 px-4 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-200 disabled:opacity-50"
                 style={{ borderRadius: "16px" }}
               >
@@ -557,7 +653,7 @@ export default function AccountBillingPage() {
                 className="inline-flex cursor-pointer items-center justify-center rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                 style={{ borderRadius: "16px" }}
               >
-                {cancelLoading ? "שולח..." : "בטל מנוי"}
+                {cancelLoading ? "שולח..." : "אשר ביטול"}
               </button>
             </div>
           </div>

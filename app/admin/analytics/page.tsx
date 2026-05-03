@@ -202,6 +202,9 @@ export default async function AdminAnalyticsPage({
             <a className={pill} href="/admin/businesses" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
               עסקים
             </a>
+            <a className={pill} href="/admin/cancellations" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
+              ביטולים
+            </a>
             <a className={pill} href="/admin/requests" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
               פניות מבעלי עסקים
             </a>

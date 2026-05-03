@@ -271,6 +271,9 @@ function DashboardV2(props: {
             <Link href="/admin/businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               עסקים
             </Link>
+            <Link href="/admin/cancellations" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+              ביטולים
+            </Link>
             <Link href="/admin/requests" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               פניות מבעלי עסקים
             </Link>
