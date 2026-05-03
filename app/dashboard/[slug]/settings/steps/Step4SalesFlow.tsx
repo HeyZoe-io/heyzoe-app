@@ -175,6 +175,10 @@ export default function Step4SalesFlow(props: any) {
 
   const [sfSubTab, setSfSubTab] = useState<"trial" | "flow">("flow");
 
+  const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
+  /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
+  const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
+
   function SalesFlowExtraStepsEditor({
     steps,
     onChange,
@@ -448,7 +452,7 @@ export default function Step4SalesFlow(props: any) {
               </span>
             ) : null}
           </div>
-          {!openingMediaUrl ? (
+          {!showOpeningMediaPreview ? (
             <button
               type="button"
               disabled={uploadingMedia}

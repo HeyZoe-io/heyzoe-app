@@ -1735,17 +1735,17 @@ export default function SlugSettingsPage() {
       try {
         signJson = (await signRes.json()) as typeof signJson;
       } catch {
-        setMediaUploadError("תשובת שרת לא תקינה.");
+        setError("תשובת שרת לא תקינה.");
         return;
       }
       if (!signRes.ok) {
-        setMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+        setError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
         return;
       }
       const signedUrl = signJson.signedUrl?.trim();
       const publicUrl = signJson.publicUrl?.trim();
       if (!signedUrl || !publicUrl) {
-        setMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+        setError("לא התקבל קישור חתום להעלאה - נסו שוב.");
         return;
       }
 
