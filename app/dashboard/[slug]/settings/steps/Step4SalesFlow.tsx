@@ -322,6 +322,11 @@ export default function Step4SalesFlow(props: any) {
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
+            {trialServiceNames.length >= 1 ? (
+              <p dir="rtl" className="text-[11px] text-zinc-500 leading-snug text-right border-b border-zinc-100/90 pb-2.5 mb-1">
+                מדיה לכל שירות מוגדרת בטאב «אימון ניסיון». אחרי בחירת סוג האימון בווטסאפ נשלחת המדיה (אם קיימת ואם מאופשר בתוכנית) לפני תשובת הטקסט.
+              </p>
+            ) : null}
             {trialServiceNames.length > 1 ? (
               <>
                 <Field label="בחירת סוג האימון" className="space-y-1">
