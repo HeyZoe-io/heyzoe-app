@@ -75,6 +75,26 @@ export async function POST() {
     effective_at: effective.toISOString(),
   });
 
+  const untilDdMm = formatDateDdMmYyyy(effective);
+  try {
+    const notifySubject = `לקוח ביטל מנוי — ${businessName || slug || "עסק"}`;
+    const notifyTpl = adminPlainAlertEmail(notifySubject, [
+      `לקוח ${businessName || "—"} (${slug || "—"}) ביטל את המנוי.`,
+      `גישה פעילה עד: ${untilDdMm}`,
+    ]);
+    const nr = await sendEmail({
+      to: "liornativ@hotmail.com",
+      subject: notifyTpl.subject,
+      htmlContent: notifyTpl.htmlContent,
+    });
+    console.info("[api/account/cancel-subscription] ops notify cancellation requested", {
+      ok: nr.ok,
+      subject: notifySubject,
+    });
+  } catch (e) {
+    console.error("[api/account/cancel-subscription] ops notify cancellation email failed:", e);
+  }
+
   const opsTo = opsAlertEmail();
   const icountClientId = String((business as any)?.icount_client_id ?? "").trim();
 
