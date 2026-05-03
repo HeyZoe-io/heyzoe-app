@@ -222,6 +222,95 @@ export function adminPlainAlertEmail(title: string, lines: string[]): EmailTempl
   };
 }
 
+function quotaUpgradeToProButtonHtml(billingUrl: string): string {
+  const href = esc(billingUrl);
+  return `<p style="margin:20px 0"><a href="${href}" style="display:inline-block;background:#7133da;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none;font-weight:600;font-family:Heebo,Arial,sans-serif">שדרג ל‑Pro</a></p>`;
+}
+
+/** Starter ~80 שיחות — נותרו 20 */
+export function starterQuota80Email(displayName: string, billingUrl: string): EmailTemplateResult {
+  const name = String(displayName ?? "").trim() || "שם";
+  return {
+    subject: "זואי ניצלה 80 שיחות מתוך 100 החודש",
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "שלום " + name + ",",
+        "",
+        "השתמשת ב-80 שיחות מתוך 100 הכלולות בחבילת Starter שלך החודש.",
+        "נותרו לך 20 שיחות נוספות.",
+        "",
+        "כדי להבטיח שזואי תמשיך לענות ללידים שלך ללא הפרעה, מומלץ לשדרג לחבילת Pro עכשיו.",
+      ])}</p>`,
+      quotaUpgradeToProButtonHtml(billingUrl),
+      `<p>${p(["", "צוות HeyZoe"])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+/** Starter ~95 שיחות — נותרו 5 */
+export function starterQuota95Email(displayName: string, billingUrl: string): EmailTemplateResult {
+  const name = String(displayName ?? "").trim() || "שם";
+  return {
+    subject: "⚠️ זואי עומדת להפסיק לענות — נותרו 5 שיחות בלבד",
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "שלום " + name + ",",
+        "",
+        "נותרו לך רק 5 שיחות מתוך 100 הכלולות בחבילת Starter שלך החודש.",
+        "כשתגיע למכסה — זואי תפסיק לענות ותפנה לידים לשירות הלקוחות שלך.",
+        "",
+        "שדרג עכשיו כדי לא לפספס לידים.",
+      ])}</p>`,
+      quotaUpgradeToProButtonHtml(billingUrl),
+      `<p>${p(["", "צוות HeyZoe"])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+/** Starter מגיע ל-100 שיחות */
+export function starterQuota100Email(displayName: string, billingUrl: string): EmailTemplateResult {
+  const name = String(displayName ?? "").trim() || "שם";
+  return {
+    subject: "❌ זואי הפסיקה לענות — המכסה החודשית הסתיימה",
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "שלום " + name + ",",
+        "",
+        "הגעת למכסה של 100 שיחות החודש.",
+        "זואי מפנה כעת לידים חדשים לשירות הלקוחות שלך ולא תענה לפניות נוספות עד תחילת החודש הבא.",
+        "",
+        "שדרג לחבילת Pro וקבל עד 500 שיחות בחודש.",
+      ])}</p>`,
+      quotaUpgradeToProButtonHtml(billingUrl),
+      `<p>${p(["", "צוות HeyZoe"])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+/** פנימי — Pro מתקרב למכסה (450) */
+export function proQuota450OpsEmail(businessName: string, businessSlug: string, monthlyCount: number): EmailTemplateResult {
+  const bn = String(businessName ?? "").trim() || businessSlug;
+  const slug = String(businessSlug ?? "").trim();
+  return {
+    subject: "התראה: לקוח Pro מתקרב למכסה — " + bn,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "לקוח " + bn + " (" + slug + ") הגיע ל-" + String(monthlyCount) + " שיחות החודש מתוך 500.",
+        "",
+        "אין חסימה ללקוח — יש לשקול הוספת חבילה.",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
 export function cancellationEmail(business_name: string, access_until: string, dashboard_url: string): EmailTemplateResult {
   const bn = String(business_name ?? "").trim();
   const au = String(access_until ?? "").trim();

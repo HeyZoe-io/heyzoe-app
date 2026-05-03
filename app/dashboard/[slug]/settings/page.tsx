@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
+import NextLink from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -951,6 +952,7 @@ export default function SlugSettingsPage() {
   const [uploadingDirectionsMedia, setUploadingDirectionsMedia] = useState(false);
   const [directionsMediaUploadError, setDirectionsMediaUploadError] = useState("");
   const [showDirectionsMediaModal, setShowDirectionsMediaModal] = useState(false);
+  const [showStarterMediaProModal, setShowStarterMediaProModal] = useState(false);
 
   // ── מסלול מכירה: פתיחה + כפתורים
   const [welcomeIntro, setWelcomeIntro] = useState("");
@@ -2177,7 +2179,13 @@ export default function SlugSettingsPage() {
                     <span className="text-right">הנחיות הגעה</span>
                     <button
                       type="button"
-                      onClick={() => setShowDirectionsMediaModal(true)}
+                      onClick={() => {
+                        if (plan === "basic") {
+                          setShowStarterMediaProModal(true);
+                          return;
+                        }
+                        setShowDirectionsMediaModal(true);
+                      }}
                       className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
                     >
                       העלה קובץ
@@ -2332,6 +2340,8 @@ export default function SlugSettingsPage() {
         {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
         {step === 4 && (
           <Step4SalesFlow
+            planIsStarter={plan === "basic"}
+            onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
             openingMediaUrl={openingMediaUrl}
             openingMediaType={openingMediaType}
             uploadingMedia={uploadingMedia}
@@ -2508,6 +2518,41 @@ export default function SlugSettingsPage() {
               </ol>
               <div className="mt-5 flex justify-start">
                 <Button onClick={() => setShowTokenHelp(false)} className="px-4">סגור</Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showStarterMediaProModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-zinc-900">תכונה זו זמינה בחבילת Pro בלבד</p>
+                  <p className="mt-2 text-sm text-zinc-600 leading-relaxed">
+                    שדרג כדי לאפשר העלאת תמונות ווידאו להודעות זואי
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStarterMediaProModal(false)}
+                  className="rounded-full p-1 text-zinc-500 hover:text-zinc-800 shrink-0"
+                  aria-label="סגור"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="mt-6 flex justify-start gap-2">
+                <NextLink
+                  href="/account/billing"
+                  onClick={() => setShowStarterMediaProModal(false)}
+                  className="inline-flex h-10 items-center justify-center rounded-xl bg-[#7133da] px-5 text-sm font-medium text-white hover:bg-[#5f2bc7]"
+                >
+                  שדרג ל‑Pro
+                </NextLink>
+                <Button type="button" variant="outline" className="rounded-xl" onClick={() => setShowStarterMediaProModal(false)}>
+                  סגור
+                </Button>
               </div>
             </div>
           </div>

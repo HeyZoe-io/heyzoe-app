@@ -16,6 +16,8 @@ import type { SalesFlowCtaButton, SalesFlowExtraStep } from "@/lib/sales-flow";
 
 export default function Step4SalesFlow(props: any) {
   const {
+    planIsStarter,
+    onStarterMediaBlocked,
     openingMediaUrl,
     openingMediaType,
     uploadingMedia,
@@ -165,12 +167,25 @@ export default function Step4SalesFlow(props: any) {
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
-          <p className="text-sm font-medium text-zinc-700 mb-2">מדיה לפתיחה (אופציונלי)</p>
+          <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-start">
+            <p className="text-sm font-medium text-zinc-700">מדיה לפתיחה (אופציונלי)</p>
+            {planIsStarter ? (
+              <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
+                ⭐ Pro
+              </span>
+            ) : null}
+          </div>
           {!openingMediaUrl ? (
             <button
               type="button"
               disabled={uploadingMedia}
-              onClick={() => !uploadingMedia && mediaInputRef.current?.click()}
+              onClick={() => {
+                if (planIsStarter) {
+                  onStarterMediaBlocked?.();
+                  return;
+                }
+                if (!uploadingMedia) mediaInputRef.current?.click();
+              }}
               className="w-full border-2 border-dashed border-zinc-300 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#7133da]/50 hover:bg-[#f7f3ff] transition-all disabled:opacity-60 disabled:pointer-events-none"
             >
               {uploadingMedia ? (
@@ -221,7 +236,13 @@ export default function Step4SalesFlow(props: any) {
                   variant="outline"
                   className="gap-1 text-xs py-1.5 px-3 h-auto"
                   disabled={uploadingMedia}
-                  onClick={() => mediaInputRef.current?.click()}
+                  onClick={() => {
+                    if (planIsStarter) {
+                      onStarterMediaBlocked?.();
+                      return;
+                    }
+                    mediaInputRef.current?.click();
+                  }}
                 >
                   <Upload className="h-4 w-4" />
                   החלף קובץ

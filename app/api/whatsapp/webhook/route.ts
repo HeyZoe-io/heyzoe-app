@@ -57,6 +57,7 @@ import {
   logMessage,
 } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 
 export const runtime = "nodejs";
 
@@ -783,6 +784,33 @@ async function processIncoming(
     }
   }
 
+  type BizQuotaSnapshot = {
+    id?: unknown;
+    plan?: unknown;
+    email?: unknown;
+    name?: unknown;
+    slug?: unknown;
+    social_links?: unknown;
+    quota_warning_20_sent_at?: unknown;
+    quota_warning_5_sent_at?: unknown;
+    quota_limit_sent_at?: unknown;
+    quota_pro_warning_sent_at?: unknown;
+  };
+  let bizQuotaRow: BizQuotaSnapshot | null = null;
+  try {
+    const { data: bqr } = await supabase
+      .from("businesses")
+      .select(
+        "id, plan, email, name, slug, social_links, quota_warning_20_sent_at, quota_warning_5_sent_at, quota_limit_sent_at, quota_pro_warning_sent_at"
+      )
+      .eq("slug", business_slug)
+      .maybeSingle();
+    bizQuotaRow = (bqr ?? null) as BizQuotaSnapshot | null;
+  } catch (e) {
+    console.warn("[WA Webhook] businesses quota/plan fetch failed:", e);
+  }
+  const starterBlocksMedia = planIsStarter(bizQuotaRow?.plan);
+
   // ── SAVE CONTACT (upsert) + OPT-IN/OPT-OUT gating ───────────────────────────
   // Always try to save/update the contact on any inbound message.
   // If contact is opted out, we may early-return before reaching any automated flow.
@@ -795,6 +823,8 @@ async function processIncoming(
   let allowTrialCtaThisSession = false;
   let contactSessionPhase: HeyzoeSessionPhase = "opening";
   let contactFlowStep = 0;
+  let contactId: string | number | null = null;
+  let starterQuotaNoticeMonth: string | null = null;
   if (businessId) {
     try {
       const phone = msg.from;
@@ -810,38 +840,34 @@ async function processIncoming(
       };
       if (fullName) upsertPayload.full_name = fullName;
 
-      // Select `claude_message_count` if the column exists; fall back gracefully otherwise.
       let contactRow: any = null;
       let upsertErr: any = null;
       try {
-        const r = await supabase
-          .from("contacts")
-          .upsert(upsertPayload, { onConflict: "business_id,phone" })
-          .select("opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step")
-          .maybeSingle();
-        contactRow = r.data;
-        upsertErr = r.error;
-        if (upsertErr && String(upsertErr.message ?? "").toLowerCase().includes("session_phase")) {
-          const r2 = await supabase
-            .from("contacts")
-            .upsert(upsertPayload, { onConflict: "business_id,phone" })
-            .select("opted_out, claude_message_count, trial_registered")
-            .maybeSingle();
-          contactRow = r2.data;
-          upsertErr = r2.error;
+        const up = await supabase.from("contacts").upsert(upsertPayload, { onConflict: "business_id,phone" });
+        upsertErr = up.error;
+        if (upsertErr) {
+          console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
+        } else {
+          const selectVariants = [
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, id, starter_quota_notice_month",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, id",
+            "opted_out, claude_message_count, trial_registered, session_phase, flow_step, id",
+            "opted_out, claude_message_count, trial_registered, id",
+            "opted_out",
+          ];
+          for (const cols of selectVariants) {
+            const q = await supabase.from("contacts").select(cols).eq("business_id", businessId).eq("phone", phone).maybeSingle();
+            if (!q.error) {
+              contactRow = q.data;
+              break;
+            }
+          }
+          if (!contactRow) console.warn("[WA Webhook] contacts select-after-upsert failed for all column variants");
         }
-      } catch {
-        const r = await supabase
-          .from("contacts")
-          .upsert(upsertPayload, { onConflict: "business_id,phone" })
-          .select("opted_out")
-          .maybeSingle();
-        contactRow = r.data;
-        upsertErr = r.error;
-      }
-
-      if (upsertErr) {
-        console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
+      } catch (e) {
+        console.warn("[WA Webhook] contacts upsert/select threw:", e);
       }
 
       contactOptedOut =
@@ -859,6 +885,11 @@ async function processIncoming(
       contactSessionPhase = normalizeSessionPhase((contactRow as any)?.session_phase);
       const fs = (contactRow as any)?.flow_step;
       contactFlowStep = typeof fs === "number" && Number.isFinite(fs) ? fs : 0;
+
+      const cid = (contactRow as any)?.id;
+      contactId = cid !== undefined && cid !== null ? cid : null;
+      const sqm = (contactRow as any)?.starter_quota_notice_month;
+      starterQuotaNoticeMonth = typeof sqm === "string" && sqm.trim() ? sqm.trim() : null;
     } catch (e) {
       console.warn("[WA Webhook] contacts upsert threw (continuing):", e);
     }
@@ -1114,6 +1145,47 @@ async function processIncoming(
     console.error("[WA Webhook] pause-check failed (continuing anyway):", e);
   }
 
+  if (businessId && bizQuotaRow) {
+    try {
+      const quotaResult = await handleMonthlyConversationQuota({
+        admin: supabase,
+        businessSlug: business_slug,
+        businessId,
+        bizRow: bizQuotaRow,
+        contactId,
+        starterQuotaNoticeMonth,
+        phone: msg.from,
+      });
+      if (quotaResult.action === "silent_stop") {
+        return;
+      }
+      if (quotaResult.action === "starter_cap_message") {
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, quotaResult.message, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] starter quota cap reply failed:", e);
+          return;
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: quotaResult.message,
+          model_used: "starter_quota_cap_notice",
+          session_id: sessionId,
+        });
+        const up = await supabase
+          .from("contacts")
+          .update({ starter_quota_notice_month: quotaResult.markMonth })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        if (up.error) console.warn("[WA Webhook] starter_quota_notice_month update:", up.error.message);
+        return;
+      }
+    } catch (e) {
+      console.error("[WA Webhook] monthly quota handler failed:", e);
+    }
+  }
+
   // Trial registration keyword → update contact + send after-trial template (no Claude)
   if (msg.type === "text" && businessId && knowledge) {
     const rawTrimmed = msg.text.trim();
@@ -1190,7 +1262,7 @@ async function processIncoming(
         ]
           .filter(Boolean)
           .join("\n\n");
-        if (directionsMediaUrl) {
+        if (directionsMediaUrl && !starterBlocksMedia) {
           await sendWhatsAppMediaMessage(
             msg.toNumber,
             msg.from,
@@ -1231,6 +1303,7 @@ async function processIncoming(
   }
 
   const sendOpeningMediaIfConfigured = async (): Promise<boolean> => {
+    if (starterBlocksMedia) return false;
     const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
     if (!mediaUrl) return false;
     const mediaKind =
@@ -1677,7 +1750,7 @@ async function processIncoming(
           ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
           : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
         const directionsMediaUrl = knowledge?.directionsMediaUrl?.trim() ?? "";
-        if (directionsMediaUrl) {
+        if (directionsMediaUrl && !starterBlocksMedia) {
           await sendWhatsAppMediaMessage(
             msg.toNumber,
             msg.from,
