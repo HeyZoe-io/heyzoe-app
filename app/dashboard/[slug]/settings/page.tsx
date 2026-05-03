@@ -960,6 +960,8 @@ export default function SlugSettingsPage() {
   const [showStarterMediaProModal, setShowStarterMediaProModal] = useState(false);
   const [uploadingTrialPickUiId, setUploadingTrialPickUiId] = useState<string | null>(null);
   const [trialPickMediaUploadError, setTrialPickMediaUploadError] = useState("");
+  /** אחרי כשל העלאה — לא מציגים תצוגה מקדימה למדיה שמורה עבור אותו אימון */
+  const [trialPickFailedUiId, setTrialPickFailedUiId] = useState<string | null>(null);
 
   // ── מסלול מכירה: פתיחה + כפתורים
   const [welcomeIntro, setWelcomeIntro] = useState("");
@@ -1781,14 +1783,17 @@ export default function SlugSettingsPage() {
 
   async function uploadTrialPickMedia(file: File, serviceUiId: string) {
     setTrialPickMediaUploadError("");
+    setTrialPickFailedUiId(null);
     if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
       setTrialPickMediaUploadError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+      setTrialPickFailedUiId(serviceUiId);
       return;
     }
     if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
       setTrialPickMediaUploadError(
         "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
       );
+      setTrialPickFailedUiId(serviceUiId);
       return;
     }
     setUploadingTrialPickUiId(serviceUiId);
@@ -1807,16 +1812,19 @@ export default function SlugSettingsPage() {
         signJson = (await signRes.json()) as typeof signJson;
       } catch {
         setTrialPickMediaUploadError("תשובת שרת לא תקינה.");
+        setTrialPickFailedUiId(serviceUiId);
         return;
       }
       if (!signRes.ok) {
         setTrialPickMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+        setTrialPickFailedUiId(serviceUiId);
         return;
       }
       const signedUrl = signJson.signedUrl?.trim();
       const publicUrl = signJson.publicUrl?.trim();
       if (!signedUrl || !publicUrl) {
         setTrialPickMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+        setTrialPickFailedUiId(serviceUiId);
         return;
       }
       const putRes = await fetch(signedUrl, {
@@ -1836,9 +1844,11 @@ export default function SlugSettingsPage() {
           errText = putRes.statusText || "";
         }
         setTrialPickMediaUploadError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+        setTrialPickFailedUiId(serviceUiId);
         return;
       }
       const mt: "image" | "video" = file.type.startsWith("video") ? "video" : "image";
+      setTrialPickFailedUiId(null);
       setServices((prev) =>
         prev.map((svc) =>
           svc.ui_id === serviceUiId ? { ...svc, trial_pick_media_url: publicUrl, trial_pick_media_type: mt } : svc
@@ -1846,6 +1856,7 @@ export default function SlugSettingsPage() {
       );
     } catch {
       setTrialPickMediaUploadError("בעיית רשת בהעלאה.");
+      setTrialPickFailedUiId(serviceUiId);
     } finally {
       setUploadingTrialPickUiId(null);
     }
@@ -2427,6 +2438,13 @@ export default function SlugSettingsPage() {
             onDragEnd={onDragEnd}
             toSlug={toSlug}
             uid={uid}
+            planIsStarter={plan === "basic"}
+            onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
+            uploadTrialPickMedia={uploadTrialPickMedia}
+            uploadingTrialPickUiId={uploadingTrialPickUiId}
+            trialPickMediaUploadError={trialPickMediaUploadError}
+            trialPickFailedUiId={trialPickFailedUiId}
+            videoUrlForPreview={videoUrlForPreview}
           />
         )}
 
@@ -2435,10 +2453,6 @@ export default function SlugSettingsPage() {
           <Step4SalesFlow
             planIsStarter={plan === "basic"}
             onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
-            uploadTrialPickMedia={uploadTrialPickMedia}
-            uploadingTrialPickUiId={uploadingTrialPickUiId}
-            trialPickMediaUploadError={trialPickMediaUploadError}
-            setTrialPickMediaUploadError={setTrialPickMediaUploadError}
             openingMediaUrl={openingMediaUrl}
             openingMediaType={openingMediaType}
             uploadingMedia={uploadingMedia}
