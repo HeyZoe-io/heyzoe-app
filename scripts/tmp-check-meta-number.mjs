@@ -4,7 +4,7 @@
  * הרצה:
  *   node --env-file=.env.local scripts/tmp-check-meta-number.mjs
  *
- * טוקן: WHATSAPP_TOKEN → META_ACCESS_TOKEN → WHATSAPP_SYSTEM_TOKEN (כמו בשאר הפרויקט)
+ * טוקן: WHATSAPP_TOKEN או META_ACCESS_TOKEN (גיבוי: WHATSAPP_SYSTEM_TOKEN)
  */
 
 const PHONE_NUMBER_ID = "1032443923294518";
@@ -19,7 +19,7 @@ const token =
 
 if (!token) {
   console.error(
-    "חסר טוקן: הגדר WHATSAPP_TOKEN או META_ACCESS_TOKEN (או WHATSAPP_SYSTEM_TOKEN) ב-.env.local"
+    "חסר טוקן: הגדר WHATSAPP_TOKEN או META_ACCESS_TOKEN ב-.env.local"
   );
   process.exit(1);
 }
@@ -34,13 +34,18 @@ const res = await fetch(url, {
 });
 
 const raw = await res.text();
-let parsed;
+let body;
 try {
-  parsed = JSON.parse(raw);
+  body = JSON.parse(raw);
 } catch {
-  parsed = raw;
+  body = { _parseError: true, raw };
 }
 
-console.log("[Meta] HTTP status:", res.status, res.statusText);
-console.log("[Meta] URL:", url);
-console.log("[Meta] response body:", typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2));
+const output = {
+  requestUrl: url,
+  httpStatus: res.status,
+  httpStatusText: res.statusText,
+  body,
+};
+
+console.log(JSON.stringify(output, null, 2));
