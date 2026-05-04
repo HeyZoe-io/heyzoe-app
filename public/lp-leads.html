@@ -393,7 +393,10 @@ section{padding:80px 6%;}
 /* FLOW */
 .flow-section{background:var(--bg);padding:80px 6%;}
 .flow-inner{max-width:1100px;margin:0 auto;}
-.flow-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:40px;}
+.flow-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin-top:40px;}
+@media (max-width:1100px) and (min-width:769px){
+  .flow-grid{grid-template-columns:repeat(2,1fr);}
+}
 .flow-card{
   background:#ffffff;border:1.5px solid rgba(113,51,218,0.12);
   border-radius:20px;padding:28px 24px;position:relative;
@@ -735,6 +738,12 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="flow-title">הנעה לפעולה</div>
         <div class="flow-desc">זואי מציגה כפתורי ווטסאפ: הרשמה לשיעור ניסיון, צפייה במערכת שעות וצפייה במנויים - עד להרשמה.</div>
       </div>
+      <div class="flow-card reveal">
+        <div class="flow-num">4</div>
+        <div class="flow-icon">💬</div>
+        <div class="flow-title">פולואפ</div>
+        <div class="flow-desc">שלוש הודעות מעקב אוטומטיות אם הליד שוקט — בפערים של 20 דקות, שעתיים ו־23 שעות מהתשובה האחרונה של זואי, כדי שאף ליד לא יתפספס.</div>
+      </div>
     </div>
   </div>
 </section>
@@ -919,6 +928,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>ללא עלות הקמה</li>
           <li>מספר ווטסאפ ייעודי</li>
           <li>פלואו מכירה מלא</li>
+          <li>3 פולואפים אוטומטיים (20 דק׳ · שעתיים · 23 שעות אחרי שקט)</li>
           <li>עד 100 שיחות בחודש</li>
           <li>דשבורד ניהול</li>
           <li>תמיכה בצ'אט</li>
