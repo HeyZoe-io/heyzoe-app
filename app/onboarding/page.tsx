@@ -678,7 +678,11 @@ function OnboardingContent() {
       </a>
 
       <div
-        className="w-full max-w-[480px] min-w-0 overflow-x-hidden"
+        className={
+          step === 3
+            ? "w-full min-w-0 overflow-x-hidden max-w-[min(1120px,calc(100vw-16px))] sm:max-w-[min(1120px,calc(100vw-32px))]"
+            : "w-full max-w-[480px] min-w-0 overflow-x-hidden"
+        }
         style={{
           background: "white",
           borderRadius: "24px",
@@ -699,7 +703,7 @@ function OnboardingContent() {
           </div>
         ) : null}
 
-        <div style={{ padding: "32px 28px" }}>
+        <div style={{ padding: step === 3 ? "24px 14px" : "32px 28px" }}>
           {step < 3 ? (
             <div ref={planPickerRef} style={{ position: "relative", marginBottom: "20px" }}>
               <button
@@ -1158,6 +1162,7 @@ function OnboardingContent() {
 
               {iframeUrl ? (
                 <div
+                  className="onboarding-pay-iframe-shell"
                   style={{
                     width: "100%",
                     maxWidth: "100%",
@@ -1170,25 +1175,29 @@ function OnboardingContent() {
                     lineHeight: 0,
                   }}
                 >
-                  <iframe
-                    src={iframeUrl}
-                    title="דף תשלום מאובטח"
-                    style={
-                      {
-                        width: "100%",
-                        maxWidth: "100%",
-                        minWidth: 0,
-                        height: "2400px",
-                        minHeight: "2400px",
-                        border: "none",
-                        borderRadius: "12px",
-                        display: "block",
-                        overflowX: "hidden",
-                        overflowY: "auto",
-                        zoom: 0.94,
-                      } as CSSProperties
+                  <style>{`
+                    .onboarding-pay-iframe-shell iframe {
+                      width: 100%;
+                      max-width: 100%;
+                      min-width: 0;
+                      border: none;
+                      border-radius: 12px;
+                      display: block;
+                      overflow-x: hidden;
+                      overflow-y: auto;
+                      zoom: 0.94;
+                      height: 2400px;
+                      min-height: 2200px;
                     }
-                  />
+                    @media (min-width: 768px) {
+                      .onboarding-pay-iframe-shell iframe {
+                        zoom: 1;
+                        height: min(2400px, 85vh);
+                        min-height: min(2400px, 85vh);
+                      }
+                    }
+                  `}</style>
+                  <iframe src={iframeUrl} title="דף תשלום מאובטח" />
                 </div>
               ) : (
                 <div style={{ textAlign: "center", padding: "60px 0", color: "#8b7aaa" }}>

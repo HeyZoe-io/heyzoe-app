@@ -8,6 +8,16 @@ const TIMEOUT_MS = 120_000;
 const WHATSAPP_HELP_URL =
   "https://wa.me/972508318162?text=%D7%94%D7%99%D7%99%2C%20%D7%99%D7%A9%20%D7%9C%D7%99%20%D7%A9%D7%90%D7%9C%D7%94%20%D7%91%D7%A0%D7%95%D7%92%D7%A2%20%D7%9C%D7%96%D7%95%D7%90%D7%99%21";
 
+const DASHBOARD_PREP_STEPS = [
+  "קונים עבורך מספר ווטסאפ לבוט",
+  "מחברים אותו לווטסאפ",
+  "שולחים לאימות מול מטא",
+  "מכינים לך את הדשבורד",
+  "מחברים כל מה שצריך יחד…",
+] as const;
+
+const STEP_REVEAL_MS = 2200;
+
 export default function OnboardingSuccessClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -15,6 +25,7 @@ export default function OnboardingSuccessClient() {
 
   const [ready, setReady] = useState<null | { slug: string }>(null);
   const [timedOut, setTimedOut] = useState(false);
+  const [revealedStepCount, setRevealedStepCount] = useState(0);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -75,6 +86,19 @@ export default function OnboardingSuccessClient() {
     };
   }, [email, router]);
 
+  useEffect(() => {
+    if (!email || ready || timedOut) return;
+    let n = 0;
+    const bump = () => {
+      if (n >= DASHBOARD_PREP_STEPS.length) return;
+      n += 1;
+      setRevealedStepCount(n);
+    };
+    bump();
+    const id = window.setInterval(bump, STEP_REVEAL_MS);
+    return () => window.clearInterval(id);
+  }, [email, ready, timedOut]);
+
   return (
     <main
       dir="rtl"
@@ -109,7 +133,7 @@ export default function OnboardingSuccessClient() {
       <div
         style={{
           width: "100%",
-          maxWidth: "520px",
+          maxWidth: "560px",
           background: "white",
           borderRadius: "24px",
           boxShadow: "0 8px 40px rgba(113,51,218,0.12)",
@@ -158,7 +182,57 @@ export default function OnboardingSuccessClient() {
             </div>
           </div>
         ) : ready ? (
-          <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da" }}>הכל מוכן! 🎉 מעבירים אותך...</div>
+          <div>
+            <div
+              style={{
+                textAlign: "right",
+                marginBottom: "18px",
+                padding: "14px 16px",
+                borderRadius: "16px",
+                background: "rgba(245,243,255,0.9)",
+                border: "1px solid rgba(113,51,218,0.1)",
+              }}
+            >
+              {DASHBOARD_PREP_STEPS.map((line, i) => (
+                <div
+                  key={line}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "10px",
+                    marginBottom: i === DASHBOARD_PREP_STEPS.length - 1 ? 0 : "10px",
+                    fontSize: "14px",
+                    lineHeight: 1.55,
+                    color: "#2d1a6e",
+                  }}
+                >
+                  <span style={{ flexShrink: 0, color: "#22c55e", fontWeight: 800 }} aria-hidden>
+                    ✓
+                  </span>
+                  <span>{line}</span>
+                </div>
+              ))}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  marginTop: "12px",
+                  paddingTop: "12px",
+                  borderTop: "1px solid rgba(113,51,218,0.12)",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  color: "#7133da",
+                }}
+              >
+                <span style={{ flexShrink: 0, color: "#22c55e" }} aria-hidden>
+                  ✓
+                </span>
+                <span>הצלחנו!</span>
+              </div>
+            </div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da" }}>הכל מוכן! 🎉 מעבירים אותך...</div>
+          </div>
         ) : (
           <>
             <h1
@@ -175,9 +249,69 @@ export default function OnboardingSuccessClient() {
             >
               מכינים את הדשבורד שלך ✨
             </h1>
-            <p style={{ margin: "0 0 20px", color: "#6b5b9a", fontSize: "15px", lineHeight: 1.6 }}>
+            <p style={{ margin: "0 0 18px", color: "#6b5b9a", fontSize: "15px", lineHeight: 1.6 }}>
               זה לוקח בערך דקה, לא לסגור את הדף
             </p>
+            <div
+              style={{
+                textAlign: "right",
+                marginBottom: "20px",
+                padding: "14px 16px",
+                borderRadius: "16px",
+                background: "rgba(245,243,255,0.75)",
+                border: "1px solid rgba(113,51,218,0.1)",
+              }}
+            >
+              {DASHBOARD_PREP_STEPS.map((line, i) => {
+                const done = i < revealedStepCount;
+                return (
+                  <div
+                    key={line}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "10px",
+                      marginBottom: i === DASHBOARD_PREP_STEPS.length - 1 ? 0 : "10px",
+                      fontSize: "14px",
+                      lineHeight: 1.55,
+                      color: done ? "#2d1a6e" : "#a89bc4",
+                      transition: "color 0.35s ease",
+                    }}
+                  >
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        width: "1.1em",
+                        fontWeight: 800,
+                        color: done ? "#22c55e" : "rgba(113,51,218,0.25)",
+                      }}
+                      aria-hidden
+                    >
+                      {done ? "✓" : "○"}
+                    </span>
+                    <span>{line}</span>
+                  </div>
+                );
+              })}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  marginTop: "12px",
+                  paddingTop: "12px",
+                  borderTop: "1px solid rgba(113,51,218,0.1)",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: "#a89bc4",
+                }}
+              >
+                <span style={{ flexShrink: 0, width: "1.1em", color: "rgba(113,51,218,0.25)" }} aria-hidden>
+                  ○
+                </span>
+                <span>הצלחנו!</span>
+              </div>
+            </div>
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }} aria-hidden>
               <span className="success-bounce-dot" />
               <span className="success-bounce-dot" />
