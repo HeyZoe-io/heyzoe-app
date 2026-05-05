@@ -1,4 +1,4 @@
-import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig, Easing, Sequence } from "remotion";
+import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Heebo";
 
 const { fontFamily } = loadFont("normal", { weights: ["700", "900"], subsets: ["hebrew"] });
@@ -6,35 +6,19 @@ const { fontFamily } = loadFont("normal", { weights: ["700", "900"], subsets: ["
 export const Scene4: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const phoneAppear = interpolate(frame, [fps * 0.3, fps * 0.6], [0, 1], {
-    extrapolateRight: "clamp",
-    extrapolateLeft: "clamp",
-  });
-  const throwStart = Math.round(fps * 1.8);
-  const throwProgress = interpolate(frame, [throwStart, throwStart + 25], [0, 1], {
-    extrapolateRight: "clamp",
-    extrapolateLeft: "clamp",
-    easing: Easing.in(Easing.quad),
-  });
-  const cloudOffset = frame * 4;
+  const zoom = interpolate(frame, [0, fps * 3], [1.02, 1.07], { extrapolateRight: "clamp" });
+  const subtitleOpacity = interpolate(frame, [fps * 0.2, fps * 0.55], [0, 1], { extrapolateRight: "clamp" });
+  const windJitter = Math.sin(frame * 0.9) * 2;
+  const punchOpacity = interpolate(frame, [fps * 2.3, fps * 2.6], [0, 1], { extrapolateRight: "clamp" });
 
   return (
-    <AbsoluteFill style={{ background: "linear-gradient(180deg, #87ceeb 0%, #1e90ff 50%, #0066cc 100%)" }}>
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          style={{
-            position: "absolute",
-            top: `${20 + i * 15}%`,
-            left: `${((cloudOffset * (0.5 + i * 0.3)) % 1200) - 200}px`,
-            fontSize: 80 + i * 20,
-            opacity: 0.7,
-          }}
-        >
-          ☁️
-        </div>
-      ))}
-      <div style={{ position: "absolute", top: 60, right: 80, fontSize: 80 }}>☀️</div>
+    <AbsoluteFill style={{ background: "#000" }}>
+      <AbsoluteFill style={{ transform: `scale(${zoom}) translateX(${windJitter}px)` }}>
+        <Img
+          src={staticFile("ai/scene4_skydiving.jpg")}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      </AbsoluteFill>
       <div
         style={{
           position: "absolute",
@@ -52,71 +36,78 @@ export const Scene4: React.FC = () => {
       >
         🪂 קפיצה ממטוס — עכשיו?!
       </div>
-      <div style={{ position: "absolute", top: "30%", left: "50%", transform: "translateX(-50%)", textAlign: "center" }}>
-        <div style={{ fontSize: 90 }}>🪂</div>
-        <div style={{ fontFamily, color: "#fff", fontSize: 26, fontWeight: 700, direction: "rtl", marginTop: 8 }}>
-          עומדת על סף המטוס...
+      <div
+        style={{
+          position: "absolute",
+          bottom: 120,
+          left: 60,
+          right: 60,
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+          opacity: subtitleOpacity,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+          <div
+            style={{
+              background: "rgba(0,0,0,0.7)",
+              color: "#fff",
+              borderRadius: "22px 22px 22px 6px",
+              padding: "14px 18px",
+              fontFamily,
+              fontSize: 30,
+              fontWeight: 900,
+              direction: "rtl",
+              lineHeight: 1.35,
+              maxWidth: "92%",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+            }}
+          >
+            הלו?!
+          </div>
         </div>
-        <div style={{ fontFamily, color: "#ffd200", fontSize: 20, fontWeight: 700, direction: "rtl", marginTop: 6 }}>
-          💨 רוח חזקה
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              background: "rgba(255,255,255,0.92)",
+              color: "#111",
+              borderRadius: "22px 22px 6px 22px",
+              padding: "14px 18px",
+              fontFamily,
+              fontSize: 28,
+              fontWeight: 800,
+              direction: "rtl",
+              lineHeight: 1.35,
+              maxWidth: "92%",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+            }}
+          >
+            <span style={{ opacity: 0.7, fontWeight: 900 }}>📞 נציגה:</span> היי מסטודיו טרמפולין—
+          </div>
+        </div>
+        <div style={{ textAlign: "center", fontFamily, color: "rgba(255,255,255,0.9)", fontSize: 24, fontWeight: 800, direction: "rtl" }}>
+          💨 רוח חזקה — לא שומעים כלום
         </div>
       </div>
       <div
         style={{
           position: "absolute",
-          bottom: "22%",
-          left: "50%",
-          transform: `translate(calc(-50% + ${throwProgress * 600}px), ${throwProgress * -400}px) rotate(${
-            throwProgress * 360
-          }deg) scale(${interpolate(throwProgress, [0, 1], [1, 0.2])})`,
-          opacity: phoneAppear,
-          fontSize: 60,
+          bottom: 40,
+          left: 0,
+          right: 0,
           textAlign: "center",
+          fontFamily,
+          color: "#ffd200",
+          fontSize: 34,
+          fontWeight: 900,
+          direction: "rtl",
+          textShadow: "0 2px 12px rgba(0,0,0,0.6)",
+          opacity: punchOpacity,
         }}
       >
-        📱
+        זרקה את הטלפון וקפצה 🤦
       </div>
-      <Sequence from={Math.round(fps * 0.3)} durationInFrames={throwStart - Math.round(fps * 0.3)} layout="none">
-        <div
-          style={{
-            position: "absolute",
-            bottom: "14%",
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            fontFamily,
-            color: "#fff",
-            fontSize: 20,
-            fontWeight: 700,
-            direction: "rtl",
-            opacity: phoneAppear,
-          }}
-        >
-          📞 סטודיו טרמפולין מחייג...
-        </div>
-      </Sequence>
-      <Sequence from={throwStart} layout="none">
-        <div
-          style={{
-            position: "absolute",
-            bottom: "12%",
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            fontFamily,
-            color: "#ffd200",
-            fontSize: 28,
-            fontWeight: 900,
-            direction: "rtl",
-            opacity: interpolate(frame - throwStart, [0, 8], [0, 1], {
-              extrapolateRight: "clamp",
-              extrapolateLeft: "clamp",
-            }),
-          }}
-        >
-          זרקה את הטלפון וקפצה 🤦
-        </div>
-      </Sequence>
     </AbsoluteFill>
   );
 };
