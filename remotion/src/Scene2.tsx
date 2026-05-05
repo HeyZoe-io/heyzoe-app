@@ -1,5 +1,6 @@
-import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Heebo";
+import { AiClip } from "./AiClip";
 
 const { fontFamily } = loadFont("normal", { weights: ["400", "700", "900"], subsets: ["hebrew"] });
 
@@ -13,12 +14,7 @@ export const Scene2: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      <AbsoluteFill style={{ transform: `scale(${zoom})` }}>
-        <Img
-          src={staticFile("ai/scene2_cooking_chaos.jpg")}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      </AbsoluteFill>
+      <AiClip mp4="scene2_cooking_chaos.mp4" jpg="scene2_cooking_chaos.jpg" />
       <div
         style={{
           position: "absolute",

@@ -28,7 +28,8 @@
     "build": "remotion bundle",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc",
-    "gen:ai": "node scripts/generate-ai-stills.mjs"
+    "gen:ai": "node scripts/generate-ai-stills.mjs",
+    "gen:video": "node scripts/generate-ai-videos.mjs"
   },
   "sideEffects": [
     "*.css"
