@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const MODEL = "kwaivgi/kling-v2.6";
+// NOTE: The Replicate model slug `stability-ai/stable-video-diffusion` is not currently available via Replicate.
+// The closest Stable Video Diffusion implementation available is `sunfjun/stable-video-diffusion`.
+const MODEL = "sunfjun/stable-video-diffusion";
 const API_BASE = "https://api.replicate.com/v1";
 
 const ASSET_DIR = path.resolve(process.cwd(), "public", "ai");
@@ -95,26 +97,18 @@ const CLIPS = [
   {
     still: "scene1_instagram.jpg",
     out: "scene1_instagram.mp4",
-    prompt:
-      'Photorealistic vertical video. Same woman in her 30s, dark hair, casual. She scrolls her phone on the couch and smiles when she sees the trampoline studio ad. Subtle hand movement and eye movement. On-screen she types her details. She says in Hebrew: "אוקיי, סבבה." Ambient living-room sound.',
   },
   {
     still: "scene2_cooking_chaos.jpg",
     out: "scene2_cooking_chaos.mp4",
-    prompt:
-      'Photorealistic vertical video. Same woman cooking in a chaotic kitchen, kids shouting in background. Her phone rings and she answers. A caller voice says: "Hello from the trampoline studio". She interrupts in Hebrew: "סליחה, אני לא יכולה לדבר עכשיו." She hangs up. Realistic motion, comedic pacing, kitchen sounds.',
   },
   {
     still: "scene3_birthday_restaurant.jpg",
     out: "scene3_birthday_restaurant.mp4",
-    prompt:
-      'Photorealistic vertical video. Same woman at a birthday in a restaurant with friends singing. Her phone rings and she answers. A caller voice says: "We are calling again about the trial". She says in Hebrew: "סליחה, ממש לא יכולה עכשיו." She ends the call. Ambient restaurant and birthday singing sounds.',
   },
   {
     still: "scene4_skydiving.jpg",
     out: "scene4_skydiving.mp4",
-    prompt:
-      'Photorealistic vertical video. Same woman in skydiving jumpsuit at the airplane door, strong wind. Phone rings, she shouts in Hebrew: "הלו?!" Caller tries to speak. Wind noise, she can’t hear and tosses the phone away and jumps. Comedic but realistic.',
   },
 ];
 
@@ -131,15 +125,17 @@ async function main() {
 
     console.log(`\n[${i + 1}/${CLIPS.length}] ${c.out}`);
     const up = await uploadFile(token, stillPath, "image/jpeg");
-    const start_image = up.url || up.id;
-    if (!start_image) throw new Error("Failed to upload start_image");
+    const input_image = up.url || up.id;
+    if (!input_image) throw new Error("Failed to upload input_image");
 
     const url = await runToCompletion(token, {
-      prompt: c.prompt,
-      start_image,
-      duration: 5,
-      generate_audio: true,
-      negative_prompt: "",
+      input_image,
+      video_length: "14_frames_with_svd",
+      sizing_strategy: "maintain_aspect_ratio",
+      frames_per_second: 6,
+      motion_bucket_id: 127,
+      cond_aug: 0.02,
+      decoding_t: 14,
     });
 
     await download(url, outPath);
