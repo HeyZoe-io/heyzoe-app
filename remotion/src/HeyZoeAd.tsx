@@ -2,7 +2,6 @@ import { AbsoluteFill } from "remotion";
 import { TransitionSeries, linearTiming, springTiming } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
 import { slide } from "@remotion/transitions/slide";
-import { Opening } from "./Opening";
 import { Scene1 } from "./Scene1";
 import { Scene2 } from "./Scene2";
 import { Scene3 } from "./Scene3";
@@ -14,29 +13,21 @@ import { CTA } from "./CTA";
 const TRANSITION_FRAMES = 15;
 
 export const SCENE_DURATIONS = {
-  opening: 90,
-  scene1: 105,
-  scene2: 105,
-  scene3: 105,
+  scene1: 75,
+  scene2: 90,
+  scene3: 90,
   scene4: 90,
-  problem: 75,
-  whatsapp: 360,
+  problem: 60,
+  whatsapp: 450,
   cta: 150,
 };
 
 export const TOTAL_FRAMES =
-  Object.values(SCENE_DURATIONS).reduce((a, b) => a + b, 0) - 7 * TRANSITION_FRAMES;
+  Object.values(SCENE_DURATIONS).reduce((a, b) => a + b, 0) - 6 * TRANSITION_FRAMES;
 
 export const HeyZoeAd: React.FC = () => (
   <AbsoluteFill>
     <TransitionSeries>
-      <TransitionSeries.Sequence durationInFrames={SCENE_DURATIONS.opening}>
-        <Opening />
-      </TransitionSeries.Sequence>
-      <TransitionSeries.Transition
-        presentation={fade()}
-        timing={linearTiming({ durationInFrames: TRANSITION_FRAMES })}
-      />
       <TransitionSeries.Sequence durationInFrames={SCENE_DURATIONS.scene1}>
         <Scene1 />
       </TransitionSeries.Sequence>
