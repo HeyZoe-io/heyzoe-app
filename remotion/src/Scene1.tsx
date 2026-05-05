@@ -1,21 +1,12 @@
-import {
-  AbsoluteFill,
-  Img,
-  interpolate,
-  staticFile,
-  useCurrentFrame,
-  useVideoConfig,
-  Easing,
-  Sequence,
-} from "remotion";
+import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig, Easing, Sequence } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Heebo";
+import { AiClip } from "./AiClip";
 
 const { fontFamily } = loadFont("normal", { weights: ["400", "700", "900"], subsets: ["hebrew"] });
 
 export const Scene1: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const zoom = interpolate(frame, [0, fps * 2.5], [1.02, 1.08], { extrapolateRight: "clamp" });
   const cardOpacity = interpolate(frame, [fps * 0.2, fps * 0.5], [0, 1], { extrapolateRight: "clamp" });
   const cardY = interpolate(frame, [fps * 0.2, fps * 0.5], [24, 0], {
     extrapolateRight: "clamp",
@@ -24,17 +15,8 @@ export const Scene1: React.FC = () => {
   const checkOpacity = interpolate(frame, [fps * 1.4, fps * 1.7], [0, 1], { extrapolateRight: "clamp" });
 
   return (
-    <AbsoluteFill
-      style={{
-        background: "#000",
-      }}
-    >
-      <AbsoluteFill style={{ transform: `scale(${zoom})` }}>
-        <Img
-          src={staticFile("ai/scene1_instagram.jpg")}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      </AbsoluteFill>
+    <AbsoluteFill style={{ background: "#000" }}>
+      <AiClip mp4="scene1_instagram.mp4" jpg="scene1_instagram.jpg" />
       <div
         style={{
           position: "absolute",

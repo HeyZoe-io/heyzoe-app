@@ -5,3 +5,10 @@ dist
 
 # Ignore the output video from Git but not videos you import into src/.
 out
+
+# AI assets (generated locally)
+public/ai/*.jpg
+public/ai/*.jpeg
+public/ai/*.png
+public/ai/*.webp
+public/ai/*.mp4

@@ -1,24 +1,18 @@
-import { AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Heebo";
+import { AiClip } from "./AiClip";
 
 const { fontFamily } = loadFont("normal", { weights: ["700", "900"], subsets: ["hebrew"] });
 
 export const Scene4: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const zoom = interpolate(frame, [0, fps * 3], [1.02, 1.07], { extrapolateRight: "clamp" });
   const subtitleOpacity = interpolate(frame, [fps * 0.2, fps * 0.55], [0, 1], { extrapolateRight: "clamp" });
-  const windJitter = Math.sin(frame * 0.9) * 2;
   const punchOpacity = interpolate(frame, [fps * 2.3, fps * 2.6], [0, 1], { extrapolateRight: "clamp" });
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      <AbsoluteFill style={{ transform: `scale(${zoom}) translateX(${windJitter}px)` }}>
-        <Img
-          src={staticFile("ai/scene4_skydiving.jpg")}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      </AbsoluteFill>
+      <AiClip mp4="scene4_skydiving.mp4" jpg="scene4_skydiving.jpg" />
       <div
         style={{
           position: "absolute",
