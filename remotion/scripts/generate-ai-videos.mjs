@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-// NOTE: The Replicate model slug `stability-ai/stable-video-diffusion` is not currently available via Replicate.
-// The closest Stable Video Diffusion implementation available is `sunfjun/stable-video-diffusion`.
-const MODEL = "sunfjun/stable-video-diffusion";
+// Cheap / open-source image-to-video model that exists on Replicate:
+// ali-vilab/i2vgen-xl (note: marked RESEARCH/NON-COMMERCIAL USE ONLY by model owner)
+const MODEL = "ali-vilab/i2vgen-xl";
 const API_BASE = "https://api.replicate.com/v1";
 
 const ASSET_DIR = path.resolve(process.cwd(), "public", "ai");
@@ -97,18 +97,26 @@ const CLIPS = [
   {
     still: "scene1_instagram.jpg",
     out: "scene1_instagram.mp4",
+    prompt:
+      "Photorealistic vertical video, same woman in her 30s with dark hair in a cozy living room scrolling her phone; her face is lit by the screen glow; she looks excited when seeing a trampoline studio ad; subtle natural head and hand movement.",
   },
   {
     still: "scene2_cooking_chaos.jpg",
     out: "scene2_cooking_chaos.mp4",
+    prompt:
+      "Photorealistic vertical video, same woman cooking in a chaotic kitchen with kids in the background; she answers a ringing phone and looks stressed; subtle natural body movement; comedic but realistic.",
   },
   {
     still: "scene3_birthday_restaurant.jpg",
     out: "scene3_birthday_restaurant.mp4",
+    prompt:
+      "Photorealistic vertical video, same woman at a birthday dinner in a restaurant with friends singing; her phone interrupts and she looks annoyed; candlelight bokeh; subtle natural movement.",
   },
   {
     still: "scene4_skydiving.jpg",
     out: "scene4_skydiving.mp4",
+    prompt:
+      "Photorealistic vertical video, same woman in a skydiving jumpsuit at the airplane door with strong wind; she struggles to hear a ringing phone; dramatic sky outside; realistic motion.",
   },
 ];
 
@@ -125,17 +133,15 @@ async function main() {
 
     console.log(`\n[${i + 1}/${CLIPS.length}] ${c.out}`);
     const up = await uploadFile(token, stillPath, "image/jpeg");
-    const input_image = up.url || up.id;
-    if (!input_image) throw new Error("Failed to upload input_image");
+    const image = up.url || up.id;
+    if (!image) throw new Error("Failed to upload image");
 
     const url = await runToCompletion(token, {
-      input_image,
-      video_length: "14_frames_with_svd",
-      sizing_strategy: "maintain_aspect_ratio",
-      frames_per_second: 6,
-      motion_bucket_id: 127,
-      cond_aug: 0.02,
-      decoding_t: 14,
+      image,
+      prompt: c.prompt,
+      max_frames: 16,
+      num_inference_steps: 40,
+      guidance_scale: 9,
     });
 
     await download(url, outPath);
