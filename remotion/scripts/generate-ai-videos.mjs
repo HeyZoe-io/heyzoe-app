@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-// Cheap / open-source image-to-video model that exists on Replicate:
-// ali-vilab/i2vgen-xl (note: marked RESEARCH/NON-COMMERCIAL USE ONLY by model owner)
-const MODEL = "ali-vilab/i2vgen-xl";
+// Commercial-friendly video model that exists on Replicate:
+// minimax/video-01 (Hailuo) supports image-to-video via first_frame_image and subject_reference.
+const MODEL = "minimax/video-01";
 const API_BASE = "https://api.replicate.com/v1";
 
 const ASSET_DIR = path.resolve(process.cwd(), "public", "ai");
@@ -98,25 +98,25 @@ const CLIPS = [
     still: "scene1_instagram.jpg",
     out: "scene1_instagram.mp4",
     prompt:
-      "Photorealistic vertical video, same woman in her 30s with dark hair in a cozy living room scrolling her phone; her face is lit by the screen glow; she looks excited when seeing a trampoline studio ad; subtle natural head and hand movement.",
+      "Photorealistic vertical video, same woman in her 30s with dark hair, casual everyday look. In a cozy living room at night, she scrolls her phone; her face is lit by the screen glow. She sees an ad for a trampoline studio and her eyes light up with a subtle smile. Natural small movements, realistic motion.",
   },
   {
     still: "scene2_cooking_chaos.jpg",
     out: "scene2_cooking_chaos.mp4",
     prompt:
-      "Photorealistic vertical video, same woman cooking in a chaotic kitchen with kids in the background; she answers a ringing phone and looks stressed; subtle natural body movement; comedic but realistic.",
+      "Photorealistic vertical video, same woman cooking in a chaotic kitchen; kids shouting and running in the background. Her phone rings; she answers and looks stressed, then quickly says in Hebrew: \"סליחה, אני לא יכולה לדבר עכשיו\" and hangs up. Comedic but realistic motion.",
   },
   {
     still: "scene3_birthday_restaurant.jpg",
     out: "scene3_birthday_restaurant.mp4",
     prompt:
-      "Photorealistic vertical video, same woman at a birthday dinner in a restaurant with friends singing; her phone interrupts and she looks annoyed; candlelight bokeh; subtle natural movement.",
+      "Photorealistic vertical video, same woman at a birthday dinner in a restaurant with friends singing; warm candlelight bokeh. Her phone interrupts; she answers and says in Hebrew: \"סליחה, ממש לא יכולה עכשיו\" and ends the call. Natural motion, candid feel.",
   },
   {
     still: "scene4_skydiving.jpg",
     out: "scene4_skydiving.mp4",
     prompt:
-      "Photorealistic vertical video, same woman in a skydiving jumpsuit at the airplane door with strong wind; she struggles to hear a ringing phone; dramatic sky outside; realistic motion.",
+      "Photorealistic vertical video, same woman in a skydiving jumpsuit and goggles at the open airplane door; strong wind, dramatic sky outside. Her phone rings; she shouts in Hebrew: \"הלו?!\" and can’t hear anything. Comedic realistic motion.",
   },
 ];
 
@@ -133,15 +133,15 @@ async function main() {
 
     console.log(`\n[${i + 1}/${CLIPS.length}] ${c.out}`);
     const up = await uploadFile(token, stillPath, "image/jpeg");
-    const image = up.url || up.id;
-    if (!image) throw new Error("Failed to upload image");
+    const img = up.url || up.id;
+    if (!img) throw new Error("Failed to upload image");
 
     const url = await runToCompletion(token, {
-      image,
       prompt: c.prompt,
-      max_frames: 16,
-      num_inference_steps: 40,
-      guidance_scale: 9,
+      prompt_optimizer: true,
+      first_frame_image: img,
+      // Use the same reference for subject consistency (forces S2V-01 mode per model docs)
+      subject_reference: img,
     });
 
     await download(url, outPath);
