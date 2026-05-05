@@ -36,6 +36,15 @@ function normalizeE164(s: string) {
   return String(s ?? "").trim().replace(/\s+/g, "");
 }
 
+function escapeHtml(s: string) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function isIlTelAvivLandline(e164: string): boolean {
   const n = normalizeE164(e164);
   return n.startsWith("+9723") || n.startsWith("+972-3") || n.startsWith("+972 3");
@@ -714,7 +723,7 @@ export async function GET(req: NextRequest) {
       body: new URLSearchParams({ VoiceUrl: twimlVoiceUrl }),
     });
 
-    // Step 3: Meta register + request voice code
+    // Step 3: Meta register (verification is temporarily manual)
     const metaRegUrl = `https://graph.facebook.com/v21.0/${metaBusinessId}/phone_numbers`;
     const metaReg = await metaFetchJson(
       metaRegUrl,
@@ -745,19 +754,36 @@ export async function GET(req: NextRequest) {
         { onConflict: "phone_number_id" }
       );
 
-    const metaRequestCodeUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/request_code`;
-    await metaFetchJson(
-      metaRequestCodeUrl,
-      whatsappSystemToken,
-      { code_method: "VOICE", language: "he" },
-      { label: "request_code", includeOk: true }
-    );
+    // Freeze automatic Meta verification: no request_code, no transcription, no verify_code.
+    // Mark job done so onboarding can complete; dashboard will keep polling Meta status (likely PENDING).
+    try {
+      const { data: biz } = await admin
+        .from("businesses")
+        .select("name, slug")
+        .eq("id", (locked as any).business_id)
+        .maybeSingle();
+      const businessName =
+        String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((biz as any)?.slug ?? (locked as any)?.business_slug ?? "").trim();
 
-    // Persist and continue in next cron invocation (avoid sleeping in this request).
-    const { error: waitErr } = await admin
+      await sendEmail({
+        to: "liornativ@hotmail.com",
+        subject: "לקוח חדש ממתין לאימות ידני",
+        htmlContent: `
+<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;line-height:1.6">
+  <p><b>שם העסק:</b> ${escapeHtml(businessName || "-")}</p>
+  <p><b>מספר טלפון שהונפק לו:</b> ${escapeHtml(phoneE164 || "-")}</p>
+  <p><b>Phone Number ID:</b> ${escapeHtml(metaPhoneNumberId || "-")}</p>
+  <p style="margin-top:16px;color:#6b7280;font-size:12px">המספר נרשם ב־Meta וממתין לאימות ידני (Send verification code).</p>
+</div>`,
+      });
+    } catch (e) {
+      console.error("[cron/wa-provision] manual-verification email failed:", e);
+    }
+
+    const { error: doneErr } = await admin
       .from("wa_provision_jobs")
       .update({
-        status: "waiting_recording",
+        status: "done",
         updated_at: isoNow(),
         phone_e164: phoneE164,
         meta_phone_number_id: metaPhoneNumberId,
@@ -766,9 +792,9 @@ export async function GET(req: NextRequest) {
         transcription_started_at: null,
       } as any)
       .eq("id", Number(locked.id));
-    if (waitErr) throw waitErr;
+    if (doneErr) throw doneErr;
 
-    return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
+    return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
 
