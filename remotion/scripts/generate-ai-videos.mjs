@@ -140,8 +140,6 @@ async function main() {
       prompt: c.prompt,
       prompt_optimizer: true,
       first_frame_image: img,
-      // Use the same reference for subject consistency (forces S2V-01 mode per model docs)
-      subject_reference: img,
     });
 
     await download(url, outPath);
