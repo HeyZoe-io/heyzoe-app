@@ -200,6 +200,7 @@ export default function AnalyticsClient({
   );
 
   const chartPurple = "#7133da";
+  const isEmpty = !loading && (Number(data.totalChats ?? 0) || 0) === 0;
 
   return (
     <div className="space-y-6 relative" aria-busy={loading ? "true" : "false"}>
@@ -239,6 +240,15 @@ export default function AnalyticsClient({
         </div>
       </div>
 
+      {isEmpty ? (
+        <section className="hz-wave hz-wave-2">
+          <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-8 text-right">
+            <p className="text-sm text-zinc-700 text-center" dir="rtl">
+              אין כרגע מה להציג כאן :)
+            </p>
+          </div>
+        </section>
+      ) : (
       <section className="grid gap-4 md:grid-cols-3 hz-wave hz-wave-2">
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
@@ -400,6 +410,7 @@ export default function AnalyticsClient({
           </div>
         </section>
       ) : null}
+      )}
     </div>
   );
 }
