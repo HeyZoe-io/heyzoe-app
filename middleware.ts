@@ -142,19 +142,38 @@ export async function middleware(req: NextRequest) {
       const section = m?.[2] ?? "";
       if (slug && section) {
         try {
-          // Use service-role client and enforce ownership explicitly (avoid any RLS/session edge cases).
+          // Use service-role client and enforce access explicitly (avoid any RLS/session edge cases).
           const admin = createSupabaseAdminClient();
           const { data: biz } = await admin
             .from("businesses")
             .select("id, user_id, is_active")
             .eq("slug", slug)
-            .eq("user_id", user.id)
             .maybeSingle();
-          const isOwner = biz?.user_id && String(biz.user_id) === user.id;
-          const isPaidActive =
-            Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
+          if (!biz?.id) return neutralNotFoundResponse();
+
+          const isOwner = String((biz as any)?.user_id ?? "") === user.id;
+          let isAdminMember = false;
+          if (!isOwner) {
+            const { data: bu } = await supabase
+              .from("business_users")
+              .select("role")
+              .eq("business_id", biz.id)
+              .eq("user_id", user.id)
+              .maybeSingle();
+            isAdminMember = bu?.role === "admin";
+            const isEmployee = bu?.role === "employee";
+            if (!isAdminMember && !isEmployee) return neutralNotFoundResponse();
+            if (section !== "conversations" && isEmployee) {
+              const url = req.nextUrl.clone();
+              url.pathname = `/${slug}/conversations`;
+              return NextResponse.redirect(url);
+            }
+          }
+
+          const isPaidActive = Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
 
           // Paywall: if business subscription isn't active, only allow /account/* (personal details)
+          // Only apply paywall for users who are allowed to access this business (owner/admin/employee).
           if (!isPaidActive) {
             console.log("[middleware] redirectToBillingReactivate", {
               slug,
@@ -162,20 +181,6 @@ export async function middleware(req: NextRequest) {
               biz,
             });
             return redirectToBillingReactivate(req);
-          }
-          if (section !== "conversations" && !isOwner && biz?.id) {
-            const { data: bu } = await supabase
-              .from("business_users")
-              .select("role")
-              .eq("business_id", biz.id)
-              .eq("user_id", user.id)
-              .maybeSingle();
-            const isAdminMember = bu?.role === "admin";
-            if (!isAdminMember) {
-              const url = req.nextUrl.clone();
-              url.pathname = `/${slug}/conversations`;
-              return NextResponse.redirect(url);
-            }
           }
         } catch {
           // If we can't check role here, let page-level auth handle it.
