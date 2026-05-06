@@ -1,5 +1,5 @@
 /**
- * iCount API v3 — login + הוראות קבע (hk).
+ * iCount API v3 — הוראות קבע (hk) עם Bearer Token.
  * בסיס: https://apiv3.icount.co.il/api/v3.php
  */
 
@@ -22,12 +22,22 @@ export type IcountPostResult = {
   rawText: string;
 };
 
+function resolveIcountCompanyId(): string {
+  return process.env.ICOUNT_COMPANY_ID?.trim() ?? "";
+}
+
+function resolveIcountApiToken(): string {
+  return process.env.ICOUNT_API_TOKEN?.trim() ?? "";
+}
+
 async function postIcount(path: string, body: Record<string, unknown>): Promise<IcountPostResult> {
+  const token = resolveIcountApiToken();
   const res = await fetch(url(path), {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -42,42 +52,14 @@ async function postIcount(path: string, body: Record<string, unknown>): Promise<
   return { httpOk: res.ok, httpStatus: res.status, json, rawText };
 }
 
-export function resolveIcountCredentials(): { cid: string; user: string; pass: string } | null {
-  const cid = process.env.ICOUNT_COMPANY_ID?.trim() ?? "";
-  const user = process.env.ICOUNT_USER?.trim() ?? "";
-  const pass = process.env.ICOUNT_PASS?.trim() ?? "";
-  if (!cid || !user || !pass) return null;
-  return { cid, user, pass };
-}
-
-/** התחברות — מחזיר sid או סיבת כישלון */
-export async function icountLogin(): Promise<{ sid: string } | { error: string; detail?: string }> {
-  const cred = resolveIcountCredentials();
-  if (!cred) {
-    return { error: "missing_credentials", detail: "ICOUNT_COMPANY_ID / ICOUNT_USER / ICOUNT_PASS" };
-  }
-  console.info("[icount-v3] login:attempt", { cid: cred.cid, user: cred.user });
-  const r = await postIcount("/auth/login", { cid: cred.cid, user: cred.user, pass: cred.pass });
-  const sidRaw =
-    (r.json && (r.json.sid ?? r.json.SID ?? (r.json as any).session_id ?? (r.json as any).sessionId)) ?? null;
-  const sid = sidRaw != null ? String(sidRaw).trim() : "";
-  if (!sid) {
-    console.warn("[icount-v3] login:fail", { httpStatus: r.httpStatus, body: r.json ?? r.rawText.slice(0, 500) });
-    return { error: "login_failed", detail: r.rawText.slice(0, 400) };
-  }
-  console.info("[icount-v3] login:ok");
-  return { sid };
-}
-
-export async function icountLogout(sid: string): Promise<void> {
-  const s = String(sid ?? "").trim();
-  if (!s) return;
-  try {
-    await postIcount("/auth/logout", { sid: s });
-    console.info("[icount-v3] logout:done");
-  } catch (e) {
-    console.warn("[icount-v3] logout:error", e);
-  }
+function resolveIcountAuthOrError():
+  | { ok: true; cid: string }
+  | { ok: false; error: string; detail?: string } {
+  const cid = resolveIcountCompanyId();
+  const token = resolveIcountApiToken();
+  if (!cid) return { ok: false, error: "missing_company_id", detail: "ICOUNT_COMPANY_ID" };
+  if (!token) return { ok: false, error: "missing_api_token", detail: "ICOUNT_API_TOKEN" };
+  return { ok: true, cid };
 }
 
 function extractHksList(j: Record<string, unknown> | null): unknown[] {
@@ -112,10 +94,11 @@ export function pickFirstActiveHkId(hksList: unknown[]): string | null {
 }
 
 export async function icountHkGetList(
-  sid: string,
   clientId: string
 ): Promise<{ hksList: unknown[]; raw: IcountPostResult } | { error: string; detail?: string }> {
-  const r = await postIcount("/hk/get_list", { sid, client_id: clientId });
+  const auth = resolveIcountAuthOrError();
+  if (!auth.ok) return { error: auth.error, detail: auth.detail };
+  const r = await postIcount("/hk/get_list", { cid: auth.cid, client_id: clientId });
   const list = extractHksList(r.json);
   console.info("[icount-v3] hk/get_list", {
     httpStatus: r.httpStatus,
@@ -129,11 +112,17 @@ export async function icountHkGetList(
 }
 
 export async function icountHkCancel(
-  sid: string,
   hkId: string,
   clientId: string
 ): Promise<{ ok: boolean; raw: IcountPostResult }> {
-  const r = await postIcount("/hk/cancel", { sid, hk_id: hkId, client_id: clientId });
+  const auth = resolveIcountAuthOrError();
+  if (!auth.ok) {
+    return {
+      ok: false,
+      raw: { httpOk: false, httpStatus: 500, json: { error: auth.error, detail: auth.detail }, rawText: auth.detail ?? auth.error },
+    };
+  }
+  const r = await postIcount("/hk/cancel", { cid: auth.cid, hk_id: hkId, client_id: clientId });
   const j = r.json;
   const hasErr =
     Boolean(j) &&
@@ -175,38 +164,33 @@ export async function tryCancelStandingOrder(clientIdRaw: string): Promise<Stand
     return { kind: "skipped_no_client_id" };
   }
 
-  const login = await icountLogin();
-  if ("error" in login) {
-    console.warn("[icount-v3] standing-order:login_failed", login);
-    return { kind: "skipped_no_credentials", detail: login.detail ?? login.error };
+  const auth = resolveIcountAuthOrError();
+  if (!auth.ok) {
+    console.warn("[icount-v3] standing-order:missing_auth", auth);
+    return { kind: "skipped_no_credentials", detail: auth.detail ?? auth.error };
   }
 
-  const sid = login.sid;
-  try {
-    const listed = await icountHkGetList(sid, clientId);
-    if ("error" in listed) {
-      console.warn("[icount-v3] standing-order:list_failed", listed);
-      return { kind: "api_error", step: "hk/get_list", detail: listed.detail ?? listed.error };
-    }
-
-    const hkId = pickFirstActiveHkId(listed.hksList);
-    if (!hkId) {
-      console.info("[icount-v3] standing-order:no_active_hk", { client_id: clientId, total: listed.hksList.length });
-      return { kind: "no_hk_id", reason: "no_active_hk_in_list" };
-    }
-
-    const cancelled = await icountHkCancel(sid, hkId, clientId);
-    if (!cancelled.ok) {
-      return {
-        kind: "api_error",
-        step: "hk/cancel",
-        detail: cancelled.raw.rawText.slice(0, 400),
-      };
-    }
-    return { kind: "cancelled", hk_id: hkId };
-  } finally {
-    await icountLogout(sid);
+  const listed = await icountHkGetList(clientId);
+  if ("error" in listed) {
+    console.warn("[icount-v3] standing-order:list_failed", listed);
+    return { kind: "api_error", step: "hk/get_list", detail: listed.detail ?? listed.error };
   }
+
+  const hkId = pickFirstActiveHkId(listed.hksList);
+  if (!hkId) {
+    console.info("[icount-v3] standing-order:no_active_hk", { client_id: clientId, total: listed.hksList.length });
+    return { kind: "no_hk_id", reason: "no_active_hk_in_list" };
+  }
+
+  const cancelled = await icountHkCancel(hkId, clientId);
+  if (!cancelled.ok) {
+    return {
+      kind: "api_error",
+      step: "hk/cancel",
+      detail: cancelled.raw.rawText.slice(0, 400),
+    };
+  }
+  return { kind: "cancelled", hk_id: hkId };
 }
 
 export function extractIcountClientIdFromPayload(payload: Record<string, unknown>): string | null {
