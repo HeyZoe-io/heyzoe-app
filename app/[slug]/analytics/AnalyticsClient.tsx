@@ -177,15 +177,20 @@ export default function AnalyticsClient({
   }, [range]);
 
   useEffect(() => {
-    const onFocus = () => {
+    const reloadIfVisible = () => {
       if (loading) return;
+      try {
+        if (document.visibilityState !== "visible") return;
+      } catch {
+        /* noop */
+      }
       void load(lastLoadedRangeRef.current);
     };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", reloadIfVisible);
+    document.addEventListener("visibilitychange", reloadIfVisible);
     return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", reloadIfVisible);
+      document.removeEventListener("visibilitychange", reloadIfVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);

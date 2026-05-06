@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import {
   resolveAdminAllowedEmail,
   resolveSupabaseAnonKey,
@@ -65,28 +64,46 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
 
   const res = NextResponse.next({ request: { headers: req.headers } });
-  const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        for (const { name, value, options } of cookiesToSet) {
-          res.cookies.set(name, value, options);
-        }
-      },
-    },
+  const cookies = req.cookies.getAll();
+  const hasAuthCookie = cookies.some((c) => {
+    const name = String(c.name || "");
+    return (
+      // Supabase SSR cookies are typically chunked and include auth-token.
+      (name.startsWith("sb-") && name.includes("auth-token")) ||
+      name === "supabase-auth-token" ||
+      name === "sb-auth-token"
+    );
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   if (isAdminPath) {
+    const isLoginPath = pathname === "/admin/login";
+    if (!hasAuthCookie) {
+      if (isLoginPath) return res;
+      return redirectToLogin(req);
+    }
+
+    // Admin gating by email requires resolving the authenticated user (network).
+    // Keep this path-specific so we don't slow down dashboard traffic.
+    const { createServerClient } = await import("@supabase/ssr");
+    const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value, options } of cookiesToSet) {
+            res.cookies.set(name, value, options);
+          }
+        },
+      },
+    });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     const allowedEmail = resolveAdminAllowedEmail();
     const userEmail = user?.email?.toLowerCase() || "";
     const isAllowed = userEmail === allowedEmail;
-    const isLoginPath = pathname === "/admin/login";
 
     if (!isAllowed) {
       if (isLoginPath) return res;
@@ -104,7 +121,7 @@ export async function middleware(req: NextRequest) {
   if (isOwnerDashboardPath || isOwnerAccountPath || isOwnerSlugPath) {
     const isLoginPath = pathname === "/dashboard/login";
     const isResetPath = pathname === "/dashboard/reset";
-    if (!user) {
+    if (!hasAuthCookie) {
       if (isLoginPath || isResetPath) return res;
       return redirectToDashboardLogin(req);
     }
