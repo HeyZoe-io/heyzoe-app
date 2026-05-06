@@ -149,6 +149,10 @@ export async function computePremiumAnalytics(input: {
   const inboundMessagesByHour = Array.from({ length: 24 }, () => 0);
   const userContents: string[] = [];
   const lastUserMsgAtBySession = new Map<string, string>();
+  // Keep work bounded: we only need enough text to estimate popularity.
+  const MAX_USER_CONTENTS = 8000;
+  const MAX_USER_CHARS = 900_000;
+  let userChars = 0;
 
   for (let off = 0; ; off += PAGE) {
     let qm = admin
@@ -173,10 +177,14 @@ export async function computePremiumAnalytics(input: {
         const prev = lastUserMsgAtBySession.get(sid);
         if (!prev || at > prev) lastUserMsgAtBySession.set(sid, at);
       }
-      userContents.push(content.normalize("NFC"));
+      if (userContents.length < MAX_USER_CONTENTS && userChars < MAX_USER_CHARS) {
+        const norm = content.normalize("NFC");
+        userContents.push(norm);
+        userChars += norm.length;
+      }
     }
     if (rows.length < PAGE) break;
-    if (userContents.length > 200_000) break;
+    if (userContents.length >= MAX_USER_CONTENTS || userChars >= MAX_USER_CHARS) break;
   }
 
   /** ── חזרה אחרי פולואפ ── */
@@ -200,21 +208,22 @@ export async function computePremiumAnalytics(input: {
 
   let followupReturnCount = 0;
 
-  outer: for (const c of followContacts) {
+  // Reduce complexity: build phone -> last inbound user message timestamp map once.
+  const lastUserMsgAtByPhone = new Map<string, string>();
+  for (const [sid, lastAt] of lastUserMsgAtBySession.entries()) {
+    const phone = waSessionExtractFromParticipant(sid);
+    if (!phone) continue;
+    const prev = lastUserMsgAtByPhone.get(phone);
+    if (!prev || lastAt > prev) lastUserMsgAtByPhone.set(phone, lastAt);
+  }
+  for (const c of followContacts) {
     const phone = String(c.phone ?? "").trim();
     if (!phone) continue;
     const lastFu = tsMax3(c.wa_followup_1_sent_at, c.wa_followup_2_sent_at, c.wa_followup_3_sent_at);
     if (!lastFu) continue;
     if (msgStartIso && lastFu < msgStartIso) continue;
-
-    for (const [sid, lastAt] of lastUserMsgAtBySession.entries()) {
-      const fromSid = waSessionExtractFromParticipant(sid);
-      if (fromSid !== phone) continue;
-      if (lastAt > lastFu) {
-        followupReturnCount += 1;
-        continue outer;
-      }
-    }
+    const lastAt = lastUserMsgAtByPhone.get(phone);
+    if (lastAt && lastAt > lastFu) followupReturnCount += 1;
   }
 
   /** ── אימונים פופולריים ── */
@@ -234,7 +243,8 @@ export async function computePremiumAnalytics(input: {
   for (const n of names) pop.set(n, 0);
 
   if (names.length) {
-    const ordered = [...names].sort((a, b) => b.length - a.length);
+    // Keep matching bounded: too many service names can be quadratic with messages.
+    const ordered = [...names].sort((a, b) => b.length - a.length).slice(0, 60);
     for (const text of userContents) {
       for (const name of ordered) {
         const re = new RegExp(escapeRe(name), "gi");
