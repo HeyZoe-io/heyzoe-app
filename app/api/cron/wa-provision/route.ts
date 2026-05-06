@@ -723,8 +723,9 @@ export async function GET(req: NextRequest) {
       body: new URLSearchParams({ VoiceUrl: twimlVoiceUrl }),
     });
 
-    // Step 3: Meta register (verification is temporarily manual)
-    const metaRegUrl = `https://graph.facebook.com/v21.0/${metaBusinessId}/phone_numbers`;
+    // Step 3: Meta Cloud API registration (verification is temporarily manual)
+    // Use the Cloud API registration flow (type=CLOUD_API) rather than "migration".
+    const metaRegUrl = `https://graph.facebook.com/v19.0/${metaBusinessId}/phone_numbers`;
     const metaReg = await metaFetchJson(
       metaRegUrl,
       whatsappSystemToken,
@@ -732,6 +733,7 @@ export async function GET(req: NextRequest) {
       cc: "972",
       phone_number: stripCc972(phoneE164),
       verified_name: verifiedName,
+      type: "CLOUD_API",
       },
       { label: "register_phone_number", includeOk: true }
     );
