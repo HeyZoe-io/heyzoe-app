@@ -13,6 +13,7 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 async function requireUser() {
   const supabase = await createSupabaseServerClient();
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const slugFilter = normSlug(req.nextUrl.searchParams.get("slug") ?? "");
+  const lite = String(req.nextUrl.searchParams.get("lite") ?? "").trim() === "1";
 
   const admin = createSupabaseAdminClient();
   const accessible = await loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") });
@@ -67,6 +69,21 @@ export async function GET(req: NextRequest) {
       })();
 
   if (!business) return NextResponse.json({ business: null, services: [], faqs: [] });
+
+  if (lite) {
+    return NextResponse.json({
+      business: {
+        id: business.id,
+        slug: business.slug,
+        user_id: business.user_id,
+        is_active: (business as any)?.is_active ?? null,
+        plan: typeof (business as any).plan === "string" ? (business as any).plan : "basic",
+      },
+      services: [],
+      faqs: [],
+      lite: true,
+    });
+  }
 
   const [{ data: services }, { data: faqs }] = await Promise.all([
     admin.from("services").select("*").eq("business_id", business.id).order("created_at", { ascending: true }),
