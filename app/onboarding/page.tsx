@@ -134,6 +134,24 @@ function OnboardingContent() {
 
   const planInfo = PLAN_INFO[selectedPlan];
 
+  // Analytics continuity: /onboarding/success emits "purchase" based on sessionStorage values.
+  // If user did not arrive from /lp-leads, seed those values here.
+  useEffect(() => {
+    try {
+      const key = "hz_lp_session_id";
+      const existing = sessionStorage.getItem(key) || "";
+      if (!existing) {
+        const sid = `onb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        sessionStorage.setItem(key, sid);
+      }
+      if (!sessionStorage.getItem("hz_lp_source")) {
+        sessionStorage.setItem("hz_lp_source", "onboarding");
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Detect existing session email to prevent "sign up with a different email while logged in".
   useEffect(() => {
     let cancelled = false;
@@ -464,6 +482,26 @@ function OnboardingContent() {
       if (!res.ok || !data.url) {
         throw new Error(typeof data?.error === "string" ? data.error : "checkout_failed");
       }
+
+      // Track checkout_start and set plan value so /onboarding/success can emit "purchase".
+      try {
+        const value = selectedPlan === "pro" ? 499 : 349;
+        sessionStorage.setItem("hz_lp_plan", selectedPlan);
+        sessionStorage.setItem("hz_lp_plan_value", String(value));
+        if (!sessionStorage.getItem("hz_lp_source")) sessionStorage.setItem("hz_lp_source", "onboarding");
+        const sid = sessionStorage.getItem("hz_lp_session_id") || "";
+        if (sid) {
+          void fetch("/api/track", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event_type: "checkout_start", session_id: sid, source: "onboarding", label: selectedPlan }),
+            keepalive: true,
+          });
+        }
+      } catch {
+        // ignore
+      }
+
       setIframeUrl(String(data.url));
       setStep(3);
     } catch (e) {
