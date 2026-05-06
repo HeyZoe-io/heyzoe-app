@@ -723,7 +723,7 @@ export async function GET(req: NextRequest) {
       body: new URLSearchParams({ VoiceUrl: twimlVoiceUrl }),
     });
 
-    // Step 3: Meta Cloud API registration (verification is temporarily manual)
+    // Step 3: Meta Cloud API registration
     // Use the Cloud API registration flow (type=CLOUD_API) rather than "migration".
     const metaRegUrl = `https://graph.facebook.com/v19.0/${metaBusinessId}/phone_numbers`;
     const metaReg = await metaFetchJson(
@@ -756,47 +756,32 @@ export async function GET(req: NextRequest) {
         { onConflict: "phone_number_id" }
       );
 
-    // Freeze automatic Meta verification: no request_code, no transcription, no verify_code.
-    // Mark job done so onboarding can complete; dashboard will keep polling Meta status (likely PENDING).
-    try {
-      const { data: biz } = await admin
-        .from("businesses")
-        .select("name, slug")
-        .eq("id", (locked as any).business_id)
-        .maybeSingle();
-      const businessName =
-        String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((biz as any)?.slug ?? (locked as any)?.business_slug ?? "").trim();
+    // Step 4: request OTP voice code from Meta
+    const metaRequestCodeUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/request_code`;
+    await metaFetchJson(
+      metaRequestCodeUrl,
+      whatsappSystemToken,
+      { code_method: "VOICE", language: "he" },
+      { label: "request_code", includeOk: true }
+    );
 
-      await sendEmail({
-        to: "liornativ@hotmail.com",
-        subject: "לקוח חדש ממתין לאימות ידני",
-        htmlContent: `
-<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;line-height:1.6">
-  <p><b>שם העסק:</b> ${escapeHtml(businessName || "-")}</p>
-  <p><b>מספר טלפון שהונפק לו:</b> ${escapeHtml(phoneE164 || "-")}</p>
-  <p><b>Phone Number ID:</b> ${escapeHtml(metaPhoneNumberId || "-")}</p>
-  <p style="margin-top:16px;color:#6b7280;font-size:12px">המספר נרשם ב־Meta וממתין לאימות ידני (Send verification code).</p>
-</div>`,
-      });
-    } catch (e) {
-      console.error("[cron/wa-provision] manual-verification email failed:", e);
-    }
-
-    const { error: doneErr } = await admin
+    // Persist and continue in next cron invocation (avoid sleeping in this request).
+    const { error: waitErr } = await admin
       .from("wa_provision_jobs")
       .update({
-        status: "done",
+        status: "waiting_recording",
         updated_at: isoNow(),
         phone_e164: phoneE164,
         meta_phone_number_id: metaPhoneNumberId,
         twilio_sid: twilioSid,
         recording_sid: null,
         transcription_started_at: null,
+        transcription_polls: 0,
       } as any)
       .eq("id", Number(locked.id));
-    if (doneErr) throw doneErr;
+    if (waitErr) throw waitErr;
 
-    return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
+    return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
 
