@@ -1,12 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveAdminAllowedEmail,
   resolveSupabaseAnonKey,
   resolveSupabaseUrl,
 } from "@/lib/server-env";
-import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
 
 function redirectToLogin(req: NextRequest) {
   const url = req.nextUrl.clone();
@@ -66,24 +64,6 @@ export async function middleware(req: NextRequest) {
   if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
     return NextResponse.next();
 
-  if (isOwnerSlugPath) {
-    try {
-      const match = pathname.match(/^\/([^/]+)\/(analytics|conversations|contacts|settings)\/?$/);
-      const slug = match?.[1] ?? "";
-      if (slug) {
-        const admin = createSupabaseAdminClient();
-        const { data: business } = await admin
-          .from("businesses")
-          .select("id")
-          .eq("slug", slug)
-          .maybeSingle();
-        if (!business) return neutralNotFoundResponse();
-      }
-    } catch {
-      // If this validation fails, continue to the usual auth flow.
-    }
-  }
-
   const res = NextResponse.next({ request: { headers: req.headers } });
   const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
     cookies: {
@@ -135,78 +115,12 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Role gating: employees can access conversations only
-    if (isOwnerSlugPath) {
-      const m = pathname.match(/^\/([^/]+)\/(analytics|conversations|contacts|settings)\/?$/);
-      const slug = m?.[1] ?? "";
-      const section = m?.[2] ?? "";
-      if (slug && section) {
-        try {
-          // Use service-role client and enforce access explicitly (avoid any RLS/session edge cases).
-          const admin = createSupabaseAdminClient();
-          const { data: biz } = await admin
-            .from("businesses")
-            .select("id, user_id, is_active")
-            .eq("slug", slug)
-            .maybeSingle();
-          if (!biz?.id) return neutralNotFoundResponse();
-
-          const isOwner = String((biz as any)?.user_id ?? "") === user.id;
-          let isAdminMember = false;
-          if (!isOwner) {
-            const { data: bu } = await supabase
-              .from("business_users")
-              .select("role")
-              .eq("business_id", biz.id)
-              .eq("user_id", user.id)
-              .maybeSingle();
-            isAdminMember = bu?.role === "admin";
-            const isEmployee = bu?.role === "employee";
-            if (!isAdminMember && !isEmployee) return neutralNotFoundResponse();
-            if (section !== "conversations" && isEmployee) {
-              const url = req.nextUrl.clone();
-              url.pathname = `/${slug}/conversations`;
-              return NextResponse.redirect(url);
-            }
-          }
-
-          const isPaidActive = Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
-
-          // Paywall: if business subscription isn't active, only allow /account/* (personal details)
-          // Only apply paywall for users who are allowed to access this business (owner/admin/employee).
-          if (!isPaidActive) {
-            console.log("[middleware] redirectToBillingReactivate", {
-              slug,
-              user_id: user.id,
-              biz,
-            });
-            return redirectToBillingReactivate(req);
-          }
-        } catch {
-          // If we can't check role here, let page-level auth handle it.
-        }
-      }
-    }
-
     // Paywall for dashboard settings (edit-heavy area)
     if (isDashboardSlugSettingsPath) {
       const m = pathname.match(/^\/dashboard\/([^/]+)\/settings\/?$/);
       const slug = m?.[1] ?? "";
       if (slug) {
-        try {
-          const admin = createSupabaseAdminClient();
-          const { data: biz } = await admin
-            .from("businesses")
-            .select("is_active")
-            .eq("slug", slug)
-            .eq("user_id", user.id)
-            .maybeSingle();
-          const isPaidActive =
-            Boolean((biz as any)?.is_active) || hasComplimentaryDashboardAccess(slug);
-          if (!isPaidActive) return redirectToBillingReactivate(req);
-        } catch {
-          // Let page-level handle if needed
-        }
+        // NOTE: intentionally no DB calls in middleware (avoid invocation timeouts).
       }
     }
   }
