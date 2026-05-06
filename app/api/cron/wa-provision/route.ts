@@ -147,7 +147,11 @@ async function metaFetchJson(
   }
   if (!res.ok) {
     const msg = (json && (json.error?.message || json.message)) || text || `meta_failed (${res.status})`;
-    throw new Error(msg);
+    const err = new Error(msg) as Error & {
+      meta?: { status: number; bodyText: string; bodyJson: any; label?: string; url: string };
+    };
+    err.meta = { status: res.status, bodyText: text, bodyJson: json, label: debug?.label, url };
+    throw err;
   }
   return json;
 }
@@ -784,6 +788,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const meta = (e as any)?.meta as
+      | { status: number; bodyText: string; bodyJson: any; label?: string; url: string }
+      | undefined;
+    if (meta) {
+      console.error("[cron/wa-provision] meta error details:", {
+        label: meta.label ?? null,
+        status: meta.status,
+        url: meta.url,
+        bodyText: meta.bodyText,
+        bodyJson: meta.bodyJson,
+      });
+    }
 
     // Avoid clobbering persisted progress fields with NULLs.
     const lockedPhone = String((locked as any)?.phone_e164 ?? "").trim();
