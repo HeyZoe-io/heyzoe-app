@@ -39,7 +39,8 @@ export default function DashboardLoginPage() {
       window.location.href = nextPath;
       return;
     }
-    const res = await fetch("/api/dashboard/settings", { method: "GET" });
+    // Use lite payload to avoid fetching large settings blobs during login redirects.
+    const res = await fetch("/api/dashboard/settings?lite=1", { method: "GET" });
     const j = await res.json().catch(() => ({}));
     const slug =
       j?.business && typeof j.business.slug === "string" ? String(j.business.slug).trim() : "";
