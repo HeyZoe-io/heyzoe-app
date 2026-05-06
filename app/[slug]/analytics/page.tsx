@@ -6,6 +6,8 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { computePremiumAnalytics, type PremiumAnalyticsResult } from "@/lib/analytics-pro-metrics";
 import AnalyticsClient from "./AnalyticsClient";
 
+export const maxDuration = 60;
+
 type RangeKey = "month" | "week" | "all";
 type Props = { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 

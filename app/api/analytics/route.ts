@@ -5,6 +5,8 @@ import { getBusinessKnowledgePack, invalidateBusinessKnowledgePackCache } from "
 import { computePremiumAnalytics, type PremiumRangeKey } from "@/lib/analytics-pro-metrics";
 
 export const runtime = "nodejs";
+// Premium analytics can be heavier on larger accounts.
+export const maxDuration = 60;
 
 function dbPlanIsPremium(plan: unknown) {
   return String(plan ?? "").trim().toLowerCase() === "premium";
