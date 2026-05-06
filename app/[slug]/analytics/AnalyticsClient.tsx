@@ -249,35 +249,36 @@ export default function AnalyticsClient({
           </div>
         </section>
       ) : (
-      <section className="grid gap-4 md:grid-cols-3 hz-wave hz-wave-2">
-        {loading ? (
-          Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
-              <div className="h-3 w-28 rounded bg-zinc-200 ml-auto animate-pulse" />
-              <div className="mt-3 h-8 w-20 rounded bg-zinc-200 ml-auto animate-pulse" />
-            </div>
-          ))
-        ) : (
-          <>
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
-              <p className="text-xs text-zinc-500">לידים חדשים</p>
-              <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
-              <p className="text-xs text-zinc-500">המרות (נרשמו לשיעור ניסיון)</p>
-              <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.converted}</p>
-            </div>
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
-              <p className="text-xs text-zinc-500">שיעור המרה</p>
-              <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.conversionRate}%</p>
-              <p className="mt-1 text-[11px] text-zinc-500">מתוך {data.totalChats} צ׳אטים (פר מספר)</p>
-            </div>
-          </>
-        )}
-      </section>
+        <>
+          <section className="grid gap-4 md:grid-cols-3 hz-wave hz-wave-2">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
+                  <div className="h-3 w-28 rounded bg-zinc-200 ml-auto animate-pulse" />
+                  <div className="mt-3 h-8 w-20 rounded bg-zinc-200 ml-auto animate-pulse" />
+                </div>
+              ))
+            ) : (
+              <>
+                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+                  <p className="text-xs text-zinc-500">לידים חדשים</p>
+                  <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
+                </div>
+                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+                  <p className="text-xs text-zinc-500">המרות (נרשמו לשיעור ניסיון)</p>
+                  <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.converted}</p>
+                </div>
+                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+                  <p className="text-xs text-zinc-500">שיעור המרה</p>
+                  <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.conversionRate}%</p>
+                  <p className="mt-1 text-[11px] text-zinc-500">מתוך {data.totalChats} צ׳אטים (פר מספר)</p>
+                </div>
+              </>
+            )}
+          </section>
 
-      {planIsPremium ? (
-        <section className="space-y-4 hz-wave hz-wave-3">
+          {planIsPremium ? (
+            <section className="space-y-4 hz-wave hz-wave-3">
           <div className="flex flex-wrap items-center justify-between gap-2 text-right border-b border-white/70 pb-2">
             <h2 className="text-lg font-semibold text-zinc-900">ניתוח Pro</h2>
             <span className="rounded-full bg-[#f7f3ff] border border-[#7133da]/25 px-2.5 py-0.5 text-[11px] font-semibold text-[#7133da]">
@@ -410,6 +411,7 @@ export default function AnalyticsClient({
           </div>
         </section>
       ) : null}
+        </>
       )}
     </div>
   );
