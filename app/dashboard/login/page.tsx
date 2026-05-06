@@ -20,6 +20,23 @@ export default function DashboardLoginPage() {
   const [pwShake, setPwShake] = useState(false);
   const [wrongPassword, setWrongPassword] = useState(false);
 
+  async function resolveInvalidCredentialsMessage(cleanEmail: string): Promise<{ text: string; isWrongPassword: boolean }> {
+    try {
+      const res = await fetch(`/api/onboarding/email-status?email=${encodeURIComponent(cleanEmail)}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      const j = (await res.json().catch(() => null)) as any;
+      if (j?.state === "none") return { text: "לא מצאנו חשבון עם האימייל הזה.", isWrongPassword: false };
+      if (j?.state === "existing_paying" || j?.state === "existing_unpaid")
+        return { text: "הוזנה סיסמה לא נכונה", isWrongPassword: true };
+    } catch {
+      // ignore
+    }
+    // Fallback: Supabase does not differentiate between wrong email / wrong password for security reasons.
+    return { text: "אימייל או סיסמה לא נכונים", isWrongPassword: false };
+  }
+
   const nextPath = useMemo(() => {
     if (typeof window === "undefined") return "";
     const sp = new URLSearchParams(window.location.search);
@@ -62,23 +79,31 @@ export default function DashboardLoginPage() {
     setLoading(true);
     setMessage("");
     setWrongPassword(false);
+    setPwShake(false);
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
     if (error) {
       const msg = String(error.message ?? "").toLowerCase();
-      const isWrongPw =
+      const isInvalidCreds =
         msg.includes("invalid login credentials") ||
         msg.includes("invalid credentials") ||
         msg.includes("invalid") ||
         msg.includes("credentials");
-      setWrongPassword(isWrongPw);
-      setMessage(isWrongPw ? "הוזנה סיסמה לא נכונה" : error.message);
-      if (isWrongPw) {
-        setPwShake(false);
-        requestAnimationFrame(() => setPwShake(true));
-        window.setTimeout(() => setPwShake(false), 520);
+
+      if (isInvalidCreds) {
+        const cleanEmail = email.trim();
+        const resolved = await resolveInvalidCredentialsMessage(cleanEmail);
+        setWrongPassword(resolved.isWrongPassword);
+        setMessage(resolved.text);
+        if (resolved.isWrongPassword) {
+          requestAnimationFrame(() => setPwShake(true));
+          window.setTimeout(() => setPwShake(false), 520);
+        }
+      } else {
+        setWrongPassword(false);
+        setMessage(error.message);
       }
     }
     else await redirectAfterLogin();
