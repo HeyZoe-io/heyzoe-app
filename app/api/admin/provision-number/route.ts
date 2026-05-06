@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
   }
 
   const twilioAuth = twilioAuthHeader(twilioAccountSid, twilioAuthToken);
-  const twimlVoiceUrl = "https://handler.twilio.com/twiml/EH3a2831d7f10a000887d9678027077ad9";
+  const twimlVoiceUrl = "https://heyzoe.io/api/twilio/voice";
   const metaBusinessId = metaWabaId;
 
   const enc = new TextEncoder();
