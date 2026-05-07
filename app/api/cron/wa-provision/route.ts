@@ -326,13 +326,33 @@ export async function GET(req: NextRequest) {
     const existingPhone = String((locked as any).phone_e164 ?? "").trim();
     const existingTwilioSid = String((locked as any).twilio_sid ?? "").trim();
     if (status === "running" && existingMetaId && existingPhone && existingTwilioSid) {
-      console.warn("[cron/wa-provision] job has meta id already; skipping purchase and continuing to waiting_recording", {
+      console.warn("[cron/wa-provision] job has meta id already; re-requesting OTP code and continuing to waiting_recording", {
         id: Number((locked as any).id),
         meta_phone_number_id: existingMetaId,
       });
+      // Re-request OTP from Meta (job might have been reset to queued/running).
+      const metaRequestCodeUrl = `https://graph.facebook.com/v21.0/${existingMetaId}/request_code`;
+      await metaFetchJson(
+        metaRequestCodeUrl,
+        whatsappSystemToken,
+        { code_method: "VOICE", language: "he" },
+        { label: "request_code", includeOk: true }
+      );
       const { error } = await admin
         .from("wa_provision_jobs")
-        .update({ status: "waiting_recording", updated_at: isoNow() } as any)
+        .update(
+          {
+            status: "waiting_recording",
+            updated_at: isoNow(),
+            phone_e164: existingPhone,
+            meta_phone_number_id: existingMetaId,
+            twilio_sid: existingTwilioSid,
+            recording_sid: null,
+            transcription_started_at: null,
+            transcription_polls: 0,
+            last_error: null,
+          } as any
+        )
         .eq("id", Number(locked.id));
       if (error) throw error;
       return NextResponse.json({ ok: true, processed: 1, status: "waiting_recording", build });
