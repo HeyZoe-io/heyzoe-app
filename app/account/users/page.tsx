@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ export default function AccountUsersPage() {
   const [inviteRole, setInviteRole] = useState<Member["role"]>("employee");
   const [inviting, setInviting] = useState(false);
   const [cancellingByUserId, setCancellingByUserId] = useState<Record<string, boolean>>({});
+  const [removingByUserId, setRemovingByUserId] = useState<Record<string, boolean>>({});
 
   async function load() {
     setLoadError("");
@@ -125,12 +127,21 @@ export default function AccountUsersPage() {
   async function removeMember(userId: string) {
     if (!confirm("למחוק את המשתמש מהעסק?")) return;
     setMessage("");
-    const res = await fetch(`/api/account/users?user_id=${encodeURIComponent(userId)}`, {
-      method: "DELETE",
-    });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) setMessage(j.error ?? "delete_failed");
-    else await load();
+    setRemovingByUserId((m) => ({ ...m, [userId]: true }));
+    try {
+      const res = await fetch(`/api/account/users?user_id=${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) setMessage(j.error ?? "delete_failed");
+      else await load();
+    } finally {
+      setRemovingByUserId((m) => {
+        const next = { ...m };
+        delete next[userId];
+        return next;
+      });
+    }
   }
 
   return (
@@ -207,7 +218,7 @@ export default function AccountUsersPage() {
                       type="button"
                       onClick={() => void cancelInvite(m.user_id)}
                       className="text-xs text-zinc-700 hover:text-zinc-900 underline underline-offset-4 cursor-pointer"
-                      disabled={Boolean(cancellingByUserId[m.user_id])}
+                      disabled={Boolean(cancellingByUserId[m.user_id]) || Boolean(removingByUserId[m.user_id])}
                       title="בטל בקשה"
                     >
                       {cancellingByUserId[m.user_id] ? "מבטל..." : "בטל בקשה"}
@@ -218,10 +229,17 @@ export default function AccountUsersPage() {
                       type="button"
                       onClick={() => void removeMember(m.user_id)}
                       className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4 cursor-pointer"
-                      disabled={m.user_id === meId}
+                      disabled={m.user_id === meId || Boolean(removingByUserId[m.user_id])}
                       title={m.user_id === meId ? "לא ניתן למחוק את עצמך כאן" : "מחיקה"}
                     >
-                      מחיקה
+                      {removingByUserId[m.user_id] ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                          מוחק...
+                        </span>
+                      ) : (
+                        "מחיקה"
+                      )}
                     </button>
                   ) : (
                     <span className="text-[11px] text-zinc-400">—</span>
