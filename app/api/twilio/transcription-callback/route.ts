@@ -101,25 +101,26 @@ export async function POST(req: NextRequest) {
 
   const admin = createSupabaseAdminClient();
 
-  // Find the latest in-flight job by recording_sid and/or the Twilio "To" number.
+  // Find the latest in-flight job by Twilio "To" number.
+  // This avoids mixing callbacks between concurrent jobs.
   const statuses = ["running", "waiting_recording", "transcribing", "awaiting_manual_code"] as const;
-  const orParts: string[] = [];
-  if (recordingSid) orParts.push(`recording_sid.eq.${recordingSid}`);
-  if (toE164) orParts.push(`phone_e164.eq.${toE164}`);
-
-  const q = admin
-    .from("wa_provision_jobs")
-    .select("id,business_id,phone_e164,meta_phone_number_id,twilio_sid,recording_sid,status")
-    .in("status", statuses as any)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  const { data: job } =
-    orParts.length >= 2
-      ? await q.or(orParts.join(",")).maybeSingle()
-      : orParts.length === 1
-        ? await q.or(orParts[0]!).maybeSingle()
-        : await q.maybeSingle();
+  const { data: job } = toE164
+    ? await admin
+        .from("wa_provision_jobs")
+        .select("id,business_id,phone_e164,meta_phone_number_id,twilio_sid,recording_sid,status")
+        .eq("phone_e164", toE164)
+        .in("status", statuses as any)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : await admin
+        .from("wa_provision_jobs")
+        .select("id,business_id,phone_e164,meta_phone_number_id,twilio_sid,recording_sid,status")
+        .eq("recording_sid", recordingSid)
+        .in("status", statuses as any)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
   if (!job?.id) {
     console.warn("[twilio/transcription-callback] no matching wa_provision_job", {
