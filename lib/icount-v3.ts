@@ -108,7 +108,16 @@ function extractHksList(j: Record<string, unknown> | null): unknown[] {
       ? (j.data as any).hks_list ?? (j.data as any).hk_list
       : null) ??
     j.results_list;
-  return Array.isArray(list) ? list : [];
+  if (Array.isArray(list)) return list;
+  // iCount sometimes returns hks_list as an object keyed by hk_id.
+  if (list && typeof list === "object") {
+    try {
+      return Object.values(list as Record<string, unknown>);
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 function inactiveStatus(st: string): boolean {
