@@ -862,7 +862,16 @@ function OnboardingContent() {
                     }
                   }
 
-                  if (validateStep1() && !phoneTaken && !emailTaken) setStep(2);
+                  if (validateStep1() && !phoneTaken && !emailTaken) {
+                    // Best-effort: help password managers offer to save creds after signup completion.
+                    try {
+                      sessionStorage.setItem("hz_onb_email", String(form.email || "").trim());
+                      sessionStorage.setItem("hz_onb_password", String(form.password || ""));
+                    } catch {
+                      /* ignore */
+                    }
+                    setStep(2);
+                  }
                 })();
               }}
             >
@@ -971,10 +980,27 @@ function OnboardingContent() {
                   placeholder="israel@studio.co.il"
                   type="email"
                   name="email"
-                  autoComplete="username"
+                  autoComplete="email"
                   inputMode="email"
                   autoCapitalize="none"
                   spellCheck={false}
+                />
+                {/* Password managers often look for an explicit username field paired with new-password. */}
+                <input
+                  type="text"
+                  name="username"
+                  autoComplete="username"
+                  value={String(form.email || "").trim()}
+                  readOnly
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    opacity: 0,
+                    pointerEvents: "none",
+                    height: 0,
+                    width: 0,
+                  }}
                 />
                 {errors.email ? <span style={{ fontSize: "12px", color: "#e24b4a" }}>{errors.email}</span> : null}
                 {!errors.email && emailTaken ? (
