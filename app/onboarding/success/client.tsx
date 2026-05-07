@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const POLL_MS = 2000;
 const TIMEOUT_MS = 120_000;
@@ -68,7 +69,32 @@ export default function OnboardingSuccessClient() {
           }
           setReady({ slug });
           redirectTimerRef.current = setTimeout(() => {
-            if (!cancelled) router.replace(`/${slug}/analytics?welcome=1`);
+            if (cancelled) return;
+            // If we still have onboarding creds and email matches, try to sign-in automatically.
+            try {
+              const storedEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
+              const storedPw = String(sessionStorage.getItem("hz_onb_password") || "");
+              if (storedEmail && storedPw && storedEmail === email) {
+                const supabase = createSupabaseBrowserClient();
+                void supabase.auth
+                  .signInWithPassword({ email: storedEmail, password: storedPw })
+                  .then(({ error }) => {
+                    if (error) {
+                      router.replace(
+                        `/dashboard/login?next=${encodeURIComponent(`/${slug}/analytics?welcome=1`)}&msg=${encodeURIComponent(
+                          "התחברי כדי להיכנס לדשבורד."
+                        )}`
+                      );
+                      return;
+                    }
+                    router.replace(`/${slug}/analytics?welcome=1`);
+                  });
+                return;
+              }
+            } catch {
+              // ignore
+            }
+            router.replace(`/${slug}/analytics?welcome=1`);
           }, 1500);
           return;
         }
