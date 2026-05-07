@@ -96,11 +96,14 @@ export async function icountHkGetList(
 ): Promise<{ hksList: unknown[]; raw: IcountPostResult } | { error: string; detail?: string }> {
   const auth = resolveIcountAuthOrError();
   if (!auth.ok) return { error: auth.error, detail: auth.detail };
-  const r = await postIcount("/hk/get_list", {
+  const payload = {
     sid: resolveIcountApiToken(),
     cid: auth.cid,
     client_id: clientId,
-  });
+  };
+  // TEMP debug: log the exact request body (including sid).
+  console.info("[icount-v3] hk/get_list request body:", payload);
+  const r = await postIcount("/hk/get_list", payload);
   const list = extractHksList(r.json);
   console.info("[icount-v3] hk/get_list", {
     httpStatus: r.httpStatus,
