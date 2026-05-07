@@ -422,7 +422,14 @@ export async function GET(req: NextRequest) {
         debugLabel: "recordings_list",
       });
       const list = Array.isArray(rec?.recordings) ? rec.recordings : [];
-      const rec0 = list[0] ?? null;
+      const sorted = [...list].sort((a: any, b: any) => {
+        const ta = new Date(String(a?.date_created ?? "")).getTime();
+        const tb = new Date(String(b?.date_created ?? "")).getTime();
+        const na = Number.isFinite(ta) ? ta : 0;
+        const nb = Number.isFinite(tb) ? tb : 0;
+        return nb - na; // newest first
+      });
+      const rec0 = sorted[0] ?? null;
       recordingSid = String(rec0?.sid ?? "").trim();
       const recordingStatus = String(rec0?.status ?? "").trim().toLowerCase();
       console.info("[cron/wa-provision] twilio recordings pick:", {
@@ -431,6 +438,9 @@ export async function GET(req: NextRequest) {
         picked_recording_sid: recordingSid || null,
         picked_created_at: rec0?.date_created ?? null,
         picked_status: rec0?.status ?? null,
+        candidates: list
+          .slice(0, 6)
+          .map((r: any) => ({ sid: r?.sid ?? null, date_created: r?.date_created ?? null, status: r?.status ?? null })),
       });
 
       if (!recordingSid) {
