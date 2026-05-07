@@ -70,7 +70,8 @@ async function icountLogin(): Promise<{ ok: true; sid: string; cid: string } | {
   const creds = resolveIcountLoginCredsOrError();
   if (!creds.ok) return creds;
 
-  const r = await postIcount("/user/login", { cid: creds.cid, user: creds.user, pass: creds.pass });
+  // iCount v3 login endpoint is auth/login (not user/login).
+  const r = await postIcount("/auth/login", { cid: creds.cid, user: creds.user, pass: creds.pass });
   const j = r.json ?? {};
   const sid = String((j as any).sid ?? "").trim();
 
