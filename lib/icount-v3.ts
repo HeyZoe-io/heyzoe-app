@@ -1,9 +1,9 @@
 /**
  * iCount API v3 — הוראות קבע (hk) עם Bearer Token.
- * בסיס: https://apiv3.icount.co.il/api/v3.php
+ * בסיס: https://api.icount.co.il/api/v3.php
  */
 
-const DEFAULT_BASE = "https://apiv3.icount.co.il/api/v3.php";
+const DEFAULT_BASE = "https://api.icount.co.il/api/v3.php";
 
 export function resolveIcountV3Base(): string {
   return process.env.ICOUNT_API_BASE?.trim() || DEFAULT_BASE;
@@ -31,13 +31,11 @@ function resolveIcountApiToken(): string {
 }
 
 async function postIcount(path: string, body: Record<string, unknown>): Promise<IcountPostResult> {
-  const token = resolveIcountApiToken();
   const res = await fetch(url(path), {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -98,7 +96,11 @@ export async function icountHkGetList(
 ): Promise<{ hksList: unknown[]; raw: IcountPostResult } | { error: string; detail?: string }> {
   const auth = resolveIcountAuthOrError();
   if (!auth.ok) return { error: auth.error, detail: auth.detail };
-  const r = await postIcount("/hk/get_list", { cid: auth.cid, client_id: clientId });
+  const r = await postIcount("/hk/get_list", {
+    sid: resolveIcountApiToken(),
+    cid: auth.cid,
+    client_id: clientId,
+  });
   const list = extractHksList(r.json);
   console.info("[icount-v3] hk/get_list", {
     httpStatus: r.httpStatus,
@@ -122,7 +124,12 @@ export async function icountHkCancel(
       raw: { httpOk: false, httpStatus: 500, json: { error: auth.error, detail: auth.detail }, rawText: auth.detail ?? auth.error },
     };
   }
-  const r = await postIcount("/hk/cancel", { cid: auth.cid, hk_id: hkId, client_id: clientId });
+  const r = await postIcount("/hk/cancel", {
+    sid: resolveIcountApiToken(),
+    cid: auth.cid,
+    hk_id: hkId,
+    client_id: clientId,
+  });
   const j = r.json;
   const hasErr =
     Boolean(j) &&
