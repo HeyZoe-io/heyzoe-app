@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
 
 export default function DashboardLoginPage() {
   const router = useRouter();
@@ -195,6 +196,13 @@ export default function DashboardLoginPage() {
             >
               שכחת סיסמה?
             </button>
+            <Link
+              href="/register"
+              className="block w-full text-xs text-zinc-500 hover:text-zinc-700 underline underline-offset-4 text-center"
+              aria-label="אין לך חשבון? הירשם כעת"
+            >
+              אין לך חשבון? הירשם כעת!
+            </Link>
             {message && !wrongPassword ? <p className="text-sm text-zinc-500">{message}</p> : null}
           </form>
         </CardContent>
