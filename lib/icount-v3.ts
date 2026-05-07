@@ -106,6 +106,7 @@ export async function icountHkGetList(
     httpStatus: r.httpStatus,
     count: list.length,
     httpOk: r.httpOk,
+    body: r.json ?? r.rawText,
   });
   if (!r.httpOk && list.length === 0) {
     return { error: "hk_get_list_failed", detail: r.rawText.slice(0, 400) };
