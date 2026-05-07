@@ -22,10 +22,6 @@ export type IcountPostResult = {
   rawText: string;
 };
 
-function resolveIcountCompanyId(): string {
-  return process.env.ICOUNT_COMPANY_ID?.trim() ?? "";
-}
-
 function resolveIcountApiToken(): string {
   return process.env.ICOUNT_API_TOKEN?.trim() ?? "";
 }
@@ -50,14 +46,12 @@ async function postIcount(path: string, body: Record<string, unknown>): Promise<
   return { httpOk: res.ok, httpStatus: res.status, json, rawText };
 }
 
-function resolveIcountAuthOrError():
-  | { ok: true; cid: string }
+function resolveIcountSidOrError():
+  | { ok: true; sid: string }
   | { ok: false; error: string; detail?: string } {
-  const cid = resolveIcountCompanyId();
-  const token = resolveIcountApiToken();
-  if (!cid) return { ok: false, error: "missing_company_id", detail: "ICOUNT_COMPANY_ID" };
-  if (!token) return { ok: false, error: "missing_api_token", detail: "ICOUNT_API_TOKEN" };
-  return { ok: true, cid };
+  const sid = resolveIcountApiToken();
+  if (!sid) return { ok: false, error: "missing_api_token", detail: "ICOUNT_API_TOKEN" };
+  return { ok: true, sid };
 }
 
 function extractHksList(j: Record<string, unknown> | null): unknown[] {
@@ -94,11 +88,10 @@ export function pickFirstActiveHkId(hksList: unknown[]): string | null {
 export async function icountHkGetList(
   clientId: string
 ): Promise<{ hksList: unknown[]; raw: IcountPostResult } | { error: string; detail?: string }> {
-  const auth = resolveIcountAuthOrError();
+  const auth = resolveIcountSidOrError();
   if (!auth.ok) return { error: auth.error, detail: auth.detail };
   const payload = {
-    sid: resolveIcountApiToken(),
-    cid: auth.cid,
+    sid: auth.sid,
     client_id: clientId,
   };
   // TEMP debug: log the exact request body (including sid).
@@ -121,7 +114,7 @@ export async function icountHkCancel(
   hkId: string,
   clientId: string
 ): Promise<{ ok: boolean; raw: IcountPostResult }> {
-  const auth = resolveIcountAuthOrError();
+  const auth = resolveIcountSidOrError();
   if (!auth.ok) {
     return {
       ok: false,
@@ -129,8 +122,7 @@ export async function icountHkCancel(
     };
   }
   const r = await postIcount("/hk/cancel", {
-    sid: resolveIcountApiToken(),
-    cid: auth.cid,
+    sid: auth.sid,
     hk_id: hkId,
     client_id: clientId,
   });
@@ -175,7 +167,7 @@ export async function tryCancelStandingOrder(clientIdRaw: string): Promise<Stand
     return { kind: "skipped_no_client_id" };
   }
 
-  const auth = resolveIcountAuthOrError();
+  const auth = resolveIcountSidOrError();
   if (!auth.ok) {
     console.warn("[icount-v3] standing-order:missing_auth", auth);
     return { kind: "skipped_no_credentials", detail: auth.detail ?? auth.error };
