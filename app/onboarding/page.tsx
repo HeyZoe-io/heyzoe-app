@@ -420,6 +420,14 @@ function OnboardingContent() {
   async function goToPayment() {
     setLoadingPayment(true);
     try {
+      // Persist creds across full-page navigations (best-effort).
+      try {
+        const e = String(form.email || "").trim();
+        const p = String(form.password || "");
+        if (e && p) localStorage.setItem("hz_onb_creds", JSON.stringify({ email: e, password: p, ts: Date.now() }));
+      } catch {
+        /* ignore */
+      }
       const resolvedBusinessType =
         form.business_type === "אחר" ? form.business_type_other.trim() : form.business_type.trim();
 
@@ -865,8 +873,11 @@ function OnboardingContent() {
                   if (validateStep1() && !phoneTaken && !emailTaken) {
                     // Best-effort: help password managers offer to save creds after signup completion.
                     try {
-                      sessionStorage.setItem("hz_onb_email", String(form.email || "").trim());
-                      sessionStorage.setItem("hz_onb_password", String(form.password || ""));
+                      const e = String(form.email || "").trim();
+                      const p = String(form.password || "");
+                      sessionStorage.setItem("hz_onb_email", e);
+                      sessionStorage.setItem("hz_onb_password", p);
+                      localStorage.setItem("hz_onb_creds", JSON.stringify({ email: e, password: p, ts: Date.now() }));
                     } catch {
                       /* ignore */
                     }
