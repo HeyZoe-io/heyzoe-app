@@ -994,6 +994,7 @@ export default function SlugSettingsPage() {
   const [fetchingUrl, setFetchingUrl]         = useState(false);
   const [fetchSiteError, setFetchSiteError]   = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   // Sales-flow regeneration is now per-section only (no global reset).
   const [businessNameEditing, setBusinessNameEditing] = useState(false);
   const [canAutosave, setCanAutosave] = useState(false);
@@ -1670,6 +1671,22 @@ export default function SlugSettingsPage() {
     setWaSalesFollowup3(WA_SALES_FOLLOWUP_3_DEFAULT);
   }, []);
 
+  const runBusy = useCallback((key: string, fn: () => void | Promise<void>) => {
+    const startedAt = Date.now();
+    setBusyAction(key);
+    Promise.resolve()
+      .then(fn)
+      .catch(() => {
+        /* ignore */
+      })
+      .finally(() => {
+        const elapsed = Date.now() - startedAt;
+        const minMs = 650;
+        const wait = Math.max(0, minMs - elapsed);
+        window.setTimeout(() => setBusyAction((cur) => (cur === key ? null : cur)), wait);
+      });
+  }, []);
+
   const regenerateSalesFlowSection = useCallback(
     (
       section:
@@ -1754,6 +1771,20 @@ export default function SlugSettingsPage() {
       });
     },
     [services, vibe]
+  );
+
+  const regenerateSalesFlowSectionBusy = useCallback(
+    (
+      section:
+        | "opening"
+        | "service_pick"
+        | "warmup"
+        | "cta"
+        | "after_trial_registration"
+    ) => {
+      runBusy(`sales:${section}`, () => regenerateSalesFlowSection(section));
+    },
+    [regenerateSalesFlowSection, runBusy]
   );
 
   // ─── Media upload ──────────────────────────────────────────────────────────
@@ -2511,7 +2542,8 @@ export default function SlugSettingsPage() {
             setOpeningMediaType={setOpeningMediaType}
             setMediaUploadError={setMediaUploadError}
             mediaUploadError={mediaUploadError}
-            regenerateSalesFlowSection={regenerateSalesFlowSection}
+            regenerateSalesFlowSection={regenerateSalesFlowSectionBusy}
+            regeneratingKey={busyAction}
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}
             salesOpeningAutoText={salesOpeningAutoText}
@@ -2549,9 +2581,14 @@ export default function SlugSettingsPage() {
                   type="button"
                   variant="outline"
                   className="gap-1 text-xs py-1.5 px-3 h-auto"
-                  onClick={applyWaSalesFollowupDefaults}
+                  disabled={busyAction === "followup:defaults"}
+                  onClick={() => runBusy("followup:defaults", applyWaSalesFollowupDefaults)}
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
+                  {busyAction === "followup:defaults" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
                   איפוס לטקסטי ברירת מחדל
                 </Button>
               </div>

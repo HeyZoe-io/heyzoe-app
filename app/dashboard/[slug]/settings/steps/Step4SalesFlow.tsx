@@ -28,6 +28,7 @@ export default function Step4SalesFlow(props: any) {
     setMediaUploadError,
     mediaUploadError,
     regenerateSalesFlowSection,
+    regeneratingKey,
     salesFlowConfig,
     setSalesFlowConfig,
     salesOpeningAutoText,
@@ -45,6 +46,9 @@ export default function Step4SalesFlow(props: any) {
     afterExperienceToStore,
     uid,
   } = props as any;
+
+  const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
+  const isGen = (section: string) => regeneratingKey === `sales:${section}`;
 
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
@@ -287,10 +291,15 @@ export default function Step4SalesFlow(props: any) {
               type="button"
               variant="outline"
               className="gap-1 text-xs py-1.5 px-3 h-auto"
+              disabled={isSalesGenerating}
               onClick={() => regenerateSalesFlowSection("opening")}
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              ג׳נרט מחדש
+              {isGen("opening") ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isGen("opening") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
@@ -315,10 +324,15 @@ export default function Step4SalesFlow(props: any) {
               type="button"
               variant="outline"
               className="gap-1 text-xs py-1.5 px-3 h-auto"
+              disabled={isSalesGenerating}
               onClick={() => regenerateSalesFlowSection("service_pick")}
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              ג׳נרט מחדש
+              {isGen("service_pick") ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isGen("service_pick") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
@@ -399,10 +413,15 @@ export default function Step4SalesFlow(props: any) {
               type="button"
               variant="outline"
               className="gap-1 text-xs py-1.5 px-3 h-auto"
+              disabled={isSalesGenerating}
               onClick={() => regenerateSalesFlowSection("warmup")}
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              ג׳נרט מחדש
+              {isGen("warmup") ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
@@ -483,10 +502,15 @@ export default function Step4SalesFlow(props: any) {
                 type="button"
                 variant="outline"
                 className="gap-1 text-xs py-1.5 px-3 h-auto"
+                disabled={isSalesGenerating}
                 onClick={() => regenerateSalesFlowSection("cta")}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                ג׳נרט מחדש
+                {isGen("cta") ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {isGen("cta") ? "מג׳נרט..." : "ג׳נרט מחדש"}
               </Button>
             </div>
           </div>
@@ -563,10 +587,15 @@ export default function Step4SalesFlow(props: any) {
               type="button"
               variant="outline"
               className="gap-1 text-xs py-1.5 px-3 h-auto"
+              disabled={isSalesGenerating}
               onClick={() => regenerateSalesFlowSection("after_trial_registration")}
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              ג׳נרט מחדש
+              {isGen("after_trial_registration") ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isGen("after_trial_registration") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
