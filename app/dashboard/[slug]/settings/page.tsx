@@ -424,6 +424,39 @@ function pickServiceReplyOpener(serviceName: string): string {
   return options[Math.abs(hash) % options.length] ?? options[0]!;
 }
 
+function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
+  const opener = pickServiceReplyOpener(serviceName);
+  const phrase = trialServicePhraseForAfterPick(serviceName);
+  const raw = String(description ?? "").replace(/\s+/g, " ").trim();
+  if (!raw) {
+    return `${opener}! ${phrase} שלנו הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
+  }
+
+  const candidates = raw
+    .split(/\n+/g)
+    .flatMap((line) => line.split(/[.!?]\s+/g))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const best =
+    candidates.find((s) => /(משלב|משלבים|כולל|כוללים|עבודת|סבולת|מוביליטי|כוח)/u.test(s)) ??
+    candidates[0] ??
+    raw;
+
+  let core = best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, "").trim();
+  core = core.replace(/^האימון(?:\s+המרכזי)?\s+שלנו[, ]*/u, "");
+  core = core.replace(/^האימון[, ]*/u, "");
+  core = core.replace(/^משלב\b/u, "משלבים");
+  core = core.replace(/^כולל\b/u, "כוללים");
+
+  if (core.startsWith(phrase)) {
+    const out = `${opener}! ${core}`.trim();
+    return /[.!?]$/.test(out) ? out : `${out}.`;
+  }
+
+  const out = `${opener}! ${phrase} שלנו ${core}`.trim();
+  return /[.!?]$/.test(out) ? out : `${out}.`;
+}
+
 function formatLevelsForSentence(levels: string[]): string {
   const clean = (levels ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
   if (clean.length === 0) return "";
@@ -513,6 +546,10 @@ function buildServiceReplyDraft(
   levels: string[],
   includeOpener = true
 ): string {
+  // If we have a real description (from scan or manual), prefer a tight, relevant reply based on it.
+  const rawDesc = String(rawDescription ?? "").trim();
+  if (rawDesc && includeOpener) return deriveBenefitLineFromDescription(serviceName, rawDesc);
+
   const phrase = serviceReplyPhrase(serviceName);
   const opener = pickServiceReplyOpener(serviceName);
   const focus = resolveServiceReplyFocus(serviceName);
@@ -526,7 +563,7 @@ function buildServiceReplyDraft(
 
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
   if (!Array.isArray(products) || products.length === 0) return [];
-  const includeOpener = products.length > 1;
+  const includeOpener = true;
   return products.slice(0, 8).map((raw) => {
     const p = raw as Record<string, unknown>;
     const rowId = uid();
@@ -2403,6 +2440,8 @@ export default function SlugSettingsPage() {
             services={services}
             setServices={setServices}
             fetchSite={fetchSite}
+            deriveBenefitLineFromDescription={deriveBenefitLineFromDescription}
+            isLegacyGeneratedServiceReply={isLegacyGeneratedServiceReply}
             onDragOver={onDragOver}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
