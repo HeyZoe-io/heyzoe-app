@@ -433,6 +433,7 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     out = out.replace(/\bאימוני\s+נפות\b/gu, "אימוני הנפות");
     out = out.replace(/\bשיעורי\s+נפות\b/gu, "שיעורי הנפות");
     out = out.replace(/\bשיעור\s+כל\s+כולו\b/gu, "שיעור שכל כולו");
+    out = out.replace(/\bאימון\s+כל\s+כולו\b/gu, "אימון שכל כולו");
     // Normalize duplicated punctuation from scraped copy (e.g., "..")
     out = out.replace(/\.{2,}/g, ".");
     // Remove double spaces
@@ -501,6 +502,20 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     outCore = outCore.replace(/(?:^|\.\s*)השעה\s+הזו\s+ביום\s+בה\s+/u, "$1");
     outCore = fixCommonHebrewTypos(outCore);
     const out = `${opener}! ${outCore}`.trim().replace(/\s+/g, " ");
+    return /[.!?]$/.test(out) ? out : `${out}.`;
+  }
+
+  // If the description already reads naturally as "אימון ...", prefer:
+  // "{name} הוא אימון ..." rather than forcing "אימוני ... מתמקדים ב אימון ...".
+  // This avoids duplications and preserves the site's copy.
+  const coreTrim = core.trim();
+  const coreLooksLikeAimonSentence =
+    /^אימון\b/u.test(coreTrim) ||
+    /^אימון\s+ש?כל\s+כולו\b/u.test(coreTrim) ||
+    /^(אימון\s+טכני|השליטה)\b/u.test(coreTrim);
+  if (coreLooksLikeAimonSentence && nameRaw) {
+    const body = fixCommonHebrewTypos(coreTrim);
+    const out = `${opener}! ${nameRaw} הוא ${body}`.trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
