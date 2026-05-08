@@ -129,25 +129,27 @@ export default function DashboardLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 flex items-center justify-center p-6" dir="rtl">
-      <Card className="w-full max-w-md">
-        <CardHeader>
+    <main className="min-h-screen bg-[#FAFAFA] flex items-center justify-center px-4 py-10 sm:px-6" dir="rtl">
+      <Card className="w-full max-w-md rounded-xl border border-zinc-200/70 bg-white shadow-sm">
+        <CardHeader className="space-y-3 pb-4">
           <div className="flex items-center justify-center">
-            <div className="h-14 w-14 rounded-2xl bg-white shadow-[0_12px_28px_rgba(110,78,176,0.10)] ring-1 ring-black/5 flex items-center justify-center overflow-hidden">
+            <div className="h-14 w-14 rounded-xl bg-white shadow-sm ring-1 ring-black/5 flex items-center justify-center overflow-hidden">
               <Image src="/zoe-logo.png" alt="Zoe" width={56} height={56} priority />
             </div>
           </div>
-          <CardTitle className="text-center">HeyZoe</CardTitle>
-          <CardDescription className="text-center">
+          <CardTitle className="text-center text-zinc-900 text-2xl font-semibold tracking-tight">
+            HeyZoe
+          </CardTitle>
+          <CardDescription className="text-center text-sm text-zinc-500 leading-relaxed">
             כבר עשית שנ״צ היום? כי עם זואי אתה יכול.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-2">
           <form className="space-y-4" onSubmit={signInWithPassword}>
             <div className="relative">
-              <Mail className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
               <Input
-                className="pl-9 text-right placeholder:text-right"
+                className="h-11 rounded-lg border-zinc-200 bg-white pl-9 text-right placeholder:text-right placeholder:text-zinc-400 focus-visible:ring-2 focus-visible:ring-[#7133da]/25 focus-visible:ring-offset-0"
                 type="email"
                 autoComplete="email"
                 required
@@ -157,17 +159,17 @@ export default function DashboardLoginPage() {
               />
             </div>
             <div className={`relative ${pwShake ? "hz-shake" : ""}`.trim()}>
-              <Lock className="absolute left-10 top-2.5 h-4 w-4 text-zinc-400" />
+              <Lock className="absolute left-10 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
               <button
                 type="button"
                 aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
-                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full p-1.5 text-zinc-500 hover:text-zinc-800 hover:bg-white/70"
+                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 rounded-full p-1.5 text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7133da]/25"
                 onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
               <Input
-                className="pl-16 text-right placeholder:text-right"
+                className="h-11 rounded-lg border-zinc-200 bg-white pl-16 text-right placeholder:text-right placeholder:text-zinc-400 focus-visible:ring-2 focus-visible:ring-[#7133da]/25 focus-visible:ring-offset-0"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 required
@@ -185,7 +187,10 @@ export default function DashboardLoginPage() {
             {wrongPassword ? (
               <p className="-mt-2 text-[12px] text-red-600 text-right">{message}</p>
             ) : null}
-            <Button className="w-full" disabled={loading}>
+            <Button
+              className="w-full h-11 rounded-lg bg-[#7133da] hover:bg-[#6329cf] text-white shadow-sm disabled:opacity-60"
+              disabled={loading}
+            >
               {loading ? "מתחבר..." : "התחברות"}
             </Button>
             <button
@@ -203,7 +208,11 @@ export default function DashboardLoginPage() {
             >
               אין לך חשבון? הירשם כעת!
             </Link>
-            {message && !wrongPassword ? <p className="text-sm text-zinc-500">{message}</p> : null}
+            {message && !wrongPassword ? (
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-right">
+                <p className="text-sm text-zinc-600 leading-relaxed">{message}</p>
+              </div>
+            ) : null}
           </form>
         </CardContent>
       </Card>
