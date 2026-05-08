@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# local artifacts
+/.tmp_images/
+/remotion/
+
 # production
 /build
 
