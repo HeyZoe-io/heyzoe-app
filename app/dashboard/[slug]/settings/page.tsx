@@ -447,10 +447,12 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     .flatMap((line) => line.split(/[.!?]\s+/g))
     .map((s) => s.trim())
     .filter(Boolean);
-  const best =
-    candidates.find((s) => /(משלב|משלבים|כולל|כוללים|עבודת|סבולת|מוביליטי|כוח)/u.test(s)) ??
-    candidates[0] ??
-    raw;
+  const preferredIndex = candidates.findIndex((s) =>
+    /(משלב|משלבים|כולל|כוללים|עבודת|סבולת|מוביליטי|כוח|גמיש|מתיחות|טווח|דיוק|שליטה|קהילה|מאמנ)/u.test(s)
+  );
+  const startIndex = preferredIndex >= 0 ? preferredIndex : 0;
+  const pickedParts = candidates.slice(startIndex, startIndex + 2);
+  const best = pickedParts.length ? pickedParts.join(". ") : candidates[0] ?? raw;
 
   let core = best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, "").trim();
   core = core.replace(/^האימון(?:\s+המרכזי)?\s+שלנו[, ]*/u, "");
@@ -461,7 +463,6 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   // Normalize leading "שיעור/שיעורי" → we'll attach a better subject.
   core = core.replace(/^שיעורי?\s+/u, "");
 
-  const lower = core.toLowerCase();
   const looksLikeTechnicalSession = /אימון\s+טכני|סנאץ|סנץ|snatch|קלין|clean|ג(?:׳|')רק|jerk/u.test(core);
   const coreStartsWithAimon = /^אימון\b/u.test(core);
 
