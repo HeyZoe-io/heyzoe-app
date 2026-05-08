@@ -168,6 +168,8 @@ export default function Step3Trial(props: {
   services: ServiceItem[];
   setServices: React.Dispatch<React.SetStateAction<ServiceItem[]>>;
   fetchSite: (nextStepAfterScan?: number) => Promise<void>;
+  deriveBenefitLineFromDescription: (serviceName: string, description: string) => string;
+  isLegacyGeneratedServiceReply: (value: string, serviceName: string) => boolean;
   onDragOver: (e: React.DragEvent, index: number) => void;
   onDragStart: (index: number) => void;
   onDragEnd: () => void;
@@ -188,6 +190,8 @@ export default function Step3Trial(props: {
     services,
     setServices,
     fetchSite,
+    deriveBenefitLineFromDescription,
+    isLegacyGeneratedServiceReply,
     onDragOver,
     onDragStart,
     onDragEnd,
@@ -339,6 +343,31 @@ export default function Step3Trial(props: {
                   setServices(arr);
                 }}
                 placeholder={address || "תל אביב"}
+              />
+            </Field>
+
+            <Field label="תיאור">
+              <textarea
+                dir="rtl"
+                value={s.description}
+                onChange={(e) => {
+                  const nextDesc = e.target.value;
+                  const arr = [...services];
+                  const prevBenefit = String(s.benefit_line ?? "");
+                  const shouldAuto =
+                    !prevBenefit.trim() || isLegacyGeneratedServiceReply(prevBenefit, String(s.name ?? ""));
+                  arr[i] = {
+                    ...s,
+                    description: nextDesc,
+                    ...(shouldAuto
+                      ? { benefit_line: deriveBenefitLineFromDescription(String(s.name ?? ""), nextDesc) }
+                      : null),
+                  };
+                  setServices(arr);
+                }}
+                placeholder="תיאור קצר על האימון (ייסרק מהאתר אם קיים)"
+                rows={4}
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed outline-none focus:border-[#7133da]/50"
               />
             </Field>
 
