@@ -426,10 +426,20 @@ function pickServiceReplyOpener(serviceName: string): string {
 
 function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
   const opener = pickServiceReplyOpener(serviceName);
-  const phrase = trialServicePhraseForAfterPick(serviceName);
+  const addDefiniteArticle = (text: string): string => {
+    const t = text.trim();
+    if (!t) return t;
+    const parts = t.split(/\s+/);
+    const first = parts[0] ?? "";
+    if (!first || first.startsWith("ה")) return t;
+    return [`ה${first}`, ...parts.slice(1)].join(" ");
+  };
+
+  const nameRaw = String(serviceName ?? "").trim();
+  const nameDef = addDefiniteArticle(nameRaw);
   const raw = String(description ?? "").replace(/\s+/g, " ").trim();
   if (!raw) {
-    return `${opener}! ${phrase} שלנו הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
+    return `${opener}! אימוני ${nameDef || "הסטודיו"} שלנו הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
   }
 
   const candidates = raw
@@ -448,12 +458,27 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   core = core.replace(/^משלב\b/u, "משלבים");
   core = core.replace(/^כולל\b/u, "כוללים");
 
-  if (core.startsWith(phrase)) {
-    const out = `${opener}! ${core}`.trim();
+  // Normalize leading "שיעור/שיעורי" → we'll attach a better subject.
+  core = core.replace(/^שיעורי?\s+/u, "");
+
+  const lower = core.toLowerCase();
+  const looksLikeTechnicalSession = /אימון\s+טכני|סנאץ|סנץ|snatch|קלין|clean|ג(?:׳|')רק|jerk/u.test(core);
+  const coreStartsWithAimon = /^אימון\b/u.test(core);
+
+  if (looksLikeTechnicalSession || coreStartsWithAimon) {
+    // Singular: "אימון X הוא אימון טכני..."
+    const body = coreStartsWithAimon ? core : `אימון ${core}`;
+    const subject = nameRaw ? `אימון ${nameRaw} הוא` : "האימון הוא";
+    const out = `${opener}! ${subject} ${body}`.trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
-  const out = `${opener}! ${phrase} שלנו ${core}`.trim();
+  // Plural: "אימוני X שלנו מתמקדים ב..."
+  let body = core;
+  body = body.replace(/^מתמקדים\s+ב/u, "");
+  body = body.replace(/^ב/u, "");
+  const subject = nameDef ? `אימוני ${nameDef} שלנו` : "האימונים שלנו";
+  const out = `${opener}! ${subject} מתמקדים ב${body ? " " + body : ""}`.trim().replace(/\s+/g, " ");
   return /[.!?]$/.test(out) ? out : `${out}.`;
 }
 
