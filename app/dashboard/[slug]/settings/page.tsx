@@ -455,26 +455,40 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   const best = pickedParts.length ? pickedParts.join(". ") : candidates[0] ?? raw;
 
   let core = best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, "").trim();
+  const coreStartsWithShiur = /^(שיעור|שיעורי)\b/u.test(core);
   core = core.replace(/^האימון(?:\s+המרכזי)?\s+שלנו[, ]*/u, "");
   core = core.replace(/^האימון[, ]*/u, "");
   core = core.replace(/^משלב\b/u, "משלבים");
   core = core.replace(/^כולל\b/u, "כוללים");
-
-  // Normalize leading "שיעור/שיעורי" → we'll attach a better subject.
-  core = core.replace(/^שיעורי?\s+/u, "");
 
   const looksLikeTechnicalSession = /אימון\s+טכני|סנאץ|סנץ|snatch|קלין|clean|ג(?:׳|')רק|jerk/u.test(core);
   const coreStartsWithAimon = /^אימון\b/u.test(core);
 
   if (looksLikeTechnicalSession || coreStartsWithAimon) {
     // Singular: "אימון X הוא אימון טכני..."
-    const body = coreStartsWithAimon ? core : `אימון ${core}`;
+    const body = coreStartsWithAimon ? core.replace(/^אימון\s+/u, "") : core;
     const subject = nameRaw ? `אימון ${nameRaw} הוא` : "האימון הוא";
+    const out = `${opener}! ${subject} אימון ${body}`.trim().replace(/\s+/g, " ");
+    return /[.!?]$/.test(out) ? out : `${out}.`;
+  }
+
+  // If site copy already uses "שיעור/שיעורי" - keep it as a class ("שיעורי ...") not "אימונים".
+  if (coreStartsWithShiur) {
+    const subject = nameRaw.startsWith("שיעור") || nameRaw.startsWith("שיעורי") ? nameRaw : `שיעורי ${nameRaw || nameDef}`;
+    let rest = core.replace(/^שיעורי?\s+[^.]*\.*\s*/u, "");
+    rest = rest.replace(/^(השיעור|השעה)\s+(הזו|הזה)\s+ביום\s+בה\s+/u, "");
+    rest = rest.replace(/^\.*\s*/u, "").trim();
+    // If rest already contains "מתמקדים" - keep it. Otherwise, add "מתמקדים ב" naturally.
+    const body = rest
+      ? rest.startsWith("מתמקדים") || rest.startsWith("מתמקדים ב")
+        ? rest
+        : `מתמקדים ב${rest.startsWith("ב") ? "" : " "}${rest}`
+      : "מתמקדים באימון שמרגיש טוב לגוף";
     const out = `${opener}! ${subject} ${body}`.trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
-  // Plural: "אימוני X שלנו מתמקדים ב..."
+  // Default: "אימוני X שלנו מתמקדים ב..."
   let body = core;
   body = body.replace(/^מתמקדים\s+ב/u, "");
   body = body.replace(/^ב/u, "");
