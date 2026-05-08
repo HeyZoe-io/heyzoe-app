@@ -71,30 +71,65 @@ export default function OnboardingSuccessClient() {
           redirectTimerRef.current = setTimeout(() => {
             if (cancelled) return;
             // If we still have onboarding creds and email matches, try to sign-in automatically.
+            // Note: payment providers sometimes cause a full-page navigation; sessionStorage may not survive.
+            const nextUrl = `/${slug}/analytics?welcome=1`;
+            const fallbackToLogin = () =>
+              router.replace(
+                `/dashboard/login?next=${encodeURIComponent(nextUrl)}&msg=${encodeURIComponent(
+                  "התחברי כדי להיכנס לדשבורד."
+                )}`
+              );
+
             try {
-              const storedEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
-              const storedPw = String(sessionStorage.getItem("hz_onb_password") || "");
-              if (storedEmail && storedPw && storedEmail === email) {
+              const ssEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
+              const ssPw = String(sessionStorage.getItem("hz_onb_password") || "");
+
+              let lsEmail = "";
+              let lsPw = "";
+              let lsTs = 0;
+              try {
+                const raw = localStorage.getItem("hz_onb_creds");
+                if (raw) {
+                  const parsed = JSON.parse(raw) as { email?: string; password?: string; ts?: number };
+                  lsEmail = String(parsed?.email || "").trim().toLowerCase();
+                  lsPw = String(parsed?.password || "");
+                  lsTs = Number(parsed?.ts || 0);
+                }
+              } catch {
+                // ignore
+              }
+
+              const storedEmail = ssEmail || lsEmail;
+              const storedPw = ssPw || lsPw;
+              const isFresh = !lsTs || Date.now() - lsTs < 60 * 60 * 1000; // 1h TTL
+
+              if (storedEmail && storedPw && storedEmail === email && isFresh) {
                 const supabase = createSupabaseBrowserClient();
-                void supabase.auth
-                  .signInWithPassword({ email: storedEmail, password: storedPw })
-                  .then(({ error }) => {
-                    if (error) {
-                      router.replace(
-                        `/dashboard/login?next=${encodeURIComponent(`/${slug}/analytics?welcome=1`)}&msg=${encodeURIComponent(
-                          "התחברי כדי להיכנס לדשבורד."
-                        )}`
-                      );
-                      return;
-                    }
-                    router.replace(`/${slug}/analytics?welcome=1`);
-                  });
+                void supabase.auth.signInWithPassword({ email: storedEmail, password: storedPw }).then(({ error }) => {
+                  if (error) {
+                    fallbackToLogin();
+                    return;
+                  }
+                  try {
+                    sessionStorage.removeItem("hz_onb_email");
+                    sessionStorage.removeItem("hz_onb_password");
+                  } catch {
+                    /* ignore */
+                  }
+                  try {
+                    localStorage.removeItem("hz_onb_creds");
+                  } catch {
+                    /* ignore */
+                  }
+                  router.replace(nextUrl);
+                });
                 return;
               }
             } catch {
               // ignore
             }
-            router.replace(`/${slug}/analytics?welcome=1`);
+
+            router.replace(nextUrl);
           }, 1500);
           return;
         }

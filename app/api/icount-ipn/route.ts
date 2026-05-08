@@ -2,8 +2,134 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 import { extractIcountClientIdFromPayload } from "@/lib/icount-v3";
+import { sendEmail } from "@/lib/send-email";
 
 export const runtime = "nodejs";
+
+function esc(s: string): string {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+async function registerMetaNumberAndEmailAdmin(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  business_id: number;
+  business_slug: string;
+  business_name: string;
+  customer_email: string;
+}) {
+  const adminEmail = "liornativ@hotmail.com";
+  const token = (process.env.WHATSAPP_SYSTEM_TOKEN ?? "").trim();
+  const pin = (process.env.WHATSAPP_REGISTRATION_PIN ?? "123456").trim();
+
+  try {
+    const { data: ch, error: chErr } = await input.admin
+      .from("whatsapp_channels")
+      .select("phone_number_id")
+      .eq("business_id", input.business_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const phoneNumberId = String((ch as any)?.phone_number_id ?? "").trim();
+    if (chErr || !phoneNumberId) {
+      await sendEmail({
+        to: adminEmail,
+        subject: `❌ שגיאה ברישום WhatsApp — ${input.business_name}`,
+        htmlContent: [
+          `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+          `<p><b>שם העסק:</b> ${esc(input.business_name)}</p>`,
+          `<p><b>Phone Number ID:</b> ${esc(phoneNumberId || "-")}</p>`,
+          `<p><b>שגיאה:</b> ${esc(String((chErr as any)?.message ?? "missing_phone_number_id"))}</p>`,
+          `</div>`,
+        ].join(""),
+      });
+      return;
+    }
+
+    if (!token) {
+      await sendEmail({
+        to: adminEmail,
+        subject: `❌ שגיאה ברישום WhatsApp — ${input.business_name}`,
+        htmlContent: [
+          `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+          `<p><b>שם העסק:</b> ${esc(input.business_name)}</p>`,
+          `<p><b>Phone Number ID:</b> ${esc(phoneNumberId)}</p>`,
+          `<p><b>שגיאה:</b> חסר WHATSAPP_SYSTEM_TOKEN</p>`,
+          `</div>`,
+        ].join(""),
+      });
+      return;
+    }
+
+    const url = `https://graph.facebook.com/v18.0/${encodeURIComponent(phoneNumberId)}/register`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", pin }),
+    });
+
+    const text = await res.text().catch(() => "");
+    let json: any = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+
+    const ok = res.ok && Boolean(json?.success);
+    if (ok) {
+      await sendEmail({
+        to: adminEmail,
+        subject: `✅ לקוח חדש הוקם בהצלחה — ${input.business_name}`,
+        htmlContent: [
+          `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+          `<p><b>שם העסק:</b> ${esc(input.business_name)}</p>`,
+          `<p><b>slug:</b> ${esc(input.business_slug)}</p>`,
+          `<p><b>מייל לקוח:</b> ${esc(input.customer_email)}</p>`,
+          `<p><b>Phone Number ID:</b> ${esc(phoneNumberId)}</p>`,
+          `</div>`,
+        ].join(""),
+      });
+      return;
+    }
+
+    const metaErr = json ?? text ?? `http_${res.status}`;
+    await sendEmail({
+      to: adminEmail,
+      subject: `❌ שגיאה ברישום WhatsApp — ${input.business_name}`,
+      htmlContent: [
+        `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+        `<p><b>שם העסק:</b> ${esc(input.business_name)}</p>`,
+        `<p><b>Phone Number ID:</b> ${esc(phoneNumberId)}</p>`,
+        `<p><b>תשובת Meta:</b></p>`,
+        `<pre style="direction:ltr;white-space:pre-wrap;background:#f6f6f6;padding:12px;border-radius:10px;border:1px solid #eee">${esc(
+          typeof metaErr === "string" ? metaErr : JSON.stringify(metaErr, null, 2)
+        )}</pre>`,
+        `</div>`,
+      ].join(""),
+    });
+  } catch (e: any) {
+    try {
+      await sendEmail({
+        to: adminEmail,
+        subject: `❌ שגיאה ברישום WhatsApp — ${input.business_name}`,
+        htmlContent: [
+          `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+          `<p><b>שם העסק:</b> ${esc(input.business_name)}</p>`,
+          `<p><b>שגיאה:</b> ${esc(String(e?.message ?? e))}</p>`,
+          `</div>`,
+        ].join(""),
+      });
+    } catch {
+      // ignore
+    }
+  }
+}
 
 function normalizeEmail(input: unknown): string {
   const raw = String(input ?? "").trim();
@@ -264,6 +390,15 @@ export async function POST(req: NextRequest) {
             console.error("[api/icount-ipn] enqueue wa_provision_jobs (reactivation) failed:", e);
           }
 
+          // Critical Meta registration step (best-effort; must not fail IPN)
+          void registerMetaNumberAndEmailAdmin({
+            admin,
+            business_id: Number(biz.id),
+            business_slug: String(biz.slug).trim().toLowerCase(),
+            business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
+            customer_email: email,
+          });
+
           console.info("[api/icount-ipn] reactivated:", {
             email,
             user_id: existingAuth.id,
@@ -324,6 +459,15 @@ export async function POST(req: NextRequest) {
           } catch (e) {
             console.error("[api/icount-ipn] enqueue wa_provision_jobs failed (created biz):", e);
           }
+
+          // Critical Meta registration step (best-effort; must not fail IPN)
+          void registerMetaNumberAndEmailAdmin({
+            admin,
+            business_id: Number(insertedBiz.id),
+            business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+            business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+            customer_email: email,
+          });
         }
         return NextResponse.json({ ok: true });
       }
@@ -406,6 +550,15 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.error("[api/icount-ipn] enqueue wa_provision_jobs failed:", e);
     }
+
+    // Critical Meta registration step (best-effort; must not fail IPN)
+    void registerMetaNumberAndEmailAdmin({
+      admin,
+      business_id: Number(insertedBiz.id),
+      business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+      business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+      customer_email: email,
+    });
 
     console.info("[api/icount-ipn] ready:", {
       email,
