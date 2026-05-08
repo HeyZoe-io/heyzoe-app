@@ -995,6 +995,7 @@ export default function SlugSettingsPage() {
   const [fetchSiteError, setFetchSiteError]   = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [busyError, setBusyError] = useState("");
   // Sales-flow regeneration is now per-section only (no global reset).
   const [businessNameEditing, setBusinessNameEditing] = useState(false);
   const [canAutosave, setCanAutosave] = useState(false);
@@ -1674,10 +1675,17 @@ export default function SlugSettingsPage() {
   const runBusy = useCallback((key: string, fn: () => void | Promise<void>) => {
     const startedAt = Date.now();
     setBusyAction(key);
+    setBusyError("");
     Promise.resolve()
       .then(fn)
-      .catch(() => {
-        /* ignore */
+      .catch((err) => {
+        const e: any = err;
+        const name = String(e?.name ?? "").trim();
+        const msg = String(e?.message ?? "").trim();
+        const code = String(e?.code ?? "").trim();
+        const kind = code || name || "unknown_error";
+        const detail = msg || String(e ?? "").trim() || "לא ידוע";
+        setBusyError(`שגיאה בג׳ינרוט (${kind}): ${detail}`);
       })
       .finally(() => {
         const elapsed = Date.now() - startedAt;
@@ -2182,6 +2190,11 @@ export default function SlugSettingsPage() {
       {settingsLoadError ? (
         <div className="mx-4 mt-4 rounded-2xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800 shadow-[0_12px_28px_rgba(239,68,68,0.08)]" role="alert">
           {settingsLoadError}
+        </div>
+      ) : null}
+      {busyError ? (
+        <div className="mx-4 mt-4 rounded-2xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800 shadow-[0_12px_28px_rgba(239,68,68,0.08)]" role="alert">
+          {busyError}
         </div>
       ) : null}
 
