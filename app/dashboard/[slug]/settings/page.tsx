@@ -426,6 +426,20 @@ function pickServiceReplyOpener(serviceName: string): string {
 
 function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
   const opener = pickServiceReplyOpener(serviceName);
+  const fixCommonHebrewTypos = (s: string): string => {
+    let out = String(s ?? "");
+    // Common omissions we saw in scans/generation
+    out = out.replace(/\bאימון\s+נפות\b/gu, "אימון הנפות");
+    out = out.replace(/\bאימוני\s+נפות\b/gu, "אימוני הנפות");
+    out = out.replace(/\bשיעורי\s+נפות\b/gu, "שיעורי הנפות");
+    out = out.replace(/\bשיעור\s+כל\s+כולו\b/gu, "שיעור שכל כולו");
+    // Normalize duplicated punctuation from scraped copy (e.g., "..")
+    out = out.replace(/\.{2,}/g, ".");
+    // Remove double spaces
+    out = out.replace(/\s+/g, " ");
+    return out.trim();
+  };
+
   const addDefiniteArticle = (text: string): string => {
     const t = text.trim();
     if (!t) return t;
@@ -437,7 +451,7 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
 
   const nameRaw = String(serviceName ?? "").trim();
   const nameDef = addDefiniteArticle(nameRaw);
-  const raw = String(description ?? "").replace(/\s+/g, " ").trim();
+  const raw = fixCommonHebrewTypos(String(description ?? "").replace(/\s+/g, " "));
   if (!raw) {
     return `${opener}! אימוני ${nameDef || "הסטודיו"} שלנו הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
   }
@@ -454,7 +468,7 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   const pickedParts = candidates.slice(startIndex, startIndex + 2);
   const best = pickedParts.length ? pickedParts.join(". ") : candidates[0] ?? raw;
 
-  let core = best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, "").trim();
+  let core = fixCommonHebrewTypos(best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, ""));
   const coreStartsWithShiur = /^(שיעור|שיעורי)\b/u.test(core);
   core = core.replace(/^האימון(?:\s+המרכזי)?\s+שלנו[, ]*/u, "");
   core = core.replace(/^האימון[, ]*/u, "");
@@ -468,23 +482,25 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     // Singular: "אימון X הוא אימון טכני..."
     const body = coreStartsWithAimon ? core.replace(/^אימון\s+/u, "") : core;
     const subject = nameRaw ? `אימון ${nameRaw} הוא` : "האימון הוא";
-    const out = `${opener}! ${subject} אימון ${body}`.trim().replace(/\s+/g, " ");
+    // Do not force another "אימון" token; keep site wording intact and avoid duplicates.
+    const out = `${opener}! ${subject} ${fixCommonHebrewTypos(body)}`.trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
   // If site copy already uses "שיעור/שיעורי" - keep it as a class ("שיעורי ...") not "אימונים".
   if (coreStartsWithShiur) {
-    const subject = nameRaw.startsWith("שיעור") || nameRaw.startsWith("שיעורי") ? nameRaw : `שיעורי ${nameRaw || nameDef}`;
-    let rest = core.replace(/^שיעורי?\s+[^.]*\.*\s*/u, "");
-    rest = rest.replace(/^(השיעור|השעה)\s+(הזו|הזה)\s+ביום\s+בה\s+/u, "");
-    rest = rest.replace(/^\.*\s*/u, "").trim();
-    // If rest already contains "מתמקדים" - keep it. Otherwise, add "מתמקדים ב" naturally.
-    const body = rest
-      ? rest.startsWith("מתמקדים") || rest.startsWith("מתמקדים ב")
-        ? rest
-        : `מתמקדים ב${rest.startsWith("ב") ? "" : " "}${rest}`
-      : "מתמקדים באימון שמרגיש טוב לגוף";
-    const out = `${opener}! ${subject} ${body}`.trim().replace(/\s+/g, " ");
+    // Keep the site's copy as much as possible: convert "שיעור" -> "שיעורי" and remove clunky time phrasing.
+    let outCore = core.replace(/^שיעור\s+/u, "שיעורי ");
+    if (nameRaw && outCore.startsWith("שיעורי ")) {
+      const after = outCore.slice("שיעורי ".length);
+      if (!after.toLowerCase().includes(nameRaw.toLowerCase())) {
+        const rest = after.replace(/^[^.,!?]+/u, "").trim();
+        outCore = `שיעורי ${nameRaw}${rest ? " " + rest : ""}`.trim();
+      }
+    }
+    outCore = outCore.replace(/(?:^|\.\s*)השעה\s+הזו\s+ביום\s+בה\s+/u, "$1");
+    outCore = fixCommonHebrewTypos(outCore);
+    const out = `${opener}! ${outCore}`.trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
@@ -493,7 +509,9 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   body = body.replace(/^מתמקדים\s+ב/u, "");
   body = body.replace(/^ב/u, "");
   const subject = nameDef ? `אימוני ${nameDef} שלנו` : "האימונים שלנו";
-  const out = `${opener}! ${subject} מתמקדים ב${body ? " " + body : ""}`.trim().replace(/\s+/g, " ");
+  const out = fixCommonHebrewTypos(
+    `${opener}! ${subject} מתמקדים ב${body ? " " + body : ""}`.trim().replace(/\s+/g, " ")
+  );
   return /[.!?]$/.test(out) ? out : `${out}.`;
 }
 
