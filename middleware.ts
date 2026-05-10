@@ -5,17 +5,24 @@ import {
   resolveSupabaseUrl,
 } from "@/lib/server-env";
 
+/** Relative return path `/...` optionally with `?query` — safe against `//` escapes. */
+function safeReturnPath(req: NextRequest): string | null {
+  const dest = `${req.nextUrl.pathname}${req.nextUrl.search}`;
+  if (!dest.startsWith("/") || dest.startsWith("//")) return null;
+  return dest;
+}
+
 function redirectToLogin(req: NextRequest) {
-  const url = req.nextUrl.clone();
-  url.pathname = "/admin/login";
-  url.searchParams.set("next", req.nextUrl.pathname);
+  const ret = safeReturnPath(req);
+  const url = new URL("/admin/login", req.nextUrl.origin);
+  if (ret) url.searchParams.set("next", ret);
   return NextResponse.redirect(url);
 }
 
 function redirectToDashboardLogin(req: NextRequest) {
-  const url = req.nextUrl.clone();
-  url.pathname = "/dashboard/login";
-  url.searchParams.set("next", req.nextUrl.pathname);
+  const ret = safeReturnPath(req);
+  const url = new URL("/dashboard/login", req.nextUrl.origin);
+  if (ret) url.searchParams.set("next", ret);
   return NextResponse.redirect(url);
 }
 
@@ -30,10 +37,10 @@ function neutralNotFoundResponse() {
 }
 
 function redirectToBillingReactivate(req: NextRequest) {
-  const url = req.nextUrl.clone();
-  url.pathname = "/account/billing";
+  const ret = safeReturnPath(req);
+  const url = new URL("/account/billing", req.nextUrl.origin);
   url.searchParams.set("reactivate", "1");
-  url.searchParams.set("next", req.nextUrl.pathname);
+  if (ret) url.searchParams.set("next", ret);
   return NextResponse.redirect(url);
 }
 
@@ -126,10 +133,18 @@ export async function middleware(req: NextRequest) {
       return redirectToDashboardLogin(req);
     }
     if (isLoginPath) {
-      const url = req.nextUrl.clone();
       const next = req.nextUrl.searchParams.get("next");
-      url.pathname = next && next.startsWith("/") ? next : "/dashboard";
-      return NextResponse.redirect(url);
+      if (next && next.startsWith("/") && !next.startsWith("//")) {
+        try {
+          const target = new URL(next, req.nextUrl.origin);
+          if (target.origin === req.nextUrl.origin) {
+            return NextResponse.redirect(target);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return NextResponse.redirect(new URL("/dashboard", req.nextUrl.origin));
     }
 
     // Paywall for dashboard settings (edit-heavy area)
