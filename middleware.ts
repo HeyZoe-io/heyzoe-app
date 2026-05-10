@@ -46,8 +46,31 @@ function redirectToBillingReactivate(req: NextRequest) {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Never run auth on APIs or Next internals — matcher below may overlap `/api/*` (e.g. webhooks).
+  if (pathname.startsWith("/api") || pathname.startsWith("/_next")) {
+    return NextResponse.next();
+  }
+
+  const lastSeg = pathname.split("/").filter(Boolean).pop() ?? "";
+  const looksLikeStaticFile = /\.[a-z0-9]{1,16}$/i.test(lastSeg);
+  if (looksLikeStaticFile) return NextResponse.next();
+
   // Public auth callback pages (Supabase redirects here)
-  if (pathname === "/register/confirm") return NextResponse.next();
+  if (
+    pathname === "/register/confirm" ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/onboarding") ||
+    pathname.startsWith("/privacy") ||
+    pathname.startsWith("/terms") ||
+    pathname.startsWith("/lp-leads")
+  ) {
+    return NextResponse.next();
+  }
+
+  // Public slug-free entry points (matcher may invoke `/::slug`-style patterns above)
+  if (pathname === "/") return NextResponse.next();
+
   if (pathname === "/dashboard/settings") return neutralNotFoundResponse();
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
@@ -64,8 +87,13 @@ export async function middleware(req: NextRequest) {
     pathname === "/" ||
     pathname === "/privacy" ||
     pathname === "/terms";
+  const isSingleSegment = /^\/[^/]+\/?$/.test(pathname);
+  const slugOnlyShortcut =
+    isSingleSegment && !pathname.includes(".") && !isReservedPrefix;
+  /** /my-studio/settings, /my-studio/analytics, etc. (+ optional `/my-studio` redirect root) */
   const isOwnerSlugPath =
-    !isReservedPrefix && /^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname);
+    !isReservedPrefix &&
+    (/^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname) || slugOnlyShortcut);
   const isDashboardSlugSettingsPath = /^\/dashboard\/[^/]+\/settings\/?$/.test(pathname);
   if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
     return NextResponse.next();
@@ -165,9 +193,11 @@ export const config = {
     "/admin/:path*",
     "/dashboard/:path*",
     "/account/:path*",
-    "/:slug/analytics",
-    "/:slug/conversations",
-    "/:slug/contacts",
-    "/:slug/settings",
+    /*
+     * Owner shortcuts under `app/[slug]/…` (/studio/analytics etc.).
+     * `/api`, `/_next`, static files & marketing URLs are exited early inside middleware().
+     */
+    "/:slug",
+    "/:slug/:path*",
   ],
 };
