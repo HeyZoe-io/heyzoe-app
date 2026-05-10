@@ -764,6 +764,49 @@ function redundantSegmentOverlapInTrialDescription(description: string, subject:
   return { overlaps: false, rest: d };
 }
 
+/**
+ * אחרי שורש זכר (תרגול / שיעור / אימון …) ושם סוג פעילות נשית (יוגה, פילאטיס …),
+ * מתארי נסמך על השורש — לא על יוגה וכו׳. מיועד לתיאורים מסריקה/AI שממסדרים מגדר לפי ״יוגה״.
+ */
+export function normalizeMasculinePredicatesAfterPracticeHead(text: string): string {
+  const s = text.trim().replace(/\s+/g, " ");
+  if (!s) return s;
+
+  const head = String.raw`(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|תרגל)`;
+  const kind = String.raw`(?:יוגה|פילאטיס|זומבה|בוקס|בלט|ספינינג)`;
+  const qual = String.raw`(?:(?:לנשים|לגברים|למתחילים|למתקדמים|לכולם|לכולן|לכל\s+הגילאים)\s+)?`;
+  const prefix = String.raw`(\b${head}\s+${kind}\s+)(${qual})`;
+
+  const mapSecond: Record<string, string> = {
+    מחזקת: "מחזק",
+    מעודדת: "מעודד",
+    מפתחת: "מפתח",
+  };
+
+  let out = s;
+
+  const rxCompound = new RegExp(
+    `${prefix}מזינה\\s+ו(מחזקת|מעודדת|מפתחת)\\b`,
+    "giu"
+  );
+  out = out.replace(rxCompound, (_, a: string, b: string, w: string) => `${a}${b}מזין ו${mapSecond[w] ?? "מחזק"}`);
+
+  const rxMazina = new RegExp(`${prefix}מזינה\\b(?!\\s+ו(?:מחזק|מעודד|מפתח))`, "giu");
+  out = out.replace(rxMazina, "$1$2מזין");
+
+  const rxSingle: Array<[string, string]> = [
+    ["מחזקת", "מחזק"],
+    ["מעודדת", "מעודד"],
+    ["מפתחת", "מפתח"],
+  ];
+  for (const [fem, masc] of rxSingle) {
+    const rx = new RegExp(`${prefix}${fem}\\b`, "giu");
+    out = out.replace(rx, `$1$2${masc}`);
+  }
+
+  return out.replace(/\s+/g, " ").trim();
+}
+
 /** הסרת מילות ייחוס שנשמרו מתיאור שבו הנושא היה ישות ואז באה ההמשך בתבנית הנסמכים — אחרי ״ב[נושא]״ לא צריכים בהם/שבהם וכו׳ בהתחלה */
 function stripLeadingResumptivePhraseAfterBnarrative(rest: string): string {
   const s = rest.trim().replace(/\s+/g, " ");
@@ -810,13 +853,13 @@ export function composeAfterServicePickReply(serviceName: string, benefitLine: s
 
 /**
  * תשובה אחרי בחירת סוג אימון מתוך תיאור מטאב אימון ניסיון,
- * בלי לערוך את התיאור עצמו (רק מזהה כפילות ומסיר את המקטע החופף בראש או ב־3–4 המילים הראשונות).
+ * עם נירמול מגדרי ממוקד אחרי תרגול/שיעור/אימון + סוג פעילות, וזיהוי כפילות בראש התיאור.
  */
 export function composeAfterServicePickReplyFromTrialDescription(
   serviceName: string,
   trialDescription: string
 ): string {
-  const desc = trialDescription.trim().replace(/\s+/g, " ");
+  const desc = normalizeMasculinePredicatesAfterPracticeHead(trialDescription);
 
   // בלי תיאור מהטאב — זנב דיפולט להודעה ברורה (אותו סגנון כמו עטיפת זנב ישן)
   if (!desc) {
