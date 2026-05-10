@@ -1038,6 +1038,41 @@ export default function SlugSettingsPage() {
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
 
+  /** שלב «מכירה» בלבד: כותרת דביקה מוסתרת בגלילה למטה, חוזרת בגלילה למעלה */
+  const isSalesFlowSettingsStep = step === 4;
+  const [salesFlowHeaderVisible, setSalesFlowHeaderVisible] = useState(true);
+  const salesFlowScrollYRef = useRef(0);
+
+  useEffect(() => {
+    if (!isSalesFlowSettingsStep) {
+      setSalesFlowHeaderVisible(true);
+      return;
+    }
+    salesFlowScrollYRef.current = window.scrollY;
+
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const prev = salesFlowScrollYRef.current;
+        salesFlowScrollYRef.current = y;
+        if (y <= 40) {
+          setSalesFlowHeaderVisible(true);
+          return;
+        }
+        if (y > prev + 10) setSalesFlowHeaderVisible(false);
+        else if (y < prev - 10) setSalesFlowHeaderVisible(true);
+      });
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [isSalesFlowSettingsStep]);
+
   // ── Step 1: Business details (includes optional website import)
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [instagramUrl, setInstagramUrl] = useState("");
@@ -2293,7 +2328,17 @@ export default function SlugSettingsPage() {
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
       {/* ── Top bar ── */}
-      <div className="sticky top-0 z-40 border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl">
+      <div
+        className={
+          "sticky top-0 z-40 border-b backdrop-blur-xl transition-[max-height,opacity] duration-200 ease-out " +
+          (isSalesFlowSettingsStep && !salesFlowHeaderVisible
+            ? "max-h-0 overflow-hidden opacity-0 pointer-events-none border-transparent shadow-none bg-transparent"
+            : [
+                "overflow-visible border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)]",
+                isSalesFlowSettingsStep ? "max-h-[min(520px,90vh)]" : "",
+              ].join(" "))
+        }
+      >
         <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
             <span className="hz-gradient-text font-extrabold">HeyZoe</span>
