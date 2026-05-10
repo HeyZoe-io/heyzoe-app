@@ -1,12 +1,15 @@
 "use client";
 
-import { useRef, type Dispatch, type SetStateAction } from "react";
+import { useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field, StepHeader } from "../settings-ui";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
+
+/** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
+const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
 
 type ServiceItem = {
   ui_id: string;
@@ -182,6 +185,8 @@ export default function Step3Trial(props: {
   trialPickMediaUploadError: string;
   trialPickFailedUiId: string | null;
   videoUrlForPreview: (url: string) => string;
+  busyAction: string | null;
+  runBusy: (key: string, fn: () => void | Promise<void>) => void;
 }) {
   const {
     websiteUrl,
@@ -204,7 +209,17 @@ export default function Step3Trial(props: {
     trialPickMediaUploadError,
     trialPickFailedUiId,
     videoUrlForPreview,
+    busyAction,
+    runBusy,
   } = props;
+
+  const activeTrialBenefitUiId = useMemo(() => {
+    if (typeof busyAction !== "string" || !busyAction.startsWith(TRIAL_BENEFIT_BUSY_PREFIX)) return null;
+    const id = busyAction.slice(TRIAL_BENEFIT_BUSY_PREFIX.length);
+    return id.trim() ? id : null;
+  }, [busyAction]);
+
+  const isTrialBenefitGenerating = activeTrialBenefitUiId !== null;
 
   return (
     <Card>
@@ -354,24 +369,31 @@ export default function Step3Trial(props: {
                     type="button"
                     variant="outline"
                     className="h-8 gap-1 text-xs shrink-0 border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
+                    disabled={isTrialBenefitGenerating}
                     onClick={() => {
-                      setServices((prev) =>
-                        prev.map((row, j) =>
-                          j === i
-                            ? {
-                                ...row,
-                                benefit_line: deriveBenefitLineFromDescription(
-                                  String(row.name ?? ""),
-                                  String(row.description ?? "")
-                                ),
-                              }
-                            : row
-                        )
-                      );
+                      runBusy(`${TRIAL_BENEFIT_BUSY_PREFIX}${s.ui_id}`, () => {
+                        setServices((prev) =>
+                          prev.map((row) =>
+                            row.ui_id === s.ui_id
+                              ? {
+                                  ...row,
+                                  benefit_line: deriveBenefitLineFromDescription(
+                                    String(row.name ?? ""),
+                                    String(row.description ?? "")
+                                  ),
+                                }
+                              : row
+                          )
+                        );
+                      });
                     }}
                   >
-                    <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                    ג׳נרט
+                    {activeTrialBenefitUiId === s.ui_id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                    )}
+                    {activeTrialBenefitUiId === s.ui_id ? "מג׳נרט..." : "ג׳נרט"}
                   </Button>
                 </div>
               }
