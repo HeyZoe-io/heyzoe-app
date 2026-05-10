@@ -666,45 +666,101 @@ function buildServiceReplyDraft(
   return composeAfterServicePickReply(serviceName, punct);
 }
 
-function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
-  if (!Array.isArray(products) || products.length === 0) return [];
-  return products.slice(0, 8).map((raw) => {
-    const p = raw as Record<string, unknown>;
-    const rowId = uid();
-    const pname = truncateTrialServiceName(String(p.name ?? ""));
-    const benefits = Array.isArray(p.benefits)
-      ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-      : [];
-    const sugg = Array.isArray(p.benefit_suggestions)
-      ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-      : [];
-    const description = String(p.description ?? "").trim();
-    const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
-    const benefit_line = buildServiceReplyDraft(
-      pname,
-      description,
-      flowFeatures,
-      benefits,
-      sugg,
-      false,
-      []
-    );
+/** מפתח למיזוג סריקה — אחרי קיצור שם וליישור פרפיקסים חוזים (שיעורי/אימון) */
+function trialServiceMatchKey(rawName: string): string {
+  let s = truncateTrialServiceName(String(rawName ?? "").trim()).toLowerCase();
+  s = s.replace(/^שיעורי\s+/u, "").replace(/^שיעור\s+/u, "").replace(/^אימון\s+/u, "").trim();
+  return s;
+}
+
+/** שורת אימון ניסיון אחת מתוצאת סריקת מוצר — ui_id חיצוני כשנדבקים לשורת משתמש קיימת */
+function trialServiceItemFromSiteProduct(
+  p: Record<string, unknown>,
+  addrFallback: string,
+  rowId: string
+): ServiceItem {
+  const pname = truncateTrialServiceName(String(p.name ?? ""));
+  const benefits = Array.isArray(p.benefits)
+    ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+    : [];
+  const sugg = Array.isArray(p.benefit_suggestions)
+    ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+    : [];
+  const description = String(p.description ?? "").trim();
+  const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
+  const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg, false, []);
+  return {
+    ui_id: rowId,
+    name: pname,
+    price_text: String(p.price_text ?? "").trim(),
+    duration: "",
+    payment_link: "",
+    service_slug: serviceSlugForPersistence("", pname, rowId),
+    location_text: String(p.location_text ?? "").trim() || addrFallback,
+    description,
+    levels_enabled: false,
+    levels: [],
+    benefit_line,
+    trial_pick_media_url: "",
+    trial_pick_media_type: "",
+  };
+}
+
+/** מיזוג סריקה: לא דורס את הרשימה — מעדכן לפי שם תואם, ומוסיף מוצרים חדשים בסוף */
+function mergeTrialServicesWithScannedProducts(
+  existing: ServiceItem[],
+  products: unknown[],
+  addrFallback: string
+): ServiceItem[] {
+  if (!Array.isArray(products) || products.length === 0) return existing;
+
+  const slice = products.slice(0, 8).map((raw) => raw as Record<string, unknown>);
+  const used = new Set<number>();
+
+  const mergedExisting = existing.map((svc) => {
+    const k = trialServiceMatchKey(svc.name);
+    if (!k) return svc;
+
+    let si = -1;
+    for (let i = 0; i < slice.length; i++) {
+      if (used.has(i)) continue;
+      if (trialServiceMatchKey(String(slice[i].name ?? "")) === k) {
+        si = i;
+        break;
+      }
+    }
+    if (si === -1) return svc;
+
+    used.add(si);
+    const raw = slice[si]!;
+    const fresh = trialServiceItemFromSiteProduct(raw, addrFallback, svc.ui_id);
+    const preserveBenefit =
+      Boolean(String(svc.benefit_line ?? "").trim()) &&
+      !isLegacyGeneratedServiceReply(svc.benefit_line, svc.name);
+
+    const scannedLoc = String(raw.location_text ?? "").trim();
+
     return {
-      ui_id: rowId,
-      name: pname,
-      price_text: String(p.price_text ?? "").trim(),
-      duration: "",
-      payment_link: "",
-      service_slug: serviceSlugForPersistence("", pname, rowId),
-      location_text: String(p.location_text ?? "").trim() || addrFallback,
-      description,
-      levels_enabled: false,
-      levels: [],
-      benefit_line,
-      trial_pick_media_url: "",
-      trial_pick_media_type: "",
+      ...fresh,
+      payment_link: svc.payment_link,
+      duration: String(svc.duration ?? "").trim() ? svc.duration : fresh.duration,
+      levels_enabled: svc.levels_enabled,
+      levels: svc.levels,
+      trial_pick_media_url: svc.trial_pick_media_url,
+      trial_pick_media_type: svc.trial_pick_media_type,
+      benefit_line: preserveBenefit ? svc.benefit_line : fresh.benefit_line,
+      location_text: scannedLoc || svc.location_text || fresh.location_text,
+      service_slug: serviceSlugForPersistence(svc.service_slug, fresh.name, svc.ui_id),
     };
   });
+
+  const appended: ServiceItem[] = [];
+  for (let i = 0; i < slice.length; i++) {
+    if (used.has(i)) continue;
+    appended.push(trialServiceItemFromSiteProduct(slice[i]!, addrFallback, uid()));
+  }
+
+  return [...mergedExisting, ...appended];
 }
 
 /** תצוגה בשדה — ללא {serviceName} */
@@ -2177,7 +2233,7 @@ export default function SlugSettingsPage() {
       const addrFallback =
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
       if (Array.isArray(j.products) && j.products.length > 0) {
-        setServices(trialServicesFromSiteProducts(j.products, addrFallback));
+        setServices((prev) => mergeTrialServicesWithScannedProducts(prev, j.products as unknown[], addrFallback));
         setServicesHydrated(true);
       }
       setStep(nextStepAfterScan);
