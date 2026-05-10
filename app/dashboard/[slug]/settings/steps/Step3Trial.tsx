@@ -188,6 +188,10 @@ export default function Step3Trial(props: {
   videoUrlForPreview: (url: string) => string;
   busyAction: string | null;
   runBusy: (key: string, fn: () => void | Promise<void>) => void;
+  /** לאחר עדכון תיאור באימון — debounce לג׳נרט «בחירת סוג האימון» בטאב מכירה */
+  scheduleAutoRegenSalesFromTrialDescription?: () => void;
+  /** אחרי «ג׳נרט» ליד התיאור — מיידית (לא מחכה ל-debounce) */
+  flushAutoRegenSalesFromTrialDescription?: () => void;
 }) {
   const {
     websiteUrl,
@@ -212,6 +216,8 @@ export default function Step3Trial(props: {
     videoUrlForPreview,
     busyAction,
     runBusy,
+    scheduleAutoRegenSalesFromTrialDescription,
+    flushAutoRegenSalesFromTrialDescription,
   } = props;
 
   const activeTrialBenefitUiId = useMemo(() => {
@@ -386,6 +392,7 @@ export default function Step3Trial(props: {
                             };
                           })
                         );
+                        flushAutoRegenSalesFromTrialDescription?.();
                       });
                     }}
                   >
@@ -417,6 +424,7 @@ export default function Step3Trial(props: {
                       : null),
                   };
                   setServices(arr);
+                  scheduleAutoRegenSalesFromTrialDescription?.();
                 }}
                 placeholder="תיאור קצר על האימון (ייסרק מהאתר אם קיים)"
                 rows={4}

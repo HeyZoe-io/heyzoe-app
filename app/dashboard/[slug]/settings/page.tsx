@@ -89,6 +89,8 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
+/** אחרי עריכת תיאור באימון ניסיון — ג׳נרט «בחירת סוג האימון» בטאב מכירה (debounced) */
+const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
 
@@ -1831,6 +1833,34 @@ export default function SlugSettingsPage() {
     [regenerateSalesFlowSection, runBusy]
   );
 
+  const trialDescSalesRegenTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (trialDescSalesRegenTimerRef.current) {
+        window.clearTimeout(trialDescSalesRegenTimerRef.current);
+        trialDescSalesRegenTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const scheduleAutoRegenSalesFromTrialDescription = useCallback(() => {
+    if (trialDescSalesRegenTimerRef.current) {
+      window.clearTimeout(trialDescSalesRegenTimerRef.current);
+    }
+    trialDescSalesRegenTimerRef.current = window.setTimeout(() => {
+      trialDescSalesRegenTimerRef.current = null;
+      regenerateSalesFlowSectionBusy("service_pick");
+    }, TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS);
+  }, [regenerateSalesFlowSectionBusy]);
+
+  const flushAutoRegenSalesFromTrialDescription = useCallback(() => {
+    if (trialDescSalesRegenTimerRef.current) {
+      window.clearTimeout(trialDescSalesRegenTimerRef.current);
+      trialDescSalesRegenTimerRef.current = null;
+    }
+    regenerateSalesFlowSectionBusy("service_pick");
+  }, [regenerateSalesFlowSectionBusy]);
+
   // ─── Media upload ──────────────────────────────────────────────────────────
 
   async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta") {
@@ -2651,6 +2681,8 @@ export default function SlugSettingsPage() {
             videoUrlForPreview={videoUrlForPreview}
             busyAction={busyAction}
             runBusy={runBusy}
+            scheduleAutoRegenSalesFromTrialDescription={scheduleAutoRegenSalesFromTrialDescription}
+            flushAutoRegenSalesFromTrialDescription={flushAutoRegenSalesFromTrialDescription}
           />
         )}
 
