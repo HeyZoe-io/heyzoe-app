@@ -519,19 +519,6 @@ export default function Step4SalesFlow(props: any) {
             </div>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
-            <label className="flex flex-row-reverse items-start gap-2.5 cursor-pointer rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2.5">
-              <input
-                type="checkbox"
-                className="mt-0.5 shrink-0"
-                checked={salesFlowConfig.show_memberships_button !== false}
-                onChange={(e) =>
-                  setSalesFlowConfig((c: any) => ({ ...c, show_memberships_button: e.target.checked }))
-                }
-              />
-              <span className="text-sm text-zinc-800 text-right leading-snug">
-                הצגת כפתור «מחירי מנויים» בהנעה לפעולה ובהודעות המשך אחרי לינקים
-              </span>
-            </label>
             <div>
               <Textarea
                 value={ctaBodyForDisplay(
@@ -584,52 +571,116 @@ export default function Step4SalesFlow(props: any) {
                         ...c,
                         cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => {
                           if (x.id !== b.id) return x;
+                          const id = x.id;
+                          const label = x.label;
                           if (kind === "schedule") {
                             return {
-                              ...x,
-                              kind,
-                              schedule_cta_delivery: x.schedule_cta_delivery ?? "link",
-                              schedule_cta_image_url: x.schedule_cta_image_url ?? "",
-                              schedule_cta_image_type: x.schedule_cta_image_type ?? "",
+                              id,
+                              label,
+                              kind: "schedule",
+                              schedule_cta_delivery: "link",
+                              schedule_cta_image_url: "",
+                              schedule_cta_image_type: "",
                             };
                           }
-                          return { ...x, kind };
+                          if (kind === "trial") {
+                            return { id, label, kind: "trial", trial_cta_delivery: "link" };
+                          }
+                          if (kind === "memberships") {
+                            return { id, label, kind: "memberships", memberships_cta_delivery: "link" };
+                          }
+                          return { id, label, kind: "address" };
                         }),
                       }));
                     }}
                   >
                     <option value="schedule">מערכת שעות</option>
-                    <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
-                    <option value="memberships">מחירי מנויים (קישור מ«על העסק»)</option>
+                    <option value="trial">הרשמה לשיעור ניסיון</option>
+                    <option value="memberships">מחירי מנויים / כרטיסיות</option>
                     <option value="address">מה הכתובת? (שדה כתובת)</option>
                   </select>
                 </div>
+                {b.kind === "trial" ? (
+                  <div className="w-full md:w-auto min-w-[14rem] space-y-1">
+                    <label className="text-xs font-medium text-zinc-600 block text-right">דרך ההצגה</label>
+                    <select
+                      dir="rtl"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[12rem]"
+                      value={b.trial_cta_delivery ?? "link"}
+                      onChange={(e) =>
+                        setSalesFlowConfig((c: any) => ({
+                          ...c,
+                          cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                            x.id === b.id
+                              ? {
+                                  ...x,
+                                  trial_cta_delivery: e.target.value === "none" ? "none" : "link",
+                                }
+                              : x
+                          ),
+                        }))
+                      }
+                    >
+                      <option value="link">לינק — מקישור ההרשמה באימון הניסיון (טאב «אימון ניסיון»)</option>
+                      <option value="none">ללא — לא מוצג בפלואו</option>
+                    </select>
+                  </div>
+                ) : null}
+                {b.kind === "memberships" ? (
+                  <div className="w-full md:w-auto min-w-[14rem] space-y-1">
+                    <label className="text-xs font-medium text-zinc-600 block text-right">דרך ההצגה</label>
+                    <select
+                      dir="rtl"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[12rem]"
+                      value={b.memberships_cta_delivery ?? "link"}
+                      onChange={(e) =>
+                        setSalesFlowConfig((c: any) => ({
+                          ...c,
+                          cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                            x.id === b.id
+                              ? {
+                                  ...x,
+                                  memberships_cta_delivery: e.target.value === "none" ? "none" : "link",
+                                }
+                              : x
+                          ),
+                        }))
+                      }
+                    >
+                      <option value="link">לינק — מטאב לינקים (מנויים וכרטיסיות)</option>
+                      <option value="none">ללא — לא מוצג בפלואו</option>
+                    </select>
+                  </div>
+                ) : null}
                 {b.kind === "schedule" ? (
                   <div className="w-full space-y-2 border border-dashed border-zinc-200 rounded-xl p-3 bg-[#fafafa]">
-                    <p className="text-[11px] text-zinc-600 text-right leading-relaxed">
-                      לינק מערכות השעות נשלף מפרטי התזמון/ארק בדשבורד. ב«תמונה» נשלח אינסרט לפני תפריט ההמשך, כמו שאר המדיות.
-                    </p>
                     <Field label="דרך ההצגה">
                       <select
                         dir="rtl"
                         className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white"
                         value={b.schedule_cta_delivery ?? "link"}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const v = e.target.value;
                           setSalesFlowConfig((c: any) => ({
                             ...c,
-                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                              x.id === b.id
-                                ? {
-                                    ...x,
-                                    schedule_cta_delivery: e.target.value === "image" ? "image" : "link",
-                                  }
-                                : x
-                            ),
-                          }))
-                        }
+                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => {
+                              if (x.id !== b.id) return x;
+                              const del: SalesFlowCtaButton["schedule_cta_delivery"] =
+                                v === "image" ? "image" : v === "none" ? "none" : "link";
+                              return {
+                                ...x,
+                                schedule_cta_delivery: del,
+                                ...(del !== "image"
+                                  ? { schedule_cta_image_url: "", schedule_cta_image_type: "" as const }
+                                  : {}),
+                              };
+                            }),
+                          }));
+                        }}
                       >
-                        <option value="link">קישור (טקסט + קישור התזמון)</option>
-                        <option value="image">תמונה</option>
+                        <option value="link">לינק — מטאב לינקים (מערכת שעות)</option>
+                        <option value="image">תמונה — אינסרט לפני תפריט ההמשך</option>
+                        <option value="none">ללא — לא מוצג בפלואו</option>
                       </select>
                     </Field>
                     {(b.schedule_cta_delivery ?? "link") === "image" ? (

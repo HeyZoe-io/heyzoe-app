@@ -8,16 +8,22 @@ export type SalesFlowExtraStep = {
   options: string[];
 };
 
-export type ScheduleCtaDelivery = "link" | "image";
+export type ScheduleCtaDelivery = "link" | "image" | "none";
+export type TrialCtaDelivery = "link" | "none";
+export type MembershipsCtaDelivery = "link" | "none";
 
 export type SalesFlowCtaButton = {
   id: string;
   label: string;
   kind: "schedule" | "trial" | "memberships" | "address";
-  /** רק כש-kind הוא schedule — מסיר מערכת שעות כלינק טקסט או כתמונה (אינסרט) */
+  /** רק trial — לינק נשלף משדה קישור ההרשמה באימוני הניסיון; «ללא» מסתיר את הכפתור */
+  trial_cta_delivery?: TrialCtaDelivery;
+  /** רק schedule — לינק מטאב לינקים; תמונה = אינסרט; «ללא» מסתיר */
   schedule_cta_delivery?: ScheduleCtaDelivery;
   schedule_cta_image_url?: string;
   schedule_cta_image_type?: "image" | "";
+  /** רק memberships — לינק מטאב לינקים; «ללא» מסתיר */
+  memberships_cta_delivery?: MembershipsCtaDelivery;
 };
 
 export type SalesFlowConfig = {
@@ -46,7 +52,7 @@ export type SalesFlowConfig = {
   after_trial_registration_body: string;
   /** מיגרציה ממסלול ישן — דורס את הברכה המורכבת */
   greeting_body_override?: string;
-  /** ברירת מחדל true — הצג את כפתור «מחירי מנויים» ובאפשרויות ההמשך */
+  /** @deprecated נגזר מ־memberships_cta_delivery בכפתור המנויים; נשמר לתאימות לקוחות ישנים */
   show_memberships_button?: boolean;
 };
 
@@ -76,7 +82,7 @@ const FRIENDLY: SalesFlowConfig = {
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,
   cta_buttons: [
-    { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
+    { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial", trial_cta_delivery: "link" },
     {
       id: "cta-schedule",
       label: "צפייה במערכת השעות",
@@ -85,7 +91,7 @@ const FRIENDLY: SalesFlowConfig = {
       schedule_cta_image_url: "",
       schedule_cta_image_type: "",
     },
-    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships", memberships_cta_delivery: "link" },
   ],
   cta_extra_steps: [],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
@@ -121,7 +127,7 @@ const FORMAL: SalesFlowConfig = {
     "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,
   cta_buttons: [
-    { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
+    { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial", trial_cta_delivery: "link" },
     {
       id: "cta-schedule",
       label: "צפייה במערכת השעות",
@@ -130,7 +136,7 @@ const FORMAL: SalesFlowConfig = {
       schedule_cta_image_url: "",
       schedule_cta_image_type: "",
     },
-    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships", memberships_cta_delivery: "link" },
   ],
   followup_after_next_class_body: "שנשריין לכם את האימון? 🙂",
   followup_after_next_class_options: [
@@ -163,7 +169,7 @@ const DIRECT: SalesFlowConfig = {
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,
   cta_buttons: [
-    { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial" },
+    { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial", trial_cta_delivery: "link" },
     {
       id: "cta-schedule",
       label: "צפייה במערכת השעות",
@@ -172,7 +178,7 @@ const DIRECT: SalesFlowConfig = {
       schedule_cta_image_url: "",
       schedule_cta_image_type: "",
     },
-    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships", memberships_cta_delivery: "link" },
   ],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
   followup_after_next_class_options: [
@@ -223,7 +229,15 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
           ? "schedule"
           : "trial";
     const scheduleDelivery =
-      o.schedule_cta_delivery === "image" || o.schedule_cta_delivery === "link" ? o.schedule_cta_delivery : undefined;
+      o.schedule_cta_delivery === "image" || o.schedule_cta_delivery === "link" || o.schedule_cta_delivery === "none"
+        ? o.schedule_cta_delivery
+        : undefined;
+    const trialDelivery =
+      o.trial_cta_delivery === "none" || o.trial_cta_delivery === "link" ? o.trial_cta_delivery : undefined;
+    const membershipsDelivery =
+      o.memberships_cta_delivery === "none" || o.memberships_cta_delivery === "link"
+        ? o.memberships_cta_delivery
+        : undefined;
     const scheduleImgUrl = typeof o.schedule_cta_image_url === "string" ? o.schedule_cta_image_url.trim() : "";
     const scheduleImgType =
       o.schedule_cta_image_type === "image" ? ("image" as const) : ("" as const);
@@ -231,6 +245,11 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
       id: typeof o.id === "string" ? o.id : Math.random().toString(36).slice(2, 9),
       label: String(o.label ?? ""),
       kind,
+      ...(kind === "trial"
+        ? { trial_cta_delivery: trialDelivery ?? "link" }
+        : kind === "memberships"
+          ? { memberships_cta_delivery: membershipsDelivery ?? "link" }
+          : {}),
       ...(kind === "schedule"
         ? {
             schedule_cta_delivery: scheduleDelivery ?? (scheduleImgUrl ? "image" : "link"),
@@ -248,11 +267,9 @@ export type EffectiveSalesFlowCtaInput = {
   allowTrialCta: boolean;
   /** כשיש לפחות אחד מ־schedule | memberships | address */
   consumedNonTrialKinds: Set<string> | string[];
-  /** לפי salesFlow — כש false מסתירים כפתור־ועדכון מסלול */
-  showMembershipsButton: boolean;
 };
 
-/** סינון כפתורי CTA בשיחת ווטסאפ: לא מציג ניסיון אם רשום (אלא אם allowTrial), להסתיר מנויים, להסיר כפתור שכבר נוצל. */
+/** סינון כפתורי CTA בשיחת ווטסאפ: לא מציג ניסיון אם רשום (אלא אם allowTrial), כיבוי לפי סוג (לינק/ללא), להסיר כפתור שכבר נוצל. */
 export function getEffectiveSalesFlowCtaButtons(
   buttons: SalesFlowCtaButton[],
   input: EffectiveSalesFlowCtaInput
@@ -265,11 +282,17 @@ export function getEffectiveSalesFlowCtaButtons(
   if (input.trialRegistered === true && !input.allowTrialCta) {
     out = out.filter((b) => b.kind !== "trial");
   }
-  if (!input.showMembershipsButton) {
-    out = out.filter((b) => b.kind !== "memberships");
-  }
   out = out.filter((b) => {
-    if (b.kind === "trial") return true;
+    if (b.kind === "trial") {
+      if ((b.trial_cta_delivery ?? "link") === "none") return false;
+      return true;
+    }
+    if (b.kind === "schedule") {
+      if ((b.schedule_cta_delivery ?? "link") === "none") return false;
+    }
+    if (b.kind === "memberships") {
+      if ((b.memberships_cta_delivery ?? "link") === "none") return false;
+    }
     if (b.kind === "schedule" || b.kind === "memberships" || b.kind === "address") {
       return !consumed.has(b.kind);
     }
@@ -287,10 +310,20 @@ export function getEffectiveSalesFlowCtaButtons(
 
 const FOLLOW_KIND_ORDER = ["trial", "schedule", "memberships"] as const;
 
+function ctaKindEnabledInButtons(buttons: SalesFlowCtaButton[], kind: (typeof FOLLOW_KIND_ORDER)[number]): boolean {
+  const row = buttons.find((b) => b.kind === kind);
+  if (!row) return false;
+  if (kind === "trial") return (row.trial_cta_delivery ?? "link") !== "none";
+  if (kind === "schedule") return (row.schedule_cta_delivery ?? "link") !== "none";
+  if (kind === "memberships") return (row.memberships_cta_delivery ?? "link") !== "none";
+  return false;
+}
+
 /** שלוש התוויות ההיסטוריות מיושרות ל־trial/schedule/memberships — מסוננות כמו הכפתורים */
 export function getEffectiveFollowupMenuLabels(
   options: readonly [string, string, string],
-  input: EffectiveSalesFlowCtaInput
+  input: EffectiveSalesFlowCtaInput,
+  ctaButtons: SalesFlowCtaButton[]
 ): string[] {
   const consumed = new Set(
     (Array.from(input.consumedNonTrialKinds) as string[]).map((k) => String(k ?? "").trim()).filter(Boolean)
@@ -298,9 +331,9 @@ export function getEffectiveFollowupMenuLabels(
   const out: string[] = [];
   for (let i = 0; i < FOLLOW_KIND_ORDER.length; i++) {
     const kind = FOLLOW_KIND_ORDER[i]!;
+    if (!ctaKindEnabledInButtons(ctaButtons, kind)) continue;
     const label = String(options[i] ?? "").trim();
     if (!label) continue;
-    if (kind === "memberships" && !input.showMembershipsButton) continue;
     if (kind !== "trial" && consumed.has(kind)) continue;
     if (input.trialRegistered === true && !input.allowTrialCta && kind === "trial") continue;
     out.push(label);
@@ -342,7 +375,13 @@ function migrateLegacyCtaButtons(buttons: SalesFlowCtaButton[], fallback: SalesF
   return [
     normalized[0]!,
     normalized[1]!,
-    { ...normalized[2]!, id: normalized[2]!.id || "cta-memberships", label: "מחירי מנויים", kind: "memberships" },
+    {
+      ...normalized[2]!,
+      id: normalized[2]!.id || "cta-memberships",
+      label: "מחירי מנויים",
+      kind: "memberships",
+      memberships_cta_delivery: normalized[2]!.memberships_cta_delivery ?? "link",
+    },
     ...normalized.slice(3),
   ];
 }
@@ -353,6 +392,17 @@ function migrateLegacyGreetingTagline(raw: string, fallback: string): string {
   if (text.includes("{tagline}")) return raw;
   if (text.includes("•")) return fallback;
   return raw;
+}
+
+/** תאימות לדשבורד ישן: הצגת מנויים סומנה ב-checkbox במקום ב־memberships_cta_delivery */
+function applyLegacyMembershipsCheckbox(c: SalesFlowConfig): SalesFlowConfig {
+  if (c.show_memberships_button !== false) return c;
+  return {
+    ...c,
+    cta_buttons: c.cta_buttons.map((btn) =>
+      btn.kind === "memberships" ? { ...btn, memberships_cta_delivery: "none" as const } : btn
+    ),
+  };
 }
 
 function migrateLegacyGreetingBodyOverride(raw: unknown): string | undefined {
@@ -375,7 +425,7 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
   };
   const base = defaultSalesFlowConfig([]);
-  return {
+  const cfg: SalesFlowConfig = {
     opening_note: typeof o.opening_note === "string" ? o.opening_note : base.opening_note,
     greeting_opener: typeof o.greeting_opener === "string" ? o.greeting_opener : base.greeting_opener,
     greeting_line_name: typeof o.greeting_line_name === "string" ? o.greeting_line_name : base.greeting_line_name,
@@ -439,9 +489,10 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
         ? o.after_trial_registration_body
         : base.after_trial_registration_body,
     greeting_body_override: migrateLegacyGreetingBodyOverride(o.greeting_body_override),
-    /** ברירת מחדל true — הצגת כפתור מנויים */
+    /** ברירת מחדל true — לתאימות בלבד; בשימוש אפשרי עם applyLegacyMembershipsCheckbox */
     show_memberships_button: o.show_memberships_button === false ? false : true,
   };
+  return applyLegacyMembershipsCheckbox(cfg);
 }
 
 export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unknown> {
@@ -463,13 +514,21 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
       options: s.options,
     })),
     cta_body: c.cta_body,
-    show_memberships_button: c.show_memberships_button !== false,
+    show_memberships_button: c.cta_buttons.some(
+      (b) => b.kind === "memberships" && (b.memberships_cta_delivery ?? "link") !== "none"
+    ),
     cta_buttons: c.cta_buttons.map((b) => {
       const row: Record<string, unknown> = { id: b.id, label: b.label, kind: b.kind };
+      if (b.kind === "trial") {
+        row.trial_cta_delivery = b.trial_cta_delivery ?? "link";
+      }
       if (b.kind === "schedule") {
         row.schedule_cta_delivery = b.schedule_cta_delivery ?? "link";
         row.schedule_cta_image_url = b.schedule_cta_image_url ?? "";
         row.schedule_cta_image_type = b.schedule_cta_image_type ?? "";
+      }
+      if (b.kind === "memberships") {
+        row.memberships_cta_delivery = b.memberships_cta_delivery ?? "link";
       }
       return row;
     }),
@@ -826,22 +885,26 @@ export function formatSalesFlowForPrompt(
     })
     .join("\n");
 
-  const hideMem = c.show_memberships_button === false;
-  const buttonsForPrompt = hideMem ? c.cta_buttons.filter((b) => b.kind !== "memberships") : c.cta_buttons;
+  const buttonsForPrompt = c.cta_buttons.filter((b) => {
+    if (b.kind === "trial" && (b.trial_cta_delivery ?? "link") === "none") return false;
+    if (b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "none") return false;
+    if (b.kind === "memberships" && (b.memberships_cta_delivery ?? "link") === "none") return false;
+    return true;
+  });
 
   const ctaDesc = buttonsForPrompt
     .map((b) => {
       const hint =
         b.kind === "schedule"
-          ? b.schedule_cta_delivery === "image" && String(b.schedule_cta_image_url ?? "").trim()
-            ? "כשמשתמש בוחר: שליחת תמונה/אינסרט מערכת שעות (מוגדר במסלול) — ואם חסר, לינק מערכת שעות מידע העסק"
-            : "לינק מערכת שעות מידע העסק (תזמון/ארק)"
+          ? (b.schedule_cta_delivery ?? "link") === "image" && String(b.schedule_cta_image_url ?? "").trim()
+            ? "כשמשתמש בוחר: אינסרט תמונת מערכת שעות שהועלתה במסלול המכירה (לפני תפריט המשך); אופציונלי: כיתוב עם לינק מערכת שעות מטאב לינקים אם הוגדר"
+            : "כשמשתמש בוחר: לינק מערכת שעות מטאב לינקים בדשבורד"
           : b.kind === "trial"
-            ? "לינק סליקה לאימון שנבחר (משירותי הניסיון)"
+            ? "כשמשתמש בוחר: לינק הרשמה/תשלום משדה הקישור באימון הניסיון שנבחר (טאב אימון ניסיון)"
             : b.kind === "address"
               ? "משיב עם הכתובת של העסק מהדשבורד"
             : b.kind === "memberships"
-                ? "בווטסאפ: נשלח קישור מ«קישור לדף מנויים וכרטיסיות» בדשבורד; אם אין קישור - תשובה קבועה מהמערכת"
+                ? "בווטסאפ: קישור מטאב לינקים «קישור לדף מנויים וכרטיסיות»; אם אין קישור - תשובה קבועה מהמערכת"
                 : "עקבי אחרי סוג הכפתור במסלול המכירה";
       return `  - "${b.label}" (${b.kind}): ${hint}`;
     })

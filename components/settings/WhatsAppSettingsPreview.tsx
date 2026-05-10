@@ -119,9 +119,8 @@ export function WhatsAppSettingsPreview({
       trialRegistered: false,
       allowTrialCta: true,
       consumedNonTrialKinds: new Set<string>(),
-      showMembershipsButton: salesFlowConfig.show_memberships_button !== false,
     }),
-    [salesFlowConfig.show_memberships_button]
+    []
   );
 
   const previewCtaButtons = useMemo(
@@ -130,8 +129,13 @@ export function WhatsAppSettingsPreview({
   );
 
   const previewFollowLabels = useMemo(
-    () => getEffectiveFollowupMenuLabels(salesFlowConfig.followup_after_next_class_options, previewSfEff),
-    [salesFlowConfig.followup_after_next_class_options, previewSfEff]
+    () =>
+      getEffectiveFollowupMenuLabels(
+        salesFlowConfig.followup_after_next_class_options,
+        previewSfEff,
+        salesFlowConfig.cta_buttons
+      ),
+    [salesFlowConfig.followup_after_next_class_options, salesFlowConfig.cta_buttons, previewSfEff]
   );
 
   return (
@@ -308,14 +312,14 @@ export function WhatsAppSettingsPreview({
                           </WaButton>
                           {schedImg ? (
                             <p className="text-[8px] text-zinc-500 text-right pr-1 pt-0.5">
-                              בצ׳אט האמיתי תישלח כאן תמונת אינסרט מערכות השעות לפני הכפתורים
+                              בצ׳אט: אינסרט לפי ההעלאה במסלול מכירה (לפני תפריט ההמשך)
                             </p>
                           ) : null}
                         </div>
                       );
                     })}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      הרשמה לניסיון · מערכת שעות · מחירים (אם מופעל) · כתובת לפי המסלול
+                      הכפתורים בפועל תלויים ב«סוג» ו«דרך ההצגה» שבמסלול המכירה
                     </p>
                   </div>
                 ) : null}
