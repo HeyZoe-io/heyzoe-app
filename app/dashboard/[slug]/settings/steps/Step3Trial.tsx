@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +28,8 @@ type ServiceItem = {
   trial_pick_media_type: "" | "image" | "video";
 };
 
-function TrialPickMediaUploadRow(props: {
+/** צירוף מדיה: מוצג רק לאחר סימון; שומר הסרה מלאה בביטול סימון */
+function TrialPickMediaAttachmentSection(props: {
   planIsStarter?: boolean;
   onStarterMediaBlocked?: () => void;
   uploadTrialPickMedia: (file: File, uiId: string) => void | Promise<void>;
@@ -52,68 +53,54 @@ function TrialPickMediaUploadRow(props: {
   } = props;
   const inputRef = useRef<HTMLInputElement>(null);
   const url = String(service.trial_pick_media_url ?? "").trim();
+  const hasMedia = Boolean(url);
+  const [attachMedia, setAttachMedia] = useState(hasMedia);
+
+  useEffect(() => {
+    if (hasMedia) setAttachMedia(true);
+  }, [hasMedia]);
+
   const isVideo = service.trial_pick_media_type === "video";
   const busy = uploadingTrialPickUiId === service.ui_id;
   const err = String(trialPickMediaUploadError ?? "").trim();
   const showPreview = Boolean(url) && !(err && trialPickFailedUiId === service.ui_id);
   const showRowUploadError = Boolean(err && trialPickFailedUiId === service.ui_id);
 
+  const onToggleAttach = (checked: boolean) => {
+    setAttachMedia(checked);
+    if (!checked) {
+      setServices((prev) =>
+        prev.map((x) =>
+          x.ui_id === service.ui_id ? { ...x, trial_pick_media_url: "", trial_pick_media_type: "" } : x
+        )
+      );
+    }
+  };
+
   return (
-    <div className="pt-3 mt-3 border-t border-zinc-100 space-y-2">
-      <div className="flex flex-row-reverse items-center gap-2 justify-start flex-wrap">
-        <span className="text-xs font-medium text-zinc-700">מדיה עם התשובה בבחירת אימון (אופציונלי)</span>
+    <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/35 to-zinc-50/40 p-4 text-right shadow-[0_8px_30px_-12px_rgba(95,64,178,0.15)]">
+      <label className="flex flex-row-reverse items-center justify-between gap-3 cursor-pointer select-none">
+        <div className="flex flex-row-reverse items-center gap-3 min-w-0">
+          <input
+            type="checkbox"
+            checked={attachMedia}
+            onChange={(e) => onToggleAttach(e.target.checked)}
+            className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
+          />
+          <span className="text-sm font-semibold text-zinc-800 tracking-tight">צירוף מדיה</span>
+        </div>
         {planIsStarter ? (
           <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
             ⭐ Pro
           </span>
         ) : null}
-      </div>
-      {!showPreview ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            if (planIsStarter) {
-              onStarterMediaBlocked?.();
-              return;
-            }
-            inputRef.current?.click();
-          }}
-          className="w-full border-2 border-dashed border-zinc-200 rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-[#7133da]/40 hover:bg-[#f7f3ff]/50 transition-all disabled:opacity-60"
-        >
-          {busy ? (
-            <>
-              <Loader2 className="h-6 w-6 animate-spin text-[#7133da]/60" />
-              <p className="text-xs text-zinc-500">מעלה…</p>
-            </>
-          ) : (
-            <>
-              <Upload className="h-6 w-6 text-zinc-400" />
-              <p className="text-xs text-zinc-600">לחץ להעלאת תמונה או סרטון</p>
-              <p className="text-[11px] text-zinc-400">עד 16MB · JPG, PNG, GIF, MP4</p>
-            </>
-          )}
-        </button>
-      ) : (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-2">
-          {isVideo ? (
-            <video
-              src={videoUrlForPreview(url)}
-              className="mx-auto block max-h-48 max-w-full rounded-lg bg-black"
-              muted
-              playsInline
-              preload="metadata"
-              controls
-            />
-          ) : (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={url} alt="" className="mx-auto block max-h-48 max-w-full rounded-lg object-contain" />
-          )}
-          <div className="flex flex-wrap justify-center gap-2">
-            <Button
+      </label>
+
+      {attachMedia ? (
+        <div className="mt-4 pt-4 border-t border-[rgba(113,51,218,0.1)] space-y-3 transition-opacity duration-200">
+          {!showPreview ? (
+            <button
               type="button"
-              variant="outline"
-              className="gap-1 text-xs h-8"
               disabled={busy}
               onClick={() => {
                 if (planIsStarter) {
@@ -122,45 +109,92 @@ function TrialPickMediaUploadRow(props: {
                 }
                 inputRef.current?.click();
               }}
+              className="w-full rounded-2xl border-2 border-dashed border-[rgba(113,51,218,0.22)] bg-white/70 px-4 py-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-[#7133da]/45 hover:bg-[#f7f3ff]/60 transition-colors disabled:opacity-60 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
             >
-              <Upload className="h-3.5 w-3.5" /> החלף
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs h-8 text-red-600 border-red-200"
-              onClick={() =>
-                setServices((prev) =>
-                  prev.map((x) =>
-                    x.ui_id === service.ui_id ? { ...x, trial_pick_media_url: "", trial_pick_media_type: "" } : x
-                  )
-                )
-              }
+              {busy ? (
+                <>
+                  <Loader2 className="h-7 w-7 animate-spin text-[#7133da]/65" aria-hidden />
+                  <p className="text-xs text-zinc-500">מעלה…</p>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#f3edff]/90 text-[#7133da]">
+                    <Upload className="h-5 w-5 opacity-85" aria-hidden />
+                  </div>
+                  <p className="text-sm font-medium text-zinc-700">העלאת תמונה או סרטון</p>
+                  <p className="text-[11px] text-zinc-500">עד 16MB · JPG, PNG, GIF, MP4</p>
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="rounded-2xl border border-[rgba(113,51,218,0.12)] bg-white/85 p-3 space-y-3 shadow-inner">
+              {isVideo ? (
+                <video
+                  src={videoUrlForPreview(url)}
+                  className="mx-auto block max-h-48 max-w-full rounded-xl bg-black"
+                  muted
+                  playsInline
+                  preload="metadata"
+                  controls
+                />
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={url} alt="" className="mx-auto block max-h-48 max-w-full rounded-xl object-contain" />
+              )}
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1.5 text-xs h-9 rounded-xl border-[rgba(113,51,218,0.2)] bg-white hover:bg-[#f7f3ff]"
+                  disabled={busy}
+                  onClick={() => {
+                    if (planIsStarter) {
+                      onStarterMediaBlocked?.();
+                      return;
+                    }
+                    inputRef.current?.click();
+                  }}
+                >
+                  <Upload className="h-3.5 w-3.5" /> החלף
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1.5 text-xs h-9 rounded-xl text-red-600 border-red-200/80 hover:bg-red-50/80"
+                  onClick={() =>
+                    setServices((prev) =>
+                      prev.map((x) =>
+                        x.ui_id === service.ui_id ? { ...x, trial_pick_media_url: "", trial_pick_media_type: "" } : x
+                      )
+                    )
+                  }
+                >
+                  <X className="h-3.5 w-3.5" /> הסר
+                </Button>
+              </div>
+            </div>
+          )}
+          {showRowUploadError ? (
+            <p
+              className="text-sm text-red-700 text-right px-3 py-2.5 rounded-xl border border-red-200/80 bg-red-50/90 leading-snug"
+              role="alert"
             >
-              <X className="h-3.5 w-3.5" /> הסר
-            </Button>
-          </div>
+              {err}
+            </p>
+          ) : null}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void uploadTrialPickMedia(f, service.ui_id);
+            }}
+          />
         </div>
-      )}
-      {showRowUploadError ? (
-        <p
-          className="text-sm text-red-700 text-right mt-2 px-3 py-2 rounded-xl border border-red-200 bg-red-50/80 leading-snug"
-          role="alert"
-        >
-          {err}
-        </p>
       ) : null}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*,video/*"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          if (f) void uploadTrialPickMedia(f, service.ui_id);
-        }}
-      />
     </div>
   );
 }
@@ -434,9 +468,9 @@ export default function Step3Trial(props: {
               />
             </Field>
 
-            <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3 text-right">
-              <label className="flex flex-row-reverse items-center justify-end gap-2 text-right text-sm font-medium text-zinc-700">
-                <span>חלוקה לרמות</span>
+            <div className="space-y-3 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/25 to-zinc-50/50 p-4 text-right shadow-[0_8px_30px_-14px_rgba(95,64,178,0.12)]">
+              <label className="flex flex-row-reverse items-center justify-end gap-3 text-right cursor-pointer select-none">
+                <span className="text-sm font-semibold text-zinc-800 tracking-tight">חלוקה לרמות</span>
                 <input
                   type="checkbox"
                   checked={s.levels_enabled}
@@ -452,11 +486,11 @@ export default function Step3Trial(props: {
                     };
                     setServices(arr);
                   }}
-                  className="h-4 w-4 rounded border-zinc-300"
+                  className="h-4 w-4 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
                 />
               </label>
               {s.levels_enabled ? (
-                <div className="space-y-2 text-right">
+                <div className="space-y-2 text-right pt-2 border-t border-[rgba(113,51,218,0.08)]">
                   {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
                     <div key={`${s.ui_id}-level-${levelIndex}`} className="flex flex-row-reverse items-center gap-2">
                       <button
@@ -506,7 +540,7 @@ export default function Step3Trial(props: {
               ) : null}
             </div>
 
-            <TrialPickMediaUploadRow
+            <TrialPickMediaAttachmentSection
               planIsStarter={planIsStarter}
               onStarterMediaBlocked={onStarterMediaBlocked}
               uploadTrialPickMedia={uploadTrialPickMedia}
