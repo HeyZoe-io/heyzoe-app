@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import NextLink from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import {
   ArrowLeft, ArrowRight, Check,
   Copy,
@@ -1091,9 +1091,9 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     setSettingsHeaderShown(true);
     if (typeof window === "undefined") return;
-    const y = window.scrollY;
-    settingsHeaderScrollYRef.current = y;
-    setSettingsHeaderNearPageTop(y < SETTINGS_HEADER_INLINE_SCROLL_PX);
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    settingsHeaderScrollYRef.current = 0;
+    setSettingsHeaderNearPageTop(true);
   }, [step]);
 
   // ── Step 1: Business details (includes optional website import)
