@@ -431,17 +431,58 @@ function hasMeaningfulTextOverlap(a: string, b: string): boolean {
   return tokenize(b).some((token) => left.has(token));
 }
 
-function parseServiceDescriptionMeta(rawDescription: string): Record<string, unknown> {
+/** מפתחות המזהים את אובייקט ה־JSON השמור בשדה description ב־API (לא טקסט חופשי) */
+const SERVICE_META_JSON_HINT_KEYS = new Set([
+  "benefit_line",
+  "description_text",
+  "description",
+  "payment_link",
+  "duration",
+  "levels_enabled",
+  "levels",
+  "benefits",
+  "benefit_suggestions",
+  "trial_pick_media_url",
+  "trial_pick_media_type",
+]);
+
+/**
+ * שדה ה־service.description בשרת נשמר כ־JSON.stringify({ duration, benefit_line, description_text, … }).
+ * בטאב אימון ניסיון חייבים להציג רק את description_text — לא את כל ה־JSON.
+ */
+function parseStoredServiceDescription(rawDescription: string): {
+  isStructured: boolean;
+  meta: Record<string, unknown>;
+  /** טקסט לשדה «תיאור» בלבד */
+  descriptionTextForUi: string;
+} {
   const trimmed = rawDescription.trim();
-  if (!trimmed) return {};
+  if (!trimmed) return { isStructured: false, meta: {}, descriptionTextForUi: "" };
+
   const candidate = trimmed.startsWith("__META__:") ? trimmed.slice("__META__:".length).trim() : trimmed;
-  if (!candidate.startsWith("{")) return {};
-  try {
-    const parsed = JSON.parse(candidate);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
+  if (!candidate.startsWith("{")) {
+    return { isStructured: false, meta: {}, descriptionTextForUi: trimmed };
   }
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { isStructured: false, meta: {}, descriptionTextForUi: trimmed };
+    }
+    const rec = parsed as Record<string, unknown>;
+    const structured = Object.keys(rec).some((k) => SERVICE_META_JSON_HINT_KEYS.has(k));
+    if (!structured) {
+      return { isStructured: false, meta: {}, descriptionTextForUi: trimmed };
+    }
+    const descriptionTextForUi = String(rec.description_text ?? rec.description ?? "").trim();
+    return { isStructured: true, meta: rec, descriptionTextForUi };
+  } catch {
+    return { isStructured: false, meta: {}, descriptionTextForUi: trimmed };
+  }
+}
+
+function parseServiceDescriptionMeta(rawDescription: string): Record<string, unknown> {
+  const { isStructured, meta } = parseStoredServiceDescription(rawDescription);
+  return isStructured ? meta : {};
 }
 
 function serviceReplyPhrase(serviceName: string): string {
@@ -1384,9 +1425,10 @@ export default function SlugSettingsPage() {
           setServices((svcs as Record<string, unknown>[]).map((s, index, arr) => {
             const name = String(s.name ?? "");
             const rawDescription = String(s.description ?? "");
-            const meta = parseServiceDescriptionMeta(rawDescription);
+            const parsed = parseStoredServiceDescription(rawDescription);
+            const meta = parsed.meta;
             const storedBenefit = String(meta.benefit_line ?? "").trim();
-            const storedDescriptionText = String(meta.description_text ?? meta.description ?? "").trim();
+            const descriptionDraftSource = parsed.descriptionTextForUi;
             const legacyBenefits = Array.isArray(meta.benefits)
               ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
               : [];
@@ -1395,7 +1437,7 @@ export default function SlugSettingsPage() {
               : [];
             const regeneratedBenefit = buildServiceReplyDraft(
               name,
-              storedDescriptionText || rawDescription,
+              descriptionDraftSource,
               "",
               legacyBenefits,
               legacySuggestions,
@@ -1410,7 +1452,7 @@ export default function SlugSettingsPage() {
               payment_link: String(meta.payment_link ?? ""),
               service_slug: String(s.service_slug ?? ""),
               location_text: String(s.location_text ?? ""),
-              description: storedDescriptionText || rawDescription,
+              description: descriptionDraftSource,
               levels_enabled: meta.levels_enabled === true,
               levels: Array.isArray(meta.levels)
                 ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
@@ -1719,8 +1761,9 @@ export default function SlugSettingsPage() {
             prev.map((service) => {
               const serviceName = service.name.trim();
               if (!serviceName) return service;
-              const meta = parseServiceDescriptionMeta(service.description);
-              const descriptionText = String(meta.description_text ?? meta.description ?? service.description ?? "").trim();
+              const parsed = parseStoredServiceDescription(service.description);
+              const meta = parsed.meta;
+              const descriptionText = parsed.descriptionTextForUi;
               const benefits = Array.isArray(meta.benefits)
                 ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
                 : [];
