@@ -232,7 +232,7 @@ export default function Step3Trial(props: {
           <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
             {!websiteUrl.trim()
               ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
-              : ""}
+              : "הסריקה לא תמחק אימונים שכבר הזנתם: יתעדכנו תיאור ומחיר לפי האתר כשיש התאמת שם, ויכנסו בסוף הרשימה אימונים חדשים. לינק סליקה, משך ומדיה נשמרים."}
           </p>
         </div>
 
@@ -346,7 +346,37 @@ export default function Step3Trial(props: {
               />
             </Field>
 
-            <Field label="תיאור">
+            <Field
+              label={
+                <div className="flex flex-row-reverse flex-wrap items-center justify-between gap-2">
+                  <span>תיאור</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 gap-1 text-xs shrink-0 border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
+                    onClick={() => {
+                      setServices((prev) =>
+                        prev.map((row, j) =>
+                          j === i
+                            ? {
+                                ...row,
+                                benefit_line: deriveBenefitLineFromDescription(
+                                  String(row.name ?? ""),
+                                  String(row.description ?? "")
+                                ),
+                              }
+                            : row
+                        )
+                      );
+                    }}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                    ג׳נרט
+                  </Button>
+                </div>
+              }
+              description="מייצר מחדש את ניסוח ההודעה אחרי בחירת האימון בשלב המכירות, לפי השם והתיאור הנוכחיים."
+            >
               <textarea
                 dir="rtl"
                 value={s.description}
