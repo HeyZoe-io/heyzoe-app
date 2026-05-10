@@ -27,6 +27,7 @@ import {
   composeGreeting,
   composeAfterServicePickReply,
   composeAfterServicePickReplyFromTrialDescription,
+  normalizeMasculinePredicatesAfterPracticeHead,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
@@ -585,7 +586,7 @@ function trialServiceItemFromSiteProduct(
   const sugg = Array.isArray(p.benefit_suggestions)
     ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
     : [];
-  const description = String(p.description ?? "").trim();
+  const description = normalizeMasculinePredicatesAfterPracticeHead(String(p.description ?? "").trim());
   const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
   const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg, false, []);
   return {
