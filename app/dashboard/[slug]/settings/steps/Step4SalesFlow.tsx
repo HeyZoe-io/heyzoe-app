@@ -176,7 +176,7 @@ export default function Step4SalesFlow(props: any) {
           <StepHeader
             n={4}
             title="מסלול מכירה"
-            desc="כאן נוצר תהליך המכירה של זואי. במידה והליד ישאל שאלה פתוחה, זואי תוכל לענות על פי כל המידע שהזנת בטאבים הקודמים."
+            desc="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
           />
         </CardTitle>
       </CardHeader>
