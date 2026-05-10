@@ -24,6 +24,7 @@ import {
   type SalesFlowConfig,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
+  buildServicePickSubjectFragment,
   composeGreeting,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
@@ -417,25 +418,7 @@ function serviceReplyPhrase(serviceName: string): string {
   return trialServicePhraseForAfterPick(trimmed);
 }
 
-function pickServiceReplyOpener(serviceName: string): string {
-  const options = ["איזה כיף", "אוקיי מדהים", "כיף גדול", "מהמם", "כיף לשמוע"];
-  let hash = 0;
-  for (let i = 0; i < serviceName.length; i++) hash = (hash * 31 + serviceName.charCodeAt(i)) | 0;
-  return options[Math.abs(hash) % options.length] ?? options[0]!;
-}
-
-/** When false, skip "מתמקדים ב…" — the phrase already reads as a full predicate (מגוונים, מתאימים לרמות…). */
-function shouldUseMitmekadimBeGlue(body: string): boolean {
-  const b = body.trim();
-  if (!b) return false;
-  if (/^(שיעורים?\s+)?מגוונים\b/u.test(b)) return false;
-  if (/^מתאימים\b/u.test(b)) return false;
-  if (/^משלבים\b|^כוללים\b|^מציעים\b|^מותאמים\b/u.test(b)) return false;
-  if (/מגוונים[\s\S]{0,40}(?:מתחילים|לרמות|רמות תרגול)/u.test(b)) return false;
-  return true;
-}
-
-/** Avoid "שיעורי היוגה שלנו שיעורים מגוונים" — drop redundant שיעור/שיעורים after subject. */
+/** Avoid "שיעורי יוגה … שיעורים מגוונים" — drop redundant שיעור/שיעורים after subject. */
 function trimRedundantBodyAfterSubject(subject: string, body: string): string {
   let b = body.trim().replace(/^ב\s+/u, "").trim();
   if (/שיעורי\s/u.test(subject)) {
@@ -444,8 +427,8 @@ function trimRedundantBodyAfterSubject(subject: string, body: string): string {
   return b.trim();
 }
 
+/** משפט-זנב אחרי «הם/היא» בווטסאפ (לא כולל פתיחה/נושא — המערכת מוסיפה ב-msg). ללא «שלנו מתמקדים ב…». */
 function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
-  const opener = pickServiceReplyOpener(serviceName);
   const fixCommonHebrewTypos = (s: string): string => {
     let out = String(s ?? "");
     // Common omissions we saw in scans/generation
@@ -461,22 +444,10 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     return out.trim();
   };
 
-  const addDefiniteArticle = (text: string): string => {
-    const t = text.trim();
-    if (!t) return t;
-    const parts = t.split(/\s+/);
-    const first = parts[0] ?? "";
-    if (!first || first.startsWith("ה")) return t;
-    return [`ה${first}`, ...parts.slice(1)].join(" ");
-  };
-
   const nameRaw = String(serviceName ?? "").trim();
-  const nameDef = addDefiniteArticle(nameRaw);
-  const phraseForSales = trialServicePhraseForAfterPick(nameRaw);
   const raw = fixCommonHebrewTypos(String(description ?? "").replace(/\s+/g, " "));
   if (!raw) {
-    const subj = nameRaw ? `${phraseForSales} שלנו` : "השיעורים שלנו";
-    return `${opener}! ${subj} הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
+    return "דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.";
   }
 
   const candidates = raw
@@ -504,11 +475,8 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   const coreStartsWithAimon = /^אימון\b/u.test(core);
 
   if (looksLikeTechnicalSession || coreStartsWithAimon) {
-    // Singular: "אימון X הוא אימון טכני..."
     const body = coreStartsWithAimon ? core.replace(/^אימון\s+/u, "") : core;
-    const subject = nameRaw ? `אימון ${nameRaw} הוא` : "האימון הוא";
-    // Do not force another "אימון" token; keep site wording intact and avoid duplicates.
-    const out = `${opener}! ${subject} ${fixCommonHebrewTypos(body)}`.trim().replace(/\s+/g, " ");
+    const out = fixCommonHebrewTypos(body).trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
@@ -525,35 +493,27 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     }
     outCore = outCore.replace(/(?:^|\.\s*)השעה\s+הזו\s+ביום\s+בה\s+/u, "$1");
     outCore = fixCommonHebrewTypos(outCore);
-    const out = `${opener}! ${outCore}`.trim().replace(/\s+/g, " ");
+    const out = outCore.trim().replace(/\s+/g, " ");
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
-  // If the description already reads naturally as "אימון ...", prefer:
-  // "{name} הוא אימון ..." rather than forcing "אימוני ... מתמקדים ב אימון ...".
-  // This avoids duplications and preserves the site's copy.
   const coreTrim = core.trim();
   const coreLooksLikeAimonSentence =
     /^אימון\b/u.test(coreTrim) ||
     /^אימון\s+ש?כל\s+כולו\b/u.test(coreTrim) ||
     /^(אימון\s+טכני|השליטה)\b/u.test(coreTrim);
   if (coreLooksLikeAimonSentence && nameRaw) {
-    const body = fixCommonHebrewTypos(coreTrim);
-    const out = `${opener}! ${nameRaw} הוא ${body}`.trim().replace(/\s+/g, " ");
-    return /[.!?]$/.test(out) ? out : `${out}.`;
+    const body = fixCommonHebrewTypos(coreTrim).trim().replace(/\s+/g, " ");
+    return /[.!?]$/.test(body) ? body : `${body}.`;
   }
 
-  // Default: natural sentence — use same phrasing as «מענה אחרי בחירת שירות» (שיעורי X, לא "אימוני השיעורי…")
   let body = core;
   body = body.replace(/^מתמקדים\s+ב\s*/u, "");
   body = body.replace(/^ב\s+/u, "");
   body = body.trim();
-  const subject = nameRaw ? `${phraseForSales} שלנו` : "השיעורים שלנו";
-  const bodyJoined = trimRedundantBodyAfterSubject(subject, body);
-  const mid = shouldUseMitmekadimBeGlue(bodyJoined)
-    ? `מתמקדים ב${bodyJoined ? ` ${bodyJoined}` : ""}`
-    : bodyJoined;
-  const out = fixCommonHebrewTypos(`${opener}! ${subject} ${mid}`.trim().replace(/\s+/g, " "));
+  const subjectPhrase = nameRaw ? buildServicePickSubjectFragment(nameRaw) : "האימונים";
+  const bodyJoined = trimRedundantBodyAfterSubject(subjectPhrase, body);
+  const out = fixCommonHebrewTypos(bodyJoined).trim().replace(/\s+/g, " ");
   return /[.!?]$/.test(out) ? out : `${out}.`;
 }
 
@@ -643,27 +603,24 @@ function buildServiceReplyDraft(
   benefits: string[],
   suggestions: string[],
   levelsEnabled: boolean,
-  levels: string[],
-  includeOpener = true
+  levels: string[]
 ): string {
-  // If we have a real description (from scan or manual), prefer a tight, relevant reply based on it.
+  void levelsEnabled;
+  void levels;
   const rawDesc = String(rawDescription ?? "").trim();
-  if (rawDesc && includeOpener) return deriveBenefitLineFromDescription(serviceName, rawDesc);
+  if (rawDesc) return deriveBenefitLineFromDescription(serviceName, rawDesc);
 
-  const phrase = serviceReplyPhrase(serviceName);
-  const opener = pickServiceReplyOpener(serviceName);
   const focus = resolveServiceReplyFocus(serviceName);
   const highlights = extractServiceReplyHighlights(serviceName, rawDescription, flowFeatures, benefits, suggestions);
   const highlight = highlights.find((item) => !hasMeaningfulTextOverlap(item, focus)) ?? "";
   const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
-  // חלוקה לרמות שייכת ל"מענה אחרי בחירה בשאלת הניסיון" ולא לתשובה של בחירת סוג האימון.
-  const body = `${phrase} שלנו הם דרך מעולה ${focus}.${extra}`.trim();
-  return includeOpener ? `${opener}! ${body}` : body;
+  const core = `דרך מעולה ${focus}`.trim().replace(/\s+/g, " ");
+  const out = `${core}.${extra}`.trim().replace(/\s+/g, " ");
+  return /[.!?]$/.test(out) ? out : `${out}.`;
 }
 
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
   if (!Array.isArray(products) || products.length === 0) return [];
-  const includeOpener = true;
   return products.slice(0, 8).map((raw) => {
     const p = raw as Record<string, unknown>;
     const rowId = uid();
@@ -683,8 +640,7 @@ function trialServicesFromSiteProducts(products: unknown[], addrFallback: string
       benefits,
       sugg,
       false,
-      [],
-      includeOpener
+      []
     );
     return {
       ui_id: rowId,
@@ -1466,8 +1422,7 @@ export default function SlugSettingsPage() {
               legacyBenefits,
               legacySuggestions,
               meta.levels_enabled === true,
-              Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : [],
-              arr.filter((item) => String((item as Record<string, unknown>).name ?? "").trim()).length > 1
+              Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : []
             );
             return {
               ui_id: uid(),
@@ -1782,8 +1737,6 @@ export default function SlugSettingsPage() {
           };
         }
         if (section === "service_pick") {
-          const namedServices = services.filter((s) => s.name.trim());
-          const includeOpener = namedServices.length > 1;
           setServices((prev) =>
             prev.map((service) => {
               const serviceName = service.name.trim();
@@ -1805,8 +1758,7 @@ export default function SlugSettingsPage() {
                   benefits,
                   suggestions,
                   service.levels_enabled,
-                  service.levels,
-                  includeOpener
+                  service.levels
                 ),
               };
             })
