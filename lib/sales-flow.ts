@@ -60,9 +60,9 @@ const FRIENDLY: SalesFlowConfig = {
   greeting_extra_steps: [],
   multi_service_question:
     "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
-  /** {serviceName} ימולא כביטוי טבעי (למשל «שיעורי אקרו»); אין חובה לכלול {benefitLine} */
+  /** נשמר לתאימות; בפועל המשפט אחרי בחירת אימון נובע מכלל מערכת (ראו composeAfterServicePickReply). */
   after_service_pick:
-    "אוקיי מדהים! {serviceName} שלנו זו דרך וואו להתחזק, להתגמש, להכיר אנשים מדהימים ולמצוא אהבה חדשה לאימון.",
+    "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
   experience_options: [
     "כן, לא מעט פעמים!",
@@ -114,7 +114,7 @@ const FORMAL: SalesFlowConfig = {
   greeting_opener: "שלום וברוכים הבאים.",
   greeting_closer: "נשמח לארח אתכם אצלנו.",
   after_service_pick:
-    "מצוין. {serviceName} שלנו הם הזדמנות נעימה להתחזק, להתגמש ולהרגיש את האיזון - בגוף ובנפש, בקצב מקצועי ותומך.",
+    "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   after_experience:
     "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
   cta_body:
@@ -158,7 +158,7 @@ const DIRECT: SalesFlowConfig = {
   greeting_opener: "היי,",
   multi_service_question: "איזה אימון מעניין אותך?",
   after_service_pick:
-    "אוקיי. {serviceName} שלנו - להתחזק, להתגמש, ולהרגיש שזה בדיוק בשבילך.",
+    "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   cta_body:
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,
@@ -404,9 +404,18 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
         "אוקיי מדהים! שיעורי {serviceName} אצלנו הם דרך סופר נעימה לקחת את מה שחשוב לך מהאימון - במיוחד {benefitLine} - ולהמשיך באווירה חמה ומקצועית, חלק מקהילה שאוהבת את מה שעושים.";
       const legacyLongBenefitDump =
         "אוקיי מדהים! {serviceName} אצלנו זה בדיוק המקום לקחת את מה שמעניין אותך מהאימון - במיוחד {benefitLine} - ולהתקדם בצורה נעימה, ברורה ומקצועית.";
+      const legacyFriendlyBody =
+        "אוקיי מדהים! {serviceName} שלנו זו דרך וואו להתחזק, להתגמש, להכיר אנשים מדהימים ולמצוא אהבה חדשה לאימון.";
+      const legacyFormalBody =
+        "מצוין. {serviceName} שלנו הם הזדמנות נעימה להתחזק, להתגמש ולהרגיש את האיזון - בגוף ובנפש, בקצב מקצועי ותומך.";
+      const legacyDirectBody =
+        "אוקיי. {serviceName} שלנו - להתחזק, להתגמש, ולהרגיש שזה בדיוק בשבילך.";
       if (raw.trim() === legacy) return base.after_service_pick;
       if (raw.trim() === legacy2) return base.after_service_pick;
       if (raw.trim() === legacyLongBenefitDump) return base.after_service_pick;
+      if (raw.trim() === legacyFriendlyBody) return base.after_service_pick;
+      if (raw.trim() === legacyFormalBody) return base.after_service_pick;
+      if (raw.trim() === legacyDirectBody) return base.after_service_pick;
       return raw;
     })(),
     experience_question:
@@ -581,37 +590,77 @@ export type WhatsAppOpeningPreviewSection =
   | { kind: "buttons"; labels: string[] };
 
 /** מקטעים לתצוגה מקדימה — טקסט ו״כפתורים״ בלי מספור (עד 3 אימונים) */
-/**
- * ביטוי טבעי לשם אימון בתבנית «מענה אחרי בחירת אימון» — מונע «שיעורי שיעורי אקרו» כשהשם כבר מתחיל ב«שיעורי».
- */
-export function trialServicePhraseForAfterPick(serviceName: string): string {
-  const addDefiniteArticle = (text: string): string => {
-    const t = text.trim();
-    if (!t) return t;
-    const parts = t.split(/\s+/);
-    const first = parts[0] ?? "";
-    if (!first || first.startsWith("ה")) return t;
-    return [`ה${first}`, ...parts.slice(1)].join(" ");
-  };
-  const s = serviceName.trim();
-  if (!s) return "השיעורים";
-  if (s.startsWith("שיעורי ")) return `שיעורי ${addDefiniteArticle(s.slice("שיעורי ".length))}`;
-  if (s.startsWith("שיעור ")) return `שיעור ${addDefiniteArticle(s.slice("שיעור ".length))}`;
-  return `שיעורי ${addDefiniteArticle(s)}`;
+const AFTER_SERVICE_PICK_OPENERS = ["מהמם", "כיף לשמוע", "וואו", "איזה כיף", "מצוין", "סופר"] as const;
+
+const LESSON_ACTIVITY_PATTERN =
+  /(?:^|\s|_)(?:יוגה|yoga|פילאטיס|pilates|ספינינג|spinning|בוקס|boxing|זומבה|zumba|בלט|ballet)(?:$|\s|_)/iu;
+
+const TRAINING_ACTIVITY_PATTERN =
+  /(?:^|\s|_)(?:כוח|strength|קרוס\s*פיט|crossfit|cross\s*fit|\btrx\b|ריצה|running|\bhiit\b|\bhit\b|פונקציונלי|functional|אינטרוול|מתח|משקולות)(?:$|\s|_)/iu;
+
+/** שם שפעילות נקבה יחידה מובהקת והכוונה בהקשר איננה «סוג השיעורים» ברבים */
+const FEMININE_SINGULAR_SUBJECT_REGEX = /^זומבה$/iu;
+
+/** יציבות: אותה מילת פתיחה לאותה בחירה */
+export function pickAfterServicePickOpener(serviceName: string): string {
+  const key = serviceName.trim() || "__";
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = (h * 31 + key.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(h) % AFTER_SERVICE_PICK_OPENERS.length;
+  return AFTER_SERVICE_PICK_OPENERS[idx]!;
 }
 
-/** מילוי תבנית מענה אחרי בחירת אימון (ווטסאפ / תצוגה מקדימה) */
-export function fillAfterServicePickTemplate(
-  template: string,
-  serviceName: string,
-  benefitLine: string
-): string {
-  const serviceSpecificReply = benefitLine.trim();
-  if (serviceSpecificReply) return serviceSpecificReply;
-  const phrase = trialServicePhraseForAfterPick(serviceName);
-  return template
-    .replace(/\{serviceName\}/g, phrase)
-    .replace(/\{benefitLine\}/g, benefitLine.trim() || "תיאור ממסלול המכירה");
+/** נושא לפני הם/היא: קידומת + שם, בלי הניסוח הישן («שליי הX שלנו מתמקדים…»). */
+export function buildServicePickSubjectFragment(serviceName: string): string {
+  const raw = serviceName.trim().replace(/\s+/g, " ");
+  if (!raw) return "האימונים";
+
+  // כבר מעוצב בשם — אל תוסיף קידומת (מניעת כפילויות מסוג שיעורי/אימוני כשיש כבר «שיעור» בניסוח וכו').
+  if (/^(שיעורי|אימוני)(\s|$)/u.test(raw)) return raw;
+  if (/^שיעור(?:ים)?(\s|$)/u.test(raw)) return raw;
+
+  let coreForPrefix = raw;
+  const im = /^אימון\s+(.+)/u.exec(raw);
+  if (im?.[1]) coreForPrefix = im[1]!.trim().replace(/\s+/g, " ");
+
+  const hay = `${raw} ${coreForPrefix}`;
+  let fragment: string;
+  if (LESSON_ACTIVITY_PATTERN.test(hay)) fragment = `שיעורי ${coreForPrefix}`;
+  else if (TRAINING_ACTIVITY_PATTERN.test(hay)) fragment = `אימוני ${coreForPrefix}`;
+  else fragment = `אימון ${coreForPrefix}`;
+
+  return fragment.replace(/\s+/g, " ").trim();
+}
+
+export function pickServicePickPronoun(serviceName: string): "הם" | "היא" {
+  const t = serviceName.trim().replace(/\s+/g, " ");
+  if (FEMININE_SINGULAR_SUBJECT_REGEX.test(t)) return "היא";
+  return "הם";
+}
+
+/** משפט אחרי שהלקוח בחר סוג אימון (ווטסאפ והעתק מהמערכת). התיאור — כפי בשדה מהטאב, בלי פרפרזה. */
+export function composeAfterServicePickReply(serviceName: string, benefitLine: string): string {
+  const opener = pickAfterServicePickOpener(serviceName);
+  const subject = buildServicePickSubjectFragment(serviceName);
+  const pronoun = pickServicePickPronoun(serviceName);
+  const desc = benefitLine.trim();
+  if (!desc) {
+    return `${opener}! ${subject} ${pronoun}.`.replace(/\s+/g, " ").trim();
+  }
+  return `${opener}! ${subject} ${pronoun} ${desc}`.replace(/\s+/g, " ").trim();
+}
+
+/** @deprecated הרכבת הנושא הישנה (שיעורי ה…) — משמש רק למקומות בתשתית הגדרות; מתיישב עם buildServicePickSubjectFragment */
+export function trialServicePhraseForAfterPick(serviceName: string): string {
+  return buildServicePickSubjectFragment(serviceName);
+}
+
+/** מילוי תבנית legacy — בפועל תמיד הפורמט החדש (הפרמטר template לא בשימוש). */
+export function fillAfterServicePickTemplate(_template: string, serviceName: string, benefitLine: string): string {
+  void _template;
+  return composeAfterServicePickReply(serviceName, benefitLine);
 }
 
 export function fillCtaBodyTemplate(
@@ -823,8 +872,10 @@ export function formatSalesFlowForPrompt(
 ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני בחירת אימון)", c.greeting_extra_steps)}
 - אם יש יותר מאימון אחד: קודם שאלת בחירת האימון ממסלול המכירה, ואז אחרי שבחרו אימון - מענה קצר וחי כמו בשיח אמיתי (משפט עד שניים). לא להעתיק את תיאור האימון ממסלול המכירה במלואו ולא לנסח כמו "לקחת את מה שמעניין אותך מהאימון - במיוחד [פסקה ארוכה]".
 - התאימי את הרוח לסוג האימון שנבחר: אקרו/דינמי - אנרגיה, קהילה, אתגר חיובי; פילאטיס/מכשירים - חיטוב, התחזקות, השקעה בעצמך; יוגה/מיינדפולנס - חיבור פנימי, איזון, גוף־נפש. אפשר לפתוח ב"אוקיי מדהים!" או "איזה כיף :)" לפי הטון.
-- אם בתבנית יש {benefitLine}: השתמשי בו רק כרמז קצר (מילה עד חצי משפט), לא כהדבקה של כל שדה התיאור.
-  תבנית מענה אחרי בחירת אימון (שמרי על אותה רוח - קצר, ספונטני, בלי ערימת פרטים): ${c.after_service_pick}
+- אחרי שהלקוח בחר סוג אימון — בווטסאפ נשלח משפט אוטומטי מהמערכת: [מילת פתיחה]! [נושא] [הם / היא] [תיאור מטאב אימון ניסיון כפי שנשמר, בלי לכווץ וללא פרפרזה]. אל תחליפי את המשפט הזה ואל תשחזרי ניסוחים מסוג «שיעורי ה[שם] שלנו מתמקדים ב…».
+- כללי נושא (אם נדרש מענה ידני באותו שלב): אם השם כבר כולל «שיעורי» / «אימוני», או שורש «שיעור» / «שיעורים» — אל תוסיפי קידומת חדשה. אחרת קידומות: תחומים מסוג שיעור/חוג (יוגה, פילאטיס, ספינינג, בוקס, זומבה, בלט ומקבילות באנגלית) → «שיעורי» + שם; כוח/אימון פונקציונלי/HIIT/TRX/קרוספיט/ריצה ומקבילות באנגלית → «אימוני» + שם; אם קשה לסווג — «אימון» + שם. אם השם מתחיל ב«אימון » — מסירים את המילה הראשונה לפני מיון הקידומת.
+- כללי הם/היא: ברירת מחדל «הם»; «היא» רק לשם נקבה יחיד מובהק שאין לו ריבוי טבעי בהקשר (דוגמה: זומבה כשם בודד).
+- מציין מסלול (הנחיה בלבד, לא טקסט ללקוח): ${c.after_service_pick}
 
 סשן חימום (מומלץ לא יותר מ־1–3 שאלות בסך הכול כולל שאלת הניסיון; בסיום סשן החימום עברי אוטומטית לשלב ההנעה לפעולה):
 - שאלת ניסיון קודם + שלוש האפשרויות ממסלול המכירה (בלי מספור, כמו כפתורים).
