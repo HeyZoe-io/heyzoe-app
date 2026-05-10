@@ -572,7 +572,7 @@ function trialServiceMatchKey(rawName: string): string {
   return s;
 }
 
-/** שורת אימון ניסיון אחת מתוצאת סריקת מוצר — ui_id חיצוני כשנדבקים לשורת משתמש קיימת */
+/** שורת אימון ניסיון מתוצאת סריקה (משמש גם בהוספת שורה חדשה בלבד — לא למצב עדכון) */
 function trialServiceItemFromSiteProduct(
   p: Record<string, unknown>,
   addrFallback: string,
@@ -605,7 +605,10 @@ function trialServiceItemFromSiteProduct(
   };
 }
 
-/** מיזוג סריקה: לא דורס את הרשימה — מעדכן לפי שם תואם, ומוסיף מוצרים חדשים בסוף */
+/**
+ * סריקה מהאתר: לא משנה אימונים קיימים — רק מוסיף בסוף שורות לפי מוצרים שזיהה ובהם שם שלא מתאים לאף אימון בשם (אותה לוגיקת מפתח כמו בהתאמת מיזוג ישן).
+ * עדכון תיאור/מחיר לשירות קיים רק באמצעות עריכה ידנית או כפתור «ג׳נרט» בטאב.
+ */
 function mergeTrialServicesWithScannedProducts(
   existing: ServiceItem[],
   products: unknown[],
@@ -614,52 +617,24 @@ function mergeTrialServicesWithScannedProducts(
   if (!Array.isArray(products) || products.length === 0) return existing;
 
   const slice = products.slice(0, 8).map((raw) => raw as Record<string, unknown>);
-  const used = new Set<number>();
-
-  const mergedExisting = existing.map((svc) => {
+  const existingKeys = new Set<string>();
+  for (const svc of existing) {
     const k = trialServiceMatchKey(svc.name);
-    if (!k) return svc;
-
-    let si = -1;
-    for (let i = 0; i < slice.length; i++) {
-      if (used.has(i)) continue;
-      if (trialServiceMatchKey(String(slice[i].name ?? "")) === k) {
-        si = i;
-        break;
-      }
-    }
-    if (si === -1) return svc;
-
-    used.add(si);
-    const raw = slice[si]!;
-    const fresh = trialServiceItemFromSiteProduct(raw, addrFallback, svc.ui_id);
-    const preserveBenefit =
-      Boolean(String(svc.benefit_line ?? "").trim()) &&
-      !isLegacyGeneratedServiceReply(svc.benefit_line, svc.name);
-
-    const scannedLoc = String(raw.location_text ?? "").trim();
-
-    return {
-      ...fresh,
-      payment_link: svc.payment_link,
-      duration: String(svc.duration ?? "").trim() ? svc.duration : fresh.duration,
-      levels_enabled: svc.levels_enabled,
-      levels: svc.levels,
-      trial_pick_media_url: svc.trial_pick_media_url,
-      trial_pick_media_type: svc.trial_pick_media_type,
-      benefit_line: preserveBenefit ? svc.benefit_line : fresh.benefit_line,
-      location_text: scannedLoc || svc.location_text || fresh.location_text,
-      service_slug: serviceSlugForPersistence(svc.service_slug, fresh.name, svc.ui_id),
-    };
-  });
-
-  const appended: ServiceItem[] = [];
-  for (let i = 0; i < slice.length; i++) {
-    if (used.has(i)) continue;
-    appended.push(trialServiceItemFromSiteProduct(slice[i]!, addrFallback, uid()));
+    if (k) existingKeys.add(k);
   }
 
-  return [...mergedExisting, ...appended];
+  const appended: ServiceItem[] = [];
+  const addedFromScanKeys = new Set<string>();
+
+  for (const raw of slice) {
+    const k = trialServiceMatchKey(String(raw.name ?? ""));
+    if (k && existingKeys.has(k)) continue;
+    if (k && addedFromScanKeys.has(k)) continue;
+    if (k) addedFromScanKeys.add(k);
+    appended.push(trialServiceItemFromSiteProduct(raw, addrFallback, uid()));
+  }
+
+  return [...existing, ...appended];
 }
 
 /** תצוגה בשדה — ללא {serviceName} */
