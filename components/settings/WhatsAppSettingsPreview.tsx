@@ -319,7 +319,7 @@ export function WhatsAppSettingsPreview({
                       );
                     })}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      הכפתורים בפועל תלויים ב«סוג» ו«דרך ההצגה» שבמסלול המכירה
+                      הכפתורים בפועל תלויים בבחירת «סוג» בכל כפתור במסלול המכירה (לינק / תמונה / ללא הצגה)
                     </p>
                   </div>
                 ) : null}

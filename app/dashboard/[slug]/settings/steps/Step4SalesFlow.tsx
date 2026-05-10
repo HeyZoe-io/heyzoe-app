@@ -12,7 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field, StepHeader, Textarea } from "../settings-ui";
-import type { SalesFlowCtaButton, SalesFlowExtraStep } from "@/lib/sales-flow";
+import {
+  getSalesFlowCtaTypeUiValue,
+  salesFlowCtaButtonFromTypeUiChoice,
+  type SalesFlowCtaButton,
+  type SalesFlowExtraStep,
+} from "@/lib/sales-flow";
 
 export default function Step4SalesFlow(props: any) {
   const {
@@ -559,192 +564,97 @@ export default function Step4SalesFlow(props: any) {
                     }}
                   />
                 </Field>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-zinc-600 block">סוג</label>
+                <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
+                  <label className="text-xs font-medium text-zinc-600 block text-right">סוג</label>
                   <select
                     dir="rtl"
-                    className="rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[11rem]"
-                    value={b.kind}
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
+                    value={getSalesFlowCtaTypeUiValue(b)}
                     onChange={(e) => {
-                      const kind = e.target.value as SalesFlowCtaButton["kind"];
+                      const uiVal = e.target.value;
                       setSalesFlowConfig((c: any) => ({
                         ...c,
-                        cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => {
-                          if (x.id !== b.id) return x;
-                          const id = x.id;
-                          const label = x.label;
-                          if (kind === "schedule") {
-                            return {
-                              id,
-                              label,
-                              kind: "schedule",
-                              schedule_cta_delivery: "link",
-                              schedule_cta_image_url: "",
-                              schedule_cta_image_type: "",
-                            };
-                          }
-                          if (kind === "trial") {
-                            return { id, label, kind: "trial", trial_cta_delivery: "link" };
-                          }
-                          if (kind === "memberships") {
-                            return { id, label, kind: "memberships", memberships_cta_delivery: "link" };
-                          }
-                          return { id, label, kind: "address" };
-                        }),
+                        cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                          x.id === b.id
+                            ? salesFlowCtaButtonFromTypeUiChoice({ id: x.id, label: x.label }, x, uiVal)
+                            : x
+                        ),
                       }));
                     }}
                   >
-                    <option value="schedule">מערכת שעות</option>
-                    <option value="trial">הרשמה לשיעור ניסיון</option>
-                    <option value="memberships">מחירי מנויים / כרטיסיות</option>
-                    <option value="address">מה הכתובת? (שדה כתובת)</option>
+                    <option value="trial:link">שיעור ניסיון — לינק (קישור הרשמה מהטאב «אימון ניסיון»)</option>
+                    <option value="trial:none">שיעור ניסיון — ללא הצגה בפלואו</option>
+                    <option value="schedule:link">מערכת שעות — לינק (מהטאב «לינקים חשובים»)</option>
+                    <option value="schedule:image">מערכת שעות — תמונה לפני תפריט ההמשך</option>
+                    <option value="schedule:none">מערכת שעות — ללא הצגה בפלואו</option>
+                    <option value="memberships:link">מנויים / כרטיסיות — לינק (מהטאב «לינקים חשובים»)</option>
+                    <option value="memberships:none">מנויים / כרטיסיות — ללא הצגה בפלואו</option>
+                    <option value="address">מה הכתובת?</option>
                   </select>
                 </div>
-                {b.kind === "trial" ? (
-                  <div className="w-full md:w-auto min-w-[14rem] space-y-1">
-                    <label className="text-xs font-medium text-zinc-600 block text-right">דרך ההצגה</label>
-                    <select
-                      dir="rtl"
-                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[12rem]"
-                      value={b.trial_cta_delivery ?? "link"}
-                      onChange={(e) =>
-                        setSalesFlowConfig((c: any) => ({
-                          ...c,
-                          cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                            x.id === b.id
-                              ? {
-                                  ...x,
-                                  trial_cta_delivery: e.target.value === "none" ? "none" : "link",
-                                }
-                              : x
-                          ),
-                        }))
-                      }
-                    >
-                      <option value="link">לינק — מקישור ההרשמה באימון הניסיון (טאב «אימון ניסיון»)</option>
-                      <option value="none">ללא — לא מוצג בפלואו</option>
-                    </select>
-                  </div>
-                ) : null}
-                {b.kind === "memberships" ? (
-                  <div className="w-full md:w-auto min-w-[14rem] space-y-1">
-                    <label className="text-xs font-medium text-zinc-600 block text-right">דרך ההצגה</label>
-                    <select
-                      dir="rtl"
-                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[12rem]"
-                      value={b.memberships_cta_delivery ?? "link"}
-                      onChange={(e) =>
-                        setSalesFlowConfig((c: any) => ({
-                          ...c,
-                          cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                            x.id === b.id
-                              ? {
-                                  ...x,
-                                  memberships_cta_delivery: e.target.value === "none" ? "none" : "link",
-                                }
-                              : x
-                          ),
-                        }))
-                      }
-                    >
-                      <option value="link">לינק — מטאב לינקים (מנויים וכרטיסיות)</option>
-                      <option value="none">ללא — לא מוצג בפלואו</option>
-                    </select>
-                  </div>
-                ) : null}
-                {b.kind === "schedule" ? (
+                {b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "image" ? (
                   <div className="w-full space-y-2 border border-dashed border-zinc-200 rounded-xl p-3 bg-[#fafafa]">
-                    <Field label="דרך ההצגה">
-                      <select
-                        dir="rtl"
-                        className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white"
-                        value={b.schedule_cta_delivery ?? "link"}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setSalesFlowConfig((c: any) => ({
-                            ...c,
-                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => {
-                              if (x.id !== b.id) return x;
-                              const del: SalesFlowCtaButton["schedule_cta_delivery"] =
-                                v === "image" ? "image" : v === "none" ? "none" : "link";
-                              return {
-                                ...x,
-                                schedule_cta_delivery: del,
-                                ...(del !== "image"
-                                  ? { schedule_cta_image_url: "", schedule_cta_image_type: "" as const }
-                                  : {}),
-                              };
-                            }),
-                          }));
-                        }}
-                      >
-                        <option value="link">לינק — מטאב לינקים (מערכת שעות)</option>
-                        <option value="image">תמונה — אינסרט לפני תפריט ההמשך</option>
-                        <option value="none">ללא — לא מוצג בפלואו</option>
-                      </select>
-                    </Field>
-                    {(b.schedule_cta_delivery ?? "link") === "image" ? (
-                      planIsStarter ? (
-                        <p className="text-[11px] text-amber-800 text-right bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                          ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
-                        </p>
-                      ) : (
-                        <div className="space-y-2 flex flex-col items-stretch">
+                    {planIsStarter ? (
+                      <p className="text-[11px] text-amber-800 text-right bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                        ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
+                      </p>
+                    ) : (
+                      <div className="space-y-2 flex flex-col items-stretch">
+                        <p className="text-[11px] font-medium text-zinc-700 text-right">תמונת מערכת השעות (אינסרט לפני תפריט ההמשך)</p>
+                        {String(b.schedule_cta_image_url ?? "").trim() ? (
+                          <div className="rounded-xl overflow-hidden border border-zinc-200 max-w-[200px] mr-auto ml-0 shadow-sm bg-white">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={(b.schedule_cta_image_url ?? "").trim()}
+                              alt=""
+                              className="w-full h-auto max-h-40 object-cover block"
+                            />
+                          </div>
+                        ) : null}
+                        <div className="flex flex-row-reverse flex-wrap gap-2 justify-start">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="text-xs gap-1 h-8"
+                            disabled={uploadingScheduleCtaMedia}
+                            onClick={() => {
+                              if (planIsStarter) {
+                                onStarterMediaBlocked?.();
+                                return;
+                              }
+                              scheduleCtaMediaInputRef?.current?.click();
+                            }}
+                          >
+                            {uploadingScheduleCtaMedia ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Upload className="h-3.5 w-3.5" />
+                            )}
+                            {uploadingScheduleCtaMedia ? "מעלה…" : "העלה תמונה"}
+                          </Button>
                           {String(b.schedule_cta_image_url ?? "").trim() ? (
-                            <div className="rounded-xl overflow-hidden border border-zinc-200 max-w-[200px] mr-auto ml-0 shadow-sm bg-white">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={(b.schedule_cta_image_url ?? "").trim()}
-                                alt=""
-                                className="w-full h-auto max-h-40 object-cover block"
-                              />
-                            </div>
-                          ) : null}
-                          <div className="flex flex-row-reverse flex-wrap gap-2 justify-start">
                             <Button
                               type="button"
                               variant="outline"
-                              className="text-xs gap-1 h-8"
-                              disabled={uploadingScheduleCtaMedia}
-                              onClick={() => {
-                                if (planIsStarter) {
-                                  onStarterMediaBlocked?.();
-                                  return;
-                                }
-                                scheduleCtaMediaInputRef?.current?.click();
-                              }}
+                              className="text-xs h-8 text-red-600 border-red-200 hover:bg-red-50"
+                              onClick={() =>
+                                setSalesFlowConfig((c: any) => ({
+                                  ...c,
+                                  cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                    x.id === b.id
+                                      ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
+                                      : x
+                                  ),
+                                }))
+                              }
                             >
-                              {uploadingScheduleCtaMedia ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Upload className="h-3.5 w-3.5" />
-                              )}
-                              {uploadingScheduleCtaMedia ? "מעלה…" : "העלה תמונה"}
+                              <X className="h-3.5 w-3.5" />
+                              הסר תמונה
                             </Button>
-                            {String(b.schedule_cta_image_url ?? "").trim() ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="text-xs h-8 text-red-600 border-red-200 hover:bg-red-50"
-                                onClick={() =>
-                                  setSalesFlowConfig((c: any) => ({
-                                    ...c,
-                                    cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                      x.id === b.id
-                                        ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
-                                        : x
-                                    ),
-                                  }))
-                                }
-                              >
-                                <X className="h-3.5 w-3.5" />
-                                הסר תמונה
-                              </Button>
-                            ) : null}
-                          </div>
+                          ) : null}
                         </div>
-                      )
-                    ) : null}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>
