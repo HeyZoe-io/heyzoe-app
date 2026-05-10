@@ -312,7 +312,10 @@ export default function Step3Trial(props: {
             onDragOver={(e) => onDragOver(e, i)}
             className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
           >
-            <div className="flex flex-wrap gap-2 justify-end pb-1 border-b border-zinc-100/80" dir="rtl">
+            <div
+              className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100/80 text-right"
+              dir="rtl"
+            >
               <span className="text-[11px] font-medium text-zinc-600 w-full text-right">סוג הצעה</span>
               {(
                 [
@@ -330,7 +333,7 @@ export default function Step3Trial(props: {
                     setServices(arr);
                   }}
                   className={[
-                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0",
+                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0 text-right",
                     s.offer_kind === k
                       ? "border-[#7133da]/55 bg-[#f3edff] text-[#2d1a6e] shadow-[0_6px_16px_-8px_rgba(113,51,218,0.35)]"
                       : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/35",
