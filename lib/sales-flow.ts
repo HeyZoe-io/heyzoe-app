@@ -937,6 +937,10 @@ function redundantSegmentOverlapInTrialDescription(description: string, subject:
   const headEnd = Math.min(tokens.length, FIRST_DESCRIPTOR_WORD_WINDOW);
   const needles = collectSubjectOverlapNeedles(subject, serviceName);
 
+  /** לא לקטוג כפילות כש„יוגה/פילאטיס״ הם החלק השני אחרי ״תרגול / שיעור / אימון״ והמחט הוא רק שם הפעילות */
+  const PRACTICE_HEAD_TOKEN =
+    /^(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)$/u;
+
   for (const needle of needles) {
     const nt = needle.split(/\s+/).filter(Boolean);
     if (nt.length === 0) continue;
@@ -946,6 +950,7 @@ function redundantSegmentOverlapInTrialDescription(description: string, subject:
       if (si + nt.length > headEnd) break;
       const slice = tokens.slice(si, si + nt.length).join(" ");
       if (slice !== needle) continue;
+      if (nt.length === 1 && si > 0 && PRACTICE_HEAD_TOKEN.test(tokens[si - 1] ?? "")) continue;
 
       const restParts = [...tokens.slice(0, si), ...tokens.slice(si + nt.length)];
       return { overlaps: true, rest: restParts.join(" ").trim() };
@@ -963,10 +968,17 @@ export function normalizeMasculinePredicatesAfterPracticeHead(text: string): str
   const s = text.trim().replace(/\s+/g, " ");
   if (!s) return s;
 
+  /**
+   * JS `\b` matches only ASCII `[A-Za-z0-9_]` “word” chars — Hebrew is excluded,
+   * so patterns like `\bתרגול` never fired. Anchor at line start / after whitespace instead.
+   */
+  const heStart = String.raw`(?:^|(?<=\s))`;
+  const heEnd = String.raw`(?=\s|$|[,.;:!?״"'׳])`;
+
   const head = String.raw`(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)`;
   const kind = String.raw`(?:יוגה|פילאטיס|זומבה|בוקס|בלט|ספינינג|קונדליני|וויניאסה|אשטנגה|האתה|נדה|נדא)`;
   const qual = String.raw`(?:(?:לנשים|לגברים|למתחילים|למתקדמים|לכולם|לכולן|לכל\s+הגילאים)\s+)?`;
-  const prefix = String.raw`(\b${head}\s+${kind}\s+)(${qual})`;
+  const prefix = String.raw`${heStart}(${head}\s+${kind}\s+)(${qual})`;
 
   const mapSecond: Record<string, string> = {
     מחזקת: "מחזק",
@@ -977,12 +989,12 @@ export function normalizeMasculinePredicatesAfterPracticeHead(text: string): str
   let out = s;
 
   const rxCompound = new RegExp(
-    `${prefix}מזינה\\s+ו(מחזקת|מעודדת|מפתחת)\\b`,
+    `${prefix}מזינה\\s+ו(מחזקת|מעודדת|מפתחת)${heEnd}`,
     "giu"
   );
   out = out.replace(rxCompound, (_, a: string, b: string, w: string) => `${a}${b}מזין ו${mapSecond[w] ?? "מחזק"}`);
 
-  const rxMazina = new RegExp(`${prefix}מזינה\\b(?!\\s+ו(?:מחזק|מעודד|מפתח))`, "giu");
+  const rxMazina = new RegExp(`${prefix}מזינה${heEnd}(?!\\s+ו(?:מחזק|מעודד|מפתח))`, "giu");
   out = out.replace(rxMazina, "$1$2מזין");
 
   const rxSingle: Array<[string, string]> = [
@@ -991,7 +1003,7 @@ export function normalizeMasculinePredicatesAfterPracticeHead(text: string): str
     ["מפתחת", "מפתח"],
   ];
   for (const [fem, masc] of rxSingle) {
-    const rx = new RegExp(`${prefix}${fem}\\b`, "giu");
+    const rx = new RegExp(`${prefix}${fem}${heEnd}`, "giu");
     out = out.replace(rx, `$1$2${masc}`);
   }
 
@@ -999,13 +1011,13 @@ export function normalizeMasculinePredicatesAfterPracticeHead(text: string): str
    * הנושא המדבר הוא השורש הזכר (תרגול/שיעור/אימון), לא סוג הפעילות האנגלי כמו קונדליני —
    * מודלים לעיתים מיישרות ל„המעוררת את…״ מתוך בלבול עם „אנרגיה“ (נקבה) וכו׳.
    */
-  const practiceLead = String.raw`\b(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)\s+`;
+  const practiceLead = String.raw`${heStart}(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)\s+`;
   const rxHaMaoratAtEt = new RegExp(
-    `${practiceLead}(?:[^\\s]+\\s+){0,8}המעוררת\\s+את\\b`,
+    `${practiceLead}(?:[^\\s]+\\s+){0,8}המעוררת\\s+את${heEnd}`,
     "giu"
   );
   out = out.replace(rxHaMaoratAtEt, (whole) =>
-    whole.replace(/\sהמעוררת\s+את\b/u, " מעורר את")
+    whole.replace(/\sהמעוררת\s+את(?=\s|$|[,.;:!?])/u, " מעורר את")
   );
 
   return out.replace(/\s+/g, " ").trim();

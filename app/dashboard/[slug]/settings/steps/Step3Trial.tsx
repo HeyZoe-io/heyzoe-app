@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field, StepHeader } from "../settings-ui";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
+import { normalizeMasculinePredicatesAfterPracticeHead } from "@/lib/sales-flow";
 
 /** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
 const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
@@ -373,17 +374,17 @@ export default function Step3Trial(props: {
                     onClick={() => {
                       runBusy(`${TRIAL_BENEFIT_BUSY_PREFIX}${s.ui_id}`, () => {
                         setServices((prev) =>
-                          prev.map((row) =>
-                            row.ui_id === s.ui_id
-                              ? {
-                                  ...row,
-                                  benefit_line: deriveBenefitLineFromDescription(
-                                    String(row.name ?? ""),
-                                    String(row.description ?? "")
-                                  ),
-                                }
-                              : row
-                          )
+                          prev.map((row) => {
+                            if (row.ui_id !== s.ui_id) return row;
+                            const description = normalizeMasculinePredicatesAfterPracticeHead(
+                              String(row.description ?? "")
+                            );
+                            return {
+                              ...row,
+                              description,
+                              benefit_line: deriveBenefitLineFromDescription(String(row.name ?? ""), description),
+                            };
+                          })
                         );
                       });
                     }}
