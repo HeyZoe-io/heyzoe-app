@@ -29,15 +29,20 @@ import {
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
+  fillOfferKindCtaBody,
   formatAfterTrialRegistrationForWhatsAppDelivery,
+  ctaButtonsForOfferKind,
   getEffectiveFollowupMenuLabels,
   getEffectiveSalesFlowCtaButtons,
+  getEffectiveSecondaryOfferCtaButtons,
   matchesTrialRegisteredMessage,
+  offerKindFromServiceMeta,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
+const SECONDARY_PURCHASE_POST_HINT = "כשמסיימים, אפשר לכתוב כאן אם צריך עזרה 🙂";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 import {
   CLAUDE_WHATSAPP_MODEL,
@@ -202,7 +207,7 @@ async function bumpSfConsumedCtaKind(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
   phone: string;
-  kind: "schedule" | "memberships" | "address";
+  kind: string;
   previous: string[];
 }): Promise<string[]> {
   const { supabase, businessId, phone, kind, previous } = input;
@@ -340,6 +345,8 @@ async function sendTrialPickMediaIfAllowed(input: {
   await sleepMs(900);
 }
 
+type SfOfferKind = "trial" | "workshop" | "course";
+
 type SfServiceRow = {
   name: string;
   benefit: string;
@@ -350,6 +357,10 @@ type SfServiceRow = {
   levels: string[];
   trialPickMediaUrl: string;
   trialPickMediaType: "image" | "video" | "";
+  offerKind: SfOfferKind;
+  courseSessionsText: string;
+  courseStartDate: string;
+  courseEndDate: string;
 };
 
 /** כש-JSON ב-description שבור — משחזרים לפחות את שדות מדיית בחירת השירות */
@@ -403,8 +414,6 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     allowTrialCta,
     consumedNonTrialKinds: new Set(sfConsumedKinds ?? []),
   };
-  const filtered = getEffectiveSalesFlowCtaButtons(cfg.cta_buttons, sfEff);
-  const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
   const selectedServiceName =
     salesFlowServices.length === 1
@@ -413,17 +422,31 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   const selectedService =
     salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
 
-  const baseCtaBody = fillCtaBodyTemplate(
-    cfg.cta_body,
-    selectedService?.priceText ?? "",
-    selectedService?.durationText ?? ""
-  ).trim();
+  const activeOfferKind = selectedService?.offerKind ?? "trial";
+  const ctaBank = ctaButtonsForOfferKind(cfg, activeOfferKind);
+  const filtered =
+    activeOfferKind === "trial"
+      ? getEffectiveSalesFlowCtaButtons(ctaBank, sfEff)
+      : getEffectiveSecondaryOfferCtaButtons(ctaBank, sfConsumedKinds ?? []);
+
+  const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
+
+  const baseCtaBody = fillOfferKindCtaBody(activeOfferKind, cfg, {
+    priceText: selectedService?.priceText ?? "",
+    durationText: selectedService?.durationText ?? "",
+    sessionsText: selectedService?.courseSessionsText ?? "",
+    startDate: selectedService?.courseStartDate ?? "",
+    endDate: selectedService?.courseEndDate ?? "",
+  }).trim();
 
   const lastAssistModelForPromo = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
   const promo = knowledge?.promotionsText?.trim() ?? "";
   const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
   const shouldAttachTrialPromo =
-    trialRegistered !== true && promoIsTrial && lastAssistModelForPromo !== "sales_flow_cta";
+    activeOfferKind === "trial" &&
+    trialRegistered !== true &&
+    promoIsTrial &&
+    lastAssistModelForPromo !== "sales_flow_cta";
 
   const ctaBody = [baseCtaBody, ...(extraBodyLines ?? []).map((x) => String(x ?? "").trim()).filter(Boolean)]
     .concat(shouldAttachTrialPromo ? [promo] : [])
@@ -1288,6 +1311,10 @@ async function processIncoming(
                     : meta.trial_pick_media_type === "image"
                       ? ("image" as const)
                       : ("" as const),
+                offerKind: offerKindFromServiceMeta(meta),
+                courseSessionsText: String(meta.course_sessions_count ?? "").trim(),
+                courseStartDate: String(meta.course_start_date ?? "").trim(),
+                courseEndDate: String(meta.course_end_date ?? "").trim(),
               };
             } catch {
               const raw = String(s.description ?? "");
@@ -1301,6 +1328,10 @@ async function processIncoming(
                 levels: [],
                 trialPickMediaUrl: fb.trialPickMediaUrl,
                 trialPickMediaType: fb.trialPickMediaType,
+                offerKind: "trial" as const,
+                courseSessionsText: "",
+                courseStartDate: "",
+                courseEndDate: "",
               };
             }
           })(),
@@ -1827,13 +1858,26 @@ async function processIncoming(
       try {
         const cfg = knowledge.salesFlowConfig!;
         const follow = cfg.followup_after_next_class_options;
-        const ctaBs = cfg.cta_buttons;
+
+        const selectedServiceName =
+          salesFlowServices.length === 1
+            ? salesFlowServices[0]!.name
+            : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+        const selectedService =
+          salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+        const activeOfferKind = selectedService?.offerKind ?? "trial";
+        const ctaBs = ctaButtonsForOfferKind(cfg, activeOfferKind);
+
         const sfEff: EffectiveSalesFlowCtaInput = {
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
           consumedNonTrialKinds: new Set(sfClickedCtaKinds),
         };
-        const effectiveCtas = getEffectiveSalesFlowCtaButtons(cfg.cta_buttons, sfEff);
+        const effectiveCtas =
+          activeOfferKind === "trial"
+            ? getEffectiveSalesFlowCtaButtons(ctaBs, sfEff)
+            : getEffectiveSecondaryOfferCtaButtons(ctaBs, sfClickedCtaKinds);
         const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff, cfg.cta_buttons);
         const unionLabels = [...ctaBs.map((b) => b.label.trim()), ...follow.map((x) => String(x ?? "").trim())].filter(
           (l) => l.length > 0
@@ -1855,19 +1899,13 @@ async function processIncoming(
           numericScope
         );
 
-        const selectedServiceName =
-          salesFlowServices.length === 1
-            ? salesFlowServices[0]!.name
-            : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-        const selectedService =
-          salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-
         const trialUrl = (
           selectedService?.paymentLink?.trim() ||
           salesFlowServices.map((s) => s.paymentLink?.trim()).find((u) => u && u.length > 0) ||
           ""
         ).trim();
         const scheduleUrlFull = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
+        const csPhone = knowledge?.customerServicePhone?.trim() ?? "";
 
         const consumedSf = (k: string) => sfClickedCtaKinds.includes(k);
         const trialBtn = ctaBs.find((b) => b.kind === "trial");
@@ -1995,6 +2033,197 @@ async function processIncoming(
             role: "assistant",
             content: txt,
             model_used: "sales_flow_trial_missing",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        const workshopBuyBtn = ctaBs.find((b) => b.kind === "workshop_purchase");
+        const workshopContactBtn = ctaBs.find((b) => b.kind === "workshop_contact");
+        const courseEnrollBtn = ctaBs.find((b) => b.kind === "course_enroll");
+        const courseContactBtn = ctaBs.find((b) => b.kind === "course_contact");
+
+        if (
+          activeOfferKind === "workshop" &&
+          workshopBuyBtn &&
+          waLabelMatches(incomingResolved, workshopBuyBtn.label) &&
+          !consumedSf("workshop_purchase")
+        ) {
+          const del = workshopBuyBtn.secondary_purchase_delivery ?? "link";
+          if (del === "link" && trialUrl) {
+            const txt = `מעולה! נרשמים כאן:\n${trialUrl}`;
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send workshop link failed:", e)
+            );
+            await sendWhatsAppMessage(msg.toNumber, msg.from, SECONDARY_PURCHASE_POST_HINT, accountSid, authToken).catch(
+              (e) => console.error("[WA Webhook] Send workshop post-hint failed:", e)
+            );
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "workshop_purchase",
+              previous: sfClickedCtaKinds,
+            });
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: `${txt}\n\n${SECONDARY_PURCHASE_POST_HINT}`,
+              model_used: "sales_flow_workshop_link",
+              session_id: sessionId,
+            });
+            return;
+          }
+          if (del === "phone" && csPhone) {
+            const txt = `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`;
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send workshop phone purchase failed:", e)
+            );
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "workshop_purchase",
+              previous: sfClickedCtaKinds,
+            });
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_workshop_phone",
+              session_id: sessionId,
+            });
+            return;
+          }
+          const txt = "כרגע אין כאן קישור או מספר לרכישה — כתבו לנו ונשמח לעזור.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_workshop_purchase_missing",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (
+          activeOfferKind === "workshop" &&
+          workshopContactBtn &&
+          waLabelMatches(incomingResolved, workshopContactBtn.label) &&
+          !consumedSf("workshop_contact")
+        ) {
+          const txt = csPhone
+            ? `מוזמנים ליצור קשר:\n${csPhone}`
+            : "מוזמנים לכתוב כאן ונחזור אליכם.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send workshop contact failed:", e)
+          );
+          sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+            supabase,
+            businessId,
+            phone: msg.from,
+            kind: "workshop_contact",
+            previous: sfClickedCtaKinds,
+          });
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_workshop_contact",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (
+          activeOfferKind === "course" &&
+          courseEnrollBtn &&
+          waLabelMatches(incomingResolved, courseEnrollBtn.label) &&
+          !consumedSf("course_enroll")
+        ) {
+          const del = courseEnrollBtn.secondary_purchase_delivery ?? "link";
+          if (del === "link" && trialUrl) {
+            const txt = `מעולה! ההצטרפות כאן:\n${trialUrl}`;
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send course link failed:", e)
+            );
+            await sendWhatsAppMessage(msg.toNumber, msg.from, SECONDARY_PURCHASE_POST_HINT, accountSid, authToken).catch(
+              (e) => console.error("[WA Webhook] Send course post-hint failed:", e)
+            );
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "course_enroll",
+              previous: sfClickedCtaKinds,
+            });
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: `${txt}\n\n${SECONDARY_PURCHASE_POST_HINT}`,
+              model_used: "sales_flow_course_link",
+              session_id: sessionId,
+            });
+            return;
+          }
+          if (del === "phone" && csPhone) {
+            const txt = `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`;
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send course phone enroll failed:", e)
+            );
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "course_enroll",
+              previous: sfClickedCtaKinds,
+            });
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_course_phone",
+              session_id: sessionId,
+            });
+            return;
+          }
+          const txt = "כרגע אין כאן קישור או מספר להצטרפות — כתבו לנו ונשמח לעזור.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_course_enroll_missing",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (
+          activeOfferKind === "course" &&
+          courseContactBtn &&
+          waLabelMatches(incomingResolved, courseContactBtn.label) &&
+          !consumedSf("course_contact")
+        ) {
+          const txt = csPhone
+            ? `מוזמנים ליצור קשר:\n${csPhone}`
+            : "מוזמנים לכתוב כאן ונחזור אליכם.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send course contact failed:", e)
+          );
+          sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+            supabase,
+            businessId,
+            phone: msg.from,
+            kind: "course_contact",
+            previous: sfClickedCtaKinds,
+          });
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_course_contact",
             session_id: sessionId,
           });
           return;
@@ -2425,8 +2654,22 @@ async function processIncoming(
           consumedNonTrialKinds: new Set(sfClickedCtaKinds),
         }
       : null;
+  let sfAiSelected: (typeof salesFlowServices)[number] | null =
+    salesFlowServices.length === 1 ? salesFlowServices[0]! : null;
+  if (!sfAiSelected && salesFlowServices.length > 1) {
+    const pick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
+    sfAiSelected = salesFlowServices.find((s) => s.name === pick) ?? salesFlowServices[0] ?? null;
+  }
+  const sfAiOfferKind = sfAiSelected?.offerKind ?? "trial";
   const filteredCtaForAi =
-    sfCfgForAi != null && sfAiEff != null ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff) : [];
+    sfCfgForAi != null && sfAiEff != null
+      ? sfAiOfferKind === "trial"
+        ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff)
+        : getEffectiveSecondaryOfferCtaButtons(
+            ctaButtonsForOfferKind(sfCfgForAi, sfAiOfferKind),
+            sfClickedCtaKinds
+          )
+      : [];
   const effectiveFollowLabelsForPred =
     sfCfgForAi != null && sfAiEff != null
       ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff, sfCfgForAi.cta_buttons)

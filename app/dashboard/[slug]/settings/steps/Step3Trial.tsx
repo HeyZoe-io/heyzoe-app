@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field, StepHeader } from "../settings-ui";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
-import { normalizeMasculinePredicatesAfterPracticeHead } from "@/lib/sales-flow";
+import { normalizeMasculinePredicatesAfterPracticeHead, type OfferKind } from "@/lib/sales-flow";
 
 /** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
 const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
@@ -33,6 +33,10 @@ type ServiceItem = {
   description: string;
   levels_enabled: boolean;
   levels: string[];
+  offer_kind: OfferKind;
+  course_start_date: string;
+  course_end_date: string;
+  course_sessions_count: string;
   benefit_line: string;
   trial_pick_media_url: string;
   trial_pick_media_type: "" | "image" | "video";
@@ -356,32 +360,117 @@ export default function Step3Trial(props: {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="מחיר">
-                <Input
-                  dir="rtl"
-                  value={s.price_text}
-                  onChange={(e) => {
+            <div className="flex flex-wrap gap-2 justify-end pt-1" dir="rtl">
+              <span className="text-[11px] font-medium text-zinc-600 w-full text-right">סוג הצעה</span>
+              {(
+                [
+                  { k: "trial" as const, label: "אימון ניסיון" },
+                  { k: "workshop" as const, label: "סדנה" },
+                  { k: "course" as const, label: "קורס" },
+                ] as const
+              ).map(({ k, label }) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => {
                     const arr = [...services];
-                    arr[i] = { ...s, price_text: e.target.value };
+                    arr[i] = { ...s, offer_kind: k };
                     setServices(arr);
                   }}
-                  placeholder="₪ 80"
-                />
-              </Field>
-              <Field label="משך">
-                <Input
-                  dir="rtl"
-                  value={s.duration}
-                  onChange={(e) => {
-                    const arr = [...services];
-                    arr[i] = { ...s, duration: e.target.value };
-                    setServices(arr);
-                  }}
-                  placeholder="60 דק׳"
-                />
-              </Field>
+                  className={[
+                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0",
+                    s.offer_kind === k
+                      ? "border-[#7133da]/55 bg-[#f3edff] text-[#2d1a6e] shadow-[0_6px_16px_-8px_rgba(113,51,218,0.35)]"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/35",
+                  ].join(" ")}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+
+            {s.offer_kind === "course" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="מחיר">
+                  <Input
+                    dir="rtl"
+                    value={s.price_text}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, price_text: e.target.value };
+                      setServices(arr);
+                    }}
+                    placeholder="₪ 80"
+                  />
+                </Field>
+                <Field label="תאריך התחלה">
+                  <Input
+                    dir="ltr"
+                    type="date"
+                    className="font-mono text-sm"
+                    value={s.course_start_date}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, course_start_date: e.target.value };
+                      setServices(arr);
+                    }}
+                  />
+                </Field>
+                <Field label="תאריך סיום">
+                  <Input
+                    dir="ltr"
+                    type="date"
+                    className="font-mono text-sm"
+                    value={s.course_end_date}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, course_end_date: e.target.value };
+                      setServices(arr);
+                    }}
+                  />
+                </Field>
+                <Field label="מספר מפגשים">
+                  <Input
+                    dir="rtl"
+                    inputMode="numeric"
+                    value={s.course_sessions_count}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, course_sessions_count: e.target.value };
+                      setServices(arr);
+                    }}
+                    placeholder="למשל 8"
+                  />
+                </Field>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="מחיר">
+                  <Input
+                    dir="rtl"
+                    value={s.price_text}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, price_text: e.target.value };
+                      setServices(arr);
+                    }}
+                    placeholder="₪ 80"
+                  />
+                </Field>
+                <Field label="משך (דקות)">
+                  <Input
+                    dir="rtl"
+                    value={s.duration}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, duration: e.target.value };
+                      setServices(arr);
+                    }}
+                    placeholder="60"
+                  />
+                </Field>
+              </div>
+            )}
 
             <Field label="לינק סליקה *">
               <div className="flex gap-2 items-center">
@@ -580,6 +669,10 @@ export default function Step3Trial(props: {
                 description: "",
                 levels_enabled: false,
                 levels: [],
+                offer_kind: "trial",
+                course_start_date: "",
+                course_end_date: "",
+                course_sessions_count: "",
                 benefit_line: "",
                 trial_pick_media_url: "",
                 trial_pick_media_type: "",

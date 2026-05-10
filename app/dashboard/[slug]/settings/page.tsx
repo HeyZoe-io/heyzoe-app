@@ -21,6 +21,7 @@ import {
   WA_SALES_FOLLOWUP_3_DEFAULT,
 } from "@/lib/wa-sales-followup-defaults";
 import {
+  type OfferKind,
   type SalesFlowConfig,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
@@ -32,7 +33,10 @@ import {
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
+  fillCourseCtaBodyTemplate,
+  fillWorkshopCtaBodyTemplate,
   formatServiceLevelsText,
+  offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
@@ -52,6 +56,12 @@ type ServiceItem = {
   duration: string; payment_link: string;
   service_slug: string; location_text: string; description: string;
   levels_enabled: boolean; levels: string[];
+  /** trial (ברירת מחדל) | סדנה | קורס — קובע איזה סשן הנעה בווטסאפ */
+  offer_kind: OfferKind;
+  /** קורס בלבד: תאריך התחלה / סיום + מספר מפגשים (ידני) */
+  course_start_date: string;
+  course_end_date: string;
+  course_sessions_count: string;
   /** תיאור קצר אחרי בחירת האימון בפלואו (משפט אחד) */
   benefit_line: string;
   /** מדיה שנשלחת לפני תשובת «בחירת סוג האימון» בווטסאפ */
@@ -141,6 +151,11 @@ function readTrialServicesStash(slug: string): ServiceItem[] | null {
         levels_enabled: r.levels_enabled === true,
         levels: Array.isArray(r.levels) ? r.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : [],
         benefit_line: String(r.benefit_line ?? ""),
+        offer_kind:
+          r.offer_kind === "workshop" || r.offer_kind === "course" ? r.offer_kind : "trial",
+        course_start_date: String(r.course_start_date ?? "").trim(),
+        course_end_date: String(r.course_end_date ?? "").trim(),
+        course_sessions_count: String(r.course_sessions_count ?? "").trim(),
         trial_pick_media_url: String(r.trial_pick_media_url ?? "").trim(),
         trial_pick_media_type: mediaType === "video" || mediaType === "image" ? mediaType : "",
       });
@@ -227,6 +242,10 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
           : meta.trial_pick_media_type === "image"
             ? "image"
             : "",
+      offer_kind: offerKindFromServiceMeta(meta),
+      course_start_date: String(meta.course_start_date ?? "").trim(),
+      course_end_date: String(meta.course_end_date ?? "").trim(),
+      course_sessions_count: String(meta.course_sessions_count ?? "").trim(),
     };
   });
 }
@@ -581,6 +600,10 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "benefit_suggestions",
   "trial_pick_media_url",
   "trial_pick_media_type",
+  "offer_kind",
+  "course_start_date",
+  "course_end_date",
+  "course_sessions_count",
 ]);
 
 /**
@@ -778,6 +801,10 @@ function trialServiceItemFromSiteProduct(
     description,
     levels_enabled: false,
     levels: [],
+    offer_kind: "trial",
+    course_start_date: "",
+    course_end_date: "",
+    course_sessions_count: "",
     benefit_line,
     trial_pick_media_url: "",
     trial_pick_media_type: "",
@@ -856,6 +883,49 @@ function ctaBodyToStore(typed: string, priceText: string, durationText: string):
   const d = durationText.trim();
   if (p && s.includes(p)) s = s.split(p).join("{priceText}");
   if (d && s.includes(d)) s = s.split(d).join("{durationText}");
+  return s;
+}
+
+function workshopCtaBodyForDisplayUi(stored: string): string {
+  return fillWorkshopCtaBodyTemplate(stored, "x", "x");
+}
+
+function workshopCtaBodyToStore(
+  typed: string,
+  priceText: string,
+  durationText: string
+): string {
+  let s = typed.replace(/\bx\s+שקלים\b/gu, "{price} שקלים").replace(/\bx\s+דקות\b/gu, "{duration} דקות");
+  const p = priceText.trim();
+  const d = durationText.trim();
+  if (p && s.includes(p)) s = s.split(p).join("{price}");
+  if (d && s.includes(d)) s = s.split(d).join("{duration}");
+  return s;
+}
+
+function courseCtaBodyForDisplayUi(stored: string): string {
+  return fillCourseCtaBodyTemplate(stored, "x", "x", "x", "x");
+}
+
+function courseCtaBodyToStore(
+  typed: string,
+  priceText: string,
+  sessionsText: string,
+  startDate: string,
+  endDate: string
+): string {
+  let s = typed;
+  s = s.replace(/\bx\s+שקלים\b/gu, "{price} שקלים");
+  s = s.replace(/\bכ־x\s+מפגשים\b/gu, "כ-{sessions} מפגשים").replace(/\bx\s+מפגשים\b/gu, "{sessions} מפגשים");
+  s = s.replace(/\bx\s+עד\s+x\b/gu, "{start_date} עד {end_date}");
+  const p = priceText.trim();
+  const sess = sessionsText.trim();
+  const a = startDate.trim();
+  const b = endDate.trim();
+  if (p && s.includes(p)) s = s.split(p).join("{price}");
+  if (sess && s.includes(sess)) s = s.split(sess).join("{sessions}");
+  if (a && s.includes(a)) s = s.split(a).join("{start_date}");
+  if (b && s.includes(b)) s = s.split(b).join("{end_date}");
   return s;
 }
 
@@ -1287,15 +1357,39 @@ export default function SlugSettingsPage() {
     [services]
   );
 
-  /** דוגמה לתבניות שמכילות פרטי אימון — לפי האימון הראשון ברשימה */
+  /** דוגמה לתבניות שמכילות פרטי אימון ניסיון — שירות ראשון מסוג trial */
   const firstTrialForTemplates = useMemo(() => {
-    if (!firstNamedService) return { name: "", priceText: "", durationText: "" };
+    const row = services.find((s) => s.name.trim() && s.offer_kind === "trial");
+    if (!row) return { name: "", priceText: "", durationText: "" };
     return {
-      name: firstNamedService.name.trim(),
-      priceText: firstNamedService.price_text.trim(),
-      durationText: firstNamedService.duration.trim(),
+      name: row.name.trim(),
+      priceText: row.price_text.trim(),
+      durationText: row.duration.trim(),
     };
-  }, [firstNamedService]);
+  }, [services]);
+
+  const workshopCtaSample = useMemo(() => {
+    const row = services.find((s) => s.name.trim() && s.offer_kind === "workshop");
+    if (!row) return { priceText: "", durationText: "" };
+    return { priceText: row.price_text.trim(), durationText: row.duration.trim() };
+  }, [services]);
+
+  const courseCtaSample = useMemo(() => {
+    const row = services.find((s) => s.name.trim() && s.offer_kind === "course");
+    if (!row) {
+      return { priceText: "", sessionsText: "", startDate: "", endDate: "" };
+    }
+    return {
+      priceText: row.price_text.trim(),
+      sessionsText: row.course_sessions_count.trim(),
+      startDate: row.course_start_date.trim(),
+      endDate: row.course_end_date.trim(),
+    };
+  }, [services]);
+
+  const hasWorkshopOffers = services.some((s) => s.name.trim() && s.offer_kind === "workshop");
+  const hasCourseOffers = services.some((s) => s.name.trim() && s.offer_kind === "course");
+  const hasTrialOffers = services.some((s) => s.name.trim() && s.offer_kind === "trial");
 
   const factQuestions = useMemo(() => {
     const servicesText = services
@@ -1743,6 +1837,10 @@ export default function SlugSettingsPage() {
               description_text: s.description,
               levels_enabled: s.levels_enabled,
               levels: s.levels,
+              offer_kind: s.offer_kind,
+              course_start_date: s.course_start_date,
+              course_end_date: s.course_end_date,
+              course_sessions_count: s.course_sessions_count,
               trial_pick_media_url: (s.trial_pick_media_url ?? "").trim(),
               trial_pick_media_type:
                 s.trial_pick_media_type === "video"
@@ -1983,6 +2081,10 @@ export default function SlugSettingsPage() {
             ...c,
             cta_body: base.cta_body,
             cta_buttons: structuredClone(base.cta_buttons),
+            cta_workshop_body: base.cta_workshop_body,
+            cta_workshop_buttons: structuredClone(base.cta_workshop_buttons),
+            cta_course_body: base.cta_course_body,
+            cta_course_buttons: structuredClone(base.cta_course_buttons),
             cta_extra_steps: structuredClone(base.cta_extra_steps),
             followup_after_next_class_body: base.followup_after_next_class_body,
             followup_after_next_class_options: structuredClone(base.followup_after_next_class_options),
@@ -2897,6 +2999,15 @@ export default function SlugSettingsPage() {
             afterExperienceToStore={afterExperienceToStore}
             ctaBodyForDisplay={ctaBodyForDisplay}
             ctaBodyToStore={ctaBodyToStore}
+            hasTrialOffers={hasTrialOffers}
+            hasWorkshopOffers={hasWorkshopOffers}
+            hasCourseOffers={hasCourseOffers}
+            workshopCtaSample={workshopCtaSample}
+            courseCtaSample={courseCtaSample}
+            workshopCtaBodyForDisplayUi={workshopCtaBodyForDisplayUi}
+            workshopCtaBodyToStore={workshopCtaBodyToStore}
+            courseCtaBodyForDisplayUi={courseCtaBodyForDisplayUi}
+            courseCtaBodyToStore={courseCtaBodyToStore}
             uid={uid}
           />
         )}
