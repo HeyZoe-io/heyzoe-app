@@ -312,6 +312,35 @@ export default function Step3Trial(props: {
             onDragOver={(e) => onDragOver(e, i)}
             className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
           >
+            <div className="flex flex-wrap gap-2 justify-end pb-1 border-b border-zinc-100/80" dir="rtl">
+              <span className="text-[11px] font-medium text-zinc-600 w-full text-right">סוג הצעה</span>
+              {(
+                [
+                  { k: "trial" as const, label: "אימון ניסיון" },
+                  { k: "workshop" as const, label: "סדנה" },
+                  { k: "course" as const, label: "קורס" },
+                ] as const
+              ).map(({ k, label }) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => {
+                    const arr = [...services];
+                    arr[i] = { ...s, offer_kind: k };
+                    setServices(arr);
+                  }}
+                  className={[
+                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0",
+                    s.offer_kind === k
+                      ? "border-[#7133da]/55 bg-[#f3edff] text-[#2d1a6e] shadow-[0_6px_16px_-8px_rgba(113,51,218,0.35)]"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/35",
+                  ].join(" ")}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div className="flex gap-2 items-center">
               <span
                 draggable
@@ -358,35 +387,6 @@ export default function Step3Trial(props: {
               >
                 <Trash2 className="h-4 w-4" />
               </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2 justify-end pt-1" dir="rtl">
-              <span className="text-[11px] font-medium text-zinc-600 w-full text-right">סוג הצעה</span>
-              {(
-                [
-                  { k: "trial" as const, label: "אימון ניסיון" },
-                  { k: "workshop" as const, label: "סדנה" },
-                  { k: "course" as const, label: "קורס" },
-                ] as const
-              ).map(({ k, label }) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => {
-                    const arr = [...services];
-                    arr[i] = { ...s, offer_kind: k };
-                    setServices(arr);
-                  }}
-                  className={[
-                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0",
-                    s.offer_kind === k
-                      ? "border-[#7133da]/55 bg-[#f3edff] text-[#2d1a6e] shadow-[0_6px_16px_-8px_rgba(113,51,218,0.35)]"
-                      : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/35",
-                  ].join(" ")}
-                >
-                  {label}
-                </button>
-              ))}
             </div>
 
             {s.offer_kind === "course" ? (
