@@ -255,7 +255,7 @@ export function WhatsAppSettingsPreview({
 
               {trialServices.length > 3 ? (
                 <p className="text-[9px] text-amber-900/90 text-right px-1 leading-snug bg-amber-50/90 rounded-md py-1 border border-amber-200/80">
-                  מעל 3 אימונים: בפועל נשלחת רשימה ממוספרת — כאן מוצגת דוגמה לפי מסלול המכירה.
+                  מעל 3 אימונים: בווטסאפ נשלחת רשימה אינטראקטיבית (כפתור ״בחר אפשרות״), לא רשימה בטקסט — כאן רק דוגמה לפי מסלול המכירה.
                 </p>
               ) : null}
 
