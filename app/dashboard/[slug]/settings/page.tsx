@@ -2605,6 +2605,8 @@ export default function SlugSettingsPage() {
             trialPickMediaUploadError={trialPickMediaUploadError}
             trialPickFailedUiId={trialPickFailedUiId}
             videoUrlForPreview={videoUrlForPreview}
+            busyAction={busyAction}
+            runBusy={runBusy}
           />
         )}
 
