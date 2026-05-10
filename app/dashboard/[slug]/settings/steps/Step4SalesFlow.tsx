@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Loader2,
   Sparkles,
@@ -18,6 +19,7 @@ import {
   salesFlowApplyLockedSubChoice,
   salesFlowSubChoiceForSlot,
   type CtaSlotSubChoice,
+  type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
@@ -56,11 +58,38 @@ export default function Step4SalesFlow(props: any) {
     ctaBodyToStore,
     afterExperienceForDisplay,
     afterExperienceToStore,
+    hasTrialOffers,
+    hasWorkshopOffers,
+    hasCourseOffers,
+    workshopCtaSample,
+    courseCtaSample,
+    workshopCtaBodyForDisplayUi,
+    workshopCtaBodyToStore,
+    courseCtaBodyForDisplayUi,
+    courseCtaBodyToStore,
     uid,
   } = props as any;
 
   const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
   const isGen = (section: string) => regeneratingKey === `sales:${section}`;
+
+  type CtaOfferTab = "trial" | "workshop" | "course";
+  const [ctaOfferTab, setCtaOfferTab] = useState<CtaOfferTab>(() => {
+    if (hasTrialOffers) return "trial";
+    if (hasWorkshopOffers) return "workshop";
+    return "course";
+  });
+
+  useEffect(() => {
+    const ok =
+      (ctaOfferTab === "trial" && hasTrialOffers) ||
+      (ctaOfferTab === "workshop" && hasWorkshopOffers) ||
+      (ctaOfferTab === "course" && hasCourseOffers);
+    if (ok) return;
+    if (hasTrialOffers) setCtaOfferTab("trial");
+    else if (hasWorkshopOffers) setCtaOfferTab("workshop");
+    else if (hasCourseOffers) setCtaOfferTab("course");
+  }, [ctaOfferTab, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
@@ -527,6 +556,60 @@ export default function Step4SalesFlow(props: any) {
             </div>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
+            <div
+              className="flex flex-row-reverse flex-wrap gap-2 pb-1 border-b border-zinc-100"
+              role="tablist"
+              aria-label="סוג סשן הנעה לפעולה"
+            >
+              {hasTrialOffers ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ctaOfferTab === "trial"}
+                  className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors ${
+                    ctaOfferTab === "trial"
+                      ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  onClick={() => setCtaOfferTab("trial")}
+                >
+                  שיעור ניסיון
+                </button>
+              ) : null}
+              {hasWorkshopOffers ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ctaOfferTab === "workshop"}
+                  className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors ${
+                    ctaOfferTab === "workshop"
+                      ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  onClick={() => setCtaOfferTab("workshop")}
+                >
+                  סדנה
+                </button>
+              ) : null}
+              {hasCourseOffers ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ctaOfferTab === "course"}
+                  className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors ${
+                    ctaOfferTab === "course"
+                      ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  onClick={() => setCtaOfferTab("course")}
+                >
+                  קורס
+                </button>
+              ) : null}
+            </div>
+
+            {ctaOfferTab === "trial" && hasTrialOffers ? (
+              <>
             <div>
               <Textarea
                 value={ctaBodyForDisplay(
@@ -748,6 +831,168 @@ export default function Step4SalesFlow(props: any) {
               <p className="text-sm text-red-600 text-right" role="alert">
                 {String(scheduleCtaMediaUploadError).trim()}
               </p>
+            ) : null}
+              </>
+            ) : null}
+
+            {ctaOfferTab === "workshop" && hasWorkshopOffers ? (
+              <>
+                <div>
+                  <Textarea
+                    value={workshopCtaBodyForDisplayUi(salesFlowConfig.cta_workshop_body ?? "")}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c: any) => ({
+                        ...c,
+                        cta_workshop_body: workshopCtaBodyToStore(
+                          v,
+                          workshopCtaSample.priceText,
+                          workshopCtaSample.durationText
+                        ),
+                      }))
+                    }
+                    rows={4}
+                    placeholder='מה דעתך על הסדנה שלנו? המחיר הוא x שקלים, היא נמשכת x דקות, ובאמת שהולך להיות כיף!'
+                  />
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                    מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב אימון ניסיון
+                  </p>
+                </div>
+                {(salesFlowConfig.cta_workshop_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
+                  const purchase = b.kind === "workshop_purchase";
+                  const del: SecondaryPurchaseCtaDelivery =
+                    b.secondary_purchase_delivery === "phone" ? "phone" : "link";
+                  return (
+                    <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
+                      <Field label={`כפתור ${bi + 1} - תווית`}>
+                        <Input
+                          dir="rtl"
+                          className="min-w-[12rem]"
+                          value={b.label}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setSalesFlowConfig((c: any) => ({
+                              ...c,
+                              cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                x.id === b.id ? { ...x, label: v } : x
+                              ),
+                            }));
+                          }}
+                        />
+                      </Field>
+                      <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
+                        <label className="text-xs font-medium text-zinc-600 block text-right">
+                          {purchase ? "רכישת סדנה — אפשרות מסירה" : "יצירת קשר"}
+                        </label>
+                        {purchase ? (
+                          <select
+                            dir="rtl"
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
+                            value={del}
+                            onChange={(e) => {
+                              const next: SecondaryPurchaseCtaDelivery =
+                                e.target.value === "phone" ? "phone" : "link";
+                              setSalesFlowConfig((c: any) => ({
+                                ...c,
+                                cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                  x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                ),
+                              }));
+                            }}
+                          >
+                            <option value="link">לינק (משדה השירות בטאב אימון ניסיון)</option>
+                            <option value="phone">מספר שירות לקוחות מהדשבורד</option>
+                          </select>
+                        ) : (
+                          <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                            מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            ) : null}
+
+            {ctaOfferTab === "course" && hasCourseOffers ? (
+              <>
+                <div>
+                  <Textarea
+                    value={courseCtaBodyForDisplayUi(salesFlowConfig.cta_course_body ?? "")}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c: any) => ({
+                        ...c,
+                        cta_course_body: courseCtaBodyToStore(
+                          v,
+                          courseCtaSample.priceText,
+                          courseCtaSample.sessionsText,
+                          courseCtaSample.startDate,
+                          courseCtaSample.endDate
+                        ),
+                      }))
+                    }
+                    rows={4}
+                    placeholder="מה דעתך להצטרף לקורס שלנו? המחיר הוא x שקלים, הוא נמשך כ־x מפגשים, ובאמת שהולך להיות כיף! התאריכים: x עד x"
+                  />
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                    מחיר, מספר מפגשים ותאריכי הקורס יימשכו אוטומטית מהשירותים שמסוג «קורס» בטאב אימון ניסיון
+                  </p>
+                </div>
+                {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
+                  const enroll = b.kind === "course_enroll";
+                  const del: SecondaryPurchaseCtaDelivery =
+                    b.secondary_purchase_delivery === "phone" ? "phone" : "link";
+                  return (
+                    <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
+                      <Field label={`כפתור ${bi + 1} - תווית`}>
+                        <Input
+                          dir="rtl"
+                          className="min-w-[12rem]"
+                          value={b.label}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setSalesFlowConfig((c: any) => ({
+                              ...c,
+                              cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                x.id === b.id ? { ...x, label: v } : x
+                              ),
+                            }));
+                          }}
+                        />
+                      </Field>
+                      <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
+                        <label className="text-xs font-medium text-zinc-600 block text-right">
+                          {enroll ? "הצטרפות לקורס — אפשרות מסירה" : "יצירת קשר"}
+                        </label>
+                        {enroll ? (
+                          <select
+                            dir="rtl"
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
+                            value={del}
+                            onChange={(e) => {
+                              const next: SecondaryPurchaseCtaDelivery =
+                                e.target.value === "phone" ? "phone" : "link";
+                              setSalesFlowConfig((c: any) => ({
+                                ...c,
+                                cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                  x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                ),
+                              }));
+                            }}
+                          >
+                            <option value="link">לינק (משדה השירות בטאב אימון ניסיון)</option>
+                            <option value="phone">מספר שירות לקוחות מהדשבורד</option>
+                          </select>
+                        ) : (
+                          <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                            מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
             ) : null}
           </div>
         </div>
