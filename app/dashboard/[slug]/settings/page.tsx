@@ -107,6 +107,141 @@ function videoUrlForPreview(url: string) {
 }
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
+
+const TRIAL_SERVICES_STASH_STORAGE_PREFIX = "hz:dashboard-settings-services:v3:";
+const TRIAL_SERVICES_STASH_TTL_MS = 6 * 60 * 60 * 1000;
+
+type TrialServicesStashStoredRow = Omit<ServiceItem, "ui_id">;
+
+function trialServicesStashStorageKey(slug: string): string {
+  return `${TRIAL_SERVICES_STASH_STORAGE_PREFIX}${String(slug).trim().toLowerCase()}`;
+}
+
+function readTrialServicesStash(slug: string): ServiceItem[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(trialServicesStashStorageKey(slug));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: unknown; rows?: unknown };
+    if (typeof parsed.savedAt !== "number" || !Array.isArray(parsed.rows)) return null;
+    if (Date.now() - parsed.savedAt > TRIAL_SERVICES_STASH_TTL_MS) {
+      sessionStorage.removeItem(trialServicesStashStorageKey(slug));
+      return null;
+    }
+    const out: ServiceItem[] = [];
+    for (const row of parsed.rows) {
+      if (!row || typeof row !== "object") continue;
+      const r = row as Partial<TrialServicesStashStoredRow>;
+      const name = String(r.name ?? "").trim();
+      if (!name) continue;
+      const mediaType = r.trial_pick_media_type;
+      out.push({
+        ui_id: uid(),
+        name: String(r.name ?? ""),
+        price_text: String(r.price_text ?? ""),
+        duration: String(r.duration ?? ""),
+        payment_link: String(r.payment_link ?? ""),
+        service_slug: String(r.service_slug ?? ""),
+        location_text: String(r.location_text ?? ""),
+        description: String(r.description ?? ""),
+        levels_enabled: r.levels_enabled === true,
+        levels: Array.isArray(r.levels) ? r.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : [],
+        benefit_line: String(r.benefit_line ?? ""),
+        trial_pick_media_url: String(r.trial_pick_media_url ?? "").trim(),
+        trial_pick_media_type: mediaType === "video" || mediaType === "image" ? mediaType : "",
+      });
+    }
+    return out.length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeTrialServicesStash(slug: string, rows: ServiceItem[]) {
+  try {
+    const named = rows.filter((s) => s.name.trim());
+    if (!named.length) return;
+    const payload = {
+      savedAt: Date.now(),
+      rows: named.map(({ ui_id: _omit, ...rest }) => ({
+        ...rest,
+        trial_pick_media_type:
+          rest.trial_pick_media_type === "video" || rest.trial_pick_media_type === "image"
+            ? rest.trial_pick_media_type
+            : ("" as const),
+      })),
+    };
+    sessionStorage.setItem(trialServicesStashStorageKey(slug), JSON.stringify(payload));
+  } catch {
+    /* quota / privacy mode */
+  }
+}
+
+function clearTrialServicesStash(slug: string) {
+  try {
+    sessionStorage.removeItem(trialServicesStashStorageKey(slug));
+  } catch {
+    /* noop */
+  }
+}
+
+/** מפת שורות services מהשרת למצב טופס ההגדרות */
+function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): ServiceItem[] {
+  return rows.map((s) => {
+    const name = String(s.name ?? "");
+    const rawDescription = String(s.description ?? "");
+    const parsed = parseStoredServiceDescription(rawDescription);
+    const meta = parsed.meta;
+    const storedBenefit = String(meta.benefit_line ?? "").trim();
+    const descriptionDraftSource = parsed.descriptionTextForUi;
+    const legacyBenefits = Array.isArray(meta.benefits)
+      ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    const legacySuggestions = Array.isArray(meta.benefit_suggestions)
+      ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    const regeneratedBenefit = buildServiceReplyDraft(
+      name,
+      descriptionDraftSource,
+      "",
+      legacyBenefits,
+      legacySuggestions,
+      meta.levels_enabled === true,
+      Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : []
+    );
+    return {
+      ui_id: uid(),
+      name,
+      price_text: String(s.price_text ?? ""),
+      duration: String(meta.duration ?? ""),
+      payment_link: String(meta.payment_link ?? ""),
+      service_slug: String(s.service_slug ?? ""),
+      location_text: String(s.location_text ?? ""),
+      description: descriptionDraftSource,
+      levels_enabled: meta.levels_enabled === true,
+      levels: Array.isArray(meta.levels)
+        ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
+        : [],
+      benefit_line:
+        storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
+          ? storedBenefit
+          : regeneratedBenefit,
+      trial_pick_media_url: String(meta.trial_pick_media_url ?? "").trim(),
+      trial_pick_media_type:
+        meta.trial_pick_media_type === "video"
+          ? "video"
+          : meta.trial_pick_media_type === "image"
+            ? "image"
+            : "",
+    };
+  });
+}
+
+function payloadSavedTrialsWereCleared(payload: Record<string, unknown>): boolean {
+  if (!Array.isArray(payload.services)) return false;
+  return !payload.services.some((x: unknown) => String((x as { name?: unknown })?.name ?? "").trim());
+}
+
 function toSlug(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-");
 }
@@ -1350,12 +1485,15 @@ export default function SlugSettingsPage() {
     keepPreviousData: true,
     shouldRetryOnError: false,
   });
+  const { mutate: revalidateDashboardSettings } = useSWRConfig();
 
   /** טעינת מסך מלאה רק לפני התשובה הראשונה — לא בריענון ברקע (מונע קפיצות גלילה וסקלטון) */
   const blockingSettingsLoad = Boolean(settingsKey && !swrSettings && !swrSettingsError);
 
   const swrHydrationSlugRef = useRef(slug);
   const swrLastAppliedPayloadJsonRef = useRef<string | null>(null);
+  /** מפתח מתעדכן אחרי משיכת טמפ ארעי מתוך sessionStorage בעת תשובת שרת ריקה (קריאה חוזית אחת) */
+  const trialServicesStashConsumedRef = useRef(false);
 
   useEffect(() => {
     setSettingsLoadError("");
@@ -1374,6 +1512,7 @@ export default function SlugSettingsPage() {
     if (swrHydrationSlugRef.current !== slug) {
       swrHydrationSlugRef.current = slug;
       swrLastAppliedPayloadJsonRef.current = null;
+      trialServicesStashConsumedRef.current = false;
     }
 
     let serialized = "";
@@ -1537,61 +1676,42 @@ export default function SlugSettingsPage() {
         );
 
         if (Array.isArray(svcs)) {
-          const incomingHasNamed = (svcs as Record<string, unknown>[]).some((s) =>
-            String(s.name ?? "").trim()
-          );
+          const rowsRaw = svcs as Record<string, unknown>[];
+          const incomingHasNamed = rowsRaw.some((s) => String(s.name ?? "").trim());
           const localHasNamed = servicesRef.current.some((s) => s.name.trim());
           if (!incomingHasNamed && localHasNamed) {
             setServicesHydrated(true);
+          } else if (incomingHasNamed || rowsRaw.length > 0) {
+            const mapped = dashboardApiRowsToServiceItems(rowsRaw);
+            setServices(mapped);
+            setServicesHydrated(true);
+            if (incomingHasNamed) writeTrialServicesStash(slug, mapped);
+          } else if (!trialServicesStashConsumedRef.current) {
+            const restored = readTrialServicesStash(slug);
+            if (restored?.length) {
+              trialServicesStashConsumedRef.current = true;
+              setServices(restored);
+              setServicesHydrated(true);
+              if (settingsKey) void revalidateDashboardSettings(settingsKey);
+            } else {
+              setServices([]);
+              setServicesHydrated(true);
+            }
           } else {
-            setServices((svcs as Record<string, unknown>[]).map((s, index, arr) => {
-              const name = String(s.name ?? "");
-              const rawDescription = String(s.description ?? "");
-              const parsed = parseStoredServiceDescription(rawDescription);
-              const meta = parsed.meta;
-              const storedBenefit = String(meta.benefit_line ?? "").trim();
-              const descriptionDraftSource = parsed.descriptionTextForUi;
-              const legacyBenefits = Array.isArray(meta.benefits)
-                ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
-                : [];
-              const legacySuggestions = Array.isArray(meta.benefit_suggestions)
-                ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
-                : [];
-              const regeneratedBenefit = buildServiceReplyDraft(
-                name,
-                descriptionDraftSource,
-                "",
-                legacyBenefits,
-                legacySuggestions,
-                meta.levels_enabled === true,
-                Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : []
-              );
-              return {
-                ui_id: uid(),
-                name,
-                price_text: String(s.price_text ?? ""),
-                duration: String(meta.duration ?? ""),
-                payment_link: String(meta.payment_link ?? ""),
-                service_slug: String(s.service_slug ?? ""),
-                location_text: String(s.location_text ?? ""),
-                description: descriptionDraftSource,
-                levels_enabled: meta.levels_enabled === true,
-                levels: Array.isArray(meta.levels)
-                  ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
-                  : [],
-                benefit_line:
-                  storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
-                    ? storedBenefit
-                    : regeneratedBenefit,
-                trial_pick_media_url: String(meta.trial_pick_media_url ?? "").trim(),
-                trial_pick_media_type:
-                  meta.trial_pick_media_type === "video"
-                    ? "video"
-                    : meta.trial_pick_media_type === "image"
-                      ? "image"
-                      : "",
-              };
-            }));
+            setServices([]);
+            setServicesHydrated(true);
+          }
+        } else if (servicesRef.current.some((s) => s.name.trim())) {
+          setServicesHydrated(true);
+        } else if (!trialServicesStashConsumedRef.current) {
+          const restored = readTrialServicesStash(slug);
+          if (restored?.length) {
+            trialServicesStashConsumedRef.current = true;
+            setServices(restored);
+            setServicesHydrated(true);
+            if (settingsKey) void revalidateDashboardSettings(settingsKey);
+          } else {
+            setServices([]);
             setServicesHydrated(true);
           }
         } else {
@@ -1789,6 +1909,8 @@ export default function SlugSettingsPage() {
           if (!cancelled) {
             setAutoSaveErr("");
             setAutosaveStatus("saved");
+            const body = getSavePayloadRef.current() as Record<string, unknown>;
+            if (payloadSavedTrialsWereCleared(body)) clearTrialServicesStash(slug);
             window.setTimeout(() => {
               setAutosaveStatus((s) => (s === "saved" ? "idle" : s));
             }, 2500);
@@ -1817,6 +1939,8 @@ export default function SlugSettingsPage() {
         setSaveErr(await readSaveErrorFromResponse(res));
         return false;
       }
+      const body = getSavePayloadRef.current() as Record<string, unknown>;
+      if (payloadSavedTrialsWereCleared(body)) clearTrialServicesStash(slug);
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
       setAutosaveStatus("idle");

@@ -26,9 +26,34 @@ export function dashboardSettingsKey(slug: string) {
 
 export async function dashboardSettingsFetcher(key: string): Promise<DashboardSettingsPayload> {
   const slug = String(key.split(":")[1] ?? "").trim();
-  return await fetchJson<DashboardSettingsPayload>(
-    `/api/dashboard/settings?slug=${encodeURIComponent(slug)}`
-  );
+  const url = `/api/dashboard/settings?slug=${encodeURIComponent(slug)}`;
+  const fetchOnce = () => fetchJson<DashboardSettingsPayload>(url);
+
+  const namedIn = (p: DashboardSettingsPayload) =>
+    Array.isArray(p.services) && p.services.some((s) => String((s as { name?: unknown })?.name ?? "").trim());
+
+  /** אחרי דיפלוי / עומס, מערך השירותים לפעמים חוזה ריק לפני שה־DB מספיק — חוזר עד כמה פעמים עם המתנה */
+  const MAX_ATTEMPTS = 4;
+  const WAIT_BETWEEN_MS = [480, 800, 1200];
+  let last: DashboardSettingsPayload | undefined;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, WAIT_BETWEEN_MS[attempt - 1] ?? 600));
+    }
+    try {
+      const payload = await fetchOnce();
+      last = payload;
+      const businessOk = payload.business != null && !payload.error;
+      if (!businessOk || namedIn(payload)) return payload;
+    } catch (e) {
+      if (attempt === MAX_ATTEMPTS - 1) {
+        if (last !== undefined) return last;
+        throw e instanceof Error ? e : new Error("request_failed:dashboard-settings");
+      }
+    }
+  }
+  return last as DashboardSettingsPayload;
 }
 
 export type AnalyticsApiPayload = {
