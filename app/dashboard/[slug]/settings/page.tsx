@@ -89,12 +89,6 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
-/** נקודת איזון התייחסות (בין ספי הכניסה/היציאה לביעור רטט) */
-const SETTINGS_HEADER_INLINE_SCROLL_PX = 96;
-/** גלילה למטה: מעבר מ־inline ל־fixed רק כש־scrollY≥סף זה — מפריד מהסף לכניסה */
-const SETTINGS_HEADER_NEAR_TOP_LEAVE_PX = SETTINGS_HEADER_INLINE_SCROLL_PX + 20;
-/** גלילה למעלה: חזרה ל־inline רק כש־scrollY<סף זה — מפריד מהסף ליציאה */
-const SETTINGS_HEADER_NEAR_TOP_ENTER_PX = SETTINGS_HEADER_INLINE_SCROLL_PX - 20;
 /** אחרי עריכת תיאור באימון ניסיון — ג׳נרט «בחירת סוג האימון» בטאב מכירה (debounced) */
 const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
@@ -1179,15 +1173,7 @@ export default function SlugSettingsPage() {
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
 
-  /** בכל השלבים: גלילה למטה מסתירה; גלילה למעלה מחזירה; קרוב לראש הדף — בזרימה רגילה (לא fixed) */
-  const [settingsHeaderShown, setSettingsHeaderShown] = useState(true);
-  /** מתחת לסף זה שורת שלבים ב־relative עם המסך (ראש דף — ללא ציפה) */
-  const [settingsHeaderNearPageTop, setSettingsHeaderNearPageTop] = useState(true);
-  const settingsHeaderScrollYRef = useRef(0);
-  const settingsHeaderBarRef = useRef<HTMLDivElement | null>(null);
-  const [settingsHeaderBarHeight, setSettingsHeaderBarHeight] = useState(0);
-
-  /** מונע שחזור גלילה של הדפדפן שמתנגש עם מצב ההאדר (קפיצות בטאבים / מכירה) */
+  /** מונע שחזור גלילה של הדפדפן שמתנגש עם ההאדר (קפיצות בטאבים / מכירה) */
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     const prev = history.scrollRestoration;
@@ -1198,66 +1184,8 @@ export default function SlugSettingsPage() {
   }, []);
 
   useLayoutEffect(() => {
-    const el = settingsHeaderBarRef.current;
-    if (!el) return;
-    let roRaf = 0;
-    const update = () => {
-      cancelAnimationFrame(roRaf);
-      roRaf = window.requestAnimationFrame(() => {
-        setSettingsHeaderBarHeight(el.getBoundingClientRect().height);
-      });
-    };
-    update();
-    const ro = new ResizeObserver(() => update());
-    ro.observe(el);
-    return () => {
-      cancelAnimationFrame(roRaf);
-      ro.disconnect();
-    };
-  }, [step]);
-
-  useEffect(() => {
-    settingsHeaderScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
-    if (typeof window !== "undefined") {
-      const y = window.scrollY;
-      if (y >= SETTINGS_HEADER_NEAR_TOP_LEAVE_PX) setSettingsHeaderNearPageTop(false);
-      else if (y < SETTINGS_HEADER_NEAR_TOP_ENTER_PX) setSettingsHeaderNearPageTop(true);
-      else setSettingsHeaderNearPageTop(y < SETTINGS_HEADER_INLINE_SCROLL_PX);
-    }
-
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = window.requestAnimationFrame(() => {
-        const y = window.scrollY;
-        setSettingsHeaderNearPageTop((prevNear) => {
-          if (prevNear) return y < SETTINGS_HEADER_NEAR_TOP_LEAVE_PX;
-          return y < SETTINGS_HEADER_NEAR_TOP_ENTER_PX;
-        });
-        const prev = settingsHeaderScrollYRef.current;
-        settingsHeaderScrollYRef.current = y;
-        if (y <= 40) {
-          setSettingsHeaderShown(true);
-          return;
-        }
-        if (y > prev + 10) setSettingsHeaderShown(false);
-        else if (y < prev - 10) setSettingsHeaderShown(true);
-      });
-    };
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    setSettingsHeaderShown(true);
     if (typeof window === "undefined") return;
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    settingsHeaderScrollYRef.current = 0;
-    setSettingsHeaderNearPageTop(true);
   }, [step]);
 
   // ── Step 1: Business details (includes optional website import)
@@ -2518,34 +2446,12 @@ export default function SlugSettingsPage() {
     setStep((s) => Math.max(1, s - 1));
   }
 
-  /** קרוב לראש דף — בזרימה עם התוכן; רחוק יותר + גלילה למעלה — fixed לראש ה־viewport (אין תפריט דביק מעלה) */
-  const settingsHeaderInFlow = settingsHeaderShown && settingsHeaderNearPageTop;
-  const settingsHeaderFixedDocked = settingsHeaderShown && !settingsHeaderNearPageTop;
-
   return (
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
-      {/* מרווח להאדר fixed בלבד — בזרימה רגילה הגובה מגיע מהאלמנט עצמו */}
+      {/* sticky: נשאר מחובר לזרימת המסמך (בלי קפיצות spacer/fixed) ונדבק לראש ה־viewport בגלילה */}
       <div
-        aria-hidden
-        className="shrink-0"
-        style={{ height: settingsHeaderFixedDocked ? settingsHeaderBarHeight : 0 }}
-      />
-
-      {/* ── Top bar: inline בראש דף; בגלילה למטה מוסתר; בגלילה למעלה fixed ל־top-0 (ללא רווח לתפריט שאינו דביק) ── */}
-      <div
-        ref={settingsHeaderBarRef}
-        className={
-          [
-            "border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl overflow-x-hidden transition-transform duration-200 ease-out",
-            settingsHeaderInFlow
-              ? "relative z-10 w-full translate-y-0"
-              : [
-                  "fixed inset-x-0 z-10 top-[env(safe-area-inset-top,0px)]",
-                  settingsHeaderShown ? "translate-y-0 will-change-transform" : "-translate-y-full pointer-events-none will-change-transform",
-                ].join(" "),
-          ].join(" ")
-        }
+        className="sticky top-[env(safe-area-inset-top,0px)] z-20 w-full border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl overflow-x-hidden"
       >
           <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
