@@ -424,6 +424,26 @@ function pickServiceReplyOpener(serviceName: string): string {
   return options[Math.abs(hash) % options.length] ?? options[0]!;
 }
 
+/** When false, skip "מתמקדים ב…" — the phrase already reads as a full predicate (מגוונים, מתאימים לרמות…). */
+function shouldUseMitmekadimBeGlue(body: string): boolean {
+  const b = body.trim();
+  if (!b) return false;
+  if (/^(שיעורים?\s+)?מגוונים\b/u.test(b)) return false;
+  if (/^מתאימים\b/u.test(b)) return false;
+  if (/^משלבים\b|^כוללים\b|^מציעים\b|^מותאמים\b/u.test(b)) return false;
+  if (/מגוונים[\s\S]{0,40}(?:מתחילים|לרמות|רמות תרגול)/u.test(b)) return false;
+  return true;
+}
+
+/** Avoid "שיעורי היוגה שלנו שיעורים מגוונים" — drop redundant שיעור/שיעורים after subject. */
+function trimRedundantBodyAfterSubject(subject: string, body: string): string {
+  let b = body.trim().replace(/^ב\s+/u, "").trim();
+  if (/שיעורי\s/u.test(subject)) {
+    b = b.replace(/^שיעורים?\s+/u, "");
+  }
+  return b.trim();
+}
+
 function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
   const opener = pickServiceReplyOpener(serviceName);
   const fixCommonHebrewTypos = (s: string): string => {
@@ -452,9 +472,11 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
 
   const nameRaw = String(serviceName ?? "").trim();
   const nameDef = addDefiniteArticle(nameRaw);
+  const phraseForSales = trialServicePhraseForAfterPick(nameRaw);
   const raw = fixCommonHebrewTypos(String(description ?? "").replace(/\s+/g, " "));
   if (!raw) {
-    return `${opener}! אימוני ${nameDef || "הסטודיו"} שלנו הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
+    const subj = nameRaw ? `${phraseForSales} שלנו` : "השיעורים שלנו";
+    return `${opener}! ${subj} הם דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.`;
   }
 
   const candidates = raw
@@ -470,6 +492,8 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   const best = pickedParts.length ? pickedParts.join(". ") : candidates[0] ?? raw;
 
   let core = fixCommonHebrewTypos(best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, ""));
+  // Avoid "אימוני שיעורי יוגה…" — כפילות מילולית; השאר את ניסוח השיעור בלבד
+  if (/^אימוני\s+שיעורי\b/u.test(core)) core = core.replace(/^אימוני\s+/u, "");
   const coreStartsWithShiur = /^(שיעור|שיעורי)\b/u.test(core);
   core = core.replace(/^האימון(?:\s+המרכזי)?\s+שלנו[, ]*/u, "");
   core = core.replace(/^האימון[, ]*/u, "");
@@ -519,14 +543,17 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     return /[.!?]$/.test(out) ? out : `${out}.`;
   }
 
-  // Default: "אימוני X שלנו מתמקדים ב..."
+  // Default: natural sentence — use same phrasing as «מענה אחרי בחירת שירות» (שיעורי X, לא "אימוני השיעורי…")
   let body = core;
-  body = body.replace(/^מתמקדים\s+ב/u, "");
-  body = body.replace(/^ב/u, "");
-  const subject = nameDef ? `אימוני ${nameDef} שלנו` : "האימונים שלנו";
-  const out = fixCommonHebrewTypos(
-    `${opener}! ${subject} מתמקדים ב${body ? " " + body : ""}`.trim().replace(/\s+/g, " ")
-  );
+  body = body.replace(/^מתמקדים\s+ב\s*/u, "");
+  body = body.replace(/^ב\s+/u, "");
+  body = body.trim();
+  const subject = nameRaw ? `${phraseForSales} שלנו` : "השיעורים שלנו";
+  const bodyJoined = trimRedundantBodyAfterSubject(subject, body);
+  const mid = shouldUseMitmekadimBeGlue(bodyJoined)
+    ? `מתמקדים ב${bodyJoined ? ` ${bodyJoined}` : ""}`
+    : bodyJoined;
+  const out = fixCommonHebrewTypos(`${opener}! ${subject} ${mid}`.trim().replace(/\s+/g, " "));
   return /[.!?]$/.test(out) ? out : `${out}.`;
 }
 
