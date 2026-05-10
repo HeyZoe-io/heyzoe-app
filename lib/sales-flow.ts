@@ -9,21 +9,24 @@ export type SalesFlowExtraStep = {
 };
 
 export type ScheduleCtaDelivery = "link" | "image" | "none";
+/** בפועל אין «ללא» בדשבורד — לאימון ניסיון תמיד לינק; הערך none נותר למיגרציה מה־JSON */
 export type TrialCtaDelivery = "link" | "none";
-export type MembershipsCtaDelivery = "link" | "none";
+export type MembershipsCtaDelivery = "link" | "range" | "none";
 
 export type SalesFlowCtaButton = {
   id: string;
   label: string;
   kind: "schedule" | "trial" | "memberships" | "address";
-  /** רק trial — לינק נשלף משדה קישור ההרשמה באימוני הניסיון; «ללא» מסתיר את הכפתור */
+  /** רק trial — לינק נשלף משדה קישור ההרשמה באימוני הניסיון */
   trial_cta_delivery?: TrialCtaDelivery;
   /** רק schedule — לינק מטאב לינקים; תמונה = אינסרט; «ללא» מסתיר */
   schedule_cta_delivery?: ScheduleCtaDelivery;
   schedule_cta_image_url?: string;
   schedule_cta_image_type?: "image" | "";
-  /** רק memberships — לינק מטאב לינקים; «ללא» מסתיר */
+  /** רק memberships — לינק מטאב לינקים | טווח מחירים ידני | «ללא» מסתיר */
   memberships_cta_delivery?: MembershipsCtaDelivery;
+  memberships_price_range_min?: string;
+  memberships_price_range_max?: string;
 };
 
 export type SalesFlowConfig = {
@@ -235,9 +238,15 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
     const trialDelivery =
       o.trial_cta_delivery === "none" || o.trial_cta_delivery === "link" ? o.trial_cta_delivery : undefined;
     const membershipsDelivery =
-      o.memberships_cta_delivery === "none" || o.memberships_cta_delivery === "link"
+      o.memberships_cta_delivery === "none" ||
+      o.memberships_cta_delivery === "link" ||
+      o.memberships_cta_delivery === "range"
         ? o.memberships_cta_delivery
         : undefined;
+    const membershipsMin =
+      typeof o.memberships_price_range_min === "string" ? String(o.memberships_price_range_min).trim() : "";
+    const membershipsMax =
+      typeof o.memberships_price_range_max === "string" ? String(o.memberships_price_range_max).trim() : "";
     const scheduleImgUrl = typeof o.schedule_cta_image_url === "string" ? o.schedule_cta_image_url.trim() : "";
     const scheduleImgType =
       o.schedule_cta_image_type === "image" ? ("image" as const) : ("" as const);
@@ -248,7 +257,15 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
       ...(kind === "trial"
         ? { trial_cta_delivery: trialDelivery ?? "link" }
         : kind === "memberships"
-          ? { memberships_cta_delivery: membershipsDelivery ?? "link" }
+          ? {
+              memberships_cta_delivery: membershipsDelivery ?? "link",
+              ...(membershipsDelivery === "range"
+                ? {
+                    memberships_price_range_min: membershipsMin,
+                    memberships_price_range_max: membershipsMax,
+                  }
+                : {}),
+            }
           : {}),
       ...(kind === "schedule"
         ? {
@@ -288,15 +305,34 @@ export function normalizeCtaButtonForSlot(button: SalesFlowCtaButton, index: num
   const { id, label } = button;
 
   if (locked === "trial") {
-    const del: TrialCtaDelivery =
-      button.kind === "trial" && (button.trial_cta_delivery ?? "link") === "none" ? "none" : "link";
-    return { id, label, kind: "trial", trial_cta_delivery: del };
+    void button.trial_cta_delivery;
+    return { id, label, kind: "trial", trial_cta_delivery: "link" };
   }
 
   if (locked === "memberships") {
-    const del: MembershipsCtaDelivery =
-      button.kind === "memberships" && (button.memberships_cta_delivery ?? "link") === "none" ? "none" : "link";
-    return { id, label, kind: "memberships", memberships_cta_delivery: del };
+    let del: MembershipsCtaDelivery = "link";
+    if (button.kind === "memberships") {
+      const raw = button.memberships_cta_delivery ?? "link";
+      if (raw === "none") del = "none";
+      else if (raw === "range") del = "range";
+      else del = "link";
+    }
+    let min = String(button.memberships_price_range_min ?? "").trim();
+    let max = String(button.memberships_price_range_max ?? "").trim();
+    if (del !== "range") {
+      min = "";
+      max = "";
+    }
+    return del === "range"
+      ? {
+          id,
+          label,
+          kind: "memberships",
+          memberships_cta_delivery: "range",
+          memberships_price_range_min: min,
+          memberships_price_range_max: max,
+        }
+      : { id, label, kind: "memberships", memberships_cta_delivery: del };
   }
 
   let sd: ScheduleCtaDelivery = "link";
@@ -319,15 +355,20 @@ export function normalizeCtaButtonForSlot(button: SalesFlowCtaButton, index: num
   };
 }
 
-/** ערך Select קצר («לינק» / «ללא» / «תמונה») לפי סוג המשבצת הנעול */
-export type CtaSlotSubChoice = "link" | "none" | "image";
+/** ערך Select קצר («לינק» / «ללא» / «תמונה» / «טווח» למנויים) לפי סוג המשבצת הנעול */
+export type CtaSlotSubChoice = "link" | "none" | "image" | "range";
 
 export function salesFlowSubChoiceForSlot(
   b: SalesFlowCtaButton,
   locked: Exclude<SalesFlowCtaButton["kind"], "address">
 ): CtaSlotSubChoice {
-  if (locked === "trial") return (b.trial_cta_delivery ?? "link") === "none" ? "none" : "link";
-  if (locked === "memberships") return (b.memberships_cta_delivery ?? "link") === "none" ? "none" : "link";
+  if (locked === "trial") return "link";
+  if (locked === "memberships") {
+    const m = b.memberships_cta_delivery ?? "link";
+    if (m === "none") return "none";
+    if (m === "range") return "range";
+    return "link";
+  }
   const d = b.schedule_cta_delivery ?? "link";
   if (d === "image") return "image";
   if (d === "none") return "none";
@@ -341,18 +382,24 @@ export function salesFlowApplyLockedSubChoice(
   sub: CtaSlotSubChoice
 ): SalesFlowCtaButton {
   if (lockedKind === "trial") {
-    return salesFlowCtaButtonFromTypeUiChoice(
-      base,
-      previous,
-      sub === "none" ? "trial:none" : "trial:link"
-    );
+    return { id: base.id, label: base.label, kind: "trial", trial_cta_delivery: "link" };
   }
   if (lockedKind === "memberships") {
-    return salesFlowCtaButtonFromTypeUiChoice(
-      base,
-      previous,
-      sub === "none" ? "memberships:none" : "memberships:link"
-    );
+    if (sub === "range") {
+      const prev = previous.kind === "memberships" ? previous : undefined;
+      return {
+        id: base.id,
+        label: base.label,
+        kind: "memberships",
+        memberships_cta_delivery: "range",
+        memberships_price_range_min: prev?.memberships_price_range_min ?? "",
+        memberships_price_range_max: prev?.memberships_price_range_max ?? "",
+      };
+    }
+    if (sub === "none") {
+      return salesFlowCtaButtonFromTypeUiChoice(base, previous, "memberships:none");
+    }
+    return salesFlowCtaButtonFromTypeUiChoice(base, previous, "memberships:link");
   }
   const ui: SalesFlowCtaTypeUiValue =
     sub === "image" ? "schedule:image" : sub === "none" ? "schedule:none" : "schedule:link";
@@ -367,6 +414,7 @@ export type SalesFlowCtaTypeUiValue =
   | "schedule:image"
   | "schedule:none"
   | "memberships:link"
+  | "memberships:range"
   | "memberships:none"
   | "address";
 
@@ -375,7 +423,10 @@ export function getSalesFlowCtaTypeUiValue(b: SalesFlowCtaButton): SalesFlowCtaT
   if (b.kind === "address") return "address";
   if (b.kind === "trial") return (b.trial_cta_delivery ?? "link") === "none" ? "trial:none" : "trial:link";
   if (b.kind === "memberships") {
-    return (b.memberships_cta_delivery ?? "link") === "none" ? "memberships:none" : "memberships:link";
+    const m = b.memberships_cta_delivery ?? "link";
+    if (m === "none") return "memberships:none";
+    if (m === "range") return "memberships:range";
+    return "memberships:link";
   }
   const d = b.schedule_cta_delivery ?? "link";
   if (d === "image") return "schedule:image";
@@ -407,6 +458,18 @@ export function salesFlowCtaButtonFromTypeUiChoice(
       label,
       kind: "memberships",
       memberships_cta_delivery: ui === "memberships:none" ? "none" : "link",
+    };
+  }
+
+  if (ui === "memberships:range") {
+    const prevM = previous.kind === "memberships" ? previous : undefined;
+    return {
+      id,
+      label,
+      kind: "memberships",
+      memberships_cta_delivery: "range",
+      memberships_price_range_min: prevM?.memberships_price_range_min ?? "",
+      memberships_price_range_max: prevM?.memberships_price_range_max ?? "",
     };
   }
 
@@ -706,7 +769,10 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     })),
     cta_body: c.cta_body,
     show_memberships_button: c.cta_buttons.some(
-      (b) => b.kind === "memberships" && (b.memberships_cta_delivery ?? "link") !== "none"
+      (b) =>
+        b.kind === "memberships" &&
+        ((b.memberships_cta_delivery ?? "link") === "link" ||
+          (b.memberships_cta_delivery ?? "link") === "range")
     ),
     cta_buttons: c.cta_buttons.map((b) => {
       const row: Record<string, unknown> = { id: b.id, label: b.label, kind: b.kind };
@@ -720,6 +786,10 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
       }
       if (b.kind === "memberships") {
         row.memberships_cta_delivery = b.memberships_cta_delivery ?? "link";
+        if ((b.memberships_cta_delivery ?? "link") === "range") {
+          row.memberships_price_range_min = String(b.memberships_price_range_min ?? "").trim();
+          row.memberships_price_range_max = String(b.memberships_price_range_max ?? "").trim();
+        }
       }
       return row;
     }),
@@ -1333,7 +1403,9 @@ export function formatSalesFlowForPrompt(
             : b.kind === "address"
               ? "משיב עם הכתובת של העסק מהדשבורד"
             : b.kind === "memberships"
-                ? "בווטסאפ: קישור מטאב לינקים «קישור לדף מנויים וכרטיסיות»; אם אין קישור - תשובה קבועה מהמערכת"
+                ? (b.memberships_cta_delivery ?? "link") === "range"
+                  ? `כשמשתמש בוחר: טווח מחירים שמור בהגדרות (בין ₪ ___ ל‑₪ ___); הניסוח בווטסאפ מתוך השדות — בלי טעות במספרים`
+                  : "בווטסאפ: קישור מטאב לינקים «קישור לדף מנויים וכרטיסיות»; אם אין קישור - תשובה קבועה מהמערכת"
                 : "עקבי אחרי סוג הכפתור במסלול המכירה";
       return `  - "${b.label}" (${b.kind}): ${hint}`;
     })
