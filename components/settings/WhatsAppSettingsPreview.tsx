@@ -1,9 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
+  getEffectiveFollowupMenuLabels,
+  getEffectiveSalesFlowCtaButtons,
   getWhatsAppOpeningPreviewSections,
+  type EffectiveSalesFlowCtaInput,
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
 
@@ -109,6 +113,26 @@ export function WhatsAppSettingsPreview({
     hasOpeningExtras ||
     hasCtaPreview;
   const firstTrial = trialServices[0] ?? { name: "", price_text: "", duration: "", benefit_line: "" };
+
+  const previewSfEff = useMemo<EffectiveSalesFlowCtaInput>(
+    () => ({
+      trialRegistered: false,
+      allowTrialCta: true,
+      consumedNonTrialKinds: new Set<string>(),
+      showMembershipsButton: salesFlowConfig.show_memberships_button !== false,
+    }),
+    [salesFlowConfig.show_memberships_button]
+  );
+
+  const previewCtaButtons = useMemo(
+    () => getEffectiveSalesFlowCtaButtons(salesFlowConfig.cta_buttons, previewSfEff),
+    [salesFlowConfig.cta_buttons, previewSfEff]
+  );
+
+  const previewFollowLabels = useMemo(
+    () => getEffectiveFollowupMenuLabels(salesFlowConfig.followup_after_next_class_options, previewSfEff),
+    [salesFlowConfig.followup_after_next_class_options, previewSfEff]
+  );
 
   return (
     <div className="w-full max-w-[280px] mx-auto shrink-0" dir="rtl">
@@ -269,18 +293,29 @@ export function WhatsAppSettingsPreview({
                     </p>
                   </Bubble>
                 ) : null}
-                {salesFlowConfig.cta_buttons.some((b) => b.label.trim()) ? (
+                {previewCtaButtons.some((b) => b.label.trim()) ? (
                   <div className="space-y-1">
-                    {salesFlowConfig.cta_buttons.map(
-                      (b, i) =>
-                        b.label.trim() && (
-                          <WaButton key={b.id}>
+                    {previewCtaButtons.map((b, i) => {
+                      if (!b.label.trim()) return null;
+                      const schedImg =
+                        b.kind === "schedule" &&
+                        b.schedule_cta_delivery === "image" &&
+                        String(b.schedule_cta_image_url ?? "").trim();
+                      return (
+                        <div key={b.id}>
+                          <WaButton>
                             {i + 1}. {b.label.trim()}
                           </WaButton>
-                        )
-                    )}
+                          {schedImg ? (
+                            <p className="text-[8px] text-zinc-500 text-right pr-1 pt-0.5">
+                              בצ׳אט האמיתי תישלח כאן תמונת אינסרט מערכות השעות לפני הכפתורים
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                     <p className="text-[8px] text-zinc-500 text-right leading-tight px-0.5">
-                      סוגי כפתור: הרשמה לניסיון · מערכת שעות · כתובת
+                      הרשמה לניסיון · מערכת שעות · מחירים (אם מופעל) · כתובת לפי המסלול
                     </p>
                   </div>
                 ) : null}
@@ -295,13 +330,12 @@ export function WhatsAppSettingsPreview({
                       </p>
                     </Bubble>
                     <div className="space-y-1">
-                      {salesFlowConfig.followup_after_next_class_options.map(
-                        (lbl, i) =>
-                          lbl.trim() && (
-                            <WaButton key={i}>
-                              {i + 1}. {lbl.trim()}
-                            </WaButton>
-                          )
+                      {previewFollowLabels.map((lbl, i) =>
+                        lbl.trim() ? (
+                          <WaButton key={`${lbl}-${i}`}>
+                            {i + 1}. {lbl.trim()}
+                          </WaButton>
+                        ) : null
                       )}
                     </div>
                   </div>

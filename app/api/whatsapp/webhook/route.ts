@@ -30,8 +30,10 @@ import {
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
   formatAfterTrialRegistrationForWhatsAppDelivery,
+  getEffectiveFollowupMenuLabels,
+  getEffectiveSalesFlowCtaButtons,
   matchesTrialRegisteredMessage,
-  type SalesFlowCtaButton,
+  type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
@@ -196,25 +198,28 @@ async function bumpContactFlowStep(input: {
   }
 }
 
-function filterCtaButtonsForTrialRegistered(
-  cfg: NonNullable<BusinessKnowledgePack["salesFlowConfig"]>,
-  trialRegistered: boolean | null,
-  allowTrialCta: boolean
-): SalesFlowCtaButton[] {
-  const bs = cfg.cta_buttons ?? [];
-  if (trialRegistered !== true) return bs;
-  if (allowTrialCta) return bs;
-  return bs.filter((b) => b.kind !== "trial");
-}
-
-function orderCtaButtonsForWhatsApp(buttons: SalesFlowCtaButton[]): SalesFlowCtaButton[] {
-  const order: Record<SalesFlowCtaButton["kind"], number> = {
-    trial: 0,
-    schedule: 1,
-    memberships: 2,
-    address: 3,
-  };
-  return [...buttons].sort((a, b) => (order[a.kind] ?? 99) - (order[b.kind] ?? 99));
+async function bumpSfConsumedCtaKind(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  phone: string;
+  kind: "schedule" | "memberships" | "address";
+  previous: string[];
+}): Promise<string[]> {
+  const { supabase, businessId, phone, kind, previous } = input;
+  if (previous.includes(kind)) return previous;
+  const next = [...previous, kind];
+  try {
+    const { error } = await supabase
+      .from("contacts")
+      .update({ sf_clicked_cta_kinds: next })
+      .eq("business_id", businessId)
+      .eq("phone", phone);
+    if (error) console.warn("[WA Webhook] sf_clicked_cta_kinds update:", error.message);
+    else return next;
+  } catch (e) {
+    console.warn("[WA Webhook] sf_clicked_cta_kinds update threw:", e);
+  }
+  return previous;
 }
 
 function getWhatsAppOpeningGreetingTextOnly(k: BusinessKnowledgePack): string {
@@ -370,6 +375,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   salesFlowServices: SfServiceRow[];
   trialRegistered: boolean | null;
   allowTrialCta: boolean;
+  sfConsumedKinds?: string[];
   extraBodyLines?: string[];
   modelUsed: string;
 }): Promise<void> {
@@ -385,13 +391,20 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     salesFlowServices,
     trialRegistered,
     allowTrialCta,
+    sfConsumedKinds,
     extraBodyLines,
     modelUsed,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
 
-  const filtered = orderCtaButtonsForWhatsApp(filterCtaButtonsForTrialRegistered(cfg, trialRegistered, allowTrialCta));
+  const sfEff: EffectiveSalesFlowCtaInput = {
+    trialRegistered,
+    allowTrialCta,
+    consumedNonTrialKinds: new Set(sfConsumedKinds ?? []),
+    showMembershipsButton: cfg.show_memberships_button !== false,
+  };
+  const filtered = getEffectiveSalesFlowCtaButtons(cfg.cta_buttons, sfEff);
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
   const selectedServiceName =
@@ -503,6 +516,8 @@ function scheduleFlowContinuation(input: {
   trialRegistered: boolean | null;
   allowTrialCta: boolean;
   blockTrialPickMedia: boolean;
+  sfConsumedKinds?: string[];
+  instagramFollowPromptSent?: boolean;
 }): void {
   const delayMs = Number.isFinite(input.delayMs) ? Math.max(0, Math.floor(input.delayMs)) : 0;
   setTimeout(() => {
@@ -525,6 +540,8 @@ async function sendFlowContinuation(input: {
   trialRegistered: boolean | null;
   allowTrialCta: boolean;
   blockTrialPickMedia?: boolean;
+  sfConsumedKinds?: string[];
+  instagramFollowPromptSent?: boolean;
 }): Promise<void> {
   const {
     phase,
@@ -541,14 +558,17 @@ async function sendFlowContinuation(input: {
     trialRegistered,
     allowTrialCta,
     blockTrialPickMedia = false,
+    sfConsumedKinds,
+    instagramFollowPromptSent,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
 
   if (phase === "registered") {
-    const ig = knowledge.instagramUrl?.trim();
+    const igRaw = knowledge.instagramUrl?.trim();
+    const includeIg = Boolean(igRaw?.length) && !instagramFollowPromptSent;
     const parts = [
-      ig ? `מוזמנים לעקוב אחרינו באינסטגרם:\n${ig}` : "",
+      includeIg ? `מוזמנים לעקוב אחרינו באינסטגרם:\n${igRaw}` : "",
       "ואם יש עוד משהו — כתבו כאן ואשמח לענות 🙂",
     ].filter(Boolean);
     const txt = parts.join("\n\n").trim();
@@ -563,6 +583,14 @@ async function sendFlowContinuation(input: {
       model_used: "flow_continuation_registered_soft",
       session_id: sessionId,
     });
+    if (businessId && includeIg) {
+      const igUp = await supabase
+        .from("contacts")
+        .update({ instagram_follow_prompt_sent: true })
+        .eq("business_id", businessId)
+        .eq("phone", msg.from);
+      if (igUp.error) console.warn("[WA Webhook] instagram_follow_prompt_sent (continuation):", igUp.error.message);
+    }
     return;
   }
 
@@ -584,6 +612,7 @@ async function sendFlowContinuation(input: {
       salesFlowServices,
       trialRegistered,
       allowTrialCta,
+      sfConsumedKinds,
       extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
       modelUsed: "flow_continuation_cta",
     });
@@ -651,6 +680,8 @@ async function sendFlowContinuation(input: {
       trialRegistered,
         allowTrialCta,
       blockTrialPickMedia,
+      sfConsumedKinds,
+      instagramFollowPromptSent,
     });
     return;
   }
@@ -736,6 +767,7 @@ async function sendFlowContinuation(input: {
     salesFlowServices,
     trialRegistered,
     allowTrialCta,
+    sfConsumedKinds,
     extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
     modelUsed: "flow_continuation_cta",
   });
@@ -974,6 +1006,10 @@ async function processIncoming(
   let contactFlowStep = 0;
   let contactId: string | number | null = null;
   let starterQuotaNoticeMonth: string | null = null;
+  /** אל תחזירו הנעה לאינסטגרם לאחר שנשלחה כבר הזמנה לעקוב */
+  let contactInstagramFollowPromptSent = false;
+  /** סוגי CTA שכבר צורכו (מערכת שעות / מנויים / כתובת) למעט ניסיון — מתאפס בברכה */
+  let sfClickedCtaKinds: string[] = [];
   if (businessId) {
     try {
       const phone = msg.from;
@@ -998,6 +1034,8 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, id, starter_quota_notice_month",
@@ -1039,6 +1077,12 @@ async function processIncoming(
       contactId = cid !== undefined && cid !== null ? cid : null;
       const sqm = (contactRow as any)?.starter_quota_notice_month;
       starterQuotaNoticeMonth = typeof sqm === "string" && sqm.trim() ? sqm.trim() : null;
+
+      const rawKinds = (contactRow as any)?.sf_clicked_cta_kinds;
+      if (Array.isArray(rawKinds)) {
+        sfClickedCtaKinds = rawKinds.map((x) => String(x ?? "").trim()).filter(Boolean);
+      }
+      contactInstagramFollowPromptSent = (contactRow as any)?.instagram_follow_prompt_sent === true;
     } catch (e) {
       console.warn("[WA Webhook] contacts upsert threw (continuing):", e);
     }
@@ -1387,9 +1431,11 @@ async function processIncoming(
           knowledge.salesFlowConfig?.after_trial_registration_body?.trim() ||
           defaultSalesFlowConfig(knowledge.vibeLabels ?? []).after_trial_registration_body;
 
+        const igUrlRaw = knowledge.instagramUrl?.trim() ?? "";
+        const includeIgPrompt = igUrlRaw.length > 0 && !contactInstagramFollowPromptSent;
         const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
           bodyTemplate,
-          knowledge.instagramUrl ?? "",
+          includeIgPrompt ? igUrlRaw : "",
           knowledge.addressText ?? "",
           knowledge.directionsText ?? ""
         );
@@ -1458,6 +1504,15 @@ async function processIncoming(
           model_used: "sales_flow_after_trial_registered",
           session_id: sessionId,
         });
+        if (businessId && includeIgPrompt) {
+          const igUp = await supabase
+            .from("contacts")
+            .update({ instagram_follow_prompt_sent: true })
+            .eq("business_id", businessId)
+            .eq("phone", msg.from);
+          if (igUp.error) console.warn("[WA Webhook] instagram_follow_prompt_sent update:", igUp.error.message);
+          else contactInstagramFollowPromptSent = true;
+        }
         return;
       } catch (e) {
         console.warn("[WA Webhook] trial_registered flow failed (continuing to normal handling):", e);
@@ -1565,6 +1620,15 @@ async function processIncoming(
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
       contactSessionPhase = phase;
       contactFlowStep = 0;
+      {
+        const clr = await supabase
+          .from("contacts")
+          .update({ sf_clicked_cta_kinds: [] })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        if (clr.error) console.warn("[WA Webhook] sf_clicked_cta_kinds clear (new lead):", clr.error.message);
+        else sfClickedCtaKinds = [];
+      }
       // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
       // We send the continuation within this request to guarantee delivery order.
       await sleepMs(1500);
@@ -1583,6 +1647,8 @@ async function processIncoming(
         trialRegistered: contactTrialRegistered,
         allowTrialCta: allowTrialCtaThisSession,
         blockTrialPickMedia: starterBlocksMedia,
+        sfConsumedKinds: sfClickedCtaKinds,
+        instagramFollowPromptSent: contactInstagramFollowPromptSent,
       });
     }
 
@@ -1631,6 +1697,15 @@ async function processIncoming(
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
         contactFlowStep = 0;
+        {
+          const clr = await supabase
+            .from("contacts")
+            .update({ sf_clicked_cta_kinds: [] })
+            .eq("business_id", businessId)
+            .eq("phone", msg.from);
+          if (clr.error) console.warn("[WA Webhook] sf_clicked_cta_kinds clear (greeting):", clr.error.message);
+          else sfClickedCtaKinds = [];
+        }
         // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
         // We send the continuation within this request to guarantee delivery order.
         await sleepMs(1500);
@@ -1649,6 +1724,8 @@ async function processIncoming(
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
           blockTrialPickMedia: starterBlocksMedia,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
         });
       }
       return;
@@ -1749,232 +1826,336 @@ async function processIncoming(
 
     if (!skipCtaBlockForDigit) {
       try {
-      const cfg = knowledge.salesFlowConfig!;
-      const follow = cfg.followup_after_next_class_options;
-      const ctaBs = cfg.cta_buttons;
-      const unionLabels = [...ctaBs.map((b) => b.label.trim()), ...follow.map((x) => String(x ?? "").trim())].filter(
-        (l) => l.length > 0
-      );
-
-      const fuOptsForNum = follow.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 3);
-      const ctaOptsForNum = ctaBs.map((b) => b.label.trim()).filter(Boolean).slice(0, 12);
-      const numericScope =
-        lastAssistModelForCta === "sales_flow_post_link_menu"
-          ? fuOptsForNum
-          : lastAssistModelForCta === "sales_flow_cta"
-            ? ctaOptsForNum
-            : undefined;
-
-      const incomingResolved = resolveWaMenuChoice(
-        msg.text.trim(),
-        msg.metaInteractiveReplyId,
-        unionLabels.length ? unionLabels : ctaBs.map((b) => b.label),
-        numericScope
-      );
-
-      const selectedServiceName =
-        salesFlowServices.length === 1
-          ? salesFlowServices[0]!.name
-          : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-      const selectedService =
-        salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-
-      const trialUrl = (
-        selectedService?.paymentLink?.trim() ||
-        knowledge.ctaLink?.trim() ||
-        knowledge.arboxLink?.trim() ||
-        ""
-      ).trim();
-      const scheduleUrl = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
-
-      const wantsTrialByFollow = follow[0] && waLabelMatches(incomingResolved, follow[0]);
-      const wantsScheduleByFollow = follow[1] && waLabelMatches(incomingResolved, follow[1]);
-      const wantsMembershipsByFollow = follow[2] && waLabelMatches(incomingResolved, follow[2]);
-      const trialBtn = ctaBs.find((b) => b.kind === "trial");
-      const schedBtn = ctaBs.find((b) => b.kind === "schedule");
-      const memBtn = ctaBs.find((b) => b.kind === "memberships");
-      const addressBtn = ctaBs.find((b) => b.kind === "address");
-
-      const wantsTrial =
-        wantsTrialByFollow || (trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
-      const wantsSchedule =
-        wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false);
-      const wantsMemberships =
-        wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false);
-      const wantsAddressByButton = addressBtn ? waLabelMatches(incomingResolved, addressBtn.label) : false;
-      const wantsAddressByIntent = isAddressOrDirectionsIntent(incomingResolved);
-      const wantsAddress = wantsAddressByButton || wantsAddressByIntent;
-
-      const sendPostLinkMenu = async (): Promise<void> => {
-        const fuBody = cfg.followup_after_next_class_body.trim();
-        const fuOpts = cfg.followup_after_next_class_options.map((x) => String(x ?? "").trim()).filter(Boolean);
-        if (!fuBody || fuOpts.length < 3) return;
-        const menuBody = fuBody;
-        const menuLabels = fuOpts.slice(0, 3);
-        const logged = [
-          menuBody,
-          menuLabels.map((label, index) => `${index + 1}. ${label}`).join("\n"),
-          ZOE_WHATSAPP_MENU_FOOTER,
-        ]
-          .filter((x) => x.length > 0)
-          .join("\n\n");
-        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, menuBody, menuLabels, accountSid, authToken, {
-          footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-        }).catch((e) => console.error("[WA Webhook] Send post-link menu failed:", e));
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: logged,
-          model_used: "sales_flow_post_link_menu",
-          session_id: sessionId,
-        });
-      };
-
-      if (wantsTrial && contactTrialRegistered === true && !allowTrialCtaThisSession) {
-        const ig = knowledge?.instagramUrl?.trim() ?? "";
-        const soft = [
-          "כבר נרשמתם לניסיון — מעולה 🎉",
-          ig ? `בינתיים מוזמנים לעקוב אחרינו באינסטגרם:\n${ig}` : "",
-          "ואם יש שאלה נוספת — פשוט כתבו כאן.",
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-        await sendWhatsAppMessage(msg.toNumber, msg.from, soft, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send post-trial soft reply failed:", e)
+        const cfg = knowledge.salesFlowConfig!;
+        const follow = cfg.followup_after_next_class_options;
+        const ctaBs = cfg.cta_buttons;
+        const showMemBtn = cfg.show_memberships_button !== false;
+        const sfEff: EffectiveSalesFlowCtaInput = {
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          consumedNonTrialKinds: new Set(sfClickedCtaKinds),
+          showMembershipsButton: showMemBtn,
+        };
+        const effectiveCtas = getEffectiveSalesFlowCtaButtons(cfg.cta_buttons, sfEff);
+        const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff);
+        const unionLabels = [...ctaBs.map((b) => b.label.trim()), ...follow.map((x) => String(x ?? "").trim())].filter(
+          (l) => l.length > 0
         );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: soft,
-          model_used: "sales_flow_trial_already_registered",
-          session_id: sessionId,
-        });
-        return;
-      }
 
-      if (wantsTrial && trialUrl) {
-        const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send trial link failed:", e)
-        );
-        await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
-          (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
-        );
-        // After "לאחר ההרשמה…" we don't need to push another CTA/menu.
-        const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: logged,
-          model_used: "sales_flow_trial_link",
-          session_id: sessionId,
-        });
-        return;
-      }
-      if (wantsTrial && !trialUrl) {
-        const txt =
-          "כרגע אין לנו כאן קישור הרשמה - כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: txt,
-          model_used: "sales_flow_trial_missing",
-          session_id: sessionId,
-        });
-        return;
-      }
+        const fuOptsForNum = effFollowLabels;
+        const ctaOptsForNum = effectiveCtas.map((b) => b.label.trim()).filter(Boolean).slice(0, 12);
+        const numericScope =
+          lastAssistModelForCta === "sales_flow_post_link_menu"
+            ? fuOptsForNum
+            : lastAssistModelForCta === "sales_flow_cta"
+              ? ctaOptsForNum
+              : undefined;
 
-      if (wantsSchedule && scheduleUrl) {
-        const txt = `צפייה במערכת השעות:\n${scheduleUrl}`;
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send schedule link failed:", e)
+        const incomingResolved = resolveWaMenuChoice(
+          msg.text.trim(),
+          msg.metaInteractiveReplyId,
+          unionLabels.length ? unionLabels : ctaBs.map((b) => b.label),
+          numericScope
         );
-        await sendPostLinkMenu();
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: txt,
-          model_used: "sales_flow_schedule_link",
-          session_id: sessionId,
-        });
-        return;
-      }
-      if (wantsSchedule && !scheduleUrl) {
-        const txt = "מערכת השעות תתעדכן בקרוב - כתבו בקצרה ונעזור לקבוע מועד.";
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: txt,
-          model_used: "sales_flow_schedule_missing",
-          session_id: sessionId,
-        });
-        return;
-      }
-      if (wantsMemberships) {
-        const mu = knowledge?.membershipsUrl?.trim() ?? "";
-        const promo = knowledge?.promotionsText?.trim() ?? "";
-        const promoIsMemberships = promo && /(מנוי|מנויים|כרטיסי(?:ה|ות)|חבילה)/u.test(promo);
-        const txt = mu.length
-          ? [`מחירי מנויים:`, mu, promoIsMemberships ? promo : ""].filter(Boolean).join("\n")
-          : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send memberships reply failed:", e)
-        );
-        if (mu.length) await sendPostLinkMenu();
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: txt,
-          model_used: mu.length ? "sales_flow_memberships_link" : "sales_flow_memberships_fallback",
-          session_id: sessionId,
-        });
-        return;
-      }
-      if (wantsAddress) {
-        const address = knowledge?.addressText?.trim() ?? "";
-        const directions = knowledge?.directionsText?.trim() ?? "";
-        const txt = address
-          ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
-          : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
-        const directionsMediaUrl = knowledge?.directionsMediaUrl?.trim() ?? "";
-        if (directionsMediaUrl && !starterBlocksMedia) {
-          await sendWhatsAppMediaMessage(
-            msg.toNumber,
-            msg.from,
-            directionsMediaUrl,
-            accountSid,
-            authToken,
-            txt,
-            knowledge?.directionsMediaType === "video"
-              ? "video"
-              : knowledge?.directionsMediaType === "image"
-                ? "image"
-                : undefined
-          ).catch((e) => console.error("[WA Webhook] Send address media reply failed:", e));
-          // WhatsApp can show a subsequent text/menu before media finishes processing on the client.
-          // Delay the follow-up menu enough so the media+caption reliably appears first.
-          await sleepMs(knowledge?.directionsMediaType === "video" ? 2200 : 1300);
-        } else {
-          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-            console.error("[WA Webhook] Send address reply failed:", e)
+
+        const selectedServiceName =
+          salesFlowServices.length === 1
+            ? salesFlowServices[0]!.name
+            : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+        const selectedService =
+          salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+        const trialUrl = (
+          selectedService?.paymentLink?.trim() ||
+          knowledge.ctaLink?.trim() ||
+          knowledge.arboxLink?.trim() ||
+          ""
+        ).trim();
+        const scheduleUrlFull = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
+
+        const consumedSf = (k: string) => sfClickedCtaKinds.includes(k);
+        const wantsTrialByFollow = follow[0] && waLabelMatches(incomingResolved, follow[0]);
+        const wantsScheduleByFollow =
+          follow[1] && waLabelMatches(incomingResolved, follow[1]) && !consumedSf("schedule");
+        const wantsMembershipsByFollow =
+          showMemBtn &&
+          follow[2] &&
+          waLabelMatches(incomingResolved, follow[2]) &&
+          !consumedSf("memberships");
+        const trialBtn = ctaBs.find((b) => b.kind === "trial");
+        const schedBtn = ctaBs.find((b) => b.kind === "schedule");
+        const memBtn = ctaBs.find((b) => b.kind === "memberships");
+        const addressBtn = ctaBs.find((b) => b.kind === "address");
+        const wantsTrial =
+          wantsTrialByFollow || (trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
+        const wantsSchedule =
+          !consumedSf("schedule") &&
+          (wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false));
+        const wantsMemberships =
+          showMemBtn &&
+          !consumedSf("memberships") &&
+          (wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false));
+        const wantsAddressByButton =
+          !consumedSf("address") &&
+          Boolean(addressBtn && waLabelMatches(incomingResolved, addressBtn.label));
+        const wantsAddressByIntent =
+          !consumedSf("address") && isAddressOrDirectionsIntent(incomingResolved);
+        const wantsAddress = wantsAddressByButton || wantsAddressByIntent;
+
+        const sendPostLinkMenu = async (): Promise<void> => {
+          const fuBody = cfg.followup_after_next_class_body.trim();
+          const menuLabelsRaw = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, {
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            consumedNonTrialKinds: new Set(sfClickedCtaKinds),
+            showMembershipsButton: showMemBtn,
+          });
+          const menuLabels = menuLabelsRaw.slice(0, 12);
+          if (!fuBody || menuLabels.length < 1) return;
+          const logged = [
+            fuBody.trim(),
+            menuLabels.map((label, index) => `${index + 1}. ${label}`).join("\n"),
+            ZOE_WHATSAPP_MENU_FOOTER,
+          ]
+            .filter((x) => x.length > 0)
+            .join("\n\n");
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody.trim(), menuLabels.slice(0, 3), accountSid, authToken, {
+            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          }).catch((e) => console.error("[WA Webhook] Send post-link menu failed:", e));
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: logged,
+            model_used: "sales_flow_post_link_menu",
+            session_id: sessionId,
+          });
+        };
+
+        if (wantsTrial && contactTrialRegistered === true && !allowTrialCtaThisSession) {
+          const igRaw = knowledge?.instagramUrl?.trim() ?? "";
+          const includeIg = igRaw.length > 0 && !contactInstagramFollowPromptSent;
+          const soft = [
+            "כבר נרשמתם לניסיון — מעולה 🎉",
+            includeIg ? `בינתיים מוזמנים לעקוב אחרינו באינסטגרם:\n${igRaw}` : "",
+            "ואם יש שאלה נוספת — פשוט כתבו כאן.",
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+          await sendWhatsAppMessage(msg.toNumber, msg.from, soft, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send post-trial soft reply failed:", e)
           );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: soft,
+            model_used: "sales_flow_trial_already_registered",
+            session_id: sessionId,
+          });
+          if (businessId && includeIg) {
+            const igUp = await supabase
+              .from("contacts")
+              .update({ instagram_follow_prompt_sent: true })
+              .eq("business_id", businessId)
+              .eq("phone", msg.from);
+            if (igUp.error) console.warn("[WA Webhook] instagram_follow_prompt_sent (trial soft):", igUp.error.message);
+            else contactInstagramFollowPromptSent = true;
+          }
+          return;
         }
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: directionsMediaUrl ? `[media] ${directionsMediaUrl}\n\n${txt}` : txt,
-          model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
-          session_id: sessionId,
-        });
-        // Always follow with the standard post-link menu when we have an address.
-        // (After a delay if media was sent) so the menu appears after the directions message.
-        if (address) {
+
+        if (wantsTrial && trialUrl) {
+          const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send trial link failed:", e)
+          );
+          await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
+            (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
+          );
+          // After "לאחר ההרשמה…" we don't need to push another CTA/menu.
+          const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: logged,
+            model_used: "sales_flow_trial_link",
+            session_id: sessionId,
+          });
+          return;
+        }
+        if (wantsTrial && !trialUrl) {
+          const txt =
+            "כרגע אין לנו כאן קישור הרשמה - כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_trial_missing",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (wantsSchedule) {
+          const imgConfigured = String(schedBtn?.schedule_cta_image_url ?? "").trim();
+          const canSendScheduleImage =
+            schedBtn?.schedule_cta_delivery === "image" &&
+            imgConfigured.length > 0 &&
+            !starterBlocksMedia;
+
+          if (canSendScheduleImage) {
+            const cap =
+              scheduleUrlFull.trim().length > 0
+                ? `צפייה במערכת השעות:\n${scheduleUrlFull.trim()}`
+                : undefined;
+            await sendTrialPickMediaIfAllowed({
+              blockMedia: starterBlocksMedia,
+              mediaUrl: imgConfigured,
+              mediaType: "image",
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+              caption: cap,
+            });
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "schedule",
+              previous: sfClickedCtaKinds,
+            });
+            await sendPostLinkMenu();
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: cap ? `[media] ${imgConfigured}\n\n${cap}` : `[media] ${imgConfigured}`,
+              model_used: "sales_flow_schedule_image",
+              session_id: sessionId,
+            });
+            return;
+          }
+
+          if (scheduleUrlFull.trim().length > 0) {
+            const txt = `צפייה במערכת השעות:\n${scheduleUrlFull.trim()}`;
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send schedule link failed:", e)
+            );
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "schedule",
+              previous: sfClickedCtaKinds,
+            });
+            await sendPostLinkMenu();
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_schedule_link",
+              session_id: sessionId,
+            });
+            return;
+          }
+
+          const txt = "מערכת השעות תתעדכן בקרוב - כתבו בקצרה ונעזור לקבוע מועד.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+            supabase,
+            businessId,
+            phone: msg.from,
+            kind: "schedule",
+            previous: sfClickedCtaKinds,
+          });
           await sendPostLinkMenu();
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_schedule_missing",
+            session_id: sessionId,
+          });
+          return;
         }
-        return;
-      }
+
+        if (wantsMemberships) {
+          const mu = knowledge?.membershipsUrl?.trim() ?? "";
+          const promo = knowledge?.promotionsText?.trim() ?? "";
+          const promoIsMemberships = promo && /(מנוי|מנויים|כרטיסי(?:ה|ות)|חבילה)/u.test(promo);
+          const txt = mu.length
+            ? [`מחירי מנויים:`, mu, promoIsMemberships ? promo : ""].filter(Boolean).join("\n")
+            : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send memberships reply failed:", e)
+          );
+          sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+            supabase,
+            businessId,
+            phone: msg.from,
+            kind: "memberships",
+            previous: sfClickedCtaKinds,
+          });
+          if (mu.length) await sendPostLinkMenu();
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: mu.length ? "sales_flow_memberships_link" : "sales_flow_memberships_fallback",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (wantsAddress) {
+          const address = knowledge?.addressText?.trim() ?? "";
+          const directions = knowledge?.directionsText?.trim() ?? "";
+          const txt = address
+            ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
+            : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
+          const directionsMediaUrl = knowledge?.directionsMediaUrl?.trim() ?? "";
+          sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+            supabase,
+            businessId,
+            phone: msg.from,
+            kind: "address",
+            previous: sfClickedCtaKinds,
+          });
+          if (directionsMediaUrl && !starterBlocksMedia) {
+            await sendWhatsAppMediaMessage(
+              msg.toNumber,
+              msg.from,
+              directionsMediaUrl,
+              accountSid,
+              authToken,
+              txt,
+              knowledge?.directionsMediaType === "video"
+                ? "video"
+                : knowledge?.directionsMediaType === "image"
+                  ? "image"
+                  : undefined
+            ).catch((e) => console.error("[WA Webhook] Send address media reply failed:", e));
+            // WhatsApp can show a subsequent text/menu before media finishes processing on the client.
+            // Delay the follow-up menu enough so the media+caption reliably appears first.
+            await sleepMs(knowledge?.directionsMediaType === "video" ? 2200 : 1300);
+          } else {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send address reply failed:", e)
+            );
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: directionsMediaUrl ? `[media] ${directionsMediaUrl}\n\n${txt}` : txt,
+            model_used: address ? "sales_flow_address" : "sales_flow_address_missing",
+            session_id: sessionId,
+          });
+          if (address) {
+            await sendPostLinkMenu();
+          }
+          return;
+        }
       } catch (e) {
         console.warn("[WA Webhook] Sales-flow CTA handling failed (continuing):", e);
       }
@@ -2038,6 +2219,7 @@ async function processIncoming(
                 salesFlowServices,
                 trialRegistered: contactTrialRegistered,
                 allowTrialCta: allowTrialCtaThisSession,
+                sfConsumedKinds: sfClickedCtaKinds,
                 modelUsed: "sales_flow_cta",
               });
               contactSessionPhase = "cta";
@@ -2137,6 +2319,7 @@ async function processIncoming(
               salesFlowServices,
               trialRegistered: contactTrialRegistered,
               allowTrialCta: allowTrialCtaThisSession,
+              sfConsumedKinds: sfClickedCtaKinds,
               modelUsed: "sales_flow_cta",
             });
             contactSessionPhase = "cta";
@@ -2194,16 +2377,25 @@ async function processIncoming(
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
     .filter((lbl) => lbl.length > 0);
-  const ctaMenuLabelsRaw = (knowledge?.salesFlowConfig?.cta_buttons ?? [])
-    .map((b) => String((b as { label?: string }).label ?? "").trim())
-    .filter((l) => l.length > 0);
-      const filteredCtaButtons =
-    knowledge?.salesFlowConfig != null
-      ? filterCtaButtonsForTrialRegistered(knowledge.salesFlowConfig, contactTrialRegistered, allowTrialCtaThisSession)
+  const sfCfgForAi = knowledge?.salesFlowConfig ?? null;
+  const sfAiEff: EffectiveSalesFlowCtaInput | null =
+    sfCfgForAi != null
+      ? {
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          consumedNonTrialKinds: new Set(sfClickedCtaKinds),
+          showMembershipsButton: sfCfgForAi.show_memberships_button !== false,
+        }
+      : null;
+  const filteredCtaForAi =
+    sfCfgForAi != null && sfAiEff != null ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff) : [];
+  const effectiveFollowLabelsForPred =
+    sfCfgForAi != null && sfAiEff != null
+      ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff)
       : [];
   const ctaMenuLabelsForAi =
     contactSessionPhase === "cta"
-      ? filteredCtaButtons.map((b) => b.label.trim()).filter((l) => l.length > 0)
+      ? filteredCtaForAi.map((b) => b.label.trim()).filter((l) => l.length > 0)
       : [];
   const buttons: string[] = [
     ...quickLabels,
@@ -2233,8 +2425,8 @@ async function processIncoming(
     ...(knowledge?.salesFlowConfig?.greeting_extra_steps ?? []).flatMap((step) => step.options.map((option) => option.trim())),
     ...salesFlowServices.map((service) => service.name.trim()),
     ...((knowledge?.salesFlowConfig?.experience_options ?? []).map((option) => String(option ?? "").trim())),
-    ...ctaMenuLabelsRaw,
-    ...((knowledge?.salesFlowConfig?.followup_after_next_class_options ?? []).map((option) => String(option ?? "").trim())),
+    ...filteredCtaForAi.map((b) => b.label.trim()),
+    ...effectiveFollowLabelsForPred.map((option) => String(option ?? "").trim()),
   ].filter(Boolean);
   const matchedPredefinedClosedLabel =
     !matched?.reply && predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label));
@@ -2651,6 +2843,7 @@ async function processIncoming(
             salesFlowServices,
             trialRegistered: contactTrialRegistered,
             allowTrialCta: allowTrialCtaThisSession,
+            sfConsumedKinds: sfClickedCtaKinds,
             modelUsed: "sales_flow_cta",
           });
         }
@@ -2683,6 +2876,8 @@ async function processIncoming(
             trialRegistered: contactTrialRegistered,
             allowTrialCta: allowTrialCtaThisSession,
             blockTrialPickMedia: starterBlocksMedia,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
           });
         }
       } else {
@@ -2731,6 +2926,8 @@ async function processIncoming(
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
           blockTrialPickMedia: starterBlocksMedia,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
         });
       }
     }

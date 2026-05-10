@@ -22,6 +22,10 @@ export default function Step4SalesFlow(props: any) {
     openingMediaType,
     uploadingMedia,
     mediaInputRef,
+    scheduleCtaMediaInputRef,
+    uploadingScheduleCtaMedia,
+    scheduleCtaMediaUploadError,
+    setScheduleCtaMediaUploadError,
     uploadMedia,
     setOpeningMediaUrl,
     setOpeningMediaType,
@@ -515,6 +519,19 @@ export default function Step4SalesFlow(props: any) {
             </div>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
+            <label className="flex flex-row-reverse items-start gap-2.5 cursor-pointer rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 shrink-0"
+                checked={salesFlowConfig.show_memberships_button !== false}
+                onChange={(e) =>
+                  setSalesFlowConfig((c: any) => ({ ...c, show_memberships_button: e.target.checked }))
+                }
+              />
+              <span className="text-sm text-zinc-800 text-right leading-snug">
+                הצגת כפתור «מחירי מנויים» בהנעה לפעולה ובהודעות המשך אחרי לינקים
+              </span>
+            </label>
             <div>
               <Textarea
                 value={ctaBodyForDisplay(
@@ -565,18 +582,141 @@ export default function Step4SalesFlow(props: any) {
                       const kind = e.target.value as SalesFlowCtaButton["kind"];
                       setSalesFlowConfig((c: any) => ({
                         ...c,
-                        cta_buttons: c.cta_buttons.map((x: any) => (x.id === b.id ? { ...x, kind } : x)),
+                        cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => {
+                          if (x.id !== b.id) return x;
+                          if (kind === "schedule") {
+                            return {
+                              ...x,
+                              kind,
+                              schedule_cta_delivery: x.schedule_cta_delivery ?? "link",
+                              schedule_cta_image_url: x.schedule_cta_image_url ?? "",
+                              schedule_cta_image_type: x.schedule_cta_image_type ?? "",
+                            };
+                          }
+                          return { ...x, kind };
+                        }),
                       }));
                     }}
                   >
-                    <option value="schedule">מערכת שעות (לינק)</option>
+                    <option value="schedule">מערכת שעות</option>
                     <option value="trial">הרשמה לניסיון (לינק לאימון)</option>
                     <option value="memberships">מחירי מנויים (קישור מ«על העסק»)</option>
                     <option value="address">מה הכתובת? (שדה כתובת)</option>
                   </select>
                 </div>
+                {b.kind === "schedule" ? (
+                  <div className="w-full space-y-2 border border-dashed border-zinc-200 rounded-xl p-3 bg-[#fafafa]">
+                    <p className="text-[11px] text-zinc-600 text-right leading-relaxed">
+                      לינק מערכות השעות נשלף מפרטי התזמון/ארק בדשבורד. ב«תמונה» נשלח אינסרט לפני תפריט ההמשך, כמו שאר המדיות.
+                    </p>
+                    <Field label="דרך ההצגה">
+                      <select
+                        dir="rtl"
+                        className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white"
+                        value={b.schedule_cta_delivery ?? "link"}
+                        onChange={(e) =>
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                              x.id === b.id
+                                ? {
+                                    ...x,
+                                    schedule_cta_delivery: e.target.value === "image" ? "image" : "link",
+                                  }
+                                : x
+                            ),
+                          }))
+                        }
+                      >
+                        <option value="link">קישור (טקסט + קישור התזמון)</option>
+                        <option value="image">תמונה</option>
+                      </select>
+                    </Field>
+                    {(b.schedule_cta_delivery ?? "link") === "image" ? (
+                      planIsStarter ? (
+                        <p className="text-[11px] text-amber-800 text-right bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                          ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 flex flex-col items-stretch">
+                          {String(b.schedule_cta_image_url ?? "").trim() ? (
+                            <div className="rounded-xl overflow-hidden border border-zinc-200 max-w-[200px] mr-auto ml-0 shadow-sm bg-white">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={(b.schedule_cta_image_url ?? "").trim()}
+                                alt=""
+                                className="w-full h-auto max-h-40 object-cover block"
+                              />
+                            </div>
+                          ) : null}
+                          <div className="flex flex-row-reverse flex-wrap gap-2 justify-start">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="text-xs gap-1 h-8"
+                              disabled={uploadingScheduleCtaMedia}
+                              onClick={() => {
+                                if (planIsStarter) {
+                                  onStarterMediaBlocked?.();
+                                  return;
+                                }
+                                scheduleCtaMediaInputRef?.current?.click();
+                              }}
+                            >
+                              {uploadingScheduleCtaMedia ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Upload className="h-3.5 w-3.5" />
+                              )}
+                              {uploadingScheduleCtaMedia ? "מעלה…" : "העלה תמונה"}
+                            </Button>
+                            {String(b.schedule_cta_image_url ?? "").trim() ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="text-xs h-8 text-red-600 border-red-200 hover:bg-red-50"
+                                onClick={() =>
+                                  setSalesFlowConfig((c: any) => ({
+                                    ...c,
+                                    cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                      x.id === b.id
+                                        ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
+                                        : x
+                                    ),
+                                  }))
+                                }
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                הסר תמונה
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ))}
+            <input
+              ref={scheduleCtaMediaInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/jpg"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) {
+                  setScheduleCtaMediaUploadError("");
+                  void uploadMedia(f, "schedule_cta");
+                }
+              }}
+            />
+            {String(scheduleCtaMediaUploadError ?? "").trim() ? (
+              <p className="text-sm text-red-600 text-right" role="alert">
+                {String(scheduleCtaMediaUploadError).trim()}
+              </p>
+            ) : null}
           </div>
         </div>
 
