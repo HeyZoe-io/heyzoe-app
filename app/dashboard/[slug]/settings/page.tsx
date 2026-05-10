@@ -89,7 +89,7 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
-/** מעל סף זה ההאדר בזרימה רגילה; מתחת — fixed מתחת לתפריט הראשי (לא מכסה אותו) */
+/** מעל סף זה שורת שלבי ההגדרות בזרימת המסמך; מתחת — fixed לראש החלון בעת גלילה למעלה */
 const SETTINGS_HEADER_INLINE_SCROLL_PX = 96;
 /** אחרי עריכת תיאור באימון ניסיון — ג׳נרט «בחירת סוג האימון» בטאב מכירה (debounced) */
 const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
@@ -1041,9 +1041,9 @@ export default function SlugSettingsPage() {
   const [autoSaveErr, setAutoSaveErr] = useState("");
 
   const isSalesFlowSettingsStep = step === 4;
-  /** בכל השלבים: גלילה למטה מסתירה את ההאדר; גלילה למעלה מחזירה אותו; קרוב לראש העמוד — בזרימה רגילה מתחת לתפריט הראשי */
+  /** בכל השלבים: גלילה למטה מסתירה; גלילה למעלה מחזירה; קרוב לראש הדף — בזרימה רגילה (לא fixed) */
   const [settingsHeaderShown, setSettingsHeaderShown] = useState(true);
-  /** מתחת לסף זה ההאדר ב־relative (לא צף מעל SlugDashboardNav) */
+  /** מתחת לסף זה שורת שלבים ב־relative עם המסך (ראש דף — ללא ציפה) */
   const [settingsHeaderNearPageTop, setSettingsHeaderNearPageTop] = useState(true);
   const settingsHeaderScrollYRef = useRef(0);
   const settingsHeaderBarRef = useRef<HTMLDivElement | null>(null);
@@ -2365,14 +2365,9 @@ export default function SlugSettingsPage() {
     setStep((s) => Math.max(1, s - 1));
   }
 
-  /** רחוק מראש העמוד: fixed מתחת לתפריט הראשי; קרוב לראש: זרימה רגילה (לא מצוף מעליו) */
+  /** קרוב לראש דף — בזרימה עם התוכן; רחוק יותר + גלילה למעלה — fixed לראש ה־viewport (אין תפריט דביק מעלה) */
   const settingsHeaderInFlow = settingsHeaderShown && settingsHeaderNearPageTop;
   const settingsHeaderFixedDocked = settingsHeaderShown && !settingsHeaderNearPageTop;
-  /** `/{slug}/settings` מתחת ל־SlugDashboardNav; נתיב legacy ‎`/dashboard/[slug]/settings`‎ בלי הנאב העליון */
-  const ownerNavLayoutChrome = Boolean(pathname && !pathname.startsWith("/dashboard/"));
-  const settingsHeaderDockTopClass = ownerNavLayoutChrome
-    ? "top-[calc(4.625rem+env(safe-area-inset-top,0px))]"
-    : "top-0";
 
   return (
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
@@ -2384,7 +2379,7 @@ export default function SlugSettingsPage() {
         style={{ height: settingsHeaderFixedDocked ? settingsHeaderBarHeight : 0 }}
       />
 
-      {/* ── Top bar: inline ליד ראש העמוד; fixed מתחת לתפריט הראשי כשמתרחקים + מוסתר בגלילה למטה ── */}
+      {/* ── Top bar: inline בראש דף; בגלילה למטה מוסתר; בגלילה למעלה fixed ל־top-0 (ללא רווח לתפריט שאינו דביק) ── */}
       <div
         ref={settingsHeaderBarRef}
         className={
@@ -2393,8 +2388,7 @@ export default function SlugSettingsPage() {
             settingsHeaderInFlow
               ? "relative z-10 w-full translate-y-0"
               : [
-                  "fixed inset-x-0 z-10",
-                  settingsHeaderDockTopClass,
+                  "fixed inset-x-0 z-10 top-[env(safe-area-inset-top,0px)]",
                   settingsHeaderShown ? "translate-y-0 will-change-transform" : "-translate-y-full pointer-events-none will-change-transform",
                 ].join(" "),
           ].join(" ")

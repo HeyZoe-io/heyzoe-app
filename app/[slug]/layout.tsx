@@ -15,7 +15,7 @@ export default async function SlugLayout({ children, params }: Props) {
     <>
       <main className="min-h-screen bg-[#FAFAFA] px-4 py-6 sm:px-6 sm:py-8" dir="rtl">
         <div className="mx-auto max-w-6xl space-y-5">
-          <div className="sticky top-0 z-30 pt-1 isolate">
+          <div className="relative pt-1">
             <SlugDashboardNav slug={slug} />
           </div>
           {children}
