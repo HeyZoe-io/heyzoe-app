@@ -89,8 +89,12 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
-/** מעל סף זה שורת שלבי ההגדרות בזרימת המסמך; מתחת — fixed לראש החלון בעת גלילה למעלה */
+/** נקודת איזון התייחסות (בין ספי הכניסה/היציאה לביעור רטט) */
 const SETTINGS_HEADER_INLINE_SCROLL_PX = 96;
+/** גלילה למטה: מעבר מ־inline ל־fixed רק כש־scrollY≥סף זה — מפריד מהסף לכניסה */
+const SETTINGS_HEADER_NEAR_TOP_LEAVE_PX = SETTINGS_HEADER_INLINE_SCROLL_PX + 20;
+/** גלילה למעלה: חזרה ל־inline רק כש־scrollY<סף זה — מפריד מהסף ליציאה */
+const SETTINGS_HEADER_NEAR_TOP_ENTER_PX = SETTINGS_HEADER_INLINE_SCROLL_PX - 20;
 /** אחרי עריכת תיאור באימון ניסיון — ג׳נרט «בחירת סוג האימון» בטאב מכירה (debounced) */
 const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
@@ -1080,7 +1084,10 @@ export default function SlugSettingsPage() {
   useEffect(() => {
     settingsHeaderScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
     if (typeof window !== "undefined") {
-      setSettingsHeaderNearPageTop(window.scrollY < SETTINGS_HEADER_INLINE_SCROLL_PX);
+      const y = window.scrollY;
+      if (y >= SETTINGS_HEADER_NEAR_TOP_LEAVE_PX) setSettingsHeaderNearPageTop(false);
+      else if (y < SETTINGS_HEADER_NEAR_TOP_ENTER_PX) setSettingsHeaderNearPageTop(true);
+      else setSettingsHeaderNearPageTop(y < SETTINGS_HEADER_INLINE_SCROLL_PX);
     }
 
     let raf = 0;
@@ -1088,7 +1095,10 @@ export default function SlugSettingsPage() {
       cancelAnimationFrame(raf);
       raf = window.requestAnimationFrame(() => {
         const y = window.scrollY;
-        setSettingsHeaderNearPageTop(y < SETTINGS_HEADER_INLINE_SCROLL_PX);
+        setSettingsHeaderNearPageTop((prevNear) => {
+          if (prevNear) return y < SETTINGS_HEADER_NEAR_TOP_LEAVE_PX;
+          return y < SETTINGS_HEADER_NEAR_TOP_ENTER_PX;
+        });
         const prev = settingsHeaderScrollYRef.current;
         settingsHeaderScrollYRef.current = y;
         if (y <= 40) {
