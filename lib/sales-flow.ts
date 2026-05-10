@@ -764,6 +764,32 @@ function redundantSegmentOverlapInTrialDescription(description: string, subject:
   return { overlaps: false, rest: d };
 }
 
+/** הסרת מילות ייחוס שנשמרו מתיאור שבו הנושא היה ישות ואז באה ההמשך בתבנית הנסמכים — אחרי ״ב[נושא]״ לא צריכים בהם/שבהם וכו׳ בהתחלה */
+function stripLeadingResumptivePhraseAfterBnarrative(rest: string): string {
+  const s = rest.trim().replace(/\s+/g, " ");
+  if (!s) return s;
+
+  const norm = (t: string) => t.replace(/^[,;:.)״"'”]+|[,.;:!?'״"'”]+$/gu, "");
+
+  /** מילית יחוס מתחילת המשך (אחרי ״ב[נושא]״) — לעיתים מתוך הניסוח עם הנושא בגוף הראשון */
+  const isResumptive = (token: string): boolean => {
+    const t = norm(token);
+    if (!t) return false;
+    return /^ו?(?:שב(?:הם|הן|ו|ה|ך|נו|כם|כן)|ב(?:הם|הן|ו|ה|ך|נו|כם|כן))$/u.test(t);
+  };
+
+  const tokens = s.split(/\s+/);
+
+  if (isResumptive(tokens[0] ?? "")) return tokens.slice(1).join(" ").trim();
+
+  const first = norm(tokens[0] ?? "");
+  if (/^ל[\u0590-\u05FF]{2,}$/u.test(first) && tokens.length >= 2 && isResumptive(tokens[1] ?? "")) {
+    return [tokens[0]!, ...tokens.slice(2)].join(" ").trim();
+  }
+
+  return s;
+}
+
 export function pickServicePickPronoun(serviceName: string): "הם" | "היא" {
   const t = serviceName.trim().replace(/\s+/g, " ");
   if (FEMININE_SINGULAR_SUBJECT_REGEX.test(t)) return "היא";
@@ -803,7 +829,7 @@ export function composeAfterServicePickReplyFromTrialDescription(
 
   const { overlaps, rest } = redundantSegmentOverlapInTrialDescription(desc, subject, serviceName.trim());
   if (overlaps) {
-    const body = rest.trim();
+    const body = stripLeadingResumptivePhraseAfterBnarrative(rest).trim();
     return `${opener}! ב${subject}${body ? ` ${body}` : ""}`.replace(/\s+/g, " ").trim();
   }
 
