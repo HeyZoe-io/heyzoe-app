@@ -2085,9 +2085,44 @@ async function processIncoming(
         }
 
         if (wantsMemberships) {
+          const memDelivery = memBtn?.memberships_cta_delivery ?? "link";
           const mu = knowledge?.membershipsUrl?.trim() ?? "";
           const promo = knowledge?.promotionsText?.trim() ?? "";
           const promoIsMemberships = promo && /(מנוי|מנויים|כרטיסי(?:ה|ות)|חבילה)/u.test(promo);
+
+          if (memDelivery === "range") {
+            const lo = String(memBtn?.memberships_price_range_min ?? "").trim();
+            const hi = String(memBtn?.memberships_price_range_max ?? "").trim();
+            let rangeLine = "";
+            if (lo && hi) rangeLine = `בין ${lo} ₪ ל-${hi} ₪`;
+            else if (lo) rangeLine = `מ-${lo} ₪`;
+            else if (hi) rangeLine = `עד ${hi} ₪`;
+            const txt =
+              rangeLine.trim().length > 0
+                ? `טווח מחירים למנויים/כרטיסיות: ${rangeLine}`
+                : "לפרטים על טווח המחירים, צרו קשר ישירות עם הסטודיו 😊";
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send memberships range reply failed:", e)
+            );
+            sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+              supabase,
+              businessId,
+              phone: msg.from,
+              kind: "memberships",
+              previous: sfClickedCtaKinds,
+            });
+            await sendPostLinkMenu();
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used:
+                rangeLine.trim().length > 0 ? "sales_flow_memberships_range" : "sales_flow_memberships_range_missing",
+              session_id: sessionId,
+            });
+            return;
+          }
+
           const txt = mu.length
             ? [`מחירי מנויים:`, mu, promoIsMemberships ? promo : ""].filter(Boolean).join("\n")
             : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";

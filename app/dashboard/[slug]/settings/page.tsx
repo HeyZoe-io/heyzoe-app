@@ -937,16 +937,6 @@ function buildFactQuestions(input: {
       test: () => !/(עברית|אנגלית|שפה|english)/u.test(text),
     },
     {
-      id: "membership_price_range",
-      kind: "membership_price_range",
-      question: "מה טווח מחירי המנויים/כרטיסיות?",
-      placeholder: "למשל: מנוי חודשי מהשקלה X, כרטיסייה של 12 כניסות בטווח Y–Z",
-      test: () =>
-        !/(טווח מחיר.{0,20}(מנוי|כרטיס|מנויים)|מחירי מנויים|מחירי הכרטיס|מחיר.{0,25}כרטיסייה|כרטיסייה.{0,25}מחיר|פנקס כניסות.{0,20}מחיר|מנוי (חודשי|שנתי).{0,15}מ־|\d+\s*₪.{0,30}(חודש|כניס|מנוי|שנתי))/u.test(
-          text
-        ),
-    },
-    {
       id: "cancellation",
       kind: "cancellation",
       question: "מה מדיניות הביטול או ההקפאה?",
