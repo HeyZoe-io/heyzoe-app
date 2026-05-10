@@ -66,7 +66,7 @@ const FRIENDLY: SalesFlowConfig = {
   greeting_extra_steps: [],
   multi_service_question:
     "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
-  /** נשמר לתאימות; בפועל המשפט אחרי בחירת אימון נובע מכלל מערכת (ראו composeAfterServicePickReply). */
+  /** נשמר לתאימות; בפועל המשפט אחרי בחירת אימון נובע מהכלל ב־composeAfterServicePickReplyFromTrialDescription ותאימות למילוי composeAfterServicePickReply. */
   after_service_pick:
     "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
@@ -662,10 +662,10 @@ const AFTER_SERVICE_PICK_OPENERS = [
 ] as const;
 
 const LESSON_ACTIVITY_PATTERN =
-  /(?:^|\s|_)(?:יוגה|yoga|פילאטיס|pilates|ספינינג|spinning|בוקס|boxing|זומבה|zumba|בלט|ballet)(?:$|\s|_)/iu;
+  /(?:^|\s|_)(?:יוגה|yoga|פילאטיס|pilates|ספינינג|spinning|בוקס|boxing|זומבה|zumba|בלט|ballet|ריקוד|dance|פלדנקרייז|feldenkrais)(?:$|\s|_)/iu;
 
 const TRAINING_ACTIVITY_PATTERN =
-  /(?:^|\s|_)(?:כוח|strength|קרוס\s*פיט|crossfit|cross\s*fit|\btrx\b|ריצה|running|\bhiit\b|\bhit\b|פונקציונלי|functional|אינטרוול|מתח|משקולות)(?:$|\s|_)/iu;
+  /(?:^|\s|_)(?:כוח|strength|כושר|fitness|קרוס\s*פיט|crossfit|cross\s*fit|\btrx\b|ריצה|running|\bhiit\b|\bhit\b|פונקציונלי|functional|אינטרוול|מתח|משקולות|אימון\s*כוח)(?:$|\s|_)/iu;
 
 /** שם שפעילות נקבה יחידה מובהקת והכוונה בהקשר איננה «סוג השיעורים» ברבים */
 const FEMININE_SINGULAR_SUBJECT_REGEX = /^זומבה$/iu;
@@ -681,14 +681,19 @@ export function pickAfterServicePickOpener(serviceName: string): string {
   return AFTER_SERVICE_PICK_OPENERS[idx]!;
 }
 
-/** נושא לפני הם/היא: קידומת + שם; בלי הניסוח הישן «שיעורי ה[שם] שלנו מתמקדים ב…». */
+/** השם כבר כולל «שיעור»/«אימון» — לא מוסיפים שיעורי/אימוני */
+function serviceNameAlreadyHasLessonOrTrainingWord(name: string): boolean {
+  const raw = name.trim().replace(/\s+/g, " ");
+  if (!raw) return false;
+  return /(?:^|\s)(?:שיעורי|שיעור(?:ים)?|אימוני|אימון)(?:\s|$)/u.test(raw);
+}
+
+/** נושא בחירת אימון: קידומת (שיעורי / אימוני) או השם כפי שהוזן כשכבר יש ניסוח מתאים */
 export function buildServicePickSubjectFragment(serviceName: string): string {
   const raw = serviceName.trim().replace(/\s+/g, " ");
   if (!raw) return "האימונים";
 
-  // כבר מעוצב בשם — אל תוסיף קידומת (מניעת כפילויות מסוג שיעורי/אימוני כשיש כבר «שיעור» בניסוח וכו').
-  if (/^(שיעורי|אימוני)(\s|$)/u.test(raw)) return raw;
-  if (/^שיעור(?:ים)?(\s|$)/u.test(raw)) return raw;
+  if (serviceNameAlreadyHasLessonOrTrainingWord(raw)) return raw;
 
   let coreForPrefix = raw;
   const im = /^אימון\s+(.+)/u.exec(raw);
@@ -698,9 +703,65 @@ export function buildServicePickSubjectFragment(serviceName: string): string {
   let fragment: string;
   if (LESSON_ACTIVITY_PATTERN.test(hay)) fragment = `שיעורי ${coreForPrefix}`;
   else if (TRAINING_ACTIVITY_PATTERN.test(hay)) fragment = `אימוני ${coreForPrefix}`;
-  else fragment = `אימון ${coreForPrefix}`;
+  else fragment = `אימוני ${coreForPrefix}`;
 
   return fragment.replace(/\s+/g, " ").trim();
+}
+
+const FIRST_DESCRIPTOR_WORD_WINDOW = 4;
+
+/** השדה בשם של מחטים לזיהוי כפילות בין הנושא לתיאור (עם ובלי קידומת סטנדרטיות) */
+function collectSubjectOverlapNeedles(subject: string, serviceName: string): string[] {
+  const needles: string[] = [];
+  const add = (s: string) => {
+    const t = s.trim().replace(/\s+/g, " ");
+    if (t.length > 0 && !needles.includes(t)) needles.push(t);
+  };
+
+  add(subject);
+  const raw = serviceName.trim().replace(/\s+/g, " ");
+  if (raw) {
+    add(raw);
+    add(`שיעורי ${raw}`);
+    add(`אימוני ${raw}`);
+    add(`שיעור ${raw}`);
+    add(`אימון ${raw}`);
+  }
+
+  needles.sort((a, b) => b.length - a.length);
+  return needles;
+}
+
+/**
+ * התאמה של חל חופף בשלושים–ארבע המילים הראשונות: מחיקת המקטע הכפול בלבד, בלי לערוך את שאר התיאור.
+ */
+function redundantSegmentOverlapInTrialDescription(description: string, subject: string, serviceName: string): {
+  overlaps: boolean;
+  rest: string;
+} {
+  const d = description.trim().replace(/\s+/g, " ");
+  if (!d) return { overlaps: false, rest: d };
+
+  const tokens = d.split(/\s+/);
+  const headEnd = Math.min(tokens.length, FIRST_DESCRIPTOR_WORD_WINDOW);
+  const needles = collectSubjectOverlapNeedles(subject, serviceName);
+
+  for (const needle of needles) {
+    const nt = needle.split(/\s+/).filter(Boolean);
+    if (nt.length === 0) continue;
+
+    const maxSi = Math.min(headEnd - 1, tokens.length - nt.length);
+    for (let si = 0; si <= maxSi; si++) {
+      if (si + nt.length > headEnd) break;
+      const slice = tokens.slice(si, si + nt.length).join(" ");
+      if (slice !== needle) continue;
+
+      const restParts = [...tokens.slice(0, si), ...tokens.slice(si + nt.length)];
+      return { overlaps: true, rest: restParts.join(" ").trim() };
+    }
+  }
+
+  return { overlaps: false, rest: d };
 }
 
 export function pickServicePickPronoun(serviceName: string): "הם" | "היא" {
@@ -709,7 +770,7 @@ export function pickServicePickPronoun(serviceName: string): "הם" | "היא" {
   return "הם";
 }
 
-/** משפט אחרי שהלקוח בחר סוג אימון (ווטסאפ והעתק מהמערכת). התיאור — כפי בשדה מהטאב, בלי פרפרזה. */
+/** משפט אחרי שהלקוח בחר סוג אימון (ווטסאפ והעתק מהמערכת). לנתונים ישנים / זנב בלבד — פתיחה + נושא + הם/היא + זנב. */
 export function composeAfterServicePickReply(serviceName: string, benefitLine: string): string {
   const opener = pickAfterServicePickOpener(serviceName);
   const subject = buildServicePickSubjectFragment(serviceName);
@@ -718,6 +779,34 @@ export function composeAfterServicePickReply(serviceName: string, benefitLine: s
   if (!desc) {
     return `${opener}! ${subject} ${pronoun}.`.replace(/\s+/g, " ").trim();
   }
+  return `${opener}! ${subject} ${pronoun} ${desc}`.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * תשובה אחרי בחירת סוג אימון מתוך תיאור מטאב אימון ניסיון,
+ * בלי לערוך את התיאור עצמו (רק מזהה כפילות ומסיר את המקטע החופף בראש או ב־3–4 המילים הראשונות).
+ */
+export function composeAfterServicePickReplyFromTrialDescription(
+  serviceName: string,
+  trialDescription: string
+): string {
+  const desc = trialDescription.trim().replace(/\s+/g, " ");
+
+  // בלי תיאור מהטאב — זנב דיפולט להודעה ברורה (אותו סגנון כמו עטיפת זנב ישן)
+  if (!desc) {
+    return composeAfterServicePickReply(serviceName, "דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים");
+  }
+
+  const opener = pickAfterServicePickOpener(serviceName);
+  const subject = buildServicePickSubjectFragment(serviceName);
+  const pronoun = pickServicePickPronoun(serviceName);
+
+  const { overlaps, rest } = redundantSegmentOverlapInTrialDescription(desc, subject, serviceName.trim());
+  if (overlaps) {
+    const body = rest.trim();
+    return `${opener}! ב${subject}${body ? ` ${body}` : ""}`.replace(/\s+/g, " ").trim();
+  }
+
   return `${opener}! ${subject} ${pronoun} ${desc}`.replace(/\s+/g, " ").trim();
 }
 
@@ -908,7 +997,7 @@ export function formatSalesFlowForPrompt(
   const benefitLines = named
     .map((n) => {
       const b = benefitByName.get(n)?.trim() || "(השלימי מהידע או מתיאור האימון)";
-      return `  - ${n}: משפט ווטסאפ מלא לאחר בחירת האימון מהמסלול (כולל פתיחה, ניסוח נושא והמשך אחרי הם/היא), כפי שנשמר ללקוח: ${b}`;
+      return `  - ${n}: משפט ווטסאפ לאחר בחירת האימון (מתוך הטאב): פתיחה, נושא עם קידומת שיעורי/אימוני כשמתאים; כשהכפילות מזוהה בראש התיאור — «ב[N] » + שאר התיאור כפי שנשמר; אחרת — נושא + הם/היא + התיאור המלא בלי פרפרזה. נשמר: ${b}`;
     })
     .join("\n");
 
@@ -962,8 +1051,8 @@ export function formatSalesFlowForPrompt(
 ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני בחירת אימון)", c.greeting_extra_steps)}
 - אם יש יותר מאימון אחד: קודם שאלת בחירת האימון ממסלול המכירה, ואז אחרי שבחרו אימון - מענה קצר וחי כמו בשיח אמיתי (משפט עד שניים). לא להעתיק את תיאור האימון ממסלול המכירה במלואו ולא לנסח כמו "לקחת את מה שמעניין אותך מהאימון - במיוחד [פסקה ארוכה]".
 - התאימי את הרוח לסוג האימון שנבחר: אקרו/דינמי - אנרגיה, קהילה, אתגר חיובי; פילאטיס/מכשירים - חיטוב, התחזקות, השקעה בעצמך; יוגה/מיינדפולנס - חיבור פנימי, איזון, גוף־נפש. אפשר לפתוח ב"אוקיי מדהים!" או "איזה כיף :)" לפי הטון.
-- אחרי שהלקוח בחר סוג אימון — בווטסאפ נשלח אוטומטית ההודעה מהשדה במסלול (משפט שלם: פתיחה מהסוג ״וואו!/מדהים/מהמם…״ + נושא עם שם האימון + הם/היא + המשך). עם נתונים ישנים מהמערכת אולי יורכב רק הזנב — בכל מקרה אל תחליפי את המשפט ששלחה המערכת ואל תשחזרי ניסוחים מסוג «שיעורי ה[שם] שלנו מתמקדים ב…».
-- כללי נושא (אם נדרש מענה ידני באותו שלב): אם השם כבר כולל «שיעורי» / «אימוני», או שורש «שיעור» / «שיעורים» — אל תוסיפי קידומת חדשה. אחרת קידומות: תחומים מסוג שיעור/חוג (יוגה, פילאטיס, ספינינג, בוקס, זומבה, בלט ומקבילות באנגלית) → «שיעורי» + שם; כוח/אימון פונקציונלי/HIIT/TRX/קרוספיט/ריצה ומקבילות באנגלית → «אימוני» + שם; אם קשה לסווג — «אימון» + שם. אם השם מתחיל ב«אימון » — מסירים את המילה הראשונה לפני מיון הקידומת.
+- אחרי שהלקוח בחר סוג אימון — נשלח המשפט מהשדה במסלול: פתיחה (מה מילות הפתיחה של המערכת) ואז הנושא. אם ב־3–4 המילים הראשונות של התיאור נשמרה כפילות מול הנושא/השם, המערכת מנסחת ״פתיחה! ב[נושא] [משך התיאור בלי מקטע הכפילות]״; אחרת ״פתיחה! [נושא] הם/היא [כל התיאור כפי שמוזן במסלול, בלי פרפרזה])״. עם נתונים ישנים אולי יורכב רק זנב — אל תחליפי מה שנשלח ואל תשחזרי «שיעורי ה[שם] שלנו מתמקדים ב…».
+- כללי נושא (ידני בתשובה באותו שלב): אם השם כבר מכיל «שיעור» או «אימון» — אין להוסיף קידומת חדשה. אחרת: יוגה/פילאטיס/ספינינג/בוקס/זומבה/בלט וכדומה → «שיעורי» + שם; כוח/TRX/קרוספיט/HIIT/ריצה/פונקציונלי וכדומה → «אימוני» + שם; ברירת מחדל — «אימוני» + שם.
 - כללי הם/היא: ברירת מחדל «הם»; «היא» רק לשם נקבה יחיד מובהק שאין לו ריבוי טבעי בהקשר (דוגמה: זומבה כשם בודד).
 - מציין מסלול (הנחיה בלבד, לא טקסט ללקוח): ${c.after_service_pick}
 
