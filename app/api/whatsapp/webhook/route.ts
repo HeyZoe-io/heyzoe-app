@@ -402,7 +402,6 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     trialRegistered,
     allowTrialCta,
     consumedNonTrialKinds: new Set(sfConsumedKinds ?? []),
-    showMembershipsButton: cfg.show_memberships_button !== false,
   };
   const filtered = getEffectiveSalesFlowCtaButtons(cfg.cta_buttons, sfEff);
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
@@ -1829,15 +1828,13 @@ async function processIncoming(
         const cfg = knowledge.salesFlowConfig!;
         const follow = cfg.followup_after_next_class_options;
         const ctaBs = cfg.cta_buttons;
-        const showMemBtn = cfg.show_memberships_button !== false;
         const sfEff: EffectiveSalesFlowCtaInput = {
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
           consumedNonTrialKinds: new Set(sfClickedCtaKinds),
-          showMembershipsButton: showMemBtn,
         };
         const effectiveCtas = getEffectiveSalesFlowCtaButtons(cfg.cta_buttons, sfEff);
-        const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff);
+        const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff, cfg.cta_buttons);
         const unionLabels = [...ctaBs.map((b) => b.label.trim()), ...follow.map((x) => String(x ?? "").trim())].filter(
           (l) => l.length > 0
         );
@@ -1867,32 +1864,36 @@ async function processIncoming(
 
         const trialUrl = (
           selectedService?.paymentLink?.trim() ||
-          knowledge.ctaLink?.trim() ||
-          knowledge.arboxLink?.trim() ||
+          salesFlowServices.map((s) => s.paymentLink?.trim()).find((u) => u && u.length > 0) ||
           ""
         ).trim();
         const scheduleUrlFull = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
 
         const consumedSf = (k: string) => sfClickedCtaKinds.includes(k);
-        const wantsTrialByFollow = follow[0] && waLabelMatches(incomingResolved, follow[0]);
-        const wantsScheduleByFollow =
-          follow[1] && waLabelMatches(incomingResolved, follow[1]) && !consumedSf("schedule");
-        const wantsMembershipsByFollow =
-          showMemBtn &&
-          follow[2] &&
-          waLabelMatches(incomingResolved, follow[2]) &&
-          !consumedSf("memberships");
         const trialBtn = ctaBs.find((b) => b.kind === "trial");
         const schedBtn = ctaBs.find((b) => b.kind === "schedule");
         const memBtn = ctaBs.find((b) => b.kind === "memberships");
         const addressBtn = ctaBs.find((b) => b.kind === "address");
+        const trialCtaOn = Boolean(trialBtn && (trialBtn.trial_cta_delivery ?? "link") !== "none");
+        const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
+        const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
+        const wantsTrialByFollow =
+          trialCtaOn && Boolean(follow[0] && waLabelMatches(incomingResolved, follow[0]));
+        const wantsScheduleByFollow =
+          scheduleCtaOn &&
+          Boolean(follow[1] && waLabelMatches(incomingResolved, follow[1]) && !consumedSf("schedule"));
+        const wantsMembershipsByFollow =
+          memCtaOn &&
+          Boolean(follow[2] && waLabelMatches(incomingResolved, follow[2]) && !consumedSf("memberships"));
         const wantsTrial =
-          wantsTrialByFollow || (trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
+          wantsTrialByFollow ||
+          (trialCtaOn && trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
         const wantsSchedule =
           !consumedSf("schedule") &&
-          (wantsScheduleByFollow || (schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false));
+          (wantsScheduleByFollow ||
+            (scheduleCtaOn && schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false));
         const wantsMemberships =
-          showMemBtn &&
+          memCtaOn &&
           !consumedSf("memberships") &&
           (wantsMembershipsByFollow || (memBtn ? waLabelMatches(incomingResolved, memBtn.label) : false));
         const wantsAddressByButton =
@@ -1904,12 +1905,15 @@ async function processIncoming(
 
         const sendPostLinkMenu = async (): Promise<void> => {
           const fuBody = cfg.followup_after_next_class_body.trim();
-          const menuLabelsRaw = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, {
-            trialRegistered: contactTrialRegistered,
-            allowTrialCta: allowTrialCtaThisSession,
-            consumedNonTrialKinds: new Set(sfClickedCtaKinds),
-            showMembershipsButton: showMemBtn,
-          });
+          const menuLabelsRaw = getEffectiveFollowupMenuLabels(
+            cfg.followup_after_next_class_options,
+            {
+              trialRegistered: contactTrialRegistered,
+              allowTrialCta: allowTrialCtaThisSession,
+              consumedNonTrialKinds: new Set(sfClickedCtaKinds),
+            },
+            cfg.cta_buttons
+          );
           const menuLabels = menuLabelsRaw.slice(0, 12);
           if (!fuBody || menuLabels.length < 1) return;
           const logged = [
@@ -2384,14 +2388,13 @@ async function processIncoming(
           trialRegistered: contactTrialRegistered,
           allowTrialCta: allowTrialCtaThisSession,
           consumedNonTrialKinds: new Set(sfClickedCtaKinds),
-          showMembershipsButton: sfCfgForAi.show_memberships_button !== false,
         }
       : null;
   const filteredCtaForAi =
     sfCfgForAi != null && sfAiEff != null ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff) : [];
   const effectiveFollowLabelsForPred =
     sfCfgForAi != null && sfAiEff != null
-      ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff)
+      ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff, sfCfgForAi.cta_buttons)
       : [];
   const ctaMenuLabelsForAi =
     contactSessionPhase === "cta"
