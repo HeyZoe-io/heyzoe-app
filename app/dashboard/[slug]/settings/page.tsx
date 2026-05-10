@@ -89,6 +89,8 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
+/** מעל סף זה ההאדר בזרימה רגילה; מתחת — fixed מתחת לתפריט הראשי (לא מכסה אותו) */
+const SETTINGS_HEADER_INLINE_SCROLL_PX = 96;
 /** אחרי עריכת תיאור באימון ניסיון — ג׳נרט «בחירת סוג האימון» בטאב מכירה (debounced) */
 const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
@@ -1039,12 +1041,13 @@ export default function SlugSettingsPage() {
   const [autoSaveErr, setAutoSaveErr] = useState("");
 
   const isSalesFlowSettingsStep = step === 4;
-  /** בכל השלבים: גלילה למטה מסתירה את ההאדר; גלילה למעלה מחזירה אותו ונצמדת לראש המסך */
+  /** בכל השלבים: גלילה למטה מסתירה את ההאדר; גלילה למעלה מחזירה אותו; קרוב לראש העמוד — בזרימה רגילה מתחת לתפריט הראשי */
   const [settingsHeaderShown, setSettingsHeaderShown] = useState(true);
+  /** מתחת לסף זה ההאדר ב־relative (לא צף מעל SlugDashboardNav) */
+  const [settingsHeaderNearPageTop, setSettingsHeaderNearPageTop] = useState(true);
   const settingsHeaderScrollYRef = useRef(0);
   const settingsHeaderBarRef = useRef<HTMLDivElement | null>(null);
   const [settingsHeaderBarHeight, setSettingsHeaderBarHeight] = useState(0);
-
   useLayoutEffect(() => {
     const el = settingsHeaderBarRef.current;
     if (!el) return;
@@ -1057,12 +1060,16 @@ export default function SlugSettingsPage() {
 
   useEffect(() => {
     settingsHeaderScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+    if (typeof window !== "undefined") {
+      setSettingsHeaderNearPageTop(window.scrollY < SETTINGS_HEADER_INLINE_SCROLL_PX);
+    }
 
     let raf = 0;
     const onScroll = () => {
       cancelAnimationFrame(raf);
       raf = window.requestAnimationFrame(() => {
         const y = window.scrollY;
+        setSettingsHeaderNearPageTop(y < SETTINGS_HEADER_INLINE_SCROLL_PX);
         const prev = settingsHeaderScrollYRef.current;
         settingsHeaderScrollYRef.current = y;
         if (y <= 40) {
@@ -1083,7 +1090,10 @@ export default function SlugSettingsPage() {
 
   useEffect(() => {
     setSettingsHeaderShown(true);
-    settingsHeaderScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+    if (typeof window === "undefined") return;
+    const y = window.scrollY;
+    settingsHeaderScrollYRef.current = y;
+    setSettingsHeaderNearPageTop(y < SETTINGS_HEADER_INLINE_SCROLL_PX);
   }, [step]);
 
   // ── Step 1: Business details (includes optional website import)
@@ -2355,24 +2365,40 @@ export default function SlugSettingsPage() {
     setStep((s) => Math.max(1, s - 1));
   }
 
+  /** רחוק מראש העמוד: fixed מתחת לתפריט הראשי; קרוב לראש: זרימה רגילה (לא מצוף מעליו) */
+  const settingsHeaderInFlow = settingsHeaderShown && settingsHeaderNearPageTop;
+  const settingsHeaderFixedDocked = settingsHeaderShown && !settingsHeaderNearPageTop;
+  /** `/{slug}/settings` מתחת ל־SlugDashboardNav; נתיב legacy ‎`/dashboard/[slug]/settings`‎ בלי הנאב העליון */
+  const ownerNavLayoutChrome = Boolean(pathname && !pathname.startsWith("/dashboard/"));
+  const settingsHeaderDockTopClass = ownerNavLayoutChrome
+    ? "top-[calc(4.625rem+env(safe-area-inset-top,0px))]"
+    : "top-0";
+
   return (
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
-      {/* מרווח לפי גובה ההאדר הקבוע — מתכווץ כשהכותרת מוסתרת בגלילה למטה */}
+      {/* מרווח להאדר fixed בלבד — בזרימה רגילה הגובה מגיע מהאלמנט עצמו */}
       <div
         aria-hidden
         className="shrink-0 transition-[height] duration-200 ease-out"
-        style={{ height: settingsHeaderShown ? settingsHeaderBarHeight : 0 }}
+        style={{ height: settingsHeaderFixedDocked ? settingsHeaderBarHeight : 0 }}
       />
 
-      {/* ── Top bar (fixed: מוסתר במורד, חוזר ובולט בראש המסך במעלה) ── */}
+      {/* ── Top bar: inline ליד ראש העמוד; fixed מתחת לתפריט הראשי כשמתרחקים + מוסתר בגלילה למטה ── */}
       <div
         ref={settingsHeaderBarRef}
-        className={[
-          "fixed inset-x-0 top-0 z-40 border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl",
-          "transition-transform duration-200 ease-out will-change-transform",
-          settingsHeaderShown ? "translate-y-0" : "-translate-y-full pointer-events-none",
-        ].join(" ")}
+        className={
+          [
+            "border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl transition-transform duration-200 ease-out",
+            settingsHeaderInFlow
+              ? "relative z-10 w-full translate-y-0"
+              : [
+                  "fixed inset-x-0 z-10",
+                  settingsHeaderDockTopClass,
+                  settingsHeaderShown ? "translate-y-0 will-change-transform" : "-translate-y-full pointer-events-none will-change-transform",
+                ].join(" "),
+          ].join(" ")
+        }
       >
         <div
           className={
