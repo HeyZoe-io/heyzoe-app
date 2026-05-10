@@ -13,8 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field, StepHeader, Textarea } from "../settings-ui";
 import {
-  getSalesFlowCtaTypeUiValue,
-  salesFlowCtaButtonFromTypeUiChoice,
+  ctaLockedKindForSlot,
+  ctaSlotRoleLabel,
+  salesFlowApplyLockedSubChoice,
+  salesFlowSubChoiceForSlot,
+  type CtaSlotSubChoice,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
@@ -548,7 +551,9 @@ export default function Step4SalesFlow(props: any) {
                 עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
               </p>
             </div>
-            {salesFlowConfig.cta_buttons.map((b: any, bi: number) => (
+            {salesFlowConfig.cta_buttons.map((b: any, bi: number) => {
+              const locked = ctaLockedKindForSlot(bi, b.id);
+              return (
               <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
                 <Field label={`כפתור ${bi + 1} - תווית`}>
                   <Input
@@ -565,31 +570,37 @@ export default function Step4SalesFlow(props: any) {
                   />
                 </Field>
                 <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                  <label className="text-xs font-medium text-zinc-600 block text-right">סוג</label>
+                  <label className="text-xs font-medium text-zinc-600 block text-right">
+                    {ctaSlotRoleLabel(locked)}
+                  </label>
                   <select
                     dir="rtl"
                     className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
-                    value={getSalesFlowCtaTypeUiValue(b)}
+                    value={salesFlowSubChoiceForSlot(b, locked)}
                     onChange={(e) => {
-                      const uiVal = e.target.value;
+                      const sub = e.target.value as CtaSlotSubChoice;
                       setSalesFlowConfig((c: any) => ({
                         ...c,
                         cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
                           x.id === b.id
-                            ? salesFlowCtaButtonFromTypeUiChoice({ id: x.id, label: x.label }, x, uiVal)
+                            ? salesFlowApplyLockedSubChoice({ id: x.id, label: x.label }, x, locked, sub)
                             : x
                         ),
                       }));
                     }}
                   >
-                    <option value="trial:link">שיעור ניסיון — לינק (קישור הרשמה מהטאב «אימון ניסיון»)</option>
-                    <option value="trial:none">שיעור ניסיון — ללא הצגה בפלואו</option>
-                    <option value="schedule:link">מערכת שעות — לינק (מהטאב «לינקים חשובים»)</option>
-                    <option value="schedule:image">מערכת שעות — תמונה לפני תפריט ההמשך</option>
-                    <option value="schedule:none">מערכת שעות — ללא הצגה בפלואו</option>
-                    <option value="memberships:link">מנויים / כרטיסיות — לינק (מהטאב «לינקים חשובים»)</option>
-                    <option value="memberships:none">מנויים / כרטיסיות — ללא הצגה בפלואו</option>
-                    <option value="address">מה הכתובת?</option>
+                    {locked === "schedule" ? (
+                      <>
+                        <option value="link">לינק</option>
+                        <option value="image">תמונה</option>
+                        <option value="none">ללא</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="link">לינק</option>
+                        <option value="none">ללא</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 {b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "image" ? (
@@ -658,7 +669,8 @@ export default function Step4SalesFlow(props: any) {
                   </div>
                 ) : null}
               </div>
-            ))}
+            );
+            })}
             <input
               ref={scheduleCtaMediaInputRef}
               type="file"
