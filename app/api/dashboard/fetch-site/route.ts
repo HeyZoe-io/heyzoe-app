@@ -10,6 +10,7 @@ import {
   CLAUDE_FETCH_SITE_MAX_TOKENS,
   CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS,
 } from "@/lib/claude";
+import { normalizeMasculinePredicatesAfterPracticeHead } from "@/lib/sales-flow";
 
 export const runtime = "nodejs";
 
@@ -389,6 +390,7 @@ async function enrichShortTrialProductDescriptions(
 4) אם ב-description_current יש 20–59 תווים והטקסט תקין אך חסר — הרחב למשפט מלא אחד–שניים רק על בסיס הטקסט המצורף; אם אין בסיס — משפט אחד לפי name בלבד.
 5) אם אין כמעט מידע (<20 תווים או ריק) ואין מקור באתר — משפט אחד בלבד לפי name, בלי להמציא מחיר/מיקום/שעות.
 6) הסר כותרות ניווט, כפתורים, שעות בלבד, מחירים — לא לשלב אותם בתיאור אלא אם הם חלק ממשפט תיאורי על השירות.
+7) דקדוק: כשנושא המשפט הוא «תרגול / שיעור / אימון» + סוג (למשל קונדליני), הפועל מתייחס לשורש הזכר — כתוב «מעורר את…» ולא «המעוררת את…» או ניסוח נקבה אחר בשביל מאזן מאוחר במשפט (למשל «אנרגיה»).
 
 קלט פריטים (JSON):
 ${JSON.stringify(items)}
@@ -704,6 +706,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 5) אם אין מקור או כמעט אין טקסט (פחות מ־20 תווים רלוונטיים) — משפט אחד בלבד לפי שם השירות והנישה, בלי להמציא מחיר/מיקום/שעות.
 6) הסר כותרות ניווט, תוויות כפתורים, שעות בלבד ורשימות מחיר — לא בתיאור אלא אם הם חלק ממשפט תיאורי על השירות.
 7) שמור "שיעור/שיעורי" לעומת "אימון" כמו במקור; בלי לערבב "אימוני" ו"שיעורי" באותו משפט.
+8) דקדוק בין שירות לתיאור: כשמתחילים ב«תרגול / שיעור / אימון» ואז סוג (קונדליני וכדומה), נשואים על הפעילות כתבי בזכר לפי שורש זה — למשל «תרגול קונדליני מעורר את…» ולא «המעוררת את…» כי ההטעיה נובעת מהמילה «אנרגיה» אחר כך במשפט.
 
 ב-products לכל פריט:
 - name: שם קצר לכפתור WhatsApp — עד 15 תווים, 2–3 מילים בלבד. רע: "שיעורי אקרו יוגה שבועיים". טוב: "אקרו יוגה" או "שיעורי אקרו".
@@ -866,6 +869,13 @@ ${combinedSiteCorpus}`;
         })
       : [];
     productsOut = await enrichShortTrialProductDescriptions(client, productsOut, combinedSiteCorpus);
+    productsOut = productsOut.map((row) => ({
+      ...row,
+      description: normalizeMasculinePredicatesAfterPracticeHead(String(row.description ?? "").trim()),
+      ...(typeof row.flow_features === "string"
+        ? { flow_features: normalizeMasculinePredicatesAfterPracticeHead(row.flow_features.trim()) }
+        : {}),
+    }));
 
     return NextResponse.json({
       niche: typeof parsed.niche === "string" ? parsed.niche : "",
