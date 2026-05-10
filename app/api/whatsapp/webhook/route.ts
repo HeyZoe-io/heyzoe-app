@@ -435,7 +435,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   if (!ctaBody) return;
 
   if (ctaLabels.length >= 2) {
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels.slice(0, 3), accountSid, authToken, {
+    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels, accountSid, authToken, {
       footerHint: ZOE_WHATSAPP_MENU_FOOTER,
     }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu failed:", e));
   } else {
@@ -652,7 +652,7 @@ async function sendFlowContinuation(input: {
       const q = cfg.multi_service_question.trim();
       const labels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
       if (!q || labels.length < 2) return;
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, labels.slice(0, 3), accountSid, authToken, {
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, labels, accountSid, authToken, {
         footerHint: ZOE_WHATSAPP_MENU_FOOTER,
       }).catch((e) => console.error("[WA Webhook] flow continuation opening services failed:", e));
       await logMessage({
@@ -710,7 +710,7 @@ async function sendFlowContinuation(input: {
     const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, named);
     const opts = [...cfg.experience_options].map((o) => String(o ?? "").trim()).filter(Boolean);
     if (!q || opts.length < 2) return;
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, opts.slice(0, 3), accountSid, authToken, {
+    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, opts, accountSid, authToken, {
       footerHint: ZOE_WHATSAPP_MENU_FOOTER,
     }).catch((e) => console.error("[WA Webhook] flow continuation warmup experience failed:", e));
     await logMessage({
@@ -1919,7 +1919,7 @@ async function processIncoming(
           ]
             .filter((x) => x.length > 0)
             .join("\n\n");
-          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody.trim(), menuLabels.slice(0, 3), accountSid, authToken, {
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody.trim(), menuLabels, accountSid, authToken, {
             footerHint: ZOE_WHATSAPP_MENU_FOOTER,
           }).catch((e) => console.error("[WA Webhook] Send post-link menu failed:", e));
           await logMessage({
