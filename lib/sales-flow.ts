@@ -960,6 +960,30 @@ function redundantSegmentOverlapInTrialDescription(description: string, subject:
   return { overlaps: false, rest: d };
 }
 
+const PRACTICE_DESCRIPTION_OPENERS =
+  /^(תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)\s+(\S+)/u;
+
+/** האם מילה מהשם שווה לטוקן סוג הפעילות אחרי ״תרגול/שיעור/אימון…״ בראש התיאור */
+function serviceNameCoversPracticeKindToken(serviceName: string, kindToken: string): boolean {
+  const k = kindToken.trim().replace(/\s+/g, " ");
+  const s = serviceName.trim().replace(/\s+/g, " ");
+  if (!k || !s) return false;
+  if (s === k) return true;
+  const words = s.split(/\s+/).filter(Boolean);
+  return words.some((w) => w === k);
+}
+
+/**
+ * תיאור שכבר נפתח במשפט מלא („תרגול קונדליני מעורר…״) — בלי כפילות „אימוני קונדליני הם״ לפני.
+ */
+function trialDescriptionIsStandalonePracticeAboutService(description: string, serviceName: string): boolean {
+  const d = description.trim().replace(/\s+/g, " ");
+  if (!d || !serviceName.trim()) return false;
+  const m = PRACTICE_DESCRIPTION_OPENERS.exec(d);
+  if (!m?.[2]) return false;
+  return serviceNameCoversPracticeKindToken(serviceName, m[2]);
+}
+
 /**
  * אחרי שורש זכר (תרגול / שיעור / אימון …) ושם סוג פעילות נשית (יוגה, פילאטיס …),
  * מתארי נסמך על השורש — לא על יוגה וכו׳. מיועד לתיאורים מסריקה/AI שממסדרים מגדר לפי ״יוגה״.
@@ -1085,6 +1109,10 @@ export function composeAfterServicePickReplyFromTrialDescription(
   const opener = pickAfterServicePickOpener(serviceName);
   const subject = buildServicePickSubjectFragment(serviceName);
   const pronoun = pickServicePickPronoun(serviceName);
+
+  if (trialDescriptionIsStandalonePracticeAboutService(desc, serviceName.trim())) {
+    return `${opener}! ${desc}`.replace(/\s+/g, " ").trim();
+  }
 
   const { overlaps, rest } = redundantSegmentOverlapInTrialDescription(desc, subject, serviceName.trim());
   if (overlaps) {
