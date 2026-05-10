@@ -649,7 +649,17 @@ export type WhatsAppOpeningPreviewSection =
   | { kind: "buttons"; labels: string[] };
 
 /** מקטעים לתצוגה מקדימה — טקסט ו״כפתורים״ בלי מספור (עד 3 אימונים) */
-const AFTER_SERVICE_PICK_OPENERS = ["מהמם", "כיף לשמוע", "וואו", "איזה כיף", "מצוין", "סופר"] as const;
+const AFTER_SERVICE_PICK_OPENERS = [
+  "מהמם",
+  "מדהים",
+  "כיף לשמוע",
+  "וואו",
+  "איזה כיף",
+  "מצוין",
+  "סופר",
+  "כיף גדול",
+  "אוקיי מדהים",
+] as const;
 
 const LESSON_ACTIVITY_PATTERN =
   /(?:^|\s|_)(?:יוגה|yoga|פילאטיס|pilates|ספינינג|spinning|בוקס|boxing|זומבה|zumba|בלט|ballet)(?:$|\s|_)/iu;
@@ -711,15 +721,32 @@ export function composeAfterServicePickReply(serviceName: string, benefitLine: s
   return `${opener}! ${subject} ${pronoun} ${desc}`.replace(/\s+/g, " ").trim();
 }
 
+/** משפט אחרי בחירת אימון — כבר בנוי (נשמר ב־benefit_line המלא); מאותר כדי למנוע עטיפה כפולה */
+function benefitLineLooksFullyComposed(text: string): boolean {
+  const t = text.trim();
+  for (const op of AFTER_SERVICE_PICK_OPENERS) {
+    const p = `${op}!`;
+    if (t.startsWith(p) || t.startsWith(`${p} `)) return true;
+  }
+  return false;
+}
+
 /** @deprecated הרכבת הנושא הישנה (שיעורי ה…) — משמש רק למקומות בתשתית הגדרות; מתיישב עם buildServicePickSubjectFragment */
 export function trialServicePhraseForAfterPick(serviceName: string): string {
   return buildServicePickSubjectFragment(serviceName);
 }
 
-/** מילוי תבנית legacy — בפועל תמיד הפורמט החדש (הפרמטר template לא בשימוש). */
+/**
+ * טקסט ללקוח אחרי בחירת סוג אימון.
+ * benefit_line מהדשבורד הוא בדרך כלל משפט מלא (פתיחה + נושא + הם/היא + זנב).
+ * תאימות לנתונים ישנים שבהם נשמר רק הזנב — עוטפים עם composeAfterServicePickReply.
+ */
 export function fillAfterServicePickTemplate(_template: string, serviceName: string, benefitLine: string): string {
   void _template;
-  return composeAfterServicePickReply(serviceName, benefitLine);
+  const trimmed = benefitLine.trim();
+  if (!trimmed) return composeAfterServicePickReply(serviceName, "");
+  if (benefitLineLooksFullyComposed(trimmed)) return trimmed;
+  return composeAfterServicePickReply(serviceName, trimmed);
 }
 
 export function fillCtaBodyTemplate(
@@ -881,7 +908,7 @@ export function formatSalesFlowForPrompt(
   const benefitLines = named
     .map((n) => {
       const b = benefitByName.get(n)?.trim() || "(השלימי מהידע או מתיאור האימון)";
-      return `  - ${n}: תיאור קצר ממסלול המכירה (משפט אחד חי וברור - לא רשימה): ${b}`;
+      return `  - ${n}: משפט ווטסאפ מלא לאחר בחירת האימון מהמסלול (כולל פתיחה, ניסוח נושא והמשך אחרי הם/היא), כפי שנשמר ללקוח: ${b}`;
     })
     .join("\n");
 
@@ -935,7 +962,7 @@ export function formatSalesFlowForPrompt(
 ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני בחירת אימון)", c.greeting_extra_steps)}
 - אם יש יותר מאימון אחד: קודם שאלת בחירת האימון ממסלול המכירה, ואז אחרי שבחרו אימון - מענה קצר וחי כמו בשיח אמיתי (משפט עד שניים). לא להעתיק את תיאור האימון ממסלול המכירה במלואו ולא לנסח כמו "לקחת את מה שמעניין אותך מהאימון - במיוחד [פסקה ארוכה]".
 - התאימי את הרוח לסוג האימון שנבחר: אקרו/דינמי - אנרגיה, קהילה, אתגר חיובי; פילאטיס/מכשירים - חיטוב, התחזקות, השקעה בעצמך; יוגה/מיינדפולנס - חיבור פנימי, איזון, גוף־נפש. אפשר לפתוח ב"אוקיי מדהים!" או "איזה כיף :)" לפי הטון.
-- אחרי שהלקוח בחר סוג אימון — בווטסאפ נשלח משפט אוטומטי מהמערכת: [מילת פתיחה]! [נושא] [הם / היא] [תיאור מטאב אימון ניסיון כפי שנשמר, בלי לכווץ וללא פרפרזה]. אל תחליפי את המשפט הזה ואל תשחזרי ניסוחים מסוג «שיעורי ה[שם] שלנו מתמקדים ב…».
+- אחרי שהלקוח בחר סוג אימון — בווטסאפ נשלח אוטומטית ההודעה מהשדה במסלול (משפט שלם: פתיחה מהסוג ״וואו!/מדהים/מהמם…״ + נושא עם שם האימון + הם/היא + המשך). עם נתונים ישנים מהמערכת אולי יורכב רק הזנב — בכל מקרה אל תחליפי את המשפט ששלחה המערכת ואל תשחזרי ניסוחים מסוג «שיעורי ה[שם] שלנו מתמקדים ב…».
 - כללי נושא (אם נדרש מענה ידני באותו שלב): אם השם כבר כולל «שיעורי» / «אימוני», או שורש «שיעור» / «שיעורים» — אל תוסיפי קידומת חדשה. אחרת קידומות: תחומים מסוג שיעור/חוג (יוגה, פילאטיס, ספינינג, בוקס, זומבה, בלט ומקבילות באנגלית) → «שיעורי» + שם; כוח/אימון פונקציונלי/HIIT/TRX/קרוספיט/ריצה ומקבילות באנגלית → «אימוני» + שם; אם קשה לסווג — «אימון» + שם. אם השם מתחיל ב«אימון » — מסירים את המילה הראשונה לפני מיון הקידומת.
 - כללי הם/היא: ברירת מחדל «הם»; «היא» רק לשם נקבה יחיד מובהק שאין לו ריבוי טבעי בהקשר (דוגמה: זומבה כשם בודד).
 - מציין מסלול (הנחיה בלבד, לא טקסט ללקוח): ${c.after_service_pick}

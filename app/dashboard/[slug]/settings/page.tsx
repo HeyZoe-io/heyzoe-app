@@ -35,6 +35,7 @@ import {
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
   trialServicePhraseForAfterPick,
+  composeAfterServicePickReply,
 } from "@/lib/sales-flow";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
@@ -459,8 +460,18 @@ function trimRedundantBodyAfterSubject(subject: string, body: string): string {
   return b.trim();
 }
 
-/** משפט-זנב אחרי «הם/היא» בווטסאפ (לא כולל פתיחה/נושא — המערכת מוסיפה ב-msg). ללא «שלנו מתמקדים ב…». */
+/**
+ * משפט WhatsApp מלא אחרי בחירת אימון: [פתיחה]! [נושא] הם/היא [זנב].
+ * הנשמר ב־benefit_line — לעריכה בדשבורד ובשליחה (עם תאימות לזנג ישן בלי פתיחה).
+ */
 function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
+  const nameRaw = String(serviceName ?? "").trim();
+  const finalizePredicateTail = (predicateTail: string): string => {
+    let tail = predicateTail.trim().replace(/\s+/g, " ");
+    tail = tail.length && !/[.!?]$/.test(tail) ? `${tail}.` : tail;
+    return composeAfterServicePickReply(nameRaw, tail);
+  };
+
   const fixCommonHebrewTypos = (s: string): string => {
     let out = String(s ?? "");
     // Common omissions we saw in scans/generation
@@ -476,10 +487,9 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     return out.trim();
   };
 
-  const nameRaw = String(serviceName ?? "").trim();
   const raw = fixCommonHebrewTypos(String(description ?? "").replace(/\s+/g, " "));
   if (!raw) {
-    return "דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים.";
+    return finalizePredicateTail("דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים");
   }
 
   const candidates = raw
@@ -509,7 +519,8 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   if (looksLikeTechnicalSession || coreStartsWithAimon) {
     const body = coreStartsWithAimon ? core.replace(/^אימון\s+/u, "") : core;
     const out = fixCommonHebrewTypos(body).trim().replace(/\s+/g, " ");
-    return /[.!?]$/.test(out) ? out : `${out}.`;
+    const punct = /[.!?]$/.test(out) ? out : `${out}.`;
+    return finalizePredicateTail(punct);
   }
 
   // If site copy already uses "שיעור/שיעורי" - keep it as a class ("שיעורי ...") not "אימונים".
@@ -526,7 +537,8 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     outCore = outCore.replace(/(?:^|\.\s*)השעה\s+הזו\s+ביום\s+בה\s+/u, "$1");
     outCore = fixCommonHebrewTypos(outCore);
     const out = outCore.trim().replace(/\s+/g, " ");
-    return /[.!?]$/.test(out) ? out : `${out}.`;
+    const punct = /[.!?]$/.test(out) ? out : `${out}.`;
+    return finalizePredicateTail(punct);
   }
 
   const coreTrim = core.trim();
@@ -536,7 +548,8 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     /^(אימון\s+טכני|השליטה)\b/u.test(coreTrim);
   if (coreLooksLikeAimonSentence && nameRaw) {
     const body = fixCommonHebrewTypos(coreTrim).trim().replace(/\s+/g, " ");
-    return /[.!?]$/.test(body) ? body : `${body}.`;
+    const punct = /[.!?]$/.test(body) ? body : `${body}.`;
+    return finalizePredicateTail(punct);
   }
 
   let body = core;
@@ -546,7 +559,8 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
   const subjectPhrase = nameRaw ? buildServicePickSubjectFragment(nameRaw) : "האימונים";
   const bodyJoined = trimRedundantBodyAfterSubject(subjectPhrase, body);
   const out = fixCommonHebrewTypos(bodyJoined).trim().replace(/\s+/g, " ");
-  return /[.!?]$/.test(out) ? out : `${out}.`;
+  const punct = /[.!?]$/.test(out) ? out : `${out}.`;
+  return finalizePredicateTail(punct);
 }
 
 function formatLevelsForSentence(levels: string[]): string {
@@ -648,7 +662,8 @@ function buildServiceReplyDraft(
   const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
   const core = `דרך מעולה ${focus}`.trim().replace(/\s+/g, " ");
   const out = `${core}.${extra}`.trim().replace(/\s+/g, " ");
-  return /[.!?]$/.test(out) ? out : `${out}.`;
+  const punct = /[.!?]$/.test(out) ? out : `${out}.`;
+  return composeAfterServicePickReply(serviceName, punct);
 }
 
 function trialServicesFromSiteProducts(products: unknown[], addrFallback: string): ServiceItem[] {
