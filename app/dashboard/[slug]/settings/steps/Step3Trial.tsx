@@ -370,8 +370,11 @@ export default function Step3Trial(props: {
 
             <Field
               label={
-                <div className="flex flex-row-reverse flex-wrap items-center justify-between gap-2">
-                  <span>תיאור</span>
+                <div
+                  dir="rtl"
+                  className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 text-right"
+                >
+                  <span className="min-w-0">תיאור</span>
                   <Button
                     type="button"
                     variant="outline"
@@ -405,7 +408,6 @@ export default function Step3Trial(props: {
                   </Button>
                 </div>
               }
-              description="מייצר מחדש את ניסוח ההודעה אחרי בחירת האימון בשלב המכירות, לפי השם והתיאור הנוכחיים."
             >
               <textarea
                 dir="rtl"
