@@ -963,8 +963,8 @@ export function normalizeMasculinePredicatesAfterPracticeHead(text: string): str
   const s = text.trim().replace(/\s+/g, " ");
   if (!s) return s;
 
-  const head = String.raw`(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|תרגל)`;
-  const kind = String.raw`(?:יוגה|פילאטיס|זומבה|בוקס|בלט|ספינינג)`;
+  const head = String.raw`(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)`;
+  const kind = String.raw`(?:יוגה|פילאטיס|זומבה|בוקס|בלט|ספינינג|קונדליני|וויניאסה|אשטנגה|האתה|נדה|נדא)`;
   const qual = String.raw`(?:(?:לנשים|לגברים|למתחילים|למתקדמים|לכולם|לכולן|לכל\s+הגילאים)\s+)?`;
   const prefix = String.raw`(\b${head}\s+${kind}\s+)(${qual})`;
 
@@ -994,6 +994,19 @@ export function normalizeMasculinePredicatesAfterPracticeHead(text: string): str
     const rx = new RegExp(`${prefix}${fem}\\b`, "giu");
     out = out.replace(rx, `$1$2${masc}`);
   }
+
+  /**
+   * הנושא המדבר הוא השורש הזכר (תרגול/שיעור/אימון), לא סוג הפעילות האנגלי כמו קונדליני —
+   * מודלים לעיתים מיישרות ל„המעוררת את…״ מתוך בלבול עם „אנרגיה“ (נקבה) וכו׳.
+   */
+  const practiceLead = String.raw`\b(?:תרגולים|תרגול|שיעורים|שיעור|שיעורי|אימונים|אימון|אימוני|תרגל)\s+`;
+  const rxHaMaoratAtEt = new RegExp(
+    `${practiceLead}(?:[^\\s]+\\s+){0,8}המעוררת\\s+את\\b`,
+    "giu"
+  );
+  out = out.replace(rxHaMaoratAtEt, (whole) =>
+    whole.replace(/\sהמעוררת\s+את\b/u, " מעורר את")
+  );
 
   return out.replace(/\s+/g, " ").trim();
 }
