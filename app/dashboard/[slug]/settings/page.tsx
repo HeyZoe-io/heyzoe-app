@@ -121,6 +121,22 @@ function formatIlWhatsAppPhoneFriendly(input: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
 
+/** ספרות בלבד עם קידומת מדינה, ללא + — לפי הפורמט של wa.me */
+function whatsAppMeDigitsFromDisplay(phoneDisplay: string): string | null {
+  const only = String(phoneDisplay ?? "").replace(/\D/g, "");
+  if (!only) return null;
+  if (only.startsWith("972")) return only;
+  if (only.startsWith("0")) return `972${only.slice(1)}`;
+  if (only.length === 9) return `972${only}`;
+  return only;
+}
+
+function whatsAppPrefilledMessageHref(phoneDisplay: string, text: string): string | null {
+  const num = whatsAppMeDigitsFromDisplay(phoneDisplay);
+  if (!num) return null;
+  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+}
+
 function WhatsAppNumberSection({ slug }: { slug: string }) {
   const fetcher = useCallback(async (key: string) => {
     const res = await fetch(key, { method: "GET" });
@@ -141,6 +157,10 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
 
   const status = data?.provisioning_status ?? null;
   const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
+  const whatsAppSendHref = useMemo(
+    () => whatsAppPrefilledMessageHref(data?.phone_display ?? "", "היי"),
+    [data?.phone_display]
+  );
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
   const [metaChecked, setMetaChecked] = useState(false);
@@ -315,22 +335,34 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
             <span className="text-sm font-semibold text-zinc-900" dir="ltr">
               {friendly || data?.phone_display || "—"}
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-8 w-9 px-0"
-              aria-label="העתקת מספר"
-              onClick={() => {
-                void (async () => {
-                  await copy();
-                  setCopied(true);
-                  if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
-                  copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1400);
-                })();
-              }}
-            >
-              <Copy className="h-4 w-4" aria-hidden />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-9 px-0"
+                aria-label="העתקת מספר"
+                onClick={() => {
+                  void (async () => {
+                    await copy();
+                    setCopied(true);
+                    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+                    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1400);
+                  })();
+                }}
+              >
+                <Copy className="h-4 w-4" aria-hidden />
+              </Button>
+              {whatsAppSendHref ? (
+                <a
+                  href={whatsAppSendHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-[rgba(120,92,200,0.18)] bg-white/80 px-3 text-xs font-semibold tracking-[-0.01em] text-zinc-900 shadow-[0_10px_24px_rgba(117,90,180,0.1)] backdrop-blur-sm transition-all duration-200 hover:border-[rgba(113,51,218,0.26)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white hz-lift"
+                >
+                  שלח הודעה
+                </a>
+              ) : null}
+            </div>
           </div>
           {copied ? <div className="text-xs text-emerald-700">המספר הועתק</div> : null}
           <p className="text-sm text-zinc-700">
