@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import NextLink from "next/link";
@@ -1038,31 +1038,39 @@ export default function SlugSettingsPage() {
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
 
-  /** שלב «מכירה» בלבד: כותרת דביקה מוסתרת בגלילה למטה, חוזרת בגלילה למעלה */
   const isSalesFlowSettingsStep = step === 4;
-  const [salesFlowHeaderVisible, setSalesFlowHeaderVisible] = useState(true);
-  const salesFlowScrollYRef = useRef(0);
+  /** בכל השלבים: גלילה למטה מסתירה את ההאדר; גלילה למעלה מחזירה אותו ונצמדת לראש המסך */
+  const [settingsHeaderShown, setSettingsHeaderShown] = useState(true);
+  const settingsHeaderScrollYRef = useRef(0);
+  const settingsHeaderBarRef = useRef<HTMLDivElement | null>(null);
+  const [settingsHeaderBarHeight, setSettingsHeaderBarHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = settingsHeaderBarRef.current;
+    if (!el) return;
+    const update = () => setSettingsHeaderBarHeight(el.getBoundingClientRect().height);
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [step]);
 
   useEffect(() => {
-    if (!isSalesFlowSettingsStep) {
-      setSalesFlowHeaderVisible(true);
-      return;
-    }
-    salesFlowScrollYRef.current = window.scrollY;
+    settingsHeaderScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
 
     let raf = 0;
     const onScroll = () => {
       cancelAnimationFrame(raf);
       raf = window.requestAnimationFrame(() => {
         const y = window.scrollY;
-        const prev = salesFlowScrollYRef.current;
-        salesFlowScrollYRef.current = y;
+        const prev = settingsHeaderScrollYRef.current;
+        settingsHeaderScrollYRef.current = y;
         if (y <= 40) {
-          setSalesFlowHeaderVisible(true);
+          setSettingsHeaderShown(true);
           return;
         }
-        if (y > prev + 10) setSalesFlowHeaderVisible(false);
-        else if (y < prev - 10) setSalesFlowHeaderVisible(true);
+        if (y > prev + 10) setSettingsHeaderShown(false);
+        else if (y < prev - 10) setSettingsHeaderShown(true);
       });
     };
 
@@ -1071,7 +1079,12 @@ export default function SlugSettingsPage() {
       cancelAnimationFrame(raf);
       window.removeEventListener("scroll", onScroll);
     };
-  }, [isSalesFlowSettingsStep]);
+  }, []);
+
+  useEffect(() => {
+    setSettingsHeaderShown(true);
+    settingsHeaderScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+  }, [step]);
 
   // ── Step 1: Business details (includes optional website import)
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -2345,67 +2358,75 @@ export default function SlugSettingsPage() {
   return (
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
-      {/* ── Top bar ── */}
+      {/* מרווח לפי גובה ההאדר הקבוע — מתכווץ כשהכותרת מוסתרת בגלילה למטה */}
       <div
-        className={
-          "border-b backdrop-blur-xl transition-[max-height,opacity] duration-200 ease-out " +
-          (isSalesFlowSettingsStep && !salesFlowHeaderVisible
-            ? "max-h-0 overflow-hidden opacity-0 pointer-events-none border-transparent shadow-none bg-transparent"
-            : [
-                "overflow-visible border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)]",
-                isSalesFlowSettingsStep ? "max-h-[min(520px,90vh)]" : "",
-              ].join(" "))
-        }
-      >
-        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-            <span className="hz-gradient-text font-extrabold">HeyZoe</span>
-            <span className="text-zinc-300">/</span>
-            <span>{slug}</span>
-          </div>
-          {canAutosave ? (
-            <div className="hz-frost-strong text-xs text-zinc-500 flex items-center gap-1.5 shrink-0 min-h-[1.25rem] rounded-full px-3 py-1.5" aria-live="polite">
-              {autosaveStatus === "saving" && (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
-                  <span>שומר…</span>
-                </>
-              )}
-              {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
-              {autosaveStatus === "error" && (
-                <span className="text-amber-600 max-w-[min(20rem,55vw)] text-right" title={autoSaveErr || undefined}>
-                  שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
-                </span>
-              )}
-            </div>
-          ) : null}
-        </div>
+        aria-hidden
+        className="shrink-0 transition-[height] duration-200 ease-out"
+        style={{ height: settingsHeaderShown ? settingsHeaderBarHeight : 0 }}
+      />
 
-        {/* Step indicator */}
-        <div className="max-w-6xl mx-auto px-4 pb-4 overflow-x-auto">
-        <div className="flex gap-2 sm:gap-2.5 min-w-max items-center">
-            {STEPS.map((label, i) => {
-              const n = i + 1;
-              const active  = step === n;
-              return (
-                <button
-                  key={n}
-                  onClick={() => setStep(n)}
-                  className={[
-                    // Mobile: clear separation via pills + border
-                    "px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-all select-none",
-                    // Desktop: slightly bigger and more “tabby”
-                    "sm:text-sm sm:font-semibold sm:px-4 sm:py-2",
-                    active
-                      ? "bg-white text-[#2d1a6e] border-[rgba(113,51,218,0.35)] shadow-[0_10px_22px_rgba(112,84,182,0.14)]"
-                      : "bg-white/55 text-zinc-700 border-white/60 hover:bg-white hover:text-zinc-900",
-                  ].join(" ")}
-                  aria-current={active ? "page" : undefined}
-                >
-                  {label}
-                </button>
-              );
-            })}
+      {/* ── Top bar (fixed: מוסתר במורד, חוזר ובולט בראש המסך במעלה) ── */}
+      <div
+        ref={settingsHeaderBarRef}
+        className={[
+          "fixed inset-x-0 top-0 z-40 border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl",
+          "transition-transform duration-200 ease-out will-change-transform",
+          settingsHeaderShown ? "translate-y-0" : "-translate-y-full pointer-events-none",
+        ].join(" ")}
+      >
+        <div
+          className={
+            isSalesFlowSettingsStep ? "max-h-[min(520px,90vh)] overflow-y-auto overflow-x-hidden" : ""
+          }
+        >
+          <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
+              <span className="hz-gradient-text font-extrabold">HeyZoe</span>
+              <span className="text-zinc-300">/</span>
+              <span>{slug}</span>
+            </div>
+            {canAutosave ? (
+              <div className="hz-frost-strong text-xs text-zinc-500 flex items-center gap-1.5 shrink-0 min-h-[1.25rem] rounded-full px-3 py-1.5" aria-live="polite">
+                {autosaveStatus === "saving" && (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
+                    <span>שומר…</span>
+                  </>
+                )}
+                {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
+                {autosaveStatus === "error" && (
+                  <span className="text-amber-600 max-w-[min(20rem,55vw)] text-right" title={autoSaveErr || undefined}>
+                    שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
+                  </span>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Step indicator */}
+          <div className="max-w-6xl mx-auto px-4 pb-4 overflow-x-auto">
+            <div className="flex gap-2 sm:gap-2.5 min-w-max items-center">
+              {STEPS.map((label, i) => {
+                const n = i + 1;
+                const active = step === n;
+                return (
+                  <button
+                    key={n}
+                    onClick={() => setStep(n)}
+                    className={[
+                      "px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-all select-none",
+                      "sm:text-sm sm:font-semibold sm:px-4 sm:py-2",
+                      active
+                        ? "bg-white text-[#2d1a6e] border-[rgba(113,51,218,0.35)] shadow-[0_10px_22px_rgba(112,84,182,0.14)]"
+                        : "bg-white/55 text-zinc-700 border-white/60 hover:bg-white hover:text-zinc-900",
+                    ].join(" ")}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
