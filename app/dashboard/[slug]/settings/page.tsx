@@ -1040,7 +1040,6 @@ export default function SlugSettingsPage() {
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
 
-  const isSalesFlowSettingsStep = step === 4;
   /** בכל השלבים: גלילה למטה מסתירה; גלילה למעלה מחזירה; קרוב לראש הדף — בזרימה רגילה (לא fixed) */
   const [settingsHeaderShown, setSettingsHeaderShown] = useState(true);
   /** מתחת לסף זה שורת שלבים ב־relative עם המסך (ראש דף — ללא ציפה) */
@@ -1048,14 +1047,34 @@ export default function SlugSettingsPage() {
   const settingsHeaderScrollYRef = useRef(0);
   const settingsHeaderBarRef = useRef<HTMLDivElement | null>(null);
   const [settingsHeaderBarHeight, setSettingsHeaderBarHeight] = useState(0);
+
+  /** מונע שחזור גלילה של הדפדפן שמתנגש עם מצב ההאדר (קפיצות בטאבים / מכירה) */
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const prev = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    return () => {
+      history.scrollRestoration = prev;
+    };
+  }, []);
+
   useLayoutEffect(() => {
     const el = settingsHeaderBarRef.current;
     if (!el) return;
-    const update = () => setSettingsHeaderBarHeight(el.getBoundingClientRect().height);
+    let roRaf = 0;
+    const update = () => {
+      cancelAnimationFrame(roRaf);
+      roRaf = window.requestAnimationFrame(() => {
+        setSettingsHeaderBarHeight(el.getBoundingClientRect().height);
+      });
+    };
     update();
     const ro = new ResizeObserver(() => update());
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(roRaf);
+      ro.disconnect();
+    };
   }, [step]);
 
   useEffect(() => {
@@ -1088,10 +1107,10 @@ export default function SlugSettingsPage() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setSettingsHeaderShown(true);
     if (typeof window === "undefined") return;
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     settingsHeaderScrollYRef.current = 0;
     setSettingsHeaderNearPageTop(true);
   }, [step]);
@@ -2375,7 +2394,7 @@ export default function SlugSettingsPage() {
       {/* מרווח להאדר fixed בלבד — בזרימה רגילה הגובה מגיע מהאלמנט עצמו */}
       <div
         aria-hidden
-        className="shrink-0 transition-[height] duration-200 ease-out"
+        className="shrink-0"
         style={{ height: settingsHeaderFixedDocked ? settingsHeaderBarHeight : 0 }}
       />
 
@@ -2384,7 +2403,7 @@ export default function SlugSettingsPage() {
         ref={settingsHeaderBarRef}
         className={
           [
-            "border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl transition-transform duration-200 ease-out",
+            "border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl overflow-x-hidden transition-transform duration-200 ease-out",
             settingsHeaderInFlow
               ? "relative z-10 w-full translate-y-0"
               : [
@@ -2394,11 +2413,6 @@ export default function SlugSettingsPage() {
           ].join(" ")
         }
       >
-        <div
-          className={
-            isSalesFlowSettingsStep ? "max-h-[min(520px,90vh)] overflow-y-auto overflow-x-hidden" : ""
-          }
-        >
           <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
               <span className="hz-gradient-text font-extrabold">HeyZoe</span>
@@ -2448,7 +2462,6 @@ export default function SlugSettingsPage() {
               })}
             </div>
           </div>
-        </div>
       </div>
 
       {settingsLoadError ? (
