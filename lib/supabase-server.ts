@@ -14,8 +14,13 @@ export async function createSupabaseServerClient() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
-        for (const { name, value, options } of cookiesToSet) {
-          cookieStore.set(name, value, options);
+        try {
+          for (const { name, value, options } of cookiesToSet) {
+            cookieStore.set(name, value, options);
+          }
+        } catch {
+          // `cookies().set` is not allowed in some Server Component render paths
+          // (e.g. token refresh); middleware / Route Handlers own session refresh.
         }
       },
     },

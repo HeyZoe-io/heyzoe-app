@@ -42,7 +42,14 @@ export default function DashboardLoginPage() {
     if (typeof window === "undefined") return "";
     const sp = new URLSearchParams(window.location.search);
     const next = sp.get("next") ?? "";
-    return next.startsWith("/") ? next : "";
+    if (!next.startsWith("/") || next.startsWith("//")) return "";
+    try {
+      const u = new URL(next, window.location.origin);
+      if (u.origin !== window.location.origin) return "";
+      return `${u.pathname}${u.search}`;
+    } catch {
+      return "";
+    }
   }, []);
 
   useEffect(() => {
