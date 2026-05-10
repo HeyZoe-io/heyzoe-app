@@ -1138,6 +1138,8 @@ export default function SlugSettingsPage() {
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
   const [services, setServices]   = useState<ServiceItem[]>([]);
+  const servicesRef = useRef<ServiceItem[]>(services);
+  servicesRef.current = services;
   const [servicesHydrated, setServicesHydrated] = useState(false);
   const dragIdx = useRef<number | null>(null);
   /** true = יש פתיחה שמורה בשרת או שכבר מילאנו טמפלייט — לא לדרוס אוטומטית */
@@ -1328,7 +1330,12 @@ export default function SlugSettingsPage() {
     } catch {
       serialized = "";
     }
-    if (serialized && serialized === swrLastAppliedPayloadJsonRef.current) {
+    if (
+      serialized &&
+      serialized === swrLastAppliedPayloadJsonRef.current &&
+      settingsHydrated &&
+      servicesHydrated
+    ) {
       return;
     }
     const business = swrSettings.business;
@@ -1478,59 +1485,70 @@ export default function SlugSettingsPage() {
         );
 
         if (Array.isArray(svcs)) {
-          setServices((svcs as Record<string, unknown>[]).map((s, index, arr) => {
-            const name = String(s.name ?? "");
-            const rawDescription = String(s.description ?? "");
-            const parsed = parseStoredServiceDescription(rawDescription);
-            const meta = parsed.meta;
-            const storedBenefit = String(meta.benefit_line ?? "").trim();
-            const descriptionDraftSource = parsed.descriptionTextForUi;
-            const legacyBenefits = Array.isArray(meta.benefits)
-              ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
-              : [];
-            const legacySuggestions = Array.isArray(meta.benefit_suggestions)
-              ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
-              : [];
-            const regeneratedBenefit = buildServiceReplyDraft(
-              name,
-              descriptionDraftSource,
-              "",
-              legacyBenefits,
-              legacySuggestions,
-              meta.levels_enabled === true,
-              Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : []
-            );
-            return {
-              ui_id: uid(),
-              name,
-              price_text: String(s.price_text ?? ""),
-              duration: String(meta.duration ?? ""),
-              payment_link: String(meta.payment_link ?? ""),
-              service_slug: String(s.service_slug ?? ""),
-              location_text: String(s.location_text ?? ""),
-              description: descriptionDraftSource,
-              levels_enabled: meta.levels_enabled === true,
-              levels: Array.isArray(meta.levels)
-                ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
-                : [],
-              benefit_line:
-                storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
-                  ? storedBenefit
-                  : regeneratedBenefit,
-              trial_pick_media_url: String(meta.trial_pick_media_url ?? "").trim(),
-              trial_pick_media_type:
-                meta.trial_pick_media_type === "video"
-                  ? "video"
-                  : meta.trial_pick_media_type === "image"
-                    ? "image"
-                    : "",
-            };
-          }));
+          const incomingHasNamed = (svcs as Record<string, unknown>[]).some((s) =>
+            String(s.name ?? "").trim()
+          );
+          const localHasNamed = servicesRef.current.some((s) => s.name.trim());
+          if (!incomingHasNamed && localHasNamed) {
+            setServicesHydrated(true);
+          } else {
+            setServices((svcs as Record<string, unknown>[]).map((s, index, arr) => {
+              const name = String(s.name ?? "");
+              const rawDescription = String(s.description ?? "");
+              const parsed = parseStoredServiceDescription(rawDescription);
+              const meta = parsed.meta;
+              const storedBenefit = String(meta.benefit_line ?? "").trim();
+              const descriptionDraftSource = parsed.descriptionTextForUi;
+              const legacyBenefits = Array.isArray(meta.benefits)
+                ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
+                : [];
+              const legacySuggestions = Array.isArray(meta.benefit_suggestions)
+                ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
+                : [];
+              const regeneratedBenefit = buildServiceReplyDraft(
+                name,
+                descriptionDraftSource,
+                "",
+                legacyBenefits,
+                legacySuggestions,
+                meta.levels_enabled === true,
+                Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : []
+              );
+              return {
+                ui_id: uid(),
+                name,
+                price_text: String(s.price_text ?? ""),
+                duration: String(meta.duration ?? ""),
+                payment_link: String(meta.payment_link ?? ""),
+                service_slug: String(s.service_slug ?? ""),
+                location_text: String(s.location_text ?? ""),
+                description: descriptionDraftSource,
+                levels_enabled: meta.levels_enabled === true,
+                levels: Array.isArray(meta.levels)
+                  ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
+                  : [],
+                benefit_line:
+                  storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
+                    ? storedBenefit
+                    : regeneratedBenefit,
+                trial_pick_media_url: String(meta.trial_pick_media_url ?? "").trim(),
+                trial_pick_media_type:
+                  meta.trial_pick_media_type === "video"
+                    ? "video"
+                    : meta.trial_pick_media_type === "image"
+                      ? "image"
+                      : "",
+              };
+            }));
+            setServicesHydrated(true);
+          }
+        } else {
+          setServices([]);
           setServicesHydrated(true);
         }
         setSettingsHydrated(true);
-    if (serialized) swrLastAppliedPayloadJsonRef.current = serialized;
-  }, [slug, swrSettings, swrSettingsError]);
+        if (serialized) swrLastAppliedPayloadJsonRef.current = serialized;
+  }, [slug, swrSettings, swrSettingsError, settingsHydrated, servicesHydrated]);
 
   useEffect(() => {
     if (blockingSettingsLoad || !settingsHydrated) {
