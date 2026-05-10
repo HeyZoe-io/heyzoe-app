@@ -612,7 +612,7 @@ export function pickAfterServicePickOpener(serviceName: string): string {
   return AFTER_SERVICE_PICK_OPENERS[idx]!;
 }
 
-/** נושא לפני הם/היא: קידומת + שם, בלי הניסוח הישן («שליי הX שלנו מתמקדים…»). */
+/** נושא לפני הם/היא: קידומת + שם; בלי הניסוח הישן «שיעורי ה[שם] שלנו מתמקדים ב…». */
 export function buildServicePickSubjectFragment(serviceName: string): string {
   const raw = serviceName.trim().replace(/\s+/g, " ");
   if (!raw) return "האימונים";
