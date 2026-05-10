@@ -1021,7 +1021,6 @@ export default function SlugSettingsPage() {
 
   const [step, setStep]     = useState(1);
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
-  const [loading, setLoading] = useState(true);
   /** נכון רק אחרי GET מוצלח לעסק שתואם ל־slug — מונע אוטו־שמירה שדורסת נתונים */
   const [settingsHydrated, setSettingsHydrated] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState("");
@@ -1256,7 +1255,6 @@ export default function SlugSettingsPage() {
   const {
     data: swrSettings,
     error: swrSettingsError,
-    isLoading: swrSettingsLoading,
   } = useSWR(settingsKey, dashboardSettingsFetcher, {
     revalidateOnFocus: true,
     dedupingInterval: 5000,
@@ -1264,27 +1262,48 @@ export default function SlugSettingsPage() {
     shouldRetryOnError: false,
   });
 
+  /** טעינת מסך מלאה רק לפני התשובה הראשונה — לא בריענון ברקע (מונע קפיצות גלילה וסקלטון) */
+  const blockingSettingsLoad = Boolean(settingsKey && !swrSettings && !swrSettingsError);
+
+  const swrHydrationSlugRef = useRef(slug);
+  const swrLastAppliedPayloadJsonRef = useRef<string | null>(null);
+
   useEffect(() => {
-    setLoading(Boolean(swrSettingsLoading));
-    setSettingsHydrated(false);
-    setServicesHydrated(false);
     setSettingsLoadError("");
     if (swrSettingsError) {
       setSettingsLoadError("לא ניתן לטעון את נתוני מסלול המכירה.");
-      setLoading(false);
+      setSettingsHydrated(false);
+      setServicesHydrated(false);
       return;
     }
-    if (!swrSettings) return;
+    if (!swrSettings) {
+      setSettingsHydrated(false);
+      setServicesHydrated(false);
+      return;
+    }
+
+    if (swrHydrationSlugRef.current !== slug) {
+      swrHydrationSlugRef.current = slug;
+      swrLastAppliedPayloadJsonRef.current = null;
+    }
+
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(swrSettings);
+    } catch {
+      serialized = "";
+    }
+    if (serialized && serialized === swrLastAppliedPayloadJsonRef.current) {
+      return;
+    }
     const business = swrSettings.business;
     const svcs = swrSettings.services;
         if (!business) {
           setSettingsLoadError("לא נמצא עסק עבור כתובת זו. בדקו את הכתובת או התחברו מחדש.");
-          setLoading(false);
           return;
         }
         if (String(business.slug ?? "").toLowerCase() !== slug.toLowerCase()) {
           setSettingsLoadError("אי-התאמה בין העסק לכתובת. רעננו את הדף.");
-          setLoading(false);
           return;
         }
         const sl = (business.social_links && typeof business.social_links === "object"
@@ -1475,17 +1494,17 @@ export default function SlugSettingsPage() {
           setServicesHydrated(true);
         }
         setSettingsHydrated(true);
-    setLoading(false);
-  }, [slug, swrSettings, swrSettingsError, swrSettingsLoading]);
+    if (serialized) swrLastAppliedPayloadJsonRef.current = serialized;
+  }, [slug, swrSettings, swrSettingsError]);
 
   useEffect(() => {
-    if (loading || !settingsHydrated) {
+    if (blockingSettingsLoad || !settingsHydrated) {
       setCanAutosave(false);
       return;
     }
     const t = window.setTimeout(() => setCanAutosave(true), AUTOSAVE_ENABLE_DELAY_MS);
     return () => clearTimeout(t);
-  }, [loading, settingsHydrated]);
+  }, [blockingSettingsLoad, settingsHydrated]);
 
   // ─── Save payload (ידני + אוטומטי) ─────────────────────────────────────────
 
@@ -2206,7 +2225,7 @@ export default function SlugSettingsPage() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
-  if (loading) {
+  if (blockingSettingsLoad) {
     return (
       <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
         <div className="sticky top-0 z-40 border-b border-white/50 bg-white/65 shadow-[0_14px_40px_rgba(95,64,178,0.1)] backdrop-blur-xl">
