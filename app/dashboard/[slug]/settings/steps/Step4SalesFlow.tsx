@@ -576,7 +576,7 @@ export default function Step4SalesFlow(props: any) {
                   </label>
                   {locked === "trial" ? (
                     <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
-                      תמיד נשלח לינק הרשמה/תשלום מטאב «אימון ניסיון» לאימון שנבחר (אין כיבוי כפתור)
+                      לינק מטאב «אימון ניסיון»
                     </p>
                   ) : (
                     <>
@@ -598,7 +598,7 @@ export default function Step4SalesFlow(props: any) {
                       >
                         {locked === "schedule" ? (
                           <>
-                            <option value="link">לינק</option>
+                            <option value="link">לינק מטאב «לינקים»</option>
                             <option value="image">תמונה</option>
                             <option value="none">ללא</option>
                           </>
@@ -615,45 +615,47 @@ export default function Step4SalesFlow(props: any) {
                           <p className="text-[11px] font-medium text-zinc-700 text-right">
                             טווח מחירים (יאספו להודעת ווטסאפ למנויים/כרטיסיות)
                           </p>
-                          <div className="flex flex-row-reverse flex-wrap items-center gap-2 justify-end">
-                            <span className="text-xs text-zinc-600 shrink-0">₪</span>
-                            <Input
-                              dir="rtl"
-                              inputMode="decimal"
-                              className="w-28 shrink-0"
-                              placeholder="מספר"
-                              value={String(b.memberships_price_range_min ?? "")}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setSalesFlowConfig((c: any) => ({
-                                  ...c,
-                                  cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                    x.id === b.id ? { ...x, memberships_price_range_min: v } : x
-                                  ),
-                                }));
-                              }}
-                            />
-                            <span className="text-xs font-medium text-zinc-700 shrink-0">בין:</span>
-                          </div>
-                          <div className="flex flex-row-reverse flex-wrap items-center gap-2 justify-end">
-                            <span className="text-xs text-zinc-600 shrink-0">₪</span>
-                            <Input
-                              dir="rtl"
-                              inputMode="decimal"
-                              className="w-28 shrink-0"
-                              placeholder="מספר"
-                              value={String(b.memberships_price_range_max ?? "")}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setSalesFlowConfig((c: any) => ({
-                                  ...c,
-                                  cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                    x.id === b.id ? { ...x, memberships_price_range_max: v } : x
-                                  ),
-                                }));
-                              }}
-                            />
-                            <span className="text-xs font-medium text-zinc-700 shrink-0">ל־</span>
+                          <div className="flex flex-row-reverse flex-wrap items-center gap-x-4 gap-y-2 justify-end">
+                            <div className="flex flex-row-reverse items-center gap-1.5 shrink-0">
+                              <span className="text-xs text-zinc-600 shrink-0">₪</span>
+                              <Input
+                                dir="rtl"
+                                inputMode="decimal"
+                                className="w-24 shrink-0"
+                                placeholder="מספר"
+                                value={String(b.memberships_price_range_min ?? "")}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setSalesFlowConfig((c: any) => ({
+                                    ...c,
+                                    cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                      x.id === b.id ? { ...x, memberships_price_range_min: v } : x
+                                    ),
+                                  }));
+                                }}
+                              />
+                              <span className="text-xs font-medium text-zinc-700 shrink-0">בין:</span>
+                            </div>
+                            <div className="flex flex-row-reverse items-center gap-1.5 shrink-0">
+                              <span className="text-xs text-zinc-600 shrink-0">₪</span>
+                              <Input
+                                dir="rtl"
+                                inputMode="decimal"
+                                className="w-24 shrink-0"
+                                placeholder="מספר"
+                                value={String(b.memberships_price_range_max ?? "")}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setSalesFlowConfig((c: any) => ({
+                                    ...c,
+                                    cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                      x.id === b.id ? { ...x, memberships_price_range_max: v } : x
+                                    ),
+                                  }));
+                                }}
+                              />
+                              <span className="text-xs font-medium text-zinc-700 shrink-0">ל־</span>
+                            </div>
                           </div>
                         </div>
                       ) : null}
