@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import posthog from "posthog-js";
+import PwaServiceWorkerRegister from "@/app/components/PwaServiceWorkerRegister";
 
 function shouldRecordSession(pathname: string): boolean {
   // Limit Session Replay to landing only.
@@ -55,6 +56,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       }}
     >
       <QueryClientProvider client={queryClient}>
+        <PwaServiceWorkerRegister />
         <PostHogSessionReplayGate />
         {children}
       </QueryClientProvider>
