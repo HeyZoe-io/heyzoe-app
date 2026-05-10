@@ -1093,6 +1093,9 @@ export default function SlugSettingsPage() {
   const directionsMediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingDirectionsMedia, setUploadingDirectionsMedia] = useState(false);
   const [directionsMediaUploadError, setDirectionsMediaUploadError] = useState("");
+  const scheduleCtaMediaInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingScheduleCtaMedia, setUploadingScheduleCtaMedia] = useState(false);
+  const [scheduleCtaMediaUploadError, setScheduleCtaMediaUploadError] = useState("");
   const [showDirectionsMediaModal, setShowDirectionsMediaModal] = useState(false);
   const [showStarterMediaProModal, setShowStarterMediaProModal] = useState(false);
   const [uploadingTrialPickUiId, setUploadingTrialPickUiId] = useState<string | null>(null);
@@ -1857,7 +1860,82 @@ export default function SlugSettingsPage() {
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
-  async function uploadMedia(file: File, target: "opening" | "directions") {
+  async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta") {
+    if (target === "schedule_cta") {
+      setScheduleCtaMediaUploadError("");
+      if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
+        setScheduleCtaMediaUploadError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+        return;
+      }
+      if (!file.type.startsWith("image")) {
+        setScheduleCtaMediaUploadError("למערכת שעות יש להעלות תמונה בלבד (JPG/PNG).");
+        return;
+      }
+      if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+        setScheduleCtaMediaUploadError("הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ או להעלות קובץ קטן יותר.");
+        return;
+      }
+      setUploadingScheduleCtaMedia(true);
+      try {
+        const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type || "application/octet-stream",
+            fileSize: file.size,
+          }),
+        });
+        let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
+        try {
+          signJson = (await signRes.json()) as typeof signJson;
+        } catch {
+          setScheduleCtaMediaUploadError("תשובת שרת לא תקינה.");
+          return;
+        }
+        if (!signRes.ok) {
+          setScheduleCtaMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+          return;
+        }
+        const signedUrl = signJson.signedUrl?.trim();
+        const publicUrl = signJson.publicUrl?.trim();
+        if (!signedUrl || !publicUrl) {
+          setScheduleCtaMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+          return;
+        }
+        const putRes = await fetch(signedUrl, {
+          method: "PUT",
+          headers: {
+            "x-upsert": "true",
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!putRes.ok) {
+          setScheduleCtaMediaUploadError(`העלאה ל-Storage נכשלה (${putRes.status}).`);
+          return;
+        }
+        setSalesFlowConfig((c) => ({
+          ...c,
+          cta_buttons: c.cta_buttons.map((btn) =>
+            btn.kind === "schedule"
+              ? {
+                  ...btn,
+                  schedule_cta_delivery: "image",
+                  schedule_cta_image_url: publicUrl,
+                  schedule_cta_image_type: "image",
+                }
+              : btn
+          ),
+        }));
+      } catch {
+        setScheduleCtaMediaUploadError("בעיית רשת בהעלאה.");
+      } finally {
+        setUploadingScheduleCtaMedia(false);
+      }
+      return;
+    }
+
     const setError = target === "opening" ? setMediaUploadError : setDirectionsMediaUploadError;
     const setUploading = target === "opening" ? setUploadingMedia : setUploadingDirectionsMedia;
     const setUrl = target === "opening" ? setOpeningMediaUrl : setDirectionsMediaUrl;
@@ -2610,6 +2688,10 @@ export default function SlugSettingsPage() {
             openingMediaType={openingMediaType}
             uploadingMedia={uploadingMedia}
             mediaInputRef={mediaInputRef}
+            scheduleCtaMediaInputRef={scheduleCtaMediaInputRef}
+            uploadingScheduleCtaMedia={uploadingScheduleCtaMedia}
+            scheduleCtaMediaUploadError={scheduleCtaMediaUploadError}
+            setScheduleCtaMediaUploadError={setScheduleCtaMediaUploadError}
             uploadMedia={uploadMedia}
             setOpeningMediaUrl={setOpeningMediaUrl}
             setOpeningMediaType={setOpeningMediaType}
