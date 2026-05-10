@@ -79,16 +79,17 @@ function TrialPickMediaAttachmentSection(props: {
 
   return (
     <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/35 to-zinc-50/40 p-4 text-right shadow-[0_8px_30px_-12px_rgba(95,64,178,0.15)]">
-      <label className="flex flex-row-reverse items-center justify-between gap-3 cursor-pointer select-none">
-        <div className="flex flex-row-reverse items-center gap-3 min-w-0">
-          <input
-            type="checkbox"
-            checked={attachMedia}
-            onChange={(e) => onToggleAttach(e.target.checked)}
-            className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
-          />
-          <span className="text-sm font-semibold text-zinc-800 tracking-tight">צירוף מדיה</span>
-        </div>
+      <label
+        dir="rtl"
+        className="flex w-full flex-wrap items-center justify-start gap-x-3 gap-y-2 cursor-pointer select-none"
+      >
+        <span className="text-sm font-semibold text-zinc-800 tracking-tight text-right shrink-0">צירוף מדיה</span>
+        <input
+          type="checkbox"
+          checked={attachMedia}
+          onChange={(e) => onToggleAttach(e.target.checked)}
+          className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
+        />
         {planIsStarter ? (
           <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
             ⭐ Pro
