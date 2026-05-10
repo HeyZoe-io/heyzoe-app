@@ -557,7 +557,8 @@ export default function Step4SalesFlow(props: any) {
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
             <div
-              className="flex flex-row-reverse flex-wrap gap-2 pb-1 border-b border-zinc-100"
+              dir="rtl"
+              className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
               role="tablist"
               aria-label="סוג סשן הנעה לפעולה"
             >
@@ -566,7 +567,7 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "trial"}
-                  className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-sm font-medium text-right rounded-full px-3 py-1.5 border transition-colors ${
                     ctaOfferTab === "trial"
                       ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -581,7 +582,7 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "workshop"}
-                  className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-sm font-medium text-right rounded-full px-3 py-1.5 border transition-colors ${
                     ctaOfferTab === "workshop"
                       ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -596,7 +597,7 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "course"}
-                  className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-sm font-medium text-right rounded-full px-3 py-1.5 border transition-colors ${
                     ctaOfferTab === "course"
                       ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
