@@ -262,6 +262,98 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
   return out.length ? out : structuredClone(FRIENDLY.cta_buttons);
 }
 
+/** בחירה יחידה בדשבורד («סוג») — מתאמה לערכים האחסוניים trial_cta_delivery / schedule_cta_delivery / וכו׳ */
+export type SalesFlowCtaTypeUiValue =
+  | "trial:link"
+  | "trial:none"
+  | "schedule:link"
+  | "schedule:image"
+  | "schedule:none"
+  | "memberships:link"
+  | "memberships:none"
+  | "address";
+
+/** מפתח טופס מתוך הכפתור השמור (ללא שדה «דרך ההצגה» נפרד) */
+export function getSalesFlowCtaTypeUiValue(b: SalesFlowCtaButton): SalesFlowCtaTypeUiValue {
+  if (b.kind === "address") return "address";
+  if (b.kind === "trial") return (b.trial_cta_delivery ?? "link") === "none" ? "trial:none" : "trial:link";
+  if (b.kind === "memberships") {
+    return (b.memberships_cta_delivery ?? "link") === "none" ? "memberships:none" : "memberships:link";
+  }
+  const d = b.schedule_cta_delivery ?? "link";
+  if (d === "image") return "schedule:image";
+  if (d === "none") return "schedule:none";
+  return "schedule:link";
+}
+
+/**
+ * מצב כפתור CTA מתוך בחירת «סוג» בדף ההגדרות.
+ * מתעדף שמירה על תמונת מערכת השעות כשעוברים מ־לינק אל תמונה וחזרה.
+ */
+export function salesFlowCtaButtonFromTypeUiChoice(
+  base: Pick<SalesFlowCtaButton, "id" | "label">,
+  previous: SalesFlowCtaButton,
+  uiRaw: string
+): SalesFlowCtaButton {
+  const { id, label } = base;
+  const ui = uiRaw.trim() as SalesFlowCtaTypeUiValue | string;
+
+  if (ui === "address") return { id, label, kind: "address" };
+
+  if (ui === "trial:link" || ui === "trial:none") {
+    return { id, label, kind: "trial", trial_cta_delivery: ui === "trial:none" ? "none" : "link" };
+  }
+
+  if (ui === "memberships:link" || ui === "memberships:none") {
+    return {
+      id,
+      label,
+      kind: "memberships",
+      memberships_cta_delivery: ui === "memberships:none" ? "none" : "link",
+    };
+  }
+
+  const prevSch = previous.kind === "schedule" ? previous : undefined;
+  const keepImgUrl = () => String(prevSch?.schedule_cta_image_url ?? "").trim();
+  const keepImgType = (): "image" | "" =>
+    prevSch?.schedule_cta_image_type === "image" ? "image" : "";
+
+  if (ui === "schedule:link") {
+    return {
+      id,
+      label,
+      kind: "schedule",
+      schedule_cta_delivery: "link",
+      schedule_cta_image_url: "",
+      schedule_cta_image_type: "",
+    };
+  }
+
+  if (ui === "schedule:none") {
+    return {
+      id,
+      label,
+      kind: "schedule",
+      schedule_cta_delivery: "none",
+      schedule_cta_image_url: "",
+      schedule_cta_image_type: "",
+    };
+  }
+
+  if (ui === "schedule:image") {
+    return {
+      id,
+      label,
+      kind: "schedule",
+      schedule_cta_delivery: "image",
+      schedule_cta_image_url: keepImgUrl(),
+      schedule_cta_image_type: keepImgUrl() ? keepImgType() : "",
+    };
+  }
+
+  return { id, label, kind: "trial", trial_cta_delivery: "link" };
+}
+
 export type EffectiveSalesFlowCtaInput = {
   trialRegistered: boolean | null;
   allowTrialCta: boolean;
