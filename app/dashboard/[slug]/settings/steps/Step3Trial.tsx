@@ -12,6 +12,16 @@ import { normalizeMasculinePredicatesAfterPracticeHead } from "@/lib/sales-flow"
 /** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
 const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
 
+/** שורת טופס RTL: תמיד input לפני הטקסט ב־DOM ו־justify-start — תיבה צמודה לימין והטקסט משמאל לה */
+function rtlCheckboxLabelRowClassName(fullWidth = true) {
+  return [
+    "flex flex-row items-center justify-start gap-3 text-right cursor-pointer select-none",
+    fullWidth ? "w-full" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 type ServiceItem = {
   ui_id: string;
   name: string;
@@ -80,14 +90,14 @@ function TrialPickMediaAttachmentSection(props: {
   return (
     <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/35 to-zinc-50/40 p-4 text-right shadow-[0_8px_30px_-12px_rgba(95,64,178,0.15)]">
       <div className="space-y-1">
-        <label className="flex flex-row-reverse items-center justify-end gap-3 text-right cursor-pointer select-none">
-          <span className="text-sm font-semibold text-zinc-800 tracking-tight">צירוף מדיה</span>
+        <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
           <input
             type="checkbox"
             checked={attachMedia}
             onChange={(e) => onToggleAttach(e.target.checked)}
-            className="h-4 w-4 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
+            className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
           />
+          <span className="text-sm font-semibold text-zinc-800 tracking-tight">צירוף מדיה</span>
         </label>
         {planIsStarter ? (
           <p className="text-[11px] font-semibold text-amber-600 text-right" title="זמין בחבילת Pro">
@@ -469,8 +479,7 @@ export default function Step3Trial(props: {
             </Field>
 
             <div className="space-y-3 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/25 to-zinc-50/50 p-4 text-right shadow-[0_8px_30px_-14px_rgba(95,64,178,0.12)]">
-              <label className="flex flex-row-reverse items-center justify-end gap-3 text-right cursor-pointer select-none">
-                <span className="text-sm font-semibold text-zinc-800 tracking-tight">חלוקה לרמות</span>
+              <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
                 <input
                   type="checkbox"
                   checked={s.levels_enabled}
@@ -486,8 +495,9 @@ export default function Step3Trial(props: {
                     };
                     setServices(arr);
                   }}
-                  className="h-4 w-4 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
+                  className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
                 />
+                <span className="text-sm font-semibold text-zinc-800 tracking-tight">חלוקה לרמות</span>
               </label>
               {s.levels_enabled ? (
                 <div className="space-y-2 text-right pt-2 border-t border-[rgba(113,51,218,0.08)]">
