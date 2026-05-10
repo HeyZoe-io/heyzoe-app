@@ -51,7 +51,7 @@ export async function getPublicBusinessBySlug(slug: string): Promise<PublicBusin
     .from("services")
     .select("name, location_text")
     .eq("business_id", business.id)
-    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(1);
 
   const firstService = services?.[0];

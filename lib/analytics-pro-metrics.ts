@@ -229,7 +229,12 @@ export async function computePremiumAnalytics(input: {
   /** ── אימונים פופולריים ── */
   const names: string[] = [];
   for (let off = 0; ; off += PAGE) {
-    const { data, error } = await admin.from("services").select("name").eq("business_id", businessId).range(off, off + PAGE - 1);
+    const { data, error } = await admin
+      .from("services")
+      .select("name")
+      .eq("business_id", businessId)
+      .order("id", { ascending: true })
+      .range(off, off + PAGE - 1);
     if (error) break;
     const rows = data ?? [];
     for (const s of rows) {

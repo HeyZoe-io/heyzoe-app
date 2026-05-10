@@ -128,7 +128,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         .from("services")
         .select("name, description, price_text, location_text, service_slug")
         .eq("business_id", business.id)
-        .order("created_at", { ascending: true }),
+        .order("id", { ascending: true }),
       admin.from("faqs").select("question, answer").eq("business_id", business.id).order("sort_order", { ascending: true }),
     ]);
 

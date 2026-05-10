@@ -1259,7 +1259,7 @@ async function processIncoming(
         .from("services")
         .select("name, description, service_slug, price_text")
         .eq("business_id", Number(businessId))
-        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .limit(24);
       salesFlowServices = (services ?? [])
         .map((s: { name?: unknown; description?: unknown; price_text?: unknown }) => ({

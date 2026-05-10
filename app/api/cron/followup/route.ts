@@ -71,7 +71,7 @@ async function resolveIdleFollowupCta(
     .from("services")
     .select("description")
     .eq("business_id", businessId)
-    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(1)
     .maybeSingle();
 

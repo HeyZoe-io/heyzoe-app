@@ -86,7 +86,8 @@ export async function GET(req: NextRequest) {
   }
 
   const [{ data: services }, { data: faqs }] = await Promise.all([
-    admin.from("services").select("*").eq("business_id", business.id).order("created_at", { ascending: true }),
+    /** id משקף את סדר ההכנסה אחרי delete+שמירה; created_at לא יציב בריבוי שורות באותה שנייה */
+    admin.from("services").select("*").eq("business_id", business.id).order("id", { ascending: true }),
     admin.from("faqs").select("*").eq("business_id", business.id).order("sort_order", { ascending: true }),
   ]);
 
