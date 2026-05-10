@@ -24,8 +24,9 @@ import {
   type SalesFlowConfig,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
-  buildServicePickSubjectFragment,
   composeGreeting,
+  composeAfterServicePickReply,
+  composeAfterServicePickReplyFromTrialDescription,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
@@ -35,7 +36,6 @@ import {
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
   trialServicePhraseForAfterPick,
-  composeAfterServicePickReply,
 } from "@/lib/sales-flow";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
@@ -451,116 +451,15 @@ function serviceReplyPhrase(serviceName: string): string {
   return trialServicePhraseForAfterPick(trimmed);
 }
 
-/** Avoid "שיעורי יוגה … שיעורים מגוונים" — drop redundant שיעור/שיעורים after subject. */
-function trimRedundantBodyAfterSubject(subject: string, body: string): string {
-  let b = body.trim().replace(/^ב\s+/u, "").trim();
-  if (/שיעורי\s/u.test(subject)) {
-    b = b.replace(/^שיעורים?\s+/u, "");
-  }
-  return b.trim();
-}
-
 /**
- * משפט WhatsApp מלא אחרי בחירת אימון: [פתיחה]! [נושא] הם/היא [זנב].
- * הנשמר ב־benefit_line — לעריכה בדשבורד ובשליחה (עם תאימות לזנג ישן בלי פתיחה).
+ * משפט ווטסאפ מלא אחרי בחירת אימון — מתוך תיאור מטאב אימון ניסיון בלבד,
+ * ללא עריכת התיאור (זיהוי כפילות מול השם בשלושים–ארבע המילים הראשונות בלבד).
  */
 function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
-  const nameRaw = String(serviceName ?? "").trim();
-  const finalizePredicateTail = (predicateTail: string): string => {
-    let tail = predicateTail.trim().replace(/\s+/g, " ");
-    tail = tail.length && !/[.!?]$/.test(tail) ? `${tail}.` : tail;
-    return composeAfterServicePickReply(nameRaw, tail);
-  };
-
-  const fixCommonHebrewTypos = (s: string): string => {
-    let out = String(s ?? "");
-    // Common omissions we saw in scans/generation
-    out = out.replace(/\bאימון\s+נפות\b/gu, "אימון הנפות");
-    out = out.replace(/\bאימוני\s+נפות\b/gu, "אימוני הנפות");
-    out = out.replace(/\bשיעורי\s+נפות\b/gu, "שיעורי הנפות");
-    out = out.replace(/\bשיעור\s+כל\s+כולו\b/gu, "שיעור שכל כולו");
-    out = out.replace(/\bאימון\s+כל\s+כולו\b/gu, "אימון שכל כולו");
-    // Normalize duplicated punctuation from scraped copy (e.g., "..")
-    out = out.replace(/\.{2,}/g, ".");
-    // Remove double spaces
-    out = out.replace(/\s+/g, " ");
-    return out.trim();
-  };
-
-  const raw = fixCommonHebrewTypos(String(description ?? "").replace(/\s+/g, " "));
-  if (!raw) {
-    return finalizePredicateTail("דרך מעולה להתחזק ולהתקדם בקצב נכון ונעים");
-  }
-
-  const candidates = raw
-    .split(/\n+/g)
-    .flatMap((line) => line.split(/[.!?]\s+/g))
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const preferredIndex = candidates.findIndex((s) =>
-    /(משלב|משלבים|כולל|כוללים|עבודת|סבולת|מוביליטי|כוח|גמיש|מתיחות|טווח|דיוק|שליטה|קהילה|מאמנ)/u.test(s)
+  return composeAfterServicePickReplyFromTrialDescription(
+    String(serviceName ?? ""),
+    String(description ?? "")
   );
-  const startIndex = preferredIndex >= 0 ? preferredIndex : 0;
-  const pickedParts = candidates.slice(startIndex, startIndex + 2);
-  const best = pickedParts.length ? pickedParts.join(". ") : candidates[0] ?? raw;
-
-  let core = fixCommonHebrewTypos(best.replace(/^[\"'“”״]+|[\"'“”״]+$/g, ""));
-  // Avoid "אימוני שיעורי יוגה…" — כפילות מילולית; השאר את ניסוח השיעור בלבד
-  if (/^אימוני\s+שיעורי\b/u.test(core)) core = core.replace(/^אימוני\s+/u, "");
-  const coreStartsWithShiur = /^(שיעור|שיעורי)\b/u.test(core);
-  core = core.replace(/^האימון(?:\s+המרכזי)?\s+שלנו[, ]*/u, "");
-  core = core.replace(/^האימון[, ]*/u, "");
-  core = core.replace(/^משלב\b/u, "משלבים");
-  core = core.replace(/^כולל\b/u, "כוללים");
-
-  const looksLikeTechnicalSession = /אימון\s+טכני|סנאץ|סנץ|snatch|קלין|clean|ג(?:׳|')רק|jerk/u.test(core);
-  const coreStartsWithAimon = /^אימון\b/u.test(core);
-
-  if (looksLikeTechnicalSession || coreStartsWithAimon) {
-    const body = coreStartsWithAimon ? core.replace(/^אימון\s+/u, "") : core;
-    const out = fixCommonHebrewTypos(body).trim().replace(/\s+/g, " ");
-    const punct = /[.!?]$/.test(out) ? out : `${out}.`;
-    return finalizePredicateTail(punct);
-  }
-
-  // If site copy already uses "שיעור/שיעורי" - keep it as a class ("שיעורי ...") not "אימונים".
-  if (coreStartsWithShiur) {
-    // Keep the site's copy as much as possible: convert "שיעור" -> "שיעורי" and remove clunky time phrasing.
-    let outCore = core.replace(/^שיעור\s+/u, "שיעורי ");
-    if (nameRaw && outCore.startsWith("שיעורי ")) {
-      const after = outCore.slice("שיעורי ".length);
-      if (!after.toLowerCase().includes(nameRaw.toLowerCase())) {
-        const rest = after.replace(/^[^.,!?]+/u, "").trim();
-        outCore = `שיעורי ${nameRaw}${rest ? " " + rest : ""}`.trim();
-      }
-    }
-    outCore = outCore.replace(/(?:^|\.\s*)השעה\s+הזו\s+ביום\s+בה\s+/u, "$1");
-    outCore = fixCommonHebrewTypos(outCore);
-    const out = outCore.trim().replace(/\s+/g, " ");
-    const punct = /[.!?]$/.test(out) ? out : `${out}.`;
-    return finalizePredicateTail(punct);
-  }
-
-  const coreTrim = core.trim();
-  const coreLooksLikeAimonSentence =
-    /^אימון\b/u.test(coreTrim) ||
-    /^אימון\s+ש?כל\s+כולו\b/u.test(coreTrim) ||
-    /^(אימון\s+טכני|השליטה)\b/u.test(coreTrim);
-  if (coreLooksLikeAimonSentence && nameRaw) {
-    const body = fixCommonHebrewTypos(coreTrim).trim().replace(/\s+/g, " ");
-    const punct = /[.!?]$/.test(body) ? body : `${body}.`;
-    return finalizePredicateTail(punct);
-  }
-
-  let body = core;
-  body = body.replace(/^מתמקדים\s+ב\s*/u, "");
-  body = body.replace(/^ב\s+/u, "");
-  body = body.trim();
-  const subjectPhrase = nameRaw ? buildServicePickSubjectFragment(nameRaw) : "האימונים";
-  const bodyJoined = trimRedundantBodyAfterSubject(subjectPhrase, body);
-  const out = fixCommonHebrewTypos(bodyJoined).trim().replace(/\s+/g, " ");
-  const punct = /[.!?]$/.test(out) ? out : `${out}.`;
-  return finalizePredicateTail(punct);
 }
 
 function formatLevelsForSentence(levels: string[]): string {
