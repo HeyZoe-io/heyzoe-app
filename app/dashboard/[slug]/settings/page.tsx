@@ -2281,7 +2281,7 @@ export default function SlugSettingsPage() {
   if (blockingSettingsLoad) {
     return (
       <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
-        <div className="sticky top-0 z-40 border-b border-white/50 bg-white/65 shadow-[0_14px_40px_rgba(95,64,178,0.1)] backdrop-blur-xl">
+        <div className="border-b border-white/50 bg-white/65 shadow-[0_14px_40px_rgba(95,64,178,0.1)] backdrop-blur-xl">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between animate-pulse">
             <div className="h-4 w-40 rounded bg-zinc-200" />
             <div className="h-4 w-24 rounded bg-zinc-200" />
@@ -2348,7 +2348,7 @@ export default function SlugSettingsPage() {
       {/* ── Top bar ── */}
       <div
         className={
-          "sticky top-0 z-40 border-b backdrop-blur-xl transition-[max-height,opacity] duration-200 ease-out " +
+          "border-b backdrop-blur-xl transition-[max-height,opacity] duration-200 ease-out " +
           (isSalesFlowSettingsStep && !salesFlowHeaderVisible
             ? "max-h-0 overflow-hidden opacity-0 pointer-events-none border-transparent shadow-none bg-transparent"
             : [
