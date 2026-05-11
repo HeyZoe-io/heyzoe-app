@@ -121,12 +121,12 @@ const FRIENDLY: SalesFlowConfig = {
     "להכיר קהילה חדשה",
   ],
   after_experience_workshop:
-    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
   opening_extra_steps_workshop: [],
   experience_question_course: "יש לך ניסיון קודם בתחום?",
   experience_options_course: ["כן, יש לי בסיס", "קצת", "בכלל לא"],
   after_experience_course:
-    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
   opening_extra_steps_course: [],
   cta_body:
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
@@ -196,9 +196,9 @@ const FORMAL: SalesFlowConfig = {
   after_experience:
     "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
   after_experience_workshop:
-    "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
+    "נעים לשמוע. סדנת {serviceName} היא המקום הנכון לכך.",
   after_experience_course:
-    "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
+    "מצוין. קורס {serviceName} יאפשר לכם לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
   cta_body:
     "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,
@@ -1148,9 +1148,17 @@ export function formatServiceLevelsText(levelsEnabled: boolean, levels: string[]
 export function fillAfterExperienceTemplate(
   template: string,
   levelsEnabled: boolean,
-  levels: string[]
+  levels: string[],
+  serviceName?: string
 ): string {
-  return template.replace(/\{levelsText\}/g, formatServiceLevelsText(levelsEnabled, levels));
+  let s = template.replace(/\{levelsText\}/g, formatServiceLevelsText(levelsEnabled, levels));
+  const nm = serviceName?.trim();
+  if (nm) {
+    s = s.replace(/\{serviceName\}/g, nm);
+  } else {
+    s = s.replace(/\{serviceName\}/g, "");
+  }
+  return s;
 }
 
 export function syncWelcomeFromSalesFlow(
