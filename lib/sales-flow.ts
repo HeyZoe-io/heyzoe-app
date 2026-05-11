@@ -60,6 +60,16 @@ export type SalesFlowConfig = {
   experience_options: [string, string, string];
   after_experience: string;
   opening_extra_steps: SalesFlowExtraStep[];
+  /** סשן חימום — סדנה (כשיש שירותי סדנה) */
+  experience_question_workshop: string;
+  experience_options_workshop: [string, string, string];
+  after_experience_workshop: string;
+  opening_extra_steps_workshop: SalesFlowExtraStep[];
+  /** סשן חימום — קורס */
+  experience_question_course: string;
+  experience_options_course: [string, string, string];
+  after_experience_course: string;
+  opening_extra_steps_course: SalesFlowExtraStep[];
   cta_body: string;
   cta_buttons: SalesFlowCtaButton[];
   /** סשן הנעה — סדנה (רק כשיש שירותי סדנה) */
@@ -104,6 +114,20 @@ const FRIENDLY: SalesFlowConfig = {
   after_experience:
     "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
   opening_extra_steps: [],
+  experience_question_workshop: "איזו ציפייה יש לך מהסדנה?",
+  experience_options_workshop: [
+    "להעשיר את הידע שלי",
+    "לחוות חוויה מעוררת",
+    "להכיר קהילה חדשה",
+  ],
+  after_experience_workshop:
+    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+  opening_extra_steps_workshop: [],
+  experience_question_course: "יש לך ניסיון קודם בתחום?",
+  experience_options_course: ["כן, יש לי בסיס", "קצת", "בכלל לא"],
+  after_experience_course:
+    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+  opening_extra_steps_course: [],
   cta_body:
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,
@@ -170,6 +194,10 @@ const FORMAL: SalesFlowConfig = {
   after_service_pick:
     "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   after_experience:
+    "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
+  after_experience_workshop:
+    "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
+  after_experience_course:
     "מצוין. {levelsText} ונשמח למצוא עבורכם את ההתאמה הנכונה.",
   cta_body:
     "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
@@ -887,6 +915,32 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.experience_question === "string" ? o.experience_question : base.experience_question,
     experience_options: ex(o.experience_options),
     after_experience: typeof o.after_experience === "string" ? o.after_experience : base.after_experience,
+    experience_question_workshop:
+      typeof o.experience_question_workshop === "string"
+        ? o.experience_question_workshop
+        : base.experience_question_workshop,
+    experience_options_workshop: ((): [string, string, string] => {
+      const i = o.experience_options_workshop;
+      if (!Array.isArray(i) || i.length < 3) return [...base.experience_options_workshop];
+      return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
+    })(),
+    after_experience_workshop:
+      typeof o.after_experience_workshop === "string"
+        ? o.after_experience_workshop
+        : base.after_experience_workshop,
+    opening_extra_steps_workshop: parseExtraSteps(o.opening_extra_steps_workshop ?? base.opening_extra_steps_workshop),
+    experience_question_course:
+      typeof o.experience_question_course === "string"
+        ? o.experience_question_course
+        : base.experience_question_course,
+    experience_options_course: ((): [string, string, string] => {
+      const i = o.experience_options_course;
+      if (!Array.isArray(i) || i.length < 3) return [...base.experience_options_course];
+      return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
+    })(),
+    after_experience_course:
+      typeof o.after_experience_course === "string" ? o.after_experience_course : base.after_experience_course,
+    opening_extra_steps_course: parseExtraSteps(o.opening_extra_steps_course ?? base.opening_extra_steps_course),
     greeting_extra_steps: parseExtraSteps(o.greeting_extra_steps),
     opening_extra_steps: parseExtraSteps(o.opening_extra_steps),
     cta_body: migrateLegacyCtaBody(typeof o.cta_body === "string" ? o.cta_body : base.cta_body, base.cta_body),
@@ -929,8 +983,24 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     experience_question: c.experience_question,
     experience_options: [...c.experience_options],
     after_experience: c.after_experience,
+    experience_question_workshop: c.experience_question_workshop,
+    experience_options_workshop: [...c.experience_options_workshop],
+    after_experience_workshop: c.after_experience_workshop,
+    experience_question_course: c.experience_question_course,
+    experience_options_course: [...c.experience_options_course],
+    after_experience_course: c.after_experience_course,
     greeting_extra_steps: [],
     opening_extra_steps: c.opening_extra_steps.map((s) => ({
+      id: s.id,
+      question: s.question,
+      options: s.options,
+    })),
+    opening_extra_steps_workshop: c.opening_extra_steps_workshop.map((s) => ({
+      id: s.id,
+      question: s.question,
+      options: s.options,
+    })),
+    opening_extra_steps_course: c.opening_extra_steps_course.map((s) => ({
       id: s.id,
       question: s.question,
       options: s.options,
@@ -1003,7 +1073,63 @@ export function composeGreeting(
   return [c.greeting_opener, lineName, lineTag, c.greeting_closer, addressLine].filter(Boolean).join("\n");
 }
 
-export type ServiceLike = { name: string; benefit_line?: string; service_slug?: string };
+export type ServiceLike = {
+  name: string;
+  benefit_line?: string;
+  service_slug?: string;
+  /** סוג הצעה — משפיע על שאלת סשן החימום בהודעת פתיחה כשיש שירות יחיד */
+  offer_kind?: OfferKind;
+};
+
+/** שאלת חימום + אפשרויות + תוספות + תבנית «אחרי הניסיון» לפי סוג השירות שנבחר בפועל */
+export function resolveWarmupExperienceConfig(
+  cfg: SalesFlowConfig,
+  kind: OfferKind
+): {
+  question: string;
+  options: [string, string, string];
+  extras: SalesFlowExtraStep[];
+  afterExperienceRaw: string;
+} {
+  if (kind === "workshop") {
+    return {
+      question: cfg.experience_question_workshop ?? FRIENDLY.experience_question_workshop,
+      options: [...(cfg.experience_options_workshop ?? FRIENDLY.experience_options_workshop)] as [
+        string,
+        string,
+        string,
+      ],
+      extras: structuredClone(cfg.opening_extra_steps_workshop ?? []),
+      afterExperienceRaw:
+        cfg.after_experience_workshop ??
+        cfg.after_experience ??
+        FRIENDLY.after_experience_workshop ??
+        FRIENDLY.after_experience,
+    };
+  }
+  if (kind === "course") {
+    return {
+      question: cfg.experience_question_course ?? FRIENDLY.experience_question_course,
+      options: [...(cfg.experience_options_course ?? FRIENDLY.experience_options_course)] as [
+        string,
+        string,
+        string,
+      ],
+      extras: structuredClone(cfg.opening_extra_steps_course ?? []),
+      afterExperienceRaw:
+        cfg.after_experience_course ??
+        cfg.after_experience ??
+        FRIENDLY.after_experience_course ??
+        FRIENDLY.after_experience,
+    };
+  }
+  return {
+    question: cfg.experience_question,
+    options: [...cfg.experience_options],
+    extras: structuredClone(cfg.opening_extra_steps),
+    afterExperienceRaw: cfg.after_experience,
+  };
+}
 
 export function formatServiceLevelsText(levelsEnabled: boolean, levels: string[]): string {
   const cleanLevels = levels.map((level) => String(level ?? "").trim()).filter(Boolean);
@@ -1045,11 +1171,14 @@ export function syncWelcomeFromSalesFlow(
     };
   }
   if (named.length === 1) {
-    const sn = named[0];
+    const sn = named[0]!;
+    const row = services.find((s) => s.name.trim() === sn);
+    const kind = row?.offer_kind ?? "trial";
+    const wb = resolveWarmupExperienceConfig(c, kind);
     return {
       intro,
-      question: c.experience_question.replace(/\{serviceName\}/g, sn),
-      options: [...c.experience_options],
+      question: wb.question.replace(/\{serviceName\}/g, sn),
+      options: [...wb.options],
     };
   }
   return { intro, question: "", options: [] };
@@ -1083,8 +1212,11 @@ export function buildWhatsAppOpeningBody(
       lines.push("", "כתבו את מספר האימון שמתאים לכם (ספרה אחת).");
     }
   } else if (named.length === 1) {
-    lines.push("", c.experience_question.replace(/\{serviceName\}/g, named[0]));
-    c.experience_options.forEach((o) => lines.push(o));
+    const sn = named[0]!;
+    const row = services.find((s) => s.name.trim() === sn);
+    const wb = resolveWarmupExperienceConfig(c, row?.offer_kind ?? "trial");
+    lines.push("", wb.question.replace(/\{serviceName\}/g, sn));
+    wb.options.forEach((o) => lines.push(o));
   }
   return lines.join("\n");
 }
@@ -1445,11 +1577,14 @@ export function getWhatsAppOpeningPreviewSections(
       });
     }
   } else if (named.length === 1) {
+    const sn = named[0]!;
+    const row = services.find((s) => s.name.trim() === sn);
+    const wb = resolveWarmupExperienceConfig(c, row?.offer_kind ?? "trial");
     sections.push({
       kind: "text",
-      text: c.experience_question.replace(/\{serviceName\}/g, named[0]),
+      text: wb.question.replace(/\{serviceName\}/g, sn),
     });
-    sections.push({ kind: "buttons", labels: [...c.experience_options] });
+    sections.push({ kind: "buttons", labels: [...wb.options] });
   }
   return sections;
 }
@@ -1643,8 +1778,8 @@ export function formatSalesFlowForPrompt(
 - בכל הודעה: מענה קצר לשלב הנוכחי + השאלה הבאה בפלואו + אפשרויות בחירה.
 - אם יש עד 3 אימוני ניסיון - הציגי כל אימון בשורה נפרדת בלי מספרים, בנוסח כפתורי תשובה מהירה (רק הטקסט, בלי "1.").
 - אם יש יותר מ־3 אימוני ניסיון - בשלב בחירת האימון השתמשי ברשימה ממוספרת ובקשי מהלקוח לכתוב מספר (ספרה) בלבד.
-- שלוש אפשרויות שאלת הניסיון הקודם: תמיד שורה לכל אפשרות בלי מספור, כמו כפתורים.
-- אם יש רק אימון ניסיון אחד - דלגי על שאלת "איזה אימון מעניין" ועברי ישר לשאלת הניסיון עם שלוש האפשרויות ממסלול המכירה.
+- שלוש אפשרויות בשאלת סשן החימום (שיעור ניסיון / סדנה / קורס לפי סוג השירות שנבחר): תמיד שורה לכל אפשרות בלי מספור, כמו כפתורים.
+- אם יש רק שירות אחד בפלואו - דלגי על שאלת בחירה בין מוצרים ועברי ישר לשאלת החימום המתאימה **לסוג** אותו שירות ממסלול המכירה.
 - אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude), ואז חזרי מיד לשאלה הבאה בפלואו עם אותן אפשרויות בחירה.
 - משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה של **אותו סוג שירות** (שיעור ניסיון / סדנה / קורס לפי מה שנבחר בתפריט השירותים).
 - אם הלקוח בחר שירות שאינו שיעור ניסיון — השתמשי רק בכפתורים ובגוף ה-CTA המתאימים לסוג (סדנה או קורס), לא בכפתורי מערכת שעות/מנויים של שיעור הניסיון.
@@ -1659,12 +1794,32 @@ ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיח�
 - כללי הם/היא: ברירת מחדל «הם»; «היא» רק לשם נקבה יחיד מובהק שאין לו ריבוי טבעי בהקשר (דוגמה: זומבה כשם בודד).
 - מציין מסלול (הנחיה בלבד, לא טקסט ללקוח): ${c.after_service_pick}
 
-סשן חימום (מומלץ לא יותר מ־1–3 שאלות בסך הכול כולל שאלת הניסיון; בסיום סשן החימום עברי אוטומטית לשלב ההנעה לפעולה):
-- שאלת ניסיון קודם + שלוש האפשרויות ממסלול המכירה (בלי מספור, כמו כפתורים).
+סשן חימום (מומלץ לא יותר מ־1–3 שאלות בסך הכול כולל שאלה ראשונה; בסיום סשן החימום עברי לפי המערכת להנעה לפעולה):
+- לאחר בחירת שירות מהלקוח — השתמשי רק בבלוק החימום המתאים ל**סוג ההצעה** של אותו שירות (שיעור ניסיון / סדנה / קורס).
+
+— כשנבחר שירות «שיעור ניסיון»:
   שאלה: ${c.experience_question}
   אפשרויות: ${c.experience_options.join(" | ")}
-- מענה אחרי בחירה בשאלת הניסיון: ${c.after_experience}
-${formatExtraSteps("שאלות נוספות בסשן חימום (אחרי שאלת הניסיון, לפני ההנעה לפעולה)", c.opening_extra_steps)}
+  מענה אחרי בחירה: ${c.after_experience}
+${formatExtraSteps("שאלות נוספות בסשן חימום — שיעור ניסיון (לפני ההנעה לפעולה)", c.opening_extra_steps)}
+
+— כשנבחר שירות «סדנה»:
+  שאלה: ${resolveWarmupExperienceConfig(c, "workshop").question}
+  אפשרויות: ${resolveWarmupExperienceConfig(c, "workshop").options.join(" | ")}
+  מענה אחרי בחירה: ${resolveWarmupExperienceConfig(c, "workshop").afterExperienceRaw}
+${formatExtraSteps(
+    "שאלות נוספות בסשן חימום — סדנה (לפני ההנעה לפעולה)",
+    resolveWarmupExperienceConfig(c, "workshop").extras
+  )}
+
+— כשנבחר שירות «קורס»:
+  שאלה: ${resolveWarmupExperienceConfig(c, "course").question}
+  אפשרויות: ${resolveWarmupExperienceConfig(c, "course").options.join(" | ")}
+  מענה אחרי בחירה: ${resolveWarmupExperienceConfig(c, "course").afterExperienceRaw}
+${formatExtraSteps(
+    "שאלות נוספות בסשן חימום — קורס (לפני ההנעה לפעולה)",
+    resolveWarmupExperienceConfig(c, "course").extras
+  )}
 
 שלב הנעה לפעולה — שירות «אימון ניסיון» (סוג trial בלבד):
 גוף הודעה מוצע (אחרי שאלת ניסיון קודם): ${c.cta_body}

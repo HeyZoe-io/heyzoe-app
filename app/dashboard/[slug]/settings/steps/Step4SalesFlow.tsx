@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Loader2,
   Sparkles,
@@ -90,6 +90,42 @@ export default function Step4SalesFlow(props: any) {
     else if (hasWorkshopOffers) setCtaOfferTab("workshop");
     else if (hasCourseOffers) setCtaOfferTab("course");
   }, [ctaOfferTab, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+
+  type WarmOfferTab = "trial" | "workshop" | "course";
+  const [warmOfferTab, setWarmOfferTab] = useState<WarmOfferTab>(() => {
+    if (hasTrialOffers) return "trial";
+    if (hasWorkshopOffers) return "workshop";
+    return "course";
+  });
+
+  useEffect(() => {
+    const ok =
+      (warmOfferTab === "trial" && hasTrialOffers) ||
+      (warmOfferTab === "workshop" && hasWorkshopOffers) ||
+      (warmOfferTab === "course" && hasCourseOffers);
+    if (ok) return;
+    if (hasTrialOffers) setWarmOfferTab("trial");
+    else if (hasWorkshopOffers) setWarmOfferTab("workshop");
+    else if (hasCourseOffers) setWarmOfferTab("course");
+  }, [warmOfferTab, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+
+  const firstTrialSvcForWarmup = useMemo(() => {
+    const row = (services as any[]).find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
+    return row ?? firstNamedService;
+  }, [services, firstNamedService]);
+
+  const firstWorkshopSvcForWarmup = useMemo(
+    () =>
+      ((services as any[]).find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "workshop") as any) ??
+      null,
+    [services]
+  );
+
+  const firstCourseSvcForWarmup = useMemo(
+    () =>
+      ((services as any[]).find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "course") as any) ?? null,
+    [services]
+  );
 
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
@@ -379,7 +415,7 @@ export default function Step4SalesFlow(props: any) {
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
             {trialServiceNames.length > 1 ? (
               <>
-                <Field label="בחירת סוג האימון" className="space-y-1">
+                <Field label="בחירת סוג השירות" className="space-y-1">
                   <Textarea
                     value={salesFlowConfig.multi_service_question}
                     onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, multi_service_question: v }))}
@@ -467,69 +503,261 @@ export default function Step4SalesFlow(props: any) {
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
             <p className="text-xs text-zinc-600 text-right leading-relaxed">
-              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 גם אחת מספיקה. שם האימון יג׳ונרט אוטומטית בצ׳אט, נא לא לשנות.
+              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 בשיעור ניסיון אפשר להשתמש במציין (שם האימון) — בצ׳אט הוא יוחלף לפי הבחירה. לסדנה ולקורס עורכים לשון נפרדת לכל סוג כאן ובטאב «אימון ניסיון».
             </p>
 
             {trialServiceNames.length === 0 ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                כדי לערוך כאן את שאלת הניסיון והכפתורים - הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» (שלב 3).
+                כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «אימון ניסיון» (שלב 3).
               </p>
             ) : (
               <>
-                <Field label="שאלה 1">
-                  <Input
-                    dir="rtl"
-                    value={experienceQuestionForDisplay(
-                      salesFlowConfig.experience_question,
-                      trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? ""
-                    )}
-                    onChange={(e) => {
-                      const sn = trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? "";
-                      setSalesFlowConfig((c: any) => ({
-                        ...c,
-                        experience_question: experienceQuestionToStore(e.target.value, sn),
-                      }));
-                    }}
-                    placeholder={
-                      trialServiceNames.length > 1 ? "למשל: יצא לך לנסות בעבר?" : "למשל: יש לך כבר ניסיון בפילאטיס?"
-                    }
-                  />
-                </Field>
-                <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {([0, 1, 2] as const).map((i) => (
-                    <Field key={i} label={`כפתור ${i + 1}`}>
+                <div
+                  dir="rtl"
+                  className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
+                  role="tablist"
+                  aria-label="סוג סשן חימום לעריכה"
+                >
+                  {hasTrialOffers ? (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={warmOfferTab === "trial"}
+                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-right ${
+                        warmOfferTab === "trial"
+                          ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      onClick={() => setWarmOfferTab("trial")}
+                    >
+                      שיעור ניסיון
+                    </button>
+                  ) : null}
+                  {hasWorkshopOffers ? (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={warmOfferTab === "workshop"}
+                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-right ${
+                        warmOfferTab === "workshop"
+                          ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      onClick={() => setWarmOfferTab("workshop")}
+                    >
+                      סדנה
+                    </button>
+                  ) : null}
+                  {hasCourseOffers ? (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={warmOfferTab === "course"}
+                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-right ${
+                        warmOfferTab === "course"
+                          ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      onClick={() => setWarmOfferTab("course")}
+                    >
+                      קורס
+                    </button>
+                  ) : null}
+                </div>
+
+                {warmOfferTab === "trial" && hasTrialOffers ? (
+                  <>
+                    <Field label="שאלה 1">
                       <Input
                         dir="rtl"
-                        value={salesFlowConfig.experience_options[i]}
+                        value={experienceQuestionForDisplay(
+                          salesFlowConfig.experience_question,
+                          trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? ""
+                        )}
                         onChange={(e) => {
-                          const next = [...salesFlowConfig.experience_options] as [string, string, string];
-                          next[i] = e.target.value;
-                          setSalesFlowConfig((c: any) => ({ ...c, experience_options: next }));
+                          const sn =
+                            trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? "";
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            experience_question: experienceQuestionToStore(e.target.value, sn),
+                          }));
                         }}
+                        placeholder={
+                          trialServiceNames.length > 1
+                            ? "למשל: יצא לך לנסות בעבר?"
+                            : "למשל: יש לך כבר ניסיון בפילאטיס?"
+                        }
                       />
                     </Field>
-                  ))}
-                </div>
-                <Field label="תשובה">
-                  <Textarea
-                    value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstNamedService)}
-                    onChange={(v) =>
-                      setSalesFlowConfig((c: any) => ({
-                        ...c,
-                        after_experience: afterExperienceToStore(v, firstNamedService),
-                      }))
-                    }
-                    rows={3}
-                    placeholder="משפט מעודד קצר לפני המשך הפלואו…"
-                  />
-                </Field>
-                <SalesFlowExtraStepsEditor
-                  steps={salesFlowConfig.opening_extra_steps}
-                  onChange={(next) => setSalesFlowConfig((c: any) => ({ ...c, opening_extra_steps: next }))}
-                  addButtonLabel="הוסף שאלה בסשן חימום"
-                  startAt={2}
-                />
+                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([0, 1, 2] as const).map((i) => (
+                        <Field key={i} label={`כפתור ${i + 1}`}>
+                          <Input
+                            dir="rtl"
+                            value={salesFlowConfig.experience_options[i]}
+                            onChange={(e) => {
+                              const next = [...salesFlowConfig.experience_options] as [string, string, string];
+                              next[i] = e.target.value;
+                              setSalesFlowConfig((c: any) => ({ ...c, experience_options: next }));
+                            }}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                    <Field label="תשובה">
+                      <Textarea
+                        value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstTrialSvcForWarmup)}
+                        onChange={(v) =>
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            after_experience: afterExperienceToStore(v, firstTrialSvcForWarmup),
+                          }))
+                        }
+                        rows={3}
+                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
+                      />
+                    </Field>
+                    <SalesFlowExtraStepsEditor
+                      steps={salesFlowConfig.opening_extra_steps}
+                      onChange={(next) => setSalesFlowConfig((c: any) => ({ ...c, opening_extra_steps: next }))}
+                      addButtonLabel="הוסף שאלה בסשן חימום"
+                      startAt={2}
+                    />
+                  </>
+                ) : null}
+
+                {warmOfferTab === "workshop" && hasWorkshopOffers ? (
+                  <>
+                    <Field label="שאלה 1">
+                      <Input
+                        dir="rtl"
+                        value={experienceQuestionForDisplay(
+                          salesFlowConfig.experience_question_workshop ?? "",
+                          firstWorkshopSvcForWarmup?.name?.trim() ?? ""
+                        )}
+                        onChange={(e) => {
+                          const sn = firstWorkshopSvcForWarmup?.name?.trim() ?? "";
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            experience_question_workshop: experienceQuestionToStore(e.target.value, sn),
+                          }));
+                        }}
+                        placeholder="למשל: איזו ציפייה יש לך מהסדנה?"
+                      />
+                    </Field>
+                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([0, 1, 2] as const).map((i) => (
+                        <Field key={i} label={`כפתור ${i + 1}`}>
+                          <Input
+                            dir="rtl"
+                            value={salesFlowConfig.experience_options_workshop?.[i] ?? ""}
+                            onChange={(e) => {
+                              const cur =
+                                salesFlowConfig.experience_options_workshop ??
+                                (["", "", ""] as [string, string, string]);
+                              const next = [...cur] as [string, string, string];
+                              next[i] = e.target.value;
+                              setSalesFlowConfig((c: any) => ({ ...c, experience_options_workshop: next }));
+                            }}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                    <Field label="תשובה">
+                      <Textarea
+                        value={afterExperienceForDisplay(
+                          salesFlowConfig.after_experience_workshop ?? salesFlowConfig.after_experience,
+                          firstWorkshopSvcForWarmup
+                        )}
+                        onChange={(v) =>
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            after_experience_workshop: afterExperienceToStore(v, firstWorkshopSvcForWarmup),
+                          }))
+                        }
+                        rows={3}
+                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
+                      />
+                    </Field>
+                    <SalesFlowExtraStepsEditor
+                      steps={salesFlowConfig.opening_extra_steps_workshop ?? []}
+                      onChange={(next) =>
+                        setSalesFlowConfig((c: any) => ({ ...c, opening_extra_steps_workshop: next }))
+                      }
+                      addButtonLabel="הוסף שאלה בסשן חימום (סדנה)"
+                      startAt={2}
+                    />
+                  </>
+                ) : null}
+
+                {warmOfferTab === "course" && hasCourseOffers ? (
+                  <>
+                    <Field label="שאלה 1">
+                      <Input
+                        dir="rtl"
+                        value={experienceQuestionForDisplay(
+                          salesFlowConfig.experience_question_course ?? "",
+                          firstCourseSvcForWarmup?.name?.trim() ?? ""
+                        )}
+                        onChange={(e) => {
+                          const sn = firstCourseSvcForWarmup?.name?.trim() ?? "";
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            experience_question_course: experienceQuestionToStore(e.target.value, sn),
+                          }));
+                        }}
+                        placeholder="למשל: יש לך ניסיון קודם בתחום?"
+                      />
+                    </Field>
+                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([0, 1, 2] as const).map((i) => (
+                        <Field key={i} label={`כפתור ${i + 1}`}>
+                          <Input
+                            dir="rtl"
+                            value={salesFlowConfig.experience_options_course?.[i] ?? ""}
+                            onChange={(e) => {
+                              const cur =
+                                salesFlowConfig.experience_options_course ?? (["", "", ""] as [string, string, string]);
+                              const next = [...cur] as [string, string, string];
+                              next[i] = e.target.value;
+                              setSalesFlowConfig((c: any) => ({ ...c, experience_options_course: next }));
+                            }}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                    <Field label="תשובה">
+                      <Textarea
+                        value={afterExperienceForDisplay(
+                          salesFlowConfig.after_experience_course ?? salesFlowConfig.after_experience,
+                          firstCourseSvcForWarmup
+                        )}
+                        onChange={(v) =>
+                          setSalesFlowConfig((c: any) => ({
+                            ...c,
+                            after_experience_course: afterExperienceToStore(v, firstCourseSvcForWarmup),
+                          }))
+                        }
+                        rows={3}
+                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
+                      />
+                    </Field>
+                    <SalesFlowExtraStepsEditor
+                      steps={salesFlowConfig.opening_extra_steps_course ?? []}
+                      onChange={(next) =>
+                        setSalesFlowConfig((c: any) => ({
+                          ...c,
+                          opening_extra_steps_course: next,
+                        }))
+                      }
+                      addButtonLabel="הוסף שאלה בסשן חימום (קורס)"
+                      startAt={2}
+                    />
+                  </>
+                ) : null}
               </>
             )}
           </div>

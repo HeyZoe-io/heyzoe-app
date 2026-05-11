@@ -1454,6 +1454,7 @@ export default function SlugSettingsPage() {
         name: s.name,
         benefit_line: s.benefit_line,
         service_slug: s.service_slug,
+        offer_kind: s.offer_kind,
       })),
       botName.trim() || "זואי",
       name.trim() || displayNameFromSlug(slug),
@@ -1771,6 +1772,7 @@ export default function SlugSettingsPage() {
         name: s.name,
         benefit_line: s.benefit_line,
         service_slug: s.service_slug,
+        offer_kind: s.offer_kind,
       })),
       botName.trim() || "זואי",
       name.trim() || displayNameFromSlug(slug),
@@ -2083,6 +2085,14 @@ export default function SlugSettingsPage() {
             experience_options: structuredClone(base.experience_options),
             after_experience: base.after_experience,
             opening_extra_steps: structuredClone(base.opening_extra_steps),
+            experience_question_workshop: base.experience_question_workshop,
+            experience_options_workshop: structuredClone(base.experience_options_workshop),
+            after_experience_workshop: base.after_experience_workshop,
+            opening_extra_steps_workshop: structuredClone(base.opening_extra_steps_workshop),
+            experience_question_course: base.experience_question_course,
+            experience_options_course: structuredClone(base.experience_options_course),
+            after_experience_course: base.after_experience_course,
+            opening_extra_steps_course: structuredClone(base.opening_extra_steps_course),
           };
         }
         if (section === "cta") {

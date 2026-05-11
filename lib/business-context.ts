@@ -1,8 +1,10 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildVibeInstructionLines } from "@/lib/vibe-prompt";
 import {
+  type OfferKind,
   type SalesFlowConfig,
   formatSalesFlowForPrompt,
+  offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
 } from "@/lib/sales-flow";
 
@@ -33,6 +35,8 @@ export type BusinessKnowledgePack = {
   servicesShortText: string;
   servicesText: string;
   serviceNamesForOpening: string[];
+  /** שירותים לפתיחת ווטסאפ — כולל סוג הצעה לשאלת חימום כשיש שירות יחיד */
+  openingServices: { name: string; offer_kind: OfferKind }[];
   faqsText: string;
   ctaText: string;
   ctaLink: string;
@@ -280,9 +284,15 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
             ? "לחצו כאן"
             : "הרשמה לשיעור ניסיון";
 
-    const serviceNamesForOpening = (services ?? [])
-      .map((s) => String(s.name ?? "").trim())
-      .filter(Boolean);
+    const openingServices: { name: string; offer_kind: OfferKind }[] = (services ?? [])
+      .map((s) => {
+        const name = String(s.name ?? "").trim();
+        if (!name) return null;
+        const meta = parseServiceMeta(String(s.description ?? ""));
+        return { name, offer_kind: offerKindFromServiceMeta(meta) };
+      })
+      .filter((x): x is { name: string; offer_kind: OfferKind } => x !== null);
+    const serviceNamesForOpening = openingServices.map((r) => r.name);
 
     const membershipsUrl =
       typeof social.memberships_url === "string" ? String(social.memberships_url).trim() : "";
@@ -336,6 +346,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       servicesShortText,
       servicesText,
       serviceNamesForOpening,
+      openingServices,
       faqsText,
       ctaText: String(business.cta_text ?? ""),
       ctaLink: String(business.cta_link ?? "").trim() || firstServicePaymentLink,
