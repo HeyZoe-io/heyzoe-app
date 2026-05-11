@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  explainMetaWebhookSkip,
   resolveMetaAppSecret,
   resolveMetaVerifyToken,
   verifyMetaSignature256,
 } from "@/lib/whatsapp";
-import { processMarketingMetaInbound } from "@/lib/marketing-webhook-inbound";
 
 export const runtime = "nodejs";
 
@@ -49,12 +47,6 @@ export async function POST(req: NextRequest) {
     return new Response("Service Unavailable", { status: 503 });
   }
 
-  try {
-    await processMarketingMetaInbound(metaPayload);
-  } catch (e) {
-    console.error("[marketing-webhook] handler error:", e);
-    return NextResponse.json({ ok: false, error: "handler_failed" }, { status: 500 });
-  }
-
+  console.info("[marketing-webhook] Meta payload accepted (marketing inbound handler disabled)");
   return NextResponse.json({ ok: true });
 }

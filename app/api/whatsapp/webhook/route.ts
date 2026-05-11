@@ -67,7 +67,6 @@ import {
 } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
-import { inboundTargetsMarketingLine, processMarketingMetaInbound } from "@/lib/marketing-webhook-inbound";
 
 export const runtime = "nodejs";
 
@@ -885,17 +884,6 @@ export async function POST(req: NextRequest) {
     msg = parseMetaWebhook(metaPayload);
     if (!msg) {
       console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
-    } else if (inboundTargetsMarketingLine(msg)) {
-      // Marketing line (phone_number_id 1179786855208358) — never mix with customer Zoe flows.
-      console.info("[WA Webhook] delegating Meta inbound to marketing flow", {
-        phone_number_id: String(msg.toNumber ?? "").trim(),
-      });
-      try {
-        await processMarketingMetaInbound(metaPayload);
-      } catch (e) {
-        console.error("[WA Webhook] marketing delegate error:", e);
-      }
-      return new Response("", { status: 200 });
     }
   } else {
     if (trimmedBody.startsWith("{")) {
