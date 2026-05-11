@@ -450,7 +450,7 @@ export default function Step4SalesFlow(props: any) {
             ) : trialServiceNames.length === 1 ? (
               <>
                 <p className="text-xs text-zinc-600 text-right leading-relaxed">
-                  מוגדר אימון ניסיון אחד - אין שלב בחירה בין אימונים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום» למטה.
+                  מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום» למטה.
                 </p>
                 {(() => {
                   const firstNamedIndex = services.findIndex((s: any) => s.name.trim());
@@ -477,7 +477,7 @@ export default function Step4SalesFlow(props: any) {
               </>
             ) : (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                הוסיפו לפחות אימון ניסיון אחד בטאב «אימון ניסיון» כדי להגדיר את מסלול הבחירה.
+                הוסיפו לפחות שירות אחד בטאב «מוצרים» כדי להגדיר את מסלול הבחירה.
               </p>
             )}
           </div>
@@ -503,12 +503,12 @@ export default function Step4SalesFlow(props: any) {
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
             <p className="text-xs text-zinc-600 text-right leading-relaxed">
-              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 בשיעור ניסיון אפשר להשתמש במציין (שם האימון) — בצ׳אט הוא יוחלף לפי הבחירה. לסדנה ולקורס עורכים לשון נפרדת לכל סוג כאן ובטאב «אימון ניסיון».
+              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 בשיעור ניסיון אפשר להשתמש במציין (שם האימון) — בצ׳אט הוא יוחלף לפי הבחירה. לסדנה ולקורס עורכים לשון נפרדת לכל סוג כאן ובטאב «מוצרים».
             </p>
 
             {trialServiceNames.length === 0 ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
-                כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «אימון ניסיון» (שלב 3).
+                כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «מוצרים» (שלב 3).
               </p>
             ) : (
               <>
@@ -888,7 +888,7 @@ export default function Step4SalesFlow(props: any) {
                   </label>
                   {locked === "trial" ? (
                     <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
-                      לינק מטאב «אימון ניסיון»
+                      לינק מטאב «מוצרים»
                     </p>
                   ) : (
                     <>
@@ -1083,7 +1083,7 @@ export default function Step4SalesFlow(props: any) {
                     placeholder='מה דעתך על הסדנה שלנו? המחיר הוא x שקלים, היא נמשכת x דקות, ובאמת שהולך להיות כיף!'
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
-                    מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב אימון ניסיון
+                    מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»
                   </p>
                 </div>
                 {(salesFlowConfig.cta_workshop_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
@@ -1128,7 +1128,7 @@ export default function Step4SalesFlow(props: any) {
                               }));
                             }}
                           >
-                            <option value="link">לינק (משדה השירות בטאב אימון ניסיון)</option>
+                            <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
                             <option value="phone">מספר שירות לקוחות מהדשבורד</option>
                           </select>
                         ) : (
@@ -1164,7 +1164,7 @@ export default function Step4SalesFlow(props: any) {
                     placeholder="מה דעתך להצטרף לקורס שלנו? המחיר הוא x שקלים, הוא נמשך כ־x מפגשים, ובאמת שהולך להיות כיף! התאריכים: x עד x"
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
-                    מחיר, מספר מפגשים ותאריכי הקורס יימשכו אוטומטית מהשירותים שמסוג «קורס» בטאב אימון ניסיון
+                    מחיר, מספר מפגשים ותאריכי הקורס יימשכו אוטומטית מהשירותים שמסוג «קורס» בטאב «מוצרים»
                   </p>
                 </div>
                 {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
@@ -1209,7 +1209,7 @@ export default function Step4SalesFlow(props: any) {
                               }));
                             }}
                           >
-                            <option value="link">לינק (משדה השירות בטאב אימון ניסיון)</option>
+                            <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
                             <option value="phone">מספר שירות לקוחות מהדשבורד</option>
                           </select>
                         ) : (

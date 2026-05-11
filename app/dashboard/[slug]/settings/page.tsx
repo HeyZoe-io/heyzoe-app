@@ -79,7 +79,7 @@ type WhatsAppChannel = {
 const STEPS = [
   "לינקים",
   "על העסק",
-  "אימון ניסיון",
+  "מוצרים",
   "מכירה",
   "פולואפ",
 ];
@@ -1172,7 +1172,7 @@ const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
     <Card>
       <CardHeader>
         <CardTitle>
-          <StepHeader n={3} title="אימון ניסיון" desc="טוען…" />
+          <StepHeader n={3} title="מוצרים" desc="טוען…" />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -2955,7 +2955,7 @@ export default function SlugSettingsPage() {
           </div>
         ) : null}
 
-        {/* ════════════════════ STEP 3 — אימון ניסיון ════════════════════ */}
+        {/* ════════════════════ STEP 3 — מוצרים ════════════════════ */}
         {step === 3 && (
           <Step3Trial
             websiteUrl={websiteUrl}
