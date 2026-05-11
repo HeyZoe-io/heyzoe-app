@@ -861,13 +861,25 @@ function experienceQuestionToStore(typed: string, serviceName: string): string {
 }
 
 function afterExperienceForDisplay(stored: string, service: ServiceItem | null): string {
-  return fillAfterExperienceTemplate(stored, service?.levels_enabled ?? false, service?.levels ?? []);
+  const displayName = service?.name?.trim() || "(שם המוצר)";
+  return fillAfterExperienceTemplate(
+    stored,
+    service?.levels_enabled ?? false,
+    service?.levels ?? [],
+    displayName
+  );
 }
 
 function afterExperienceToStore(typed: string, service: ServiceItem | null): string {
   if (!service) return typed;
+  let s = typed;
   const resolved = formatServiceLevelsText(service.levels_enabled, service.levels);
-  return resolved && typed.includes(resolved) ? typed.split(resolved).join("{levelsText}") : typed;
+  if (resolved && s.includes(resolved)) s = s.split(resolved).join("{levelsText}");
+  const sn = service.name?.trim() ?? "";
+  if (s.includes("(שם המוצר)")) s = s.split("(שם המוצר)").join("{serviceName}");
+  if (s.includes("(שם האימון)")) s = s.split("(שם האימון)").join("{serviceName}");
+  if (sn && s.includes(sn)) s = s.split(sn).join("{serviceName}");
+  return s;
 }
 
 function ctaBodyForDisplay(stored: string, priceText: string, durationText: string): string {

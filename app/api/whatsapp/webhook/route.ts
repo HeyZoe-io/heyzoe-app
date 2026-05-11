@@ -2541,10 +2541,13 @@ async function processIncoming(
           salesFlowServices.length === 1 ||
           Boolean(await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }));
         if (pickedExp && canExperience) {
+          const warmupServiceName =
+            (selectedService?.name ?? selectedServiceName).trim() || undefined;
           const afterExperience = fillAfterExperienceTemplate(
             wb.afterExperienceRaw,
             selectedService?.levelsEnabled ?? false,
-            selectedService?.levels ?? []
+            selectedService?.levels ?? [],
+            warmupServiceName
           ).trim();
           const steps = wb.extras;
           const cleanSteps = steps
