@@ -1,11 +1,22 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import { buildDefaultSaleWelcome } from "@/lib/default-welcome";
-import { buildWhatsAppOpeningBody, getWhatsAppOpeningPreviewSections } from "@/lib/sales-flow";
+import {
+  buildWhatsAppOpeningBody,
+  getWhatsAppOpeningPreviewSections,
+  type ServiceLike,
+} from "@/lib/sales-flow";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 
 /**
  * Opening message as plain body + menu labels (for Meta interactive / Twilio numbered lists).
  */
+function openingServicesAsServiceLike(k: BusinessKnowledgePack): ServiceLike[] {
+  if (k.openingServices.length > 0) {
+    return k.openingServices.map((r) => ({ name: r.name, offer_kind: r.offer_kind }));
+  }
+  return k.serviceNamesForOpening.map((name) => ({ name }));
+}
+
 export function getWhatsAppOpeningBodyAndMenuLabels(k: BusinessKnowledgePack): {
   body: string;
   menuLabels: string[];
@@ -13,7 +24,7 @@ export function getWhatsAppOpeningBodyAndMenuLabels(k: BusinessKnowledgePack): {
   if (k.salesFlowConfig) {
     const sections = getWhatsAppOpeningPreviewSections(
       k.salesFlowConfig,
-      k.serviceNamesForOpening.map((name) => ({ name })),
+      openingServicesAsServiceLike(k),
       k.botName,
       k.businessName,
       k.taglineText || k.businessDescription,
@@ -43,7 +54,7 @@ export function getWhatsAppOpeningBodyAndMenuLabels(k: BusinessKnowledgePack): {
     botName: k.botName,
     businessName: k.businessName,
     address: k.addressText,
-    services: k.serviceNamesForOpening.map((name) => ({ name })),
+    services: openingServicesAsServiceLike(k),
     niche: k.niche,
     vibeLabels: k.vibeLabels,
     tagline: k.businessDescription,
@@ -60,7 +71,7 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
   if (k.salesFlowConfig) {
     const body = buildWhatsAppOpeningBody(
       k.salesFlowConfig,
-      k.serviceNamesForOpening.map((name) => ({ name })),
+      openingServicesAsServiceLike(k),
       k.botName,
       k.businessName,
       k.taglineText || k.businessDescription,

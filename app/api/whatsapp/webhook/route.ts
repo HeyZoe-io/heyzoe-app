@@ -37,6 +37,7 @@ import {
   getEffectiveSecondaryOfferCtaButtons,
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
+  resolveWarmupExperienceConfig,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
 
@@ -729,8 +730,10 @@ async function sendFlowContinuation(input: {
       business_slug,
       sessionId,
     });
-    const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, named);
-    const opts = [...cfg.experience_options].map((o) => String(o ?? "").trim()).filter(Boolean);
+    const warmKind = svcRow?.offerKind ?? "trial";
+    const wb = resolveWarmupExperienceConfig(cfg, warmKind);
+    const q = String(wb.question ?? "").replace(/\{serviceName\}/g, named);
+    const opts = [...wb.options].map((o) => String(o ?? "").trim()).filter(Boolean);
     if (!q || opts.length < 2) return;
     await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, opts, accountSid, authToken, {
       footerHint: ZOE_WHATSAPP_MENU_FOOTER,
@@ -746,7 +749,16 @@ async function sendFlowContinuation(input: {
     return;
   }
 
-  const warmExtras = Array.isArray(cfg.opening_extra_steps) ? cfg.opening_extra_steps : [];
+  const namedForWarmExtras =
+    salesFlowServices.length === 1
+      ? salesFlowServices[0]!.name
+      : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+  const svcRowForWarmExtras =
+    salesFlowServices.length === 1
+      ? salesFlowServices[0] ?? null
+      : salesFlowServices.find((s) => s.name === namedForWarmExtras) ?? null;
+  const warmKindForExtras = svcRowForWarmExtras?.offerKind ?? "trial";
+  const warmExtras = resolveWarmupExperienceConfig(cfg, warmKindForExtras).extras;
   const cleanWarm = warmExtras
     .map((s) => ({
       question: String((s as any)?.question ?? "").trim(),
@@ -1786,8 +1798,9 @@ async function processIncoming(
       if (picked) {
         const cfg = knowledge.salesFlowConfig;
         const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit);
-        const q = String(cfg.experience_question ?? "").replace(/\{serviceName\}/g, picked.name);
-        const opts = Array.isArray(cfg.experience_options) ? [...cfg.experience_options] : [];
+        const wbPick = resolveWarmupExperienceConfig(cfg, picked.offerKind ?? "trial");
+        const q = String(wbPick.question ?? "").replace(/\{serviceName\}/g, picked.name);
+        const opts = [...wbPick.options];
 
         const out =
           [afterPick, "", q, ...opts]
@@ -2434,7 +2447,14 @@ async function processIncoming(
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
     try {
       const cfg = knowledge.salesFlowConfig!;
-      const steps = Array.isArray(cfg.opening_extra_steps) ? cfg.opening_extra_steps : [];
+      const selectedForWarmExtrasName =
+        salesFlowServices.length === 1
+          ? salesFlowServices[0]?.name ?? ""
+          : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
+      const selectedForWarmExtras =
+        salesFlowServices.find((s) => s.name === selectedForWarmExtrasName) ?? salesFlowServices[0] ?? null;
+      const wbExtras = resolveWarmupExperienceConfig(cfg, selectedForWarmExtras?.offerKind ?? "trial");
+      const steps = wbExtras.extras;
       const cleanSteps = steps
         .map((s) => ({
           question: String((s as any)?.question ?? "").trim(),
@@ -2506,7 +2526,14 @@ async function processIncoming(
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length >= 1) {
     try {
       const cfg = knowledge.salesFlowConfig;
-      const opts = cfg.experience_options.map((o) => String(o ?? "").trim()).filter(Boolean);
+      const selectedServiceName =
+        salesFlowServices.length === 1
+          ? salesFlowServices[0]!.name
+          : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+      const selectedService =
+        salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+      const wb = resolveWarmupExperienceConfig(cfg, selectedService?.offerKind ?? "trial");
+      const opts = wb.options.map((o) => String(o ?? "").trim()).filter(Boolean);
       if (opts.length >= 3) {
         const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, opts);
         const pickedExp = opts.find((o) => waLabelMatches(incomingResolved, o));
@@ -2514,18 +2541,12 @@ async function processIncoming(
           salesFlowServices.length === 1 ||
           Boolean(await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }));
         if (pickedExp && canExperience) {
-          const selectedServiceName =
-            salesFlowServices.length === 1
-              ? salesFlowServices[0]!.name
-              : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-          const selectedService =
-            salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
           const afterExperience = fillAfterExperienceTemplate(
-            cfg.after_experience,
+            wb.afterExperienceRaw,
             selectedService?.levelsEnabled ?? false,
             selectedService?.levels ?? []
           ).trim();
-          const steps = Array.isArray(cfg.opening_extra_steps) ? cfg.opening_extra_steps : [];
+          const steps = wb.extras;
           const cleanSteps = steps
             .map((s) => ({
               question: String((s as any)?.question ?? "").trim(),
@@ -2706,6 +2727,12 @@ async function processIncoming(
     ...(knowledge?.salesFlowConfig?.greeting_extra_steps ?? []).flatMap((step) => step.options.map((option) => option.trim())),
     ...salesFlowServices.map((service) => service.name.trim()),
     ...((knowledge?.salesFlowConfig?.experience_options ?? []).map((option) => String(option ?? "").trim())),
+    ...((knowledge?.salesFlowConfig?.experience_options_workshop ?? []).map((option) =>
+      String(option ?? "").trim()
+    )),
+    ...((knowledge?.salesFlowConfig?.experience_options_course ?? []).map((option) =>
+      String(option ?? "").trim()
+    )),
     ...filteredCtaForAi.map((b) => b.label.trim()),
     ...effectiveFollowLabelsForPred.map((option) => String(option ?? "").trim()),
   ].filter(Boolean);
