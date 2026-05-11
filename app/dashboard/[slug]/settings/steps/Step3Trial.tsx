@@ -282,27 +282,32 @@ export default function Step3Trial(props: {
         <CardTitle>
           <StepHeader
             n={3}
-            title="אימון ניסיון"
-            desc="אילו אימוני ניסיון אתם מציעים? ניתן לסרוק מהאתר, לערוך ולכתוב עצמאית."
+            title="מוצרים"
+            desc="מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\u005Cסדנה\u005Cקורס וערכו"
           />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 text-center space-y-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-2 h-10 text-sm mx-auto shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
-            onClick={() => void fetchSite(3)}
-            disabled={!websiteUrl.trim() || fetchingUrl}
-          >
-            {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
-          </Button>
-          <p className="text-xs text-zinc-600 text-right leading-snug max-w-md mx-auto">
+        <div
+          dir="rtl"
+          className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 space-y-3 text-right"
+        >
+          <div className="flex justify-start w-full">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 h-10 text-sm shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
+              onClick={() => void fetchSite(3)}
+              disabled={!websiteUrl.trim() || fetchingUrl}
+            >
+              {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
+            </Button>
+          </div>
+          <p className="text-xs text-zinc-600 leading-snug text-right w-full">
             {!websiteUrl.trim()
               ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
-              : "הסריקה לא תשנה אימונים שכבר הזנתם, רק תוסיף חדשים במידה וזוהו."}
+              : "הסריקה לא תשנה מוצרים שכבר הזנתם, רק תוסיף חדשים במידה וזוהו."}
           </p>
         </div>
 
