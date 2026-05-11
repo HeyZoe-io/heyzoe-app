@@ -179,8 +179,136 @@ function extract6DigitCode(s: string) {
   return m?.[0] ?? "";
 }
 
-function utcDateOnly(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+function twilioRecordingCreatedMs(r: any): number {
+  const t = new Date(String(r?.date_created ?? "")).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Twilio list filter DateCreated>= uses UTC calendar day; use day of (anchor - buffer) so same-day OTP is included. */
+function utcDayLowerBoundForTwilioList(notBeforeMs: number): string {
+  return new Date(notBeforeMs - 120_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Only consider recordings created at/after this instant (voice OTP requested minus small skew).
+ * When voice_otp_requested_at is missing (legacy rows), never look more than 45m back from "now"
+ * so reused Twilio numbers do not match ancient verifications.
+ */
+function recordingNotBeforeMsFromJob(locked: any): number {
+  const otp = String(locked?.voice_otp_requested_at ?? "").trim();
+  if (otp) {
+    const t = new Date(otp).getTime();
+    return (Number.isFinite(t) ? t : Date.now()) - 120_000;
+  }
+  const created = String(locked?.created_at ?? "").trim();
+  const createdMs = created ? new Date(created).getTime() : 0;
+  const recentFloor = Date.now() - 45 * 60_000;
+  return Math.max(Number.isFinite(createdMs) ? createdMs : 0, recentFloor);
+}
+
+function errorMessageIndicatesTransientMissingMetaProvision(msg: string): boolean {
+  const m = String(msg ?? "").toLowerCase();
+  return m.includes("missing_phone_number_id") || m.includes("missing_state_for_progress");
+}
+
+async function mergeProvisionProgressFromDb(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  locked: { id: unknown; business_id: unknown; business_slug: unknown }
+): Promise<{ phone: string; meta: string; twilio: string; jobStatus: string } | null> {
+  const jobId = Number((locked as any).id);
+  const businessId = Number((locked as any).business_id);
+  const slug = String((locked as any).business_slug ?? "").trim().toLowerCase();
+  if (!Number.isFinite(jobId) || !Number.isFinite(businessId)) return null;
+
+  const { data: row } = await admin
+    .from("wa_provision_jobs")
+    .select("id,status,phone_e164,meta_phone_number_id,twilio_sid")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  const { data: ch } = await admin
+    .from("whatsapp_channels")
+    .select("phone_display, phone_number_id, twilio_sid")
+    .or(`business_id.eq.${businessId},business_slug.eq.${slug}`)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const phone = String((row as any)?.phone_e164 ?? (ch as any)?.phone_display ?? "").trim();
+  const meta = String((row as any)?.meta_phone_number_id ?? (ch as any)?.phone_number_id ?? "").trim();
+  const twilio = String((row as any)?.twilio_sid ?? (ch as any)?.twilio_sid ?? "").trim();
+  if (!phone || !meta || !twilio) return null;
+  return { phone, meta, twilio, jobStatus: String((row as any)?.status ?? "") };
+}
+
+async function persistJobWaitingRecordingFromMerge(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  jobId: number,
+  merged: { phone: string; meta: string; twilio: string }
+): Promise<boolean> {
+  const { error } = await admin
+    .from("wa_provision_jobs")
+    .update({
+      status: "waiting_recording",
+      updated_at: isoNow(),
+      phone_e164: merged.phone,
+      meta_phone_number_id: merged.meta,
+      twilio_sid: merged.twilio,
+      last_error: null,
+    } as any)
+    .eq("id", jobId);
+  if (error) {
+    console.warn("[cron/wa-provision] persist waiting_recording from merge failed:", error);
+    return false;
+  }
+  return true;
+}
+
+async function tryRecoverWaProvisionJobFromDb(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  locked: { id: unknown; business_id: unknown; business_slug: unknown },
+  errMsg: string
+): Promise<boolean> {
+  if (!errorMessageIndicatesTransientMissingMetaProvision(errMsg)) return false;
+  const jobId = Number((locked as any).id);
+  const merged = await mergeProvisionProgressFromDb(admin, locked);
+  if (!merged) return false;
+  if (merged.jobStatus === "done") return false;
+  const ok = await persistJobWaitingRecordingFromMerge(admin, jobId, merged);
+  if (!ok) return false;
+  console.info("[cron/wa-provision] recovered job after transient error (ids present in db):", {
+    id: jobId,
+    err_preview: String(errMsg).slice(0, 160),
+  });
+  return true;
+}
+
+async function shouldSuppressProvisionFailureEmail(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  locked: { id: unknown; business_id: unknown; business_slug: unknown },
+  errMsg: string
+): Promise<boolean> {
+  if (!errorMessageIndicatesTransientMissingMetaProvision(errMsg)) return false;
+  const jobId = Number((locked as any).id);
+  const businessId = Number((locked as any).business_id);
+  const slug = String((locked as any).business_slug ?? "").trim().toLowerCase();
+  if (!Number.isFinite(jobId) || !Number.isFinite(businessId)) return false;
+
+  const { data: row } = await admin
+    .from("wa_provision_jobs")
+    .select("meta_phone_number_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (String((row as any)?.meta_phone_number_id ?? "").trim()) return true;
+
+  const { data: ch } = await admin
+    .from("whatsapp_channels")
+    .select("phone_number_id")
+    .or(`business_id.eq.${businessId},business_slug.eq.${slug}`)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return Boolean(String((ch as any)?.phone_number_id ?? "").trim());
 }
 
 const TRANSCRIPTION_WAIT_MS = 2 * 60_000;
@@ -222,7 +350,7 @@ export async function GET(req: NextRequest) {
   const { data: job } = await admin
     .from("wa_provision_jobs")
     .select(
-      "id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at, transcription_polls"
+      "id, business_id, business_slug, business_name, attempts, status, created_at, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at, transcription_polls, voice_otp_requested_at"
     )
     .neq("status", "done")
     .neq("status", "failed")
@@ -274,7 +402,7 @@ export async function GET(req: NextRequest) {
     .eq("id", Number(job.id))
     .eq("status", initialStatus)
     .select(
-      "id, business_id, business_slug, business_name, attempts, status, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at, transcription_polls"
+      "id, business_id, business_slug, business_name, attempts, status, created_at, updated_at, phone_e164, meta_phone_number_id, twilio_sid, recording_sid, transcription_started_at, transcription_polls, voice_otp_requested_at"
     )
     .maybeSingle();
 
@@ -347,6 +475,7 @@ export async function GET(req: NextRequest) {
             phone_e164: existingPhone,
             meta_phone_number_id: existingMetaId,
             twilio_sid: existingTwilioSid,
+            voice_otp_requested_at: isoNow(),
             recording_sid: null,
             transcription_started_at: null,
             transcription_polls: 0,
@@ -432,35 +561,39 @@ export async function GET(req: NextRequest) {
 
     if (status === "waiting_recording") {
       // Try to fetch recording (no sleeping in-function).
-      const dateOnly = utcDateOnly();
+      const notBeforeMs = recordingNotBeforeMsFromJob(locked);
+      const dateCreatedGte = utcDayLowerBoundForTwilioList(notBeforeMs);
       const recordingsUrl =
         `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioAccountSid)}` +
-        `/Recordings.json?To=${encodeURIComponent(phoneE164)}&PageSize=3&DateCreated%3E%3D=${encodeURIComponent(dateOnly)}`;
+        `/Recordings.json?To=${encodeURIComponent(phoneE164)}&PageSize=40&DateCreated%3E%3D=${encodeURIComponent(dateCreatedGte)}`;
       const rec = await twilioFetchJson(recordingsUrl, {
         headers: { Authorization: twilioAuth },
         body: null,
         debugLabel: "recordings_list",
       });
       const list = Array.isArray(rec?.recordings) ? rec.recordings : [];
-      const sorted = [...list].sort((a: any, b: any) => {
-        const ta = new Date(String(a?.date_created ?? "")).getTime();
-        const tb = new Date(String(b?.date_created ?? "")).getTime();
-        const na = Number.isFinite(ta) ? ta : 0;
-        const nb = Number.isFinite(tb) ? tb : 0;
-        return nb - na; // newest first
-      });
+      const sorted = [...list]
+        .filter((r: any) => twilioRecordingCreatedMs(r) >= notBeforeMs)
+        .sort((a: any, b: any) => twilioRecordingCreatedMs(b) - twilioRecordingCreatedMs(a));
       const rec0 = sorted[0] ?? null;
       recordingSid = String(rec0?.sid ?? "").trim();
       const recordingStatus = String(rec0?.status ?? "").trim().toLowerCase();
       console.info("[cron/wa-provision] twilio recordings pick:", {
         to: phoneE164,
-        dateCreatedGte: dateOnly,
+        dateCreatedGte,
+        not_before_ms: notBeforeMs,
+        voice_otp_requested_at: String((locked as any).voice_otp_requested_at ?? "") || null,
         picked_recording_sid: recordingSid || null,
         picked_created_at: rec0?.date_created ?? null,
         picked_status: rec0?.status ?? null,
         candidates: list
-          .slice(0, 6)
-          .map((r: any) => ({ sid: r?.sid ?? null, date_created: r?.date_created ?? null, status: r?.status ?? null })),
+          .slice(0, 8)
+          .map((r: any) => ({
+            sid: r?.sid ?? null,
+            date_created: r?.date_created ?? null,
+            status: r?.status ?? null,
+            passes_cutoff: twilioRecordingCreatedMs(r) >= notBeforeMs,
+          })),
       });
 
       if (!recordingSid) {
@@ -790,6 +923,21 @@ export async function GET(req: NextRequest) {
         { onConflict: "phone_number_id" }
       );
 
+    // Persist Meta/Twilio IDs on the job *before* voice OTP so transient Meta errors
+    // (e.g. missing_phone_number_id) still leave a DB checkpoint for the next cron tick.
+    {
+      const { error: checkpointErr } = await admin
+        .from("wa_provision_jobs")
+        .update({
+          updated_at: isoNow(),
+          phone_e164: phoneE164,
+          meta_phone_number_id: metaPhoneNumberId,
+          twilio_sid: twilioSid,
+        } as any)
+        .eq("id", Number(locked.id));
+      if (checkpointErr) throw checkpointErr;
+    }
+
     // Step 4: request OTP voice code from Meta
     const metaRequestCodeUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/request_code`;
     await metaFetchJson(
@@ -798,6 +946,7 @@ export async function GET(req: NextRequest) {
       { code_method: "VOICE", language: "he" },
       { label: "request_code", includeOk: true }
     );
+    const voiceOtpAt = isoNow();
 
     // Persist and continue in next cron invocation (avoid sleeping in this request).
     const { error: waitErr } = await admin
@@ -808,6 +957,7 @@ export async function GET(req: NextRequest) {
         phone_e164: phoneE164,
         meta_phone_number_id: metaPhoneNumberId,
         twilio_sid: twilioSid,
+        voice_otp_requested_at: voiceOtpAt,
         recording_sid: null,
         transcription_started_at: null,
         transcription_polls: 0,
@@ -829,6 +979,23 @@ export async function GET(req: NextRequest) {
         bodyText: meta.bodyText,
         bodyJson: meta.bodyJson,
       });
+    }
+
+    // Transient Meta / hydration races: IDs may land in Supabase right after we threw.
+    // Recover instead of failing + emailing when the row or whatsapp_channels already has meta.
+    try {
+      const recovered = await tryRecoverWaProvisionJobFromDb(admin, locked as any, msg);
+      if (recovered) {
+        return NextResponse.json({
+          ok: true,
+          processed: 1,
+          status: "waiting_recording",
+          build,
+          recovered_from_transient_error: true,
+        });
+      }
+    } catch (recErr) {
+      console.warn("[cron/wa-provision] recover attempt threw (continuing to failure path):", recErr);
     }
 
     // Avoid clobbering persisted progress fields with NULLs.
@@ -888,35 +1055,68 @@ export async function GET(req: NextRequest) {
       } as any)
       .eq("id", Number(locked.id));
 
-    // Email business on failure (best-effort)
+    // Email only when the failure is real for alerting: re-check DB so we do not email
+    // while meta_phone_number_id was persisted after a transient Meta error.
+    let suppressFailureEmail = false;
     try {
-      const { data: biz } = await admin
-        .from("businesses")
-        .select("name,slug,email")
-        .eq("id", (locked as any).business_id)
-        .maybeSingle();
-      const businessName = String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((locked as any).business_slug ?? "");
-      const slug = String((biz as any)?.slug ?? (locked as any)?.business_slug ?? "").trim().toLowerCase();
-      const to = String((biz as any)?.email ?? "").trim().toLowerCase();
-      if (to) {
-        await sendEmail({
-          to,
-          subject: `⚠️ פרוויז'ן נכשל - ${businessName}`,
-          htmlContent: [
-            `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif">`,
-            `<p><b>פרוויז'ן נכשל</b></p>`,
-            `<p><b>עסק:</b> ${businessName}</p>`,
-            `<p><b>slug:</b> ${slug}</p>`,
-            `<p><b>שגיאה:</b> ${String(msg).replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p>`,
-            `<p><b>Twilio SID:</b> ${twilioSid || "-"}</p>`,
-            `<p><b>Meta phone_number_id:</b> ${metaPhoneNumberId || "-"}</p>`,
-            `<p><b>Phone:</b> ${phoneE164 || "-"}</p>`,
-            `</div>`,
-          ].join(""),
-        });
+      suppressFailureEmail = await shouldSuppressProvisionFailureEmail(admin, locked as any, msg);
+    } catch (supErr) {
+      console.warn("[cron/wa-provision] suppress-failure-email check failed:", supErr);
+    }
+    if (suppressFailureEmail) {
+      console.info("[cron/wa-provision] suppressed failure email (meta id present in db after error):", {
+        id: Number((locked as any).id),
+        err_preview: String(msg).slice(0, 160),
+      });
+      const merged = await mergeProvisionProgressFromDb(admin, locked as any);
+      if (merged && merged.jobStatus !== "done") {
+        const reopened = await persistJobWaitingRecordingFromMerge(admin, Number((locked as any).id), merged);
+        if (reopened) {
+          return NextResponse.json({
+            ok: true,
+            processed: 1,
+            status: "waiting_recording",
+            build,
+            reopened_after_transient_error: true,
+            error: msg,
+          });
+        }
       }
-    } catch (err) {
-      console.error("[cron/wa-provision] failure email failed:", err);
+    }
+
+    // Email business on failure (best-effort)
+    if (!suppressFailureEmail) {
+      try {
+        const { data: biz } = await admin
+          .from("businesses")
+          .select("name,slug,email")
+          .eq("id", (locked as any).business_id)
+          .maybeSingle();
+        const businessName =
+          String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() ||
+          String((locked as any).business_slug ?? "");
+        const slug = String((biz as any)?.slug ?? (locked as any)?.business_slug ?? "").trim().toLowerCase();
+        const to = String((biz as any)?.email ?? "").trim().toLowerCase();
+        if (to) {
+          await sendEmail({
+            to,
+            subject: `⚠️ פרוויז'ן נכשל - ${businessName}`,
+            htmlContent: [
+              `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif">`,
+              `<p><b>פרוויז'ן נכשל</b></p>`,
+              `<p><b>עסק:</b> ${businessName}</p>`,
+              `<p><b>slug:</b> ${slug}</p>`,
+              `<p><b>שגיאה:</b> ${String(msg).replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</p>`,
+              `<p><b>Twilio SID:</b> ${twilioSid || "-"}</p>`,
+              `<p><b>Meta phone_number_id:</b> ${metaPhoneNumberId || "-"}</p>`,
+              `<p><b>Phone:</b> ${phoneE164 || "-"}</p>`,
+              `</div>`,
+            ].join(""),
+          });
+        }
+      } catch (err) {
+        console.error("[cron/wa-provision] failure email failed:", err);
+      }
     }
 
     return NextResponse.json({
