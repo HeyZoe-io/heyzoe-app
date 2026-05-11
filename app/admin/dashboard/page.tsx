@@ -3,6 +3,7 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
+import { connection } from "next/server";
 import ProvisionNumberModal from "./ProvisionNumberModal";
 import MarketingFlowTabLoader from "./MarketingFlowTabLoader";
 
@@ -10,8 +11,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  /** Next 15+ מעביר Promise; גרסאות אחרות — אובייקט רגיל */
+  searchParams:
+    | Promise<Record<string, string | string[] | undefined>>
+    | Record<string, string | string[] | undefined>;
 };
+
+function firstSearchParamValue(v: string | string[] | undefined): string {
+  if (v == null) return "";
+  const raw = Array.isArray(v) ? v[0] : v;
+  return typeof raw === "string" ? raw.trim() : "";
+}
 
 function isoDateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -29,8 +39,9 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   const email = user.user?.email?.trim().toLowerCase() ?? "";
   if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
-  const sp = await searchParams;
-  const tabRaw = typeof sp.tab === "string" ? sp.tab : Array.isArray(sp.tab) ? sp.tab[0] : "";
+  await connection();
+  const sp = (await Promise.resolve(searchParams)) ?? {};
+  const tabRaw = firstSearchParamValue(sp.tab).toLowerCase();
   const marketingTab = tabRaw === "marketing";
   const fromRaw = typeof sp.from === "string" ? sp.from : Array.isArray(sp.from) ? sp.from[0] : "";
   const toRaw = typeof sp.to === "string" ? sp.to : Array.isArray(sp.to) ? sp.to[0] : "";
@@ -289,7 +300,7 @@ function DashboardV2(props: {
                 ראשי
               </Link>
               <Link
-                href="/admin/dashboard?tab=marketing"
+                href="/admin/dashboard/marketing"
                 prefetch
                 style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}
               >
@@ -339,7 +350,7 @@ function DashboardV2(props: {
               ראשי
             </Link>
             <Link
-              href="/admin/dashboard?tab=marketing"
+              href="/admin/dashboard/marketing"
               prefetch
               style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}
             >
