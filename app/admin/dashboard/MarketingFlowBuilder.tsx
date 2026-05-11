@@ -20,7 +20,43 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+
+const NodeDeleteCtx = createContext<((id: string) => void) | null>(null);
+
+function NodeDeleteControl({ id }: { id: string }) {
+  const onDelete = useContext(NodeDeleteCtx);
+  if (!onDelete) return null;
+  return (
+    <button
+      type="button"
+      aria-label="מחק נוד"
+      onClick={(ev) => {
+        ev.stopPropagation();
+        onDelete(id);
+      }}
+      style={{
+        position: "absolute",
+        top: 6,
+        right: 6,
+        width: 22,
+        height: 22,
+        lineHeight: "20px",
+        padding: 0,
+        borderRadius: 999,
+        border: "1px solid rgba(0,0,0,0.15)",
+        background: "rgba(255,255,255,0.96)",
+        color: "#333",
+        cursor: "pointer",
+        fontSize: 15,
+        fontWeight: 700,
+        zIndex: 3,
+      }}
+    >
+      ×
+    </button>
+  );
+}
 
 const PURPLE = "#7133da";
 const GREEN = "#35ff70";
@@ -38,8 +74,10 @@ export type MfNodeData = {
 };
 
 const nodeBase: React.CSSProperties = {
+  position: "relative",
   borderRadius: 16,
   padding: "12px 14px",
+  paddingTop: 28,
   minWidth: 200,
   maxWidth: 280,
   fontSize: 13,
@@ -51,6 +89,7 @@ function MessageNode(props: NodeProps<Node<MfNodeData>>) {
   const d = props.data ?? {};
   return (
     <div style={{ ...nodeBase, background: "#fff", border: `2px solid ${PURPLE}`, color: "#1a0a3c" }}>
+      <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Left} style={{ background: PURPLE }} />
       <div style={{ fontWeight: 600, color: PURPLE, marginBottom: 8 }}>הודעה</div>
       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{String(d.text || "—")}</div>
@@ -64,6 +103,7 @@ function QuestionNode(props: NodeProps<Node<MfNodeData>>) {
   const buttons = Array.isArray(d.buttons) && d.buttons.length ? d.buttons : ["כן", "לא"];
   return (
     <div style={{ ...nodeBase, background: "rgba(113,51,218,0.12)", border: `1px solid rgba(113,51,218,0.35)`, color: "#1a0a3c" }}>
+      <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Left} style={{ background: PURPLE }} />
       <div style={{ fontWeight: 600, color: PURPLE, marginBottom: 8 }}>שאלה</div>
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 10, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
@@ -94,7 +134,8 @@ function MediaNode(props: NodeProps<Node<MfNodeData>>) {
   const d = props.data ?? {};
   const kind = d.mediaKind === "video" ? "וידאו" : "תמונה";
   return (
-    <div style={{ ...nodeBase, background: "rgba(53,255,112,0.18)", border: `1px solid rgba(53,255,112,0.55)`, color: "#0f3d24" }}>
+    <div style={{ ...nodeBase, background: "rgba(53,255,112,0.18)", border: "1px solid rgba(53,255,112,0.55)", color: "#0f3d24" }}>
+      <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Left} style={{ background: GREEN }} />
       <div style={{ fontWeight: 600, color: "#0b5c2e", marginBottom: 8 }}>מדיה</div>
       <div style={{ fontSize: 12, marginBottom: 6 }}>סוג: {kind}</div>
@@ -115,6 +156,7 @@ function CtaNode(props: NodeProps<Node<MfNodeData>>) {
         color: "#fff",
       }}
     >
+      <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Left} style={{ background: "#fff" }} />
       <div style={{ fontWeight: 600, marginBottom: 8 }}>הנעה לפעולה</div>
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 6, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
@@ -129,6 +171,7 @@ function FollowupNode(props: NodeProps<Node<MfNodeData>>) {
   const m = typeof d.delayMinutes === "number" && Number.isFinite(d.delayMinutes) ? d.delayMinutes : 20;
   return (
     <div style={{ ...nodeBase, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(0,0,0,0.12)", color: "#1a0a3c" }}>
+      <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Left} style={{ background: "#888" }} />
       <div style={{ fontWeight: 600, color: "#555", marginBottom: 8 }}>פולואפ</div>
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 8, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
@@ -182,8 +225,8 @@ function MarketingFlowCanvas() {
         const r = await fetch("/api/admin/marketing/flow", { method: "GET", cache: "no-store" });
         const j = (await r.json()) as { nodes?: Node<MfNodeData>[]; edges?: Edge[]; is_active?: boolean };
         if (cancelled) return;
-        if (Array.isArray(j.nodes) && j.nodes.length) setNodes(j.nodes as Node<MfNodeData>[]);
-        if (Array.isArray(j.edges) && j.edges.length) setEdges(j.edges as Edge[]);
+        setNodes(Array.isArray(j.nodes) ? (j.nodes as Node<MfNodeData>[]) : []);
+        setEdges(Array.isArray(j.edges) ? (j.edges as Edge[]) : []);
         if (typeof j.is_active === "boolean") setFlowActive(j.is_active);
       } catch {
         /* stub / offline */
@@ -282,6 +325,15 @@ function MarketingFlowCanvas() {
     [selected, setEdges, updateSelectedData]
   );
 
+  const removeNode = useCallback(
+    (id: string) => {
+      setNodes((nds) => nds.filter((n) => n.id !== id));
+      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+      setSelectedId((cur) => (cur === id ? null : cur));
+    },
+    [setEdges, setNodes]
+  );
+
   const save = useCallback(async () => {
     setSaveMsg(null);
     try {
@@ -295,7 +347,7 @@ function MarketingFlowCanvas() {
         }),
       });
       if (!r.ok) throw new Error(String(r.status));
-      setSaveMsg("נשמר (שרת ללא לוגיקה)");
+      setSaveMsg("נשמר ב-Supabase");
     } catch {
       setSaveMsg("שגיאת שמירה");
     }
@@ -398,30 +450,32 @@ function MarketingFlowCanvas() {
             background: BG,
           }}
         >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            nodeTypes={nodeTypes}
-            fitView
-            onNodeClick={(_, n) => setSelectedId(n.id)}
-            onPaneClick={() => setSelectedId(null)}
-            proOptions={{ hideAttribution: true }}
-            defaultEdgeOptions={{
-              style: { stroke: PURPLE, strokeWidth: 1.5 },
-              markerEnd: { type: MarkerType.ArrowClosed, color: PURPLE },
-            }}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="rgba(113,51,218,0.2)" />
-            <Controls showInteractive={false} />
-            <MiniMap
-              style={{ borderRadius: 12 }}
-              maskColor="rgba(113,51,218,0.12)"
-              nodeColor={() => PURPLE}
-            />
-          </ReactFlow>
+          <NodeDeleteCtx.Provider value={removeNode}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              nodeTypes={nodeTypes}
+              fitView
+              onNodeClick={(_, n) => setSelectedId(n.id)}
+              onPaneClick={() => setSelectedId(null)}
+              proOptions={{ hideAttribution: true }}
+              defaultEdgeOptions={{
+                style: { stroke: PURPLE, strokeWidth: 1.5 },
+                markerEnd: { type: MarkerType.ArrowClosed, color: PURPLE },
+              }}
+            >
+              <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="rgba(113,51,218,0.2)" />
+              <Controls showInteractive={false} />
+              <MiniMap
+                style={{ borderRadius: 12 }}
+                maskColor="rgba(113,51,218,0.12)"
+                nodeColor={() => PURPLE}
+              />
+            </ReactFlow>
+          </NodeDeleteCtx.Provider>
         </div>
 
         <aside
