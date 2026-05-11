@@ -283,16 +283,18 @@ export default function Step3Trial(props: {
           <StepHeader
             n={3}
             title="מוצרים"
-            desc="מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\u005Cסדנה\u005Cקורס וערכו"
+            desc={
+              "מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\\סדנה\\קורס וערכו"
+            }
           />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
           dir="rtl"
-          className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 space-y-3 text-right"
+          className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 space-y-3 text-center"
         >
-          <div className="flex justify-start w-full">
+          <div className="flex justify-center w-full">
             <Button
               type="button"
               variant="outline"
@@ -304,7 +306,7 @@ export default function Step3Trial(props: {
               {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
             </Button>
           </div>
-          <p className="text-xs text-zinc-600 leading-snug text-right w-full">
+          <p className="text-xs text-zinc-600 leading-snug text-center w-full max-w-xl mx-auto">
             {!websiteUrl.trim()
               ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
               : "הסריקה לא תשנה מוצרים שכבר הזנתם, רק תוסיף חדשים במידה וזוהו."}
