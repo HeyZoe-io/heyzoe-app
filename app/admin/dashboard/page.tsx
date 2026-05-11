@@ -9,8 +9,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams:
+    | Promise<Record<string, string | string[] | undefined>>
+    | Record<string, string | string[] | undefined>;
 };
+
+function firstSearchParam(v: string | string[] | undefined): string {
+  if (v == null) return "";
+  const x = Array.isArray(v) ? v[0] : v;
+  return typeof x === "string" ? x.trim() : "";
+}
 
 function isoDateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -28,13 +36,32 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   const email = user.user?.email?.trim().toLowerCase() ?? "";
   if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
-  const sp = await searchParams;
+  const sp = (await Promise.resolve(searchParams)) ?? {};
+  const marketingTab = firstSearchParam(sp.tab).toLowerCase() === "marketing";
   const fromRaw = typeof sp.from === "string" ? sp.from : Array.isArray(sp.from) ? sp.from[0] : "";
   const toRaw = typeof sp.to === "string" ? sp.to : Array.isArray(sp.to) ? sp.to[0] : "";
   const fromDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(fromRaw) ? fromRaw : isoDateOnly(daysAgo(30));
   const toDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(toRaw) ? toRaw : isoDateOnly(new Date());
   const fromTs = `${fromDateOnly}T00:00:00.000Z`;
   const toTs = `${toDateOnly}T23:59:59.999Z`;
+
+  if (marketingTab) {
+    return (
+      <DashboardV2
+        marketingTab
+        from={fromDateOnly}
+        to={toDateOnly}
+        activeCustomers={0}
+        mrr={0}
+        churn={0}
+        leadingBusiness="—"
+        inquiries={[]}
+        waNumbers={[]}
+        businessOverview={[]}
+        health={[]}
+      />
+    );
+  }
 
   const admin = createSupabaseAdminClient();
 
@@ -223,6 +250,7 @@ function moneyIls(n: number) {
 }
 
 function DashboardV2(props: {
+  marketingTab?: boolean;
   from: string;
   to: string;
   activeCustomers: number;
@@ -243,6 +271,69 @@ function DashboardV2(props: {
 }) {
   const pillBase =
     "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:400;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
+  const isMarketing = Boolean(props.marketingTab);
+
+  if (isMarketing) {
+    return (
+      <main
+        dir="rtl"
+        style={{
+          minHeight: "100vh",
+          background: "#f5f3ff",
+          fontFamily: "Fredoka, Heebo, system-ui, sans-serif",
+          padding: "28px 18px 48px",
+          color: "#1a0a3c",
+        }}
+      >
+        <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+          <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+            <div style={{ textAlign: "right" }}>
+              <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>פלואו שיווקי</h1>
+            </div>
+            <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
+              <Link href="/admin/dashboard" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+                ראשי
+              </Link>
+              <Link
+                href="/admin/dashboard?tab=marketing"
+                prefetch
+                style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}
+              >
+                פלואו שיווקי
+              </Link>
+              <Link href="/admin/analytics" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+                analytics
+              </Link>
+              <Link href="/admin/businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+                עסקים
+              </Link>
+              <Link href="/admin/cancellations" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+                ביטולים
+              </Link>
+              <Link href="/admin/requests" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
+                פניות מבעלי עסקים
+              </Link>
+            </nav>
+          </header>
+
+          <section
+            style={{
+              marginTop: 24,
+              background: "white",
+              border: "1px solid rgba(113,51,218,0.14)",
+              borderRadius: 18,
+              boxShadow: "0 8px 40px rgba(113,51,218,0.08)",
+              padding: "28px 24px",
+              textAlign: "right",
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 400, color: "#1a0a3c" }}>פלואו שיווקי</h2>
+            <p style={{ margin: "16px 0 0", fontSize: 17, color: "#6b5b9a", lineHeight: 1.6 }}>בקרוב</p>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main
@@ -264,6 +355,13 @@ function DashboardV2(props: {
           <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
             <Link href="/admin/dashboard" prefetch style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}>
               ראשי
+            </Link>
+            <Link
+              href="/admin/dashboard?tab=marketing"
+              prefetch
+              style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}
+            >
+              פלואו שיווקי
             </Link>
             <Link href="/admin/analytics" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
               analytics
