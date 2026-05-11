@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
 import ProvisionNumberModal from "./ProvisionNumberModal";
+import MarketingFlowBuilder from "./MarketingFlowBuilder";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -285,7 +286,7 @@ function DashboardV2(props: {
           color: "#1a0a3c",
         }}
       >
-        <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+        <div style={{ maxWidth: 1320, margin: "0 auto" }}>
           <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
             <div style={{ textAlign: "right" }}>
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>פלואו שיווקי</h1>
@@ -316,20 +317,7 @@ function DashboardV2(props: {
             </nav>
           </header>
 
-          <section
-            style={{
-              marginTop: 24,
-              background: "white",
-              border: "1px solid rgba(113,51,218,0.14)",
-              borderRadius: 18,
-              boxShadow: "0 8px 40px rgba(113,51,218,0.08)",
-              padding: "28px 24px",
-              textAlign: "right",
-            }}
-          >
-            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 400, color: "#1a0a3c" }}>פלואו שיווקי</h2>
-            <p style={{ margin: "16px 0 0", fontSize: 17, color: "#6b5b9a", lineHeight: 1.6 }}>בקרוב</p>
-          </section>
+          <MarketingFlowBuilder />
         </div>
       </main>
     );
