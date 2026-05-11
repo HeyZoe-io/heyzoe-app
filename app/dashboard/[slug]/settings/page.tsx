@@ -305,7 +305,8 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
 
   const key = useMemo(() => `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`, [slug]);
   const { data, error, isLoading } = useSWR(key, fetcher, {
-    revalidateOnFocus: true,
+    /** מעבר בין טאבי ההגדרות לא אמור «למרר» את הנראות; רענון בפוקוס לא נחוץ */
+    revalidateOnFocus: false,
     keepPreviousData: true,
     refreshInterval: (latest) => {
       const st = (latest as WhatsAppChannel)?.provisioning_status ?? null;
@@ -1225,6 +1226,14 @@ export default function SlugSettingsPage() {
   const searchParams = useSearchParams();
 
   const [step, setStep]     = useState(1);
+  /** טאב «על העסק»: נשאיר במאונט לאחר הביקור הראשון כדי שלא תאופס הנראות של מצב WhatsApp במעבר בין שלבים */
+  const keepAboutBusinessStepMountedRef = useRef(false);
+  const aboutStepSlugRef = useRef(slug);
+  if (aboutStepSlugRef.current !== slug) {
+    aboutStepSlugRef.current = slug;
+    keepAboutBusinessStepMountedRef.current = false;
+  }
+  if (step === 2) keepAboutBusinessStepMountedRef.current = true;
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
   /** נכון רק אחרי GET מוצלח לעסק שתואם ל־slug — מונע אוטו־שמירה שדורסת נתונים */
   const [settingsHydrated, setSettingsHydrated] = useState(false);
@@ -2704,7 +2713,8 @@ export default function SlugSettingsPage() {
         )}
 
         {/* ════════════════════ STEP 2 — על העסק ════════════════════ */}
-        {step === 2 && (
+        {keepAboutBusinessStepMountedRef.current ? (
+          <div className={step !== 2 ? "hidden" : undefined} aria-hidden={step !== 2}>
           <Card>
             <CardHeader>
               <CardTitle>
@@ -2932,7 +2942,8 @@ export default function SlugSettingsPage() {
 
             </CardContent>
           </Card>
-        )}
+          </div>
+        ) : null}
 
         {/* ════════════════════ STEP 3 — אימון ניסיון ════════════════════ */}
         {step === 3 && (
