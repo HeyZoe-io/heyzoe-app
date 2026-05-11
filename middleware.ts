@@ -150,15 +150,6 @@ export async function middleware(req: NextRequest) {
       url.pathname = "/admin/dashboard";
       return NextResponse.redirect(url);
     }
-
-    // נתיב יציב לבילדר הפלואו — rewrite פנימי עם ?tab=marketing כדי ש־searchParams יאוכלו ב־RSC
-    if (pathname === "/admin/dashboard/marketing") {
-      const url = req.nextUrl.clone();
-      url.pathname = "/admin/dashboard";
-      url.searchParams.set("tab", "marketing");
-      return NextResponse.rewrite(url);
-    }
-
     return res;
   }
 

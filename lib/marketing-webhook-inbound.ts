@@ -14,17 +14,8 @@ function resolveMarketingPhoneNumberId(): string {
 }
 
 /**
- * מנוע שיווק WhatsApp (מספר 1179786855208358 בלבד).
- *
- * הזרימה (בפועל ב־{@link handleMarketingInboundText} + {@link runMarketingFlowFromNode}):
- * 1. טעינת nodes/edges/settings + marketing_flow_sessions לפי מספר הטלפון של השולח.
- * 2. אם אין session — יצירה עם `current_node_id` = נוד התחלה (`is_start` או root).
- * 3. קריאת הנוד הנוכחי; אם `question` — התאמת תשובה לכפתור לפי `marketing_flow_edges.label`.
- * 4. אחרת (לא באמצע שאלה) — חזרה לנוד ההתחלה.
- * 5. שליחת תוכן הנודים הבאים דרך Meta Cloud API (`phone_number_id` של ערוץ השיווק).
- * 6. עדכון `marketing_flow_sessions.current_node_id` (ופולואפ אם נוד `followup`).
- *
- * פולואפ: `followup_wake_at` + cron כל ~5 דקות (`/api/cron/marketing-followup`).
+ * Runs marketing automation for a verified Meta WABA JSON payload.
+ * Call only when {@link isMarketingMetaInbound} is true (or after equivalent check).
  */
 export async function processMarketingMetaInbound(metaPayload: Record<string, unknown>): Promise<void> {
   const msg = parseMetaWebhook(metaPayload);
