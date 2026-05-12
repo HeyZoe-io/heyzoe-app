@@ -20,7 +20,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 const NodeDeleteCtx = createContext<((id: string) => void) | null>(null);
 
@@ -61,6 +61,161 @@ function NodeDeleteControl({ id }: { id: string }) {
 const PURPLE = "#7133da";
 const GREEN = "#35ff70";
 const BG = "#f5f3ff";
+
+const MARKETING_PHONE_DISPLAY = "+972 3-382-4981";
+const MARKETING_PHONE_WA_ME = "97233824981";
+
+function MarketingWhatsAppNumber() {
+  const [status, setStatus] = useState<"loading" | "CONNECTED" | "PENDING" | "UNVERIFIED" | "error">("loading");
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/admin/marketing/whatsapp-status", { cache: "no-store" });
+        if (cancelled) return;
+        if (!r.ok) { setStatus("error"); return; }
+        const j = (await r.json()) as { status?: string };
+        const s = String(j?.status ?? "").toUpperCase();
+        if (s === "CONNECTED" || s === "PENDING" || s === "UNVERIFIED") setStatus(s);
+        else setStatus("error");
+      } catch { if (!cancelled) setStatus("error"); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
+
+  const copy = useCallback(async () => {
+    try { await navigator.clipboard.writeText(MARKETING_PHONE_DISPLAY); }
+    catch {
+      const ta = document.createElement("textarea");
+      ta.value = MARKETING_PHONE_DISPLAY;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 1400);
+  }, []);
+
+  const badge = (() => {
+    if (status === "CONNECTED") return { bg: "#ecfdf5", color: "#047857", border: "#a7f3d0", text: "מחובר" };
+    if (status === "PENDING") return { bg: "#fffbeb", color: "#92400e", border: "#fde68a", text: "בתהליך אישור" };
+    if (status === "UNVERIFIED") return { bg: "#fff1f2", color: "#be123c", border: "#fecdd3", text: "לא מאומת" };
+    if (status === "error") return { bg: "#fff1f2", color: "#be123c", border: "#fecdd3", text: "שגיאה" };
+    return null;
+  })();
+
+  return (
+    <div
+      dir="rtl"
+      style={{
+        borderRadius: 18,
+        border: "1px solid rgba(113,51,218,0.18)",
+        background: "#fff",
+        padding: "14px 18px",
+        marginTop: 14,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 14,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1a0a3c" }}>מספר WhatsApp שיווקי</div>
+          <div style={{ fontSize: 12, color: "#6b5b9a", marginTop: 2 }}>המספר ששולח את הודעות הפלואו</div>
+        </div>
+        {badge && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              borderRadius: 999,
+              background: badge.bg,
+              color: badge.color,
+              border: `1px solid ${badge.border}`,
+              padding: "4px 10px",
+              fontSize: 11,
+              fontWeight: 500,
+            }}
+          >
+            {status === "CONNECTED" && (
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+            )}
+            {badge.text}
+          </span>
+        )}
+        {status === "loading" && (
+          <span style={{ fontSize: 12, color: "#6b5b9a" }}>בודק סטטוס…</span>
+        )}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span dir="ltr" style={{ fontSize: 15, fontWeight: 600, color: "#1a0a3c", letterSpacing: 0.3 }}>
+          {MARKETING_PHONE_DISPLAY}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => void copy()}
+          title="העתק מספר"
+          style={{
+            height: 34,
+            width: 34,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 10,
+            border: "1px solid rgba(113,51,218,0.18)",
+            background: "#fff",
+            cursor: "pointer",
+            fontSize: 15,
+            color: "#6b5b9a",
+          }}
+        >
+          {copied ? "✓" : "📋"}
+        </button>
+
+        <a
+          href={`https://wa.me/${MARKETING_PHONE_WA_ME}?text=${encodeURIComponent("היי")}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            height: 34,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            borderRadius: 10,
+            border: "1px solid rgba(113,51,218,0.18)",
+            background: "#fff",
+            padding: "0 12px",
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#1a0a3c",
+            textDecoration: "none",
+            cursor: "pointer",
+          }}
+        >
+          שלח הודעה
+        </a>
+      </div>
+
+      {copied && (
+        <div style={{ width: "100%", fontSize: 12, color: "#047857", marginTop: -6 }}>המספר הועתק</div>
+      )}
+    </div>
+  );
+}
 
 export type MfFlowType = "message" | "question" | "media" | "cta" | "followup";
 
@@ -355,6 +510,7 @@ function MarketingFlowCanvas() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+      <MarketingWhatsAppNumber />
       <div
         style={{
           display: "flex",
