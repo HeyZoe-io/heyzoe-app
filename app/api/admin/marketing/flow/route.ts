@@ -104,10 +104,10 @@ export async function POST(req: NextRequest) {
 
     const admin = createSupabaseAdminClient();
 
-    const { error: delE } = await admin.from("marketing_flow_edges").delete().neq("id", -1);
+    const { error: delE } = await admin.from("marketing_flow_edges").delete().not("id", "is", null);
     if (delE) { console.error("[marketing/flow] delete edges:", delE.message, delE.code, delE.details); return NextResponse.json({ error: `delete_edges: ${delE.message}` }, { status: 500 }); }
 
-    const { error: delN } = await admin.from("marketing_flow_nodes").delete().neq("id", -1);
+    const { error: delN } = await admin.from("marketing_flow_nodes").delete().not("id", "is", null);
     if (delN) { console.error("[marketing/flow] delete nodes:", delN.message, delN.code, delN.details); return NextResponse.json({ error: `delete_nodes: ${delN.message}` }, { status: 500 }); }
 
     if (rawNodes.length === 0) {
@@ -147,11 +147,11 @@ export async function POST(req: NextRequest) {
     const oldIdToNewId = new Map<string, string>();
     rawNodes.forEach((n, i) => {
       const oldId = String((n as Record<string, unknown>).id ?? "");
-      const newId = String((inserted[i] as { id: number }).id);
+      const newId = String((inserted[i] as { id: string }).id);
       if (oldId) oldIdToNewId.set(oldId, newId);
     });
 
-    const edgeInserts: { source_node_id: number; target_node_id: number; label: string }[] = [];
+    const edgeInserts: { source_node_id: string; target_node_id: string; label: string }[] = [];
     for (const e of rawEdges) {
       const o = e as Record<string, unknown>;
       const src = oldIdToNewId.get(String(o.source ?? ""));
@@ -162,8 +162,8 @@ export async function POST(req: NextRequest) {
         sourceHandle: o.sourceHandle != null ? String(o.sourceHandle) : "",
       });
       edgeInserts.push({
-        source_node_id: Number(src),
-        target_node_id: Number(tgt),
+        source_node_id: src,
+        target_node_id: tgt,
         label,
       });
     }
