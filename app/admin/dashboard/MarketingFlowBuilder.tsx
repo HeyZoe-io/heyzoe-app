@@ -672,13 +672,17 @@ function MarketingFlowCanvas() {
       if (!r.ok) {
         const errBody = await r.text().catch(() => "");
         console.error("[MarketingFlowBuilder] save failed:", r.status, errBody);
-        throw new Error(String(r.status));
+        let detail = "";
+        try { detail = (JSON.parse(errBody) as { error?: string }).error ?? ""; } catch { detail = errBody; }
+        setSaveMsg(`שגיאת שמירה (${r.status}): ${detail || "unknown"}`);
+        return;
       }
       dirtyRef.current = false;
       savedOnceRef.current = true;
       setSaveMsg("נשמר ב-Supabase");
-    } catch {
-      setSaveMsg("שגיאת שמירה");
+    } catch (err) {
+      console.error("[MarketingFlowBuilder] save exception:", err);
+      setSaveMsg(`שגיאת שמירה: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, [edges, flowActive, nodes]);
 

@@ -36,7 +36,9 @@ function decodeEdgeLabel(raw: string): { label?: string; sourceHandle?: string }
 }
 
 export async function GET() {
+  console.info("[marketing/flow] GET called");
   if (!(await requireAdmin())) {
+    console.warn("[marketing/flow] GET unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -50,9 +52,9 @@ export async function GET() {
         admin.from("marketing_flow_settings").select("is_active").eq("id", 1).maybeSingle(),
       ]);
 
-    if (ne) return NextResponse.json({ error: ne.message }, { status: 500 });
-    if (ee) return NextResponse.json({ error: ee.message }, { status: 500 });
-    if (se) return NextResponse.json({ error: se.message }, { status: 500 });
+    if (ne) { console.error("[marketing/flow] GET nodes error:", ne.message, ne.code, ne.details); return NextResponse.json({ error: ne.message }, { status: 500 }); }
+    if (ee) { console.error("[marketing/flow] GET edges error:", ee.message, ee.code, ee.details); return NextResponse.json({ error: ee.message }, { status: 500 }); }
+    if (se) { console.error("[marketing/flow] GET settings error:", se.message, se.code, se.details); return NextResponse.json({ error: se.message }, { status: 500 }); }
 
     const nodes = (nodeRows ?? []).map((row: Record<string, unknown>) => ({
       id: String(row.id),
@@ -74,17 +76,19 @@ export async function GET() {
 
     const is_active = Boolean((settingsRow as { is_active?: boolean } | null)?.is_active);
 
+    console.info("[marketing/flow] GET ok — nodes:", nodes.length, "edges:", edges.length);
     return NextResponse.json({ nodes, edges, is_active });
   } catch (e) {
-    console.error("[api/admin/marketing/flow] GET:", e);
+    console.error("[marketing/flow] GET exception:", e);
     return NextResponse.json({ error: "get_failed" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
+  console.info("[marketing/flow] POST called");
   const isAdmin = await requireAdmin();
   if (!isAdmin) {
-    console.warn("[api/admin/marketing/flow] POST unauthorized");
+    console.warn("[marketing/flow] POST unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -96,14 +100,15 @@ export async function POST(req: NextRequest) {
     };
     const rawNodes = Array.isArray(body.nodes) ? body.nodes : [];
     const rawEdges = Array.isArray(body.edges) ? body.edges : [];
+    console.info("[marketing/flow] POST payload — nodes:", rawNodes.length, "edges:", rawEdges.length, "is_active:", body.is_active);
 
     const admin = createSupabaseAdminClient();
 
     const { error: delE } = await admin.from("marketing_flow_edges").delete().neq("id", -1);
-    if (delE) return NextResponse.json({ error: delE.message }, { status: 500 });
+    if (delE) { console.error("[marketing/flow] delete edges:", delE.message, delE.code, delE.details); return NextResponse.json({ error: `delete_edges: ${delE.message}` }, { status: 500 }); }
 
     const { error: delN } = await admin.from("marketing_flow_nodes").delete().neq("id", -1);
-    if (delN) return NextResponse.json({ error: delN.message }, { status: 500 });
+    if (delN) { console.error("[marketing/flow] delete nodes:", delN.message, delN.code, delN.details); return NextResponse.json({ error: `delete_nodes: ${delN.message}` }, { status: 500 }); }
 
     if (rawNodes.length === 0) {
       if (typeof body.is_active === "boolean") {
@@ -111,6 +116,7 @@ export async function POST(req: NextRequest) {
           .from("marketing_flow_settings")
           .upsert({ id: 1, is_active: body.is_active, updated_at: new Date().toISOString() }, { onConflict: "id" });
       }
+      console.info("[marketing/flow] POST ok (empty flow)");
       return NextResponse.json({ ok: true });
     }
 
@@ -132,8 +138,9 @@ export async function POST(req: NextRequest) {
     });
 
     const { data: inserted, error: insErr } = await admin.from("marketing_flow_nodes").insert(insertRows).select("id");
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+    if (insErr) { console.error("[marketing/flow] insert nodes:", insErr.message, insErr.code, insErr.details); return NextResponse.json({ error: `insert_nodes: ${insErr.message}` }, { status: 500 }); }
     if (!inserted || inserted.length !== rawNodes.length) {
+      console.error("[marketing/flow] insert count mismatch — expected:", rawNodes.length, "got:", inserted?.length);
       return NextResponse.json({ error: "insert_count_mismatch" }, { status: 500 });
     }
 
@@ -163,19 +170,20 @@ export async function POST(req: NextRequest) {
 
     if (edgeInserts.length > 0) {
       const { error: edgeErr } = await admin.from("marketing_flow_edges").insert(edgeInserts);
-      if (edgeErr) return NextResponse.json({ error: edgeErr.message }, { status: 500 });
+      if (edgeErr) { console.error("[marketing/flow] insert edges:", edgeErr.message, edgeErr.code, edgeErr.details); return NextResponse.json({ error: `insert_edges: ${edgeErr.message}` }, { status: 500 }); }
     }
 
     if (typeof body.is_active === "boolean") {
       const { error: setErr } = await admin
         .from("marketing_flow_settings")
         .upsert({ id: 1, is_active: body.is_active, updated_at: new Date().toISOString() }, { onConflict: "id" });
-      if (setErr) console.warn("[api/admin/marketing/flow] settings upsert:", setErr.message);
+      if (setErr) console.warn("[marketing/flow] settings upsert:", setErr.message, setErr.code, setErr.details);
     }
 
+    console.info("[marketing/flow] POST ok — saved", rawNodes.length, "nodes,", edgeInserts.length, "edges");
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("[api/admin/marketing/flow] POST:", e);
-    return NextResponse.json({ error: "save_failed" }, { status: 500 });
+    console.error("[marketing/flow] POST exception:", e);
+    return NextResponse.json({ error: `save_failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
   }
 }
