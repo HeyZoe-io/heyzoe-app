@@ -213,19 +213,21 @@ async function sendNodeChain(
       return { lastSent: current, waitingForAnswer: false, nextNodeId: null };
     }
 
-    await sleepBetweenMessages();
     current = next;
   }
 
   return { lastSent: current, waitingForAnswer: false, nextNodeId: null };
 }
 
-function sleepBetweenMessages(): Promise<void> {
-  return new Promise((r) => setTimeout(r, 800));
+const GREETING_RE = /^(היי|הי|אהלן|שלום|בוקר טוב|ערב טוב|הלו|hello|hi|hey|שלומות|מה נשמע|מה קורה)\s*[.!?]*$/iu;
+
+function isGreeting(text: string): boolean {
+  return GREETING_RE.test(text.trim());
 }
 
 /**
  * Handle an inbound message on the marketing line.
+ * - Greeting message → reset session, start flow from beginning
  * - First contact → start the flow from the first node
  * - Flow in progress → advance to the next node based on the user's reply
  * - Flow completed → return false (caller should use Zoe AI)
@@ -247,7 +249,12 @@ export async function handleMarketingFlowInbound(
     .eq("phone", phone)
     .maybeSingle();
 
-  if (!session) {
+  if (session && isGreeting(userText)) {
+    await admin.from("marketing_flow_sessions").delete().eq("id", (session as unknown as Session).id);
+    console.info("[marketing-flow] greeting reset for:", phone);
+  }
+
+  if (!session || isGreeting(userText)) {
     const startNode = findStartNode(nodes, edges);
     if (!startNode) return { handled: false };
 
