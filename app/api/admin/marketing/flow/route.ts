@@ -82,7 +82,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await requireAdmin())) {
+  const isAdmin = await requireAdmin();
+  if (!isAdmin) {
+    console.warn("[api/admin/marketing/flow] POST unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

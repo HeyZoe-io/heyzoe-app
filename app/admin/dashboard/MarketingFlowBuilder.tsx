@@ -626,19 +626,56 @@ function MarketingFlowCanvas() {
     [selectedEdgeId, reverseEdge, deleteEdge]
   );
 
+  const dirtyRef = useRef(false);
+  const savedOnceRef = useRef(false);
+
+  useEffect(() => {
+    if (!savedOnceRef.current && loading) return;
+    dirtyRef.current = true;
+  }, [nodes, edges, flowActive, loading]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   const save = useCallback(async () => {
     setSaveMsg(null);
     try {
+      const cleanNodes = nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        data: n.data,
+      }));
+      const cleanEdges = edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+        label: e.label ?? "",
+      }));
       const r = await fetch("/api/admin/marketing/flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nodes,
-          edges,
+          nodes: cleanNodes,
+          edges: cleanEdges,
           is_active: flowActive,
         }),
       });
-      if (!r.ok) throw new Error(String(r.status));
+      if (!r.ok) {
+        const errBody = await r.text().catch(() => "");
+        console.error("[MarketingFlowBuilder] save failed:", r.status, errBody);
+        throw new Error(String(r.status));
+      }
+      dirtyRef.current = false;
+      savedOnceRef.current = true;
       setSaveMsg("נשמר ב-Supabase");
     } catch {
       setSaveMsg("שגיאת שמירה");
