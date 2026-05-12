@@ -649,8 +649,11 @@ function MarketingFlowCanvas() {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
+  const [saving, setSaving] = useState(false);
+
   const save = useCallback(async () => {
     setSaveMsg(null);
+    setSaving(true);
     try {
       const cleanNodes = nodes.map((n) => ({
         id: n.id,
@@ -689,6 +692,8 @@ function MarketingFlowCanvas() {
     } catch (err) {
       console.error("[MarketingFlowBuilder] save exception:", err);
       setSaveMsg(`שגיאת שמירה: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
     }
   }, [edges, flowActive, nodes]);
 
@@ -744,18 +749,35 @@ function MarketingFlowCanvas() {
         <button
           type="button"
           onClick={() => void save()}
+          disabled={saving}
           style={{
             height: 38,
             padding: "0 16px",
             borderRadius: 999,
             border: `1px solid rgba(113,51,218,0.25)`,
-            background: "linear-gradient(135deg,#7133da,#ff92ff)",
+            background: saving ? "rgba(113,51,218,0.5)" : "linear-gradient(135deg,#7133da,#ff92ff)",
             color: "#fff",
-            cursor: "pointer",
+            cursor: saving ? "wait" : "pointer",
             fontFamily: "inherit",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          שמור
+          {saving && (
+            <span
+              style={{
+                width: 16,
+                height: 16,
+                border: "2px solid rgba(255,255,255,0.3)",
+                borderTopColor: "#fff",
+                borderRadius: "50%",
+                display: "inline-block",
+                animation: "mf-spin 0.7s linear infinite",
+              }}
+            />
+          )}
+          {saving ? "שומר…" : "שמור"}
         </button>
         <button
           type="button"
@@ -964,6 +986,7 @@ function MarketingFlowCanvas() {
 export default function MarketingFlowBuilder() {
   return (
     <ReactFlowProvider>
+      <style>{`@keyframes mf-spin { to { transform: rotate(360deg); } }`}</style>
       <MarketingFlowCanvas />
     </ReactFlowProvider>
   );
