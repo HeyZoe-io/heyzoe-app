@@ -62,6 +62,7 @@ export type BusinessKnowledgePack = {
   /** קישור אינסטגרם (social_links.instagram) */
   instagramUrl: string;
   promotionsText: string;
+  traits: string[];
 };
 
 function formatMembershipsLinkLine(social: Record<string, unknown>): string {
@@ -370,6 +371,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       salesFlowPromptSection,
       instagramUrl,
       promotionsText,
+      traits: traitsList,
     };
     cache.set(slug, { at: now, v: packed });
     return packed;
@@ -417,10 +419,12 @@ function formatUnknownKnowledgeBlock(phoneDisplay: string): string {
       ? `- אם בשדה «טלפון שירות לקוחות» למעלה מופיע מספר - הציעי ליצור קשר ישירות עם העסק בטלפון הזה; הציגי את המספר בדיוק כפי שמופיע (כולל קידומת), בלי לשנות ספרות.`
       : `- טלפון שירות לקוחות לא הוגדר בידע - אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
   return `
-חוסר ידע מדויק - כששאלה פתוחה איננה ניתנת למענה ישיר ומדויק מהידע העסקי (אין ב-FAQ, בשירותים, במחירים, במנויים, בתיאור העסק או בשדות קשורים שעונים ישירות על השאלה):
-- התנצלות קצרה שלא מצאת את המידע המדויק; אל תמציאי, אל תנחשי ואל תשלימי בכלליות כאילו ידוע.
+חוסר ידע מדויק - כששאלה פתוחה ואין לה מענה כלל בידע העסקי (לא ב-FAQ, לא בשירותים, לא במחירים, לא במנויים, לא בתיאור העסק, לא בעובדות על העסק ולא בשדות קשורים):
+חשוב: אם בעובדות על העסק או בתיאור יש מידע רלוונטי — גם אם הוא תיאורי ולא מדויק במספרים — השתמשי בו ועני ממנו. למשל אם כתוב «קבוצות קטנות ויחס אישי», ענו שהקבוצות קטנות ובאווירה אישית, בלי להמציא מספר.
+רק אם באמת אין שום מידע רלוונטי:
+- התנצלות קצרה שלא מצאת את המידע; אל תמציאי, אל תנחשי.
 ${phoneHint}
-- לאחר מכן המשיכי עם שאלת המשך ואפשרויות ממוספרות כרגיל (שלבים 2 ו־3 במבנה התשובה).
+- אל תוסיפי שאלת המשך או הנעה לפעולה אחרי ההפניה לטלפון — המערכת שולחת הנעה לפעולה בנפרד.
 `;
 }
 
@@ -524,6 +528,7 @@ ${formatFollowupSnippets(knowledge)}
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
 תיאור עסק: ${knowledge?.businessDescription ?? "לא הוגדר"}
+${(knowledge?.traits?.length ?? 0) > 0 ? `עובדות על העסק (השתמשי במידע הזה גם אם הוא תיאורי ולא מספרי — זה ידע רשמי מבעל העסק):\n${knowledge!.traits.map((t) => `- ${t}`).join("\n")}` : ""}
 הנחות ומבצעים: ${knowledge?.promotionsText?.trim() || "לא הוגדר"}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
