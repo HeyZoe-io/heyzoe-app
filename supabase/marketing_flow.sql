@@ -26,3 +26,15 @@ create table if not exists marketing_flow_settings (
 
 insert into marketing_flow_settings (id, is_active) values (1, false)
 on conflict (id) do nothing;
+
+-- Sessions: tracks which phone number has been through the flow
+create table if not exists marketing_flow_sessions (
+  id uuid primary key default gen_random_uuid(),
+  phone text not null unique,
+  current_node_id uuid references marketing_flow_nodes(id) on delete set null,
+  flow_completed boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_mf_sessions_phone on marketing_flow_sessions (phone);
