@@ -260,3 +260,50 @@ export async function handleMarketingFlowInbound(
 
   return { handled: !!nextNode };
 }
+
+const MARKETING_SYSTEM_PROMPT = `את זואי — עוזרת AI חכמה של HeyZoe.
+HeyZoe היא פלטפורמה שמאפשרת לבעלי עסקים (סטודיו, מאמנים, מטפלים) לחבר עוזרת AI בוואטסאפ שעונה ללידים שלהם 24/7, מטפלת בשאלות חוזרות, ומקדמת אותם להרשמה.
+
+כשמישהו שולח הודעה:
+- ענו בעברית, בטון חם, קצר וידידותי
+- אם שואלים על HeyZoe — הסבירו בקצרה מה זה ואיך זה עוזר
+- אם שואלים שאלה טכנית — כוונו אותם לצוות שלנו
+- אם זו סתם שיחה — היו נחמדות ומזמינות
+- אל תמציאו מחירים או תכונות שלא הוזכרו
+- שמרו על הודעות קצרות (2-3 משפטים מקס)`;
+
+/**
+ * AI fallback for returning users whose flow is complete.
+ */
+export async function callMarketingAI(userText: string): Promise<string> {
+  const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isRetryableClaudeError, formatUserFacingClaudeError, sleepMs } = await import("@/lib/claude");
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+
+  const apiKey = resolveClaudeApiKey();
+  if (!apiKey) return "אין לי אפשרות לענות כרגע, נחזור אליך בהקדם!";
+
+  const client = new Anthropic({ apiKey });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await client.messages.create({
+        model: CLAUDE_WHATSAPP_MODEL,
+        max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
+        system: MARKETING_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userText }],
+      });
+
+      const textBlock = response.content.find((b) => b.type === "text");
+      return textBlock?.text?.trim() || "תודה על ההודעה! נחזור אליך בהקדם.";
+    } catch (e) {
+      if (attempt === 0 && isRetryableClaudeError(e)) {
+        await sleepMs(1500);
+        continue;
+      }
+      console.error("[marketing-flow] Claude error:", e);
+      return formatUserFacingClaudeError(e);
+    }
+  }
+
+  return "תודה על ההודעה! נחזור אליך בהקדם.";
+}
