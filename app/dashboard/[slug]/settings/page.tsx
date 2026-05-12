@@ -1157,6 +1157,13 @@ function buildFactQuestions(input: {
       test: () => !/(עברית|אנגלית|שפה|english)/u.test(text),
     },
     {
+      id: "injuries",
+      kind: "injuries",
+      question: "האם מתאים לאנשים עם פציעות? (ניתן לפרט)",
+      placeholder: "למשל: כן, בתיאום מראש / יש התאמות אישיות",
+      test: () => !/(פציע|פגיע|שיקום|מגבל|מגבלה|כאב גב|כאבי גב|בריאותי|injuries|injury)/u.test(text),
+    },
+    {
       id: "cancellation",
       kind: "cancellation",
       question: "מה מדיניות הביטול או ההקפאה?",
