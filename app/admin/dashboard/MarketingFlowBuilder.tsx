@@ -349,10 +349,10 @@ function MessageNode(props: NodeProps<Node<MfNodeData>>) {
   return (
     <div style={{ ...nodeBase, background: "#fff", border: `2px solid ${PURPLE}`, color: "#1a0a3c" }}>
       <NodeDeleteControl id={props.id} />
-      <Handle type="target" position={Position.Left} style={{ background: PURPLE }} />
+      <Handle type="target" position={Position.Right} style={{ background: PURPLE }} />
       <div style={{ fontWeight: 600, color: PURPLE, marginBottom: 8 }}>הודעה</div>
       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{String(d.text || "—")}</div>
-      <Handle type="source" position={Position.Right} id="out" style={{ background: PURPLE }} />
+      <Handle type="source" position={Position.Left} id="out" style={{ background: PURPLE }} />
     </div>
   );
 }
@@ -363,7 +363,7 @@ function QuestionNode(props: NodeProps<Node<MfNodeData>>) {
   return (
     <div style={{ ...nodeBase, background: "rgba(113,51,218,0.12)", border: `1px solid rgba(113,51,218,0.35)`, color: "#1a0a3c" }}>
       <NodeDeleteControl id={props.id} />
-      <Handle type="target" position={Position.Left} style={{ background: PURPLE }} />
+      <Handle type="target" position={Position.Right} style={{ background: PURPLE }} />
       <div style={{ fontWeight: 600, color: PURPLE, marginBottom: 8 }}>שאלה</div>
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 10, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "#4a3d7a" }}>
@@ -377,7 +377,7 @@ function QuestionNode(props: NodeProps<Node<MfNodeData>>) {
         <Handle
           key={i}
           type="source"
-          position={Position.Right}
+          position={Position.Left}
           id={`btn-${i}`}
           style={{
             background: PURPLE,
@@ -395,11 +395,11 @@ function MediaNode(props: NodeProps<Node<MfNodeData>>) {
   return (
     <div style={{ ...nodeBase, background: "rgba(53,255,112,0.18)", border: "1px solid rgba(53,255,112,0.55)", color: "#0f3d24" }}>
       <NodeDeleteControl id={props.id} />
-      <Handle type="target" position={Position.Left} style={{ background: GREEN }} />
+      <Handle type="target" position={Position.Right} style={{ background: GREEN }} />
       <div style={{ fontWeight: 600, color: "#0b5c2e", marginBottom: 8 }}>מדיה</div>
       <div style={{ fontSize: 12, marginBottom: 6 }}>סוג: {kind}</div>
       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{String(d.text || d.mediaUrl || "—")}</div>
-      <Handle type="source" position={Position.Right} id="out" style={{ background: GREEN }} />
+      <Handle type="source" position={Position.Left} id="out" style={{ background: GREEN }} />
     </div>
   );
 }
@@ -416,11 +416,11 @@ function CtaNode(props: NodeProps<Node<MfNodeData>>) {
       }}
     >
       <NodeDeleteControl id={props.id} />
-      <Handle type="target" position={Position.Left} style={{ background: "#fff" }} />
+      <Handle type="target" position={Position.Right} style={{ background: "#fff" }} />
       <div style={{ fontWeight: 600, marginBottom: 8 }}>הנעה לפעולה</div>
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 6, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
       <div style={{ fontSize: 12, opacity: 0.95, wordBreak: "break-all" }}>{String(d.url || "")}</div>
-      <Handle type="source" position={Position.Right} id="out" style={{ background: "#fff" }} />
+      <Handle type="source" position={Position.Left} id="out" style={{ background: "#fff" }} />
     </div>
   );
 }
@@ -431,11 +431,11 @@ function FollowupNode(props: NodeProps<Node<MfNodeData>>) {
   return (
     <div style={{ ...nodeBase, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(0,0,0,0.12)", color: "#1a0a3c" }}>
       <NodeDeleteControl id={props.id} />
-      <Handle type="target" position={Position.Left} style={{ background: "#888" }} />
+      <Handle type="target" position={Position.Right} style={{ background: "#888" }} />
       <div style={{ fontWeight: 600, color: "#555", marginBottom: 8 }}>פולואפ</div>
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 8, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
       <div style={{ fontSize: 12, color: "#555" }}>המתנה: {m} דק׳</div>
-      <Handle type="source" position={Position.Right} id="out" style={{ background: "#888" }} />
+      <Handle type="source" position={Position.Left} id="out" style={{ background: "#888" }} />
     </div>
   );
 }
@@ -600,17 +600,23 @@ function MarketingFlowCanvas() {
       setEdges((eds) =>
         eds.map((e) => {
           if (e.id !== id) return e;
+          const newSourceNode = nodes.find((n) => n.id === e.target);
+          let newSourceHandle: string | null = "out";
+          if (newSourceNode?.type === "question") {
+            newSourceHandle = "btn-0";
+          }
           return {
             ...e,
             source: e.target,
             target: e.source,
-            sourceHandle: e.targetHandle ?? null,
-            targetHandle: e.sourceHandle ?? null,
+            sourceHandle: newSourceHandle,
+            targetHandle: null,
+            label: "",
           } as Edge;
         })
       );
     },
-    [setEdges]
+    [setEdges, nodes]
   );
 
   const deleteEdge = useCallback(
