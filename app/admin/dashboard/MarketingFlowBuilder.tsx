@@ -4,7 +4,10 @@ import {
   addEdge,
   Background,
   BackgroundVariant,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
+  getBezierPath,
   Handle,
   MarkerType,
   MiniMap,
@@ -16,6 +19,7 @@ import {
   useReactFlow,
   type Connection,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
@@ -57,6 +61,106 @@ function NodeDeleteControl({ id }: { id: string }) {
     </button>
   );
 }
+
+const EdgeActionCtx = createContext<{
+  selectedEdgeId: string | null;
+  reverseEdge: (id: string) => void;
+  deleteEdge: (id: string) => void;
+  selectEdge: (id: string | null) => void;
+} | null>(null);
+
+function InteractiveEdge(props: EdgeProps) {
+  const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, style, markerEnd } = props;
+  const ctx = useContext(EdgeActionCtx);
+  const isSelected = ctx?.selectedEdgeId === id;
+
+  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+
+  return (
+    <>
+      <BaseEdge path={edgePath} style={style} markerEnd={markerEnd} />
+      <EdgeLabelRenderer>
+        {label && (
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - (isSelected ? 18 : 0)}px)`,
+              pointerEvents: "none",
+              background: "rgba(255,255,255,0.95)",
+              padding: "2px 6px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 500,
+              color: PURPLE,
+            }}
+            className="nodrag nopan"
+          >
+            {label}
+          </div>
+        )}
+        {isSelected && (
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY + (label ? 12 : 0)}px)`,
+              display: "flex",
+              gap: 4,
+              pointerEvents: "all",
+            }}
+            className="nodrag nopan"
+          >
+            <button
+              type="button"
+              title="הפוך כיוון"
+              onClick={(e) => { e.stopPropagation(); ctx?.reverseEdge(id); }}
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 999,
+                border: "1px solid rgba(113,51,218,0.3)",
+                background: "#fff",
+                cursor: "pointer",
+                fontSize: 14,
+                lineHeight: "24px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: PURPLE,
+                fontWeight: 700,
+              }}
+            >
+              ⇄
+            </button>
+            <button
+              type="button"
+              title="מחק חיבור"
+              onClick={(e) => { e.stopPropagation(); ctx?.deleteEdge(id); }}
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 999,
+                border: "1px solid rgba(220,50,50,0.3)",
+                background: "#fff",
+                cursor: "pointer",
+                fontSize: 15,
+                lineHeight: "24px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#dc3232",
+                fontWeight: 700,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes = { interactive: InteractiveEdge };
 
 const PURPLE = "#7133da";
 const GREEN = "#35ff70";
@@ -366,6 +470,7 @@ function MarketingFlowCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MfNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [addType, setAddType] = useState<MfFlowType>("message");
   const [flowActive, setFlowActive] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -381,7 +486,11 @@ function MarketingFlowCanvas() {
         const j = (await r.json()) as { nodes?: Node<MfNodeData>[]; edges?: Edge[]; is_active?: boolean };
         if (cancelled) return;
         setNodes(Array.isArray(j.nodes) ? (j.nodes as Node<MfNodeData>[]) : []);
-        setEdges(Array.isArray(j.edges) ? (j.edges as Edge[]) : []);
+        setEdges(
+          Array.isArray(j.edges)
+            ? (j.edges as Edge[]).map((e) => ({ ...e, type: "interactive" }))
+            : []
+        );
         if (typeof j.is_active === "boolean") setFlowActive(j.is_active);
       } catch {
         /* stub / offline */
@@ -408,13 +517,10 @@ function MarketingFlowCanvas() {
           {
             ...c,
             id: `e_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            type: "interactive",
             markerEnd: { type: MarkerType.ArrowClosed, color: PURPLE },
             style: { stroke: PURPLE, strokeWidth: 1.5 },
             label: label || undefined,
-            labelStyle: { fill: PURPLE, fontWeight: 500, fontSize: 11 },
-            labelBgPadding: [4, 4] as [number, number],
-            labelBgBorderRadius: 6,
-            labelBgStyle: { fill: "#fff", fillOpacity: 0.95 },
           },
           eds
         )
@@ -487,6 +593,37 @@ function MarketingFlowCanvas() {
       setSelectedId((cur) => (cur === id ? null : cur));
     },
     [setEdges, setNodes]
+  );
+
+  const reverseEdge = useCallback(
+    (id: string) => {
+      setEdges((eds) =>
+        eds.map((e) => {
+          if (e.id !== id) return e;
+          return {
+            ...e,
+            source: e.target,
+            target: e.source,
+            sourceHandle: e.targetHandle ?? null,
+            targetHandle: e.sourceHandle ?? null,
+          } as Edge;
+        })
+      );
+    },
+    [setEdges]
+  );
+
+  const deleteEdge = useCallback(
+    (id: string) => {
+      setEdges((eds) => eds.filter((e) => e.id !== id));
+      setSelectedEdgeId((cur) => (cur === id ? null : cur));
+    },
+    [setEdges]
+  );
+
+  const edgeActionCtx = useMemo(
+    () => ({ selectedEdgeId, reverseEdge, deleteEdge, selectEdge: setSelectedEdgeId }),
+    [selectedEdgeId, reverseEdge, deleteEdge]
   );
 
   const save = useCallback(async () => {
@@ -606,6 +743,7 @@ function MarketingFlowCanvas() {
             background: BG,
           }}
         >
+          <EdgeActionCtx.Provider value={edgeActionCtx}>
           <NodeDeleteCtx.Provider value={removeNode}>
             <ReactFlow
               nodes={nodes}
@@ -614,11 +752,14 @@ function MarketingFlowCanvas() {
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               fitView
-              onNodeClick={(_, n) => setSelectedId(n.id)}
-              onPaneClick={() => setSelectedId(null)}
+              onNodeClick={(_, n) => { setSelectedId(n.id); setSelectedEdgeId(null); }}
+              onEdgeClick={(_, e) => { setSelectedEdgeId(e.id); setSelectedId(null); }}
+              onPaneClick={() => { setSelectedId(null); setSelectedEdgeId(null); }}
               proOptions={{ hideAttribution: true }}
               defaultEdgeOptions={{
+                type: "interactive",
                 style: { stroke: PURPLE, strokeWidth: 1.5 },
                 markerEnd: { type: MarkerType.ArrowClosed, color: PURPLE },
               }}
@@ -632,6 +773,7 @@ function MarketingFlowCanvas() {
               />
             </ReactFlow>
           </NodeDeleteCtx.Provider>
+          </EdgeActionCtx.Provider>
         </div>
 
         <aside
