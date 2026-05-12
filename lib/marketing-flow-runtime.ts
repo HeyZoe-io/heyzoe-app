@@ -184,6 +184,47 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
 }
 
 /**
+ * Send a node and keep advancing through non-question nodes automatically.
+ * Stops when hitting a question (needs user input), end of flow, or safety limit.
+ * Returns the last node sent, or null if nothing was sent.
+ */
+async function sendNodeChain(
+  startNode: FlowNode,
+  phone: string,
+  edges: FlowEdge[],
+  nodes: FlowNode[],
+): Promise<{ lastSent: FlowNode; waitingForAnswer: boolean; nextNodeId: string | null }> {
+  let current = startNode;
+  const visited = new Set<string>();
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (visited.has(current.id)) break;
+    visited.add(current.id);
+
+    await sendNodeMessage(current, phone);
+
+    if (current.type === "question") {
+      return { lastSent: current, waitingForAnswer: true, nextNodeId: current.id };
+    }
+
+    const next = findNextNode(current.id, edges, nodes);
+    if (!next) {
+      return { lastSent: current, waitingForAnswer: false, nextNodeId: null };
+    }
+
+    await sleepBetweenMessages();
+    current = next;
+  }
+
+  return { lastSent: current, waitingForAnswer: false, nextNodeId: null };
+}
+
+function sleepBetweenMessages(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 800));
+}
+
+/**
  * Handle an inbound message on the marketing line.
  * - First contact → start the flow from the first node
  * - Flow in progress → advance to the next node based on the user's reply
@@ -210,13 +251,12 @@ export async function handleMarketingFlowInbound(
     const startNode = findStartNode(nodes, edges);
     if (!startNode) return { handled: false };
 
-    await sendNodeMessage(startNode, phone);
+    const { waitingForAnswer, nextNodeId } = await sendNodeChain(startNode, phone, edges, nodes);
 
-    const nextNode = findNextNode(startNode.id, edges, nodes);
     await admin.from("marketing_flow_sessions").insert({
       phone,
-      current_node_id: startNode.type === "question" ? startNode.id : (nextNode?.id ?? null),
-      flow_completed: !nextNode && startNode.type !== "question",
+      current_node_id: nextNodeId,
+      flow_completed: !waitingForAnswer && !nextNodeId,
     });
 
     return { handled: true };
@@ -241,24 +281,24 @@ export async function handleMarketingFlowInbound(
     nextNode = findNextNode(currentNode.id, edges, nodes);
   }
 
-  if (nextNode) {
-    await sendNodeMessage(nextNode, phone);
-
-    const followingNode = findNextNode(nextNode.id, edges, nodes);
-    await admin.from("marketing_flow_sessions").update({
-      current_node_id: nextNode.type === "question" ? nextNode.id : (followingNode?.id ?? null),
-      flow_completed: !followingNode && nextNode.type !== "question",
-      updated_at: new Date().toISOString(),
-    }).eq("id", sess.id);
-  } else {
+  if (!nextNode) {
     await admin.from("marketing_flow_sessions").update({
       flow_completed: true,
       current_node_id: null,
       updated_at: new Date().toISOString(),
     }).eq("id", sess.id);
+    return { handled: false };
   }
 
-  return { handled: !!nextNode };
+  const { waitingForAnswer, nextNodeId } = await sendNodeChain(nextNode, phone, edges, nodes);
+
+  await admin.from("marketing_flow_sessions").update({
+    current_node_id: nextNodeId,
+    flow_completed: !waitingForAnswer && !nextNodeId,
+    updated_at: new Date().toISOString(),
+  }).eq("id", sess.id);
+
+  return { handled: true };
 }
 
 const MARKETING_SYSTEM_PROMPT = `את זואי — עוזרת AI חכמה של HeyZoe.
