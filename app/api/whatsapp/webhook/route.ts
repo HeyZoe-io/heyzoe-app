@@ -958,6 +958,29 @@ async function processIncoming(
     if (first) processedMessageIds.delete(first);
   }
 
+  // Marketing line intercept — route to marketing flow before channel lookup
+  if (msg.toNumber === "1179786855208358" && msg.type === "text") {
+    console.info("[WA Webhook] Marketing line message from:", msg.from);
+    try {
+      const { handleMarketingFlowInbound } = await import("@/lib/marketing-flow-runtime");
+      const { handled } = await handleMarketingFlowInbound(msg.from, msg.text);
+      if (handled) {
+        console.info("[WA Webhook] Marketing flow handled for:", msg.from);
+        return;
+      }
+      // Flow completed → AI fallback
+      console.info("[WA Webhook] Marketing flow done, AI fallback for:", msg.from);
+      const { callMarketingAI } = await import("@/lib/marketing-flow-runtime");
+      const reply = await callMarketingAI(msg.text);
+      const { sendMetaWhatsAppMessage } = await import("@/lib/whatsapp");
+      await sendMetaWhatsAppMessage("1179786855208358", msg.from, { type: "text", text: reply });
+      console.info("[WA Webhook] Marketing AI reply sent to:", msg.from);
+    } catch (e) {
+      console.error("[WA Webhook] Marketing flow error:", e);
+    }
+    return;
+  }
+
   const claudeApiKey = resolveClaudeApiKey();
   if (!claudeApiKey) {
     console.error("[WA Webhook] Missing ANTHROPIC_API_KEY");
