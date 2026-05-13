@@ -22,6 +22,7 @@ create table if not exists marketing_flow_settings (
   id int primary key default 1 check (id = 1),
   is_active boolean not null default false,
   open_facts jsonb not null default '[]'::jsonb,
+  marketing_support_phone text not null default '',
   updated_at timestamptz not null default now()
 );
 
@@ -53,3 +54,8 @@ alter table marketing_flow_settings
   add column if not exists open_facts jsonb not null default '[]'::jsonb;
 
 comment on column marketing_flow_settings.open_facts is 'מערך מחרוזות: עובדות שזואי משתמשת בהן אחרי סיום הפלואו (שיחת AI שיווקית)';
+
+alter table marketing_flow_settings
+  add column if not exists marketing_support_phone text not null default '';
+
+comment on column marketing_flow_settings.marketing_support_phone is 'וואטסאפ/טלפון: הפניה כשאין תשובה בעובדות (מערכת, תנאים, תקלות)';

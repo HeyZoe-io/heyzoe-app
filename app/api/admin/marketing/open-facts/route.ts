@@ -18,20 +18,39 @@ function parseFacts(raw: unknown): string[] {
   return raw.map((x) => String(x ?? "").trim()).filter(Boolean);
 }
 
+function sanitizeSupportPhone(raw: unknown): string {
+  return String(raw ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 48);
+}
+
 export async function GET() {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin.from("marketing_flow_settings").select("open_facts").eq("id", 1).maybeSingle();
+    const { data, error } = await admin
+      .from("marketing_flow_settings")
+      .select("open_facts, marketing_support_phone")
+      .eq("id", 1)
+      .maybeSingle();
     if (error) {
-      if (/open_facts|column/i.test(error.message)) {
-        return NextResponse.json({ facts: [] as string[], notice: "missing_column" });
+      if (/open_facts|marketing_support_phone|column/i.test(error.message)) {
+        return NextResponse.json({
+          facts: [] as string[],
+          marketing_support_phone: "",
+          notice: "missing_column",
+        });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ facts: parseFacts((data as { open_facts?: unknown } | null)?.open_facts) });
+    const row = data as { open_facts?: unknown; marketing_support_phone?: unknown } | null;
+    return NextResponse.json({
+      facts: parseFacts(row?.open_facts),
+      marketing_support_phone: sanitizeSupportPhone(row?.marketing_support_phone),
+    });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "get_failed" }, { status: 500 });
   }
@@ -41,7 +60,7 @@ export async function POST(req: NextRequest) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  let body: { facts?: unknown };
+  let body: { facts?: unknown; marketing_support_phone?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -50,26 +69,31 @@ export async function POST(req: NextRequest) {
   const facts = parseFacts(body.facts)
     .map((s) => s.slice(0, 900))
     .slice(0, 80);
+  const marketing_support_phone = sanitizeSupportPhone(body.marketing_support_phone);
 
   try {
     const admin = createSupabaseAdminClient();
     const { error } = await admin
       .from("marketing_flow_settings")
-      .update({ open_facts: facts, updated_at: new Date().toISOString() })
+      .update({
+        open_facts: facts,
+        marketing_support_phone,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", 1);
     if (error) {
-      if (/open_facts|column/i.test(error.message)) {
+      if (/open_facts|marketing_support_phone|column/i.test(error.message)) {
         return NextResponse.json(
           {
             error:
-              "חסרה עמודת open_facts ב-Supabase. הריצו את הקובץ supabase/marketing_flow_open_facts.sql ב-SQL Editor.",
+              "חסרות עמודות ב-Supabase. הריצו ב-SQL Editor: supabase/marketing_flow_open_facts.sql ו־supabase/marketing_flow_settings_support_phone.sql (או את הסוף של supabase/marketing_flow.sql).",
           },
           { status: 400 }
         );
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ ok: true, facts });
+    return NextResponse.json({ ok: true, facts, marketing_support_phone });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "save_failed" }, { status: 500 });
   }
