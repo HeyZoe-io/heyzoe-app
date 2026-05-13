@@ -166,7 +166,7 @@ const PURPLE = "#7133da";
 const GREEN = "#35ff70";
 const BG = "#f5f3ff";
 
-/** תואם דשבורד בעל עסק + `/api/dashboard/upload-media-signed-url` (16MB) */
+/** תואם מגבלת השרת ל־`/api/admin/marketing/upload-media-signed-url` (16MB) */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
 
 const MARKETING_PHONE_DISPLAY = "+972 3-382-4981";
@@ -503,7 +503,7 @@ function MarketingFlowCanvas() {
       }
       setMfMediaUploading(true);
       try {
-        const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
+        const signRes = await fetch("/api/admin/marketing/upload-media-signed-url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -520,7 +520,14 @@ function MarketingFlowCanvas() {
           return;
         }
         if (!signRes.ok) {
-          setMfMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+          const raw = signJson.error?.trim();
+          const friendly =
+            signRes.status === 401
+              ? "נדרשת התחברות מחדש."
+              : signRes.status === 403
+                ? "החשבון אינו מורשה להעלאה (נדרשת התחברות כאדמין)."
+                : raw || `הכנת העלאה נכשלה (${signRes.status}).`;
+          setMfMediaUploadError(friendly);
           return;
         }
         const signedUrl = signJson.signedUrl?.trim();
@@ -1010,7 +1017,7 @@ function MarketingFlowCanvas() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
                     <span>העלאת קובץ</span>
                     <p style={{ margin: 0, fontSize: 11, color: "#6b5b9a", lineHeight: 1.45 }}>
-                      אותה מדיניות כמו בדשבורד בעל העסק: עד 16MB, תמונה או וידאו (ללא WebP). העלאה ל-Storage הציבורי של העסקים.
+                      עד 16MB, תמונה או וידאו (ללא WebP) — אותו דלי ואותה מדיניות כמו בדשבורד בעל העסק.
                     </p>
                     <button
                       type="button"
