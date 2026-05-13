@@ -59,3 +59,8 @@ alter table marketing_flow_settings
   add column if not exists marketing_support_phone text not null default '';
 
 comment on column marketing_flow_settings.marketing_support_phone is 'וואטסאפ/טלפון: הפניה כשאין תשובה בעובדות (מערכת, תנאים, תקלות)';
+
+alter table marketing_flow_settings
+  add column if not exists marketing_legal_guidelines jsonb not null default '[]'::jsonb;
+
+comment on column marketing_flow_settings.marketing_legal_guidelines is 'מערך מחרוזות: חוקיות לזואי שיווק אדמין (ריק = ברירת מחדל מהאפליקציה)';
