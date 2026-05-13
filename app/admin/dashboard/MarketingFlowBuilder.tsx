@@ -166,6 +166,9 @@ const PURPLE = "#7133da";
 const GREEN = "#35ff70";
 const BG = "#f5f3ff";
 
+/** תואם דשבורד בעל עסק + `/api/dashboard/upload-media-signed-url` (16MB) */
+const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
+
 const MARKETING_PHONE_DISPLAY = "+972 3-382-4981";
 const MARKETING_PHONE_WA_ME = "97233824981";
 
@@ -475,8 +478,90 @@ function MarketingFlowCanvas() {
   const [flowActive, setFlowActive] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const mfMediaInputRef = useRef<HTMLInputElement>(null);
+  const [mfMediaUploading, setMfMediaUploading] = useState(false);
+  const [mfMediaUploadError, setMfMediaUploadError] = useState("");
 
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId]);
+
+  useEffect(() => {
+    setMfMediaUploadError("");
+  }, [selectedId]);
+
+  const uploadMarketingFlowMedia = useCallback(
+    async (file: File, nodeId: string) => {
+      setMfMediaUploadError("");
+      if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
+        setMfMediaUploadError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+        return;
+      }
+      if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+        setMfMediaUploadError(
+          "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
+        );
+        return;
+      }
+      setMfMediaUploading(true);
+      try {
+        const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type || "application/octet-stream",
+            fileSize: file.size,
+          }),
+        });
+        let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
+        try {
+          signJson = (await signRes.json()) as typeof signJson;
+        } catch {
+          setMfMediaUploadError("תשובת שרת לא תקינה.");
+          return;
+        }
+        if (!signRes.ok) {
+          setMfMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+          return;
+        }
+        const signedUrl = signJson.signedUrl?.trim();
+        const publicUrl = signJson.publicUrl?.trim();
+        if (!signedUrl || !publicUrl) {
+          setMfMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+          return;
+        }
+        const putRes = await fetch(signedUrl, {
+          method: "PUT",
+          headers: {
+            "x-upsert": "true",
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!putRes.ok) {
+          let errText = "";
+          try {
+            const errJson = (await putRes.json()) as { message?: string; error?: string };
+            errText = (errJson.message || errJson.error || "").trim();
+          } catch {
+            errText = putRes.statusText || "";
+          }
+          setMfMediaUploadError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+          return;
+        }
+        const mediaKind: "image" | "video" = file.type.startsWith("video") ? "video" : "image";
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === nodeId ? { ...n, data: { ...(n.data as MfNodeData), mediaUrl: publicUrl, mediaKind } } : n
+          )
+        );
+      } catch {
+        setMfMediaUploadError("בעיית רשת בהעלאה.");
+      } finally {
+        setMfMediaUploading(false);
+      }
+    },
+    [setNodes]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -922,11 +1007,57 @@ function MarketingFlowCanvas() {
                       <option value="video">וידאו</option>
                     </select>
                   </label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+                    <span>העלאת קובץ</span>
+                    <p style={{ margin: 0, fontSize: 11, color: "#6b5b9a", lineHeight: 1.45 }}>
+                      אותה מדיניות כמו בדשבורד בעל העסק: עד 16MB, תמונה או וידאו (ללא WebP). העלאה ל-Storage הציבורי של העסקים.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={mfMediaUploading}
+                      onClick={() => {
+                        if (!mfMediaUploading) mfMediaInputRef.current?.click();
+                      }}
+                      style={{
+                        alignSelf: "flex-start",
+                        borderRadius: 12,
+                        border: `1px solid rgba(113,51,218,0.25)`,
+                        background: mfMediaUploading ? "rgba(113,51,218,0.12)" : PURPLE,
+                        color: mfMediaUploading ? "#6b5b9a" : "#fff",
+                        padding: "8px 14px",
+                        fontFamily: "inherit",
+                        fontSize: 13,
+                        cursor: mfMediaUploading ? "wait" : "pointer",
+                      }}
+                    >
+                      {mfMediaUploading ? "מעלה…" : "בחר קובץ מהמחשב"}
+                    </button>
+                    <input
+                      ref={mfMediaInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        const nid = selected?.id;
+                        if (f && nid) void uploadMarketingFlowMedia(f, nid);
+                      }}
+                    />
+                    {mfMediaUploadError ? (
+                      <p style={{ margin: 0, fontSize: 12, color: "#b42318" }} role="alert">
+                        {mfMediaUploadError}
+                      </p>
+                    ) : null}
+                  </div>
                   <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
-                    <span>קישור לקובץ (URL)</span>
+                    <span>או קישור ישיר (URL)</span>
                     <input
                       value={String((selected.data as MfNodeData)?.mediaUrl ?? "")}
-                      onChange={(e) => updateSelectedData({ mediaUrl: e.target.value })}
+                      onChange={(e) => {
+                        setMfMediaUploadError("");
+                        updateSelectedData({ mediaUrl: e.target.value });
+                      }}
                       style={{ borderRadius: 12, border: `1px solid rgba(113,51,218,0.2)`, padding: 8 }}
                     />
                   </label>
