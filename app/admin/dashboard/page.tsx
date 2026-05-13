@@ -1,10 +1,11 @@
+import { Suspense } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
 import ProvisionNumberModal from "./ProvisionNumberModal";
-import MarketingFlowBuilder from "./MarketingFlowBuilder";
+import MarketingDashboardClient from "./MarketingDashboardClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -317,7 +318,23 @@ function DashboardV2(props: {
             </nav>
           </header>
 
-          <MarketingFlowBuilder />
+          <Suspense
+            fallback={
+              <div
+                style={{
+                  marginTop: 24,
+                  padding: 24,
+                  textAlign: "right",
+                  color: "#6b5b9a",
+                  fontSize: 14,
+                }}
+              >
+                טוען…
+              </div>
+            }
+          >
+            <MarketingDashboardClient />
+          </Suspense>
         </div>
       </main>
     );

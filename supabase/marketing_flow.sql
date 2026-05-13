@@ -21,10 +21,11 @@ create table if not exists marketing_flow_edges (
 create table if not exists marketing_flow_settings (
   id int primary key default 1 check (id = 1),
   is_active boolean not null default false,
+  open_facts jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 
-insert into marketing_flow_settings (id, is_active) values (1, false)
+insert into marketing_flow_settings (id, is_active, open_facts) values (1, false, '[]'::jsonb)
 on conflict (id) do nothing;
 
 -- Sessions: tracks which phone number has been through the flow
