@@ -25,6 +25,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { marketingDelayMaxForUiHint } from "@/lib/marketing-flow-delay";
 
 const NodeDeleteCtx = createContext<((id: string) => void) | null>(null);
 
@@ -324,7 +325,7 @@ function MarketingWhatsAppNumber() {
   );
 }
 
-export type MfFlowType = "message" | "question" | "media" | "cta" | "followup";
+export type MfFlowType = "message" | "question" | "media" | "cta" | "followup" | "delay";
 
 export type MfNodeData = {
   text?: string;
@@ -333,6 +334,8 @@ export type MfNodeData = {
   mediaUrl?: string;
   url?: string;
   delayMinutes?: number;
+  /** השהיה בין הודעות (שניות) — נוד delay */
+  delaySeconds?: number;
 };
 
 const nodeBase: React.CSSProperties = {
@@ -428,6 +431,9 @@ function CtaNode(props: NodeProps<Node<MfNodeData>>) {
   );
 }
 
+const AMBER = "#d97706";
+const AMBER_BG = "rgba(251,191,36,0.22)";
+
 function FollowupNode(props: NodeProps<Node<MfNodeData>>) {
   const d = props.data ?? {};
   const m = typeof d.delayMinutes === "number" && Number.isFinite(d.delayMinutes) ? d.delayMinutes : 20;
@@ -443,12 +449,28 @@ function FollowupNode(props: NodeProps<Node<MfNodeData>>) {
   );
 }
 
+function DelayNode(props: NodeProps<Node<MfNodeData>>) {
+  const d = props.data ?? {};
+  const s = typeof d.delaySeconds === "number" && Number.isFinite(d.delaySeconds) ? Math.max(1, Math.floor(d.delaySeconds)) : 3;
+  return (
+    <div style={{ ...nodeBase, background: AMBER_BG, border: `2px dashed ${AMBER}`, color: "#78350f" }}>
+      <NodeDeleteControl id={props.id} />
+      <Handle type="target" position={Position.Right} style={{ background: AMBER }} />
+      <div style={{ fontWeight: 700, color: AMBER, marginBottom: 6 }}>השהיה</div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{s} שנ׳</div>
+      <div style={{ fontSize: 11, marginTop: 6, opacity: 0.9 }}>לפני ההודעה הבאה</div>
+      <Handle type="source" position={Position.Left} id="out" style={{ background: AMBER }} />
+    </div>
+  );
+}
+
 const nodeTypes = {
   message: MessageNode,
   question: QuestionNode,
   media: MediaNode,
   cta: CtaNode,
   followup: FollowupNode,
+  delay: DelayNode,
 };
 
 function defaultDataForType(t: MfFlowType): MfNodeData {
@@ -463,6 +485,8 @@ function defaultDataForType(t: MfFlowType): MfNodeData {
       return { text: "לחצו כאן", url: "https://" };
     case "followup":
       return { text: "פולואפ", delayMinutes: 20 };
+    case "delay":
+      return { delaySeconds: 3 };
     default:
       return {};
   }
@@ -819,6 +843,7 @@ function MarketingFlowCanvas() {
           <option value="message">הודעה</option>
           <option value="question">שאלה</option>
           <option value="media">מדיה</option>
+          <option value="delay">השהיה (שניות)</option>
           <option value="cta">הנעה לפעולה</option>
           <option value="followup">פולואפ</option>
         </select>
@@ -1112,6 +1137,28 @@ function MarketingFlowCanvas() {
                     style={{ borderRadius: 12, border: `1px solid rgba(113,51,218,0.2)`, padding: 8 }}
                   />
                 </label>
+              )}
+              {selected.type === "delay" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span>משך ההשהיה (שניות)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={600}
+                      value={(selected.data as MfNodeData)?.delaySeconds ?? 3}
+                      onChange={(e) =>
+                        updateSelectedData({ delaySeconds: Math.max(1, Math.min(600, Number(e.target.value) || 1)) })
+                      }
+                      style={{ borderRadius: 12, border: `1px solid rgba(113,51,218,0.2)`, padding: 8 }}
+                    />
+                  </label>
+                  <p style={{ margin: 0, fontSize: 11, color: "#6b5b9a", lineHeight: 1.5 }}>
+                    חיבור כניסה מימין ויציאה משמאל (כמו נוד הודעה). בזמן ריצה השרת ממתין לפני ההודעה הבאה — בפועל
+                    התזמון מוגבל ל־{marketingDelayMaxForUiHint()} שניות לכל היותר (timeout של האירוח); אפשר להעלות עם
+                    משתנה סביבה MARKETING_FLOW_DELAY_MAX_SECONDS בשרת.
+                  </p>
+                </div>
               )}
             </div>
           )}

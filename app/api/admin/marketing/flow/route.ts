@@ -6,7 +6,7 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const NODE_TYPES = new Set(["message", "question", "media", "cta", "followup"]);
+const NODE_TYPES = new Set(["message", "question", "media", "cta", "followup", "delay"]);
 
 async function requireAdmin(): Promise<boolean> {
   const supabase = await createSupabaseServerClient();

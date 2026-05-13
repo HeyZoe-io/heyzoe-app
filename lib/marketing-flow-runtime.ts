@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
   sendMetaWhatsAppMessage,
   buildMetaInteractivePayload,
@@ -26,6 +27,10 @@ type Session = {
   current_node_id: string | null;
   flow_completed: boolean;
 };
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Returns true if this phone number has never messaged the marketing line before.
@@ -202,7 +207,13 @@ async function sendNodeChain(
     if (visited.has(current.id)) break;
     visited.add(current.id);
 
-    await sendNodeMessage(current, phone);
+    if (current.type === "delay") {
+      const sec = clampMarketingDelaySeconds((current.data as Record<string, unknown>)?.delaySeconds);
+      console.info("[marketing-flow] delay node", current.id, "seconds:", sec);
+      await sleepMs(sec * 1000);
+    } else {
+      await sendNodeMessage(current, phone);
+    }
 
     if (current.type === "question") {
       return { lastSent: current, waitingForAnswer: true, nextNodeId: current.id };
