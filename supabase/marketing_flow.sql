@@ -39,3 +39,11 @@ create table if not exists marketing_flow_sessions (
 );
 
 create index if not exists idx_mf_sessions_phone on marketing_flow_sessions (phone);
+
+-- סוגי נודים מותרים (כולל delay). הרצה חוזרת בטוחה אחרי create table if not exists.
+alter table marketing_flow_nodes
+  drop constraint if exists marketing_flow_nodes_type_check;
+
+alter table marketing_flow_nodes
+  add constraint marketing_flow_nodes_type_check
+  check (type in ('message', 'question', 'media', 'cta', 'followup', 'delay'));
