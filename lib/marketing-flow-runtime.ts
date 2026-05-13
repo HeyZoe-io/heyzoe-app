@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
 import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
   sendMetaWhatsAppMessage,
@@ -319,44 +320,75 @@ export async function handleMarketingFlowInbound(
   return { handled: true };
 }
 
-const MARKETING_SYSTEM_PROMPT = `את זואי — עוזרת AI חכמה של HeyZoe.
+const MARKETING_CORE_IDENTITY = `את זואי — עוזרת AI חכמה של HeyZoe.
 HeyZoe היא פלטפורמה שמאפשרת לבעלי עסקים (סטודיו, מאמנים, מטפלים) לחבר עוזרת AI בוואטסאפ שעונה ללידים שלהם 24/7, מטפלת בשאלות חוזרות, ומקדמת אותם להרשמה.
 
-כשמישהו שולח הודעה:
-- ענו בעברית, בטון חם, קצר וידידותי
-- אם שואלים על HeyZoe — הסבירו בקצרה מה זה ואיך זה עוזר
-- אם השאלה ניתנת לתשובה לפי המידע שבפלואו השיווקי או לפי העובדות למטה — עני רק על בסיס המידע הזה, בלי להמציא
-- אם שאלה טכנית/משפטית/עסקית שאין עליה תשובה במידע שסופק — אל תמציאי; הפנילי לפי ההנחיות למטה (מספר שירות אם סופק)
-- אם מבקשים לדבר עם נציג אנושי, בן אדם, שירות אנושי, מענה אנושי, representative, agent, human וכו׳ — יש הנחיות מיוחדות למטה כשמספר שירות סופק; אם לא סופק מספר — עני בנימוס שצוות HeyZoe יחזור אליהם בהקדם בלי להמציא מספר
-- אם זו סתם שיחה — היו נחמדות ומזמינות
-- אל תמציאו מחירים או תכונות שלא הוזכרו
-- שמרו על הודעות קצרות (2-3 משפטים מקס)`;
+קראי את כל סעיפי החוקיות, העובדות וההנחיות המופיעים בהמשך בהודעת המערכת, והתנהגי בהתאם.`;
 
-async function loadMarketingAiSettings(): Promise<{ facts: string[]; supportPhone: string }> {
+async function loadMarketingAiSettings(): Promise<{
+  facts: string[];
+  supportPhone: string;
+  legalGuidelines: string[];
+}> {
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin
-      .from("marketing_flow_settings")
-      .select("open_facts, marketing_support_phone")
-      .eq("id", 1)
-      .maybeSingle();
-    if (error || !data) return { facts: [], supportPhone: "" };
-    const row = data as { open_facts?: unknown; marketing_support_phone?: unknown };
+    let data: Record<string, unknown> | null = null;
+    let error: { message?: string } | null = null;
+    {
+      const res = await admin
+        .from("marketing_flow_settings")
+        .select("open_facts, marketing_support_phone, marketing_legal_guidelines")
+        .eq("id", 1)
+        .maybeSingle();
+      data = (res.data as Record<string, unknown> | null) ?? null;
+      error = res.error as { message?: string } | null;
+    }
+    if (error?.message && /marketing_legal_guidelines|column/i.test(error.message)) {
+      const res = await admin
+        .from("marketing_flow_settings")
+        .select("open_facts, marketing_support_phone")
+        .eq("id", 1)
+        .maybeSingle();
+      data = (res.data as Record<string, unknown> | null) ?? null;
+      error = res.error as { message?: string } | null;
+    }
+    if (error || !data) {
+      return {
+        facts: [],
+        supportPhone: "",
+        legalGuidelines: DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES,
+      };
+    }
+    const row = data as {
+      open_facts?: unknown;
+      marketing_support_phone?: unknown;
+      marketing_legal_guidelines?: unknown;
+    };
     const raw = row.open_facts;
     const facts = Array.isArray(raw) ? raw.map((x) => String(x ?? "").trim()).filter(Boolean) : [];
     const supportPhone = String(row.marketing_support_phone ?? "")
       .trim()
       .replace(/\s+/g, " ")
       .slice(0, 48);
-    return { facts, supportPhone };
+    const legalRaw = Array.isArray(row.marketing_legal_guidelines)
+      ? row.marketing_legal_guidelines.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    const legalGuidelines =
+      legalRaw.length > 0 ? legalRaw : DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES;
+    return { facts, supportPhone, legalGuidelines };
   } catch {
-    return { facts: [], supportPhone: "" };
+    return {
+      facts: [],
+      supportPhone: "",
+      legalGuidelines: DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES,
+    };
   }
 }
 
 /** טקסטים מהפלואו לשימוש זואי אחרי סיום הפלואו — לפי סדר יצירת הנודים */
 const MARKETING_AI_FLOW_CONTEXT_MAX_CHARS = 12_000;
 const MARKETING_AI_OPEN_FACTS_MAX_CHARS = 8_000;
+const MARKETING_AI_LEGAL_MAX_CHARS = 8_000;
 
 async function loadMarketingNodesAndEdgesForAi(): Promise<{ nodes: FlowNode[]; edges: FlowEdge[] }> {
   try {
@@ -478,7 +510,7 @@ export async function callMarketingAI(userText: string): Promise<string> {
   const apiKey = resolveClaudeApiKey();
   if (!apiKey) return "אין לי אפשרות לענות כרגע, נחזור אליך בהקדם!";
 
-  const [{ facts: factLines, supportPhone }, { nodes, edges }] = await Promise.all([
+  const [{ facts: factLines, supportPhone, legalGuidelines }, { nodes, edges }] = await Promise.all([
     loadMarketingAiSettings(),
     loadMarketingNodesAndEdgesForAi(),
   ]);
@@ -486,6 +518,12 @@ export async function callMarketingAI(userText: string): Promise<string> {
   const rawFlowLines = buildMarketingFlowKnowledgeLines(nodes, edges);
   const flowLines = capLinesByTotalChars(rawFlowLines, MARKETING_AI_FLOW_CONTEXT_MAX_CHARS);
   const cappedOpenFacts = capLinesByTotalChars(factLines, MARKETING_AI_OPEN_FACTS_MAX_CHARS);
+  const legalCapped = capLinesByTotalChars(legalGuidelines, MARKETING_AI_LEGAL_MAX_CHARS);
+
+  const legalAppendix =
+    legalCapped.length > 0
+      ? `\n\nחוקיות והנחיות:\n${legalCapped.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
+      : "";
 
   const flowAppendix =
     flowLines.length > 0
@@ -504,7 +542,8 @@ export async function callMarketingAI(userText: string): Promise<string> {
 
 כשהשאלה נוגעת לשימוש במערכת HeyZoe, תנאי שימוש, מחירים וחיובים, תקלות טכניות, או כל נושא שאין עליו תשובה ברורה בעובדות למעלה — אל תמציאי מידע. עני בקצרה (עד 2–3 משפטים), בנימוס, והפנילי את השולח ליצור קשר ישירות במספר הזה (וואטסאפ או טלפון — לפי הפורמט שמוצג).`
       : "";
-  const systemPrompt = MARKETING_SYSTEM_PROMPT + flowAppendix + openFactsAppendix + supportAppendix;
+  const systemPrompt =
+    MARKETING_CORE_IDENTITY + legalAppendix + flowAppendix + openFactsAppendix + supportAppendix;
 
   const client = new Anthropic({ apiKey });
 

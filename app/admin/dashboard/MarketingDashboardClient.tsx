@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MarketingFlowBuilder from "./MarketingFlowBuilder";
+import MarketingLegalityTab from "./MarketingLegalityTab";
 import MarketingOpenQuestionsTab from "./MarketingOpenQuestionsTab";
 
 const PURPLE = "#7133da";
@@ -24,7 +25,8 @@ function tabPill(active: boolean): CSSProperties {
 
 export default function MarketingDashboardClient() {
   const sp = useSearchParams();
-  const sub = sp.get("sub") === "open" ? "open" : "flow";
+  const subRaw = sp.get("sub");
+  const sub = subRaw === "open" ? "open" : subRaw === "legal" ? "legal" : "flow";
 
   return (
     <>
@@ -44,6 +46,9 @@ export default function MarketingDashboardClient() {
         <Link href="/admin/dashboard?tab=marketing&sub=open" prefetch style={tabPill(sub === "open")}>
           שאלות פתוחות
         </Link>
+        <Link href="/admin/dashboard?tab=marketing&sub=legal" prefetch style={tabPill(sub === "legal")}>
+          חוקיות
+        </Link>
       </div>
 
       <div
@@ -55,7 +60,13 @@ export default function MarketingDashboardClient() {
           overflow: "hidden",
         }}
       >
-        {sub === "flow" ? <MarketingFlowBuilder /> : <MarketingOpenQuestionsTab />}
+        {sub === "flow" ? (
+          <MarketingFlowBuilder />
+        ) : sub === "open" ? (
+          <MarketingOpenQuestionsTab />
+        ) : (
+          <MarketingLegalityTab />
+        )}
       </div>
     </>
   );
