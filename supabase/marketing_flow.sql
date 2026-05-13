@@ -47,3 +47,9 @@ alter table marketing_flow_nodes
 alter table marketing_flow_nodes
   add constraint marketing_flow_nodes_type_check
   check (type in ('message', 'question', 'media', 'cta', 'followup', 'delay'));
+
+-- עמודת open_facts לטאב «שאלות פתוחות» (טבלאות שנוצרו לפני השדה)
+alter table marketing_flow_settings
+  add column if not exists open_facts jsonb not null default '[]'::jsonb;
+
+comment on column marketing_flow_settings.open_facts is 'מערך מחרוזות: עובדות שזואי משתמשת בהן אחרי סיום הפלואו (שיחת AI שיווקית)';
