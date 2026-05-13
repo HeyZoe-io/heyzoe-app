@@ -2475,9 +2475,8 @@ export default function SlugSettingsPage() {
   return (
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
-      {/* sticky: נשאר מחובר לזרימת המסמך (בלי קפיצות spacer/fixed) ונדבק לראש ה־viewport בגלילה */}
       <div
-        className="sticky top-[env(safe-area-inset-top,0px)] z-20 w-full border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl overflow-x-hidden"
+        className="w-full border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl overflow-x-hidden"
       >
           <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
