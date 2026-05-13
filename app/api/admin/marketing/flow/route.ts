@@ -112,9 +112,11 @@ export async function POST(req: NextRequest) {
 
     if (rawNodes.length === 0) {
       if (typeof body.is_active === "boolean") {
-        await admin
+        const { error: setErr } = await admin
           .from("marketing_flow_settings")
-          .upsert({ id: 1, is_active: body.is_active, updated_at: new Date().toISOString() }, { onConflict: "id" });
+          .update({ is_active: body.is_active, updated_at: new Date().toISOString() })
+          .eq("id", 1);
+        if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
       }
       console.info("[marketing/flow] POST ok (empty flow)");
       return NextResponse.json({ ok: true });
@@ -176,8 +178,9 @@ export async function POST(req: NextRequest) {
     if (typeof body.is_active === "boolean") {
       const { error: setErr } = await admin
         .from("marketing_flow_settings")
-        .upsert({ id: 1, is_active: body.is_active, updated_at: new Date().toISOString() }, { onConflict: "id" });
-      if (setErr) console.warn("[marketing/flow] settings upsert:", setErr.message, setErr.code, setErr.details);
+        .update({ is_active: body.is_active, updated_at: new Date().toISOString() })
+        .eq("id", 1);
+      if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
     }
 
     console.info("[marketing/flow] POST ok — saved", rawNodes.length, "nodes,", edgeInserts.length, "edges");
