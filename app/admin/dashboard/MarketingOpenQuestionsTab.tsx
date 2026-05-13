@@ -21,6 +21,7 @@ function factPlaceholder(index: number): string {
 
 export default function MarketingOpenQuestionsTab() {
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
+  const [supportPhone, setSupportPhone] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -69,7 +70,7 @@ export default function MarketingOpenQuestionsTab() {
       setLoadErr("");
       try {
         const r = await fetch("/api/admin/marketing/open-facts", { method: "GET", cache: "no-store" });
-        const j = (await r.json()) as { facts?: string[]; error?: string };
+        const j = (await r.json()) as { facts?: string[]; marketing_support_phone?: string; error?: string };
         if (cancelled) return;
         if (!r.ok) {
           setLoadErr(j.error?.trim() || `שגיאת טעינה (${r.status})`);
@@ -77,6 +78,7 @@ export default function MarketingOpenQuestionsTab() {
         }
         const rows = Array.isArray(j.facts) ? j.facts.map((x) => String(x ?? "")) : [];
         setTraits(normalizeFactRows(rows.length ? rows : ["", "", ""]));
+        setSupportPhone(String(j.marketing_support_phone ?? "").trim());
       } catch {
         if (!cancelled) setLoadErr("בעיית רשת בטעינה.");
       } finally {
@@ -96,7 +98,10 @@ export default function MarketingOpenQuestionsTab() {
       const r = await fetch("/api/admin/marketing/open-facts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facts }),
+        body: JSON.stringify({
+          facts,
+          marketing_support_phone: supportPhone.trim(),
+        }),
       });
       const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!r.ok) {
@@ -132,6 +137,36 @@ export default function MarketingOpenQuestionsTab() {
         <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55 }}>
           עובדות שאפשר לכתוב כאן — זואי תשתמש בהן כדי לענות על שאלות פתוחות אחרי סיום הפלואו השיווקי (בדומה
           ל־«כל העובדות שכדאי לציין על העסק» בדשבורד בעל העסק, כולל שאלות מוצעות שמזהות פערים בטקסט).
+        </p>
+      </div>
+
+      <div>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1a0a3c", marginBottom: 6 }}>
+          מספר לשירות לקוחות (וואטסאפ / טלפון)
+        </label>
+        <input
+          dir="ltr"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          value={supportPhone}
+          onChange={(e) => setSupportPhone(e.target.value)}
+          placeholder="+972501234567 או 050-123-4567"
+          style={{
+            width: "100%",
+            maxWidth: 320,
+            boxSizing: "border-box",
+            borderRadius: 12,
+            border: `1px solid rgba(113,51,218,0.22)`,
+            padding: "8px 10px",
+            fontFamily: "inherit",
+            fontSize: 14,
+            textAlign: "left",
+          }}
+        />
+        <p style={{ margin: "6px 0 0", fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
+          כשאין תשובה בעובדות — למשל שימוש במערכת, תנאים, חיובים או תקלה טכנית — זואי תפנה את הליד ליצור קשר
+          ישירות במספר הזה. אם השדה ריק, לא תופיע הפניה אוטומטית.
         </p>
       </div>
 
@@ -322,7 +357,7 @@ export default function MarketingOpenQuestionsTab() {
             cursor: saving ? "wait" : "pointer",
           }}
         >
-          {saving ? "שומר…" : "שמור עובדות"}
+          {saving ? "שומר…" : "שמור"}
         </button>
         {saveMsg ? (
           <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span>
