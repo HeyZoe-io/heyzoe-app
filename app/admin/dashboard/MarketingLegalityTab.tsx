@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
-const AUTOSAVE_MS = 900;
 
 export default function MarketingLegalityTab() {
   const [lines, setLines] = useState<string[]>([]);
@@ -15,8 +14,8 @@ export default function MarketingLegalityTab() {
   const [loadErr, setLoadErr] = useState("");
   const [schemaNotice, setSchemaNotice] = useState("");
   const lastPersistedSnapshotRef = useRef<string | null>(null);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveRef = useRef<(fromAuto?: boolean) => Promise<void>>(async () => {});
+  const linesRef = useRef<string[]>([]);
+  linesRef.current = lines;
 
   useEffect(() => {
     let cancelled = false;
@@ -58,15 +57,12 @@ export default function MarketingLegalityTab() {
   const save = useCallback(
     async (fromAuto = false) => {
       if (!fromAuto) {
-        if (autoSaveTimerRef.current) {
-          clearTimeout(autoSaveTimerRef.current);
-          autoSaveTimerRef.current = null;
-        }
         setSaveMsg(null);
       }
+      const linesSnapshot = lines;
       setSaving(true);
       try {
-        const payload = lines.map((s) => s.trim()).filter(Boolean);
+        const payload = linesSnapshot.map((s) => s.trim()).filter(Boolean);
         const r = await fetch("/api/admin/marketing/legal-guidelines", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -83,10 +79,18 @@ export default function MarketingLegalityTab() {
           return;
         }
         const saved = Array.isArray(j.lines) ? j.lines : payload;
-        setLines(saved.length ? saved : [""]);
-        setUsingDefaults(Boolean((j as { using_defaults?: boolean }).using_defaults));
-        lastPersistedSnapshotRef.current = JSON.stringify(saved.length ? saved : [""]);
-        setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר");
+        const usingDef = Boolean((j as { using_defaults?: boolean }).using_defaults);
+        setUsingDefaults(usingDef);
+        if (fromAuto) {
+          if (JSON.stringify(linesRef.current) === JSON.stringify(linesSnapshot)) {
+            lastPersistedSnapshotRef.current = JSON.stringify(linesSnapshot);
+            setSaveMsg("נשמר אוטומטית");
+          }
+        } else {
+          setLines(saved.length ? saved : [""]);
+          lastPersistedSnapshotRef.current = JSON.stringify(saved.length ? saved : [""]);
+          setSaveMsg("נשמר");
+        }
       } catch {
         setSaveMsg("שגיאת רשת בשמירה.");
       } finally {
@@ -96,7 +100,13 @@ export default function MarketingLegalityTab() {
     [lines]
   );
 
-  saveRef.current = save;
+  const saveIfDirty = useCallback(async () => {
+    if (loading || loadErr) return;
+    const snap = JSON.stringify(lines);
+    if (lastPersistedSnapshotRef.current === null) return;
+    if (snap === lastPersistedSnapshotRef.current) return;
+    await save(true);
+  }, [lines, loading, loadErr, save]);
 
   useEffect(() => {
     if (loading) {
@@ -104,23 +114,28 @@ export default function MarketingLegalityTab() {
       return;
     }
     if (loadErr) return;
-
     const snap = JSON.stringify(lines);
     if (lastPersistedSnapshotRef.current === null) {
       lastPersistedSnapshotRef.current = snap;
-      return;
     }
-    if (snap === lastPersistedSnapshotRef.current) return;
-
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      autoSaveTimerRef.current = null;
-      void saveRef.current(true);
-    }, AUTOSAVE_MS);
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    };
   }, [lines, loading, loadErr]);
+
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState !== "hidden") return;
+      void saveIfDirty();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => document.removeEventListener("visibilitychange", onHidden);
+  }, [saveIfDirty]);
+
+  useEffect(() => {
+    const onWinBlur = () => {
+      void saveIfDirty();
+    };
+    window.addEventListener("blur", onWinBlur);
+    return () => window.removeEventListener("blur", onWinBlur);
+  }, [saveIfDirty]);
 
   if (loading) {
     return (
@@ -147,8 +162,8 @@ export default function MarketingLegalityTab() {
         <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 600, color: "#1a0a3c" }}>חוקיות</h2>
         <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55 }}>
           כאן מגדירים במילים פשוטות איך זואי של קו השיווק מתנהגת אחרי סיום הפלואו. ברירת המחדל משקפת את ההנחיות
-          שהיו קודם במערכת — אפשר לערוך, למחוק שורות ולהוסיף שורות. השינויים נשמרים אוטומטית לבסיס הנתונים; אפשר גם
-          ללחוץ «שמור» לשמירה מיידית.
+          שהיו קודם במערכת — אפשר לערוך, למחוק שורות ולהוסיף שורות. השמירה מתבצעת כשעוזבים שדה (מעבר לשורה אחרת או לכפתור),
+          כשעוברים לטאב אחר או כשהחלון מאבד מיקוד; אפשר גם ללחוץ «שמור» לשמירה מיידית.
         </p>
         {usingDefaults ? (
           <p style={{ margin: "10px 0 0", fontSize: 13, color: "#854d0e", lineHeight: 1.5 }}>
@@ -175,6 +190,9 @@ export default function MarketingLegalityTab() {
                     next[i] = v;
                     return next;
                   });
+                }}
+                onBlur={() => {
+                  void saveIfDirty();
                 }}
                 placeholder="למשל: לא להבטיח החזר כספי בלי אישור משפטי"
                 style={{
@@ -251,7 +269,9 @@ export default function MarketingLegalityTab() {
         {saveMsg ? (
           <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span>
         ) : null}
-        <span style={{ fontSize: 12, color: "#a89bc4" }}>שמירה אוטומטית אחרי הקלדה (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳)</span>
+        <span style={{ fontSize: 12, color: "#a89bc4" }}>
+          שמירה אוטומטית כשעוזבים שדה או כשעוברים לרקע / טאב אחר
+        </span>
       </div>
     </div>
   );
