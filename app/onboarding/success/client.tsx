@@ -1,8 +1,33 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+
+/** Meta JS SDK (Embedded Signup) — minimal surface */
+type FbAuthResponse = {
+  code?: string;
+  accessToken?: string;
+  userID?: string;
+  waba_id?: string;
+  wabaId?: string;
+  [key: string]: unknown;
+};
+
+type FbLoginResponse = {
+  status?: string;
+  authResponse?: FbAuthResponse;
+};
+
+declare global {
+  interface Window {
+    FB?: {
+      init: (opts: { appId: string; cookie?: boolean; xfbml?: boolean; version: string }) => void;
+      login: (cb: (res: FbLoginResponse) => void, opts?: Record<string, unknown>) => void;
+    };
+    fbAsyncInit?: () => void;
+  }
+}
 
 const POLL_MS = 2000;
 const TIMEOUT_MS = 120_000;
@@ -28,6 +53,122 @@ export default function OnboardingSuccessClient() {
   const [timedOut, setTimedOut] = useState(false);
   const [revealedStepCount, setRevealedStepCount] = useState(0);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [fbSdkReady, setFbSdkReady] = useState(false);
+  const [fbAppId, setFbAppId] = useState("");
+  const [fbConfigId, setFbConfigId] = useState("");
+  const [embeddedState, setEmbeddedState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [embeddedErr, setEmbeddedErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cfgR = await fetch("/api/onboarding/facebook-config", { cache: "no-store" });
+        const cfg = (await cfgR.json()) as { appId?: string; configId?: string };
+        if (cancelled) return;
+        const appId = String(cfg.appId ?? "").trim();
+        setFbAppId(appId);
+        setFbConfigId(String(cfg.configId ?? "").trim());
+        if (!appId) return;
+
+        window.fbAsyncInit = () => {
+          if (cancelled) return;
+          window.FB?.init({
+            appId,
+            cookie: true,
+            xfbml: true,
+            version: "v21.0",
+          });
+          setFbSdkReady(true);
+        };
+
+        if (document.getElementById("facebook-jssdk")) {
+          if (window.FB) {
+            window.fbAsyncInit?.();
+          }
+          return;
+        }
+        const s = document.createElement("script");
+        s.id = "facebook-jssdk";
+        s.async = true;
+        s.crossOrigin = "anonymous";
+        s.src = "https://connect.facebook.net/en_US/sdk.js";
+        document.body.appendChild(s);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const connectEmbeddedWhatsApp = useCallback(() => {
+    if (!ready?.slug || !email) return;
+    if (!window.FB?.login) {
+      setEmbeddedState("error");
+      setEmbeddedErr("טעינת פייסבוק נכשלה. רעננו את הדף.");
+      return;
+    }
+    setEmbeddedErr(null);
+    setEmbeddedState("loading");
+
+    const loginOpts: Record<string, unknown> = {
+      scope: "whatsapp_business_management",
+      extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
+    };
+    if (fbConfigId) {
+      loginOpts.config_id = fbConfigId;
+    }
+
+    window.FB.login(
+      (resp: FbLoginResponse & { code?: string; waba_id?: string }) => {
+        const ar = resp.authResponse;
+        const code = String(ar?.code ?? (resp as { code?: string }).code ?? "").trim();
+        const waba_id = String(
+          ar?.waba_id ?? ar?.wabaId ?? (resp as { waba_id?: string }).waba_id ?? ""
+        )
+          .trim()
+          .replace(/\s+/g, "");
+        if (!code || !waba_id) {
+          setEmbeddedState(resp.status === "unknown" ? "idle" : "error");
+          setEmbeddedErr(
+            resp.status === "unknown"
+              ? null
+              : "לא התקבלו מזהה WABA או קוד מהתחברות פייסבוק. נסו שוב או בדקו את ההגדרות באפליקציית מטא."
+          );
+          return;
+        }
+        void (async () => {
+          try {
+            const r = await fetch("/api/onboarding/embedded-signup", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code,
+                waba_id,
+                businessSlug: ready.slug,
+                email,
+              }),
+            });
+            const j = (await r.json().catch(() => ({}))) as { success?: boolean; error?: string };
+            if (!r.ok || !j.success) {
+              setEmbeddedState("error");
+              setEmbeddedErr(j.error?.trim() || `שגיאת שרת (${r.status})`);
+              return;
+            }
+            setEmbeddedState("success");
+            setEmbeddedErr(null);
+          } catch {
+            setEmbeddedState("error");
+            setEmbeddedErr("בעיית רשת בשמירה.");
+          }
+        })();
+      },
+      loginOpts
+    );
+  }, [ready?.slug, email, fbConfigId]);
 
   useEffect(() => {
     if (!email) return;
@@ -130,7 +271,7 @@ export default function OnboardingSuccessClient() {
             }
 
             router.replace(nextUrl);
-          }, 1500);
+          }, 10_000);
           return;
         }
       } catch {
@@ -292,7 +433,71 @@ export default function OnboardingSuccessClient() {
                 <span>הצלחנו!</span>
               </div>
             </div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da" }}>הכל מוכן! 🎉 מעבירים אותך...</div>
+
+            <div
+              style={{
+                marginTop: 18,
+                padding: "16px 16px",
+                borderRadius: "16px",
+                background: "rgba(255,255,255,0.95)",
+                border: "1px solid rgba(113,51,218,0.15)",
+                textAlign: "right",
+              }}
+            >
+              <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
+                חיבור ווטסאפ עסקי (מטא)
+              </p>
+              <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
+                מחברים את חשבון ה־WhatsApp Business שלכם ל־HeyZoe דרך פייסבוק. אם אין לכם עדיין אפליקציית מטא
+                מוכנה, אפשר לדלג — תמיד אפשר לחזור לזה מהדשבורד.
+              </p>
+              {!fbAppId ? (
+                <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>
+                  חסר <code dir="ltr">NEXT_PUBLIC_META_APP_ID</code> (או{" "}
+                  <code dir="ltr">NEXT_PUBLIC_FACEBOOK_APP_ID</code>) בשרת — לא ניתן להציג את חלון ההתחברות.
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={!fbSdkReady || embeddedState === "loading"}
+                    onClick={() => connectEmbeddedWhatsApp()}
+                    style={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      borderRadius: 999,
+                      border: "1px solid rgba(113,51,218,0.25)",
+                      background:
+                        !fbSdkReady || embeddedState === "loading"
+                          ? "rgba(113,51,218,0.35)"
+                          : "linear-gradient(135deg,#7133da,#ff92ff)",
+                      color: "#fff",
+                      padding: "12px 18px",
+                      fontFamily: "inherit",
+                      fontSize: "15px",
+                      fontWeight: 700,
+                      cursor: !fbSdkReady || embeddedState === "loading" ? "wait" : "pointer",
+                    }}
+                  >
+                    {embeddedState === "loading" ? "מתחברים…" : "חברו ווטסאפ עסקי"}
+                  </button>
+                  {embeddedState === "success" ? (
+                    <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#0b5c2e", fontWeight: 600 }}>
+                      נשמר בהצלחה. ממשיכים להכין את המספר בצד השרת.
+                    </p>
+                  ) : null}
+                  {embeddedState === "error" && embeddedErr ? (
+                    <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#b42318" }} role="alert">
+                      {embeddedErr}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da", marginTop: 16 }}>
+              הכל מוכן! 🎉 מעבירים אותך...
+            </div>
           </div>
         ) : (
           <>

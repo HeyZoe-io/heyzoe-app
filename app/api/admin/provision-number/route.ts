@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { fetchBusinessWabaId, resolveMetaWabaId } from "@/lib/meta-waba-resolve";
 
 export const runtime = "nodejs";
 
@@ -113,9 +114,8 @@ export async function POST(req: NextRequest) {
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
   const whatsappSystemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
-  const metaWabaId = process.env.META_WABA_ID?.trim() ?? "";
 
-  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken || !metaWabaId) {
+  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken) {
     return NextResponse.json({ error: "missing_env" }, { status: 500 });
   }
 
@@ -124,6 +124,13 @@ export async function POST(req: NextRequest) {
   const verified_name_in = String(body?.verified_name ?? "").trim();
   if (!business_slug) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+  }
+
+  const adminForWaba = createSupabaseAdminClient();
+  const wabaFromDb = await fetchBusinessWabaId(adminForWaba, business_slug);
+  const metaWabaId = resolveMetaWabaId(wabaFromDb, process.env.META_WABA_ID?.trim() ?? "");
+  if (!metaWabaId) {
+    return NextResponse.json({ error: "missing_meta_waba" }, { status: 500 });
   }
 
   const twilioAuth = twilioAuthHeader(twilioAccountSid, twilioAuthToken);
