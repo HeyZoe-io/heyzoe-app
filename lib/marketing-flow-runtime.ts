@@ -231,7 +231,8 @@ async function sendNodeChain(
   return { lastSent: current, waitingForAnswer: false, nextNodeId: null };
 }
 
-const GREETING_RE = /^(היי|הי|אהלן|שלום|בוקר טוב|ערב טוב|הלו|hello|hi|hey|שלומות|מה נשמע|מה קורה)\s*[.!?]*$/iu;
+const GREETING_RE =
+  /^(היוש|הייי+|היי|הי|אהלן|שלום|בוקר טוב|ערב טוב|הלו|hello|hi|hey|שלומות|מה נשמע|מה קורה)\s*[.!?]*$/iu;
 
 function isGreeting(text: string): boolean {
   return GREETING_RE.test(text.trim());
