@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildFactQuestions, factFromQuestionAnswer } from "@/lib/fact-questions";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
+const AUTOSAVE_MS = 900;
 
 function normalizeFactRows(arr: string[]): string[] {
   const t = arr.map((s) => String(s ?? ""));
@@ -26,6 +27,8 @@ export default function MarketingOpenQuestionsTab() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState("");
+  const skipPostLoadAutosaveRef = useRef(true);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const factQuestions = useMemo(
     () =>
@@ -90,31 +93,57 @@ export default function MarketingOpenQuestionsTab() {
     };
   }, []);
 
-  async function save() {
-    setSaveMsg(null);
-    setSaving(true);
-    try {
-      const facts = traits.map((s) => s.trim()).filter(Boolean);
-      const r = await fetch("/api/admin/marketing/open-facts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          facts,
-          marketing_support_phone: supportPhone.trim(),
-        }),
-      });
-      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!r.ok) {
-        setSaveMsg(j.error?.trim() || `שגיאת שמירה (${r.status})`);
-        return;
+  const save = useCallback(
+    async (fromAuto = false) => {
+      if (!fromAuto) {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+        }
+        setSaveMsg(null);
       }
-      setSaveMsg("נשמר");
-    } catch {
-      setSaveMsg("שגיאת רשת בשמירה.");
-    } finally {
-      setSaving(false);
+      setSaving(true);
+      try {
+        const facts = traits.map((s) => s.trim()).filter(Boolean);
+        const r = await fetch("/api/admin/marketing/open-facts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            facts,
+            marketing_support_phone: supportPhone.trim(),
+          }),
+        });
+        const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!r.ok) {
+          setSaveMsg(j.error?.trim() || `שגיאת שמירה (${r.status})`);
+          return;
+        }
+        setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר");
+      } catch {
+        setSaveMsg("שגיאת רשת בשמירה.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [supportPhone, traits]
+  );
+
+  useEffect(() => {
+    if (loading) return;
+    if (loadErr) return;
+    if (skipPostLoadAutosaveRef.current) {
+      skipPostLoadAutosaveRef.current = false;
+      return;
     }
-  }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void save(true);
+    }, AUTOSAVE_MS);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [traits, supportPhone, loading, loadErr, save]);
 
   if (loading) {
     return (
@@ -136,7 +165,8 @@ export default function MarketingOpenQuestionsTab() {
         <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 600, color: "#1a0a3c" }}>שאלות פתוחות</h2>
         <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55 }}>
           עובדות שאפשר לכתוב כאן — זואי תשתמש בהן כדי לענות על שאלות פתוחות אחרי סיום הפלואו השיווקי (בדומה
-          ל־«כל העובדות שכדאי לציין על העסק» בדשבורד בעל העסק, כולל שאלות מוצעות שמזהות פערים בטקסט).
+          ל־«כל העובדות שכדאי לציין על העסק» בדשבורד בעל העסק, כולל שאלות מוצעות שמזהות פערים בטקסט). השינויים נשמרים
+          אוטומטית; אפשר גם ללחוץ «שמור» לשמירה מיידית.
         </p>
       </div>
 
@@ -344,7 +374,7 @@ export default function MarketingOpenQuestionsTab() {
         <button
           type="button"
           disabled={saving}
-          onClick={() => void save()}
+          onClick={() => void save(false)}
           style={{
             borderRadius: 999,
             border: `1px solid rgba(113,51,218,0.25)`,
@@ -362,6 +392,7 @@ export default function MarketingOpenQuestionsTab() {
         {saveMsg ? (
           <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span>
         ) : null}
+        <span style={{ fontSize: 12, color: "#a89bc4" }}>שמירה אוטומטית אחרי הקלדה (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳)</span>
       </div>
     </div>
   );
