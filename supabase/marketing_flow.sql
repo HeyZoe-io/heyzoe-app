@@ -58,7 +58,7 @@ comment on column marketing_flow_settings.open_facts is 'מערך מחרוזות
 alter table marketing_flow_settings
   add column if not exists marketing_support_phone text not null default '';
 
-comment on column marketing_flow_settings.marketing_support_phone is 'וואטסאפ/טלפון: הפניה כשאין תשובה בעובדות (מערכת, תנאים, תקלות)';
+comment on column marketing_flow_settings.marketing_support_phone is 'מספר וואטסאפ לשירות (ספרות): לבניית wa.me עם טקסט מצורף — לא להצגה גולמית לליד';
 
 alter table marketing_flow_settings
   add column if not exists marketing_legal_guidelines jsonb not null default '[]'::jsonb;
