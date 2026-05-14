@@ -186,7 +186,7 @@ export default function MarketingOpenQuestionsTab() {
 
       <div>
         <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1a0a3c", marginBottom: 6 }}>
-          מספר לשירות לקוחות (וואטסאפ / טלפון)
+          מספר וואטסאפ לשירות (לבניית קישור wa.me)
         </label>
         <input
           dir="ltr"
@@ -198,7 +198,7 @@ export default function MarketingOpenQuestionsTab() {
           placeholder="+972501234567 או 050-123-4567"
           style={{
             width: "100%",
-            maxWidth: 320,
+            maxWidth: 360,
             boxSizing: "border-box",
             borderRadius: 12,
             border: `1px solid rgba(113,51,218,0.22)`,
@@ -209,8 +209,9 @@ export default function MarketingOpenQuestionsTab() {
           }}
         />
         <p style={{ margin: "6px 0 0", fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
-          כשאין תשובה בעובדות — למשל שימוש במערכת, תנאים, חיובים או תקלה טכנית — זואי תפנה את הליד ליצור קשר
-          ישירות במספר הזה. אם השדה ריק, לא תופיע הפניה אוטומטית.
+          כשאין תשובה בעובדות או כשמבקשים שירות אנושי — זואי תפנה עם{" "}
+          <strong>קישור וואטסאפ</strong> (לא מספר גולמי). בקישור יוצמד טקסט קצר (כמה מילים מהודעת הליד) כדי
+          שצוות השירות יבין את הנושא לפני השליחה. אם השדה ריק — לא תופיע הפניה אוטומטית.
         </p>
       </div>
 

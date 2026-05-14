@@ -2,6 +2,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
 import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
+  buildMarketingSupportWaUrl,
+  replyContainsMarketingSupportWaLink,
+  supportWhatsAppPrefillFromUserMessage,
+} from "@/lib/marketing-support-wa";
+import {
   sendMetaWhatsAppMessage,
   buildMetaInteractivePayload,
   type MetaWhatsAppOutgoing,
@@ -486,7 +491,7 @@ function capLinesByTotalChars(lines: string[], maxChars: number): string[] {
   return out;
 }
 
-/** זיהוי גס לבקשת מענה אנושי — משלים את הפרומפט אם המודל דילג על המספר */
+/** זיהוי גס לבקשת מענה אנושי — משלים את הפרומפט אם המודל דילג על קישור הוואטסאפ */
 function userAsksForHumanAgent(userText: string): boolean {
   const raw = String(userText ?? "").trim();
   if (!raw) return false;
@@ -500,15 +505,6 @@ function userAsksForHumanAgent(userText: string): boolean {
       t
     );
   return hebrew || english;
-}
-
-function replyContainsSupportPhoneDigits(reply: string, phone: string): boolean {
-  const digitsPhone = String(phone).replace(/\D/g, "");
-  if (digitsPhone.length < 6) return reply.includes(phone.trim());
-  const digitsReply = reply.replace(/\D/g, "");
-  if (digitsReply.includes(digitsPhone)) return true;
-  const tail = digitsPhone.slice(-9);
-  return tail.length >= 7 && digitsReply.includes(tail);
 }
 
 /**
@@ -545,14 +541,18 @@ export async function callMarketingAI(userText: string): Promise<string> {
       ? `\n\nעובדות ושאלות פתוחות מההגדרות (בנוסף לפלואו למעלה אם יש; אל תמציאי מידע שלא מופיע כאן או בפלואו):\n${cappedOpenFacts.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "";
   const trimmedPhone = supportPhone.trim();
-  const supportAppendix =
-    trimmedPhone.length > 0
-      ? `\n\nמספר שירות לקוחות אנושי להפניה: ${trimmedPhone}
+  const supportPrefill = supportWhatsAppPrefillFromUserMessage(userText);
+  const supportWaUrl = trimmedPhone ? buildMarketingSupportWaUrl(trimmedPhone, supportPrefill) : null;
 
-חובה מוחלטת: אם השולח מבקש בכל ניסוח (עברית או אנגלית) לדבר עם נציג אנושי, נציג, בן אדם, אדם אמיתי, שירות לקוחות אנושי, מענה אנושי, לדבר עם מישהו, representative, agent, human, customer service person, real person וכו׳ — חייבת להופיע בהודעת התשובה שלך את מספר השירות למעלה באופן בולט (למשל שורה נפרדת עם המספר), יחד עם משפט חם קצר.
+  const supportAppendix = supportWaUrl
+    ? `\n\nקישור וואטסאפ לשירות לקוחות אנושי (העתיקי בשורה נפרדת בדיוק כפי שמופיע, בלי לשנות):
+${supportWaUrl}
 
-כשהשאלה נוגעת לשימוש במערכת HeyZoe, תנאי שימוש, מחירים וחיובים, תקלות טכניות, או כל נושא שאין עליו תשובה ברורה בעובדות למעלה — אל תמציאי מידע. עני בקצרה (עד 2–3 משפטים), בנימוס, והפנילי את השולח ליצור קשר ישירות במספר הזה (וואטסאפ או טלפון — לפי הפורמט שמוצג).`
-      : "";
+חובה: אל תציגי מספר טלפון גולמי. הפניה לשירות — רק עם קישור wa.me כמו למעלה.
+אם השולח מבקש נציג אנושי, בן אדם, שירות לקוחות, human, agent וכו׳ — חייב להופיע בתשובה הקישור המלא למעלה (אפשר שורה נפרדת ולפניה משפט קצר).
+
+כשאין תשובה בעובדות (מערכת, תנאים, חיובים, תקלה טכנית) — אל תמציאי; עני בקצרה והפנילי לפתוח את הקישור: בוואטסאפ ייטען טקסט פתיחה קצר שמסכם את פניית השולח (אפשר לערוך לפני השליחה).`
+    : "";
   const systemPrompt =
     MARKETING_CORE_IDENTITY + legalAppendix + flowAppendix + openFactsAppendix + supportAppendix;
 
@@ -570,11 +570,11 @@ export async function callMarketingAI(userText: string): Promise<string> {
       const textBlock = response.content.find((b) => b.type === "text");
       let out = textBlock?.text?.trim() || "תודה על ההודעה! נחזור אליך בהקדם.";
       if (
-        trimmedPhone &&
+        supportWaUrl &&
         userAsksForHumanAgent(userText) &&
-        !replyContainsSupportPhoneDigits(out, trimmedPhone)
+        !replyContainsMarketingSupportWaLink(out, supportWaUrl)
       ) {
-        out = `${out}\n\n${trimmedPhone}`;
+        out = `${out}\n\n${supportWaUrl}`;
       }
       return out;
     } catch (e) {
