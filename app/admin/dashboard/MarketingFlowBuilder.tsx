@@ -791,7 +791,7 @@ function MarketingFlowCanvas() {
   /** תוכן זהה לשרת — לא מפעילים שמירה אוטומטית (מונע לולאה אחרי setState ועדכוני React Flow) */
   const lastPersistedSnapshotRef = useRef<string | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const AUTOSAVE_MS = 1400;
+  const AUTOSAVE_MS = 2000;
   const saveRef = useRef<(fromAuto?: boolean) => Promise<void>>(async () => {});
 
   useEffect(() => {
@@ -1131,7 +1131,7 @@ function MarketingFlowCanvas() {
         {saveMsg ? <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span> : null}
         {!loading ? (
           <span style={{ fontSize: 12, color: "#a89bc4" }}>
-            שמירה אוטומטית אחרי שינוי (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳) · Ctrl+Z בטל · Ctrl+Shift+Z שחזר
+            שמירה אוטומטית אחרי הקלדה (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳) · Ctrl+Z בטל · Ctrl+Shift+Z שחזר
           </span>
         ) : null}
         {loading ? <span style={{ fontSize: 12, color: "#6b5b9a" }}>טוען…</span> : null}
