@@ -29,6 +29,47 @@ import { marketingDelayMaxForUiHint } from "@/lib/marketing-flow-delay";
 
 const NodeDeleteCtx = createContext<((id: string) => void) | null>(null);
 
+const NodeIdOrderCtx = createContext<Map<string, number>>(new Map());
+
+function NodeIdCaption({ id, light }: { id: string; light?: boolean }) {
+  const order = useContext(NodeIdOrderCtx);
+  const rank = order.get(id);
+  const cNum = light ? "rgba(255,255,255,0.95)" : "#64748b";
+  const cId = light ? "rgba(255,255,255,0.78)" : "#94a3b8";
+  return (
+    <div
+      title={id}
+      style={{
+        position: "absolute",
+        top: 6,
+        left: 6,
+        maxWidth: "min(160px, calc(100% - 34px))",
+        zIndex: 2,
+        pointerEvents: "none",
+        textAlign: "left",
+        direction: "ltr",
+      }}
+    >
+      <span style={{ fontSize: 11, fontWeight: 700, color: cNum, letterSpacing: "0.02em" }}>
+        #{rank ?? "—"}
+      </span>
+      <div
+        style={{
+          fontSize: 9,
+          color: cId,
+          lineHeight: 1.25,
+          marginTop: 1,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {id}
+      </div>
+    </div>
+  );
+}
+
 function NodeDeleteControl({ id }: { id: string }) {
   const onDelete = useContext(NodeDeleteCtx);
   if (!onDelete) return null;
@@ -342,7 +383,7 @@ const nodeBase: React.CSSProperties = {
   position: "relative",
   borderRadius: 16,
   padding: "12px 14px",
-  paddingTop: 28,
+  paddingTop: 40,
   minWidth: 200,
   maxWidth: 280,
   fontSize: 13,
@@ -354,6 +395,7 @@ function MessageNode(props: NodeProps<Node<MfNodeData>>) {
   const d = props.data ?? {};
   return (
     <div style={{ ...nodeBase, background: "#fff", border: `2px solid ${PURPLE}`, color: "#1a0a3c" }}>
+      <NodeIdCaption id={props.id} />
       <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Right} style={{ background: PURPLE }} />
       <div style={{ fontWeight: 600, color: PURPLE, marginBottom: 8 }}>הודעה</div>
@@ -368,6 +410,7 @@ function QuestionNode(props: NodeProps<Node<MfNodeData>>) {
   const buttons = Array.isArray(d.buttons) && d.buttons.length ? d.buttons : ["כן", "לא"];
   return (
     <div style={{ ...nodeBase, background: "rgba(113,51,218,0.12)", border: `1px solid rgba(113,51,218,0.35)`, color: "#1a0a3c" }}>
+      <NodeIdCaption id={props.id} />
       <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Right} style={{ background: PURPLE }} />
       <div style={{ fontWeight: 600, color: PURPLE, marginBottom: 8 }}>שאלה</div>
@@ -400,6 +443,7 @@ function MediaNode(props: NodeProps<Node<MfNodeData>>) {
   const kind = d.mediaKind === "video" ? "וידאו" : "תמונה";
   return (
     <div style={{ ...nodeBase, background: "rgba(53,255,112,0.18)", border: "1px solid rgba(53,255,112,0.55)", color: "#0f3d24" }}>
+      <NodeIdCaption id={props.id} />
       <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Right} style={{ background: GREEN }} />
       <div style={{ fontWeight: 600, color: "#0b5c2e", marginBottom: 8 }}>מדיה</div>
@@ -421,9 +465,7 @@ function CtaNode(props: NodeProps<Node<MfNodeData>>) {
         color: "#fff",
       }}
     >
-      <NodeDeleteControl id={props.id} />
-      <Handle type="target" position={Position.Right} style={{ background: "#fff" }} />
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>הנעה לפעולה</div>
+      <NodeIdCaption id={props.id} light />
       <div style={{ whiteSpace: "pre-wrap", marginBottom: 6, lineHeight: 1.45 }}>{String(d.text || "—")}</div>
       <div style={{ fontSize: 12, opacity: 0.95, wordBreak: "break-all" }}>{String(d.url || "")}</div>
       <Handle type="source" position={Position.Left} id="out" style={{ background: "#fff" }} />
@@ -439,6 +481,7 @@ function FollowupNode(props: NodeProps<Node<MfNodeData>>) {
   const m = typeof d.delayMinutes === "number" && Number.isFinite(d.delayMinutes) ? d.delayMinutes : 20;
   return (
     <div style={{ ...nodeBase, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(0,0,0,0.12)", color: "#1a0a3c" }}>
+      <NodeIdCaption id={props.id} />
       <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Right} style={{ background: "#888" }} />
       <div style={{ fontWeight: 600, color: "#555", marginBottom: 8 }}>פולואפ</div>
@@ -454,6 +497,7 @@ function DelayNode(props: NodeProps<Node<MfNodeData>>) {
   const s = typeof d.delaySeconds === "number" && Number.isFinite(d.delaySeconds) ? Math.max(1, Math.floor(d.delaySeconds)) : 3;
   return (
     <div style={{ ...nodeBase, background: AMBER_BG, border: `2px dashed ${AMBER}`, color: "#78350f" }}>
+      <NodeIdCaption id={props.id} />
       <NodeDeleteControl id={props.id} />
       <Handle type="target" position={Position.Right} style={{ background: AMBER }} />
       <div style={{ fontWeight: 700, color: AMBER, marginBottom: 6 }}>השהיה</div>
@@ -545,6 +589,11 @@ function MarketingFlowCanvas() {
   const [mfMediaUploadError, setMfMediaUploadError] = useState("");
 
   const selected = useMemo(() => nodes.find((n) => n.id === selectedId) ?? null, [nodes, selectedId]);
+
+  const nodeOrderById = useMemo(() => {
+    const sorted = [...nodes].sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
+    return new Map(sorted.map((n, i) => [n.id, i + 1]));
+  }, [nodes]);
 
   useEffect(() => {
     setMfMediaUploadError("");
@@ -1152,6 +1201,7 @@ function MarketingFlowCanvas() {
         >
           <EdgeActionCtx.Provider value={edgeActionCtx}>
           <NodeDeleteCtx.Provider value={removeNode}>
+            <NodeIdOrderCtx.Provider value={nodeOrderById}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -1179,6 +1229,7 @@ function MarketingFlowCanvas() {
                 nodeColor={() => PURPLE}
               />
             </ReactFlow>
+            </NodeIdOrderCtx.Provider>
           </NodeDeleteCtx.Provider>
           </EdgeActionCtx.Provider>
         </div>
