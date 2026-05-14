@@ -27,8 +27,9 @@ export default function MarketingOpenQuestionsTab() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState("");
-  const skipPostLoadAutosaveRef = useRef(true);
+  const lastPersistedSnapshotRef = useRef<string | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRef = useRef<(fromAuto?: boolean) => Promise<void>>(async () => {});
 
   const factQuestions = useMemo(
     () =>
@@ -118,6 +119,10 @@ export default function MarketingOpenQuestionsTab() {
           setSaveMsg(j.error?.trim() || `שגיאת שמירה (${r.status})`);
           return;
         }
+        lastPersistedSnapshotRef.current = JSON.stringify({
+          traits,
+          supportPhone,
+        });
         setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר");
       } catch {
         setSaveMsg("שגיאת רשת בשמירה.");
@@ -128,22 +133,31 @@ export default function MarketingOpenQuestionsTab() {
     [supportPhone, traits]
   );
 
+  saveRef.current = save;
+
   useEffect(() => {
-    if (loading) return;
-    if (loadErr) return;
-    if (skipPostLoadAutosaveRef.current) {
-      skipPostLoadAutosaveRef.current = false;
+    if (loading) {
+      lastPersistedSnapshotRef.current = null;
       return;
     }
+    if (loadErr) return;
+
+    const snap = JSON.stringify({ traits, supportPhone });
+    if (lastPersistedSnapshotRef.current === null) {
+      lastPersistedSnapshotRef.current = snap;
+      return;
+    }
+    if (snap === lastPersistedSnapshotRef.current) return;
+
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
       autoSaveTimerRef.current = null;
-      void save(true);
+      void saveRef.current(true);
     }, AUTOSAVE_MS);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [traits, supportPhone, loading, loadErr, save]);
+  }, [traits, supportPhone, loading, loadErr]);
 
   if (loading) {
     return (
