@@ -514,6 +514,22 @@ function serializeMarketingFlowSnapshot(
   return JSON.stringify({ nodes: cleanNodes, edges: cleanEdges, is_active: flowActive });
 }
 
+function parseMarketingFlowSnapshot(json: string): {
+  nodes: Node<MfNodeData>[];
+  edges: Edge[];
+  is_active: boolean;
+} {
+  const o = JSON.parse(json) as { nodes?: Node<MfNodeData>[]; edges?: Edge[]; is_active?: boolean };
+  return {
+    nodes: Array.isArray(o.nodes) ? o.nodes : [],
+    edges: (Array.isArray(o.edges) ? o.edges : []).map((e) => ({
+      ...e,
+      type: "interactive" as const,
+    })),
+    is_active: Boolean(o.is_active),
+  };
+}
+
 function MarketingFlowCanvas() {
   const { getNode, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MfNodeData>>([]);
@@ -852,6 +868,106 @@ function MarketingFlowCanvas() {
 
   saveRef.current = save;
 
+  const UNDO_MAX = 45;
+  const HISTORY_DEBOUNCE_MS = 420;
+  const presentForUndoRef = useRef<string | null>(null);
+  const undoPastRef = useRef<string[]>([]);
+  const undoFutureRef = useRef<string[]>([]);
+  const historyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [undoLen, setUndoLen] = useState(0);
+  const [redoLen, setRedoLen] = useState(0);
+  const bumpHistoryUi = useCallback(() => {
+    setUndoLen(undoPastRef.current.length);
+    setRedoLen(undoFutureRef.current.length);
+  }, []);
+
+  const applyFlowSnapshot = useCallback(
+    (snap: string) => {
+      const { nodes: n, edges: e, is_active: fa } = parseMarketingFlowSnapshot(snap);
+      setNodes(n);
+      setEdges(e);
+      setFlowActive(fa);
+      setSelectedId((cur) => (cur && n.some((node) => node.id === cur) ? cur : null));
+      setSelectedEdgeId((cur) => (cur && e.some((ed) => ed.id === cur) ? cur : null));
+    },
+    [setEdges, setNodes]
+  );
+
+  const undo = useCallback(() => {
+    if (undoPastRef.current.length === 0) return;
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+      historyDebounceRef.current = null;
+    }
+    const cur = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
+    const prev = undoPastRef.current.pop()!;
+    undoFutureRef.current.push(cur);
+    presentForUndoRef.current = prev;
+    applyFlowSnapshot(prev);
+    bumpHistoryUi();
+  }, [applyFlowSnapshot, bumpHistoryUi, edges, flowActive, nodes]);
+
+  const redo = useCallback(() => {
+    if (undoFutureRef.current.length === 0) return;
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+      historyDebounceRef.current = null;
+    }
+    const cur = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
+    const next = undoFutureRef.current.pop()!;
+    undoPastRef.current.push(cur);
+    if (undoPastRef.current.length > UNDO_MAX) undoPastRef.current.shift();
+    presentForUndoRef.current = next;
+    applyFlowSnapshot(next);
+    bumpHistoryUi();
+  }, [applyFlowSnapshot, bumpHistoryUi, edges, flowActive, nodes]);
+
+  useEffect(() => {
+    if (loading) {
+      undoPastRef.current = [];
+      undoFutureRef.current = [];
+      presentForUndoRef.current = null;
+      if (historyDebounceRef.current) {
+        clearTimeout(historyDebounceRef.current);
+        historyDebounceRef.current = null;
+      }
+      bumpHistoryUi();
+      return;
+    }
+    if (historyDebounceRef.current) clearTimeout(historyDebounceRef.current);
+    historyDebounceRef.current = setTimeout(() => {
+      historyDebounceRef.current = null;
+      const now = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
+      if (presentForUndoRef.current === null) {
+        presentForUndoRef.current = now;
+        return;
+      }
+      if (now === presentForUndoRef.current) return;
+      undoPastRef.current.push(presentForUndoRef.current);
+      if (undoPastRef.current.length > UNDO_MAX) undoPastRef.current.shift();
+      presentForUndoRef.current = now;
+      undoFutureRef.current = [];
+      bumpHistoryUi();
+    }, HISTORY_DEBOUNCE_MS);
+    return () => {
+      if (historyDebounceRef.current) clearTimeout(historyDebounceRef.current);
+    };
+  }, [nodes, edges, flowActive, loading, bumpHistoryUi]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() !== "z") return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [redo, undo]);
+
   useEffect(() => {
     if (loading) {
       lastPersistedSnapshotRef.current = null;
@@ -927,6 +1043,44 @@ function MarketingFlowCanvas() {
         </button>
         <button
           type="button"
+          disabled={undoLen === 0}
+          onClick={() => undo()}
+          title="Ctrl+Z"
+          style={{
+            height: 38,
+            padding: "0 14px",
+            borderRadius: 999,
+            border: `1px solid rgba(113,51,218,0.25)`,
+            background: undoLen === 0 ? "#f4f4f5" : "#fff",
+            color: "#1a0a3c",
+            cursor: undoLen === 0 ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+            opacity: undoLen === 0 ? 0.55 : 1,
+          }}
+        >
+          בטל
+        </button>
+        <button
+          type="button"
+          disabled={redoLen === 0}
+          onClick={() => redo()}
+          title="Ctrl+Shift+Z"
+          style={{
+            height: 38,
+            padding: "0 14px",
+            borderRadius: 999,
+            border: `1px solid rgba(113,51,218,0.25)`,
+            background: redoLen === 0 ? "#f4f4f5" : "#fff",
+            color: "#1a0a3c",
+            cursor: redoLen === 0 ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+            opacity: redoLen === 0 ? 0.55 : 1,
+          }}
+        >
+          שחזר
+        </button>
+        <button
+          type="button"
           onClick={() => void save(false)}
           disabled={saving}
           style={{
@@ -976,7 +1130,9 @@ function MarketingFlowCanvas() {
         </button>
         {saveMsg ? <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span> : null}
         {!loading ? (
-          <span style={{ fontSize: 12, color: "#a89bc4" }}>שמירה אוטומטית אחרי שינוי (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳)</span>
+          <span style={{ fontSize: 12, color: "#a89bc4" }}>
+            שמירה אוטומטית אחרי שינוי (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳) · Ctrl+Z בטל · Ctrl+Shift+Z שחזר
+          </span>
         ) : null}
         {loading ? <span style={{ fontSize: 12, color: "#6b5b9a" }}>טוען…</span> : null}
       </div>
