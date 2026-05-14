@@ -14,8 +14,9 @@ export default function MarketingLegalityTab() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState("");
   const [schemaNotice, setSchemaNotice] = useState("");
-  const skipPostLoadAutosaveRef = useRef(true);
+  const lastPersistedSnapshotRef = useRef<string | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRef = useRef<(fromAuto?: boolean) => Promise<void>>(async () => {});
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +85,7 @@ export default function MarketingLegalityTab() {
         const saved = Array.isArray(j.lines) ? j.lines : payload;
         setLines(saved.length ? saved : [""]);
         setUsingDefaults(Boolean((j as { using_defaults?: boolean }).using_defaults));
+        lastPersistedSnapshotRef.current = JSON.stringify(saved.length ? saved : [""]);
         setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר");
       } catch {
         setSaveMsg("שגיאת רשת בשמירה.");
@@ -94,22 +96,31 @@ export default function MarketingLegalityTab() {
     [lines]
   );
 
+  saveRef.current = save;
+
   useEffect(() => {
-    if (loading) return;
-    if (loadErr) return;
-    if (skipPostLoadAutosaveRef.current) {
-      skipPostLoadAutosaveRef.current = false;
+    if (loading) {
+      lastPersistedSnapshotRef.current = null;
       return;
     }
+    if (loadErr) return;
+
+    const snap = JSON.stringify(lines);
+    if (lastPersistedSnapshotRef.current === null) {
+      lastPersistedSnapshotRef.current = snap;
+      return;
+    }
+    if (snap === lastPersistedSnapshotRef.current) return;
+
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
       autoSaveTimerRef.current = null;
-      void save(true);
+      void saveRef.current(true);
     }, AUTOSAVE_MS);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [lines, loading, loadErr, save]);
+  }, [lines, loading, loadErr]);
 
   if (loading) {
     return (

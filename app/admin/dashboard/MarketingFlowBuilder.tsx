@@ -492,6 +492,28 @@ function defaultDataForType(t: MfFlowType): MfNodeData {
   }
 }
 
+function serializeMarketingFlowSnapshot(
+  nodes: Node<MfNodeData>[],
+  edges: Edge[],
+  flowActive: boolean
+): string {
+  const cleanNodes = nodes.map((n) => ({
+    id: n.id,
+    type: n.type,
+    position: n.position,
+    data: n.data,
+  }));
+  const cleanEdges = edges.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.sourceHandle ?? null,
+    targetHandle: e.targetHandle ?? null,
+    label: e.label ?? "",
+  }));
+  return JSON.stringify({ nodes: cleanNodes, edges: cleanEdges, is_active: flowActive });
+}
+
 function MarketingFlowCanvas() {
   const { getNode, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MfNodeData>>([]);
@@ -750,10 +772,11 @@ function MarketingFlowCanvas() {
 
   const dirtyRef = useRef(false);
   const savedOnceRef = useRef(false);
-  /** מדלג על הריצה הראשונה אחרי טעינת השרת — לא מסמן dirty ולא שומר אוטומטית */
-  const skipPostLoadEffectRef = useRef(true);
+  /** תוכן זהה לשרת — לא מפעילים שמירה אוטומטית (מונע לולאה אחרי setState ועדכוני React Flow) */
+  const lastPersistedSnapshotRef = useRef<string | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const AUTOSAVE_MS = 1400;
+  const saveRef = useRef<(fromAuto?: boolean) => Promise<void>>(async () => {});
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -791,6 +814,7 @@ function MarketingFlowCanvas() {
           targetHandle: e.targetHandle ?? null,
           label: e.label ?? "",
         }));
+        const snapshot = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
         const r = await fetch("/api/admin/marketing/flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -812,6 +836,7 @@ function MarketingFlowCanvas() {
           setSaveMsg(`שגיאת שמירה (${r.status}): ${detail || "unknown"}`);
           return;
         }
+        lastPersistedSnapshotRef.current = snapshot;
         dirtyRef.current = false;
         savedOnceRef.current = true;
         setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר ב-Supabase");
@@ -825,22 +850,30 @@ function MarketingFlowCanvas() {
     [edges, flowActive, nodes]
   );
 
+  saveRef.current = save;
+
   useEffect(() => {
-    if (loading) return;
-    if (skipPostLoadEffectRef.current) {
-      skipPostLoadEffectRef.current = false;
+    if (loading) {
+      lastPersistedSnapshotRef.current = null;
       return;
     }
+    const snap = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
+    if (lastPersistedSnapshotRef.current === null) {
+      lastPersistedSnapshotRef.current = snap;
+      return;
+    }
+    if (snap === lastPersistedSnapshotRef.current) return;
+
     dirtyRef.current = true;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
       autoSaveTimerRef.current = null;
-      void save(true);
+      void saveRef.current(true);
     }, AUTOSAVE_MS);
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [nodes, edges, flowActive, loading, save]);
+  }, [nodes, edges, flowActive, loading]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
