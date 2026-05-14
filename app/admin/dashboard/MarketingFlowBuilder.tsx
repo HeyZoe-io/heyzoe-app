@@ -750,11 +750,10 @@ function MarketingFlowCanvas() {
 
   const dirtyRef = useRef(false);
   const savedOnceRef = useRef(false);
-
-  useEffect(() => {
-    if (!savedOnceRef.current && loading) return;
-    dirtyRef.current = true;
-  }, [nodes, edges, flowActive, loading]);
+  /** מדלג על הריצה הראשונה אחרי טעינת השרת — לא מסמן dirty ולא שומר אוטומטית */
+  const skipPostLoadEffectRef = useRef(true);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const AUTOSAVE_MS = 1400;
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -767,51 +766,81 @@ function MarketingFlowCanvas() {
 
   const [saving, setSaving] = useState(false);
 
-  const save = useCallback(async () => {
-    setSaveMsg(null);
-    setSaving(true);
-    try {
-      const cleanNodes = nodes.map((n) => ({
-        id: n.id,
-        type: n.type,
-        position: n.position,
-        data: n.data,
-      }));
-      const cleanEdges = edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? null,
-        targetHandle: e.targetHandle ?? null,
-        label: e.label ?? "",
-      }));
-      const r = await fetch("/api/admin/marketing/flow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nodes: cleanNodes,
-          edges: cleanEdges,
-          is_active: flowActive,
-        }),
-      });
-      if (!r.ok) {
-        const errBody = await r.text().catch(() => "");
-        console.error("[MarketingFlowBuilder] save failed:", r.status, errBody);
-        let detail = "";
-        try { detail = (JSON.parse(errBody) as { error?: string }).error ?? ""; } catch { detail = errBody; }
-        setSaveMsg(`שגיאת שמירה (${r.status}): ${detail || "unknown"}`);
-        return;
+  const save = useCallback(
+    async (fromAuto = false) => {
+      if (!fromAuto) {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+        }
+        setSaveMsg(null);
       }
-      dirtyRef.current = false;
-      savedOnceRef.current = true;
-      setSaveMsg("נשמר ב-Supabase");
-    } catch (err) {
-      console.error("[MarketingFlowBuilder] save exception:", err);
-      setSaveMsg(`שגיאת שמירה: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setSaving(false);
+      setSaving(true);
+      try {
+        const cleanNodes = nodes.map((n) => ({
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          data: n.data,
+        }));
+        const cleanEdges = edges.map((e) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? null,
+          targetHandle: e.targetHandle ?? null,
+          label: e.label ?? "",
+        }));
+        const r = await fetch("/api/admin/marketing/flow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nodes: cleanNodes,
+            edges: cleanEdges,
+            is_active: flowActive,
+          }),
+        });
+        if (!r.ok) {
+          const errBody = await r.text().catch(() => "");
+          console.error("[MarketingFlowBuilder] save failed:", r.status, errBody);
+          let detail = "";
+          try {
+            detail = (JSON.parse(errBody) as { error?: string }).error ?? "";
+          } catch {
+            detail = errBody;
+          }
+          setSaveMsg(`שגיאת שמירה (${r.status}): ${detail || "unknown"}`);
+          return;
+        }
+        dirtyRef.current = false;
+        savedOnceRef.current = true;
+        setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר ב-Supabase");
+      } catch (err) {
+        console.error("[MarketingFlowBuilder] save exception:", err);
+        setSaveMsg(`שגיאת שמירה: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [edges, flowActive, nodes]
+  );
+
+  useEffect(() => {
+    if (loading) return;
+    if (skipPostLoadEffectRef.current) {
+      skipPostLoadEffectRef.current = false;
+      return;
     }
-  }, [edges, flowActive, nodes]);
+    dirtyRef.current = true;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void save(true);
+    }, AUTOSAVE_MS);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [nodes, edges, flowActive, loading, save]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
@@ -865,7 +894,7 @@ function MarketingFlowCanvas() {
         </button>
         <button
           type="button"
-          onClick={() => void save()}
+          onClick={() => void save(false)}
           disabled={saving}
           style={{
             height: 38,
@@ -913,6 +942,9 @@ function MarketingFlowCanvas() {
           {flowActive ? "השבת פלואו" : "הפעל פלואו"}
         </button>
         {saveMsg ? <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span> : null}
+        {!loading ? (
+          <span style={{ fontSize: 12, color: "#a89bc4" }}>שמירה אוטומטית אחרי שינוי (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳)</span>
+        ) : null}
         {loading ? <span style={{ fontSize: 12, color: "#6b5b9a" }}>טוען…</span> : null}
       </div>
 

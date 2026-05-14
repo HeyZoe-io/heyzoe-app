@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
+const AUTOSAVE_MS = 900;
 
 export default function MarketingLegalityTab() {
   const [lines, setLines] = useState<string[]>([]);
@@ -13,6 +14,8 @@ export default function MarketingLegalityTab() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState("");
   const [schemaNotice, setSchemaNotice] = useState("");
+  const skipPostLoadAutosaveRef = useRef(true);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,36 +54,62 @@ export default function MarketingLegalityTab() {
     };
   }, []);
 
-  const save = useCallback(async () => {
-    setSaveMsg(null);
-    setSaving(true);
-    try {
-      const payload = lines.map((s) => s.trim()).filter(Boolean);
-      const r = await fetch("/api/admin/marketing/legal-guidelines", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lines: payload }),
-      });
-      const j = (await r.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        lines?: string[];
-        using_defaults?: boolean;
-      };
-      if (!r.ok) {
-        setSaveMsg(j.error?.trim() || `שגיאת שמירה (${r.status})`);
-        return;
+  const save = useCallback(
+    async (fromAuto = false) => {
+      if (!fromAuto) {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+        }
+        setSaveMsg(null);
       }
-      const saved = Array.isArray(j.lines) ? j.lines : payload;
-      setLines(saved.length ? saved : [""]);
-      setUsingDefaults(Boolean((j as { using_defaults?: boolean }).using_defaults));
-      setSaveMsg("נשמר");
-    } catch {
-      setSaveMsg("שגיאת רשת בשמירה.");
-    } finally {
-      setSaving(false);
+      setSaving(true);
+      try {
+        const payload = lines.map((s) => s.trim()).filter(Boolean);
+        const r = await fetch("/api/admin/marketing/legal-guidelines", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lines: payload }),
+        });
+        const j = (await r.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          lines?: string[];
+          using_defaults?: boolean;
+        };
+        if (!r.ok) {
+          setSaveMsg(j.error?.trim() || `שגיאת שמירה (${r.status})`);
+          return;
+        }
+        const saved = Array.isArray(j.lines) ? j.lines : payload;
+        setLines(saved.length ? saved : [""]);
+        setUsingDefaults(Boolean((j as { using_defaults?: boolean }).using_defaults));
+        setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר");
+      } catch {
+        setSaveMsg("שגיאת רשת בשמירה.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [lines]
+  );
+
+  useEffect(() => {
+    if (loading) return;
+    if (loadErr) return;
+    if (skipPostLoadAutosaveRef.current) {
+      skipPostLoadAutosaveRef.current = false;
+      return;
     }
-  }, [lines]);
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void save(true);
+    }, AUTOSAVE_MS);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [lines, loading, loadErr, save]);
 
   if (loading) {
     return (
@@ -107,12 +136,12 @@ export default function MarketingLegalityTab() {
         <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 600, color: "#1a0a3c" }}>חוקיות</h2>
         <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55 }}>
           כאן מגדירים במילים פשוטות איך זואי של קו השיווק מתנהגת אחרי סיום הפלואו. ברירת המחדל משקפת את ההנחיות
-          שהיו קודם במערכת — אפשר לערוך, למחוק שורות ולהוסיף שורות. לחיצה על «שמור» שומרת בבסיס הנתונים ומעדכנת
-          את זואי בשיחות הבאות.
+          שהיו קודם במערכת — אפשר לערוך, למחוק שורות ולהוסיף שורות. השינויים נשמרים אוטומטית לבסיס הנתונים; אפשר גם
+          ללחוץ «שמור» לשמירה מיידית.
         </p>
         {usingDefaults ? (
           <p style={{ margin: "10px 0 0", fontSize: 13, color: "#854d0e", lineHeight: 1.5 }}>
-            מוצגות כרגע ברירות מחדל (עדיין לא נשמרו בנפרד בבסיס הנתונים). לחצו «שמור» כדי לשמר את הגרסה הנוכחית.
+            מוצגות כרגע ברירות מחדל (עדיין לא נשמרו בנפרד בבסיס הנתונים). ערכו או לחצו «שמור» כדי לשמר את הגרסה הנוכחית.
           </p>
         ) : null}
       </div>
@@ -193,7 +222,7 @@ export default function MarketingLegalityTab() {
         <button
           type="button"
           disabled={saving}
-          onClick={() => void save()}
+          onClick={() => void save(false)}
           style={{
             borderRadius: 999,
             border: `1px solid rgba(113,51,218,0.25)`,
@@ -211,6 +240,7 @@ export default function MarketingLegalityTab() {
         {saveMsg ? (
           <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span>
         ) : null}
+        <span style={{ fontSize: 12, color: "#a89bc4" }}>שמירה אוטומטית אחרי הקלדה (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳)</span>
       </div>
     </div>
   );
