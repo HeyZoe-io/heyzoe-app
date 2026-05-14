@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail, whatsappReadyEmail } from "@/lib/email";
+import { fetchBusinessWabaId, resolveMetaWabaId } from "@/lib/meta-waba-resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -320,7 +321,7 @@ export async function GET(req: NextRequest) {
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";
   const whatsappSystemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
-  const metaWabaId = process.env.META_WABA_ID?.trim() ?? "";
+  const envMetaWabaFallback = process.env.META_WABA_ID?.trim() ?? "";
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
   const supabaseHost = (() => {
@@ -330,7 +331,7 @@ export async function GET(req: NextRequest) {
       return "";
     }
   })();
-  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken || !metaWabaId) {
+  if (!twilioAccountSid || !twilioAuthToken || !whatsappSystemToken) {
     return NextResponse.json({ error: "missing_env", build }, { status: 500 });
   }
 
@@ -410,7 +411,6 @@ export async function GET(req: NextRequest) {
 
   const twilioAuth = twilioAuthHeader(twilioAccountSid, twilioAuthToken);
   const twimlVoiceUrl = "https://heyzoe.io/api/twilio/voice";
-  const metaBusinessId = metaWabaId;
 
   let phoneE164 = "";
   let twilioSid = "";
@@ -418,26 +418,33 @@ export async function GET(req: NextRequest) {
   let recordingSid = String((locked as any).recording_sid ?? "").trim();
   let transcriptionStartedAt = (locked as any).transcription_started_at ? String((locked as any).transcription_started_at) : "";
   let transcriptionPolls = Number((locked as any).transcription_polls ?? 0) || 0;
-  const businessSlug = String((locked as any).business_slug ?? "").trim().toLowerCase();
-  let verifiedName = "";
-  try {
-    const { data: biz } = await admin
-      .from("businesses")
-      .select("name")
-      .eq("id", Number((locked as any).business_id))
-      .maybeSingle();
-    verifiedName = String((biz as any)?.name ?? "").trim();
-  } catch {
-    verifiedName = "";
-  }
-  if (!verifiedName) {
-    verifiedName =
-      String((locked as any).business_name ?? "").trim() ||
-      businessSlug ||
-      "HeyZoe";
-  }
 
   try {
+    const businessSlug = String((locked as any).business_slug ?? "").trim().toLowerCase();
+    const wabaFromDb = await fetchBusinessWabaId(admin, businessSlug);
+    const metaBusinessId = resolveMetaWabaId(wabaFromDb, envMetaWabaFallback);
+    if (!metaBusinessId) {
+      throw new Error("missing_meta_waba_id");
+    }
+
+    let verifiedName = "";
+    try {
+      const { data: biz } = await admin
+        .from("businesses")
+        .select("name")
+        .eq("id", Number((locked as any).business_id))
+        .maybeSingle();
+      verifiedName = String((biz as any)?.name ?? "").trim();
+    } catch {
+      verifiedName = "";
+    }
+    if (!verifiedName) {
+      verifiedName =
+        String((locked as any).business_name ?? "").trim() ||
+        businessSlug ||
+        "HeyZoe";
+    }
+
     const status = String((locked as any).status ?? "queued");
     console.info("[cron/wa-provision] job:", {
       id: Number((locked as any).id),
