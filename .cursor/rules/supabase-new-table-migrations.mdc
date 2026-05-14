@@ -1,0 +1,32 @@
+---
+description: New Supabase tables — GRANTs + RLS tail on every migration that creates a table
+globs: supabase/**/*.sql
+alwaysApply: false
+---
+
+# Supabase: migrations שיוצרות טבלה חדשה
+
+מ־אוקטובר 2026 והלאה, בכל **migration חדש** שמכיל `create table` (כולל `create table if not exists`) לטבלה ב־`public`, **בסוף אותו קובץ** (אחרי האינדקסים וה־constraints הרלוונטיים) הוסיפי בלוק אחד — עם **שם הטבלה האמיתי** במקום `your_table`:
+
+```sql
+grant select, insert, update, delete
+  on public.your_table
+  to authenticated;
+
+grant select, insert, update, delete
+  on public.your_table
+  to service_role;
+
+alter table public.your_table
+  enable row level security;
+```
+
+## הערות
+
+- **טבלאות קיימות** בפרויקט HeyZoe: לא לשנות retroactively אלא אם ביקשתם במפורש.
+- אחרי `enable row level security`, לרוב צריך **policies** ל־`authenticated` (או `anon`) — אחרת גישת הלקוח דרך Supabase עלולה להיחסם. אם אין policies באותו migration, הוסיפי migration המשך או policies באותו PR.
+- `service_role` ב-Supabase בדרך כלל עוקף RLS; ה־GRANTים עדיין נדרשים לפי הסטנדרט שלכם.
+
+## תבנית להעתקה
+
+ראו גם: `.cursor/templates/supabase-migration-new-table-tail.sql`
