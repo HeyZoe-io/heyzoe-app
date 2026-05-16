@@ -4,6 +4,7 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
+import { AdminNav } from "@/app/admin/AdminNav";
 import ProvisionNumberModal from "./ProvisionNumberModal";
 import MarketingDashboardClient from "./MarketingDashboardClient";
 
@@ -271,8 +272,6 @@ function DashboardV2(props: {
   }>;
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
 }) {
-  const pillBase =
-    "display:inline-block;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:400;text-decoration:none;border:1px solid rgba(113,51,218,0.18)";
   const isMarketing = Boolean(props.marketingTab);
 
   if (isMarketing) {
@@ -292,30 +291,7 @@ function DashboardV2(props: {
             <div style={{ textAlign: "right" }}>
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>פלואו שיווקי</h1>
             </div>
-            <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
-              <Link href="/admin/dashboard" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-                ראשי
-              </Link>
-              <Link
-                href="/admin/dashboard?tab=marketing"
-                prefetch
-                style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}
-              >
-                פלואו שיווקי
-              </Link>
-              <Link href="/admin/analytics" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-                analytics
-              </Link>
-              <Link href="/admin/businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-                עסקים
-              </Link>
-              <Link href="/admin/cancellations" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-                ביטולים
-              </Link>
-              <Link href="/admin/requests" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-                פניות מבעלי עסקים
-              </Link>
-            </nav>
+            <AdminNav active="marketing" />
           </header>
 
           <Suspense
@@ -357,30 +333,7 @@ function DashboardV2(props: {
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>דשבורד סופר אדמין</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>סקירה מערכתית + עסקים + התראות</p>
           </div>
-          <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
-            <Link href="/admin/dashboard" prefetch style={{ cssText: pillBase, background: "#7133da", color: "white" } as any}>
-              ראשי
-            </Link>
-            <Link
-              href="/admin/dashboard?tab=marketing"
-              prefetch
-              style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}
-            >
-              פלואו שיווקי
-            </Link>
-            <Link href="/admin/analytics" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-              analytics
-            </Link>
-            <Link href="/admin/businesses" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-              עסקים
-            </Link>
-            <Link href="/admin/cancellations" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-              ביטולים
-            </Link>
-            <Link href="/admin/requests" prefetch style={{ cssText: pillBase, background: "white", color: "#7133da" } as any}>
-              פניות מבעלי עסקים
-            </Link>
-          </nav>
+          <AdminNav active="dashboard" />
         </header>
 
         <section

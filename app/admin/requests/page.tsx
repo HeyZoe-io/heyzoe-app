@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { AdminNav } from "@/app/admin/AdminNav";
 
 type SupportThreadRow = {
   id: number;
@@ -62,24 +63,34 @@ export default async function AdminRequestsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 p-4 md:p-8" dir="rtl">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <div className="flex items-end justify-between gap-3">
-          <div className="text-right">
-            <h1 className="text-2xl font-normal text-zinc-900">פניות מבעלי עסקים</h1>
-            <p className="text-sm text-zinc-500">
+    <main
+      dir="rtl"
+      style={{
+        minHeight: "100vh",
+        background: "#f5f3ff",
+        fontFamily: "Fredoka, Heebo, system-ui, sans-serif",
+        padding: "28px 18px 48px",
+        color: "#1a0a3c",
+      }}
+    >
+      <div style={{ maxWidth: 1120, margin: "0 auto" }} className="space-y-4">
+        <header
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 14,
+            alignItems: "end",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ textAlign: "right" }}>
+            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400, color: "#1a0a3c" }}>פניות מבעלי עסקים</h1>
+            <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>
               צ׳אט עזרה מהדשבורד + בקשות לחזרה טלפונית (מודגשות)
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <a href="/admin/dashboard" className="text-sm text-zinc-700 underline underline-offset-4">
-              חזרה לדשבורד
-            </a>
-            <a href="/admin/cancellations" className="text-sm text-zinc-700 underline underline-offset-4">
-              ביטולים
-            </a>
-          </div>
-        </div>
+          <AdminNav active="requests" />
+        </header>
 
         <div className="grid gap-3">
           {(threads as any as SupportThreadRow[] | null)?.length ? (
