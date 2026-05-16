@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { AdminNav } from "@/app/admin/AdminNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,15 +42,13 @@ export default async function AdminContactsPage() {
       }}
     >
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap" }}>
-          <div>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ textAlign: "right" }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 400, color: "#1a0a3c" }}>פניות מבעלי עסקים</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>תיבת פניות פשוטה (business_inquiries)</p>
           </div>
-          <a href="/admin/dashboard" style={{ color: "#7133da", fontWeight: 400, textDecoration: "none" }}>
-            חזרה לדשבורד
-          </a>
-        </div>
+          <AdminNav active="requests" />
+        </header>
 
         <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
           {(inquiries ?? []).length ? (

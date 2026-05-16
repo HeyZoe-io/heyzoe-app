@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { AdminNav } from "@/app/admin/AdminNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -192,23 +193,7 @@ export default async function AdminAnalyticsPage({
             ) : null}
           </div>
 
-          <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
-            <a className={pill} href="/admin/dashboard" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              ראשי
-            </a>
-            <a className={pill} href="/admin/analytics" style={{ background: "#7133da", color: "white", textDecoration: "none" }}>
-              analytics
-            </a>
-            <a className={pill} href="/admin/businesses" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              עסקים
-            </a>
-            <a className={pill} href="/admin/cancellations" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              ביטולים
-            </a>
-            <a className={pill} href="/admin/requests" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              פניות מבעלי עסקים
-            </a>
-          </nav>
+          <AdminNav active="analytics" />
         </header>
 
         <section

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { AdminNav } from "@/app/admin/AdminNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,9 +32,6 @@ export default async function AdminBusinessesPage() {
 
   const businesses = (data ?? []) as any as BizRow[];
 
-  const pill =
-    "rounded-full px-3 py-1.5 text-xs font-normal transition border border-[rgba(113,51,218,0.18)]";
-
   function planLabel(plan: string | null): string {
     const p = String(plan ?? "").trim().toLowerCase();
     if (p === "premium" || p === "pro") return "premium";
@@ -58,23 +56,7 @@ export default async function AdminBusinessesPage() {
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>רשימת עסקים + סטטוס + חבילה + לינקים לדשבורד</p>
           </div>
 
-          <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
-            <Link className={pill} href="/admin/dashboard" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              ראשי
-            </Link>
-            <Link className={pill} href="/admin/analytics" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              analytics
-            </Link>
-            <Link className={pill} href="/admin/businesses" style={{ background: "#7133da", color: "white", textDecoration: "none" }}>
-              עסקים
-            </Link>
-            <Link className={pill} href="/admin/cancellations" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              ביטולים
-            </Link>
-            <Link className={pill} href="/admin/requests" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              פניות מבעלי עסקים
-            </Link>
-          </nav>
+          <AdminNav active="businesses" />
         </header>
 
         <section

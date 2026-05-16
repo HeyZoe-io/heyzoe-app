@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { AdminNav } from "@/app/admin/AdminNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,9 +73,6 @@ export default async function AdminCancellationsPage() {
       pct: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
     }));
 
-  const pill =
-    "rounded-full px-3 py-1.5 text-xs font-normal transition border border-[rgba(113,51,218,0.18)]";
-
   return (
     <main
       dir="rtl"
@@ -96,23 +93,7 @@ export default async function AdminCancellationsPage() {
             </p>
           </div>
 
-          <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-start" }}>
-            <Link className={pill} href="/admin/dashboard" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              ראשי
-            </Link>
-            <Link className={pill} href="/admin/analytics" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              analytics
-            </Link>
-            <Link className={pill} href="/admin/businesses" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              עסקים
-            </Link>
-            <Link className={pill} href="/admin/cancellations" style={{ background: "#7133da", color: "white", textDecoration: "none" }}>
-              ביטולים
-            </Link>
-            <Link className={pill} href="/admin/requests" style={{ background: "white", color: "#7133da", textDecoration: "none" }}>
-              פניות מבעלי עסקים
-            </Link>
-          </nav>
+          <AdminNav active="cancellations" />
         </header>
 
         <section style={{ marginTop: 20 }}>
