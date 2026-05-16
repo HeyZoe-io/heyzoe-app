@@ -1,4 +1,11 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES } from "@/lib/business-zoe-platform-defaults";
+import {
+  buildVibeLinesMapFromPlatform,
+  buildZoePlatformPromptSection,
+  getZoePlatformCategoryBlock,
+  type ZoePlatformGuidelines,
+} from "@/lib/business-zoe-platform";
 import { buildVibeInstructionLines } from "@/lib/vibe-prompt";
 import {
   type OfferKind,
@@ -413,19 +420,46 @@ function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
   return `\nדוגמה לטון מהודעת הפולואפ האוטומטית (למחרת בבוקר לליד שאינו מגיב; שמרי על שפה עקבית; אל תחזירי את הטקסט כולו כתשובה שגרתית):\n${t}\nתווית הכפתור בהגדרות: «${k.whatsappIdleFollowupCtaLabel}». ${kindHint}\n`;
 }
 
-function formatUnknownKnowledgeBlock(phoneDisplay: string): string {
+function formatUnknownKnowledgeBlock(phoneDisplay: string, platform: ZoePlatformGuidelines): string {
+  const staticBlock = getZoePlatformCategoryBlock(platform, "unknown_knowledge");
   const phoneHint =
     phoneDisplay && phoneDisplay !== "לא הוגדר"
       ? `- אם בשדה «טלפון שירות לקוחות» למעלה מופיע מספר - הציעי ליצור קשר ישירות עם העסק בטלפון הזה; הציגי את המספר בדיוק כפי שמופיע (כולל קידומת), בלי לשנות ספרות.`
       : `- טלפון שירות לקוחות לא הוגדר בידע - אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
   return `
-חוסר ידע מדויק - כששאלה פתוחה ואין לה מענה כלל בידע העסקי (לא ב-FAQ, לא בשירותים, לא במחירים, לא במנויים, לא בתיאור העסק, לא בעובדות על העסק ולא בשדות קשורים):
-חשוב: אם בעובדות על העסק או בתיאור יש מידע רלוונטי — גם אם הוא תיאורי ולא מדויק במספרים — השתמשי בו ועני ממנו. למשל אם כתוב «קבוצות קטנות ויחס אישי», ענו שהקבוצות קטנות ובאווירה אישית, בלי להמציא מספר.
-רק אם באמת אין שום מידע רלוונטי:
-- התנצלות קצרה שלא מצאת את המידע; אל תמציאי, אל תנחשי.
+חוסר ידע מדויק - כששאלה פתוחה ואין לה מענה כלל בידע העסקי:
+${staticBlock || "התנצלות קצרה; אל תמציאי ואל תנחשי."}
 ${phoneHint}
-- אל תוסיפי שאלת המשך או הנעה לפעולה אחרי ההפניה לטלפון — המערכת שולחת הנעה לפעולה בנפרד.
 `;
+}
+
+function pickResponseShapeBlock(
+  platform: ZoePlatformGuidelines,
+  isWhatsApp: boolean,
+  waCtx?: WhatsAppPromptContext
+): string {
+  if (!isWhatsApp) {
+    const b = getZoePlatformCategoryBlock(platform, "response_web");
+    return b ? `\n${b}\n` : RESPONSE_SHAPE_BLOCK_WEB;
+  }
+  const postTrial = waCtx?.trialRegistered === true;
+  const phase = waCtx?.sessionPhase;
+  let id: "response_wa" | "response_wa_pre_cta" | "response_wa_post_trial" = "response_wa";
+  if (postTrial) id = "response_wa_post_trial";
+  else if (phase && phase !== "cta") id = "response_wa_pre_cta";
+  const b = getZoePlatformCategoryBlock(platform, id);
+  if (b) return `\n${b}\n`;
+  if (postTrial) return RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL;
+  if (phase && phase !== "cta") return RESPONSE_SHAPE_BLOCK_WA_PRE_CTA;
+  return RESPONSE_SHAPE_BLOCK_WA;
+}
+
+function pickLegalRulesLines(platform: ZoePlatformGuidelines): string {
+  const cat =
+    platform.categories.find((c) => c.id === "legal_rules") ??
+    DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories.find((c) => c.id === "legal_rules");
+  const lines = cat?.lines ?? [];
+  return lines.map((l) => `- ${l}`).join("\n");
 }
 
 const RESPONSE_SHAPE_BLOCK_WEB = `
@@ -468,13 +502,20 @@ export function buildSystemPrompt(
   knowledge: BusinessKnowledgePack | null,
   slug: string,
   channel: "web" | "whatsapp" = "web",
-  waCtx?: WhatsAppPromptContext
+  waCtx?: WhatsAppPromptContext,
+  platform: ZoePlatformGuidelines = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES
 ): string {
   const isWhatsApp = channel === "whatsapp";
   const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
   const customerPhoneDisplay = customerPhoneRaw || "לא הוגדר";
-  const vibeDetail = buildVibeInstructionLines(knowledge?.vibeLabels ?? []);
-  const channelNote = isWhatsApp
+  const vibeDetail = buildVibeInstructionLines(
+    knowledge?.vibeLabels ?? [],
+    buildVibeLinesMapFromPlatform(platform)
+  );
+  const channelExtra = isWhatsApp
+    ? getZoePlatformCategoryBlock(platform, "channel_whatsapp")
+    : getZoePlatformCategoryBlock(platform, "channel_web");
+  const channelNote = channelExtra ? `\n${channelExtra}` : isWhatsApp
     ? `
 - ערוץ: WhatsApp - תשובות קצרות במיוחד (משפט אחד עד שניים לכל חלק), ללא Markdown, ללא כוכביות.
 - כשמתאים, הציעי בחירות כמספרים (1,2,3…) או כפי שמופיע בממשק.
@@ -483,13 +524,11 @@ export function buildSystemPrompt(
 
   const postTrial = waCtx?.trialRegistered === true;
   const phase = waCtx?.sessionPhase;
-  const waResponseShapeBlock = !isWhatsApp
-    ? RESPONSE_SHAPE_BLOCK_WEB
-    : postTrial
-      ? RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL
-      : phase && phase !== "cta"
-        ? RESPONSE_SHAPE_BLOCK_WA_PRE_CTA
-        : RESPONSE_SHAPE_BLOCK_WA;
+  const waResponseShapeBlock = pickResponseShapeBlock(platform, isWhatsApp, waCtx);
+  const legalRules = pickLegalRulesLines(platform);
+  const platformSection = buildZoePlatformPromptSection(platform);
+  const toneAnalysis = getZoePlatformCategoryBlock(platform, "tone_analysis");
+  const identityBlock = getZoePlatformCategoryBlock(platform, "identity");
 
   const registrationPaymentRule = isWhatsApp && postTrial
     ? "- הלקוח כבר נרשם לאימון ניסיון: אסור למכור ניסיון או להציע הרשמה לניסיון; מותר מידע תפעולי, כתובת, שעות, אינסטגרם, FAQ, מנויים."
@@ -505,22 +544,16 @@ export function buildSystemPrompt(
   const base = `את ${bot}, נציגת השירות של העסק.
 שם העסק: ${knowledge?.businessName ?? slug}
 שם שמוצג ללקוחות: ${bot}
+${identityBlock ? `\n${identityBlock}` : ""}
 
 סגנון דיבור שנבחר (תגיות): ${knowledge?.vibeText || "חם, מקצועי וקצר"}
 הנחיות סגנון מפורטות - יש ליישם בכל תשובה, כולל הודעת פתיחה עתידית או המשך שיחה:
 ${vibeDetail}
+${toneAnalysis ? `\n${toneAnalysis}` : ""}
 
 כללים:
-- עברית בלבד.
-- לעולם אל תשתמשי במקף הארוך. השתמשי תמיד ב-.
-- זמני שיעורים: השתמשי רק במידע שמופיע בידע העסקי או בלינק מערכת השעות; אל תמציאי שעות.
+${legalRules}
 ${structureRule}
-- בלי Markdown, בלי JSON.
-- כתבי תמיד בניסוח ניטרלי שאינו מניח מגדר של איש צוות או מדריך; למשל להעדיף "באימון אנחנו דואגים להוביל" ולא "המורה שלנו מובילה/מוביל".
-- כתבי תמיד בניסוח ניטרלי מגדרית גם ללקוח/ה: להימנע מ"אתה/את" או הטיות מגדריות. להעדיף ניסוח ניטרלי כמו "אין צורך לדאוג מהרמה 🙂" / "אפשר להתחיל בקצב שלך" / "מתאים לכל הרמות".
-- דברי בשם העסק (אצלנו/יש לנו) ולא "באתר". אל תזכירי "באתר" או "לפי האתר" אלא אם הלקוח שאל במפורש על האתר/מה כתוב באתר.
-- השתמשי בעברית טבעית עם שמות עצם תקינים; לדוגמה "בביטחון ובכיף" ולא "בטוח וכיפי".
-- אם את מסיימת בשאלת סגירה בסגנון "האם יש עוד משהו…", השתמשי בניסוח התקני: "האם יש עוד משהו שאני יכולה לעזור לך איתו?"
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}
 ${formatFollowupSnippets(knowledge)}
@@ -539,7 +572,8 @@ CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא 
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
 שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
 טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
-${formatUnknownKnowledgeBlock(customerPhoneDisplay)}
+${formatUnknownKnowledgeBlock(customerPhoneDisplay, platform)}
+${platformSection}
 `;
 
   const openingIntro = knowledge?.welcomeIntroText?.trim() ?? "";
@@ -559,12 +593,12 @@ ${formatSalesFlowBlocksForPrompt(knowledge?.salesFlowBlocks ?? [])}
 ${saleFlowExtra}`;
   }
 
+  const salesMeta = getZoePlatformCategoryBlock(platform, "sales_flow_meta");
   return `${base}
 
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה מהדשבורד):
-- הודעת הפתיחה נשלחת אוטומטית מהמערכת לפי מסלול המכירה - אל תחזירי אותה מחדש בתשובתך הראשונה אלא אם התבקשת במפורש.
+${salesMeta || "- הודעת הפתיחה נשלחת אוטומטית מהמערכת — אל תחזירי אותה מחדש אלא אם התבקשת במפורש."}
 ${saleFlowExtra}
 - אם יש לינק מערכת שעות: ${knowledge?.schedulePublicUrl || knowledge?.arboxLink ? "הציעי את הקישור המתאים כשזה עוזר ללקוח - בלי להמציא קישורים." : "אין לינק - אל תמציאי."}
-- לעולם אל תשתמשי ב-Markdown או ברשימות תבליטים; בוואטסאפ הטקסט חייב להיות פשוט וברור.
 `;
 }

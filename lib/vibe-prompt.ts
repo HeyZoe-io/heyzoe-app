@@ -11,11 +11,15 @@ const VIBE_LINES: Record<string, string> = {
   סמכותי: "בטוחות וברורות, עם ידע — בלי להרתיע.",
 };
 
-export function buildVibeInstructionLines(vibeLabels: string[]): string {
+export function buildVibeInstructionLines(
+  vibeLabels: string[],
+  vibeLinesOverride?: Record<string, string>
+): string {
+  const map = vibeLinesOverride && Object.keys(vibeLinesOverride).length > 0 ? vibeLinesOverride : VIBE_LINES;
   if (!vibeLabels.length) {
     return "סגנון ברירת מחדל: חם, מקצועי וקצר.";
   }
   return vibeLabels
-    .map((v) => VIBE_LINES[v] ?? `הדגישי את האווירה: ${v}.`)
+    .map((v) => map[v] ?? `הדגישי את האווירה: ${v}.`)
     .join("\n");
 }

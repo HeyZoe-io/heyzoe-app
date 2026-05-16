@@ -1,10 +1,18 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
-export type AdminNavTab = "dashboard" | "marketing" | "analytics" | "businesses" | "cancellations" | "requests";
+export type AdminNavTab =
+  | "dashboard"
+  | "zoe"
+  | "marketing"
+  | "analytics"
+  | "businesses"
+  | "cancellations"
+  | "requests";
 
 const TABS: { key: AdminNavTab; href: string; label: string }[] = [
   { key: "dashboard", href: "/admin/dashboard", label: "ראשי" },
+  { key: "zoe", href: "/admin/zoe", label: "זואי" },
   { key: "marketing", href: "/admin/dashboard?tab=marketing", label: "פלואו שיווקי" },
   { key: "analytics", href: "/admin/analytics", label: "analytics" },
   { key: "businesses", href: "/admin/businesses", label: "עסקים" },
