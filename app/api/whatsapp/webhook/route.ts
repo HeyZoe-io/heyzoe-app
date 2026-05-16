@@ -21,6 +21,7 @@ import {
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
+import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import {
@@ -2853,10 +2854,17 @@ async function processIncoming(
     }
 
     // Any free-form question → Claude/Gemini (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
-    const systemPrompt = buildSystemPrompt(knowledge, business_slug, "whatsapp", {
-      sessionPhase: contactSessionPhase,
-      trialRegistered: contactTrialRegistered === true,
-    });
+    const platformGuidelines = await loadZoePlatformGuidelines();
+    const systemPrompt = buildSystemPrompt(
+      knowledge,
+      business_slug,
+      "whatsapp",
+      {
+        sessionPhase: contactSessionPhase,
+        trialRegistered: contactTrialRegistered === true,
+      },
+      platformGuidelines
+    );
     const history = await fetchRecentSessionMessages({
       business_slug,
       session_id: sessionId,

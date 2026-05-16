@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { CLAUDE_CHAT_MODEL, CLAUDE_MAX_TOKENS, formatUserFacingClaudeError, resolveClaudeApiKey, sleepMs } from '@/lib/claude';
 import { extractErrorCode, logMessage } from '@/lib/analytics';
 import { getBusinessKnowledgePack, buildSystemPrompt } from '@/lib/business-context';
+import { loadZoePlatformGuidelines } from '@/lib/business-zoe-platform';
 import { CHAT_STREAM_META } from '@/lib/zoe-shared';
 
 export const runtime = 'nodejs';
@@ -28,8 +29,11 @@ export async function POST(req: NextRequest) {
       session_id: typeof session_id === 'string' ? session_id : null,
     });
 
-    const knowledge = await getBusinessKnowledgePack(String(slug));
-    const systemPrompt = buildSystemPrompt(knowledge, String(slug), 'web');
+    const [knowledge, platform] = await Promise.all([
+      getBusinessKnowledgePack(String(slug)),
+      loadZoePlatformGuidelines(),
+    ]);
+    const systemPrompt = buildSystemPrompt(knowledge, String(slug), 'web', undefined, platform);
 
     const client = new Anthropic({ apiKey });
     const encoder = new TextEncoder();
