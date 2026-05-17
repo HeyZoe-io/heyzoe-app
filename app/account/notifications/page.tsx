@@ -120,7 +120,14 @@ export default function AccountNotificationsPage() {
       <div>
         <h1 className="text-2xl font-semibold text-zinc-900">התראות WhatsApp</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          בחר אילו התראות לקבל לווטסאפ שלך לגבי פעילות הבוט.
+          בחר אילו התראות לקבל לווטסאפ שלך לגבי פעילות הבוט
+          {businessSlug ? (
+            <>
+              {" "}
+              (עסק: <span className="font-medium text-zinc-800">{businessSlug}</span>)
+            </>
+          ) : null}
+          .
         </p>
         <p className="mt-2 text-xs text-zinc-500">
           ההתראות נשלחות ממספר זואי הראשי (

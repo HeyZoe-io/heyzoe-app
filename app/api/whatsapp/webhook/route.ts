@@ -969,7 +969,16 @@ async function processIncoming(
         userText: msg.text,
       });
       if (ownerHandled) {
-        console.info("[WA Webhook] HEYZOE_OWNER opt-in handled for:", msg.from);
+        console.info("[WA Webhook] HEYZOE_OWNER opt-in handled for:", msg.from, msg.text.slice(0, 60));
+        return;
+      }
+
+      const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
+      if (isHeyzoeOwnerOptInMessage(msg.text)) {
+        console.error(
+          "[WA Webhook] HEYZOE_OWNER message was not handled by tryHandleHeyzoeOwnerOptIn — aborting flow",
+          msg.text.slice(0, 80)
+        );
         return;
       }
 

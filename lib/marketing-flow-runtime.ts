@@ -277,9 +277,12 @@ export async function handleMarketingFlowInbound(
   phoneRaw: string,
   userText: string
 ): Promise<{ handled: boolean }> {
-  const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
+  const { isHeyzoeOwnerOptInMessage, tryHandleHeyzoeOwnerOptIn } = await import(
+    "@/lib/notifications/owner-opt-in"
+  );
   if (isHeyzoeOwnerOptInMessage(userText)) {
-    console.info("[marketing-flow] skip flow for HEYZOE_OWNER opt-in message");
+    const ownerHandled = await tryHandleHeyzoeOwnerOptIn({ senderPhone: phoneRaw, userText });
+    console.info("[marketing-flow] HEYZOE_OWNER opt-in via flow guard:", { ownerHandled, phoneRaw });
     return { handled: true };
   }
 
