@@ -7,12 +7,15 @@ import {
   supportWhatsAppPrefillFromUserMessage,
 } from "@/lib/marketing-support-wa";
 import {
+  MARKETING_WA_PHONE_NUMBER_ID,
+  logMarketingWhatsAppMessage,
+  sendMarketingWhatsApp,
+} from "@/lib/marketing-whatsapp";
+import {
   sendMetaWhatsAppMessage,
   buildMetaInteractivePayload,
   type MetaWhatsAppOutgoing,
 } from "@/lib/whatsapp";
-
-const MARKETING_META_PHONE_NUMBER_ID = "1179786855208358";
 
 type FlowNode = {
   id: string;
@@ -129,7 +132,7 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
     case "message":
     case "followup": {
       if (!text) return;
-      await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text });
+      await sendMarketingWhatsApp(phone, text);
       break;
     }
     case "question": {
@@ -137,11 +140,16 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
       if (buttons.length >= 2) {
         const interactive = buildMetaInteractivePayload(text || "בחרו אפשרות:", buttons);
         if (interactive) {
-          await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, interactive);
+          await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, interactive);
+          await logMarketingWhatsAppMessage({
+            leadPhone: phone,
+            role: "assistant",
+            content: text ? `${text}\n[כפתורים: ${buttons.join(" | ")}]` : `[כפתורים: ${buttons.join(" | ")}]`,
+          });
           return;
         }
       }
-      if (text) await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text });
+      if (text) await sendMarketingWhatsApp(phone, text);
       break;
     }
     case "media": {
@@ -154,7 +162,7 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
         };
         try {
           const metaToken = process.env.META_ACCESS_TOKEN?.trim() || process.env.WHATSAPP_SYSTEM_TOKEN?.trim() || "";
-          const url = `https://graph.facebook.com/v21.0/${MARKETING_META_PHONE_NUMBER_ID}/messages`;
+          const url = `https://graph.facebook.com/v21.0/${MARKETING_WA_PHONE_NUMBER_ID}/messages`;
           const body: Record<string, unknown> = {
             messaging_product: "whatsapp",
             recipient_type: "individual",
@@ -169,11 +177,17 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
           });
         } catch (e) {
           console.error("[marketing-flow] media send error:", e);
-          if (text) await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text });
+          if (text) await sendMarketingWhatsApp(phone, text);
+          else
+            await logMarketingWhatsAppMessage({
+              leadPhone: phone,
+              role: "assistant",
+              content: `[${mediaKind}]`,
+            });
         }
         void mediaOutgoing;
       } else if (text) {
-        await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text });
+        await sendMarketingWhatsApp(phone, text);
       }
       break;
     }
@@ -182,14 +196,19 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
       if (ctaUrl && text) {
         const { buildMetaCtaUrlOutgoing } = await import("@/lib/whatsapp");
         const outgoing = buildMetaCtaUrlOutgoing(text, "לחצו כאן", ctaUrl);
-        await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, outgoing);
+        await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, outgoing);
+        await logMarketingWhatsAppMessage({
+          leadPhone: phone,
+          role: "assistant",
+          content: `${text}\n${ctaUrl}`,
+        });
       } else if (text) {
-        await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text });
+        await sendMarketingWhatsApp(phone, text);
       }
       break;
     }
     default: {
-      if (text) await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text });
+      if (text) await sendMarketingWhatsApp(phone, text);
     }
   }
 }

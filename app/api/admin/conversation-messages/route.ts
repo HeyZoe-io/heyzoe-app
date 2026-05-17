@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
+import { isMarketingConversationsSlug, MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
 
 export const runtime = "nodejs";
 
@@ -28,20 +30,23 @@ export async function GET(req: NextRequest) {
   if (!sessionId) return NextResponse.json({ error: "missing_session_id" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
+  const slugVariants = isMarketingConversationsSlug(slug)
+    ? [MARKETING_CONVERSATIONS_SLUG]
+    : await resolveBusinessSlugVariants(admin, slug);
+
   const { data: messages } = await admin
     .from("messages")
     .select("role, content, created_at, error_code")
-    .eq("business_slug", slug)
+    .in("business_slug", slugVariants.length ? slugVariants : [slug])
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true })
     .limit(2000);
 
-  const out: SessionMessage[] = (messages ?? []).map((m: any) => ({
-    role: String(m.role ?? ""),
-    content: String(m.content ?? ""),
-    created_at: String(m.created_at ?? ""),
-    error_code: (m.error_code as string | null) ?? null,
+  const out: SessionMessage[] = (messages ?? []).map((m) => ({
+    role: String((m as { role?: string }).role ?? ""),
+    content: String((m as { content?: string }).content ?? ""),
+    created_at: String((m as { created_at?: string }).created_at ?? ""),
+    error_code: ((m as { error_code?: string | null }).error_code as string | null) ?? null,
   }));
   return NextResponse.json({ messages: out });
 }
-
