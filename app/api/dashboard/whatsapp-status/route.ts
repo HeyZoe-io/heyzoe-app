@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { loadAccessibleBusinesses, normDashboardSlug, pickBusinessBySlug } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 
@@ -16,16 +18,14 @@ export async function GET(req: NextRequest) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const slug = String(req.nextUrl.searchParams.get("slug") ?? "").trim().toLowerCase();
+  const slug = normDashboardSlug(req.nextUrl.searchParams.get("slug") ?? "");
   if (!slug) return NextResponse.json({ error: "slug_required" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const { data: biz } = await admin
-    .from("businesses")
-    .select("id, user_id")
-    .eq("slug", slug)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const accessible = await loadAccessibleBusinesses(admin, user.id, {
+    adminAll: isAdminAllowedEmail(user.email ?? ""),
+  });
+  const biz = pickBusinessBySlug(accessible, slug);
   if (!biz) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { data: job } = await admin
