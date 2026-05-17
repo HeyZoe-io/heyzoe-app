@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { AdminNav } from "@/app/admin/AdminNav";
-import ZoeGuidelinesClient from "./ZoeGuidelinesClient";
+import ZoeAdminClient from "./ZoeAdminClient";
+import type { ZoeBusinessOption } from "./ZoeConversationsTab";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +15,18 @@ export default async function AdminZoePage() {
   const { data: user } = await supabase.auth.getUser();
   const email = user.user?.email?.trim().toLowerCase() ?? "";
   if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
+
+  const admin = createSupabaseAdminClient();
+  const { data: bizRows } = await admin
+    .from("businesses")
+    .select("slug, name")
+    .order("name", { ascending: true })
+    .limit(2000);
+
+  const businesses: ZoeBusinessOption[] = (bizRows ?? []).map((b) => ({
+    slug: String((b as { slug?: string }).slug ?? "").trim().toLowerCase(),
+    name: ((b as { name?: string | null }).name ?? null) as string | null,
+  })).filter((b) => b.slug);
 
   return (
     <main
@@ -24,7 +39,7 @@ export default async function AdminZoePage() {
         color: "#1a0a3c",
       }}
     >
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -38,12 +53,18 @@ export default async function AdminZoePage() {
           <div style={{ textAlign: "right" }}>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>זואי</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>
-              אופי, חוקיות ומבנה תשובה — לבוט של בעלי העסקים
+              חוקיות פלטפורמה ומעקב שיחות — לבוט של בעלי העסקים
             </p>
           </div>
           <AdminNav active="zoe" />
         </header>
-        <ZoeGuidelinesClient />
+        <Suspense
+          fallback={
+            <p style={{ margin: 0, fontSize: 14, color: "#6b5b9a", textAlign: "right" }}>טוען…</p>
+          }
+        >
+          <ZoeAdminClient businesses={businesses} />
+        </Suspense>
       </div>
     </main>
   );

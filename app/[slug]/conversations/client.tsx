@@ -23,10 +23,15 @@ type SessionSummary = {
 export default function ConversationsClient({
   slug,
   initialSessions,
+  apiScope = "dashboard",
 }: {
   slug: string;
   initialSessions: SessionSummary[];
+  /** dashboard = בעל עסק; admin = סופר-אדמין */
+  apiScope?: "dashboard" | "admin";
 }) {
+  const apiPrefix = apiScope === "admin" ? "/api/admin" : "/api/dashboard";
+  const queryScope = apiScope === "admin" ? "admin" : "dashboard";
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -74,9 +79,9 @@ export default function ConversationsClient({
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
 
   const sessionsQuery = useQuery({
-    queryKey: ["dashboard", "conversations", slug],
+    queryKey: [queryScope, "conversations", slug],
     queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/dashboard/conversations?slug=${encodeURIComponent(slug)}`, { signal });
+      const res = await fetch(`${apiPrefix}/conversations?slug=${encodeURIComponent(slug)}`, { signal });
       if (!res.ok) throw new Error(`failed_to_load_conversations:${res.status}`);
       const j = (await res.json()) as { sessions?: SessionSummary[] };
       return (j.sessions ?? []) as SessionSummary[];
@@ -89,11 +94,11 @@ export default function ConversationsClient({
   }, [sessionsQuery.data]);
 
   const messagesQuery = useQuery({
-    queryKey: ["dashboard", "conversation_messages", slug, selectedId ?? ""],
+    queryKey: [queryScope, "conversation_messages", slug, selectedId ?? ""],
     enabled: Boolean(selectedId),
     queryFn: async ({ signal }) => {
       const res = await fetch(
-        `/api/dashboard/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(
+        `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(
           selectedId ?? ""
         )}`,
         { signal }
@@ -108,10 +113,10 @@ export default function ConversationsClient({
     const sid = String(sessionId ?? "").trim();
     if (!sid) return;
     await queryClient.prefetchQuery({
-      queryKey: ["dashboard", "conversation_messages", slug, sid],
+      queryKey: [queryScope, "conversation_messages", slug, sid],
       queryFn: async ({ signal }) => {
         const res = await fetch(
-          `/api/dashboard/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(sid)}`,
+          `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(sid)}`,
           { signal }
         );
         if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
@@ -179,7 +184,7 @@ export default function ConversationsClient({
           s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s
         )
       );
-      queryClient.setQueryData<SessionSummary[]>(["dashboard", "conversations", slug], (prev) =>
+      queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
         (prev ?? []).map((s) => (s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s))
       );
     } finally {
@@ -220,10 +225,10 @@ export default function ConversationsClient({
           )
         );
         queryClient.setQueryData<SessionMessage[]>(
-          ["dashboard", "conversation_messages", slug, selected.session_id],
+          [queryScope, "conversation_messages", slug, selected.session_id],
           (prev) => [...(prev ?? []), msg]
         );
-        queryClient.setQueryData<SessionSummary[]>(["dashboard", "conversations", slug], (prev) =>
+        queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
           (prev ?? []).map((s) =>
             s.session_id === selected.session_id
               ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: true }
