@@ -6,6 +6,7 @@ import {
   parseMetaWebhook,
   sendMetaWhatsAppMessage,
 } from "@/lib/whatsapp";
+import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
 import { handleMarketingFlowInbound, callMarketingAI } from "@/lib/marketing-flow-runtime";
 
 export const runtime = "nodejs";
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.info("[marketing-webhook] flow done, routing to AI for:", phone);
+    void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
     const reply = await callMarketingAI(userText);
     await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text: reply });
     console.info("[marketing-webhook] AI reply sent to:", phone);
