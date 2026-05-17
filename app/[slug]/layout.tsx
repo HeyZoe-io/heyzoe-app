@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import SlugDashboardNav from "./Nav";
 import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
 import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
+import OwnerWhatsappOptInModal from "@/app/components/OwnerWhatsappOptInModal";
 
 type Props = {
   children: ReactNode;
@@ -10,6 +12,20 @@ type Props = {
 
 export default async function SlugLayout({ children, params }: Props) {
   const { slug } = await params;
+  const normSlug = String(slug ?? "").trim().toLowerCase();
+
+  let showOwnerWhatsappOptIn = false;
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("owner_whatsapp_opted_in")
+      .eq("slug", normSlug)
+      .maybeSingle();
+    showOwnerWhatsappOptIn = biz?.owner_whatsapp_opted_in !== true;
+  } catch {
+    showOwnerWhatsappOptIn = false;
+  }
 
   return (
     <>
@@ -23,7 +39,7 @@ export default async function SlugLayout({ children, params }: Props) {
       </main>
       <DashboardHelpChatWidget slug={slug} />
       <DashboardPwaPrompt />
+      {showOwnerWhatsappOptIn ? <OwnerWhatsappOptInModal slug={normSlug} /> : null}
     </>
   );
 }
-

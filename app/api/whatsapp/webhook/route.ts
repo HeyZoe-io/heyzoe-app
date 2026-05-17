@@ -1068,11 +1068,24 @@ async function processIncoming(
   let contactInstagramFollowPromptSent = false;
   /** סוגי CTA שכבר צורכו (מערכת שעות / מנויים / כתובת) למעט ניסיון — מתאפס בברכה */
   let sfClickedCtaKinds: string[] = [];
+  let isFirstTimeContact = false;
   if (businessId) {
     try {
       const phone = msg.from;
       const fullName =
         typeof (msg as any).profileName === "string" ? (msg as any).profileName.trim() : "";
+
+      try {
+        const { data: priorContact } = await supabase
+          .from("contacts")
+          .select("id")
+          .eq("business_id", businessId)
+          .eq("phone", phone)
+          .maybeSingle();
+        isFirstTimeContact = !priorContact?.id;
+      } catch {
+        isFirstTimeContact = false;
+      }
 
       const upsertPayload: Record<string, unknown> = {
         phone,
@@ -1270,6 +1283,46 @@ async function processIncoming(
   }
 
   const sessionId = `wa_${msg.toNumber}_${msg.from}`;
+
+  if (businessId) {
+    try {
+      const { ensureConversation } = await import("@/lib/notifications/conversations");
+      const conv = await ensureConversation({
+        businessId: Number(businessId),
+        phone: msg.from,
+        sessionId,
+      });
+      if (isFirstTimeContact) {
+        const bizName =
+          String((bizQuotaRow as { name?: string } | null)?.name ?? "").trim() ||
+          String(business_slug ?? "").trim();
+        const { triggerNewLeadNotification } = await import("@/lib/notifications/triggers");
+        void triggerNewLeadNotification({
+          businessId: Number(businessId),
+          businessName: bizName || "העסק שלך",
+          leadPhone: msg.from,
+        });
+      }
+      void conv;
+    } catch (e) {
+      console.warn("[WA Webhook] owner notifications setup failed:", e);
+    }
+  }
+
+  if (msg.type === "text" && businessId) {
+    try {
+      const { userRequestedHumanAgent } = await import("@/lib/notifications/detect-human-request");
+      if (userRequestedHumanAgent(msg.text)) {
+        const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
+        void triggerHumanRequestedNotification({
+          businessId: Number(businessId),
+          leadPhone: msg.from,
+        });
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] human_requested notification failed:", e);
+    }
+  }
 
   // Persisted conversions: allow showing trial CTA again *after a reset* (greeting/opening),
   // without mutating trial_registered/trial_registered_at.
@@ -1528,6 +1581,15 @@ async function processIncoming(
             model_used: "sf_registered",
             session_id: sessionId,
           });
+          try {
+            const { triggerLeadRegisteredNotification } = await import("@/lib/notifications/triggers");
+            void triggerLeadRegisteredNotification({
+              businessId: Number(businessId),
+              leadPhone: msg.from,
+            });
+          } catch (e) {
+            console.warn("[WA Webhook] lead_registered notification failed:", e);
+          }
         }
 
         const directionsMediaUrl = knowledge.directionsMediaUrl?.trim() ?? "";
@@ -2043,6 +2105,18 @@ async function processIncoming(
         }
 
         if (wantsTrial && trialUrl) {
+          if (businessId) {
+            try {
+              const { markConversationCtaClicked } = await import("@/lib/notifications/conversations");
+              void markConversationCtaClicked({
+                businessId: Number(businessId),
+                phone: msg.from,
+                sessionId,
+              });
+            } catch (e) {
+              console.warn("[WA Webhook] markConversationCtaClicked failed:", e);
+            }
+          }
           const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send trial link failed:", e)

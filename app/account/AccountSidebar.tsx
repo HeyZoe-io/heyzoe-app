@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const items: Array<{ href: string; label: string }> = [
   { href: "/account/settings", label: "פרטים אישיים" },
   { href: "/account/billing", label: "חיוב וחבילות" },
+  { href: "/account/notifications", label: "התראות" },
   { href: "/account/users", label: "משתמשים" },
   { href: "/account/contact", label: "צור קשר" },
 ];
