@@ -151,6 +151,7 @@ export async function triggerDailySummaryNotification(input: {
   businessId: number;
   dateLabel: string;
   newLeads: number;
+  /** שיחות (conversations) שנוצרו אתמול — template {{3}} */
   openConversations: number;
   ctaReached: number;
   registered: number;

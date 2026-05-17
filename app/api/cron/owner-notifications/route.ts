@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { HEYZOE_SF_REGISTERED } from "@/lib/analytics";
 import { resolveCronSecret } from "@/lib/server-env";
+import { getIsraelYesterdayRange } from "@/lib/israel-time";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
 import {
   triggerBotPausedWaitingNotification,
@@ -26,20 +27,6 @@ function israelNowParts() {
   }).formatToParts(new Date());
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
   return { hour: get("hour"), year: get("year"), month: get("month"), day: get("day") };
-}
-
-function yesterdayIsraelRange(): { start: string; end: string; label: string } {
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" });
-  const todayStr = fmt.format(now);
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yStr = fmt.format(yesterday);
-  return {
-    start: `${yStr}T00:00:00+02:00`,
-    end: `${todayStr}T00:00:00+02:00`,
-    label: new Intl.DateTimeFormat("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "medium" }).format(yesterday),
-  };
 }
 
 export async function GET(req: NextRequest) {
@@ -142,7 +129,7 @@ export async function GET(req: NextRequest) {
   // ── daily_summary (08:00 Israel) ──────────────────────────────────────────
   const { hour } = israelNowParts();
   if (hour === 8) {
-    const { start, end, label } = yesterdayIsraelRange();
+    const { start, end, label } = getIsraelYesterdayRange();
     const { data: businesses } = await admin
       .from("businesses")
       .select("id, slug, name, is_active, owner_whatsapp_opted_in, owner_whatsapp_phone")
@@ -176,53 +163,41 @@ export async function GET(req: NextRequest) {
         if (lastDay === today) continue;
       }
 
-      const [{ count: newLeads }, { count: ctaReached }, { count: registered }] = await Promise.all([
-        admin
-          .from("contacts")
-          .select("id", { count: "exact", head: true })
-          .eq("business_id", businessId)
-          .gte("created_at", start)
-          .lt("created_at", end),
-        admin
-          .from("messages")
-          .select("id", { count: "exact", head: true })
-          .eq("business_slug", slug)
-          .eq("model_used", "sf_cta_reached")
-          .gte("created_at", start)
-          .lt("created_at", end),
-        admin
-          .from("contacts")
-          .select("id", { count: "exact", head: true })
-          .eq("business_id", businessId)
-          .eq("trial_registered", true)
-          .gte("trial_registered_at", start)
-          .lt("trial_registered_at", end),
-      ]);
-
-      const { data: recentMsgs } = await admin
-        .from("messages")
-        .select("session_id, role, created_at")
-        .eq("business_slug", slug)
-        .gte("created_at", new Date(now - 24 * 60 * 60 * 1000).toISOString())
-        .order("created_at", { ascending: false })
-        .limit(5000);
-
-      const lastBySession = new Map<string, string>();
-      for (const m of recentMsgs ?? []) {
-        const sid = String((m as { session_id?: string }).session_id ?? "");
-        if (!sid || lastBySession.has(sid)) continue;
-        lastBySession.set(sid, String((m as { role?: string }).role ?? ""));
-      }
-      let openConversations = 0;
-      for (const role of lastBySession.values()) {
-        if (role === "user") openConversations += 1;
-      }
+      const [{ count: newLeads }, { count: ctaReached }, { count: registered }, { count: conversationsOpened }] =
+        await Promise.all([
+          admin
+            .from("contacts")
+            .select("id", { count: "exact", head: true })
+            .eq("business_id", businessId)
+            .gte("created_at", start)
+            .lt("created_at", end),
+          admin
+            .from("messages")
+            .select("id", { count: "exact", head: true })
+            .eq("business_slug", slug)
+            .eq("model_used", "sf_cta_reached")
+            .gte("created_at", start)
+            .lt("created_at", end),
+          admin
+            .from("contacts")
+            .select("id", { count: "exact", head: true })
+            .eq("business_id", businessId)
+            .eq("trial_registered", true)
+            .gte("trial_registered_at", start)
+            .lt("trial_registered_at", end),
+          admin
+            .from("conversations")
+            .select("id", { count: "exact", head: true })
+            .eq("business_id", businessId)
+            .gte("created_at", start)
+            .lt("created_at", end),
+        ]);
 
       await triggerDailySummaryNotification({
         businessId,
         dateLabel: label,
         newLeads: newLeads ?? 0,
-        openConversations,
+        openConversations: conversationsOpened ?? 0,
         ctaReached: ctaReached ?? 0,
         registered: registered ?? 0,
       });

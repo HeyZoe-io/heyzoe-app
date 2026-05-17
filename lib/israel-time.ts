@@ -94,6 +94,43 @@ export function getIsraelCalendarDay(referenceUtc: Date = new Date()): number {
   return p.day;
 }
 
+/** תחילת יום קלנדרי בישראל (00:00) כ-ISO UTC */
+export function getIsraelDayStartUtc(year: number, month: number, day: number): Date {
+  return makeUtcDateFromLocalInTz({ year, month, day, hour: 0, minute: 0 });
+}
+
+/** טווח אתמול בישראל [start, end) כ-ISO + תווית תאריך בעברית */
+export function getIsraelYesterdayRange(referenceUtc: Date = new Date()): {
+  start: string;
+  end: string;
+  label: string;
+} {
+  const today = getLocalPartsInTz(referenceUtc, IL_TZ);
+  const todayStart = getIsraelDayStartUtc(today.year, today.month, today.day);
+
+  const midToday = makeUtcDateFromLocalInTz({
+    year: today.year,
+    month: today.month,
+    day: today.day,
+    hour: 12,
+    minute: 0,
+  });
+  const midYesterday = new Date(midToday.getTime() - 24 * 60 * 60 * 1000);
+  const y = getLocalPartsInTz(midYesterday, IL_TZ);
+  const yesterdayStart = getIsraelDayStartUtc(y.year, y.month, y.day);
+
+  const label = new Intl.DateTimeFormat("he-IL", {
+    timeZone: IL_TZ,
+    dateStyle: "medium",
+  }).format(yesterdayStart);
+
+  return {
+    start: yesterdayStart.toISOString(),
+    end: todayStart.toISOString(),
+    label,
+  };
+}
+
 export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
 
