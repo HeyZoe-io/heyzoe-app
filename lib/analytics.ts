@@ -130,8 +130,11 @@ export async function fetchRecentSessionMessages(input: {
 export async function logMessage(input: MessageLogInput) {
   try {
     const supabase = createSupabaseAdminClient();
+    const businessSlug = String(input.business_slug ?? "")
+      .trim()
+      .toLowerCase();
     const { error } = await supabase.from("messages").insert({
-      business_slug: input.business_slug,
+      business_slug: businessSlug,
       role: input.role,
       content: input.content,
       model_used: input.model_used ?? null,

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 
 type SessionMessage = {
   role: string;
@@ -177,7 +178,10 @@ export default function ConversationsClient({
       await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ business_slug: slug, session_id: sessionId }),
+        body: JSON.stringify({
+          business_slug: slug.trim().toLowerCase(),
+          session_id: sessionId,
+        }),
       });
       setSessions((prev) =>
         prev.map((s) =>
@@ -196,14 +200,22 @@ export default function ConversationsClient({
     if (!selected || !manualText.trim()) return;
     setSending(true);
     try {
-      const res = await fetch("/api/whatsapp/manual-send", {
+      const manualUrl =
+        apiScope === "admin" && isMarketingConversationsSlug(slug)
+          ? "/api/admin/marketing/manual-send"
+          : "/api/whatsapp/manual-send";
+      const manualBody =
+        apiScope === "admin" && isMarketingConversationsSlug(slug)
+          ? { session_id: selected.session_id, text: manualText.trim() }
+          : {
+              business_slug: slug,
+              session_id: selected.session_id,
+              text: manualText.trim(),
+            };
+      const res = await fetch(manualUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          business_slug: slug,
-          session_id: selected.session_id,
-          text: manualText.trim(),
-        }),
+        body: JSON.stringify(manualBody),
       });
       if (res.ok) {
         const nowIso = new Date().toISOString();

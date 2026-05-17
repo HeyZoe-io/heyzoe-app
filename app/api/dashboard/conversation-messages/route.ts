@@ -8,6 +8,7 @@ import {
   type DashboardBizRow,
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 
 export const runtime = "nodejs";
 
@@ -38,20 +39,20 @@ export async function GET(req: NextRequest) {
   const business = pickBusinessBySlug(accessible, slug) as DashboardBizRow | null;
   if (!business) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
+  const slugVariants = await resolveBusinessSlugVariants(admin, slug);
   const { data: messages } = await admin
     .from("messages")
     .select("role, content, created_at, error_code")
-    .eq("business_slug", slug)
+    .in("business_slug", slugVariants.length ? slugVariants : [slug])
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
 
-  const out: SessionMessage[] = (messages ?? []).map((m: any) => ({
-    role: String(m.role ?? ""),
-    content: String(m.content ?? ""),
-    created_at: String(m.created_at ?? ""),
-    error_code: (m.error_code as string | null) ?? null,
+  const out: SessionMessage[] = (messages ?? []).map((m) => ({
+    role: String((m as { role?: string }).role ?? ""),
+    content: String((m as { content?: string }).content ?? ""),
+    created_at: String((m as { created_at?: string }).created_at ?? ""),
+    error_code: ((m as { error_code?: string | null }).error_code as string | null) ?? null,
   }));
 
   return NextResponse.json({ messages: out });
 }
-

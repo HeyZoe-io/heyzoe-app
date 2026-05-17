@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const businessSlug = typeof body.business_slug === "string" ? body.business_slug.trim() : "";
+    const businessSlug =
+      typeof body.business_slug === "string" ? body.business_slug.trim().toLowerCase() : "";
     const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : "";
     const minutesRaw = Number(body.minutes ?? 60);
     const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? minutesRaw : 60;

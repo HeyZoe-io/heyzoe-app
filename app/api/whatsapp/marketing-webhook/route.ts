@@ -7,6 +7,7 @@ import {
   sendMetaWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
+import { logMarketingWhatsAppMessage, sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
 import { handleMarketingFlowInbound, callMarketingAI } from "@/lib/marketing-flow-runtime";
 
 export const runtime = "nodejs";
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
   console.info("[marketing-webhook] inbound from:", phone, "text:", userText.slice(0, 80));
 
   try {
+    await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
     const { handled } = await handleMarketingFlowInbound(phone, userText);
 
     if (handled) {
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
     console.info("[marketing-webhook] flow done, routing to AI for:", phone);
     void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
     const reply = await callMarketingAI(userText);
-    await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, { type: "text", text: reply });
+    await sendMarketingWhatsApp(phone, reply);
     console.info("[marketing-webhook] AI reply sent to:", phone);
   } catch (e) {
     console.error("[marketing-webhook] error:", e);
