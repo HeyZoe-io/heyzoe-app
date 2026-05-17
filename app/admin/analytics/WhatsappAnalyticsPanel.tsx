@@ -76,8 +76,8 @@ export default function WhatsappAnalyticsPanel({ data }: { data: WhatsappAnalyti
           המרות רכישה מלידי וואטסאפ (דף נחיתה)
         </h2>
         <p style={{ margin: "6px 0 14px", fontSize: 13, color: "#6b5b9a", lineHeight: 1.6 }}>
-          checkout_start ו־purchase עם מקור <code style={{ fontSize: 12 }}>wa_lp</code> — רק לידים שלחצו קישור וואטסאפ
-          בדף הנחיתה והמשיכו לרכישה (זיהוי בדפדפן, עד 7 ימים).
+          <code style={{ fontSize: 12 }}>wa_lp</code> — קליק וואטסאפ בדף והמשך ברכישה בדפדפן ·{" "}
+          <code style={{ fontSize: 12 }}>wa_marketing</code> — רכישה אחרי פלואו שיווקי (התאמה לפי טלפון ב־iCount IPN)
         </p>
         <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
           <div>

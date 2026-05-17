@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { normalizePhone } from "@/lib/phone-normalize";
 import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
 import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
@@ -44,7 +45,9 @@ function sleepMs(ms: number): Promise<void> {
 /**
  * Returns true if this phone number has never messaged the marketing line before.
  */
-export async function isFirstContact(phone: string): Promise<boolean> {
+export async function isFirstContact(phoneRaw: string): Promise<boolean> {
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) return true;
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("marketing_flow_sessions")
@@ -271,9 +274,15 @@ function isGreeting(text: string): boolean {
  * - Flow completed → return false (caller should use Zoe AI)
  */
 export async function handleMarketingFlowInbound(
-  phone: string,
+  phoneRaw: string,
   userText: string
 ): Promise<{ handled: boolean }> {
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) {
+    console.warn("[marketing-flow] invalid phone:", phoneRaw);
+    return { handled: false };
+  }
+
   const admin = createSupabaseAdminClient();
   const { nodes, edges, isActive } = await loadFlow();
 

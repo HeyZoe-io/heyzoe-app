@@ -1,4 +1,4 @@
-import { isWaLpAttributionSource } from "@/lib/lp-analytics";
+import { isWaAttributedPurchaseSource } from "@/lib/lp-analytics";
 
 export type LandingAnalyticsSnapshot = {
   pageviews: number;
@@ -66,12 +66,12 @@ export function buildLandingAnalyticsSnapshot(
       const v = typeof e.value === "number" ? e.value : e.value != null ? Number(e.value) : NaN;
       if (Number.isFinite(v) && v > 0) {
         purchaseRevenue += v;
-        if (isWaLpAttributionSource(e.source)) waLpRevenue += v;
+        if (isWaAttributedPurchaseSource(e.source)) waLpRevenue += v;
       }
     }
 
-    if (t === "checkout_start" && isWaLpAttributionSource(e.source)) waLpCheckout += 1;
-    if (t === "purchase" && isWaLpAttributionSource(e.source)) waLpPurchases += 1;
+    if (t === "checkout_start" && isWaAttributedPurchaseSource(e.source)) waLpCheckout += 1;
+    if (t === "purchase" && isWaAttributedPurchaseSource(e.source)) waLpPurchases += 1;
 
     if (t === "cta_click") {
       const lbl = (e.label ?? "").trim() || "לא מזוהה";

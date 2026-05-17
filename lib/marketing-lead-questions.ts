@@ -190,7 +190,9 @@ export async function recordMarketingLeadOpenQuestion(input: {
   const questionText = String(input.questionText ?? "").trim();
   if (shouldSkipQuestion(questionText)) return;
 
-  const phone = String(input.phone ?? "").trim().slice(0, 32);
+  const { normalizePhone } = await import("@/lib/phone-normalize");
+  const phone =
+    normalizePhone(input.phone) ?? String(input.phone ?? "").replace(/\D/g, "").trim().slice(0, 32);
   if (!phone) return;
 
   try {

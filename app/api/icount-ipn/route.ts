@@ -3,6 +3,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 import { extractIcountClientIdFromPayload } from "@/lib/icount-v3";
 import { sendEmail } from "@/lib/send-email";
+import { normalizePhoneToE164 } from "@/lib/phone-normalize";
+import {
+  extractCustomerPhoneFromIcountPayload,
+  tryRecordWaMarketingPurchase,
+} from "@/lib/wa-marketing-purchase";
 
 export const runtime = "nodejs";
 
@@ -144,36 +149,6 @@ function normalizeEmail(input: unknown): string {
   // Basic sanity: must contain @ and a dot after it.
   if (!email.includes("@")) return "";
   return email;
-}
-
-function normalizePhone(input: unknown): string | null {
-  const raw = String(input ?? "").trim();
-  if (!raw) return null;
-  const digits = raw.replace(/[^\d+]/g, "");
-  if (!digits) return null;
-
-  // 05XXXXXXXX -> +9725XXXXXXX (best-effort)
-  if (digits.startsWith("05")) {
-    const rest = digits.slice(1).replace(/\D/g, "");
-    if (rest.length < 9) return null;
-    return `+972${rest}`;
-  }
-
-  // 972XXXXXXXXX -> +972XXXXXXXXX
-  if (digits.startsWith("972")) {
-    const rest = digits.replace(/\D/g, "");
-    if (rest.length < 11) return null;
-    return `+${rest}`;
-  }
-
-  // Already E.164
-  if (digits.startsWith("+")) {
-    const rest = digits.slice(1).replace(/\D/g, "");
-    if (rest.length < 10) return null;
-    return `+${rest}`;
-  }
-
-  return null;
 }
 
 function toSlugBase(input: string): string {
@@ -319,12 +294,18 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
+    const customerPhone = extractCustomerPhoneFromIcountPayload(
+      payload as Record<string, unknown>,
+      sessionRow?.phone
+    );
+
     console.info("[api/icount-ipn] inbound:", {
       email,
       custom,
       has_session: Boolean(sessionRow),
       session_plan: sessionRow?.plan ?? null,
       icount_client_id: icountClientId ?? null,
+      customer_phone_normalized: customerPhone ? "present" : "missing",
     });
 
     // מניעת כפילויות: אם משתמש כבר קיים — לא מנסים createUser.
@@ -468,6 +449,12 @@ export async function POST(req: NextRequest) {
             business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
             customer_email: email,
           });
+
+          void tryRecordWaMarketingPurchase({
+            customerPhone,
+            businessId: Number(insertedBiz.id),
+            planPrice: plan_price,
+          });
         }
         return NextResponse.json({ ok: true });
       }
@@ -484,7 +471,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const phoneE164 = normalizePhone(sessionRow?.phone);
+    const phoneE164 = normalizePhoneToE164(customerPhone);
 
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email,
@@ -558,6 +545,12 @@ export async function POST(req: NextRequest) {
       business_slug: String(insertedBiz.slug).trim().toLowerCase(),
       business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
       customer_email: email,
+    });
+
+    void tryRecordWaMarketingPurchase({
+      customerPhone,
+      businessId: Number(insertedBiz.id),
+      planPrice: plan_price,
     });
 
     console.info("[api/icount-ipn] ready:", {
