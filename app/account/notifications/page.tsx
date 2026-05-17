@@ -123,7 +123,11 @@ export default function AccountNotificationsPage() {
           בחר אילו התראות לקבל לווטסאפ שלך לגבי פעילות הבוט.
         </p>
         <p className="mt-2 text-xs text-zinc-500">
-          ההתראות נשלחות ממספר זואי הראשי (+972 3-382-4981) ומתייחסות לפעילות על מספר העסק שלך.
+          ההתראות נשלחות ממספר זואי הראשי (
+          <span dir="ltr" className="inline-block whitespace-nowrap">
+            +972 3-382-4981
+          </span>
+          ) ומתייחסות לפעילות על מספר העסק שלך.
         </p>
       </div>
 
