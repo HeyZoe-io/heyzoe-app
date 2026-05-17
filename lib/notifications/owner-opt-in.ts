@@ -81,10 +81,32 @@ export async function tryHandleHeyzoeOwnerOptIn(input: {
     .eq("id", businessId);
 
   if (upBizErr) {
-    console.error("[owner-opt-in] update business failed:", upBizErr.message);
+    console.error("[owner-opt-in] update business failed:", upBizErr.message, { businessId, slug });
+    await sendMarketingWhatsApp(
+      input.senderPhone,
+      "לא הצלחנו לשמור את חיבור ההתראות במערכת. ודאו שהמיגרציות ב-Supabase רצו (owner_whatsapp_opted_in / owner_whatsapp_phone) ונסו שוב, או פנו לתמיכת HeyZoe."
+    ).catch(() => {});
+    return true;
   }
 
-  await upsertNotificationSettings(businessId, { ...DEFAULT_NOTIFICATION_SETTINGS });
+  const settingsResult = await upsertNotificationSettings(businessId, {
+    ...DEFAULT_NOTIFICATION_SETTINGS,
+  });
+  if (!settingsResult.ok) {
+    console.error("[owner-opt-in] notification_settings upsert failed:", settingsResult.error, {
+      businessId,
+      slug,
+    });
+    await sendMarketingWhatsApp(
+      input.senderPhone,
+      "חיברנו את המספר אך שמירת הגדרות ההתראות נכשלה. הריצו notification_settings.sql ב-Supabase ושלחו שוב את ההודעה."
+    ).catch(() => {});
+    return true;
+  }
+
+  if (senderNorm) {
+    await admin.from("marketing_flow_sessions").delete().eq("phone", senderNorm);
+  }
 
   const bizName = String((biz as { name?: string }).name ?? slug).trim() || slug;
   await sendMarketingWhatsApp(
