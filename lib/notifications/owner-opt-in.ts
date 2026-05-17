@@ -48,9 +48,14 @@ export async function tryHandleHeyzoeOwnerOptIn(input: {
 
   const businessId = Number(biz.id);
 
+  const ownerPhoneStored = senderNorm ?? String(input.senderPhone ?? "").replace(/\D/g, "");
+
   const { error: upBizErr } = await admin
     .from("businesses")
-    .update({ owner_whatsapp_opted_in: true })
+    .update({
+      owner_whatsapp_opted_in: true,
+      owner_whatsapp_phone: ownerPhoneStored || null,
+    })
     .eq("id", businessId);
 
   if (upBizErr) {

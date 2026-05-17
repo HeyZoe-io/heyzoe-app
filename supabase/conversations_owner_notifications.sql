@@ -1,5 +1,6 @@
 -- Per-lead conversation state for owner notifications
--- (assumes public.conversations exists with business_id)
+-- אם קיבלת 42P01 (relation "conversations" does not exist) — הרץ קודם: supabase/conversations.sql
+-- (הקובץ conversations.sql יוצר את הטבלה + אינדקסים; הקובץ הזה רק מוסיף עמודות אם הטבלה כבר קיימה בלי them)
 alter table public.conversations
   add column if not exists phone text;
 

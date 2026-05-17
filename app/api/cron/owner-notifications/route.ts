@@ -143,13 +143,20 @@ export async function GET(req: NextRequest) {
   const { hour } = israelNowParts();
   if (hour === 8) {
     const { start, end, label } = yesterdayIsraelRange();
-    const { data: businesses } = await admin.from("businesses").select("id, slug, name, is_active").eq("is_active", true);
+    const { data: businesses } = await admin
+      .from("businesses")
+      .select("id, slug, name, is_active, owner_whatsapp_opted_in, owner_whatsapp_phone")
+      .eq("is_active", true)
+      .eq("owner_whatsapp_opted_in", true)
+      .not("owner_whatsapp_phone", "is", null);
 
     for (const biz of businesses ?? []) {
       const businessId = Number((biz as { id?: number }).id);
       const slug = String((biz as { slug?: string }).slug ?? "").trim().toLowerCase();
-      const name = String((biz as { name?: string }).name ?? "").trim();
       if (!businessId || !slug) continue;
+
+      const phone = String((biz as { owner_whatsapp_phone?: string }).owner_whatsapp_phone ?? "").trim();
+      if (!phone) continue;
 
       const settings = await getNotificationSettings(businessId);
       if (!settings.daily_summary) continue;

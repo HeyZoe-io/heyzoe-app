@@ -83,10 +83,8 @@ export async function setConversationBotPaused(input: {
   const patch: Record<string, unknown> = {
     bot_paused: input.paused,
     updated_at: new Date().toISOString(),
+    paused_notification_sent: false,
   };
-  if (!input.paused) {
-    patch.paused_notification_sent = false;
-  }
 
   const { error } = await admin
     .from("conversations")
@@ -95,6 +93,21 @@ export async function setConversationBotPaused(input: {
     .eq("phone", phone);
 
   if (error) console.warn("[notifications] setConversationBotPaused:", error.message);
+}
+
+/** לחיצה על כפתור הרשמה/רכישה בסשן CTA */
+export async function markRegistrationCtaClicked(input: {
+  businessId: number | string;
+  phone: string;
+  sessionId: string;
+}): Promise<void> {
+  const businessId = Number(input.businessId);
+  if (!Number.isFinite(businessId) || businessId <= 0) return;
+  await markConversationCtaClicked({
+    businessId,
+    phone: input.phone,
+    sessionId: input.sessionId,
+  });
 }
 
 export async function markConversationCtaClicked(input: {

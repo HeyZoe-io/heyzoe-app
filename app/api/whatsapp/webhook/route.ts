@@ -2107,14 +2107,10 @@ async function processIncoming(
         if (wantsTrial && trialUrl) {
           if (businessId) {
             try {
-              const { markConversationCtaClicked } = await import("@/lib/notifications/conversations");
-              void markConversationCtaClicked({
-                businessId: Number(businessId),
-                phone: msg.from,
-                sessionId,
-              });
+              const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
             } catch (e) {
-              console.warn("[WA Webhook] markConversationCtaClicked failed:", e);
+              console.warn("[WA Webhook] markRegistrationCtaClicked failed:", e);
             }
           }
           const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
@@ -2162,6 +2158,10 @@ async function processIncoming(
         ) {
           const del = workshopBuyBtn.secondary_purchase_delivery ?? "link";
           if (del === "link" && trialUrl) {
+            if (businessId) {
+              const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+            }
             const txt = `מעולה! נרשמים כאן:\n${trialUrl}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send workshop link failed:", e)
@@ -2255,6 +2255,10 @@ async function processIncoming(
         ) {
           const del = courseEnrollBtn.secondary_purchase_delivery ?? "link";
           if (del === "link" && trialUrl) {
+            if (businessId) {
+              const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+            }
             const txt = `מעולה! ההצטרפות כאן:\n${trialUrl}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send course link failed:", e)

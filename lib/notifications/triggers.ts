@@ -1,6 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { isNotificationEnabled } from "@/lib/notifications/getNotificationSettings";
-import { resolveOwnerPhoneForBusiness } from "@/lib/notifications/resolveOwnerPhone";
+import { gateOwnerNotification } from "@/lib/notifications/owner-notification-gate";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
 
@@ -37,21 +36,20 @@ function formatTimeHe(iso: string): string {
 
 async function sendIfEnabled(input: {
   businessId: number;
-  key: Parameters<typeof isNotificationEnabled>[1];
+  key: Parameters<typeof gateOwnerNotification>[1];
   templateName: string;
   components: OwnerTemplateComponent[];
 }): Promise<void> {
-  const enabled = await isNotificationEnabled(input.businessId, input.key);
-  if (!enabled) return;
-
-  const ownerPhone = await resolveOwnerPhoneForBusiness(input.businessId);
-  if (!ownerPhone) {
-    console.warn("[notifications] no owner phone for business", input.businessId);
+  const gate = await gateOwnerNotification(input.businessId, input.key);
+  if (!gate.allowed || !gate.ownerPhone) {
+    if (gate.reason && gate.reason !== "setting_disabled") {
+      console.info("[notifications] skip:", input.templateName, gate.reason, input.businessId);
+    }
     return;
   }
 
   const result = await sendOwnerNotification({
-    ownerPhone,
+    ownerPhone: gate.ownerPhone,
     templateName: input.templateName,
     components: input.components,
   });
@@ -108,14 +106,11 @@ export async function triggerBotPausedWaitingNotification(input: {
   conversationId: string;
   leadPhone: string;
 }): Promise<void> {
-  const enabled = await isNotificationEnabled(input.businessId, "bot_paused_waiting");
-  if (!enabled) return;
-
-  const ownerPhone = await resolveOwnerPhoneForBusiness(input.businessId);
-  if (!ownerPhone) return;
+  const gate = await gateOwnerNotification(input.businessId, "bot_paused_waiting");
+  if (!gate.allowed || !gate.ownerPhone) return;
 
   const result = await sendOwnerNotification({
-    ownerPhone,
+    ownerPhone: gate.ownerPhone,
     templateName: "bot_paused_waiting",
     components: bodyParams(formatLeadPhoneDisplay(input.leadPhone)),
   });
@@ -134,14 +129,11 @@ export async function triggerCtaNoSignupNotification(input: {
   conversationId: string;
   leadPhone: string;
 }): Promise<void> {
-  const enabled = await isNotificationEnabled(input.businessId, "cta_no_signup");
-  if (!enabled) return;
-
-  const ownerPhone = await resolveOwnerPhoneForBusiness(input.businessId);
-  if (!ownerPhone) return;
+  const gate = await gateOwnerNotification(input.businessId, "cta_no_signup");
+  if (!gate.allowed || !gate.ownerPhone) return;
 
   const result = await sendOwnerNotification({
-    ownerPhone,
+    ownerPhone: gate.ownerPhone,
     templateName: "lead_cta_no_signup",
     components: bodyParams(formatLeadPhoneDisplay(input.leadPhone)),
   });
