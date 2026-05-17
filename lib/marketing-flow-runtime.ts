@@ -277,6 +277,12 @@ export async function handleMarketingFlowInbound(
   phoneRaw: string,
   userText: string
 ): Promise<{ handled: boolean }> {
+  const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
+  if (isHeyzoeOwnerOptInMessage(userText)) {
+    console.info("[marketing-flow] skip flow for HEYZOE_OWNER opt-in message");
+    return { handled: true };
+  }
+
   const phone = normalizePhone(phoneRaw);
   if (!phone) {
     console.warn("[marketing-flow] invalid phone:", phoneRaw);
@@ -543,6 +549,11 @@ function userAsksForHumanAgent(userText: string): boolean {
  * AI fallback for returning users whose flow is complete.
  */
 export async function callMarketingAI(userText: string): Promise<string> {
+  const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
+  if (isHeyzoeOwnerOptInMessage(userText)) {
+    return "קיבלנו את בקשת חיבור ההתראות. אם לא קיבלתם אישור — שלחו שוב את הקישור מהדשבורד (HEYZOE_OWNER_שם-העסק).";
+  }
+
   const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isRetryableClaudeError, formatUserFacingClaudeError, sleepMs } = await import("@/lib/claude");
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
 

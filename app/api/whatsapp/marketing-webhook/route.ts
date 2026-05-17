@@ -70,9 +70,15 @@ export async function POST(req: NextRequest) {
   console.info("[marketing-webhook] inbound from:", phone, "text:", userText.slice(0, 80));
 
   try {
-    const { tryHandleHeyzoeOwnerOptIn } = await import("@/lib/notifications/owner-opt-in");
+    const { tryHandleHeyzoeOwnerOptIn, isHeyzoeOwnerOptInMessage } = await import(
+      "@/lib/notifications/owner-opt-in"
+    );
     const ownerHandled = await tryHandleHeyzoeOwnerOptIn({ senderPhone: phone, userText });
     if (ownerHandled) {
+      return NextResponse.json({ ok: true, owner_opt_in: true });
+    }
+
+    if (isHeyzoeOwnerOptInMessage(userText)) {
       return NextResponse.json({ ok: true, owner_opt_in: true });
     }
 

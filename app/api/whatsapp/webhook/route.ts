@@ -963,6 +963,16 @@ async function processIncoming(
   if (msg.toNumber === "1179786855208358" && msg.type === "text") {
     console.info("[WA Webhook] Marketing line message from:", msg.from);
     try {
+      const { tryHandleHeyzoeOwnerOptIn } = await import("@/lib/notifications/owner-opt-in");
+      const ownerHandled = await tryHandleHeyzoeOwnerOptIn({
+        senderPhone: msg.from,
+        userText: msg.text,
+      });
+      if (ownerHandled) {
+        console.info("[WA Webhook] HEYZOE_OWNER opt-in handled for:", msg.from);
+        return;
+      }
+
       const { handleMarketingFlowInbound } = await import("@/lib/marketing-flow-runtime");
       const { handled } = await handleMarketingFlowInbound(msg.from, msg.text);
       if (handled) {
