@@ -32,12 +32,21 @@ export function isWaLpAttributionSource(source: string | null | undefined): bool
   return s === "wa_lp";
 }
 
+export function isWaMarketingAttributionSource(source: string | null | undefined): boolean {
+  return String(source ?? "").trim().toLowerCase() === "wa_marketing";
+}
+
+export function isWaAttributedPurchaseSource(source: string | null | undefined): boolean {
+  return isWaLpAttributionSource(source) || isWaMarketingAttributionSource(source);
+}
+
 export async function insertLpAnalyticsEvent(input: {
   event_type: LpAnalyticsEventType;
   session_id: string;
   source?: string | null;
   label?: string | null;
   value?: number | null;
+  metadata?: Record<string, unknown> | null;
 }): Promise<void> {
   try {
     const admin = createSupabaseAdminClient();
@@ -50,13 +59,23 @@ export async function insertLpAnalyticsEvent(input: {
         ? input.value
         : null;
 
-    await admin.from("analytics_events").insert({
+    const row: Record<string, unknown> = {
       event_type,
       session_id,
       source: input.source?.trim().slice(0, 120) ?? null,
       label: input.label?.trim().slice(0, 80) ?? null,
       value,
-    });
+    };
+    if (input.metadata && typeof input.metadata === "object") {
+      row.metadata = input.metadata;
+    }
+
+    let { error } = await admin.from("analytics_events").insert(row);
+    if (error && row.metadata && /metadata|column/i.test(String(error.message ?? ""))) {
+      const { metadata: _m, ...rest } = row;
+      ({ error } = await admin.from("analytics_events").insert(rest));
+    }
+    if (error) throw error;
   } catch (e) {
     console.error("[lp-analytics] insert failed:", e);
   }

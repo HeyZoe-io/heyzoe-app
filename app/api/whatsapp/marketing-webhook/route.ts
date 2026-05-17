@@ -9,6 +9,7 @@ import {
 import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
 import { logMarketingWhatsAppMessage, sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
 import { handleMarketingFlowInbound, callMarketingAI } from "@/lib/marketing-flow-runtime";
+import { normalizePhone } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
 
@@ -60,8 +61,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const phone = msg.from;
+  const phone = normalizePhone(msg.from);
   const userText = msg.text;
+  if (!phone) {
+    console.warn("[marketing-webhook] invalid phone:", msg.from);
+    return NextResponse.json({ ok: true, ignored: "invalid_phone" });
+  }
   console.info("[marketing-webhook] inbound from:", phone, "text:", userText.slice(0, 80));
 
   try {

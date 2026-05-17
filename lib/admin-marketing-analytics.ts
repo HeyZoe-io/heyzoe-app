@@ -1,7 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   HEYZOE_MARKETING_CTA_SENT,
-  isWaLpAttributionSource,
+  isWaAttributedPurchaseSource,
   type LpAnalyticsEventType,
 } from "@/lib/lp-analytics";
 import {
@@ -80,8 +80,8 @@ export async function loadWhatsappAnalyticsSnapshot(sinceIso: string): Promise<W
     if (t === "lp_pricing_view") pricingViews += 1;
     if (t === "wa_lp_click") waLpClicks += 1;
     if (t === "wa_new_lead") newLeadsFromEvents += 1;
-    if (t === "checkout_start" && isWaLpAttributionSource(e.source)) waAttributedCheckout += 1;
-    if (t === "purchase" && isWaLpAttributionSource(e.source)) {
+    if (t === "checkout_start" && isWaAttributedPurchaseSource(e.source)) waAttributedCheckout += 1;
+    if (t === "purchase" && isWaAttributedPurchaseSource(e.source)) {
       waAttributedPurchase += 1;
       const v = typeof e.value === "number" ? e.value : Number(e.value);
       if (Number.isFinite(v) && v > 0) waAttributedRevenue += v;
@@ -143,9 +143,10 @@ export async function loadWhatsappAnalyticsSnapshot(sinceIso: string): Promise<W
   };
 }
 
-export async function trackWaNewLead(phone: string): Promise<void> {
-  const digits = String(phone ?? "").replace(/\D/g, "");
-  if (!digits) return;
+export async function trackWaNewLead(phoneRaw: string): Promise<void> {
+  const { normalizePhone } = await import("@/lib/phone-normalize");
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) return;
   const { insertLpAnalyticsEvent } = await import("@/lib/lp-analytics");
   await insertLpAnalyticsEvent({
     event_type: "wa_new_lead",
