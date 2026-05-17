@@ -37,6 +37,7 @@ export async function GET() {
     business_id: ctx.businessId,
     slug: ctx.slug,
     owner_whatsapp_opted_in: ctx.ownerWhatsappOptedIn,
+    owner_whatsapp_phone: ctx.ownerWhatsappPhone,
     settings,
   });
 }

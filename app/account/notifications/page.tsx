@@ -4,6 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buildOwnerWhatsappConnectUrl } from "@/lib/notifications/owner-opt-in";
+import { normalizePhone } from "@/lib/phone-normalize";
+
+function formatOwnerPhoneDisplay(phone: string): string {
+  const d = normalizePhone(phone) ?? phone.replace(/\D/g, "");
+  if (d.startsWith("972") && d.length >= 12) return `0${d.slice(3)}`;
+  return phone.trim() || "—";
+}
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   type NotificationSettingKey,
@@ -53,6 +60,7 @@ export default function AccountNotificationsPage() {
   const [toast, setToast] = useState("");
   const [settings, setSettings] = useState<NotificationSettings>({ ...DEFAULT_NOTIFICATION_SETTINGS });
   const [ownerWhatsappOptedIn, setOwnerWhatsappOptedIn] = useState(false);
+  const [ownerWhatsappPhone, setOwnerWhatsappPhone] = useState("");
   const [businessSlug, setBusinessSlug] = useState("");
 
   const load = useCallback(async () => {
@@ -63,6 +71,9 @@ export default function AccountNotificationsPage() {
       if (res.ok) {
         if (data.settings) setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, ...data.settings });
         setOwnerWhatsappOptedIn(data.owner_whatsapp_opted_in === true);
+        setOwnerWhatsappPhone(
+          typeof data.owner_whatsapp_phone === "string" ? data.owner_whatsapp_phone : ""
+        );
         setBusinessSlug(typeof data.slug === "string" ? data.slug : "");
       }
     } finally {
@@ -130,6 +141,30 @@ export default function AccountNotificationsPage() {
               className="inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-[0_16px_35px_rgba(142,75,255,0.28)] bg-[linear-gradient(135deg,#5f2ee8_0%,#9043ff_42%,#ff78de_100%)] hover:brightness-[1.03]"
             >
               חבר ווטסאפ
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!locked && !loading && ownerWhatsappPhone ? (
+        <div
+          className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 px-4 py-3 text-right flex flex-wrap items-center gap-x-2 gap-y-1"
+          role="status"
+        >
+          <p className="text-sm text-zinc-800">
+            התראות נשלחות אל:{" "}
+            <span className="font-medium text-zinc-900" dir="ltr">
+              {formatOwnerPhoneDisplay(ownerWhatsappPhone)}
+            </span>
+          </p>
+          {businessSlug ? (
+            <a
+              href={connectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-fuchsia-700 hover:text-fuchsia-800 underline underline-offset-2"
+            >
+              שנה מספר
             </a>
           ) : null}
         </div>
