@@ -4,6 +4,7 @@ export type AccountBusinessContext = {
   businessId: number;
   slug: string;
   ownerWhatsappOptedIn: boolean;
+  ownerWhatsappPhone: string | null;
 };
 
 export async function resolveAccountBusinessForUser(userId: string): Promise<AccountBusinessContext | null> {
@@ -12,14 +13,16 @@ export async function resolveAccountBusinessForUser(userId: string): Promise<Acc
   const loadBiz = async (businessId: number) => {
     const { data: biz } = await admin
       .from("businesses")
-      .select("id, slug, owner_whatsapp_opted_in")
+      .select("id, slug, owner_whatsapp_opted_in, owner_whatsapp_phone")
       .eq("id", businessId)
       .maybeSingle();
     if (!biz?.id) return null;
+    const phone = String(biz.owner_whatsapp_phone ?? "").trim();
     return {
       businessId: Number(biz.id),
       slug: String(biz.slug ?? "").trim(),
       ownerWhatsappOptedIn: biz.owner_whatsapp_opted_in === true,
+      ownerWhatsappPhone: phone || null,
     };
   };
 
@@ -37,17 +40,19 @@ export async function resolveAccountBusinessForUser(userId: string): Promise<Acc
 
   const { data: owned } = await admin
     .from("businesses")
-    .select("id, slug, owner_whatsapp_opted_in")
+    .select("id, slug, owner_whatsapp_opted_in, owner_whatsapp_phone")
     .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   if (owned?.id) {
+    const phone = String(owned.owner_whatsapp_phone ?? "").trim();
     return {
       businessId: Number(owned.id),
       slug: String(owned.slug ?? "").trim(),
       ownerWhatsappOptedIn: owned.owner_whatsapp_opted_in === true,
+      ownerWhatsappPhone: phone || null,
     };
   }
 
