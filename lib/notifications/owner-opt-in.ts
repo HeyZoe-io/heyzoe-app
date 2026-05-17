@@ -112,8 +112,7 @@ export async function tryHandleHeyzoeOwnerOptIn(input: {
   await sendMarketingWhatsApp(
     input.senderPhone,
     `מעולה! אישרנו קבלת התראות WhatsApp לעסק ${bizName} ✅\n` +
-      `מעכשיו תוכלו לבחור אילו התראות לקבל בדשבורד → התראות.\n` +
-      `(זו הודעת אישור בלבד — לא התחלנו שיחת שיווק.)`
+      `מעכשיו תוכלו לבחור אילו התראות לקבל בדשבורד -> התראות.`
   ).catch((e) => console.error("[owner-opt-in] confirmation send failed:", e));
 
   console.info("[owner-opt-in] opted in:", { businessId, slug, phone: senderNorm });
