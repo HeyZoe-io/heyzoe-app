@@ -195,12 +195,13 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
       const ctaUrl = String(data.url ?? "").trim();
       if (ctaUrl && text) {
         const { buildMetaCtaUrlOutgoing } = await import("@/lib/whatsapp");
+        const { HEYZOE_MARKETING_CTA_SENT } = await import("@/lib/lp-analytics");
         const outgoing = buildMetaCtaUrlOutgoing(text, "לחצו כאן", ctaUrl);
         await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, outgoing);
         await logMarketingWhatsAppMessage({
           leadPhone: phone,
           role: "assistant",
-          content: `${text}\n${ctaUrl}`,
+          content: `${HEYZOE_MARKETING_CTA_SENT}\n${text}\n${ctaUrl}`,
         });
       } else if (text) {
         await sendMarketingWhatsApp(phone, text);
@@ -302,6 +303,9 @@ export async function handleMarketingFlowInbound(
       current_node_id: nextNodeId,
       flow_completed: !waitingForAnswer && !nextNodeId,
     });
+
+    const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");
+    void trackWaNewLead(phone);
 
     return { handled: true };
   }

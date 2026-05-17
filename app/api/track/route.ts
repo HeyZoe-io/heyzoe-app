@@ -1,20 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { LP_ANALYTICS_EVENT_TYPE_SET } from "@/lib/lp-analytics";
 
 export const runtime = "nodejs";
-
-const ALLOWED_EVENT_TYPES = new Set([
-  "pageview",
-  "cta_click",
-  "chat_open",
-  "checkout_start",
-  "purchase",
-  "lp_10s",
-  "lp_30s",
-  "lp_60s",
-  "lp_scroll_50",
-  "lp_scroll_75",
-]);
 
 function withCors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", "*");
@@ -45,7 +33,7 @@ export async function POST(req: NextRequest) {
           ? valueRaw
           : Number(String(valueRaw));
 
-    if (!ALLOWED_EVENT_TYPES.has(event_type)) {
+    if (!LP_ANALYTICS_EVENT_TYPE_SET.has(event_type)) {
       return withCors(NextResponse.json({ ok: false, error: "invalid_event_type" }, { status: 400 }));
     }
     if (!session_id) {
