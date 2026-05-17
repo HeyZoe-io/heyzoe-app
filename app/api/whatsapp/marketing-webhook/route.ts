@@ -70,6 +70,12 @@ export async function POST(req: NextRequest) {
   console.info("[marketing-webhook] inbound from:", phone, "text:", userText.slice(0, 80));
 
   try {
+    const { tryHandleHeyzoeOwnerOptIn } = await import("@/lib/notifications/owner-opt-in");
+    const ownerHandled = await tryHandleHeyzoeOwnerOptIn({ senderPhone: phone, userText });
+    if (ownerHandled) {
+      return NextResponse.json({ ok: true, owner_opt_in: true });
+    }
+
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
     const { handled } = await handleMarketingFlowInbound(phone, userText);
 
