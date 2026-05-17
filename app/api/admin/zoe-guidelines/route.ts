@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES } from "@/lib/business-zoe-platform-defaults";
 import {
+  guidelinesForAdminDisplay,
   invalidateZoePlatformGuidelinesCache,
   isUsingDefaultZoePlatform,
   mergeWithDefaultZoePlatform,
@@ -51,7 +52,7 @@ export async function GET() {
     const stored = parseStored((data as { guidelines?: unknown } | null)?.guidelines);
     const usingDefaults = isUsingDefaultZoePlatform(stored);
     return NextResponse.json({
-      guidelines: usingDefaults ? DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES : stored!,
+      guidelines: guidelinesForAdminDisplay(stored),
       using_defaults: usingDefaults,
     });
   } catch (e) {

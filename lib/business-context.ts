@@ -3,6 +3,7 @@ import { DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES } from "@/lib/business-zoe-pla
 import {
   buildVibeLinesMapFromPlatform,
   buildZoePlatformPromptSection,
+  getZoePlatformCategory,
   getZoePlatformCategoryBlock,
   type ZoePlatformGuidelines,
 } from "@/lib/business-zoe-platform";
@@ -456,8 +457,8 @@ function pickResponseShapeBlock(
 
 function pickLegalRulesLines(platform: ZoePlatformGuidelines): string {
   const cat =
-    platform.categories.find((c) => c.id === "legal_rules") ??
-    DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories.find((c) => c.id === "legal_rules");
+    getZoePlatformCategory(platform, "legal_rules") ??
+    getZoePlatformCategory(DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES, "legal_rules");
   const lines = cat?.lines ?? [];
   return lines.map((l) => `- ${l}`).join("\n");
 }
