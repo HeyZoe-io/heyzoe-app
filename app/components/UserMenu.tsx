@@ -145,6 +145,15 @@ export default function UserMenu() {
                 </Link>
                 <Link
                   role="menuitem"
+                  href="/account/notifications"
+                  prefetch={true}
+                  onClick={() => setOpen(false)}
+                  className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
+                >
+                  התראות
+                </Link>
+                <Link
+                  role="menuitem"
                   href="/account/users"
                   prefetch={true}
                   onClick={() => setOpen(false)}
