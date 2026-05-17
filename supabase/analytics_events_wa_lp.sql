@@ -1,7 +1,4 @@
--- Extend analytics_events allowed types (engagement signals)
--- Run AFTER creating public.analytics_events.
--- This updates the CHECK constraint that limits event_type values.
-
+-- LP + WhatsApp marketing analytics event types
 alter table public.analytics_events
   drop constraint if exists analytics_events_event_type_check;
 
@@ -24,4 +21,3 @@ alter table public.analytics_events
       'wa_new_lead'
     )
   );
-

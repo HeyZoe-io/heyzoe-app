@@ -144,8 +144,18 @@ function OnboardingContent() {
         const sid = `onb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
         sessionStorage.setItem(key, sid);
       }
-      if (!sessionStorage.getItem("hz_lp_source")) {
-        sessionStorage.setItem("hz_lp_source", "onboarding");
+      try {
+        const until = Number(localStorage.getItem("hz_wa_lp_attribution") || "0");
+        const waAttr = Number.isFinite(until) && until > Date.now();
+        if (waAttr) {
+          sessionStorage.setItem("hz_lp_source", "wa_lp");
+        } else if (!sessionStorage.getItem("hz_lp_source")) {
+          sessionStorage.setItem("hz_lp_source", "onboarding");
+        }
+      } catch {
+        if (!sessionStorage.getItem("hz_lp_source")) {
+          sessionStorage.setItem("hz_lp_source", "onboarding");
+        }
       }
     } catch {
       // ignore

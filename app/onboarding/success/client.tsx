@@ -194,7 +194,15 @@ export default function OnboardingSuccessClient() {
           // LP purchase tracking (best-effort): relies on sessionStorage values set on /lp-leads.
           try {
             const sid = sessionStorage.getItem("hz_lp_session_id") || "";
-            const src = sessionStorage.getItem("hz_lp_source");
+            let src = sessionStorage.getItem("hz_lp_source");
+            if (!src) {
+              try {
+                const until = Number(localStorage.getItem("hz_wa_lp_attribution") || "0");
+                if (Number.isFinite(until) && until > Date.now()) src = "wa_lp";
+              } catch {
+                /* ignore */
+              }
+            }
             const valRaw = sessionStorage.getItem("hz_lp_plan_value");
             const value = valRaw ? Number(valRaw) : null;
             if (sid && typeof value === "number" && Number.isFinite(value) && value > 0) {

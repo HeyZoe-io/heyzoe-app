@@ -1016,9 +1016,10 @@ function hzGetSessionId(){
     return 'lp_'+Math.random().toString(16).slice(2)+Date.now().toString(16);
   }
 }
-function hzTrack(event_type, value, label){
+function hzTrack(event_type, value, label, sourceOverride){
   try{
-    var payload={event_type:event_type, value:value==null?null:value, label:label||null, source:hzUtmSource(), session_id:hzGetSessionId()};
+    var src = sourceOverride != null && String(sourceOverride).trim() ? String(sourceOverride).trim() : hzUtmSource();
+    var payload={event_type:event_type, value:value==null?null:value, label:label||null, source:src, session_id:hzGetSessionId()};
     // Prefer sendBeacon, but fall back to fetch if it returns false.
     var ok = false;
     if(navigator.sendBeacon){
@@ -1166,10 +1167,47 @@ try{
   // Final CTA (white button) if present
   addCta(document.querySelector('a.btn-white[href="#pricing"]'), 'בואו נתחיל! (סוף דף)');
 
+  // Nav / in-page links to #pricing
+  document.querySelectorAll('a[href="#pricing"]').forEach(function(a){
+    if(a.classList && a.classList.contains('btn-white')) return;
+    a.addEventListener('click', function(){ hzTrack('lp_pricing_view', null, 'nav_pricing'); }, {capture:true, passive:true});
+  });
+
   // Pricing CTAs
   document.querySelectorAll('button.pricing-btn').forEach(function(btn){
     var plan = /plan=pro/.test(String(btn.getAttribute('onclick')||'')) ? 'pro' : /plan=starter/.test(String(btn.getAttribute('onclick')||'')) ? 'starter' : '';
     addCta(btn, plan ? ('מחירים: '+plan) : 'מחירים');
+  });
+}catch(e){}
+
+// Pricing section view (#pricing)
+try{
+  var pricingEl = document.getElementById('pricing');
+  if(pricingEl && typeof IntersectionObserver !== 'undefined'){
+    var pricingSeen = false;
+    new IntersectionObserver(function(entries){
+      if(pricingSeen) return;
+      var hit = entries.some(function(en){ return en && en.isIntersecting && (en.intersectionRatio||0) >= 0.35; });
+      if(!hit) return;
+      pricingSeen = true;
+      hzTrack('lp_pricing_view', null, 'section_visible');
+    }, {threshold:[0.35]}).observe(pricingEl);
+  }
+}catch(e){}
+
+// WhatsApp float — מעבר לשיחה (המרה)
+try{
+  function hzMarkWaLpAttribution(){
+    try{
+      var until = Date.now() + (7*24*60*60*1000);
+      localStorage.setItem('hz_wa_lp_attribution', String(until));
+    }catch(e){}
+  }
+  document.querySelectorAll('a[href*="wa.me/972508318162"], a[href*="508318162"]').forEach(function(el){
+    el.addEventListener('click', function(){
+      hzMarkWaLpAttribution();
+      hzTrack('wa_lp_click', null, 'wa_float');
+    }, {capture:true, passive:true});
   });
 }catch(e){}
 
@@ -1207,7 +1245,16 @@ try{
         if(value) sessionStorage.setItem('hz_lp_plan_value', String(value));
         var src=hzUtmSource(); if(src) sessionStorage.setItem('hz_lp_source', src);
       }catch(e){}
-      hzTrack('checkout_start', null, plan||null);
+      var waAttr = false;
+      try{
+        var until = Number(localStorage.getItem('hz_wa_lp_attribution')||'0');
+        waAttr = Number.isFinite(until) && until > Date.now();
+      }catch(e){}
+      if(waAttr){
+        try{ sessionStorage.setItem('hz_lp_source', 'wa_lp'); }catch(e){}
+      }
+      var trackSrc = waAttr ? 'wa_lp' : hzUtmSource();
+      hzTrack('checkout_start', null, plan||null, trackSrc);
     },{capture:true});
   });
 }catch(e){}
