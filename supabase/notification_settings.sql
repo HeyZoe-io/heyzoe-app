@@ -1,10 +1,10 @@
 -- Owner WhatsApp notification preferences (per business)
 create table if not exists public.notification_settings (
   business_id bigint primary key references public.businesses(id) on delete cascade,
-  new_lead boolean not null default true,
+  new_lead boolean not null default false,
   human_requested boolean not null default true,
   bot_paused_waiting boolean not null default true,
-  cta_no_signup boolean not null default true,
+  cta_no_signup boolean not null default false,
   lead_registered boolean not null default true,
   daily_summary boolean not null default true,
   last_daily_summary_at timestamptz null,

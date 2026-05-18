@@ -35,7 +35,7 @@ export async function getNotificationSettings(businessId: number): Promise<Notif
   }
 }
 
-/** After owner WhatsApp opt-in — always enable every notification type */
+/** After owner WhatsApp opt-in — write OWNER_OPT_IN_NOTIFICATION_SETTINGS */
 export async function applyOwnerOptInNotificationDefaults(
   businessId: number
 ): Promise<{ ok: boolean; error?: string }> {
