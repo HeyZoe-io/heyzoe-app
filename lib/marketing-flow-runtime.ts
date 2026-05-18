@@ -678,8 +678,24 @@ const MARKETING_OFF_NICHE_BLACKLIST_RE =
 export const MARKETING_FITNESS_SCOPE_CLARIFY_QUESTION =
   "העסק שלך קשור לכושר, ספורט, או תנועה?";
 
-const OFF_NICHE_MARKETING_REPLY_INTRO =
-  "יש מצב שיש לנו פתרון עבורך, אבל אצטרך להעביר אותך לנציגה אנושית שהיא אפילו יותר מבינה ממני 😊";
+export const MARKETING_OFF_NICHE_TRANSFER_INTRO =
+  "יש מצב שיש לנו פתרון עבורך, אבל אני אצטרך להעביר אותך לנציגה אנושית שהיא אפילו יותר מבינה ממני :)";
+
+export const MARKETING_OFF_NICHE_TRANSFER_CLOSING =
+  "שלחו להם הודעה ויחזרו אליכם בקרוב :)";
+
+export function formatMarketingOffNicheTransferReply(waUrl: string | null): string {
+  if (!waUrl) {
+    return `${MARKETING_OFF_NICHE_TRANSFER_INTRO}\n\n${MARKETING_OFF_NICHE_TRANSFER_CLOSING}`;
+  }
+  return `${MARKETING_OFF_NICHE_TRANSFER_INTRO}\n\n${waUrl}\n\n${MARKETING_OFF_NICHE_TRANSFER_CLOSING}`;
+}
+
+function replyLooksLikeOffNicheTransfer(reply: string): boolean {
+  return /פתרון עבורך|נציגה אנושית|יותר מבינה ממני|העבר.*לנציג|כמה שיותר פרטים/i.test(
+    String(reply ?? "")
+  );
+}
 
 export function isInScopeMarketingNicheMessage(userText: string): boolean {
   const raw = String(userText ?? "").trim();
@@ -702,10 +718,9 @@ async function buildOffNicheTransferReply(userText: string): Promise<string> {
 
   if (!waUrl) {
     console.warn("[marketing-flow] off-niche transfer but marketing_support_phone is missing");
-    return `${OFF_NICHE_MARKETING_REPLY_INTRO}\n\nשלחו לשירות הלקוחות שלנו ויחזרו אליכם בקרוב :)`;
   }
 
-  return `${OFF_NICHE_MARKETING_REPLY_INTRO}\n\nשלחו להם הודעה ויחזרו אליכם בקרוב:\n${waUrl}`;
+  return formatMarketingOffNicheTransferReply(waUrl);
 }
 
 /** תשובה קבועה + wa.me — null אם ההודעה לא ברשימה השחורה */
@@ -831,9 +846,15 @@ export async function callMarketingAI(
 ${supportWaUrl}
 
 חובה: אל תציגי מספר טלפון גולמי. הפניה לשירות — רק עם קישור wa.me כמו למעלה.
-אם השולח מבקש נציג אנושי, בן אדם, שירות לקוחות, human, agent וכו׳ — חייב להופיע בתשובה הקישור המלא למעלה (אפשר שורה נפרדת ולפניה משפט קצר).
 
-כשאין תשובה בעובדות (מערכת, תנאים, חיובים, תקלה טכנית) — אל תמציאי; עני בקצרה והפנילי לפתוח את הקישור: בוואטסאפ ייטען טקסט פתיחה קצר שמסכם את פניית השולח (אפשר לערוך לפני השליחה).`
+נוסח חובה להעברה לנציג (עסק מחוץ לכושר/ספורט/תנועה, תשובה שלילית לשאלת «העסק קשור לכושר, ספורט, או תנועה?», או בקשת נציג אנושי) — העתיקי במדויק, שורות נפרדות, בלי לשנות מילה ובלי «כמה שיותר פרטים»:
+${MARKETING_OFF_NICHE_TRANSFER_INTRO}
+
+${supportWaUrl}
+
+${MARKETING_OFF_NICHE_TRANSFER_CLOSING}
+
+כשאין תשובה בעובדות (מערכת, תנאים, חיובים, תקלה טכנית) ואין צורך בהעברה לנציג — עני בקצרה והפנילי לפתוח את הקישור למעלה; בוואטסאפ ייטען טקסט פתיחה קצר (אפשר לערוך לפני השליחה). אל תשתמשי בנוסח ההעברה למעלה במקרים האלה.`
     : "";
   const systemPrompt =
     MARKETING_CORE_IDENTITY + legalAppendix + flowAppendix + openFactsAppendix + supportAppendix;
@@ -866,10 +887,12 @@ ${supportWaUrl}
       let out = sanitizeZoeDashes(textBlock?.text?.trim() || "תודה על ההודעה! נחזור אליך בהקדם.");
       if (
         supportWaUrl &&
-        userAsksForHumanAgent(userText) &&
-        !replyContainsMarketingSupportWaLink(out, supportWaUrl)
+        (userAsksForHumanAgent(userText) ||
+          (isNegativeFitnessScopeClarifyReply(userText) &&
+            assistantAskedFitnessScopeClarify(chatHistory)) ||
+          replyLooksLikeOffNicheTransfer(out))
       ) {
-        out = `${out}\n\n${supportWaUrl}`;
+        out = formatMarketingOffNicheTransferReply(supportWaUrl);
       }
       return sanitizeZoeDashes(out);
     } catch (e) {
