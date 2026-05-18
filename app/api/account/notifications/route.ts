@@ -7,6 +7,7 @@ import {
   type NotificationSettings,
 } from "@/lib/notifications/types";
 import {
+  ensureOwnerNotificationSettingsRow,
   getNotificationSettings,
   upsertNotificationSettings,
 } from "@/lib/notifications/getNotificationSettings";
@@ -31,7 +32,9 @@ export async function GET() {
   const ctx = await resolveAccountBusinessForUser(data.user.id);
   if (!ctx) return NextResponse.json({ error: "no_business" }, { status: 404 });
 
-  const settings = await getNotificationSettings(ctx.businessId);
+  const settings = ctx.ownerWhatsappOptedIn
+    ? await ensureOwnerNotificationSettingsRow(ctx.businessId)
+    : await getNotificationSettings(ctx.businessId);
   return NextResponse.json({
     ok: true,
     business_id: ctx.businessId,

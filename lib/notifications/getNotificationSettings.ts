@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   NOTIFICATION_SETTING_KEYS,
+  OWNER_OPT_IN_NOTIFICATION_SETTINGS,
   type NotificationSettingKey,
   type NotificationSettings,
 } from "@/lib/notifications/types";
@@ -31,6 +32,42 @@ export async function getNotificationSettings(businessId: number): Promise<Notif
   } catch (e) {
     console.warn("[notifications] getNotificationSettings failed:", e);
     return { ...DEFAULT_NOTIFICATION_SETTINGS };
+  }
+}
+
+/** After owner WhatsApp opt-in — always enable every notification type */
+export async function applyOwnerOptInNotificationDefaults(
+  businessId: number
+): Promise<{ ok: boolean; error?: string }> {
+  return upsertNotificationSettings(businessId, { ...OWNER_OPT_IN_NOTIFICATION_SETTINGS });
+}
+
+/** Create settings row when owner is connected but row is missing (e.g. failed opt-in upsert) */
+export async function ensureOwnerNotificationSettingsRow(
+  businessId: number
+): Promise<NotificationSettings> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("notification_settings")
+    .select("business_id")
+    .eq("business_id", businessId)
+    .maybeSingle();
+  if (!error && data) {
+    return getNotificationSettings(businessId);
+  }
+  await applyOwnerOptInNotificationDefaults(businessId);
+  return { ...OWNER_OPT_IN_NOTIFICATION_SETTINGS };
+}
+
+export async function touchNotificationSettingsDailySummaryAt(businessId: number): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("notification_settings")
+    .update({ last_daily_summary_at: now, updated_at: now })
+    .eq("business_id", businessId);
+  if (error) {
+    console.warn("[notifications] touchDailySummaryAt:", error.message);
   }
 }
 

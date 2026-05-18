@@ -11,6 +11,7 @@ export type NotificationSettingKey = (typeof NOTIFICATION_SETTING_KEYS)[number];
 
 export type NotificationSettings = Record<NotificationSettingKey, boolean>;
 
+/** UI + fallback when no DB row exists */
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   new_lead: true,
   human_requested: true,
@@ -18,6 +19,11 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   cta_no_signup: true,
   lead_registered: true,
   daily_summary: true,
+};
+
+/** Written on HEYZOE_OWNER opt-in — all notification types enabled */
+export const OWNER_OPT_IN_NOTIFICATION_SETTINGS: NotificationSettings = {
+  ...DEFAULT_NOTIFICATION_SETTINGS,
 };
 
 export type NotificationSettingRow = NotificationSettings & {

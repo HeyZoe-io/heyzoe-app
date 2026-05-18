@@ -203,15 +203,8 @@ export async function triggerDailySummaryNotification(input: {
     ),
   });
 
-  const admin = createSupabaseAdminClient();
-  await admin
-    .from("notification_settings")
-    .upsert(
-      {
-        business_id: input.businessId,
-        last_daily_summary_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "business_id" } as { onConflict: string }
-    );
+  const { touchNotificationSettingsDailySummaryAt } = await import(
+    "@/lib/notifications/getNotificationSettings"
+  );
+  await touchNotificationSettingsDailySummaryAt(input.businessId);
 }
