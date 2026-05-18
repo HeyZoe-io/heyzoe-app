@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "crypto";
+import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 
 // ─── Env resolvers ────────────────────────────────────────────────────────────
 
@@ -663,9 +664,9 @@ export async function sendMetaWhatsAppMessage(
     type: outgoing.type,
   };
   if (outgoing.type === "text") {
-    body.text = { body: formatWhatsAppRtlBody(outgoing.text) };
+    body.text = { body: formatWhatsAppRtlBody(sanitizeZoeDashes(outgoing.text)) };
   } else {
-    body.interactive = outgoing.interactive;
+    body.interactive = sanitizeZoeOutboundDeep(outgoing.interactive);
   }
 
   const res = await fetch(url, {
@@ -754,7 +755,7 @@ export async function sendWhatsAppMessage(
   accountSid: string,
   authToken: string
 ): Promise<void> {
-  const bodyText = formatWhatsAppRtlBody(text);
+  const bodyText = formatWhatsAppRtlBody(sanitizeZoeDashes(text));
 
   const metaToken = resolveMetaAccessToken();
   if (isMetaCloudPhoneNumberId(fromNumber) && metaToken) {

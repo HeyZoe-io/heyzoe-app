@@ -8,7 +8,11 @@ import {
 } from "@/lib/whatsapp";
 import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
 import { logMarketingWhatsAppMessage, sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
-import { handleMarketingFlowInbound, callMarketingAI } from "@/lib/marketing-flow-runtime";
+import {
+  callMarketingAI,
+  getOffNicheMarketingHardReply,
+  handleMarketingFlowInbound,
+} from "@/lib/marketing-flow-runtime";
 import { normalizePhone } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
@@ -88,6 +92,13 @@ export async function POST(req: NextRequest) {
     if (handled) {
       console.info("[marketing-webhook] flow handled for:", phone);
       return NextResponse.json({ ok: true });
+    }
+
+    const offNicheReply = await getOffNicheMarketingHardReply(userText);
+    if (offNicheReply) {
+      console.info("[marketing-webhook] off-niche hard reply for:", phone);
+      await sendMarketingWhatsApp(phone, offNicheReply);
+      return NextResponse.json({ ok: true, off_niche: true });
     }
 
     console.info("[marketing-webhook] flow done, routing to AI for:", phone);
