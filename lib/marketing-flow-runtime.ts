@@ -9,10 +9,13 @@ import {
 } from "@/lib/marketing-support-wa";
 import { sanitizeZoeDashes } from "@/lib/zoe-text";
 import {
+  MARKETING_CONVERSATIONS_SLUG,
   MARKETING_WA_PHONE_NUMBER_ID,
   logMarketingWhatsAppMessage,
+  marketingWaSessionId,
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
+import { fetchRecentSessionMessages } from "@/lib/analytics";
 import {
   sendMetaWhatsAppMessage,
   buildMetaInteractivePayload,
@@ -536,27 +539,161 @@ function capLinesByTotalChars(lines: string[], maxChars: number): string[] {
   return out;
 }
 
-/** ענפים מחוץ לכושר/ספורט/בריאות — תשובה קשיחה בזואי שיווק (אדמין), בלי Claude */
-const OFF_NICHE_MARKETING_RE =
-  /מספרה|ציפורנ|מניקור|פדיקור|קוסמטיק|עיצוב\s*שיער|מספרת|בוטיק|מסעד|בית\s*קפה|(?:^|\s)קפה(?:\s|$)|מאפי|פיצרי|המבורגר|סושי|מלון|צימר|תכשיט|אופנת|חנות\s*בגד|איפור|איפור\s*קבוע|ריסים|הרמת\s*ריס|גבות|טאטו|קעקוע|ציפוי\s*רכב|מוסך|נגר(?:י|ות)?|חשמלא|אינסטלטור|רואה\s*חשבון|עורך\s*דין|משרד\s*עו"ד|נדל"ן|מתווך/iu;
+/**
+ * ענפים IN-SCOPE (כושר / ספורט / תנועה) — לתיעוד ולעזר בפרומפט.
+ * שלב 1: רק רשימת שחורה ברורה שולחת תשובה קשיחה (בלי Claude).
+ */
+export const MARKETING_IN_SCOPE_NICHE_TERMS = [
+  "סטודיו כושר",
+  "חדר כושר",
+  "ג'ים",
+  "גים",
+  "gym",
+  "personal trainer",
+  "מאמן אישי",
+  "קרוספיט",
+  "crossfit",
+  "HIIT",
+  "hiit",
+  "אימון קבוצתי",
+  "בוט קאמפ",
+  "boot camp",
+  "פונקציונלי",
+  "יוגה",
+  "פילאטיס",
+  "מדיטציה",
+  "מיינדפולנס",
+  "תאי צ'י",
+  "טאי צ'י",
+  "קיגונג",
+  "קראטה",
+  "קיקבוקסינג",
+  "קיקבוקס",
+  "בוקס",
+  "ג'ודו",
+  "גודו",
+  "קונג פו",
+  "קונגפו",
+  "אקרובטיקה",
+  "גימנסטיקה",
+  "ברייקדאנס",
+  "שחייה",
+  "גלישה",
+  "קיטסרף",
+  "צלילה",
+  "טניס",
+  "פדל",
+  "כדורסל",
+  "כדורגל",
+  "רכיבה",
+  "טיפוס",
+  "ריצה",
+  "טריאתלון",
+  "ספינינג",
+  "spinning",
+  "ריקוד",
+  "בלט",
+  "היפ הופ",
+  "היפהופ",
+  "זומבה",
+  "סלסה",
+  "כושר",
+  "ספורט",
+  "תנועה",
+  "אימון",
+  "מאמן",
+  "מאמנת",
+  "trx",
+  "TRX",
+] as const;
 
-const FITNESS_WELLNESS_MARKETING_RE =
-  /כושר|ספורט|סטודיו|פילאטיס|יוגה|אימון|מאמן|מאמנת|קרוספיט|cross\s*fit|crossfit|\btrx\b|אקרו|ריקוד|ריצה|wellness|בריאות|פיזיו|פיזיותרפ|מכון\s*כושר|חדר\s*כושר|התעמלות|שחייה|אמנות\s*לחימה|קיקבוקס|מואי\s*תא|ספינינג|פונקציונל|hiit|\bhit\b|סטודיו\s*תנועה|מטפל|מטפלת|עיסוי\s*רפואי/iu;
+const MARKETING_IN_SCOPE_NICHE_RE = new RegExp(
+  [
+    "סטודיו\\s*כושר",
+    "חדר\\s*כושר",
+    "מכון\\s*כושר",
+    "ג[''']?ים",
+    "\\bgym\\b",
+    "personal\\s*trainer",
+    "מאמן\\s*אישי",
+    "מאמן",
+    "מאמנת",
+    "קרוספיט",
+    "cross\\s*fit",
+    "crossfit",
+    "\\bhiit\\b",
+    "אימון\\s*קבוצתי",
+    "בוט\\s*קאמפ",
+    "boot\\s*camp",
+    "פונקציונל",
+    "יוגה",
+    "פילאטיס",
+    "מדיטציה",
+    "מיינדפולנס",
+    "תאי\\s*צ[''']י",
+    "טאי\\s*צ[''']י",
+    "קיגונג",
+    "קראטה",
+    "קיקבוקס",
+    "בוקס",
+    "ג[''']?ודו",
+    "קונג\\s*פו",
+    "קונגפו",
+    "אקרובטיקה",
+    "גימנסטיקה",
+    "ברייקדאנס",
+    "שחייה",
+    "גלישה",
+    "קיטסרף",
+    "צלילה",
+    "טניס",
+    "פדל",
+    "כדורסל",
+    "כדורגל",
+    "רכיבה",
+    "טיפוס",
+    "ריצה",
+    "טריאתלון",
+    "ספינינג",
+    "spinning",
+    "ריקוד",
+    "בלט",
+    "היפ\\s*הופ",
+    "היפהופ",
+    "זומבה",
+    "סלסה",
+    "כושר",
+    "ספורט",
+    "תנועה",
+    "אימון",
+    "\\btrx\\b",
+  ].join("|"),
+  "iu"
+);
+
+/** שלב 1: רשימה שחורה — מילה ברורה → תשובה קשיחה (מדביר וכד' לא ברשימה → שלב 2 בחוקיות) */
+const MARKETING_OFF_NICHE_BLACKLIST_RE =
+  /ציפורנ|מניקור|פדיקור|מספרה|קוסמטיק|שיער|בוטיק|מסעד|בית\s*קפה|(?:^|\s)קפה(?:\s|$)|(?:^|\s)בר(?:\s|$)|פאב|חשמלא|אינסטלטור|עורך\s*דין|רואה\s*חשבון|נדל"ן|מתווך\s*נדלן/iu;
+
+export const MARKETING_FITNESS_SCOPE_CLARIFY_QUESTION =
+  "העסק שלך קשור לכושר, ספורט, או תנועה?";
 
 const OFF_NICHE_MARKETING_REPLY_INTRO =
   "יש מצב שיש לנו פתרון עבורך, אבל אצטרך להעביר אותך לנציגה אנושית שהיא אפילו יותר מבינה ממני 😊";
 
+export function isInScopeMarketingNicheMessage(userText: string): boolean {
+  const raw = String(userText ?? "").trim();
+  if (!raw) return false;
+  return MARKETING_IN_SCOPE_NICHE_RE.test(raw);
+}
+
 export function isOffNicheMarketingLeadMessage(userText: string): boolean {
   const raw = String(userText ?? "").trim();
   if (!raw || raw.length < 3) return false;
-  if (FITNESS_WELLNESS_MARKETING_RE.test(raw)) return false;
-  return OFF_NICHE_MARKETING_RE.test(raw);
+  return MARKETING_OFF_NICHE_BLACKLIST_RE.test(raw);
 }
 
-/** תשובה קבועה + wa.me — null אם ההודעה לא off-niche */
-export async function getOffNicheMarketingHardReply(userText: string): Promise<string | null> {
-  if (!isOffNicheMarketingLeadMessage(userText)) return null;
-
+async function buildOffNicheTransferReply(userText: string): Promise<string> {
   const { supportPhone } = await loadMarketingAiSettings();
   const prefill = supportWhatsAppPrefillFromUserMessage(userText);
   const waUrl = supportPhone.trim()
@@ -564,11 +701,40 @@ export async function getOffNicheMarketingHardReply(userText: string): Promise<s
     : null;
 
   if (!waUrl) {
-    console.warn("[marketing-flow] off-niche message but marketing_support_phone is missing");
+    console.warn("[marketing-flow] off-niche transfer but marketing_support_phone is missing");
     return `${OFF_NICHE_MARKETING_REPLY_INTRO}\n\nשלחו לשירות הלקוחות שלנו ויחזרו אליכם בקרוב :)`;
   }
 
   return `${OFF_NICHE_MARKETING_REPLY_INTRO}\n\nשלחו להם הודעה ויחזרו אליכם בקרוב:\n${waUrl}`;
+}
+
+/** תשובה קבועה + wa.me — null אם ההודעה לא ברשימה השחורה */
+export async function getOffNicheMarketingHardReply(userText: string): Promise<string | null> {
+  if (!isOffNicheMarketingLeadMessage(userText)) return null;
+  return buildOffNicheTransferReply(userText);
+}
+
+function isNegativeFitnessScopeClarifyReply(userText: string): boolean {
+  const t = String(userText ?? "").trim().toLowerCase();
+  if (!t || t.length > 120) return false;
+  return /^(לא|לא+\s*|לא[.\s!,]*$|לא\s*קשור|לא\s*ממש|לא\s*בדיוק|לא\s*בתחום|ענף\s*אחר|לא\s*ספורט|לא\s*כושר|לא\s*תנועה|משהו\s*אחר|אחר\b)/iu.test(
+    t
+  );
+}
+
+function assistantAskedFitnessScopeClarify(
+  history: Array<{ role: "user" | "assistant"; content: string }>
+): boolean {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const row = history[i];
+    if (row?.role !== "assistant") continue;
+    const c = row.content;
+    return (
+      c.includes(MARKETING_FITNESS_SCOPE_CLARIFY_QUESTION) ||
+      /קשור\s*לכושר,\s*ספורט,\s*או\s*תנועה/i.test(c)
+    );
+  }
+  return false;
 }
 
 /** זיהוי גס לבקשת מענה אנושי — משלים את הפרומפט אם המודל דילג על קישור הוואטסאפ */
@@ -587,10 +753,18 @@ function userAsksForHumanAgent(userText: string): boolean {
   return hebrew || english;
 }
 
+export type CallMarketingAIOptions = {
+  /** לשלב 2 (תשובה שלילית אחרי שאלת הבהרה) ולהיסטוריית שיחה */
+  leadPhone?: string;
+};
+
 /**
  * AI fallback for returning users whose flow is complete.
  */
-export async function callMarketingAI(userText: string): Promise<string> {
+export async function callMarketingAI(
+  userText: string,
+  opts?: CallMarketingAIOptions
+): Promise<string> {
   const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
   if (isHeyzoeOwnerOptInMessage(userText)) {
     return "קיבלנו את בקשת חיבור ההתראות. אם לא קיבלתם אישור — שלחו שוב את הקישור מהדשבורד (HEYZOE_OWNER_שם-העסק).";
@@ -598,8 +772,25 @@ export async function callMarketingAI(userText: string): Promise<string> {
 
   const offNicheReply = await getOffNicheMarketingHardReply(userText);
   if (offNicheReply) {
-    console.info("[marketing-flow] off-niche hard reply (no Claude)");
+    console.info("[marketing-flow] off-niche blacklist hard reply (no Claude)");
     return sanitizeZoeDashes(offNicheReply);
+  }
+
+  const leadPhone = String(opts?.leadPhone ?? "").trim();
+  let chatHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+  if (leadPhone) {
+    chatHistory = await fetchRecentSessionMessages({
+      business_slug: MARKETING_CONVERSATIONS_SLUG,
+      session_id: marketingWaSessionId(leadPhone),
+      limit: 10,
+    });
+    if (
+      isNegativeFitnessScopeClarifyReply(userText) &&
+      assistantAskedFitnessScopeClarify(chatHistory)
+    ) {
+      console.info("[marketing-flow] negative fitness-scope clarify → transfer (no Claude)");
+      return sanitizeZoeDashes(await buildOffNicheTransferReply(userText));
+    }
   }
 
   const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isRetryableClaudeError, formatUserFacingClaudeError, sleepMs } = await import("@/lib/claude");
@@ -651,11 +842,24 @@ ${supportWaUrl}
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const claudeMessages: Array<{ role: "user" | "assistant"; content: string }> =
+        chatHistory.length > 0
+          ? [...chatHistory]
+          : [{ role: "user" as const, content: userText }];
+      const last = claudeMessages[claudeMessages.length - 1];
+      if (
+        !last ||
+        last.role !== "user" ||
+        String(last.content ?? "").trim() !== userText.trim()
+      ) {
+        claudeMessages.push({ role: "user", content: userText });
+      }
+
       const response = await client.messages.create({
         model: CLAUDE_WHATSAPP_MODEL,
         max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
         system: systemPrompt,
-        messages: [{ role: "user", content: userText }],
+        messages: claudeMessages,
       });
 
       const textBlock = response.content.find((b) => b.type === "text");

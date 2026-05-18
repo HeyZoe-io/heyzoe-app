@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
 
     console.info("[marketing-webhook] flow done, routing to AI for:", phone);
     void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
-    const reply = await callMarketingAI(userText);
+    const reply = await callMarketingAI(userText, { leadPhone: phone });
     await sendMarketingWhatsApp(phone, reply);
     console.info("[marketing-webhook] AI reply sent to:", phone);
   } catch (e) {

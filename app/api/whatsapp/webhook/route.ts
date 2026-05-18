@@ -991,7 +991,7 @@ async function processIncoming(
       // Flow completed → AI fallback
       console.info("[WA Webhook] Marketing flow done, AI fallback for:", msg.from);
       const { callMarketingAI } = await import("@/lib/marketing-flow-runtime");
-      const reply = await callMarketingAI(msg.text);
+      const reply = await callMarketingAI(msg.text, { leadPhone: msg.from });
       const { sendMetaWhatsAppMessage } = await import("@/lib/whatsapp");
       await sendMetaWhatsAppMessage("1179786855208358", msg.from, { type: "text", text: reply });
       console.info("[WA Webhook] Marketing AI reply sent to:", msg.from);
