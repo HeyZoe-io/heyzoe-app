@@ -65,16 +65,50 @@ export async function triggerNewLeadNotification(input: {
   leadPhone: string;
   atIso?: string;
 }): Promise<void> {
-  await sendIfEnabled({
+  const templateName = "new_lead_notification";
+  const gate = await gateOwnerNotification(input.businessId, "new_lead");
+  console.info("[new_lead_notification] gateOwnerNotification result", {
     businessId: input.businessId,
-    key: "new_lead",
-    templateName: "new_lead_notification",
+    leadPhone: input.leadPhone,
+    allowed: gate.allowed,
+    reason: gate.reason ?? null,
+    hasOwnerPhone: Boolean(gate.ownerPhone),
+  });
+  if (!gate.allowed || !gate.ownerPhone) {
+    console.info("[new_lead_notification] skip send", {
+      businessId: input.businessId,
+      leadPhone: input.leadPhone,
+      reason: gate.reason ?? "no_owner_phone",
+    });
+    return;
+  }
+
+  console.info("[new_lead_notification] sending new_lead_notification", {
+    businessId: input.businessId,
+    leadPhone: input.leadPhone,
+    templateName,
+  });
+  const result = await sendOwnerNotification({
+    ownerPhone: gate.ownerPhone,
+    templateName,
     components: bodyParams(
       input.businessName.trim() || "העסק שלך",
       formatLeadPhoneDisplay(input.leadPhone),
       formatTimeHe(input.atIso ?? new Date().toISOString())
     ),
   });
+  if (result.ok) {
+    console.info("[new_lead_notification] send ok", {
+      businessId: input.businessId,
+      leadPhone: input.leadPhone,
+    });
+  } else {
+    console.warn("[new_lead_notification] send failed", {
+      businessId: input.businessId,
+      leadPhone: input.leadPhone,
+      error: result.error,
+    });
+  }
 }
 
 export async function triggerHumanRequestedNotification(input: {
