@@ -1,7 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
-import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications/types";
-import { upsertNotificationSettings } from "@/lib/notifications/getNotificationSettings";
+import { applyOwnerOptInNotificationDefaults } from "@/lib/notifications/getNotificationSettings";
 import { sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
 
 export const HEYZOE_OWNER_PREFIX = "HEYZOE_OWNER_";
@@ -89,9 +88,7 @@ export async function tryHandleHeyzoeOwnerOptIn(input: {
     return true;
   }
 
-  const settingsResult = await upsertNotificationSettings(businessId, {
-    ...DEFAULT_NOTIFICATION_SETTINGS,
-  });
+  const settingsResult = await applyOwnerOptInNotificationDefaults(businessId);
   if (!settingsResult.ok) {
     console.error("[owner-opt-in] notification_settings upsert failed:", settingsResult.error, {
       businessId,
