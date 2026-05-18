@@ -1094,6 +1094,11 @@ async function processIncoming(
       const fullName =
         typeof (msg as any).profileName === "string" ? (msg as any).profileName.trim() : "";
 
+      console.info("[new_lead_notification] checking new lead notification", {
+        businessId,
+        business_slug,
+        phone,
+      });
       try {
         const { data: priorContact } = await supabase
           .from("contacts")
@@ -1105,6 +1110,12 @@ async function processIncoming(
       } catch {
         isFirstTimeContact = false;
       }
+      console.info("[new_lead_notification] isFirstTimeContact result", {
+        businessId,
+        business_slug,
+        phone,
+        isFirstTimeContact,
+      });
 
       const upsertPayload: Record<string, unknown> = {
         phone,
@@ -1320,7 +1331,9 @@ async function processIncoming(
           businessId: Number(businessId),
           businessName: bizName || "העסק שלך",
           leadPhone: msg.from,
-        });
+        }).catch((e) =>
+          console.error("[new_lead_notification] trigger threw:", e)
+        );
       }
       void conv;
     } catch (e) {
