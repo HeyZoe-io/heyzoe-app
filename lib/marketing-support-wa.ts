@@ -9,8 +9,8 @@ export function supportWhatsAppPrefillFromUserMessage(userText: string): string 
   const upTo6 = words.slice(0, 6);
   const joined = upTo6.join(" ");
   if (upTo6.length >= 3) return joined.slice(0, 200);
-  if (upTo6.length === 2) return `${upTo6[0]} ${upTo6[1]} — פנייה לשירות`.slice(0, 200);
-  return `${upTo6[0]} — פנייה לשירות HeyZoe`.slice(0, 200);
+  if (upTo6.length === 2) return `${upTo6[0]} ${upTo6[1]} - פנייה לשירות`.slice(0, 200);
+  return `${upTo6[0]} - פנייה לשירות HeyZoe`.slice(0, 200);
 }
 
 /** ספרות בלבד ל־wa.me (ללא +), כולל ישראל 0… → 972… */

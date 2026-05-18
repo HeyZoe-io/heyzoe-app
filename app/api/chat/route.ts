@@ -5,6 +5,7 @@ import { extractErrorCode, logMessage } from '@/lib/analytics';
 import { getBusinessKnowledgePack, buildSystemPrompt } from '@/lib/business-context';
 import { loadZoePlatformGuidelines } from '@/lib/business-zoe-platform';
 import { CHAT_STREAM_META } from '@/lib/zoe-shared';
+import { sanitizeZoeDashes } from '@/lib/zoe-text';
 
 export const runtime = 'nodejs';
 
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
 
             for await (const event of response) {
               if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-                const text = event.delta.text;
+                const text = sanitizeZoeDashes(event.delta.text);
                 if (text) {
                   assistantTextAcc += text;
                   controller.enqueue(encoder.encode(text));

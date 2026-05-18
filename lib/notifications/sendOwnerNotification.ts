@@ -1,4 +1,5 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
+import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 
 export type OwnerTemplateComponent = {
   type: "body";
@@ -43,7 +44,7 @@ export async function sendOwnerNotification(input: {
     template: {
       name: templateName,
       language: { code: input.languageCode?.trim() || "he" },
-      ...(input.components?.length ? { components: input.components } : {}),
+      ...(input.components?.length ? { components: sanitizeZoeOutboundDeep(input.components) } : {}),
     },
   };
 
