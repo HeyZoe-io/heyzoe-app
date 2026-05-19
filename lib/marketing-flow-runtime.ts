@@ -117,10 +117,16 @@ function findNextNode(
 
   if (currentNode?.type === "question" && outEdges.length > 1 && userText) {
     const normalized = userText.trim().toLowerCase();
-    const matched = outEdges.find((e) => {
-      const label = decodeEdgeLabel(e.label).trim().toLowerCase();
-      return label && normalized.includes(label);
-    });
+    const edgeLabel = (e: FlowEdge) => decodeEdgeLabel(e.label).trim().toLowerCase();
+    const matched =
+      outEdges.find((e) => {
+        const label = edgeLabel(e);
+        return label && normalized === label;
+      }) ??
+      outEdges.find((e) => {
+        const label = edgeLabel(e);
+        return label && normalized.includes(label);
+      });
     const targetId = matched?.target_node_id ?? outEdges[0]!.target_node_id;
     return nodes.find((n) => n.id === targetId) ?? null;
   }
@@ -342,8 +348,16 @@ export async function handleMarketingFlowInbound(
 
   const currentNode = nodes.find((n) => n.id === sess.current_node_id);
   if (!currentNode) {
-    await admin.from("marketing_flow_sessions").update({ flow_completed: true, updated_at: new Date().toISOString() }).eq("id", sess.id);
-    return { handled: false };
+    console.warn("[marketing-flow] stale session node (flow was likely saved in admin)", {
+      phone,
+      current_node_id: sess.current_node_id,
+    });
+    await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
+    await sendMarketingWhatsApp(
+      phone,
+      "עדכנו את הפלואו בשיווק. שלחו «היי זואי!» כדי להתחיל מחדש 🙂"
+    );
+    return { handled: true };
   }
 
   let nextNode: FlowNode | null;
