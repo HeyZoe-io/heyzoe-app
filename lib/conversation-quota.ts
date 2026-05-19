@@ -7,6 +7,7 @@ import {
   starterQuota95Email,
   proQuota450OpsEmail,
 } from "@/lib/email";
+import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
 
 export const STARTER_MONTHLY_CONTACT_LIMIT = 100;
 
@@ -47,11 +48,45 @@ type BizQuotaRow = {
   name?: unknown;
   slug?: unknown;
   social_links?: unknown;
+  owner_whatsapp_phone?: unknown;
+  owner_whatsapp_opted_in?: unknown;
   quota_warning_20_sent_at?: unknown;
   quota_warning_5_sent_at?: unknown;
   quota_limit_sent_at?: unknown;
   quota_pro_warning_sent_at?: unknown;
 };
+
+async function sendStarterQuotaOwnerWhatsApp(
+  bizRow: BizQuotaRow,
+  templateName: "quota_warning_80" | "quota_warning_95" | "quota_limit_reached"
+): Promise<boolean> {
+  if (bizRow.owner_whatsapp_opted_in !== true) return false;
+  const ownerPhone = String(bizRow.owner_whatsapp_phone ?? "").trim();
+  if (!ownerPhone) return false;
+
+  const result = await sendOwnerNotification({
+    ownerPhone,
+    templateName,
+    components: [],
+  });
+  if (result.ok) {
+    console.info("[conversation-quota] sent starter quota owner WA:", templateName);
+    return true;
+  }
+  console.warn("[conversation-quota] starter quota owner WA failed:", templateName, result.error);
+  return false;
+}
+
+async function markQuotaWarningSent(
+  admin: AdminClient,
+  bizId: unknown,
+  column: "quota_warning_20_sent_at" | "quota_warning_5_sent_at" | "quota_limit_sent_at"
+): Promise<void> {
+  await admin
+    .from("businesses")
+    .update({ [column]: new Date().toISOString() } as Record<string, string>)
+    .eq("id", bizId);
+}
 
 async function fetchMonthlyContactRows(admin: AdminClient, businessId: string, monthStartIso: string) {
   const { data, error } = await admin
@@ -136,34 +171,49 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
     return { action: "starter_cap_message", message, markMonth: ymNow };
   }
 
-  if (starter && bizEmail) {
+  if (starter) {
     try {
       if (monthlyCount >= 80 && !bizRow.quota_warning_20_sent_at) {
-        const tpl = starterQuota80Email(displayName, billingUrl);
-        const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
-        if (r.ok) {
-          await admin.from("businesses").update({ quota_warning_20_sent_at: new Date().toISOString() } as any).eq("id", bizRow.id);
-          console.info("[conversation-quota] sent starter 80-email");
+        let sent = false;
+        if (bizEmail) {
+          const tpl = starterQuota80Email(displayName, billingUrl);
+          const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
+          if (r.ok) {
+            sent = true;
+            console.info("[conversation-quota] sent starter 80-email");
+          }
         }
+        if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_warning_80")) sent = true;
+        if (sent) await markQuotaWarningSent(admin, bizRow.id, "quota_warning_20_sent_at");
       }
       if (monthlyCount >= 95 && !bizRow.quota_warning_5_sent_at) {
-        const tpl = starterQuota95Email(displayName, billingUrl);
-        const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
-        if (r.ok) {
-          await admin.from("businesses").update({ quota_warning_5_sent_at: new Date().toISOString() } as any).eq("id", bizRow.id);
-          console.info("[conversation-quota] sent starter 95-email");
+        let sent = false;
+        if (bizEmail) {
+          const tpl = starterQuota95Email(displayName, billingUrl);
+          const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
+          if (r.ok) {
+            sent = true;
+            console.info("[conversation-quota] sent starter 95-email");
+          }
         }
+        if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_warning_95")) sent = true;
+        if (sent) await markQuotaWarningSent(admin, bizRow.id, "quota_warning_5_sent_at");
       }
       if (monthlyCount >= 100 && !bizRow.quota_limit_sent_at) {
-        const tpl = starterQuota100Email(displayName, billingUrl);
-        const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
-        if (r.ok) {
-          await admin.from("businesses").update({ quota_limit_sent_at: new Date().toISOString() } as any).eq("id", bizRow.id);
-          console.info("[conversation-quota] sent starter limit-email");
+        let sent = false;
+        if (bizEmail) {
+          const tpl = starterQuota100Email(displayName, billingUrl);
+          const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
+          if (r.ok) {
+            sent = true;
+            console.info("[conversation-quota] sent starter limit-email");
+          }
         }
+        if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_limit_reached")) sent = true;
+        if (sent) await markQuotaWarningSent(admin, bizRow.id, "quota_limit_sent_at");
       }
     } catch (e) {
-      console.error("[conversation-quota] starter quota emails failed:", e);
+      console.error("[conversation-quota] starter quota notifications failed:", e);
     }
   }
 
