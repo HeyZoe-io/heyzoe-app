@@ -1049,6 +1049,8 @@ async function processIncoming(
     name?: unknown;
     slug?: unknown;
     social_links?: unknown;
+    owner_whatsapp_phone?: unknown;
+    owner_whatsapp_opted_in?: unknown;
     quota_warning_20_sent_at?: unknown;
     quota_warning_5_sent_at?: unknown;
     quota_limit_sent_at?: unknown;
@@ -1059,7 +1061,7 @@ async function processIncoming(
     const { data: bqr } = await supabase
       .from("businesses")
       .select(
-        "id, plan, email, name, slug, social_links, quota_warning_20_sent_at, quota_warning_5_sent_at, quota_limit_sent_at, quota_pro_warning_sent_at"
+        "id, plan, email, name, slug, social_links, owner_whatsapp_phone, owner_whatsapp_opted_in, quota_warning_20_sent_at, quota_warning_5_sent_at, quota_limit_sent_at, quota_pro_warning_sent_at"
       )
       .eq("slug", business_slug)
       .maybeSingle();
