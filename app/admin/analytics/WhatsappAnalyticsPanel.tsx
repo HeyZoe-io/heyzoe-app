@@ -57,7 +57,7 @@ export default function WhatsappAnalyticsPanel({ data }: { data: WhatsappAnalyti
           </div>
           <div style={card}>
             <div style={{ fontSize: 12, color: "#6b5b9a" }}>מעבר לשיחה בוואטסאפ</div>
-            <p style={{ margin: "4px 0 8px", fontSize: 12, color: "#6b5b9a" }}>קליק על wa.me/972508318162</p>
+            <p style={{ margin: "4px 0 8px", fontSize: 12, color: "#6b5b9a" }}>קליק על wa.me/97233824981 (קו שיווקי)</p>
             <div style={{ fontSize: 28, fontWeight: 300, color: "#1a0a3c" }}>{data.waLpClicks}</div>
           </div>
         </div>

@@ -7,6 +7,12 @@ export const MARKETING_WA_PHONE_NUMBER_ID = "1179786855208358";
 
 export const MARKETING_PHONE_DISPLAY = "+972 3-382-4981";
 
+/** ספרות בלבד ל־wa.me — קו זואי שיווק אדמין */
+export const MARKETING_PHONE_WA_ME = "97233824981";
+
+/** טקסט מוכן מדף הנחיתה — מפעיל/מאפס את פלואו השיווק */
+export const MARKETING_FLOW_START_PREFILL = "היי זואי!";
+
 /** slug בטבלת messages / paused_sessions לשיחות הקו השיווקי */
 export const MARKETING_CONVERSATIONS_SLUG = "heyzoe-marketing";
 
