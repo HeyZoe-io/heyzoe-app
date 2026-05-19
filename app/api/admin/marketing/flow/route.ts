@@ -118,7 +118,8 @@ export async function POST(req: NextRequest) {
           .eq("id", 1);
         if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
       }
-      console.info("[marketing/flow] POST ok (empty flow)");
+      await admin.from("marketing_flow_sessions").delete().not("phone", "is", null);
+      console.info("[marketing/flow] POST ok (empty flow), sessions cleared");
       return NextResponse.json({ ok: true });
     }
 
@@ -181,6 +182,14 @@ export async function POST(req: NextRequest) {
         .update({ is_active: body.is_active, updated_at: new Date().toISOString() })
         .eq("id", 1);
       if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
+    }
+
+    // שמירה מוחקת nodes/edges ויוצרת מזהים חדשים — סשנים פעילים עם current_node_id ישן נשברים
+    const { error: sessDelErr } = await admin.from("marketing_flow_sessions").delete().not("phone", "is", null);
+    if (sessDelErr) {
+      console.warn("[marketing/flow] clear sessions after save:", sessDelErr.message);
+    } else {
+      console.info("[marketing/flow] cleared marketing_flow_sessions after flow save");
     }
 
     console.info("[marketing/flow] POST ok — saved", rawNodes.length, "nodes,", edgeInserts.length, "edges");
