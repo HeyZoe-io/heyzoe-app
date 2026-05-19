@@ -63,6 +63,7 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/privacy") ||
     pathname.startsWith("/terms") ||
+    pathname === "/contact" ||
     pathname.startsWith("/lp-leads")
   ) {
     return NextResponse.next();
@@ -86,7 +87,8 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/lp-leads") ||
     pathname === "/" ||
     pathname === "/privacy" ||
-    pathname === "/terms";
+    pathname === "/terms" ||
+    pathname === "/contact";
   const isSingleSegment = /^\/[^/]+\/?$/.test(pathname);
   const slugOnlyShortcut =
     isSingleSegment && !pathname.includes(".") && !isReservedPrefix;
