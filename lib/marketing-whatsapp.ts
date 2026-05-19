@@ -13,6 +13,29 @@ export const MARKETING_PHONE_WA_ME = "97233824981";
 /** טקסט מוכן מדף הנחיתה — מפעיל/מאפס את פלואו השיווק */
 export const MARKETING_FLOW_START_PREFILL = "היי זואי!";
 
+/** נרמול טקסט נכנס לפלואו (מרכאות, רווחים, bidi) */
+export function normalizeMarketingInboundText(text: string): string {
+  return String(text ?? "")
+    .trim()
+    .replace(/[\u200e\u200f\u202a-\u202e\ufeff]/g, "")
+    .replace(/["""''‚`´״׳«»]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** הודעה שמתחילה/מאפסת את פלואו השיווק (גם אחרי flow_completed) */
+export function isMarketingFlowRestartMessage(text: string): boolean {
+  const n = normalizeMarketingInboundText(text).toLowerCase();
+  if (!n) return false;
+
+  const prefill = normalizeMarketingInboundText(MARKETING_FLOW_START_PREFILL).toLowerCase();
+  if (n === prefill || /^היי\s*זואי\s*[!?.]*$/iu.test(n)) return true;
+
+  return /^(היוש|הייי+|היי|הי|אהלן|שלום|בוקר טוב|ערב טוב|הלו|hello|hi|hey|שלומות|מה נשמע|מה קורה)\s*[!?.]*$/iu.test(
+    n
+  );
+}
+
 /** slug בטבלת messages / paused_sessions לשיחות הקו השיווקי */
 export const MARKETING_CONVERSATIONS_SLUG = "heyzoe-marketing";
 
