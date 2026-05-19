@@ -26,6 +26,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { marketingDelayMaxForUiHint } from "@/lib/marketing-flow-delay";
+import {
+  MARKETING_FLOW_START_PREFILL,
+  MARKETING_PHONE_DISPLAY,
+  MARKETING_PHONE_WA_ME,
+} from "@/lib/marketing-whatsapp";
 
 const NodeDeleteCtx = createContext<((id: string) => void) | null>(null);
 
@@ -211,9 +216,6 @@ const BG = "#f5f3ff";
 /** תואם מגבלת השרת ל־`/api/admin/marketing/upload-media-signed-url` (16MB) */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
 
-const MARKETING_PHONE_DISPLAY = "+972 3-382-4981";
-const MARKETING_PHONE_WA_ME = "97233824981";
-
 function MarketingWhatsAppNumber() {
   const [status, setStatus] = useState<"loading" | "CONNECTED" | "PENDING" | "UNVERIFIED" | "error">("loading");
   const [copied, setCopied] = useState(false);
@@ -336,7 +338,7 @@ function MarketingWhatsAppNumber() {
         </button>
 
         <a
-          href={`https://wa.me/${MARKETING_PHONE_WA_ME}?text=${encodeURIComponent("היי")}`}
+          href={`https://wa.me/${MARKETING_PHONE_WA_ME}?text=${encodeURIComponent(MARKETING_FLOW_START_PREFILL)}`}
           target="_blank"
           rel="noopener noreferrer"
           style={{
