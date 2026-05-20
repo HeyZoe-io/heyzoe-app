@@ -982,10 +982,17 @@ async function processIncoming(
         return;
       }
 
-      const { handleMarketingFlowInbound } = await import("@/lib/marketing-flow-runtime");
-      const { handled } = await handleMarketingFlowInbound(msg.from, msg.text);
-      if (handled) {
+      const { handleMarketingFlowInbound, answerOpenQuestionDuringMarketingFlow } = await import(
+        "@/lib/marketing-flow-runtime"
+      );
+      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text);
+      if (flowResult.handled) {
         console.info("[WA Webhook] Marketing flow handled for:", msg.from);
+        return;
+      }
+      if (flowResult.openQuestionInFlow) {
+        console.info("[WA Webhook] Marketing open question in flow for:", msg.from);
+        await answerOpenQuestionDuringMarketingFlow(msg.from, msg.text);
         return;
       }
       // Flow completed → AI fallback
