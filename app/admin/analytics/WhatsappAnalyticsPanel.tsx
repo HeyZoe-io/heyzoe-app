@@ -29,11 +29,18 @@ export default function WhatsappAnalyticsPanel({ data }: { data: WhatsappAnalyti
         <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500, color: "#1a0a3c", textAlign: "right" }}>
           אינויטים
         </h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
           <div style={card}>
             <div style={{ fontSize: 12, color: "#6b5b9a" }}>ליד חדש</div>
             <p style={{ margin: "4px 0 8px", fontSize: 12, color: "#6b5b9a" }}>שיחה שהתחילה ממספר חדש בפלואו</p>
             <div style={{ fontSize: 28, fontWeight: 300, color: "#1a0a3c" }}>{data.newLeads}</div>
+          </div>
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "#6b5b9a" }}>לחצו «נרשמתי!»</div>
+            <p style={{ margin: "4px 0 8px", fontSize: 12, color: "#6b5b9a" }}>
+              כפתור בפלואו השיווקי (או טקסט מקביל)
+            </p>
+            <div style={{ fontSize: 28, fontWeight: 300, color: "#1a0a3c" }}>{data.registeredClicks}</div>
           </div>
           <div style={card}>
             <div style={{ fontSize: 12, color: "#6b5b9a" }}>הפסיקו לענות (ללא CTA)</div>
