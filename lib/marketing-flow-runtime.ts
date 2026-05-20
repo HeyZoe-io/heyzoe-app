@@ -14,6 +14,7 @@ import {
   isMarketingFlowStartMessage,
   logMarketingWhatsAppMessage,
   marketingWaSessionId,
+  normalizeMarketingInboundText,
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
 import { fetchRecentSessionMessages } from "@/lib/analytics";
@@ -93,6 +94,54 @@ function decodeEdgeLabel(raw: string): string {
     } catch { /* plain text */ }
   }
   return s;
+}
+
+function getMarketingQuestionAnswerOptions(currentNode: FlowNode, edges: FlowEdge[]): string[] {
+  const data = currentNode.data as Record<string, unknown>;
+  const buttons = Array.isArray(data.buttons)
+    ? data.buttons.map((b) => String(b ?? "").trim()).filter(Boolean)
+    : [];
+  const outEdges = edges.filter((e) => e.source_node_id === currentNode.id);
+  const edgeLabels = outEdges
+    .map((e) => decodeEdgeLabel(e.label).trim())
+    .filter(Boolean);
+  return [...new Set([...buttons, ...edgeLabels])];
+}
+
+/** תשובה שמתאימה לכפתור/אפשרות בנוד שאלה — אחרת שאלה פתוחה → AI */
+function matchesMarketingFlowQuestionAnswer(
+  currentNode: FlowNode,
+  edges: FlowEdge[],
+  userText: string
+): boolean {
+  const options = getMarketingQuestionAnswerOptions(currentNode, edges);
+  if (options.length === 0) return true;
+
+  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
+  if (!normalized) return false;
+
+  for (const opt of options) {
+    const label = normalizeMarketingInboundText(opt).toLowerCase();
+    if (label && normalized === label) return true;
+  }
+
+  const numOnly = /^(\d+)\.?$/u.exec(normalized);
+  if (numOnly) {
+    const idx = Number(numOnly[1]);
+    if (idx >= 1 && idx <= options.length) return true;
+  }
+
+  if (normalized.length <= 40) {
+    for (const opt of options) {
+      const label = normalizeMarketingInboundText(opt).toLowerCase();
+      if (!label) continue;
+      if (normalized === label || normalized.startsWith(`${label} `) || normalized.startsWith(`${label},`)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -276,7 +325,7 @@ async function sendNodeChain(
  * Handle an inbound message on the marketing line.
  * - «היי» / «היי זואי» / «היי זואי!» בלבד → מאפס סשן ומתחיל פלואו (גם אחרי flow_completed)
  * - פנייה ראשונה עם שאלה או משפט נוסף → לא מתחיל פלואו (מעביר ל-AI)
- * - Flow in progress → advance to the next node based on the user's reply
+ * - Flow in progress at question → advance only if reply matches a button/option; else AI
  * - Flow completed → return false (caller should use Zoe AI)
  */
 export async function handleMarketingFlowInbound(
@@ -366,6 +415,13 @@ export async function handleMarketingFlowInbound(
 
   let nextNode: FlowNode | null;
   if (currentNode.type === "question") {
+    if (!matchesMarketingFlowQuestionAnswer(currentNode, edges, userText)) {
+      console.info("[marketing-flow] open question during flow — deferring to AI", {
+        phone,
+        nodeId: currentNode.id,
+      });
+      return { handled: false };
+    }
     nextNode = findNextNode(currentNode.id, edges, nodes, userText);
   } else {
     nextNode = findNextNode(currentNode.id, edges, nodes);
