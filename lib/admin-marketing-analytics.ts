@@ -14,6 +14,7 @@ const DROP_AFTER_CTA_HOURS = 24;
 
 export type WhatsappAnalyticsSnapshot = {
   newLeads: number;
+  registeredClicks: number;
   pricingViews: number;
   waLpClicks: number;
   droppedNoCta: number;
@@ -41,7 +42,18 @@ type MessageRow = {
 function maskPhone(phone: string): string {
   const d = String(phone ?? "").replace(/\D/g, "");
   if (d.length < 4) return "***";
-  return `***${d.slice(-4)}`;
+  return `${d.slice(-4)}`;
+}
+
+/** לחיצה על כפתור «נרשמתי!» (או הקלדה מקבילה) בפלואו השיווקי */
+export function matchesMarketingRegisteredClick(raw: string): boolean {
+  const t = String(raw ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[!?….,]+$/gu, "")
+    .trim()
+    .toLowerCase();
+  return t === "נרשמתי" || t === "נרשמת" || t === "נרשמנו" || t === "registered" || t === "signed up";
 }
 
 export async function loadWhatsappAnalyticsSnapshot(sinceIso: string): Promise<WhatsappAnalyticsSnapshot> {
@@ -92,8 +104,15 @@ export async function loadWhatsappAnalyticsSnapshot(sinceIso: string): Promise<W
   const newLeads = Math.max(newLeadsFromSessions, newLeadsFromEvents);
 
   const messages = (messagesRaw ?? []) as MessageRow[];
+  let registeredClicks = 0;
   const bySession = new Map<string, MessageRow[]>();
   for (const m of messages) {
+    const atMs = new Date(m.created_at).getTime();
+    const content = String(m.content ?? "").trim();
+    if (Number.isFinite(atMs) && atMs >= sinceMs && m.role === "user" && matchesMarketingRegisteredClick(content)) {
+      registeredClicks += 1;
+    }
+
     const sid = String(m.session_id ?? "").trim();
     if (!sid) continue;
     const list = bySession.get(sid) ?? [];
@@ -133,6 +152,7 @@ export async function loadWhatsappAnalyticsSnapshot(sinceIso: string): Promise<W
 
   return {
     newLeads,
+    registeredClicks,
     pricingViews,
     waLpClicks,
     droppedNoCta: droppedPhones.length,
