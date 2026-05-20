@@ -9,6 +9,7 @@ import {
 import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
 import { logMarketingWhatsAppMessage, sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
 import {
+  answerOpenQuestionDuringMarketingFlow,
   callMarketingAI,
   getOffNicheMarketingHardReply,
   handleMarketingFlowInbound,
@@ -87,11 +88,17 @@ export async function POST(req: NextRequest) {
     }
 
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
-    const { handled } = await handleMarketingFlowInbound(phone, userText);
+    const flowResult = await handleMarketingFlowInbound(phone, userText);
 
-    if (handled) {
+    if (flowResult.handled) {
       console.info("[marketing-webhook] flow handled for:", phone);
       return NextResponse.json({ ok: true });
+    }
+
+    if (flowResult.openQuestionInFlow) {
+      console.info("[marketing-webhook] open question in active flow for:", phone);
+      await answerOpenQuestionDuringMarketingFlow(phone, userText);
+      return NextResponse.json({ ok: true, open_question_in_flow: true });
     }
 
     const offNicheReply = await getOffNicheMarketingHardReply(userText);

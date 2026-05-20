@@ -34,12 +34,124 @@ import {
 type FlowNode = MarketingFlowNode;
 type FlowEdge = MarketingFlowEdge;
 
+export type MarketingOpenQPauseState = "none" | "await_resume" | "more_questions";
+
+export type MarketingFlowInboundResult = {
+  handled: boolean;
+  /** פלואו פעיל — לענות ב-AI ולהציע «להמשיך?» */
+  openQuestionInFlow?: boolean;
+};
+
 type Session = {
   id: string;
   phone: string;
   current_node_id: string | null;
   flow_completed: boolean;
+  open_q_pause_state?: string | null;
 };
+
+export const MARKETING_FLOW_RESUME_PROMPT = "מה דעתך, אפשר להמשיך?";
+export const MARKETING_FLOW_BTN_CONTINUE = "בואו נמשיך!";
+export const MARKETING_FLOW_BTN_MORE_Q = "יש לי עוד שאלה";
+export const MARKETING_FLOW_MORE_Q_REPLY = "אין בעיה! אני כאן בשביל זה. מה השאלה?";
+
+function normalizeOpenQPauseState(raw: unknown): MarketingOpenQPauseState {
+  const s = String(raw ?? "").trim();
+  if (s === "await_resume" || s === "more_questions") return s;
+  return "none";
+}
+
+function labelMatchesChoice(text: string, choice: string): boolean {
+  const n = normalizeMarketingInboundText(text).toLowerCase().replace(/[!?.…]+$/gu, "").trim();
+  const c = normalizeMarketingInboundText(choice).toLowerCase().replace(/[!?.…]+$/gu, "").trim();
+  return Boolean(n && c && n === c);
+}
+
+function isMarketingFlowContinueChoice(text: string): boolean {
+  return labelMatchesChoice(text, MARKETING_FLOW_BTN_CONTINUE);
+}
+
+function isMarketingFlowMoreQuestionChoice(text: string): boolean {
+  return labelMatchesChoice(text, MARKETING_FLOW_BTN_MORE_Q);
+}
+
+async function setMarketingOpenQPauseState(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+  state: MarketingOpenQPauseState
+): Promise<void> {
+  const { error } = await admin
+    .from("marketing_flow_sessions")
+    .update({ open_q_pause_state: state, updated_at: new Date().toISOString() })
+    .eq("phone", phone);
+  if (error && /open_q_pause_state|column/i.test(String(error.message ?? ""))) {
+    console.warn("[marketing-flow] open_q_pause_state update skipped (column missing?):", error.message);
+  }
+}
+
+async function loadMarketingFlowSession(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string
+): Promise<Session | null> {
+  const withPause = await admin
+    .from("marketing_flow_sessions")
+    .select("id, phone, current_node_id, flow_completed, open_q_pause_state")
+    .eq("phone", phone)
+    .maybeSingle();
+  if (!withPause.error) return (withPause.data as Session | null) ?? null;
+  if (/open_q_pause_state|column/i.test(String(withPause.error.message ?? ""))) {
+    const fallback = await admin
+      .from("marketing_flow_sessions")
+      .select("id, phone, current_node_id, flow_completed")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (fallback.error) return null;
+    return (fallback.data as Session | null) ?? null;
+  }
+  return null;
+}
+
+async function sendMarketingFlowResumePrompt(phone: string): Promise<void> {
+  const interactive = buildMetaInteractivePayload(MARKETING_FLOW_RESUME_PROMPT, [
+    MARKETING_FLOW_BTN_CONTINUE,
+    MARKETING_FLOW_BTN_MORE_Q,
+  ]);
+  if (interactive) {
+    await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, interactive);
+    await logMarketingWhatsAppMessage({
+      leadPhone: phone,
+      role: "assistant",
+      content: `${MARKETING_FLOW_RESUME_PROMPT}\n[כפתורים: ${MARKETING_FLOW_BTN_CONTINUE} | ${MARKETING_FLOW_BTN_MORE_Q}]`,
+      model_used: "marketing_flow_resume_prompt",
+    });
+    return;
+  }
+  const fallback = `${MARKETING_FLOW_RESUME_PROMPT}\n1. ${MARKETING_FLOW_BTN_CONTINUE}\n2. ${MARKETING_FLOW_BTN_MORE_Q}`;
+  await sendMarketingWhatsApp(phone, fallback, { model_used: "marketing_flow_resume_prompt" });
+}
+
+async function resendMarketingFlowQuestionNode(phone: string, node: FlowNode): Promise<void> {
+  await sendNodeMessage(node, phone);
+}
+
+/** תשובת AI + «מה דעתך, אפשר להמשיך?» באמצע פלואו פעיל */
+export async function answerOpenQuestionDuringMarketingFlow(
+  phoneRaw: string,
+  userText: string
+): Promise<void> {
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) return;
+
+  const { recordMarketingLeadOpenQuestion } = await import("@/lib/marketing-lead-questions");
+  void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
+
+  const reply = await callMarketingAI(userText, { leadPhone: phone });
+  await sendMarketingWhatsApp(phone, reply, { model_used: "marketing_ai_open_q" });
+  await sendMarketingFlowResumePrompt(phone);
+
+  const admin = createSupabaseAdminClient();
+  await setMarketingOpenQPauseState(admin, phone, "await_resume");
+}
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -325,13 +437,13 @@ async function sendNodeChain(
  * Handle an inbound message on the marketing line.
  * - «היי» / «היי זואי» / «היי זואי!» בלבד → מאפס סשן ומתחיל פלואו (גם אחרי flow_completed)
  * - פנייה ראשונה עם שאלה או משפט נוסף → לא מתחיל פלואו (מעביר ל-AI)
- * - Flow in progress at question → advance only if reply matches a button/option; else AI
+ * - שאלה פתוחה באמצע פלואו → AI + «מה דעתך, אפשר להמשיך?» + כפתורים
  * - Flow completed → return false (caller should use Zoe AI)
  */
 export async function handleMarketingFlowInbound(
   phoneRaw: string,
   userText: string
-): Promise<{ handled: boolean }> {
+): Promise<MarketingFlowInboundResult> {
   const { isHeyzoeOwnerOptInMessage, tryHandleHeyzoeOwnerOptIn } = await import(
     "@/lib/notifications/owner-opt-in"
   );
@@ -356,11 +468,7 @@ export async function handleMarketingFlowInbound(
 
   const startFlowMessage = isMarketingFlowStartMessage(userText);
 
-  const { data: session } = await admin
-    .from("marketing_flow_sessions")
-    .select("id, phone, current_node_id, flow_completed")
-    .eq("phone", phone)
-    .maybeSingle();
+  const session = await loadMarketingFlowSession(admin, phone);
 
   if (startFlowMessage) {
     await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
@@ -376,6 +484,7 @@ export async function handleMarketingFlowInbound(
         phone,
         current_node_id: nextNodeId,
         flow_completed: !waitingForAnswer && !nextNodeId,
+        open_q_pause_state: "none",
         updated_at: new Date().toISOString(),
       },
       { onConflict: "phone" }
@@ -399,7 +508,33 @@ export async function handleMarketingFlowInbound(
     return { handled: false };
   }
 
+  const pauseState = normalizeOpenQPauseState(sess.open_q_pause_state);
+
   const currentNode = nodes.find((n) => n.id === sess.current_node_id);
+
+  if (isMarketingFlowContinueChoice(userText) && currentNode) {
+    await resendMarketingFlowQuestionNode(phone, currentNode);
+    await setMarketingOpenQPauseState(admin, phone, "none");
+    console.info("[marketing-flow] resume flow after open Q", { phone, nodeId: currentNode.id });
+    return { handled: true };
+  }
+
+  if (isMarketingFlowMoreQuestionChoice(userText)) {
+    await sendMarketingWhatsApp(phone, MARKETING_FLOW_MORE_Q_REPLY, {
+      model_used: "marketing_flow_more_q",
+    });
+    await setMarketingOpenQPauseState(admin, phone, "more_questions");
+    return { handled: true };
+  }
+
+  if (pauseState === "more_questions") {
+    return { handled: false, openQuestionInFlow: true };
+  }
+
+  if (pauseState === "await_resume") {
+    return { handled: false, openQuestionInFlow: true };
+  }
+
   if (!currentNode) {
     console.warn("[marketing-flow] stale session node (flow was likely saved in admin)", {
       phone,
@@ -416,11 +551,11 @@ export async function handleMarketingFlowInbound(
   let nextNode: FlowNode | null;
   if (currentNode.type === "question") {
     if (!matchesMarketingFlowQuestionAnswer(currentNode, edges, userText)) {
-      console.info("[marketing-flow] open question during flow — deferring to AI", {
+      console.info("[marketing-flow] open question during flow — AI + resume prompt", {
         phone,
         nodeId: currentNode.id,
       });
-      return { handled: false };
+      return { handled: false, openQuestionInFlow: true };
     }
     nextNode = findNextNode(currentNode.id, edges, nodes, userText);
   } else {
@@ -431,6 +566,7 @@ export async function handleMarketingFlowInbound(
     await admin.from("marketing_flow_sessions").update({
       flow_completed: true,
       current_node_id: null,
+      open_q_pause_state: "none",
       updated_at: new Date().toISOString(),
     }).eq("id", sess.id);
     return { handled: false };
@@ -441,6 +577,7 @@ export async function handleMarketingFlowInbound(
   await admin.from("marketing_flow_sessions").update({
     current_node_id: nextNodeId,
     flow_completed: !waitingForAnswer && !nextNodeId,
+    open_q_pause_state: "none",
     updated_at: new Date().toISOString(),
   }).eq("id", sess.id);
 
