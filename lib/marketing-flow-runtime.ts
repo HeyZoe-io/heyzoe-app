@@ -23,18 +23,15 @@ import {
   type MetaWhatsAppOutgoing,
 } from "@/lib/whatsapp";
 
-type FlowNode = {
-  id: string;
-  type: string;
-  data: Record<string, unknown>;
-};
+import {
+  getMarketingFlowCache,
+  setMarketingFlowCache,
+  type MarketingFlowEdge,
+  type MarketingFlowNode,
+} from "@/lib/marketing-flow-cache";
 
-type FlowEdge = {
-  id: string;
-  source_node_id: string;
-  target_node_id: string;
-  label: string;
-};
+type FlowNode = MarketingFlowNode;
+type FlowEdge = MarketingFlowEdge;
 
 type Session = {
   id: string;
@@ -66,17 +63,22 @@ export async function isFirstContact(phoneRaw: string): Promise<boolean> {
  * Load all nodes and edges for the active marketing flow.
  */
 async function loadFlow(): Promise<{ nodes: FlowNode[]; edges: FlowEdge[]; isActive: boolean }> {
+  const cached = getMarketingFlowCache();
+  if (cached) return cached;
+
   const admin = createSupabaseAdminClient();
   const [{ data: nodes }, { data: edges }, { data: settings }] = await Promise.all([
     admin.from("marketing_flow_nodes").select("id, type, data").order("created_at", { ascending: true }),
     admin.from("marketing_flow_edges").select("id, source_node_id, target_node_id, label").order("id", { ascending: true }),
     admin.from("marketing_flow_settings").select("is_active").eq("id", 1).maybeSingle(),
   ]);
-  return {
+  const snapshot = {
     nodes: (nodes ?? []) as unknown as FlowNode[],
     edges: (edges ?? []) as unknown as FlowEdge[],
     isActive: Boolean((settings as { is_active?: boolean } | null)?.is_active),
   };
+  setMarketingFlowCache(snapshot);
+  return snapshot;
 }
 
 /**
@@ -473,19 +475,8 @@ const MARKETING_AI_OPEN_FACTS_MAX_CHARS = 8_000;
 const MARKETING_AI_LEGAL_MAX_CHARS = 8_000;
 
 async function loadMarketingNodesAndEdgesForAi(): Promise<{ nodes: FlowNode[]; edges: FlowEdge[] }> {
-  try {
-    const admin = createSupabaseAdminClient();
-    const [{ data: nodes }, { data: edges }] = await Promise.all([
-      admin.from("marketing_flow_nodes").select("id, type, data").order("created_at", { ascending: true }),
-      admin.from("marketing_flow_edges").select("id, source_node_id, target_node_id, label").order("id", { ascending: true }),
-    ]);
-    return {
-      nodes: (nodes ?? []) as unknown as FlowNode[],
-      edges: (edges ?? []) as unknown as FlowEdge[],
-    };
-  } catch {
-    return { nodes: [], edges: [] };
-  }
+  const { nodes, edges } = await loadFlow();
+  return { nodes, edges };
 }
 
 function buildMarketingFlowKnowledgeLines(nodes: FlowNode[], edges: FlowEdge[]): string[] {
