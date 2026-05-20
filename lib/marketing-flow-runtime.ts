@@ -11,7 +11,7 @@ import { sanitizeZoeDashes } from "@/lib/zoe-text";
 import {
   MARKETING_CONVERSATIONS_SLUG,
   MARKETING_WA_PHONE_NUMBER_ID,
-  isMarketingFlowRestartMessage,
+  isMarketingFlowStartMessage,
   logMarketingWhatsAppMessage,
   marketingWaSessionId,
   sendMarketingWhatsApp,
@@ -274,8 +274,8 @@ async function sendNodeChain(
 
 /**
  * Handle an inbound message on the marketing line.
- * - «היי זואי!» / ברכה → מאפס סשן ומתחיל פלואו מההתחלה (גם אחרי flow_completed)
- * - First contact → start the flow from the first node
+ * - «היי» / «היי זואי» / «היי זואי!» בלבד → מאפס סשן ומתחיל פלואו (גם אחרי flow_completed)
+ * - פנייה ראשונה עם שאלה או משפט נוסף → לא מתחיל פלואו (מעביר ל-AI)
  * - Flow in progress → advance to the next node based on the user's reply
  * - Flow completed → return false (caller should use Zoe AI)
  */
@@ -305,7 +305,7 @@ export async function handleMarketingFlowInbound(
     return { handled: false };
   }
 
-  const restartFlow = isMarketingFlowRestartMessage(userText);
+  const startFlowMessage = isMarketingFlowStartMessage(userText);
 
   const { data: session } = await admin
     .from("marketing_flow_sessions")
@@ -313,12 +313,10 @@ export async function handleMarketingFlowInbound(
     .eq("phone", phone)
     .maybeSingle();
 
-  if (restartFlow) {
+  if (startFlowMessage) {
     await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
-    console.info("[marketing-flow] flow restart for:", phone, { hadSession: Boolean(session) });
-  }
+    console.info("[marketing-flow] flow start/restart for:", phone, { hadSession: Boolean(session) });
 
-  if (!session || restartFlow) {
     const startNode = findStartNode(nodes, edges);
     if (!startNode) return { handled: false };
 
@@ -340,6 +338,10 @@ export async function handleMarketingFlowInbound(
     }
 
     return { handled: true };
+  }
+
+  if (!session) {
+    return { handled: false };
   }
 
   const sess = session as unknown as Session;
