@@ -88,20 +88,65 @@ async function markQuotaWarningSent(
     .eq("id", bizId);
 }
 
-async function fetchMonthlyContactRows(admin: AdminClient, businessId: string, monthStartIso: string) {
-  const { data, error } = await admin
+async function fetchMonthlyContactCount(
+  admin: AdminClient,
+  businessId: string,
+  monthStartIso: string
+): Promise<number> {
+  const { count, error } = await admin
+    .from("contacts")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", businessId)
+    .gte("created_at", monthStartIso);
+  if (error) {
+    console.warn("[conversation-quota] monthly contacts count failed:", error.message);
+    return 0;
+  }
+  return typeof count === "number" && Number.isFinite(count) ? count : 0;
+}
+
+/** מיקום contact בחודש (1-based), לפי created_at ואז id — רק כשצריך חסימת Starter */
+async function fetchContactRankInMonth(
+  admin: AdminClient,
+  businessId: string,
+  contactId: string | number,
+  monthStartIso: string
+): Promise<number | null> {
+  const { data: contact, error: contactErr } = await admin
     .from("contacts")
     .select("id, created_at")
     .eq("business_id", businessId)
+    .eq("id", contactId)
+    .maybeSingle();
+  if (contactErr || !contact?.created_at) return null;
+
+  const createdAt = String(contact.created_at);
+  const id = contact.id;
+  if (createdAt < monthStartIso) return null;
+
+  const { count: strictlyBefore, error: beforeErr } = await admin
+    .from("contacts")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", businessId)
     .gte("created_at", monthStartIso)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(550);
-  if (error) {
-    console.warn("[conversation-quota] monthly contacts fetch failed:", error.message);
-    return [];
+    .lt("created_at", createdAt);
+  if (beforeErr) {
+    console.warn("[conversation-quota] rank before-count failed:", beforeErr.message);
+    return null;
   }
-  return (data ?? []) as { id: number | string; created_at: string }[];
+
+  const { count: sameTimestampNotAfter, error: sameErr } = await admin
+    .from("contacts")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", businessId)
+    .eq("created_at", createdAt)
+    .lte("id", id);
+  if (sameErr) {
+    console.warn("[conversation-quota] rank same-ts count failed:", sameErr.message);
+    return null;
+  }
+
+  return (strictlyBefore ?? 0) + (sameTimestampNotAfter ?? 0);
 }
 
 export type MonthlyQuotaHandleInput = {
@@ -141,15 +186,17 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
   const monthStartIso = monthStart.toISOString();
   const ymNow = formatIsraelYearMonth(new Date());
 
-  const monthlyRows = await fetchMonthlyContactRows(admin, businessId, monthStartIso);
-  const monthlyCount = monthlyRows.length;
-
-  const cid = String(contactId);
-  const idx = monthlyRows.findIndex((r) => String(r.id) === cid);
-  const rankInMonth = idx >= 0 ? idx + 1 : null;
+  const monthlyCount = await fetchMonthlyContactCount(admin, businessId, monthStartIso);
 
   const starter = planIsStarter(bizRow.plan);
   const premium = planIsPremium(bizRow.plan);
+
+  let rankInMonth: number | null = null;
+  if (starter && monthlyCount > STARTER_MONTHLY_CONTACT_LIMIT) {
+    rankInMonth = await fetchContactRankInMonth(admin, businessId, contactId, monthStartIso);
+  }
+
+  const cid = String(contactId);
 
   console.info("[conversation-quota]", {
     businessSlug,
