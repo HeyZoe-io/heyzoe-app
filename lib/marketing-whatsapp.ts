@@ -23,18 +23,18 @@ export function normalizeMarketingInboundText(text: string): string {
     .trim();
 }
 
-/** הודעה שמתחילה/מאפסת את פלואו השיווק (גם אחרי flow_completed) */
-export function isMarketingFlowRestartMessage(text: string): boolean {
+/** הודעה שמתחילה/מאפסת את פלואו השיווק — רק ברכה בלבד, בלי שאלה או משפט נוסף */
+export function isMarketingFlowStartMessage(text: string): boolean {
   const n = normalizeMarketingInboundText(text).toLowerCase();
   if (!n) return false;
-
-  const prefill = normalizeMarketingInboundText(MARKETING_FLOW_START_PREFILL).toLowerCase();
-  if (n === prefill || /^היי\s*זואי\s*[!?.]*$/iu.test(n)) return true;
-
-  return /^(היוש|הייי+|היי|הי|אהלן|שלום|בוקר טוב|ערב טוב|הלו|hello|hi|hey|שלומות|מה נשמע|מה קורה)\s*[!?.]*$/iu.test(
-    n
-  );
+  // פסיק / נקודתיים / סימן שיש המשך אחרי הברכה
+  if (/[,،;:]/u.test(n)) return false;
+  const core = n.replace(/[!?.…]+$/gu, "").trim();
+  return core === "היי" || core === "היי זואי";
 }
+
+/** @deprecated use isMarketingFlowStartMessage */
+export const isMarketingFlowRestartMessage = isMarketingFlowStartMessage;
 
 /** slug בטבלת messages / paused_sessions לשיחות הקו השיווקי */
 export const MARKETING_CONVERSATIONS_SLUG = "heyzoe-marketing";
