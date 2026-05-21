@@ -10,7 +10,7 @@ import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions"
 import { logMarketingWhatsAppMessage, sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
 import {
   answerOpenQuestionDuringMarketingFlow,
-  callMarketingAI,
+  deliverMarketingPostFlowAiResponse,
   getOffNicheMarketingHardReply,
   handleMarketingFlowInbound,
 } from "@/lib/marketing-flow-runtime";
@@ -110,9 +110,8 @@ export async function POST(req: NextRequest) {
 
     console.info("[marketing-webhook] flow done, routing to AI for:", phone);
     void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
-    const reply = await callMarketingAI(userText, { leadPhone: phone });
-    await sendMarketingWhatsApp(phone, reply);
-    console.info("[marketing-webhook] AI reply sent to:", phone);
+    await deliverMarketingPostFlowAiResponse(phone, userText);
+    console.info("[marketing-webhook] AI reply + post-flow menu sent to:", phone);
   } catch (e) {
     console.error("[marketing-webhook] error:", e);
     try {
