@@ -337,7 +337,7 @@ export default function ConversationsClient({
               : isZoeAdminAllConversationsSlug(slug)
                 ? "אין שיחות מתועדות במערכת."
                 : isMarketingConversationsSlug(slug)
-                  ? "לא נמצאו שיחות בקו השיווקי."
+                  ? "לא נמצאו שיחות בקו השיווקי. נסו «כל השיחות» מהתפריט — ייתכן שההודעות נשמרו תחת עסק אחר."
                   : "טרם התקבלו שיחות לעסק זה."}
           </p>
         )}

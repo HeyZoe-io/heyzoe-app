@@ -176,22 +176,81 @@ export type MarketingSessionSummary = {
   phone: string;
 };
 
+type MarketingMessageRow = {
+  session_id?: string | null;
+  role?: string | null;
+  created_at?: string | null;
+};
+
+function mergeMarketingMessageRows(
+  target: MarketingMessageRow[],
+  seen: Set<string>,
+  rows: MarketingMessageRow[] | null | undefined
+): void {
+  for (const row of rows ?? []) {
+    const key = `${String(row.session_id ?? "")}|${String(row.created_at ?? "")}|${String(row.role ?? "")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    target.push(row);
+  }
+}
+
+function ingestMarketingMessage(
+  bySession: Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>,
+  row: MarketingMessageRow
+): void {
+  const rawSid = String(row.session_id ?? "anon").trim() || "anon";
+  const sid = rawSid === "anon" ? "anon" : canonicalMarketingSessionId(rawSid);
+  const at = new Date(String(row.created_at ?? ""));
+  if (Number.isNaN(at.getTime())) return;
+  const fromUser = String(row.role ?? "") === "user";
+  const phone = formatMarketingPhoneDisplay(
+    extractLeadPhoneFromMarketingSession(rawSid) || marketingPhoneDigits(rawSid) || rawSid
+  );
+  const existing = bySession.get(sid);
+  if (!existing) {
+    bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser, phone });
+    return;
+  }
+  existing.lastAt = at > existing.lastAt ? at : existing.lastAt;
+  existing.count += 1;
+  existing.lastFromUser = fromUser;
+  if (!existing.phone && phone) existing.phone = phone;
+}
+
 /** שיחות קו שיווקי: messages + סשנים מ-marketing_flow_sessions (גם לפני שהתחלנו לרשום הודעות) */
 export async function loadMarketingConversationSessions(): Promise<MarketingSessionSummary[]> {
   const admin = createSupabaseAdminClient();
   const slug = MARKETING_CONVERSATIONS_SLUG;
 
-  const [{ data: messages }, { data: pausedRows }, { data: flowSessions }] = await Promise.all([
+  const sessionIdOrFilter = marketingWaPhoneNumberIds()
+    .map((id) => `session_id.like.wa_${id}_%`)
+    .join(",");
+
+  const [
+    { data: slugMessages, error: slugErr },
+    { data: lineMessages, error: lineErr },
+    { data: pausedRows },
+    { data: flowSessions, error: flowErr },
+  ] = await Promise.all([
     admin
       .from("messages")
       .select("session_id, role, created_at")
-      .eq("business_slug", slug)
+      .ilike("business_slug", slug)
       .order("created_at", { ascending: true })
       .limit(50_000),
+    sessionIdOrFilter
+      ? admin
+          .from("messages")
+          .select("session_id, role, created_at")
+          .or(sessionIdOrFilter)
+          .order("created_at", { ascending: true })
+          .limit(50_000)
+      : Promise.resolve({ data: [] as MarketingMessageRow[], error: null }),
     admin
       .from("paused_sessions")
       .select("session_id, paused_until")
-      .eq("business_slug", slug)
+      .ilike("business_slug", slug)
       .gt("paused_until", new Date().toISOString()),
     admin
       .from("marketing_flow_sessions")
@@ -199,6 +258,15 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       .order("updated_at", { ascending: false })
       .limit(5000),
   ]);
+
+  if (slugErr) console.error("[marketing-whatsapp] slug messages:", slugErr.message);
+  if (lineErr) console.error("[marketing-whatsapp] line messages:", lineErr.message);
+  if (flowErr) console.error("[marketing-whatsapp] flow_sessions:", flowErr.message);
+
+  const seenMsgKeys = new Set<string>();
+  const allMessages: MarketingMessageRow[] = [];
+  mergeMarketingMessageRows(allMessages, seenMsgKeys, slugMessages);
+  mergeMarketingMessageRows(allMessages, seenMsgKeys, lineMessages);
 
   const pausedCanonical = new Set<string>();
   for (const p of pausedRows ?? []) {
@@ -209,26 +277,8 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
 
   const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>();
 
-  // כל הודעה עם business_slug=heyzoe-marketing — בלי סינון session_id (הסינון ב-f04fd72 איבד שיחות)
-  for (const m of messages ?? []) {
-    const row = m as { session_id?: string; role?: string; created_at?: string };
-    const rawSid = String(row.session_id ?? "anon").trim() || "anon";
-    const sid = rawSid === "anon" ? "anon" : canonicalMarketingSessionId(rawSid);
-    const at = new Date(String(row.created_at ?? ""));
-    if (Number.isNaN(at.getTime())) continue;
-    const fromUser = String(row.role ?? "") === "user";
-    const phone = formatMarketingPhoneDisplay(
-      extractLeadPhoneFromMarketingSession(rawSid) || marketingPhoneDigits(rawSid) || rawSid
-    );
-    const existing = bySession.get(sid);
-    if (!existing) {
-      bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser, phone });
-    } else {
-      existing.lastAt = at > existing.lastAt ? at : existing.lastAt;
-      existing.count += 1;
-      existing.lastFromUser = fromUser;
-      if (!existing.phone && phone) existing.phone = phone;
-    }
+  for (const m of allMessages) {
+    ingestMarketingMessage(bySession, m);
   }
 
   for (const s of flowSessions ?? []) {
