@@ -313,12 +313,19 @@ nav{
   letter-spacing:-0.04em;
   margin:0 auto 14px;
   padding:0 6px;
-  background-color:#fff;
   background:linear-gradient(135deg,#f0abfc 0%,#c084fc 32%,#818cf8 62%,#60a5fa 100%);
   background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
   filter:drop-shadow(0 6px 18px rgba(129,140,248,0.22));
   transition:transform 0.4s cubic-bezier(0.22,1,0.36,1),filter 0.4s ease;
   animation:zoeCapNumFloat 4.5s ease-in-out infinite;
+}
+.zoe-cap-num::before{
+  content:'';
+  position:absolute;
+  inset:-6px -10px;
+  z-index:-1;
+  background:#fff;
+  border-radius:6px;
 }
 .zoe-cap-step:nth-child(2) .zoe-cap-num{animation-delay:0.6s;}
 .zoe-cap-step:nth-child(3) .zoe-cap-num{animation-delay:1.2s;}
