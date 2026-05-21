@@ -155,6 +155,9 @@ export async function answerOpenQuestionDuringMarketingFlow(
   const phone = normalizePhone(phoneRaw);
   if (!phone) return;
 
+  const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
+  if (await tryHandleMarketingHumanAgentInbound(phone, userText)) return;
+
   const { recordMarketingLeadOpenQuestion } = await import("@/lib/marketing-lead-questions");
   void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
 
@@ -470,6 +473,12 @@ export async function handleMarketingFlowInbound(
   if (!phone) {
     console.warn("[marketing-flow] invalid phone:", phoneRaw);
     return { handled: false };
+  }
+
+  const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
+  if (await tryHandleMarketingHumanAgentInbound(phone, userText)) {
+    console.info("[marketing-flow] human agent request handled for:", phone);
+    return { handled: true };
   }
 
   const admin = createSupabaseAdminClient();
@@ -968,22 +977,6 @@ function assistantAskedFitnessScopeClarify(
   return false;
 }
 
-/** זיהוי גס לבקשת מענה אנושי — משלים את הפרומפט אם המודל דילג על קישור הוואטסאפ */
-function userAsksForHumanAgent(userText: string): boolean {
-  const raw = String(userText ?? "").trim();
-  if (!raw) return false;
-  const t = raw.toLowerCase();
-  const hebrew =
-    /נציג|נציגה|בן\s*אדם|אדם\s*אמיתי|מענה\s*אנושי|דברו\s*איתי|לדבר\s*עם\s*מישהו|לדבר\s*עם\s*אדם|העבר(ה|י)\s*ל|תחבר(ו|י)\s*אותי|אפשר\s*לדבר\s*עם|מישהו\s*אמיתי|נציג\s*אנושי|שירות\s*אנושי|לא\s*רובוט|לא\s*בוט|עם\s*בשר\s*ודם|(אני\s*)?(רוצה|צריך|צריכה|מעוניין|מעוניינת|מבקש|מבקשת).{0,50}שירות\s*לקוחות|שירות\s*לקוחות.{0,20}(בבקשה|עכשיו)/i.test(
-      raw
-    );
-  const english =
-    /\b(human|agent|representative|real\s*person|customer\s*service|talk\s*to\s*(a\s*)?(human|person|someone)|speak\s*to\s*(a\s*)?(human|person))\b/i.test(
-      t
-    );
-  return hebrew || english;
-}
-
 export type CallMarketingAIOptions = {
   /** לשלב 2 (תשובה שלילית אחרי שאלת הבהרה) ולהיסטוריית שיחה */
   leadPhone?: string;
@@ -1089,20 +1082,8 @@ async function tryHandleMarketingPostFlowMenuReply(phone: string, userText: stri
   }
 
   if (labelMatchesChoice(userText, MARKETING_POST_FLOW_BTN_HUMAN)) {
-    const { supportPhone } = await loadMarketingAiSettings();
-    const prefill = supportWhatsAppPrefillFromUserMessage(userText);
-    const waUrl = supportPhone.trim()
-      ? buildMarketingSupportWaUrl(supportPhone.trim(), prefill)
-      : null;
-    if (waUrl) {
-      await sendMarketingWhatsApp(phone, `אין בעיה! לפנייה בנציג אנושי, כתבו לנו כאן:\n${waUrl}`, {
-        model_used: "marketing_post_flow_human",
-      });
-    } else {
-      await sendMarketingWhatsApp(phone, "אין בעיה! צוות HeyZoe יחזור אליכם בהקדם.", {
-        model_used: "marketing_post_flow_human",
-      });
-    }
+    const { handleMarketingHumanAgentRequest } = await import("@/lib/marketing-human-agent");
+    await handleMarketingHumanAgentRequest(phone, { forceLeadMessage: true });
     return true;
   }
 
@@ -1113,6 +1094,9 @@ async function tryHandleMarketingPostFlowMenuReply(phone: string, userText: stri
 export async function deliverMarketingPostFlowAiResponse(phoneRaw: string, userText: string): Promise<void> {
   const phone = normalizePhone(phoneRaw);
   if (!phone) return;
+
+  const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
+  if (await tryHandleMarketingHumanAgentInbound(phone, userText)) return;
 
   const reply = await callMarketingAI(userText, { leadPhone: phone });
   if (reply.trim()) {
@@ -1140,6 +1124,16 @@ export async function callMarketingAI(
   }
 
   const leadPhone = String(opts?.leadPhone ?? "").trim();
+  if (leadPhone) {
+    const { isMarketingHumanAgentRequest, handleMarketingHumanAgentRequest } = await import(
+      "@/lib/marketing-human-agent"
+    );
+    if (isMarketingHumanAgentRequest(userText)) {
+      await handleMarketingHumanAgentRequest(leadPhone);
+      return "";
+    }
+  }
+
   let chatHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
   if (leadPhone) {
     chatHistory = await fetchRecentSessionMessages({
@@ -1152,6 +1146,8 @@ export async function callMarketingAI(
       assistantAskedFitnessScopeClarify(chatHistory)
     ) {
       console.info("[marketing-flow] negative fitness-scope clarify → transfer (no Claude)");
+      const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
+      void applyMarketingHumanAgentSideEffects(leadPhone);
       return sanitizeZoeDashes(await buildOffNicheTransferReply(userText));
     }
   }
@@ -1235,12 +1231,13 @@ ${MARKETING_OFF_NICHE_TRANSFER_CLOSING}
       let out = sanitizeZoeDashes(textBlock?.text?.trim() || "תודה על ההודעה! נחזור אליך בהקדם.");
       if (
         supportWaUrl &&
-        (userAsksForHumanAgent(userText) ||
-          (isNegativeFitnessScopeClarifyReply(userText) &&
-            assistantAskedFitnessScopeClarify(chatHistory)) ||
+        ((isNegativeFitnessScopeClarifyReply(userText) &&
+          assistantAskedFitnessScopeClarify(chatHistory)) ||
           replyLooksLikeOffNicheTransfer(out))
       ) {
         out = formatMarketingOffNicheTransferReply(supportWaUrl);
+        const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
+        void applyMarketingHumanAgentSideEffects(leadPhone);
       }
       if (!opts?.skipPostFlowClosing && leadPhone) {
         const postFlow = await isMarketingPostFlowAiContext(leadPhone);
