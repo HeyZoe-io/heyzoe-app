@@ -129,7 +129,8 @@ export async function logMarketingWhatsAppMessage(input: {
   content: string;
   model_used?: string | null;
 }): Promise<void> {
-  const phone = marketingPhoneDigits(String(input.leadPhone ?? "").trim());
+  const raw = String(input.leadPhone ?? "").trim();
+  const phone = marketingPhoneDigits(raw) || raw.replace(/\D/g, "");
   if (!phone) return;
   await logMessage({
     business_slug: MARKETING_CONVERSATIONS_SLUG,
@@ -180,54 +181,38 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
   const admin = createSupabaseAdminClient();
   const slug = MARKETING_CONVERSATIONS_SLUG;
 
-  const sessionIdOrFilter = marketingWaPhoneNumberIds()
-    .map((id) => `session_id.like.wa_${id}_%`)
-    .join(",");
-
-  const [{ data: messages }, { data: strayMessages }, { data: pausedRows }, { data: flowSessions }] =
-    await Promise.all([
-      admin
-        .from("messages")
-        .select("session_id, role, created_at")
-        .eq("business_slug", slug)
-        .order("created_at", { ascending: true })
-        .limit(50_000),
-      sessionIdOrFilter
-        ? admin
-            .from("messages")
-            .select("session_id, role, created_at")
-            .or(sessionIdOrFilter)
-            .neq("business_slug", slug)
-            .order("created_at", { ascending: true })
-            .limit(10_000)
-        : Promise.resolve({ data: [] as { session_id?: string; role?: string; created_at?: string }[] }),
-      admin
-        .from("paused_sessions")
-        .select("session_id, paused_until")
-        .eq("business_slug", slug)
-        .gt("paused_until", new Date().toISOString()),
-      admin
-        .from("marketing_flow_sessions")
-        .select("phone, updated_at, created_at")
-        .order("updated_at", { ascending: false })
-        .limit(5000),
-    ]);
-
-  const allMessages = [...(messages ?? []), ...(strayMessages ?? [])];
+  const [{ data: messages }, { data: pausedRows }, { data: flowSessions }] = await Promise.all([
+    admin
+      .from("messages")
+      .select("session_id, role, created_at")
+      .eq("business_slug", slug)
+      .order("created_at", { ascending: true })
+      .limit(50_000),
+    admin
+      .from("paused_sessions")
+      .select("session_id, paused_until")
+      .eq("business_slug", slug)
+      .gt("paused_until", new Date().toISOString()),
+    admin
+      .from("marketing_flow_sessions")
+      .select("phone, updated_at, created_at")
+      .order("updated_at", { ascending: false })
+      .limit(5000),
+  ]);
 
   const pausedCanonical = new Set<string>();
   for (const p of pausedRows ?? []) {
     const rawSid = String((p as { session_id?: string }).session_id ?? "").trim();
-    if (!sessionIdBelongsToMarketingLine(rawSid)) continue;
+    if (!rawSid) continue;
     pausedCanonical.add(canonicalMarketingSessionId(rawSid));
   }
 
   const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>();
 
-  for (const m of allMessages) {
+  // כל הודעה עם business_slug=heyzoe-marketing — בלי סינון session_id (הסינון ב-f04fd72 איבד שיחות)
+  for (const m of messages ?? []) {
     const row = m as { session_id?: string; role?: string; created_at?: string };
     const rawSid = String(row.session_id ?? "anon").trim() || "anon";
-    if (rawSid !== "anon" && !sessionIdBelongsToMarketingLine(rawSid)) continue;
     const sid = rawSid === "anon" ? "anon" : canonicalMarketingSessionId(rawSid);
     const at = new Date(String(row.created_at ?? ""));
     if (Number.isNaN(at.getTime())) continue;
@@ -263,16 +248,14 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     }
   }
 
-  const sessions: MarketingSessionSummary[] = [...bySession.entries()]
-    .filter(([sid]) => sid !== "anon")
-    .map(([sid, data]) => ({
-      session_id: sid,
-      lastAt: data.lastAt.toISOString(),
-      count: data.count,
-      isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
-      isPaused: pausedCanonical.has(sid),
-      phone: data.phone,
-    }));
+  const sessions: MarketingSessionSummary[] = [...bySession.entries()].map(([sid, data]) => ({
+    session_id: sid,
+    lastAt: data.lastAt.toISOString(),
+    count: data.count,
+    isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
+    isPaused: pausedCanonical.has(sid),
+    phone: data.phone,
+  }));
 
   sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
   return sessions;

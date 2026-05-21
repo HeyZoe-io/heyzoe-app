@@ -4,6 +4,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { loadBusinessConversationSessions } from "@/lib/conversations-sessions";
 import { isMarketingConversationsSlug, loadMarketingConversationSessions } from "@/lib/marketing-whatsapp";
+import {
+  isZoeAdminAllConversationsSlug,
+  loadAllZoeAdminConversationSessions,
+  ZOE_ADMIN_ALL_CONVERSATIONS_SLUG,
+} from "@/lib/zoe-admin-conversations";
 
 export const runtime = "nodejs";
 
@@ -22,6 +27,18 @@ export async function GET(req: NextRequest) {
 
   try {
     const admin = createSupabaseAdminClient();
+
+    if (isZoeAdminAllConversationsSlug(slug)) {
+      const { data: bizRows } = await admin.from("businesses").select("slug, name").limit(2000);
+      const businesses = (bizRows ?? [])
+        .map((b) => ({
+          slug: String((b as { slug?: string }).slug ?? "").trim().toLowerCase(),
+          name: ((b as { name?: string | null }).name ?? null) as string | null,
+        }))
+        .filter((b) => b.slug);
+      const sessions = await loadAllZoeAdminConversationSessions(admin, businesses);
+      return NextResponse.json({ sessions, slug: ZOE_ADMIN_ALL_CONVERSATIONS_SLUG });
+    }
 
     if (isMarketingConversationsSlug(slug)) {
       const sessions = await loadMarketingConversationSessions();
