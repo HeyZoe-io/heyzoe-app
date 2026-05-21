@@ -2,8 +2,13 @@ import type { ReactNode } from "react";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import SlugDashboardNav from "./Nav";
 import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
+
 import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
 import OwnerWhatsappOptInModal from "@/app/components/OwnerWhatsappOptInModal";
+
+/** מניעת CDN/דפדפן מלהגיש HTML ישן עם chunk hashes ישנים אחרי דיפלוי */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Props = {
   children: ReactNode;

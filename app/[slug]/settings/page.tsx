@@ -3,6 +3,9 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 import SettingsClient from "../../dashboard/[slug]/settings/page";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function queryFromSearchParams(
   raw: Record<string, string | string[] | undefined> | undefined
 ): string {

@@ -3,9 +3,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import UserMenu from "@/app/components/UserMenu";
-import { dashboardMainTabClass } from "@/app/dashboard/[slug]/settings/settings-ui";
-import { useEffect, useState } from "react";
+import {
+  SalesPathSubNav,
+  dashboardMainTabClass,
+} from "@/app/dashboard/[slug]/settings/settings-ui";
 
 export default function SlugDashboardNav({ slug }: { slug: string }) {
   const pathname = usePathname();
@@ -109,6 +112,9 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
         {/* מאזן ויזואלי מול לוגו + משתמש */}
         <div className="hidden sm:block w-[88px] shrink-0 z-[1]" aria-hidden="true" />
       </div>
+      <Suspense fallback={null}>
+        <SalesPathSubNav slug={slug} />
+      </Suspense>
     </header>
   );
 }
