@@ -1,0 +1,24 @@
+---
+description: Scheduled jobs use cron-job.org, not Vercel Crons (Hobby plan)
+alwaysApply: true
+---
+
+# Cron scheduling (Vercel Hobby)
+
+This project is on **Vercel Hobby**. Do **not** add new entries to `vercel.json` → `crons` for app scheduling (especially high-frequency jobs like every 5 minutes).
+
+## How crons run
+
+- **Production scheduling:** [cron-job.org](https://cron-job.org) only — HTTP `GET` (or `POST` if the route expects it) to `/api/cron/<name>` with `Authorization: Bearer <CRON_SECRET>`.
+- **Implement routes** under `app/api/cron/*/route.ts` with the same `authorizeCron` pattern as existing crons (`resolveCronSecret()`).
+- **Document** in the route file comment that scheduling is external (cron-job.org), not Vercel.
+
+## When adding a new cron
+
+1. Create the API route; do **not** register it in `vercel.json` unless the user explicitly asks and confirms a Vercel plan that supports it.
+2. Tell the user to configure cron-job.org (URL, interval, Bearer header).
+3. Optional: add a one-line note in related `supabase/*.sql` comments if the migration references the cron.
+
+## Existing `vercel.json` crons
+
+Leave legacy entries unless the user asks to remove them; do not add more without explicit approval.
