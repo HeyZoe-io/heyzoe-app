@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import UserMenu from "@/app/components/UserMenu";
+import { dashboardMainTabClass } from "@/app/dashboard/[slug]/settings/settings-ui";
 import { useEffect, useState } from "react";
 
 export default function SlugDashboardNav({ slug }: { slug: string }) {
@@ -49,9 +50,9 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
   }, [slug]);
 
   return (
-    <header className="mb-2 border-b border-zinc-200/90">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+    <header className="mb-5 border-0 shadow-none">
+      <div className="relative flex items-center justify-between gap-3 pb-2 min-h-[48px] sm:min-h-[52px]">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3 z-[1]">
           <Link
             href={`${base}/analytics`}
             prefetch={true}
@@ -72,7 +73,7 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
             <Link
               href={`${base}/settings?step=1`}
               prefetch={true}
-              className="hidden md:flex items-center gap-2 text-xs font-medium text-orange-700 hover:text-orange-800 transition underline-offset-2 hover:underline"
+              className="hidden lg:flex items-center gap-2 text-xs font-light text-orange-700 hover:text-orange-800 transition"
               style={{ direction: "rtl" }}
               aria-label="המספר בתהליך אימות — מעבר למסלול מכירה"
             >
@@ -84,8 +85,9 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
             </Link>
           ) : null}
         </div>
+
         <nav
-          className="flex min-w-0 flex-1 justify-end gap-0 overflow-x-auto sm:gap-1"
+          className="absolute left-1/2 top-1/2 z-[2] flex w-max max-w-[calc(100vw-5rem)] sm:max-w-[min(100%,calc(100vw-14rem))] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-4 overflow-x-auto px-1 sm:gap-8"
           aria-label="אזורי דשבורד"
         >
           {items.map((item) => {
@@ -95,12 +97,7 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
                 key={item.href}
                 href={item.href}
                 prefetch={true}
-                className={
-                  "shrink-0 whitespace-nowrap px-3 py-2.5 text-sm transition-colors border-b-2 -mb-px " +
-                  (active
-                    ? "border-[#7133da] font-semibold text-[#7133da]"
-                    : "border-transparent font-medium text-zinc-600 hover:border-zinc-300 hover:text-zinc-900")
-                }
+                className={dashboardMainTabClass(active)}
                 aria-current={active ? "page" : undefined}
               >
                 {item.label}
@@ -108,8 +105,10 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
             );
           })}
         </nav>
+
+        {/* מאזן ויזואלי מול לוגו + משתמש */}
+        <div className="hidden sm:block w-[88px] shrink-0 z-[1]" aria-hidden="true" />
       </div>
     </header>
   );
 }
-

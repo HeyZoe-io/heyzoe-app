@@ -44,7 +44,14 @@ import {
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 import { buildFactQuestions, factFromQuestionAnswer } from "@/lib/fact-questions";
-import { Field, StepHeader, StepPanel, Textarea } from "./settings-ui";
+import {
+  DASHBOARD_SETTINGS_SHELL,
+  Field,
+  StepHeader,
+  StepPanel,
+  Textarea,
+  dashboardStepTabClass,
+} from "./settings-ui";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2398,18 +2405,17 @@ export default function SlugSettingsPage() {
   if (blockingSettingsLoad) {
     return (
       <div className="min-h-[50vh]" dir="rtl">
-        <div className="border-b border-zinc-200/80">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 animate-pulse">
+        <div className={DASHBOARD_SETTINGS_SHELL}>
+          <div className="flex items-center justify-between gap-3 py-3 animate-pulse">
             <div className="h-4 w-40 rounded bg-zinc-200" />
             <div className="h-4 w-24 rounded bg-zinc-200" />
           </div>
-          <div className="mx-auto flex max-w-2xl justify-center gap-6 border-t border-zinc-100 px-4 pb-0 pt-1 animate-pulse">
+          <div className="flex justify-center gap-6 pb-1 pt-2 animate-pulse">
             {Array.from({ length: STEPS.length }).map((_, i) => (
               <div key={i} className="h-4 w-16 rounded bg-zinc-200" />
             ))}
           </div>
-        </div>
-        <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-10 animate-pulse">
+        <div className="space-y-6 py-10 animate-pulse">
           <div className="space-y-4">
             <div className="h-6 w-48 rounded bg-zinc-200 ms-auto" />
             <div className="h-10 w-full rounded-xl bg-zinc-100" />
@@ -2421,6 +2427,7 @@ export default function SlugSettingsPage() {
             <div className="h-4 w-16 rounded bg-zinc-200" />
             <div className="h-10 w-28 rounded-xl bg-zinc-200" />
           </div>
+        </div>
         </div>
       </div>
     );
@@ -2439,9 +2446,8 @@ export default function SlugSettingsPage() {
 
   return (
     <div className="min-h-[50vh]" dir="rtl">
-      {/* Chrome: מותג + שלבי מסלול — לא ממורכז עם תוכן הטאב */}
-      <div className="border-b border-zinc-200/80">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+      <div className={DASHBOARD_SETTINGS_SHELL}>
+        <div className="flex items-center justify-between gap-3 py-3">
           <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-800">
             <span className="hz-gradient-text font-extrabold">HeyZoe</span>
             <span className="text-zinc-300">/</span>
@@ -2470,11 +2476,8 @@ export default function SlugSettingsPage() {
             </div>
           ) : null}
         </div>
-        <nav
-          className="mx-auto max-w-2xl overflow-x-auto border-b border-zinc-200/80 px-4"
-          aria-label="שלבי מסלול מכירה"
-        >
-          <div className="flex min-w-max justify-center gap-0 sm:min-w-0 sm:w-full sm:gap-2">
+        <nav className="overflow-x-auto pb-2" aria-label="שלבי מסלול מכירה">
+          <div className="flex min-w-max justify-center gap-1 sm:min-w-0 sm:w-full sm:gap-4">
             {STEPS.map((label, i) => {
               const n = i + 1;
               const active = step === n;
@@ -2483,12 +2486,7 @@ export default function SlugSettingsPage() {
                   key={n}
                   type="button"
                   onClick={() => setStep(n)}
-                  className={[
-                    "shrink-0 whitespace-nowrap px-3 py-2.5 text-sm transition-colors border-b-2 -mb-px select-none",
-                    active
-                      ? "border-[#7133da] font-semibold text-[#7133da]"
-                      : "border-transparent font-medium text-zinc-600 hover:border-zinc-300 hover:text-zinc-900",
-                  ].join(" ")}
+                  className={`${dashboardStepTabClass(active)} select-none`}
                   aria-current={active ? "page" : undefined}
                 >
                   {label}
@@ -2497,11 +2495,10 @@ export default function SlugSettingsPage() {
             })}
           </div>
         </nav>
-      </div>
 
       {settingsLoadError ? (
         <div
-          className="mx-auto mt-4 max-w-2xl rounded-xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800"
+          className="mt-4 rounded-xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800"
           role="alert"
         >
           {settingsLoadError}
@@ -2509,15 +2506,14 @@ export default function SlugSettingsPage() {
       ) : null}
       {busyError ? (
         <div
-          className="mx-auto mt-4 max-w-2xl rounded-xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800"
+          className="mt-4 rounded-xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800"
           role="alert"
         >
           {busyError}
         </div>
       ) : null}
 
-      {/* תוכן טאב — ממורכז */}
-      <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:py-10 text-right">
+      <div className="py-8 sm:py-10 text-right">
 
         {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
@@ -3128,6 +3124,7 @@ export default function SlugSettingsPage() {
             <Check className="h-4 w-4" /> נשמר בהצלחה!
           </div>
         )}
+      </div>
       </div>
     </div>
   );
