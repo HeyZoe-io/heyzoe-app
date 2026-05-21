@@ -9,12 +9,47 @@ export type SessionSummary = {
   phone: string;
 };
 
+export function buildWaSessionPrefix(phoneNumberId: string): string {
+  const id = String(phoneNumberId ?? "").trim();
+  return id ? `wa_${id}_` : "";
+}
+
 export function extractPhoneFromSessionId(sessionId: string): string {
   if (!sessionId.startsWith("wa_")) return "";
   const rest = sessionId.slice(3);
   const firstUnderscore = rest.indexOf("_");
   if (firstUnderscore < 0) return "";
   return rest.slice(firstUnderscore + 1) || "";
+}
+
+/** session_id = wa_{phone_number_id}_{leadPhone} — מונע ערבוב בין קווי וואטסאפ */
+export function sessionIdMatchesWaPhoneNumberIds(sessionId: string, phoneNumberIds: string[]): boolean {
+  const sid = String(sessionId ?? "").trim();
+  if (!sid.startsWith("wa_")) return false;
+  const ids = phoneNumberIds.map((p) => String(p ?? "").trim()).filter(Boolean);
+  if (!ids.length) return false;
+  return ids.some((pid) => sid.startsWith(buildWaSessionPrefix(pid)));
+}
+
+/** מזהי Meta phone_number_id של עסק מ-whatsapp_channels */
+export async function resolveBusinessWaPhoneNumberIds(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  slug: string
+): Promise<string[]> {
+  const slugVariants = await resolveBusinessSlugVariants(admin, slug);
+  if (!slugVariants.length) return [];
+
+  const { data: channels } = await admin
+    .from("whatsapp_channels")
+    .select("phone_number_id, business_slug")
+    .in("business_slug", slugVariants);
+
+  const ids = new Set<string>();
+  for (const row of channels ?? []) {
+    const id = String((row as { phone_number_id?: string }).phone_number_id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  return [...ids];
 }
 
 /** מחזיר את כל וריאציות ה-slug הרלוונטיות (כולל רישיות שונות ב-messages הישנים) */
@@ -81,6 +116,9 @@ export async function loadBusinessConversationSessions(
   const slugVariants = await resolveBusinessSlugVariants(admin, slug);
   if (!slugVariants.length) return [];
 
+  const phoneNumberIds = await resolveBusinessWaPhoneNumberIds(admin, slug);
+  if (!phoneNumberIds.length) return [];
+
   const [{ data: messages }, { data: pausedRows }] = await Promise.all([
     admin
       .from("messages")
@@ -95,6 +133,15 @@ export async function loadBusinessConversationSessions(
       .gt("paused_until", new Date().toISOString()),
   ]);
 
-  const pausedSet = new Set<string>((pausedRows ?? []).map((p) => String((p as { session_id?: string }).session_id ?? "")));
-  return aggregateSessionsFromMessages(messages ?? [], pausedSet);
+  const filteredMessages = (messages ?? []).filter((m) =>
+    sessionIdMatchesWaPhoneNumberIds(String((m as { session_id?: string }).session_id ?? ""), phoneNumberIds)
+  );
+  const pausedSet = new Set(
+    (pausedRows ?? [])
+      .filter((p) =>
+        sessionIdMatchesWaPhoneNumberIds(String((p as { session_id?: string }).session_id ?? ""), phoneNumberIds)
+      )
+      .map((p) => String((p as { session_id?: string }).session_id ?? ""))
+  );
+  return aggregateSessionsFromMessages(filteredMessages, pausedSet);
 }

@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { sessionIdMatchesWaPhoneNumberIds } from "@/lib/conversations-sessions";
 import { logMessage } from "@/lib/analytics";
 import { sendMetaWhatsAppMessage, type MetaWhatsAppOutgoing } from "@/lib/whatsapp";
 
@@ -132,13 +133,21 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       .limit(5000),
   ]);
 
-  const pausedSet = new Set<string>((pausedRows ?? []).map((p) => String((p as { session_id?: string }).session_id ?? "")));
+  const marketingPhoneIds = [MARKETING_WA_PHONE_NUMBER_ID];
+  const pausedSet = new Set(
+    (pausedRows ?? [])
+      .filter((p) =>
+        sessionIdMatchesWaPhoneNumberIds(String((p as { session_id?: string }).session_id ?? ""), marketingPhoneIds)
+      )
+      .map((p) => String((p as { session_id?: string }).session_id ?? ""))
+  );
 
   const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>();
 
   for (const m of messages ?? []) {
     const row = m as { session_id?: string; role?: string; created_at?: string };
     const sid = String(row.session_id ?? "anon");
+    if (sid !== "anon" && !sessionIdMatchesWaPhoneNumberIds(sid, marketingPhoneIds)) continue;
     const at = new Date(String(row.created_at ?? ""));
     const fromUser = String(row.role ?? "") === "user";
     const phone = extractLeadPhoneFromMarketingSession(sid) || sid;

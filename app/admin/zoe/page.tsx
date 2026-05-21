@@ -6,8 +6,6 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { AdminNav } from "@/app/admin/AdminNav";
 import ZoeAdminClient from "./ZoeAdminClient";
 import type { ZoeBusinessOption } from "./ZoeConversationsTab";
-import { loadAllZoeAdminConversationSessions } from "@/lib/zoe-admin-conversations";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -28,13 +26,6 @@ export default async function AdminZoePage() {
     slug: String((b as { slug?: string }).slug ?? "").trim().toLowerCase(),
     name: ((b as { name?: string | null }).name ?? null) as string | null,
   })).filter((b) => b.slug);
-
-  let initialAllSessions: Awaited<ReturnType<typeof loadAllZoeAdminConversationSessions>> = [];
-  try {
-    initialAllSessions = await loadAllZoeAdminConversationSessions(admin, businesses);
-  } catch (e) {
-    console.error("[admin/zoe] preload all conversations failed:", e);
-  }
 
   return (
     <main
@@ -71,7 +62,7 @@ export default async function AdminZoePage() {
             <p style={{ margin: 0, fontSize: 14, color: "#6b5b9a", textAlign: "right" }}>טוען…</p>
           }
         >
-          <ZoeAdminClient businesses={businesses} initialAllSessions={initialAllSessions} />
+          <ZoeAdminClient businesses={businesses} />
         </Suspense>
       </div>
     </main>
