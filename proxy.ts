@@ -44,7 +44,7 @@ function redirectToBillingReactivate(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Never run auth on APIs or Next internals — matcher below may overlap `/api/*` (e.g. webhooks).
@@ -182,7 +182,7 @@ export async function middleware(req: NextRequest) {
       const m = pathname.match(/^\/dashboard\/([^/]+)\/settings\/?$/);
       const slug = m?.[1] ?? "";
       if (slug) {
-        // NOTE: intentionally no DB calls in middleware (avoid invocation timeouts).
+        // NOTE: intentionally no DB calls in proxy (avoid invocation timeouts).
       }
     }
   }
@@ -197,7 +197,7 @@ export const config = {
     "/account/:path*",
     /*
      * Owner shortcuts under `app/[slug]/…` (/studio/analytics etc.).
-     * `/api`, `/_next`, static files & marketing URLs are exited early inside middleware().
+     * `/api`, `/_next`, static files & marketing URLs are exited early inside proxy().
      */
     "/:slug",
     "/:slug/:path*",
