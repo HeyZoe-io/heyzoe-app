@@ -3,7 +3,11 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
-import { isMarketingConversationsSlug, MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
+import {
+  isMarketingConversationsSlug,
+  MARKETING_CONVERSATIONS_SLUG,
+  marketingSessionIdVariants,
+} from "@/lib/marketing-whatsapp";
 
 export const runtime = "nodejs";
 
@@ -34,13 +38,23 @@ export async function GET(req: NextRequest) {
     ? [MARKETING_CONVERSATIONS_SLUG]
     : await resolveBusinessSlugVariants(admin, slug);
 
-  const { data: messages } = await admin
+  const sessionFilter = isMarketingConversationsSlug(slug)
+    ? marketingSessionIdVariants(sessionId)
+    : [sessionId];
+
+  let messagesQuery = admin
     .from("messages")
     .select("role, content, created_at, error_code")
     .in("business_slug", slugVariants.length ? slugVariants : [slug])
-    .eq("session_id", sessionId)
     .order("created_at", { ascending: true })
     .limit(2000);
+
+  messagesQuery =
+    sessionFilter.length === 1
+      ? messagesQuery.eq("session_id", sessionFilter[0]!)
+      : messagesQuery.in("session_id", sessionFilter);
+
+  const { data: messages } = await messagesQuery;
 
   const out: SessionMessage[] = (messages ?? []).map((m) => ({
     role: String((m as { role?: string }).role ?? ""),

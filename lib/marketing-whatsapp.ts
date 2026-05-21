@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { sessionIdMatchesWaPhoneNumberIds } from "@/lib/conversations-sessions";
+import { extractPhoneFromSessionId, sessionIdMatchesWaPhoneNumberIds } from "@/lib/conversations-sessions";
 import { logMessage } from "@/lib/analytics";
+import { normalizePhone } from "@/lib/phone-normalize";
 import { sendMetaWhatsAppMessage, type MetaWhatsAppOutgoing } from "@/lib/whatsapp";
 
 /** Meta phone_number_id לקו שיווקי HeyZoe */
@@ -46,15 +47,80 @@ export function isMarketingConversationsSlug(slug: string): boolean {
     .toLowerCase() === MARKETING_CONVERSATIONS_SLUG;
 }
 
+/** מזהי קו שיווקי ב-session_id (Meta phone_number_id + מספר תצוגה wa.me) */
+export function marketingWaPhoneNumberIds(): string[] {
+  return [MARKETING_WA_PHONE_NUMBER_ID, MARKETING_PHONE_WA_ME];
+}
+
+export function sessionIdBelongsToMarketingLine(sessionId: string): boolean {
+  const sid = String(sessionId ?? "").trim();
+  if (!sid || sid === "anon") return true;
+  if (!sid.startsWith("wa_")) return false;
+  return sessionIdMatchesWaPhoneNumberIds(sid, marketingWaPhoneNumberIds());
+}
+
+function marketingPhoneDigits(phoneOrSessionId: string): string {
+  const raw = String(phoneOrSessionId ?? "").trim();
+  if (!raw) return "";
+  const fromSession = raw.startsWith("wa_") ? extractPhoneFromSessionId(raw) : raw;
+  return normalizePhone(fromSession) || fromSession.replace(/\D/g, "") || fromSession;
+}
+
 export function marketingWaSessionId(leadPhone: string): string {
-  const digits = String(leadPhone ?? "").replace(/\D/g, "");
+  const digits = marketingPhoneDigits(leadPhone);
   return `wa_${MARKETING_WA_PHONE_NUMBER_ID}_${digits || leadPhone}`;
 }
 
+/** session_id קנוני אחד לליד — מאחד פורמטי טלפון ומזהי קו ישנים */
+export function canonicalMarketingSessionId(phoneOrSessionId: string): string {
+  return marketingWaSessionId(marketingPhoneDigits(phoneOrSessionId) || phoneOrSessionId);
+}
+
+/** כל וריאציות session_id האפשריות לליד (לטעינת הודעות היסטוריות) */
+export function marketingSessionIdVariants(phoneOrSessionId: string): string[] {
+  const raw = String(phoneOrSessionId ?? "").trim();
+  const digits = marketingPhoneDigits(raw);
+  const variants = new Set<string>();
+  if (raw.startsWith("wa_")) variants.add(raw);
+  if (!digits) return raw ? [raw] : [];
+
+  const digitForms = new Set<string>([digits]);
+  if (digits.startsWith("972") && digits.length >= 12) {
+    const local = digits.slice(3);
+    digitForms.add(local);
+    digitForms.add(local.startsWith("0") ? local : `0${local}`);
+  }
+  if (digits.startsWith("0") && digits.length >= 10) {
+    digitForms.add(`972${digits.slice(1)}`);
+  }
+
+  for (const pid of marketingWaPhoneNumberIds()) {
+    for (const d of digitForms) {
+      if (d) variants.add(`wa_${pid}_${d}`);
+    }
+  }
+  variants.add(canonicalMarketingSessionId(raw));
+  return [...variants];
+}
+
 export function extractLeadPhoneFromMarketingSession(sessionId: string): string {
-  const prefix = `wa_${MARKETING_WA_PHONE_NUMBER_ID}_`;
-  if (sessionId.startsWith(prefix)) return sessionId.slice(prefix.length);
-  return "";
+  const sid = String(sessionId ?? "").trim();
+  if (!sid.startsWith("wa_")) return "";
+  for (const pid of marketingWaPhoneNumberIds()) {
+    const prefix = `wa_${pid}_`;
+    if (sid.startsWith(prefix)) return sid.slice(prefix.length);
+  }
+  return extractPhoneFromSessionId(sid);
+}
+
+function formatMarketingPhoneDisplay(phone: string): string {
+  const d = String(phone ?? "").replace(/\D/g, "");
+  if (d.startsWith("972") && d.length >= 12) {
+    const local = d.slice(3);
+    return local.startsWith("0") ? local : `0${local}`;
+  }
+  if (d.startsWith("0")) return d;
+  return phone || "";
 }
 
 export async function logMarketingWhatsAppMessage(input: {
@@ -63,7 +129,7 @@ export async function logMarketingWhatsAppMessage(input: {
   content: string;
   model_used?: string | null;
 }): Promise<void> {
-  const phone = String(input.leadPhone ?? "").trim();
+  const phone = marketingPhoneDigits(String(input.leadPhone ?? "").trim());
   if (!phone) return;
   await logMessage({
     business_slug: MARKETING_CONVERSATIONS_SLUG,
@@ -114,75 +180,99 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
   const admin = createSupabaseAdminClient();
   const slug = MARKETING_CONVERSATIONS_SLUG;
 
-  const [{ data: messages }, { data: pausedRows }, { data: flowSessions }] = await Promise.all([
-    admin
-      .from("messages")
-      .select("session_id, role, created_at")
-      .eq("business_slug", slug)
-      .order("created_at", { ascending: true })
-      .limit(50_000),
-    admin
-      .from("paused_sessions")
-      .select("session_id, paused_until")
-      .eq("business_slug", slug)
-      .gt("paused_until", new Date().toISOString()),
-    admin
-      .from("marketing_flow_sessions")
-      .select("phone, updated_at, created_at")
-      .order("updated_at", { ascending: false })
-      .limit(5000),
-  ]);
+  const sessionIdOrFilter = marketingWaPhoneNumberIds()
+    .map((id) => `session_id.like.wa_${id}_%`)
+    .join(",");
 
-  const marketingPhoneIds = [MARKETING_WA_PHONE_NUMBER_ID];
-  const pausedSet = new Set(
-    (pausedRows ?? [])
-      .filter((p) =>
-        sessionIdMatchesWaPhoneNumberIds(String((p as { session_id?: string }).session_id ?? ""), marketingPhoneIds)
-      )
-      .map((p) => String((p as { session_id?: string }).session_id ?? ""))
-  );
+  const [{ data: messages }, { data: strayMessages }, { data: pausedRows }, { data: flowSessions }] =
+    await Promise.all([
+      admin
+        .from("messages")
+        .select("session_id, role, created_at")
+        .eq("business_slug", slug)
+        .order("created_at", { ascending: true })
+        .limit(50_000),
+      sessionIdOrFilter
+        ? admin
+            .from("messages")
+            .select("session_id, role, created_at")
+            .or(sessionIdOrFilter)
+            .neq("business_slug", slug)
+            .order("created_at", { ascending: true })
+            .limit(10_000)
+        : Promise.resolve({ data: [] as { session_id?: string; role?: string; created_at?: string }[] }),
+      admin
+        .from("paused_sessions")
+        .select("session_id, paused_until")
+        .eq("business_slug", slug)
+        .gt("paused_until", new Date().toISOString()),
+      admin
+        .from("marketing_flow_sessions")
+        .select("phone, updated_at, created_at")
+        .order("updated_at", { ascending: false })
+        .limit(5000),
+    ]);
+
+  const allMessages = [...(messages ?? []), ...(strayMessages ?? [])];
+
+  const pausedCanonical = new Set<string>();
+  for (const p of pausedRows ?? []) {
+    const rawSid = String((p as { session_id?: string }).session_id ?? "").trim();
+    if (!sessionIdBelongsToMarketingLine(rawSid)) continue;
+    pausedCanonical.add(canonicalMarketingSessionId(rawSid));
+  }
 
   const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>();
 
-  for (const m of messages ?? []) {
+  for (const m of allMessages) {
     const row = m as { session_id?: string; role?: string; created_at?: string };
-    const sid = String(row.session_id ?? "anon");
-    if (sid !== "anon" && !sessionIdMatchesWaPhoneNumberIds(sid, marketingPhoneIds)) continue;
+    const rawSid = String(row.session_id ?? "anon").trim() || "anon";
+    if (rawSid !== "anon" && !sessionIdBelongsToMarketingLine(rawSid)) continue;
+    const sid = rawSid === "anon" ? "anon" : canonicalMarketingSessionId(rawSid);
     const at = new Date(String(row.created_at ?? ""));
+    if (Number.isNaN(at.getTime())) continue;
     const fromUser = String(row.role ?? "") === "user";
-    const phone = extractLeadPhoneFromMarketingSession(sid) || sid;
+    const phone = formatMarketingPhoneDisplay(
+      extractLeadPhoneFromMarketingSession(rawSid) || marketingPhoneDigits(rawSid) || rawSid
+    );
     const existing = bySession.get(sid);
     if (!existing) {
       bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser, phone });
     } else {
-      existing.lastAt = at;
+      existing.lastAt = at > existing.lastAt ? at : existing.lastAt;
       existing.count += 1;
       existing.lastFromUser = fromUser;
+      if (!existing.phone && phone) existing.phone = phone;
     }
   }
 
   for (const s of flowSessions ?? []) {
     const row = s as { phone?: string; updated_at?: string; created_at?: string };
-    const phone = String(row.phone ?? "").trim();
-    if (!phone) continue;
-    const sid = marketingWaSessionId(phone);
+    const phoneRaw = String(row.phone ?? "").trim();
+    if (!phoneRaw) continue;
+    const sid = canonicalMarketingSessionId(phoneRaw);
     const at = new Date(String(row.updated_at ?? row.created_at ?? ""));
+    if (Number.isNaN(at.getTime())) continue;
+    const phone = formatMarketingPhoneDisplay(marketingPhoneDigits(phoneRaw) || phoneRaw);
     const existing = bySession.get(sid);
     if (!existing) {
       bySession.set(sid, { lastAt: at, count: 0, lastFromUser: false, phone });
-    } else if (at > existing.lastAt) {
-      existing.lastAt = at;
+    } else {
+      if (at > existing.lastAt) existing.lastAt = at;
+      if (!existing.phone && phone) existing.phone = phone;
     }
   }
 
-  const sessions: MarketingSessionSummary[] = [...bySession.entries()].map(([sid, data]) => ({
-    session_id: sid,
-    lastAt: data.lastAt.toISOString(),
-    count: data.count,
-    isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
-    isPaused: pausedSet.has(sid),
-    phone: data.phone,
-  }));
+  const sessions: MarketingSessionSummary[] = [...bySession.entries()]
+    .filter(([sid]) => sid !== "anon")
+    .map(([sid, data]) => ({
+      session_id: sid,
+      lastAt: data.lastAt.toISOString(),
+      count: data.count,
+      isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
+      isPaused: pausedCanonical.has(sid),
+      phone: data.phone,
+    }));
 
   sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
   return sessions;

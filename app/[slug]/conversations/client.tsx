@@ -331,7 +331,11 @@ export default function ConversationsClient({
         ))}
         {visibleSessions.length === 0 && (
           <p className="text-xs text-zinc-500 text-right">
-            {normalizedFilter ? "אין שיחות שתואמות למסנן זה." : "טרם התקבלו שיחות לעסק זה."}
+            {normalizedFilter
+              ? "אין שיחות שתואמות למסנן זה."
+              : isMarketingConversationsSlug(slug)
+                ? "לא נמצאו שיחות בקו השיווקי. אם יש לידים בוואטסאפ, ודאו ש-marketing_flow_sessions מעודכן ושהודעות נרשמות תחת heyzoe-marketing."
+                : "טרם התקבלו שיחות לעסק זה."}
           </p>
         )}
       </div>
