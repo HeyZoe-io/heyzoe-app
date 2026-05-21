@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, StepHeader, StepPanel, Textarea } from "../settings-ui";
+import { Field, SalesSessionTitle, StepHeader, StepPanel, Textarea } from "../settings-ui";
 import {
   ctaLockedKindForSlot,
   ctaSlotRoleLabel,
@@ -357,7 +357,7 @@ export default function Step4SalesFlow(props: any) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-zinc-900 text-right">סשן פתיחה</p>
+            <SalesSessionTitle>סשן פתיחה</SalesSessionTitle>
             <Button
               type="button"
               variant="outline"
@@ -479,7 +479,7 @@ export default function Step4SalesFlow(props: any) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-zinc-900 text-right">סשן חימום</p>
+            <SalesSessionTitle>סשן חימום</SalesSessionTitle>
             <Button
               type="button"
               variant="outline"
@@ -759,7 +759,7 @@ export default function Step4SalesFlow(props: any) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-zinc-900 text-right">סשן הנעה לפעולה</p>
+            <SalesSessionTitle>סשן הנעה לפעולה</SalesSessionTitle>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -1222,7 +1222,7 @@ export default function Step4SalesFlow(props: any) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-zinc-900 text-right">אחרי הרשמה לשיעור ניסיון</p>
+            <SalesSessionTitle>אחרי הרשמה לשיעור ניסיון</SalesSessionTitle>
             <Button
               type="button"
               variant="outline"
