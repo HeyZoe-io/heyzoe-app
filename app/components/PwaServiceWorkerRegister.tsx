@@ -11,7 +11,23 @@ export default function PwaServiceWorkerRegister() {
     if (process.env.NODE_ENV !== "production") return;
 
     void navigator.serviceWorker
-      .register("/sw.js", { scope: "/", type: "classic", updateViaCache: "none" })
+      .register("/sw.js?v=2026-05-21-dashboard-ui", {
+        scope: "/",
+        type: "classic",
+        updateViaCache: "none",
+      })
+      .then((reg) => {
+        void reg?.update();
+        reg?.addEventListener("updatefound", () => {
+          const worker = reg.installing;
+          if (!worker) return;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "activated" && navigator.serviceWorker.controller) {
+              window.location.reload();
+            }
+          });
+        });
+      })
       .catch(() => {
         /* ignore — ad blockers / private mode */
       });
