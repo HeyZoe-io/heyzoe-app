@@ -1,6 +1,5 @@
 {
   "crons": [
-    { "path": "/api/cron/marketing-followups", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/followup", "schedule": "0 9 * * *" },
     { "path": "/api/cron/reset-monthly-quota-warnings", "schedule": "30 21 * * *" },
     { "path": "/api/cron/reset-monthly-quota-warnings", "schedule": "30 23 * * *" }
