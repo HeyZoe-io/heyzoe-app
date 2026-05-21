@@ -276,31 +276,45 @@ nav{
 }
 .zoe-cap-steps{
   list-style:none;margin:0;padding:0;
-  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:clamp(16px,2.5vw,28px);
+  display:flex;
+  flex-direction:row;
+  direction:rtl;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:0;
   position:relative;
   --zoe-cap-num-h:clamp(3.25rem,7.5vw,5.25rem);
   --zoe-cap-line-y:calc(var(--zoe-cap-num-h) * 0.5);
-  --zoe-cap-gap:clamp(16px,2.5vw,28px);
 }
 .zoe-cap-step{
-  position:relative;text-align:center;padding:0 8px;
+  flex:1 1 0;
+  min-width:0;
+  position:relative;
+  text-align:center;
+  padding:0 6px;
   cursor:default;
   transition:transform 0.35s cubic-bezier(0.22,1,0.36,1);
 }
-/* קטע קו בין מספר למספר (נקטע מתחת למספרים) */
-.zoe-cap-step:not(:last-child)::after{
+/* קטעי קו שווים: מרכז המספר עד גבול העמודה (נקטעים מתחת למספר) */
+.zoe-cap-step:not(:last-child)::after,
+.zoe-cap-step:not(:first-child)::before{
   content:'';
   position:absolute;
   z-index:0;
   top:var(--zoe-cap-line-y);
   transform:translateY(-50%);
-  left:calc(var(--zoe-cap-gap) * -0.5);
-  width:calc(50% + var(--zoe-cap-gap) * 0.55);
   height:2.5px;
   border-radius:2px;
   background:linear-gradient(90deg,rgba(192,132,252,0.65),rgba(129,140,248,0.75) 50%,rgba(96,165,250,0.65));
   pointer-events:none;
+}
+.zoe-cap-step:not(:last-child)::after{
+  left:0;
+  right:50%;
+}
+.zoe-cap-step:not(:first-child)::before{
+  right:0;
+  left:50%;
 }
 .zoe-cap-step:hover{transform:translateY(-6px);}
 .zoe-cap-num{
@@ -348,10 +362,15 @@ nav{
 .zoe-cap-step:hover .zoe-cap-label{color:var(--purple);}
 @media (max-width:768px){
   .zoe-cap-steps{
-    grid-template-columns:1fr 1fr;
-    gap:28px 20px;
+    flex-wrap:wrap;
+    row-gap:28px;
   }
-  .zoe-cap-step::after{display:none;}
+  .zoe-cap-step{
+    flex:1 1 calc(50% - 12px);
+    max-width:calc(50% - 12px);
+  }
+  .zoe-cap-step::after,
+  .zoe-cap-step::before{display:none;}
 }
 @media (prefers-reduced-motion:reduce){
   .zoe-cap-num{animation:none;}
