@@ -14,6 +14,7 @@ import {
   getOffNicheMarketingHardReply,
   handleMarketingFlowInbound,
 } from "@/lib/marketing-flow-runtime";
+import { applyMarketingInboundFollowupSideEffects } from "@/lib/marketing-followups";
 import { normalizePhone } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
 
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
     const flowResult = await handleMarketingFlowInbound(phone, userText);
+    await applyMarketingInboundFollowupSideEffects(phone, userText);
 
     if (flowResult.handled) {
       console.info("[marketing-webhook] flow handled for:", phone);

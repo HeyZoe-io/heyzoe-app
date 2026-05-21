@@ -492,13 +492,15 @@ export async function handleMarketingFlowInbound(
 
     const { waitingForAnswer, nextNodeId } = await sendNodeChain(startNode, phone, edges, nodes);
 
+    const nowIso = new Date().toISOString();
     await admin.from("marketing_flow_sessions").upsert(
       {
         phone,
         current_node_id: nextNodeId,
         flow_completed: !waitingForAnswer && !nextNodeId,
         open_q_pause_state: "none",
-        updated_at: new Date().toISOString(),
+        last_user_message_at: nowIso,
+        updated_at: nowIso,
       },
       { onConflict: "phone" }
     );

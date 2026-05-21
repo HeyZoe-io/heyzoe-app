@@ -982,9 +982,14 @@ async function processIncoming(
         return;
       }
 
+      const { logMarketingWhatsAppMessage } = await import("@/lib/marketing-whatsapp");
+      const { applyMarketingInboundFollowupSideEffects } = await import("@/lib/marketing-followups");
+      await logMarketingWhatsAppMessage({ leadPhone: msg.from, role: "user", content: msg.text });
+
       const { handleMarketingFlowInbound, answerOpenQuestionDuringMarketingFlow, deliverMarketingPostFlowAiResponse } =
         await import("@/lib/marketing-flow-runtime");
       const flowResult = await handleMarketingFlowInbound(msg.from, msg.text);
+      await applyMarketingInboundFollowupSideEffects(msg.from, msg.text);
       if (flowResult.handled) {
         console.info("[WA Webhook] Marketing flow handled for:", msg.from);
         return;
