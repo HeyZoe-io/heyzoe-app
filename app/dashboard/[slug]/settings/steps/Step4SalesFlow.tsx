@@ -10,9 +10,8 @@ import {
   Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Field, StepHeader, Textarea } from "../settings-ui";
+import { Field, StepHeader, StepPanel, Textarea } from "../settings-ui";
 import {
   ctaLockedKindForSlot,
   ctaSlotRoleLabel,
@@ -235,17 +234,12 @@ export default function Step4SalesFlow(props: any) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <StepHeader
-            n={4}
-            title="מסלול מכירה"
-            desc="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
-          />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <StepPanel className="space-y-6">
+      <StepHeader
+        n={4}
+        title="מסלול מכירה"
+        desc="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
+      />
         <div>
           <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-start">
             <p className="text-sm font-medium text-zinc-700">מדיה לפתיחה (אופציונלי)</p>
@@ -1255,8 +1249,7 @@ export default function Step4SalesFlow(props: any) {
             </Field>
           </div>
         </div>
-      </CardContent>
-    </Card>
+    </StepPanel>
   );
 }
 
