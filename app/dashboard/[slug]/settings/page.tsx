@@ -2559,11 +2559,11 @@ export default function SlugSettingsPage() {
             <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
               <WhatsAppNumberSection slug={slug} />
 
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="שם העסק *">
+              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field inline label="שם העסק *">
                   {name.trim() && !businessNameEditing ? (
                     <div className="flex items-stretch gap-2 rounded-xl border border-zinc-300 bg-zinc-50 min-h-10">
-                      <div className="flex-1 px-3 py-2.5 text-sm font-semibold text-zinc-900 text-right leading-snug">
+                      <div className="flex-1 px-3 py-2.5 text-center text-sm font-semibold text-zinc-900 leading-snug">
                         {name}
                       </div>
                       <button
@@ -2583,22 +2583,23 @@ export default function SlugSettingsPage() {
                         if (name.trim()) setBusinessNameEditing(false);
                       }}
                       placeholder="שם העסק"
-                      className="font-medium text-zinc-900"
+                      className="text-center font-medium text-zinc-900"
                       autoFocus={businessNameEditing}
                     />
                   )}
                 </Field>
-                <Field label="שם הבוט">
-                  <Input dir="rtl" value={botName} onChange={e => setBotName(e.target.value)} placeholder="זואי" />
+                <Field inline label="שם הבוט">
+                  <Input dir="rtl" value={botName} onChange={e => setBotName(e.target.value)} placeholder="זואי" className="text-center" />
                 </Field>
               </div>
 
               <Field
+                inline
                 label={
-                  <div className="flex items-baseline justify-between gap-2">
+                  <span className="inline-flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5 sm:justify-end">
                     <span>תיאור העסק</span>
                     <span className="text-[11px] font-medium text-zinc-400">קצר וקולע</span>
-                  </div>
+                  </span>
                 }
               >
                 <Input
@@ -2606,23 +2607,25 @@ export default function SlugSettingsPage() {
                   value={businessTagline}
                   onChange={(e) => setBusinessTagline(e.target.value)}
                   placeholder="סטודיו לפילאטיס מכשירים לחיטוב ובריאות הגוף"
+                  className="text-center"
                 />
               </Field>
 
-              <Field label="כתובת">
+              <Field inline label="כתובת">
                 <Input
                   dir="rtl"
                   value={address}
                   onChange={e => setAddress(e.target.value)}
                   placeholder="רחוב הרצל 5, תל אביב"
                   autoComplete="street-address"
+                  className="text-center"
                 />
               </Field>
 
-              <Field label="טלפון לשירות לקוחות" description="במידה וזואי לא תדע לענות.">
+              <Field inline label="טלפון לשירות לקוחות" description="במידה וזואי לא תדע לענות.">
                 <Input
                   dir="ltr"
-                  className="font-mono text-sm"
+                  className="text-center font-mono text-sm"
                   value={customerServicePhone}
                   onChange={(e) => setCustomerServicePhone(e.target.value)}
                   placeholder="05…"
@@ -2633,8 +2636,9 @@ export default function SlugSettingsPage() {
               </Field>
 
               <Field
+                inline
                 label={
-                  <div className="flex items-center justify-center gap-3">
+                  <span className="inline-flex flex-wrap items-center justify-center gap-3 sm:justify-end">
                     <span>הנחיות הגעה</span>
                     <button
                       type="button"
@@ -2649,14 +2653,14 @@ export default function SlugSettingsPage() {
                     >
                       העלה קובץ
                     </button>
-                  </div>
+                  </span>
                 }
               >
                 <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
               </Field>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-zinc-700 block">כל העובדות שכדאי לציין על העסק</label>
+              <div className="mx-auto w-full max-w-2xl space-y-2 text-center">
+                <label className="block text-sm font-medium text-zinc-700">כל העובדות שכדאי לציין על העסק</label>
 
                 <div className="space-y-2">
                   {traits.map((row, i) => (
@@ -2673,7 +2677,7 @@ export default function SlugSettingsPage() {
                           })
                         }
                         placeholder={traitPlaceholder(i)}
-                        className="flex-1"
+                        className="flex-1 text-center"
                       />
                       {traits.length > 1 ? (
                         <button
@@ -2691,8 +2695,8 @@ export default function SlugSettingsPage() {
                   ))}
                 </div>
 
-                <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-right">
-                  <div className="flex items-start justify-between gap-3">
+                <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-center">
+                  <div className="flex flex-wrap items-start justify-center gap-3">
                     <div>
                       <p className="text-sm font-semibold text-[#2d1a6e]">שאלות נוספות</p>
                     </div>
@@ -2717,7 +2721,7 @@ export default function SlugSettingsPage() {
                       const q = factQuestions[factQuestionIdx] ?? factQuestions[0]!;
                       return (
                         <div className="mt-3 rounded-xl border border-violet-200/70 bg-white/80 p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center justify-center gap-2">
                             <p className="text-sm font-medium text-zinc-900">{q.question}</p>
                             <Button
                               type="button"
@@ -2743,13 +2747,14 @@ export default function SlugSettingsPage() {
                                 setFactAnswers((m) => ({ ...m, [q.id]: v }));
                               }}
                               placeholder={q.placeholder}
+                              className="text-center"
                             />
                           </div>
                         </div>
                       );
                     })()
                   ) : (
-                    <p className="mt-3 text-sm text-zinc-700">
+                    <p className="mt-3 text-center text-sm text-zinc-700">
                       נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.
                     </p>
                   )}
@@ -2766,12 +2771,13 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <Field label="הנחות ומבצעים">
+              <Field inline label="הנחות ומבצעים">
                 <Input
                   dir="rtl"
                   value={promotions}
                   onChange={(e) => setPromotions(e.target.value)}
                   placeholder="20% הנחה על מנויים חדשים עד סוף החודש"
+                  className="text-center"
                 />
               </Field>
 
