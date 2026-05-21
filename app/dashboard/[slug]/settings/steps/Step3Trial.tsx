@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Field, StepHeader } from "../settings-ui";
+import { Field, StepHeader, StepPanel } from "../settings-ui";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
 import { normalizeMasculinePredicatesAfterPracticeHead, type OfferKind } from "@/lib/sales-flow";
 
@@ -277,19 +276,14 @@ export default function Step3Trial(props: {
   const isTrialBenefitGenerating = activeTrialBenefitUiId !== null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <StepHeader
-            n={3}
-            title="מוצרים"
-            desc={
-              "מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\\סדנה\\קורס וערכו"
-            }
-          />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <StepPanel className="space-y-4">
+      <StepHeader
+        n={3}
+        title="מוצרים"
+        desc={
+          "מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\\סדנה\\קורס וערכו"
+        }
+      />
         <div
           dir="rtl"
           className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 space-y-3 text-center"
@@ -693,8 +687,7 @@ export default function Step3Trial(props: {
         >
           <Plus className="h-4 w-4" /> הוסף אימון
         </Button>
-      </CardContent>
-    </Card>
+    </StepPanel>
   );
 }
 

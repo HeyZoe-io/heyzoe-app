@@ -1,5 +1,16 @@
 "use client";
 
+/** תוכן טאב ישירות על רקע הדף — בלי מסגרת Card חיצונית */
+export function StepPanel({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <section className={`w-full ${className}`.trim()}>{children}</section>;
+}
+
 export function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
   return (
     <div className="mb-7">

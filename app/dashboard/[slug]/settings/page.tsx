@@ -12,7 +12,6 @@ import {
   GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
 import {
@@ -45,7 +44,7 @@ import {
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 import { buildFactQuestions, factFromQuestionAnswer } from "@/lib/fact-questions";
-import { Field, StepHeader, Textarea } from "./settings-ui";
+import { Field, StepHeader, StepPanel, Textarea } from "./settings-ui";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -448,7 +447,7 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
   }, []);
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white/70 p-4 shadow-[0_16px_44px_rgba(95,64,178,0.08)]">
+    <div className="border-b border-zinc-200/80 pb-6 mb-2">
       <div className="flex items-start justify-between gap-3">
         <div className="text-right">
           <div className="text-sm font-semibold text-zinc-900">מספר ה‑WhatsApp שלך</div>
@@ -1074,38 +1073,26 @@ function normalizeTraitsState(arr: string[]): string[] {
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
   loading: () => (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <StepHeader n={3} title="מוצרים" desc="טוען…" />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-xl border border-zinc-200 bg-white/70 p-6 text-center text-sm text-zinc-500">
-          <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
-          טוען את הטאב…
-        </div>
-      </CardContent>
-    </Card>
+    <StepPanel className="space-y-4">
+      <StepHeader n={3} title="מוצרים" desc="טוען…" />
+      <div className="rounded-xl border border-zinc-200/80 bg-white p-6 text-center text-sm text-zinc-500">
+        <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
+        טוען את הטאב…
+      </div>
+    </StepPanel>
   ),
 });
 
 const Step4SalesFlow = dynamic(() => import("./steps/Step4SalesFlow"), {
   ssr: false,
   loading: () => (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <StepHeader n={4} title="מסלול מכירה" desc="טוען…" />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-xl border border-zinc-200 bg-white/70 p-6 text-center text-sm text-zinc-500">
-          <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
-          טוען את הטאב…
-        </div>
-      </CardContent>
-    </Card>
+    <StepPanel className="space-y-4">
+      <StepHeader n={4} title="מסלול מכירה" desc="טוען…" />
+      <div className="rounded-xl border border-zinc-200/80 bg-white p-6 text-center text-sm text-zinc-500">
+        <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
+        טוען את הטאב…
+      </div>
+    </StepPanel>
   ),
 });
 
@@ -2475,9 +2462,7 @@ export default function SlugSettingsPage() {
   return (
     <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
 
-      <div
-        className="w-full border-b border-white/50 bg-white/68 shadow-[0_18px_50px_rgba(95,64,178,0.1)] backdrop-blur-xl overflow-x-hidden"
-      >
+      <div className="w-full border-b border-zinc-200/80 overflow-x-hidden">
           <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
               <span className="hz-gradient-text font-extrabold">HeyZoe</span>
@@ -2541,22 +2526,17 @@ export default function SlugSettingsPage() {
       ) : null}
 
       {/* ── Step content ── */}
-      <div className="max-w-6xl mx-auto px-4 py-10">
-        <div className="max-w-2xl mx-auto w-full">
+      <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
+        <div className="w-full max-w-3xl">
 
         {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader
-                  n={1}
-                  title="לינקים"
-                  desc="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
-                />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
+          <StepPanel className="space-y-5">
+            <StepHeader
+              n={1}
+              title="לינקים"
+              desc="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
+            />
               <Field label="לינק לאתר">
                 <p className="text-xs text-zinc-500 mt-0.5 mb-2 text-right leading-relaxed">
                   סרקו והמתינו דקה ליצירת תוכן אוטומטית
@@ -2622,20 +2602,14 @@ export default function SlugSettingsPage() {
                   />
                 </div>
               </Field>
-            </CardContent>
-          </Card>
+          </StepPanel>
         )}
 
         {/* ════════════════════ STEP 2 — על העסק ════════════════════ */}
         {keepAboutBusinessStepMountedRef.current ? (
           <div className={step !== 2 ? "hidden" : undefined} aria-hidden={step !== 2}>
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
+          <StepPanel className="space-y-5">
+            <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
               <WhatsAppNumberSection slug={slug} />
 
               <div className="grid grid-cols-2 gap-4">
@@ -2854,8 +2828,7 @@ export default function SlugSettingsPage() {
                 />
               </Field>
 
-            </CardContent>
-          </Card>
+          </StepPanel>
           </div>
         ) : null}
 
@@ -2939,17 +2912,12 @@ export default function SlugSettingsPage() {
 
         {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
         {step === 5 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <StepHeader
-                  n={5}
-                  title="פולואפ"
-                  desc="הודעות פולואפ לליד שהפסיק לענות. השליחה לא תתבצע בלילות ובמהלך השבת, או אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
-                />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
+          <StepPanel className="space-y-5">
+            <StepHeader
+              n={5}
+              title="פולואפ"
+              desc="הודעות פולואפ לליד שהפסיק לענות. השליחה לא תתבצע בלילות ובמהלך השבת, או אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
+            />
               <div className="flex flex-wrap justify-end">
                 <Button
                   type="button"
@@ -2975,8 +2943,7 @@ export default function SlugSettingsPage() {
               <Field label="הודעה שלישית (~23 שעות)">
                 <Textarea value={waSalesFollowup3} onChange={setWaSalesFollowup3} rows={6} />
               </Field>
-            </CardContent>
-          </Card>
+          </StepPanel>
         )}
 
         </div>
