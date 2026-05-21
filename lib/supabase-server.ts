@@ -20,7 +20,7 @@ export async function createSupabaseServerClient() {
           }
         } catch {
           // `cookies().set` is not allowed in some Server Component render paths
-          // (e.g. token refresh); middleware / Route Handlers own session refresh.
+          // (e.g. token refresh); proxy / Route Handlers own session refresh.
         }
       },
     },
