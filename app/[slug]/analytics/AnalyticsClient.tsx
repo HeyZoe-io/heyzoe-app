@@ -6,6 +6,11 @@ import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
 } from "@/app/dashboard/[slug]/settings/settings-ui";
+import {
+  getAnalyticsClientCache,
+  setAnalyticsClientCache,
+  type AnalyticsClientPayload,
+} from "@/lib/analytics-client-cache";
 import type { PremiumAnalyticsResult } from "@/lib/analytics-pro-metrics";
 import {
   ResponsiveContainer,
@@ -21,14 +26,7 @@ import {
 
 type RangeKey = "month" | "week" | "all";
 
-type AnalyticsPayload = {
-  range: RangeKey;
-  newLeads: number;
-  converted: number;
-  conversionRate: number;
-  totalChats: number;
-  suggestions: string[];
-};
+type AnalyticsPayload = AnalyticsClientPayload;
 
 function resolveRangeKey(raw: unknown): RangeKey {
   const r = String(raw ?? "").trim().toLowerCase();
@@ -67,22 +65,22 @@ export default function AnalyticsClient({
   slug,
   planIsPremium,
   initialRange,
-  initial,
-  premiumInitial,
 }: {
   slug: string;
   planIsPremium: boolean;
   initialRange: RangeKey;
-  initial: AnalyticsPayload;
-  premiumInitial: PremiumAnalyticsResult | null;
 }) {
-  const [range, setRange] = useState<RangeKey>(initialRange);
-  const [data, setData] = useState<AnalyticsPayload>(initial);
-  const [premium, setPremium] = useState<PremiumAnalyticsResult | null>(() => premiumInitial);
-  const [loading, setLoading] = useState(false);
-  const lastLoadedRangeRef = useRef<RangeKey>(initialRange);
+  const cachedOnMount = getAnalyticsClientCache(slug, initialRange);
+  const [range, setRange] = useState<RangeKey>(cachedOnMount?.range ?? initialRange);
+  const [data, setData] = useState<AnalyticsPayload | null>(cachedOnMount?.data ?? null);
+  const [premium, setPremium] = useState<PremiumAnalyticsResult | null>(
+    () => cachedOnMount?.premium ?? null
+  );
+  const [loading, setLoading] = useState(!cachedOnMount);
+  const lastLoadedRangeRef = useRef<RangeKey>(cachedOnMount?.range ?? initialRange);
   const mountedRef = useRef(true);
   const inFlightRef = useRef<{ ac: AbortController | null; reqId: number }>({ ac: null, reqId: 0 });
+  const bootstrappedRef = useRef(Boolean(cachedOnMount));
 
   useEffect(() => {
     mountedRef.current = true;
@@ -135,13 +133,12 @@ export default function AnalyticsClient({
         suggestions:
           Array.isArray(j.suggestions) && j.suggestions.length
             ? j.suggestions.map((x: any) => String(x ?? ""))
-            : data.suggestions,
+            : (data?.suggestions ?? []),
       };
 
-      setData(payload);
-
+      let nextPremium: PremiumAnalyticsResult | null = null;
       if (planIsPremium && j?.pro === true && Array.isArray(j.leadsByDay) && Array.isArray(j.inboundMessagesByHour)) {
-        setPremium({
+        nextPremium = {
           leadsByDay: j.leadsByDay.map((row: any) => ({
             date: String(row?.date ?? ""),
             count: Number(row?.count ?? 0) || 0,
@@ -154,10 +151,16 @@ export default function AnalyticsClient({
                 count: Number(r?.count ?? 0) || 0,
               }))
             : [],
-        });
-      } else if (!planIsPremium) {
-        setPremium(null);
+        };
       }
+
+      setData(payload);
+      setPremium(nextPremium);
+      setAnalyticsClientCache(slug, {
+        data: payload,
+        premium: nextPremium,
+        range: payload.range,
+      });
 
       updateUrlRange(slug, payload.range);
       lastLoadedRangeRef.current = payload.range;
@@ -169,29 +172,32 @@ export default function AnalyticsClient({
   }
 
   useEffect(() => {
-    if (range === initialRange) return;
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+    void load(initialRange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (range === lastLoadedRangeRef.current) return;
     void load(range);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range]);
 
-  useEffect(() => {
-    const reloadIfVisible = () => {
-      if (loading) return;
-      try {
-        if (document.visibilityState !== "visible") return;
-      } catch {
-        /* noop */
-      }
-      void load(lastLoadedRangeRef.current);
-    };
-    window.addEventListener("focus", reloadIfVisible);
-    document.addEventListener("visibilitychange", reloadIfVisible);
-    return () => {
-      window.removeEventListener("focus", reloadIfVisible);
-      document.removeEventListener("visibilitychange", reloadIfVisible);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  function applyRange(next: RangeKey) {
+    if (next === range) return;
+    lastLoadedRangeRef.current = next;
+    const hit = getAnalyticsClientCache(slug, next);
+    if (hit) {
+      setRange(next);
+      setData(hit.data);
+      setPremium(hit.premium);
+      setLoading(false);
+      updateUrlRange(slug, next);
+      return;
+    }
+    setRange(next);
+  }
 
   const leadsPlot = useMemo(
     () => (premium?.leadsByDay?.length ? leadsChartShim(premium.leadsByDay) : []),
@@ -203,7 +209,34 @@ export default function AnalyticsClient({
   );
 
   const chartPurple = "#7133da";
-  const isEmpty = !loading && (Number(data.totalChats ?? 0) || 0) === 0;
+  const isEmpty = !loading && data !== null && (Number(data.totalChats ?? 0) || 0) === 0;
+
+  if (!data && loading) {
+    return (
+      <div
+        className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} space-y-6 animate-pulse`}
+        aria-busy="true"
+      >
+        <div className="h-8 w-40 rounded bg-zinc-200 mx-auto" />
+        <section className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 p-4">
+              <div className="h-3 w-28 rounded bg-zinc-200 mx-auto" />
+              <div className="mt-3 h-8 w-20 rounded bg-zinc-200 mx-auto" />
+            </div>
+          ))}
+        </section>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} py-12 text-center text-sm text-zinc-500`}>
+        לא הצלחנו לטעון נתונים. נסו לרענן את הדף.
+      </div>
+    );
+  }
 
   return (
     <div
@@ -218,7 +251,7 @@ export default function AnalyticsClient({
             <button
               type="button"
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${range === "week" ? "bg-zinc-900 text-white shadow-sm" : "bg-white/70 text-zinc-700 hover:bg-white"}`}
-              onClick={() => setRange("week")}
+              onClick={() => applyRange("week")}
               disabled={loading}
             >
               שבוע אחרון
@@ -226,7 +259,7 @@ export default function AnalyticsClient({
             <button
               type="button"
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${range === "month" ? "bg-zinc-900 text-white shadow-sm" : "bg-white/70 text-zinc-700 hover:bg-white"}`}
-              onClick={() => setRange("month")}
+              onClick={() => applyRange("month")}
               disabled={loading}
             >
               חודש
@@ -234,7 +267,7 @@ export default function AnalyticsClient({
             <button
               type="button"
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${range === "all" ? "bg-zinc-900 text-white shadow-sm" : "bg-white/70 text-zinc-700 hover:bg-white"}`}
-              onClick={() => setRange("all")}
+              onClick={() => applyRange("all")}
               disabled={loading}
             >
               כל הזמן
