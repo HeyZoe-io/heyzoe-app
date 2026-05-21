@@ -497,7 +497,7 @@ function truncateInteractiveBody(text: string): string {
 }
 
 /**
- * Builds Meta Cloud API `interactive` payload: 2–3 options → reply buttons; 4+ → list (max 10 rows).
+ * Builds Meta Cloud API `interactive` payload: 1–3 options → reply buttons; 4+ → list (max 10 rows).
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-reply-buttons-messages
  */
 export function buildMetaInteractivePayload(
@@ -506,7 +506,7 @@ export function buildMetaInteractivePayload(
   footerText?: string
 ): { type: "interactive"; interactive: Record<string, unknown> } | null {
   const labels = optionLabels.map((l) => l.trim()).filter(Boolean);
-  if (labels.length < 2) return null;
+  if (labels.length < 1) return null;
 
   const capped = labels.slice(0, META_LIST_ROWS_MAX);
   const body = formatWhatsAppRtlBody(truncateInteractiveBody(bodyText.trim() || "\u200e"));
