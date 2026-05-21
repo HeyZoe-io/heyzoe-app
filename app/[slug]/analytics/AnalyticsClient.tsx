@@ -96,12 +96,6 @@ export default function AnalyticsClient({
     };
   }, []);
 
-  const subtitle = useMemo(() => {
-    const suffix =
-      range === "week" ? "שבוע אחרון" : range === "all" ? "כל הזמן" : "חודש";
-    return `לידים, המרות ושיעור המרה (${suffix})`;
-  }, [range]);
-
   async function load(next: RangeKey) {
     try {
       inFlightRef.current.ac?.abort();
@@ -218,11 +212,8 @@ export default function AnalyticsClient({
     >
       <div className="hz-wave hz-wave-1">
         <h1 className="text-2xl font-semibold text-zinc-900">אנליטיקס</h1>
-        <div className="mt-3 flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:justify-center">
-          <div className="flex items-center justify-center gap-2">
-            <p className="text-sm text-zinc-600">{subtitle}</p>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin text-zinc-400" aria-hidden /> : null}
-          </div>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin text-zinc-400" aria-hidden /> : null}
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
@@ -291,10 +282,10 @@ export default function AnalyticsClient({
 
           {planIsPremium ? (
             <section className="space-y-4 hz-wave hz-wave-3">
-          <div className="flex flex-col items-center gap-2 border-b border-white/70 pb-2 text-center sm:flex-row sm:flex-wrap sm:justify-center">
-            <h2 className="text-lg font-semibold text-zinc-900">ניתוח Pro</h2>
+          <div className="flex flex-wrap items-center justify-center gap-2 border-b border-white/70 pb-2 text-center">
+            <h2 className="text-lg font-semibold text-zinc-900">ניתוח</h2>
             <span className="rounded-full bg-[#f7f3ff] border border-[#7133da]/25 px-2.5 py-0.5 text-[11px] font-semibold text-[#7133da]">
-              כללי בחשבון Pro בלבד
+              לחשבון Pro
             </span>
           </div>
 
