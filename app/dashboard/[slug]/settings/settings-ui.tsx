@@ -146,13 +146,35 @@ export function Field({
   children,
   className = "",
   description,
+  inline = false,
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
   className?: string;
   /** שורת הסבר מתחת לכותרת (למשל לפני שדה הקלט) */
   description?: string;
+  /** כותרת באותה שורה עם השדה (RTL) */
+  inline?: boolean;
 }) {
+  if (inline) {
+    return (
+      <div className={`mx-auto w-full max-w-2xl space-y-2 ${className}`}>
+        <div
+          className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-center sm:gap-4"
+          dir="rtl"
+        >
+          <div className="shrink-0 text-center text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 sm:text-right">
+            {label}
+          </div>
+          <div className="min-w-0 w-full flex-1 sm:max-w-md">{children}</div>
+        </div>
+        {description ? (
+          <p className="text-center text-xs leading-6 text-zinc-500">{description}</p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className={`mx-auto w-full max-w-2xl space-y-2 text-center ${className}`}>
       <div className="block text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">{label}</div>
