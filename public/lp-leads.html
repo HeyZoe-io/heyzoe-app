@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>HeyZoe - בוטית מכירות מומחית לעסקי כושר</title>
 <link rel="icon" type="image/png" href="/zoe-browser-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;700;900&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <!-- PostHog (LP is static HTML, so load manually) -->
 <script>
   !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
@@ -237,10 +237,10 @@ nav{
 .hero-phone-stage .wa-name,
 .hero-phone-stage .wa-status{
   font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  font-weight:400;
+  font-weight:300;
 }
-.hero-phone-stage .wa-name{font-weight:500;}
-.hero-phone-stage .wa-qr{font-weight:500;}
+.hero-phone-stage .wa-name{font-weight:400;}
+.hero-phone-stage .wa-qr{font-weight:400;}
 .hero-phone-stage .wa-body{
   height:468px;min-height:468px;max-height:468px;
   overflow-y:auto;overflow-x:hidden;
@@ -381,8 +381,8 @@ nav{
 }
 .zoe-cap-label{
   font-family:'Heebo',sans-serif;
-  font-size:clamp(15px,1.5vw,17px);font-weight:400;
-  color:var(--dark);line-height:1.55;max-width:220px;margin-inline:auto;
+  font-size:clamp(17px,1.85vw,21px);font-weight:400;
+  color:var(--dark);line-height:1.32;max-width:240px;margin-inline:auto;
   transition:color 0.25s ease;
 }
 .zoe-cap-step:hover .zoe-cap-label{color:var(--purple);}
@@ -925,7 +925,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <div><div class="wa-name">זואי - יוגי בוגי</div><div class="wa-status">מקוון</div></div>
         </div>
         <div class="wa-body">
-          <div class="wa-msg" id="wm1">היי! איזה כיף שהגעת אלינו 🙂<br>שמי זואי מ־יוגי בוגי<br>סטודיו היוגה על בוגי הגדול במדינה!<br>נשמח שתבואי להתאמן איתנו.<br>כתובתנו היא אשטנגה 32 תל אביב.<div class="wa-time">10:32</div></div>
+          <div class="wa-msg" id="wm1">היי! איזה כיף שהגעת אלינו 🙂<br>שמי זואי מ־יוגי בוגי<br>סטודיו היוגה על בוגי הגדול במדינה!<br>כתובתנו: אשטנגה 32 תל אביב.<div class="wa-time">10:32</div></div>
           <div class="wa-msg wa-msg-has-replies" id="wm2">
             <div class="wa-msg-top">כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,<br>איזה אימון הכי קורץ לך?
             <div class="wa-quick" id="waQuick" aria-hidden="true">
@@ -956,19 +956,19 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     <ol class="zoe-cap-steps">
       <li class="zoe-cap-step reveal">
         <span class="zoe-cap-num" aria-hidden="true"><span class="zoe-cap-num-bg">01</span><span class="zoe-cap-num-fg">01</span></span>
-        <p class="zoe-cap-label">שואבת את המידע מהאתר</p>
+        <p class="zoe-cap-label">שואבת את<br>המידע מהאתר</p>
       </li>
       <li class="zoe-cap-step reveal">
         <span class="zoe-cap-num" aria-hidden="true"><span class="zoe-cap-num-bg">02</span><span class="zoe-cap-num-fg">02</span></span>
-        <p class="zoe-cap-label">בונה לבד את הפלואו מכירה</p>
+        <p class="zoe-cap-label">בונה לבד<br>את הפלואו מכירה</p>
       </li>
       <li class="zoe-cap-step reveal">
         <span class="zoe-cap-num" aria-hidden="true"><span class="zoe-cap-num-bg">03</span><span class="zoe-cap-num-fg">03</span></span>
-        <p class="zoe-cap-label">רושמת לידים לאימוני ניסיון</p>
+        <p class="zoe-cap-label">רושמת לידים<br>לאימוני ניסיון</p>
       </li>
       <li class="zoe-cap-step reveal">
         <span class="zoe-cap-num" aria-hidden="true"><span class="zoe-cap-num-bg">04</span><span class="zoe-cap-num-fg">04</span></span>
-        <p class="zoe-cap-label">עונה גם לשאלות פתוחות</p>
+        <p class="zoe-cap-label">עונה גם<br>לשאלות פתוחות</p>
       </li>
     </ol>
   </div>
