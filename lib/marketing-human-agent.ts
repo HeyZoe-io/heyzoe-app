@@ -9,7 +9,7 @@ import {
 import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
 
-const MARKETING_HUMAN_BTN_LABEL = "נציג אנושי";
+export const MARKETING_HUMAN_AGENT_BTN_LABEL = "נציג אנושי";
 
 export const MARKETING_HUMAN_AGENT_LEAD_REPLY =
   "אין בעיה, נציג אנושי יצור איתכם קשר כאן ממש בקרוב! 😊";
@@ -32,7 +32,7 @@ function labelMatchesChoice(text: string, choice: string): boolean {
 
 /** זיהוי בקשת נציג אנושי (טקסט חופשי או כפתור «נציג אנושי»). */
 export function isMarketingHumanAgentRequest(userText: string): boolean {
-  if (labelMatchesChoice(userText, MARKETING_HUMAN_BTN_LABEL)) return true;
+  if (labelMatchesChoice(userText, MARKETING_HUMAN_AGENT_BTN_LABEL)) return true;
   const raw = String(userText ?? "").trim();
   if (!raw) return false;
   const t = raw.toLowerCase();
@@ -68,7 +68,7 @@ export async function recentAssistantSentMarketingHumanHandoff(phoneRaw: string)
     const model = String((row as { model_used?: string }).model_used ?? "");
     if (content.includes(leadSnippet)) return true;
     if (content.includes("יש מצב שיש לנו פתרון עבורך")) return true;
-    if (content.includes("שלחו להם הודעה ויחזרו אליכם בקרוב") && /wa\.me/i.test(content)) return true;
+    if (content.includes("שלחו להם הודעה ויחזרו אליכם בקרוב")) return true;
     if (/marketing_post_flow_human|marketing_human_agent|off.niche|off_niche/i.test(model)) return true;
     if (/נציג אנושי יצור|לפנייה בנציג אנושי/i.test(content)) return true;
   }
@@ -133,7 +133,7 @@ export async function tryHandleMarketingHumanAgentInbound(
 ): Promise<boolean> {
   if (!isMarketingHumanAgentRequest(userText)) return false;
   await handleMarketingHumanAgentRequest(phoneRaw, {
-    forceLeadMessage: labelMatchesChoice(userText, MARKETING_HUMAN_BTN_LABEL),
+    forceLeadMessage: labelMatchesChoice(userText, MARKETING_HUMAN_AGENT_BTN_LABEL),
   });
   return true;
 }

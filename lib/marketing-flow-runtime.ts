@@ -906,14 +906,10 @@ export const MARKETING_FITNESS_SCOPE_CLARIFY_QUESTION =
 export const MARKETING_OFF_NICHE_TRANSFER_INTRO =
   "יש מצב שיש לנו פתרון עבורך, אבל אני אצטרך להעביר אותך לנציגה אנושית שהיא אפילו יותר מבינה ממני :)";
 
-export const MARKETING_OFF_NICHE_TRANSFER_CLOSING =
-  "שלחו להם הודעה ויחזרו אליכם בקרוב :)";
-
-export function formatMarketingOffNicheTransferReply(waUrl: string | null): string {
-  if (!waUrl) {
-    return `${MARKETING_OFF_NICHE_TRANSFER_INTRO}\n\n${MARKETING_OFF_NICHE_TRANSFER_CLOSING}`;
-  }
-  return `${MARKETING_OFF_NICHE_TRANSFER_INTRO}\n\n${waUrl}\n\n${MARKETING_OFF_NICHE_TRANSFER_CLOSING}`;
+/** נוסח לליד בהעברה לנציג — בלי קישור wa.me (התראה לבעלים ב-template נפרד) */
+export async function buildMarketingOffNicheTransferLeadReply(): Promise<string> {
+  const { MARKETING_HUMAN_AGENT_LEAD_REPLY } = await import("@/lib/marketing-human-agent");
+  return `${MARKETING_OFF_NICHE_TRANSFER_INTRO}\n\n${MARKETING_HUMAN_AGENT_LEAD_REPLY}`;
 }
 
 function replyLooksLikeOffNicheTransfer(reply: string): boolean {
@@ -934,18 +930,8 @@ export function isOffNicheMarketingLeadMessage(userText: string): boolean {
   return MARKETING_OFF_NICHE_BLACKLIST_RE.test(raw);
 }
 
-async function buildOffNicheTransferReply(userText: string): Promise<string> {
-  const { supportPhone } = await loadMarketingAiSettings();
-  const prefill = supportWhatsAppPrefillFromUserMessage(userText);
-  const waUrl = supportPhone.trim()
-    ? buildMarketingSupportWaUrl(supportPhone.trim(), prefill)
-    : null;
-
-  if (!waUrl) {
-    console.warn("[marketing-flow] off-niche transfer but marketing_support_phone is missing");
-  }
-
-  return formatMarketingOffNicheTransferReply(waUrl);
+async function buildOffNicheTransferReply(_userText: string): Promise<string> {
+  return buildMarketingOffNicheTransferLeadReply();
 }
 
 /** תשובה קבועה + wa.me — null אם ההודעה לא ברשימה השחורה */
@@ -1120,6 +1106,11 @@ export async function callMarketingAI(
   const offNicheReply = await getOffNicheMarketingHardReply(userText);
   if (offNicheReply) {
     console.info("[marketing-flow] off-niche blacklist hard reply (no Claude)");
+    const leadPhone = String(opts?.leadPhone ?? "").trim();
+    if (leadPhone) {
+      const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
+      void applyMarketingHumanAgentSideEffects(leadPhone);
+    }
     return sanitizeZoeDashes(offNicheReply);
   }
 
@@ -1148,7 +1139,7 @@ export async function callMarketingAI(
       console.info("[marketing-flow] negative fitness-scope clarify → transfer (no Claude)");
       const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
       void applyMarketingHumanAgentSideEffects(leadPhone);
-      return sanitizeZoeDashes(await buildOffNicheTransferReply(userText));
+      return sanitizeZoeDashes(await buildMarketingOffNicheTransferLeadReply());
     }
   }
 
@@ -1185,23 +1176,27 @@ export async function callMarketingAI(
   const supportPrefill = supportWhatsAppPrefillFromUserMessage(userText);
   const supportWaUrl = trimmedPhone ? buildMarketingSupportWaUrl(trimmedPhone, supportPrefill) : null;
 
-  const supportAppendix = supportWaUrl
-    ? `\n\nקישור וואטסאפ לשירות לקוחות אנושי (העתיקי בשורה נפרדת בדיוק כפי שמופיע, בלי לשנות):
-${supportWaUrl}
-
-חובה: אל תציגי מספר טלפון גולמי. הפניה לשירות — רק עם קישור wa.me כמו למעלה.
-
-נוסח חובה להעברה לנציג (עסק מחוץ לכושר/ספורט/תנועה, תשובה שלילית לשאלת «העסק קשור לכושר, ספורט, או תנועה?», או בקשת נציג אנושי) — העתיקי במדויק, שורות נפרדות, בלי לשנות מילה ובלי «כמה שיותר פרטים»:
+  const { MARKETING_HUMAN_AGENT_LEAD_REPLY } = await import("@/lib/marketing-human-agent");
+  const humanHandoffAppendix = `\n\nהעברה לנציג אנושי (עסק מחוץ לכושר/ספורט/תנועה, תשובה שלילית ל«העסק קשור לכושר, ספורט, או תנועה?», או בקשת נציג):
+אל תשלחי קישור wa.me ולא מספר טלפון. השרת שולח לליד במדויק:
 ${MARKETING_OFF_NICHE_TRANSFER_INTRO}
 
+${MARKETING_HUMAN_AGENT_LEAD_REPLY}
+ובמקביל מודיע לצוות HeyZoe.`;
+
+  const supportAppendix = supportWaUrl
+    ? `\n\nקישור וואטסאפ לשירות טכני/כללי (רק לשאלות מערכת שלא דורשות העברה לנציג — העתיקי בשורה נפרדת בדיוק):
 ${supportWaUrl}
 
-${MARKETING_OFF_NICHE_TRANSFER_CLOSING}
-
-כשאין תשובה בעובדות (מערכת, תנאים, חיובים, תקלה טכנית) ואין צורך בהעברה לנציג — עני בקצרה והפנילי לפתוח את הקישור למעלה; בוואטסאפ ייטען טקסט פתיחה קצר (אפשר לערוך לפני השליחה). אל תשתמשי בנוסח ההעברה למעלה במקרים האלה.`
+חובה: אל תציגי מספר טלפון גולמי. אל תשתמשי בקישור זה כשמבקשים נציג אנושי או כשהעסק מחוץ לנישת כושר/ספורט.`
     : "";
   const systemPrompt =
-    MARKETING_CORE_IDENTITY + legalAppendix + flowAppendix + openFactsAppendix + supportAppendix;
+    MARKETING_CORE_IDENTITY +
+    legalAppendix +
+    flowAppendix +
+    openFactsAppendix +
+    humanHandoffAppendix +
+    supportAppendix;
 
   const client = new Anthropic({ apiKey });
 
@@ -1230,12 +1225,11 @@ ${MARKETING_OFF_NICHE_TRANSFER_CLOSING}
       const textBlock = response.content.find((b) => b.type === "text");
       let out = sanitizeZoeDashes(textBlock?.text?.trim() || "תודה על ההודעה! נחזור אליך בהקדם.");
       if (
-        supportWaUrl &&
-        ((isNegativeFitnessScopeClarifyReply(userText) &&
+        (isNegativeFitnessScopeClarifyReply(userText) &&
           assistantAskedFitnessScopeClarify(chatHistory)) ||
-          replyLooksLikeOffNicheTransfer(out))
+        replyLooksLikeOffNicheTransfer(out)
       ) {
-        out = formatMarketingOffNicheTransferReply(supportWaUrl);
+        out = await buildMarketingOffNicheTransferLeadReply();
         const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
         void applyMarketingHumanAgentSideEffects(leadPhone);
       }

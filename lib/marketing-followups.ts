@@ -1,20 +1,24 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { matchesMarketingRegisteredClick } from "@/lib/admin-marketing-analytics";
+import { MARKETING_HUMAN_AGENT_BTN_LABEL } from "@/lib/marketing-human-agent";
 import {
-  marketingWaSessionId,
   MARKETING_CONVERSATIONS_SLUG,
+  logMarketingWhatsAppMessage,
   sendMarketingWhatsApp,
+  MARKETING_WA_PHONE_NUMBER_ID,
 } from "@/lib/marketing-whatsapp";
+import { buildMetaInteractivePayload, sendMetaWhatsAppMessage } from "@/lib/whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
 
 export const MARKETING_FOLLOWUP_1_TEXT =
   "היי, ראיתי שעצרנו באמצע 😊\nיש משהו שעוד לא ברור?\nאני כאן לכל שאלה 🙌";
 
+/** בלי קישור wa.me לליד — כפתור «נציג אנושי» מפעיל template לבעלים + הודעה לליד */
 export const MARKETING_FOLLOWUP_2_TEXT =
-  "היי שוב! זואי כאן 😊\nאני מזכירה שאפשר לכתוב לי כל שאלה ואענה.\nבמידה ולא קיבלת מענה מספק ממני,\nאני לא נעלבת, אני אחרי הכל בוט ללא מערכת עצבים,\nאשמח להעביר את הפנייה למחלקה האנושית 🙂\nקליק כאן: https://wa.me/972508318162?text=%D7%90%D7%99%D7%9F%20%D7%9C%D7%99%20%D7%90%D7%AA%D7%A8%3F";
+  "היי שוב! זואי כאן 😊\nאני מזכירה שאפשר לכתוב לי כל שאלה ואענה.\nבמידה ולא קיבלת מענה מספק ממני, אני לא נעלבת — אחרי הכל אני בוט בלי מערכת רגשות 😊\nרוצים נציג אנושי? לחצו על הכפתור למטה.";
 
 export const MARKETING_FOLLOWUP_3_TEXT =
-  "היי שם! זו הודעה אחרונה לפני שאני מניחה לך.\nשוב מזכירה שאני כאן לענות לכל שאלה או חשש.\nאפשר לכתוב לי ואענה,\nאו לדבר ישירות עם השירות לקוחות:\nhttps://wa.me/972508318162?text=%D7%90%D7%99%D7%9F%20%D7%9C%D7%99%20%D7%90%D7%AA%D7%A8%3F";
+  "היי! זו הודעה אחרונה לפני שאני מניחה לך.\nשוב — אני כאן לכל שאלה או חשש.\nרוצים לדבר עם נציג? לחצו «נציג אנושי» למטה.";
 
 const MS_10_MIN = 10 * 60 * 1000;
 const MS_2_H = 2 * 60 * 60 * 1000;
@@ -108,11 +112,36 @@ export function marketingFollowupBody(stage: 1 | 2 | 3): string {
   return MARKETING_FOLLOWUP_3_TEXT;
 }
 
+async function sendMarketingFollowupWithHumanButton(
+  phone: string,
+  body: string,
+  stage: 2 | 3
+): Promise<void> {
+  const model = `marketing_followup_${stage}`;
+  const interactive = buildMetaInteractivePayload(body, [MARKETING_HUMAN_AGENT_BTN_LABEL]);
+  if (interactive) {
+    await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, interactive);
+    await logMarketingWhatsAppMessage({
+      leadPhone: phone,
+      role: "assistant",
+      content: `${body}\n[כפתור: ${MARKETING_HUMAN_AGENT_BTN_LABEL}]`,
+      model_used: model,
+    });
+    return;
+  }
+  const fallback = `${body}\n1. ${MARKETING_HUMAN_AGENT_BTN_LABEL}`;
+  await sendMarketingWhatsApp(phone, fallback, { model_used: model });
+}
+
 export async function sendMarketingFollowupStage(
   phone: string,
   stage: 1 | 2 | 3
 ): Promise<void> {
   const body = marketingFollowupBody(stage);
+  if (stage === 2 || stage === 3) {
+    await sendMarketingFollowupWithHumanButton(phone, body, stage);
+    return;
+  }
   await sendMarketingWhatsApp(phone, body, { model_used: `marketing_followup_${stage}` });
 }
 
