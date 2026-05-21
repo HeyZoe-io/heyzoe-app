@@ -2397,48 +2397,26 @@ export default function SlugSettingsPage() {
 
   if (blockingSettingsLoad) {
     return (
-      <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
-        <div className="border-b border-white/50 bg-white/65 shadow-[0_14px_40px_rgba(95,64,178,0.1)] backdrop-blur-xl">
-          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between animate-pulse">
+      <div className="min-h-[50vh]" dir="rtl">
+        <div className="border-b border-zinc-200/80">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 animate-pulse">
             <div className="h-4 w-40 rounded bg-zinc-200" />
             <div className="h-4 w-24 rounded bg-zinc-200" />
           </div>
-          <div className="max-w-6xl mx-auto px-4 pb-3 overflow-x-auto">
-            <div className="flex gap-2 min-w-max animate-pulse">
-              {Array.from({ length: STEPS.length }).map((_, i) => (
-                <div key={i} className="h-8 w-24 rounded-[20px] bg-[#ede9fe]" />
-              ))}
-            </div>
+          <div className="mx-auto flex max-w-2xl justify-center gap-6 border-t border-zinc-100 px-4 pb-0 pt-1 animate-pulse">
+            {Array.from({ length: STEPS.length }).map((_, i) => (
+              <div key={i} className="h-4 w-16 rounded bg-zinc-200" />
+            ))}
           </div>
         </div>
-
-          <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
-          <div className="rounded-[28px] border border-white/75 bg-white/80 p-6 animate-pulse space-y-4 shadow-[0_24px_70px_rgba(95,64,178,0.12)] backdrop-blur-xl">
-            <div className="flex items-center justify-end gap-3">
-              <div className="h-8 w-8 rounded-full bg-[#f0eaff]" />
-              <div className="h-5 w-40 rounded bg-zinc-200" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="h-3 w-20 rounded bg-zinc-200 ml-auto" />
-                <div className="h-10 w-full rounded-xl bg-zinc-100" />
-              </div>
-              <div className="space-y-2">
-                <div className="h-3 w-20 rounded bg-zinc-200 ml-auto" />
-                <div className="h-10 w-full rounded-xl bg-zinc-100" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="h-3 w-20 rounded bg-zinc-200 ml-auto" />
-              <div className="h-10 w-full rounded-xl bg-zinc-100" />
-            </div>
-            <div className="space-y-2">
-              <div className="h-3 w-24 rounded bg-zinc-200 ml-auto" />
-              <div className="h-24 w-full rounded-xl bg-zinc-100" />
-            </div>
+        <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-10 animate-pulse">
+          <div className="space-y-4">
+            <div className="h-6 w-48 rounded bg-zinc-200 ms-auto" />
+            <div className="h-10 w-full rounded-xl bg-zinc-100" />
+            <div className="h-10 w-full rounded-xl bg-zinc-100" />
+            <div className="h-24 w-full rounded-xl bg-zinc-100" />
           </div>
-
-          <div className="mt-8 flex items-center justify-between border-t border-white/70 pt-5 animate-pulse">
+          <div className="flex items-center justify-between border-t border-zinc-200 pt-5">
             <div className="h-10 w-24 rounded-xl bg-zinc-200" />
             <div className="h-4 w-16 rounded bg-zinc-200" />
             <div className="h-10 w-28 rounded-xl bg-zinc-200" />
@@ -2460,74 +2438,86 @@ export default function SlugSettingsPage() {
   }
 
   return (
-    <div className="hz-shell min-h-screen bg-transparent" dir="rtl">
-
-      <div className="w-full border-b border-zinc-200/80 overflow-x-hidden">
-          <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-              <span className="hz-gradient-text font-extrabold">HeyZoe</span>
-              <span className="text-zinc-300">/</span>
-              <span>{slug}</span>
-            </div>
-            {canAutosave ? (
-              <div className="hz-frost-strong text-xs text-zinc-500 flex items-center gap-1.5 shrink-0 min-h-[1.25rem] rounded-full px-3 py-1.5" aria-live="polite">
-                {autosaveStatus === "saving" && (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
-                    <span>שומר…</span>
-                  </>
-                )}
-                {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
-                {autosaveStatus === "error" && (
-                  <span className="text-amber-600 max-w-[min(20rem,55vw)] text-right" title={autoSaveErr || undefined}>
-                    שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
-                  </span>
-                )}
-              </div>
-            ) : null}
+    <div className="min-h-[50vh]" dir="rtl">
+      {/* Chrome: מותג + שלבי מסלול — לא ממורכז עם תוכן הטאב */}
+      <div className="border-b border-zinc-200/80">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-800">
+            <span className="hz-gradient-text font-extrabold">HeyZoe</span>
+            <span className="text-zinc-300">/</span>
+            <span className="truncate">{slug}</span>
           </div>
-
-          {/* Step indicator */}
-          <div className="max-w-6xl mx-auto px-4 pb-4 overflow-x-auto">
-            <div className="flex gap-2 sm:gap-2.5 min-w-max items-center">
-              {STEPS.map((label, i) => {
-                const n = i + 1;
-                const active = step === n;
-                return (
-                  <button
-                    key={n}
-                    onClick={() => setStep(n)}
-                    className={[
-                      "px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-all select-none",
-                      "sm:text-sm sm:font-semibold sm:px-4 sm:py-2",
-                      active
-                        ? "bg-white text-[#2d1a6e] border-[rgba(113,51,218,0.35)] shadow-[0_10px_22px_rgba(112,84,182,0.14)]"
-                        : "bg-white/55 text-zinc-700 border-white/60 hover:bg-white hover:text-zinc-900",
-                    ].join(" ")}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+          {canAutosave ? (
+            <div
+              className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 min-h-[1.25rem]"
+              aria-live="polite"
+            >
+              {autosaveStatus === "saving" && (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
+                  <span>שומר…</span>
+                </>
+              )}
+              {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
+              {autosaveStatus === "error" && (
+                <span
+                  className="max-w-[min(20rem,55vw)] text-right text-amber-600"
+                  title={autoSaveErr || undefined}
+                >
+                  שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
+                </span>
+              )}
             </div>
+          ) : null}
+        </div>
+        <nav
+          className="mx-auto max-w-2xl overflow-x-auto border-b border-zinc-200/80 px-4"
+          aria-label="שלבי מסלול מכירה"
+        >
+          <div className="flex min-w-max justify-center gap-0 sm:min-w-0 sm:w-full sm:gap-2">
+            {STEPS.map((label, i) => {
+              const n = i + 1;
+              const active = step === n;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setStep(n)}
+                  className={[
+                    "shrink-0 whitespace-nowrap px-3 py-2.5 text-sm transition-colors border-b-2 -mb-px select-none",
+                    active
+                      ? "border-[#7133da] font-semibold text-[#7133da]"
+                      : "border-transparent font-medium text-zinc-600 hover:border-zinc-300 hover:text-zinc-900",
+                  ].join(" ")}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
+        </nav>
       </div>
 
       {settingsLoadError ? (
-        <div className="mx-4 mt-4 rounded-2xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800 shadow-[0_12px_28px_rgba(239,68,68,0.08)]" role="alert">
+        <div
+          className="mx-auto mt-4 max-w-2xl rounded-xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800"
+          role="alert"
+        >
           {settingsLoadError}
         </div>
       ) : null}
       {busyError ? (
-        <div className="mx-4 mt-4 rounded-2xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800 shadow-[0_12px_28px_rgba(239,68,68,0.08)]" role="alert">
+        <div
+          className="mx-auto mt-4 max-w-2xl rounded-xl border border-red-200/70 bg-red-50/90 px-4 py-3 text-center text-sm text-red-800"
+          role="alert"
+        >
           {busyError}
         </div>
       ) : null}
 
-      {/* ── Step content ── */}
-      <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
-        <div className="w-full max-w-3xl">
+      {/* תוכן טאב — ממורכז */}
+      <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:py-10 text-right">
 
         {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
@@ -2946,13 +2936,10 @@ export default function SlugSettingsPage() {
           </StepPanel>
         )}
 
-        </div>
+        {saveErr ? <p className="mt-4 text-center text-sm text-red-500">{saveErr}</p> : null}
 
-        {/* ── Error ── */}
-        {saveErr && <p className="text-sm text-red-500 text-center mt-4">{saveErr}</p>}
-
-        {/* ── Navigation ── */}
-        <div className="flex items-center justify-between mt-8 pt-4 border-t border-zinc-200 max-w-6xl mx-auto px-4">
+        {/* ── ניווט שלבים ── */}
+        <div className="mt-8 flex items-center justify-between border-t border-zinc-200 pt-4">
           <Button
             variant="outline"
             onClick={prevStep}

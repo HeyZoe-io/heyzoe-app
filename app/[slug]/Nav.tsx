@@ -49,64 +49,67 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
   }, [slug]);
 
   return (
-    <nav className="mb-4 flex items-center justify-between gap-3 text-sm hz-wave hz-wave-1">
-      <div className="flex items-center gap-2">
-        <Link
-          href={`${base}/analytics`}
-          prefetch={true}
-          className="hidden sm:flex items-center select-none"
-          aria-label="HeyZoe — לדשבורד"
-          onClick={() => {
-            // Close potential open dropdowns etc by forcing navigation; Link handles it.
-          }}
-        >
-          <Image
-            src="/heyzoe-logo.png"
-            alt="HeyZoe"
-            width={220}
-            height={48}
-            priority
-            className="h-8 w-auto"
-          />
-        </Link>
-        <UserMenu />
-        {metaStatus === "PENDING" ? (
+    <header className="mb-2 border-b border-zinc-200/90">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           <Link
-            href={`${base}/settings?step=1`}
+            href={`${base}/analytics`}
             prefetch={true}
-            className="hidden md:flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-100 transition"
-            style={{ direction: "rtl" }}
-            aria-label="המספר בתהליך אימות — מעבר למסלול מכירה"
+            className="hidden sm:flex items-center select-none shrink-0"
+            aria-label="HeyZoe — לדשבורד"
           >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-orange-500" />
-            </span>
-            <span>המספר בתהליך אימות, בינתיים בוא נבנה את זואי!</span>
+            <Image
+              src="/heyzoe-logo.png"
+              alt="HeyZoe"
+              width={220}
+              height={48}
+              priority
+              className="h-8 w-auto"
+            />
           </Link>
-        ) : null}
-      </div>
-      <div className="flex justify-end gap-2">
-        {items.map((item) => {
-          const active = pathname === item.href;
-          return (
+          <UserMenu />
+          {metaStatus === "PENDING" ? (
             <Link
-              key={item.href}
-              href={item.href}
+              href={`${base}/settings?step=1`}
               prefetch={true}
-              className={
-                "px-3 py-1.5 transition font-medium " +
-                (active
-                  ? "rounded-[20px] text-white shadow-sm bg-[linear-gradient(135deg,#7133da,#ff92ff)]"
-                  : "rounded-[20px] bg-[#ede9fe] text-zinc-600 hover:bg-[#e9e5ff]")
-              }
+              className="hidden md:flex items-center gap-2 text-xs font-medium text-orange-700 hover:text-orange-800 transition underline-offset-2 hover:underline"
+              style={{ direction: "rtl" }}
+              aria-label="המספר בתהליך אימות — מעבר למסלול מכירה"
             >
-              {item.label}
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-orange-500" />
+              </span>
+              <span>המספר בתהליך אימות, בינתיים בוא נבנה את זואי!</span>
             </Link>
-          );
-        })}
+          ) : null}
+        </div>
+        <nav
+          className="flex min-w-0 flex-1 justify-end gap-0 overflow-x-auto sm:gap-1"
+          aria-label="אזורי דשבורד"
+        >
+          {items.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch={true}
+                className={
+                  "shrink-0 whitespace-nowrap px-3 py-2.5 text-sm transition-colors border-b-2 -mb-px " +
+                  (active
+                    ? "border-[#7133da] font-semibold text-[#7133da]"
+                    : "border-transparent font-medium text-zinc-600 hover:border-zinc-300 hover:text-zinc-900")
+                }
+                aria-current={active ? "page" : undefined}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       </div>
-    </nav>
+    </header>
   );
 }
 

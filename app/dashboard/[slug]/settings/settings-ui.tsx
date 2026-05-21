@@ -13,15 +13,13 @@ export function StepPanel({
 
 export function StepHeader({ n, title, desc }: { n: number; title: string; desc?: string }) {
   return (
-    <div className="mb-7">
-      <div className="mb-2 flex items-center gap-3">
-        <span className="hz-glow flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(113,51,218,0.16),rgba(255,146,255,0.22))] text-sm font-extrabold text-[#7133da] shadow-[0_14px_28px_rgba(113,51,218,0.14)] ring-1 ring-white/70">
-          {n}
-        </span>
+    <div className="mb-7 text-right">
+      <div className="mb-2 flex items-center justify-start gap-3">
+        <span className="text-sm font-bold tabular-nums text-[#7133da]/80">{n}</span>
         <h2 className="text-[1.45rem] font-extrabold tracking-[-0.03em] text-zinc-900">{title}</h2>
       </div>
       {desc ? (
-        <p className="mr-13 max-w-[42rem] text-[0.95rem] leading-7 text-zinc-500">{desc}</p>
+        <p className="max-w-[42rem] text-[0.95rem] leading-7 text-zinc-500">{desc}</p>
       ) : null}
     </div>
   );
