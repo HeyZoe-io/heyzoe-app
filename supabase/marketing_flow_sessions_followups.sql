@@ -1,4 +1,4 @@
--- פולואפים אוטומטיים לקו שיווקי (זואי אדמין) — cron /api/cron/marketing-followups
+-- פולואפים אוטומטיים לקו שיווקי (זואי אדמין) — GET /api/cron/marketing-followups (cron-job.org, כל ~5 דק׳)
 alter table public.marketing_flow_sessions
   add column if not exists last_user_message_at timestamptz null;
 

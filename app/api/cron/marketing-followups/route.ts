@@ -11,6 +11,7 @@ import {
 import { marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 
+/** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). הגדרה: GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
