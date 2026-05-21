@@ -47,10 +47,10 @@ import { buildFactQuestions, factFromQuestionAnswer } from "@/lib/fact-questions
 import {
   DASHBOARD_SETTINGS_SHELL,
   Field,
+  SALES_PATH_STEPS,
   StepHeader,
   StepPanel,
   Textarea,
-  dashboardStepTabClass,
 } from "./settings-ui";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -83,13 +83,7 @@ type WhatsAppChannel = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STEPS = [
-  "לינקים",
-  "על העסק",
-  "מוצרים",
-  "מכירה",
-  "פולואפ",
-];
+const STEPS = [...SALES_PATH_STEPS];
 
 async function readSaveErrorFromResponse(res: Response): Promise<string> {
   try {
@@ -2406,15 +2400,6 @@ export default function SlugSettingsPage() {
     return (
       <div className="min-h-[50vh]" dir="rtl">
         <div className={DASHBOARD_SETTINGS_SHELL}>
-          <div className="flex items-center justify-between gap-3 py-3 animate-pulse">
-            <div className="h-4 w-40 rounded bg-zinc-200" />
-            <div className="h-4 w-24 rounded bg-zinc-200" />
-          </div>
-          <div className="flex justify-center gap-6 pb-1 pt-2 animate-pulse">
-            {Array.from({ length: STEPS.length }).map((_, i) => (
-              <div key={i} className="h-4 w-16 rounded bg-zinc-200" />
-            ))}
-          </div>
         <div className="space-y-6 py-10 animate-pulse">
           <div className="space-y-4">
             <div className="h-6 w-48 rounded bg-zinc-200 ms-auto" />
@@ -2447,54 +2432,28 @@ export default function SlugSettingsPage() {
   return (
     <div className="min-h-[50vh]" dir="rtl">
       <div className={DASHBOARD_SETTINGS_SHELL}>
-        <div className="flex items-center justify-between gap-3 py-3">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-zinc-800">
-            <span className="hz-gradient-text font-extrabold">HeyZoe</span>
-            <span className="text-zinc-300">/</span>
-            <span className="truncate">{slug}</span>
+        {canAutosave ? (
+          <div
+            className="flex min-h-[1.25rem] items-center justify-end gap-1.5 pb-3 text-xs text-zinc-500"
+            aria-live="polite"
+          >
+            {autosaveStatus === "saving" && (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
+                <span>שומר…</span>
+              </>
+            )}
+            {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
+            {autosaveStatus === "error" && (
+              <span
+                className="max-w-[min(20rem,55vw)] text-right text-amber-600"
+                title={autoSaveErr || undefined}
+              >
+                שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
+              </span>
+            )}
           </div>
-          {canAutosave ? (
-            <div
-              className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500 min-h-[1.25rem]"
-              aria-live="polite"
-            >
-              {autosaveStatus === "saving" && (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
-                  <span>שומר…</span>
-                </>
-              )}
-              {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
-              {autosaveStatus === "error" && (
-                <span
-                  className="max-w-[min(20rem,55vw)] text-right text-amber-600"
-                  title={autoSaveErr || undefined}
-                >
-                  שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
-                </span>
-              )}
-            </div>
-          ) : null}
-        </div>
-        <nav className="overflow-x-auto pb-2" aria-label="שלבי מסלול מכירה">
-          <div className="flex min-w-max justify-center gap-1 sm:min-w-0 sm:w-full sm:gap-4">
-            {STEPS.map((label, i) => {
-              const n = i + 1;
-              const active = step === n;
-              return (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setStep(n)}
-                  className={`${dashboardStepTabClass(active)} select-none`}
-                  aria-current={active ? "page" : undefined}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
+        ) : null}
 
       {settingsLoadError ? (
         <div
