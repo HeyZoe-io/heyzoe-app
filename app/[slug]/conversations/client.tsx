@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
+import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 
 type SessionMessage = {
   role: string;
@@ -333,9 +334,11 @@ export default function ConversationsClient({
           <p className="text-xs text-zinc-500 text-right">
             {normalizedFilter
               ? "אין שיחות שתואמות למסנן זה."
-              : isMarketingConversationsSlug(slug)
-                ? "לא נמצאו שיחות בקו השיווקי. אם יש לידים בוואטסאפ, ודאו ש-marketing_flow_sessions מעודכן ושהודעות נרשמות תחת heyzoe-marketing."
-                : "טרם התקבלו שיחות לעסק זה."}
+              : isZoeAdminAllConversationsSlug(slug)
+                ? "אין שיחות מתועדות במערכת."
+                : isMarketingConversationsSlug(slug)
+                  ? "לא נמצאו שיחות בקו השיווקי."
+                  : "טרם התקבלו שיחות לעסק זה."}
           </p>
         )}
       </div>

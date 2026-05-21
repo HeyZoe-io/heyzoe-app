@@ -4,6 +4,7 @@ import { useCallback, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ZoeGuidelinesClient from "./ZoeGuidelinesClient";
 import ZoeConversationsTab, { type ZoeBusinessOption } from "./ZoeConversationsTab";
+import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 import ZoeLeadQuestionsTab from "./ZoeLeadQuestionsTab";
 
 const PURPLE = "#7133da";
@@ -17,7 +18,13 @@ function parseTab(raw: string | null): ZoeAdminTab {
   return "guidelines";
 }
 
-export default function ZoeAdminClient({ businesses }: { businesses: ZoeBusinessOption[] }) {
+export default function ZoeAdminClient({
+  businesses,
+  initialAllSessions = [],
+}: {
+  businesses: ZoeBusinessOption[];
+  initialAllSessions?: ZoeAdminSessionSummary[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tab = parseTab(searchParams.get("tab"));
@@ -62,7 +69,7 @@ export default function ZoeAdminClient({ businesses }: { businesses: ZoeBusiness
       {tab === "guidelines" ? (
         <ZoeGuidelinesClient />
       ) : tab === "conversations" ? (
-        <ZoeConversationsTab businesses={businesses} />
+        <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} />
       ) : (
         <ZoeLeadQuestionsTab />
       )}
