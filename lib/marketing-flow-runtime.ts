@@ -55,9 +55,14 @@ export const MARKETING_FLOW_BTN_CONTINUE = "בואו נמשיך!";
 export const MARKETING_FLOW_BTN_MORE_Q = "יש לי עוד שאלה";
 export const MARKETING_FLOW_MORE_Q_REPLY = "אין בעיה! אני כאן בשביל זה. מה השאלה?";
 
-/** שורת סיום חובה בתשובות AI אחרי סיום הפלואו השיווקי */
+/** שורת סיום חובה בתשובות AI אחרי סיום הפלואו השיווקי (נשלחת עם כפתורים) */
 export const MARKETING_POST_FLOW_CLOSING_LINE =
   "יש לך שאלות נוספות או שאנחנו מוכנים להתחיל? :)";
+
+export const MARKETING_POST_FLOW_BTN_CHECKOUT = "להמשך לסליקה";
+export const MARKETING_POST_FLOW_BTN_MORE_Q = "יש לי שאלה נוספת";
+export const MARKETING_POST_FLOW_BTN_HUMAN = "נציג אנושי";
+export const MARKETING_POST_FLOW_MORE_Q_REPLY = "אין בעיה, כתבו לי ואענה!";
 
 function normalizeOpenQPauseState(raw: unknown): MarketingOpenQPauseState {
   const s = String(raw ?? "").trim();
@@ -503,12 +508,18 @@ export async function handleMarketingFlowInbound(
   }
 
   if (!session) {
+    if (await tryHandleMarketingPostFlowMenuReply(phone, userText)) {
+      return { handled: true };
+    }
     return { handled: false };
   }
 
   const sess = session as unknown as Session;
 
   if (sess.flow_completed || !sess.current_node_id) {
+    if (await tryHandleMarketingPostFlowMenuReply(phone, userText)) {
+      return { handled: true };
+    }
     return { handled: false };
   }
 
@@ -597,7 +608,7 @@ HeyZoe היא פלטפורמה שמאפשרת לבעלי עסקים (סטודי�
 - עני ישירות לנושא שהמשתמש העלה (אם כתב על קרוספיט — עני על לידים/מענה/ניסיון באותו הקשר; אל תסטי לנושאים כלליים או מטאפורות לא קשורות כמו ״תעלומה״, ״משימה״, ״הרפתקה״).
 - טון עסקי־חם: לא סלנג היפר (לא ״יאללה״, לא ״אז אומר לך״ או פתיחים ריקים). עדיף משפט ראשון שמזהה את דבריהם או שאלה עניינית קצרה.
 - בלי דימויים מוזרים או בדיחות שלא קשורות ל־HeyZoe או לשאלה.
-- סיום (חובה): שורה אחרונה בדיוק — «יש לך שאלות נוספות או שאנחנו מוכנים להתחיל? :)». לא «יש עוד שאלה», לא «להנעות להרשמה».`;
+- סיום (חובה): אל תוסיפי בסוף תשובתך את «יש לך שאלות נוספות…» — המערכת שולחת אחריך הודעה נפרדת עם כפתורים.`;
 
 async function loadMarketingAiSettings(): Promise<{
   facts: string[];
@@ -985,10 +996,9 @@ async function isMarketingPostFlowAiContext(leadPhone: string): Promise<boolean>
   return pause === "none";
 }
 
-/** מחליף סגירות ישנות ומוסיף את שורת הסיום הקבועה אחרי פלואו */
-function applyMarketingPostFlowClosingLine(text: string): string {
+/** מסיר סגירות ישנות מתשובת AI — הסגירה והכפתורים נשלחים בהודעה נפרדת */
+function prepareMarketingPostFlowAiReply(text: string): string {
   let s = sanitizeZoeDashes(String(text ?? "").trim());
-  if (!s) return MARKETING_POST_FLOW_CLOSING_LINE;
 
   const lines = s.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   while (lines.length > 0) {
@@ -1002,19 +1012,99 @@ function applyMarketingPostFlowClosingLine(text: string): string {
     }
     break;
   }
-  s = lines.join("\n").trim();
+  return lines.join("\n").trim();
+}
 
-  const closingCore = MARKETING_POST_FLOW_CLOSING_LINE.replace(/[!?.…\s:]+$/u, "").trim();
-  if (s.includes(closingCore)) {
-    const withoutOld = s.replace(
-      /(?:\n\n|\n|^)\s*יש\s+(?:עוד\s+שאלה|לך\s+שאלות)[^\n]*(?:הרשמה|להנעות|להתחיל)[^\n]*\s*$/giu,
-      ""
-    ).trim();
-    if (withoutOld.includes(closingCore)) return withoutOld;
-    return s;
+function resolveMarketingOnboardingUrl(): string {
+  const base = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://heyzoe.io";
+  return `${base.replace(/\/$/, "")}/onboarding?source=wa_marketing`;
+}
+
+async function sendMarketingPostFlowActionMenu(phone: string): Promise<void> {
+  const interactive = buildMetaInteractivePayload(MARKETING_POST_FLOW_CLOSING_LINE, [
+    MARKETING_POST_FLOW_BTN_CHECKOUT,
+    MARKETING_POST_FLOW_BTN_MORE_Q,
+    MARKETING_POST_FLOW_BTN_HUMAN,
+  ]);
+  if (interactive) {
+    await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, interactive);
+    await logMarketingWhatsAppMessage({
+      leadPhone: phone,
+      role: "assistant",
+      content: `${MARKETING_POST_FLOW_CLOSING_LINE}\n[כפתורים: ${MARKETING_POST_FLOW_BTN_CHECKOUT} | ${MARKETING_POST_FLOW_BTN_MORE_Q} | ${MARKETING_POST_FLOW_BTN_HUMAN}]`,
+      model_used: "marketing_post_flow_menu",
+    });
+    return;
+  }
+  const fallback = [
+    MARKETING_POST_FLOW_CLOSING_LINE,
+    `1. ${MARKETING_POST_FLOW_BTN_CHECKOUT}`,
+    `2. ${MARKETING_POST_FLOW_BTN_MORE_Q}`,
+    `3. ${MARKETING_POST_FLOW_BTN_HUMAN}`,
+  ].join("\n");
+  await sendMarketingWhatsApp(phone, fallback, { model_used: "marketing_post_flow_menu" });
+}
+
+/** לחיצה על כפתורי תפריט אחרי סיום הפלואו */
+async function tryHandleMarketingPostFlowMenuReply(phone: string, userText: string): Promise<boolean> {
+  if (!(await isMarketingPostFlowAiContext(phone))) return false;
+
+  if (labelMatchesChoice(userText, MARKETING_POST_FLOW_BTN_CHECKOUT)) {
+    const url = resolveMarketingOnboardingUrl();
+    const msg = `מעולה! להמשך לסליקה והקמת זואי:\n${url}`;
+    await sendMarketingWhatsApp(phone, msg, { model_used: "marketing_post_flow_checkout" });
+    try {
+      const { insertLpAnalyticsEvent } = await import("@/lib/lp-analytics");
+      void insertLpAnalyticsEvent({
+        event_type: "checkout_start",
+        session_id: marketingWaSessionId(phone),
+        source: "wa_marketing",
+        label: "post_flow_menu",
+      });
+    } catch {
+      /* noop */
+    }
+    return true;
   }
 
-  return `${s}\n\n${MARKETING_POST_FLOW_CLOSING_LINE}`;
+  if (labelMatchesChoice(userText, MARKETING_POST_FLOW_BTN_MORE_Q)) {
+    await sendMarketingWhatsApp(phone, MARKETING_POST_FLOW_MORE_Q_REPLY, {
+      model_used: "marketing_post_flow_more_q",
+    });
+    return true;
+  }
+
+  if (labelMatchesChoice(userText, MARKETING_POST_FLOW_BTN_HUMAN)) {
+    const { supportPhone } = await loadMarketingAiSettings();
+    const prefill = supportWhatsAppPrefillFromUserMessage(userText);
+    const waUrl = supportPhone.trim()
+      ? buildMarketingSupportWaUrl(supportPhone.trim(), prefill)
+      : null;
+    if (waUrl) {
+      await sendMarketingWhatsApp(phone, `אין בעיה! לפנייה בנציג אנושי, כתבו לנו כאן:\n${waUrl}`, {
+        model_used: "marketing_post_flow_human",
+      });
+    } else {
+      await sendMarketingWhatsApp(phone, "אין בעיה! צוות HeyZoe יחזור אליכם בהקדם.", {
+        model_used: "marketing_post_flow_human",
+      });
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/** תשובת AI אחרי פלואו + תפריט כפתורים קבוע */
+export async function deliverMarketingPostFlowAiResponse(phoneRaw: string, userText: string): Promise<void> {
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) return;
+
+  const reply = await callMarketingAI(userText, { leadPhone: phone });
+  if (reply.trim()) {
+    await sendMarketingWhatsApp(phone, reply, { model_used: "marketing_ai" });
+  }
+  await sendMarketingPostFlowActionMenu(phone);
 }
 
 /**
@@ -1140,7 +1230,7 @@ ${MARKETING_OFF_NICHE_TRANSFER_CLOSING}
       }
       if (!opts?.skipPostFlowClosing && leadPhone) {
         const postFlow = await isMarketingPostFlowAiContext(leadPhone);
-        if (postFlow) out = applyMarketingPostFlowClosingLine(out);
+        if (postFlow) out = prepareMarketingPostFlowAiReply(out);
       }
       return sanitizeZoeDashes(out);
     } catch (e) {
