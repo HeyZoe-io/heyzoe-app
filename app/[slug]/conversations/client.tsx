@@ -19,6 +19,9 @@ type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
+  /** טאב זואי אדמין — «כל השיחות» */
+  source_slug?: string;
+  source_name?: string;
 };
 
 export default function ConversationsClient({
@@ -79,6 +82,13 @@ export default function ConversationsClient({
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
 
+  function slugForSession(sessionId: string): string {
+    const sess = visibleSessions.find((s) => s.session_id === sessionId);
+    return (sess?.source_slug ?? slug).trim().toLowerCase();
+  }
+
+  const messagesSlug = selectedId ? slugForSession(selectedId) : slug.trim().toLowerCase();
+
   const sessionsQuery = useQuery({
     queryKey: [queryScope, "conversations", slug],
     queryFn: async ({ signal }) => {
@@ -95,11 +105,11 @@ export default function ConversationsClient({
   }, [sessionsQuery.data]);
 
   const messagesQuery = useQuery({
-    queryKey: [queryScope, "conversation_messages", slug, selectedId ?? ""],
+    queryKey: [queryScope, "conversation_messages", messagesSlug, selectedId ?? ""],
     enabled: Boolean(selectedId),
     queryFn: async ({ signal }) => {
       const res = await fetch(
-        `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(
+        `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(messagesSlug)}&session_id=${encodeURIComponent(
           selectedId ?? ""
         )}`,
         { signal }
@@ -113,11 +123,12 @@ export default function ConversationsClient({
   async function prefetchMessages(sessionId: string) {
     const sid = String(sessionId ?? "").trim();
     if (!sid) return;
+    const prefetchSlug = slugForSession(sid);
     await queryClient.prefetchQuery({
-      queryKey: [queryScope, "conversation_messages", slug, sid],
+      queryKey: [queryScope, "conversation_messages", prefetchSlug, sid],
       queryFn: async ({ signal }) => {
         const res = await fetch(
-          `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(slug)}&session_id=${encodeURIComponent(sid)}`,
+          `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(prefetchSlug)}&session_id=${encodeURIComponent(sid)}`,
           { signal }
         );
         if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
@@ -173,13 +184,14 @@ export default function ConversationsClient({
 
   async function toggleBot(sessionId: string, nextPaused: boolean) {
     setPausing(sessionId);
+    const bizSlug = slugForSession(sessionId);
     try {
       const url = nextPaused ? "/api/whatsapp/pause" : "/api/whatsapp/unpause";
       await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          business_slug: slug.trim().toLowerCase(),
+          business_slug: bizSlug,
           session_id: sessionId,
         }),
       });
@@ -201,14 +213,14 @@ export default function ConversationsClient({
     setSending(true);
     try {
       const manualUrl =
-        apiScope === "admin" && isMarketingConversationsSlug(slug)
+        apiScope === "admin" && isMarketingConversationsSlug(messagesSlug)
           ? "/api/admin/marketing/manual-send"
           : "/api/whatsapp/manual-send";
       const manualBody =
-        apiScope === "admin" && isMarketingConversationsSlug(slug)
+        apiScope === "admin" && isMarketingConversationsSlug(messagesSlug)
           ? { session_id: selected.session_id, text: manualText.trim() }
           : {
-              business_slug: slug,
+              business_slug: messagesSlug,
               session_id: selected.session_id,
               text: manualText.trim(),
             };
@@ -237,7 +249,7 @@ export default function ConversationsClient({
           )
         );
         queryClient.setQueryData<SessionMessage[]>(
-          [queryScope, "conversation_messages", slug, selected.session_id],
+          [queryScope, "conversation_messages", messagesSlug, selected.session_id],
           (prev) => [...(prev ?? []), msg]
         );
         queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
@@ -293,6 +305,9 @@ export default function ConversationsClient({
                 {s.phone || "לא זמין"}
               </button>
               <p className="text-[11px] text-zinc-500">
+                {s.source_name ? (
+                  <span className="block text-[10px] text-[#7133da]">{s.source_name}</span>
+                ) : null}
                 {s.count} הודעות · {formatDmy(s.lastAt)}
               </p>
             </div>
