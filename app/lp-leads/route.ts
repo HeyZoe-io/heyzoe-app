@@ -7,7 +7,10 @@ export const runtime = "nodejs";
 export async function GET() {
   const html = readFileSync(path.join(process.cwd(), "public/lp-leads.html"), "utf-8");
   return new NextResponse(html, {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store, must-revalidate",
+    },
   });
 }
 
