@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>HeyZoe - בוטית מכירות מומחית לעסקי כושר</title>
 <link rel="icon" type="image/png" href="/zoe-browser-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <!-- PostHog (LP is static HTML, so load manually) -->
 <script>
   !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
@@ -224,11 +224,23 @@ nav{
 }
 .hero-phone-stage .wa-phone{
   width:285px;flex-shrink:0;
-  transform:rotate(-7deg);
+  transform:none;
   transition:transform 0.35s ease,box-shadow 0.35s ease;
   margin:0;
   box-shadow:0 28px 70px rgba(0,0,0,0.45),0 0 0 1px rgba(255,255,255,0.06);
 }
+.hero-phone-stage .wa-body,
+.hero-phone-stage .wa-msg,
+.hero-phone-stage .wa-msg-user,
+.hero-phone-stage .wa-msg-top,
+.hero-phone-stage .wa-qr,
+.hero-phone-stage .wa-name,
+.hero-phone-stage .wa-status{
+  font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-weight:400;
+}
+.hero-phone-stage .wa-name{font-weight:500;}
+.hero-phone-stage .wa-qr{font-weight:500;}
 .hero-phone-stage .wa-body{
   height:468px;min-height:468px;max-height:468px;
   overflow-y:auto;overflow-x:hidden;
@@ -236,7 +248,7 @@ nav{
   flex-shrink:0;
 }
 .hero-phone-stage:hover .wa-phone{
-  transform:rotate(-5deg) translateY(-6px);
+  transform:translateY(-6px);
   box-shadow:0 36px 90px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.08);
 }
 .hero-phone-stage .wa-body > .wa-msg:not(.show),
@@ -847,7 +859,8 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   .hero-content{text-align:center;}
   .hero-desc{margin-inline:auto;}
   .hero-content .hero-cta-row,.hero-content .hero-stats{justify-content:center;}
-  .hero-phone-stage .wa-phone{transform:rotate(-5deg);}
+  .hero-phone-stage .wa-phone{transform:none;}
+  .hero-phone-stage:hover .wa-phone{transform:translateY(-4px);}
   .hero-orb--a{width:52px;height:52px;top:8%;left:4%;}
   .hero-orb--c{display:none;}
   .wa-phone{width:min(300px,92vw);max-width:100%;}
