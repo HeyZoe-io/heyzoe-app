@@ -60,6 +60,10 @@ export const MARKETING_POST_FLOW_CLOSING_LINE =
   "יש לך שאלות נוספות או שאנחנו מוכנים להתחיל? :)";
 
 export const MARKETING_POST_FLOW_BTN_CHECKOUT = "להמשך לסליקה";
+/** קישור LP מחירים אחרי לחיצה על «להמשך לסליקה» */
+export const MARKETING_POST_FLOW_CHECKOUT_URL =
+  "https://heyzoe.io/lp-leads?utm_source=whatsapp&utm_medium=chat&utm_campaign=zoe_marketing#pricing";
+export const MARKETING_POST_FLOW_CHECKOUT_CTA_LABEL = "הצטרפו לזואי";
 export const MARKETING_POST_FLOW_BTN_MORE_Q = "יש לי שאלה נוספת";
 export const MARKETING_POST_FLOW_BTN_HUMAN = "נציג אנושי";
 export const MARKETING_POST_FLOW_MORE_Q_REPLY = "אין בעיה, כתבו לי ואענה!";
@@ -1015,11 +1019,6 @@ function prepareMarketingPostFlowAiReply(text: string): string {
   return lines.join("\n").trim();
 }
 
-function resolveMarketingOnboardingUrl(): string {
-  const base = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://heyzoe.io";
-  return `${base.replace(/\/$/, "")}/onboarding?source=wa_marketing`;
-}
-
 async function sendMarketingPostFlowActionMenu(phone: string): Promise<void> {
   const interactive = buildMetaInteractivePayload(MARKETING_POST_FLOW_CLOSING_LINE, [
     MARKETING_POST_FLOW_BTN_CHECKOUT,
@@ -1050,9 +1049,22 @@ async function tryHandleMarketingPostFlowMenuReply(phone: string, userText: stri
   if (!(await isMarketingPostFlowAiContext(phone))) return false;
 
   if (labelMatchesChoice(userText, MARKETING_POST_FLOW_BTN_CHECKOUT)) {
-    const url = resolveMarketingOnboardingUrl();
-    const msg = `מעולה! להמשך לסליקה והקמת זואי:\n${url}`;
-    await sendMarketingWhatsApp(phone, msg, { model_used: "marketing_post_flow_checkout" });
+    const url = MARKETING_POST_FLOW_CHECKOUT_URL;
+    const body = "מעולה! להמשך לסליקה והקמת זואי:";
+    const { buildMetaCtaUrlOutgoing } = await import("@/lib/whatsapp");
+    const cta = buildMetaCtaUrlOutgoing(body, MARKETING_POST_FLOW_CHECKOUT_CTA_LABEL, url);
+    try {
+      await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, cta);
+      await logMarketingWhatsAppMessage({
+        leadPhone: phone,
+        role: "assistant",
+        content: `${body}\n[${MARKETING_POST_FLOW_CHECKOUT_CTA_LABEL}: ${url}]`,
+        model_used: "marketing_post_flow_checkout",
+      });
+    } catch (e) {
+      console.warn("[marketing-flow] post-flow checkout cta_url failed, plain text:", e);
+      await sendMarketingWhatsApp(phone, `${body}\n${url}`, { model_used: "marketing_post_flow_checkout" });
+    }
     try {
       const { insertLpAnalyticsEvent } = await import("@/lib/lp-analytics");
       void insertLpAnalyticsEvent({
