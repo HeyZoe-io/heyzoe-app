@@ -92,6 +92,14 @@ export async function POST(req: NextRequest) {
     const flowResult = await handleMarketingFlowInbound(phone, userText);
     await applyMarketingInboundFollowupSideEffects(phone, userText);
 
+    if (!flowResult.handled) {
+      const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
+      if (await tryHandleMarketingHumanAgentInbound(phone, userText)) {
+        console.info("[marketing-webhook] human agent request for:", phone);
+        return NextResponse.json({ ok: true, human_agent: true });
+      }
+    }
+
     if (flowResult.handled) {
       console.info("[marketing-webhook] flow handled for:", phone);
       return NextResponse.json({ ok: true });
@@ -107,6 +115,8 @@ export async function POST(req: NextRequest) {
     if (offNicheReply) {
       console.info("[marketing-webhook] off-niche hard reply for:", phone);
       await sendMarketingWhatsApp(phone, offNicheReply);
+      const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
+      await applyMarketingHumanAgentSideEffects(phone);
       return NextResponse.json({ ok: true, off_niche: true });
     }
 

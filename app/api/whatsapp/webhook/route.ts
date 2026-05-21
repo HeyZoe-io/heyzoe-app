@@ -990,6 +990,13 @@ async function processIncoming(
         await import("@/lib/marketing-flow-runtime");
       const flowResult = await handleMarketingFlowInbound(msg.from, msg.text);
       await applyMarketingInboundFollowupSideEffects(msg.from, msg.text);
+      if (!flowResult.handled) {
+        const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
+        if (await tryHandleMarketingHumanAgentInbound(msg.from, msg.text)) {
+          console.info("[WA Webhook] Marketing human agent request for:", msg.from);
+          return;
+        }
+      }
       if (flowResult.handled) {
         console.info("[WA Webhook] Marketing flow handled for:", msg.from);
         return;
