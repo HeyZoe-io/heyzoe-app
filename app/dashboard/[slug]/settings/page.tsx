@@ -45,6 +45,7 @@ import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/tr
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 import { buildFactQuestions, factFromQuestionAnswer } from "@/lib/fact-questions";
 import {
+  DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
   Field,
   SALES_PATH_STEPS,
@@ -2472,7 +2473,7 @@ export default function SlugSettingsPage() {
         </div>
       ) : null}
 
-      <div className="py-8 sm:py-10 text-right">
+      <div className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}>
 
         {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
@@ -2483,16 +2484,17 @@ export default function SlugSettingsPage() {
               desc="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
             />
               <Field label="לינק לאתר">
-                <p className="text-xs text-zinc-500 mt-0.5 mb-2 text-right leading-relaxed">
+                <p className="text-xs text-zinc-500 mt-0.5 mb-2 leading-relaxed">
                   סרקו והמתינו דקה ליצירת תוכן אוטומטית
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
                   <Input
                     dir="ltr"
                     placeholder="https://your-business.com"
                     value={websiteUrl}
                     onChange={e => setWebsiteUrl(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && fetchSite()}
+                    className="min-w-[min(100%,280px)] max-w-xl"
                   />
                   <Button onClick={() => void fetchSite()} disabled={!websiteUrl || fetchingUrl} className="shrink-0 gap-2">
                     {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -2632,8 +2634,8 @@ export default function SlugSettingsPage() {
 
               <Field
                 label={
-                  <div className="flex items-center justify-start gap-3 text-right">
-                    <span className="text-right">הנחיות הגעה</span>
+                  <div className="flex items-center justify-center gap-3">
+                    <span>הנחיות הגעה</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -2894,7 +2896,7 @@ export default function SlugSettingsPage() {
         {saveErr ? <p className="mt-4 text-center text-sm text-red-500">{saveErr}</p> : null}
 
         {/* ── ניווט שלבים ── */}
-        <div className="mt-8 flex items-center justify-between border-t border-zinc-200 pt-4">
+        <div className="mx-auto mt-8 flex w-full max-w-2xl items-center justify-between border-t border-zinc-200 pt-4">
           <Button
             variant="outline"
             onClick={prevStep}

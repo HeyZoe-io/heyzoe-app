@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import {
+  DASHBOARD_CENTERED_CONTENT,
+  DASHBOARD_SETTINGS_SHELL,
+} from "@/app/dashboard/[slug]/settings/settings-ui";
 import type { PremiumAnalyticsResult } from "@/lib/analytics-pro-metrics";
 import {
   ResponsiveContainer,
@@ -208,15 +212,18 @@ export default function AnalyticsClient({
   const isEmpty = !loading && (Number(data.totalChats ?? 0) || 0) === 0;
 
   return (
-    <div className="space-y-6 relative" aria-busy={loading ? "true" : "false"}>
+    <div
+      className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} space-y-6 relative`}
+      aria-busy={loading ? "true" : "false"}
+    >
       <div className="hz-wave hz-wave-1">
-        <h1 className="text-2xl font-semibold text-zinc-900 text-right">אנליטיקס ל-{slug}</h1>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-zinc-600 text-right">{subtitle}</p>
+        <h1 className="text-2xl font-semibold text-zinc-900">אנליטיקס</h1>
+        <div className="mt-3 flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:justify-center">
+          <div className="flex items-center justify-center gap-2">
+            <p className="text-sm text-zinc-600">{subtitle}</p>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-zinc-400" aria-hidden /> : null}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${range === "week" ? "bg-zinc-900 text-white shadow-sm" : "bg-white/70 text-zinc-700 hover:bg-white"}`}
@@ -247,7 +254,7 @@ export default function AnalyticsClient({
 
       {isEmpty ? (
         <section className="hz-wave hz-wave-2">
-          <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-8 text-right">
+          <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-8 text-center">
             <p className="text-sm text-zinc-700 text-center" dir="rtl">
               אין כרגע מה להציג כאן :)
             </p>
@@ -259,21 +266,21 @@ export default function AnalyticsClient({
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
-                  <div className="h-3 w-28 rounded bg-zinc-200 ml-auto animate-pulse" />
-                  <div className="mt-3 h-8 w-20 rounded bg-zinc-200 ml-auto animate-pulse" />
+                  <div className="h-3 w-28 rounded bg-zinc-200 mx-auto animate-pulse" />
+                  <div className="mt-3 h-8 w-20 rounded bg-zinc-200 mx-auto animate-pulse" />
                 </div>
               ))
             ) : (
               <>
-                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
                   <p className="text-xs text-zinc-500">לידים חדשים</p>
                   <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
                 </div>
-                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
                   <p className="text-xs text-zinc-500">המרות (נרשמו לשיעור ניסיון)</p>
                   <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.converted}</p>
                 </div>
-                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+                <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
                   <p className="text-xs text-zinc-500">שיעור המרה</p>
                   <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.conversionRate}%</p>
                   <p className="mt-1 text-[11px] text-zinc-500">מתוך {data.totalChats} צ׳אטים (פר מספר)</p>
@@ -284,7 +291,7 @@ export default function AnalyticsClient({
 
           {planIsPremium ? (
             <section className="space-y-4 hz-wave hz-wave-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-right border-b border-white/70 pb-2">
+          <div className="flex flex-col items-center gap-2 border-b border-white/70 pb-2 text-center sm:flex-row sm:flex-wrap sm:justify-center">
             <h2 className="text-lg font-semibold text-zinc-900">ניתוח Pro</h2>
             <span className="rounded-full bg-[#f7f3ff] border border-[#7133da]/25 px-2.5 py-0.5 text-[11px] font-semibold text-[#7133da]">
               כללי בחשבון Pro בלבד
@@ -292,7 +299,7 @@ export default function AnalyticsClient({
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
               <p className="text-sm font-semibold text-zinc-900">לידים חדשים לפי יום</p>
               <p className="mt-1 text-[11px] text-zinc-500">משתמש ב-contact.created_at (אזור ישראל)</p>
               {loading && planIsPremium ? (
@@ -335,7 +342,7 @@ export default function AnalyticsClient({
               )}
             </div>
 
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right">
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
               <p className="text-sm font-semibold text-zinc-900">שעות שיא (הודעות נכנסות)</p>
               <p className="mt-1 text-[11px] text-zinc-500">משתמש בשעון ישראל · תפקיד user</p>
               {loading && planIsPremium ? (
@@ -365,7 +372,7 @@ export default function AnalyticsClient({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-right lg:col-span-1">
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center lg:col-span-1">
               <p className="text-xs text-zinc-500">חזרו אחרי פולואפ</p>
               <p className="mt-2 text-[11px] text-zinc-500 leading-snug">
                 ליד שנשלח לו WA follow-up (שלבים 1–3) ולאחריו נשלחה הודעת משתמש נוספת
@@ -381,7 +388,7 @@ export default function AnalyticsClient({
           </div>
 
           <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur overflow-hidden">
-            <div className="p-4 border-b border-zinc-100 text-right space-y-1">
+            <div className="p-4 border-b border-zinc-100 text-center space-y-1">
               <p className="text-sm font-semibold text-zinc-900">אימונים פופולריים</p>
               <p className="text-[11px] text-zinc-500 leading-relaxed">
                 ספירת הופעות שם השירות מתוך services בטקסטי הודעות נכנסות (בטווח הזמן)
@@ -395,10 +402,10 @@ export default function AnalyticsClient({
               <p className="py-12 text-center text-sm text-zinc-500 px-4">אין עדיין התאמות לפי טקסט בטווח זה</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[280px] w-full text-sm text-right border-collapse">
+                <table className="min-w-[280px] w-full text-sm text-center border-collapse">
                   <thead>
                     <tr className="bg-zinc-50/90 text-[11px] uppercase tracking-wide text-zinc-500 border-b border-zinc-100">
-                      <th className="py-3 pr-4 font-medium text-right border-b border-zinc-100">אימון</th>
+                      <th className="py-3 pr-4 font-medium text-center border-b border-zinc-100">אימון</th>
                       <th className="py-3 pl-4 font-medium text-center border-b border-zinc-100 w-[7rem]">אזכורים</th>
                     </tr>
                   </thead>
