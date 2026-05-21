@@ -11,10 +11,10 @@ import { normalizeMasculinePredicatesAfterPracticeHead, type OfferKind } from "@
 /** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
 const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
 
-/** שורת טופס RTL: תמיד input לפני הטקסט ב־DOM ו־justify-start — תיבה צמודה לימין והטקסט משמאל לה */
+/** שורת טופס RTL: תמיד input לפני הטקסט ב־DOM ו־justify-center — תיבה צמודה לימין והטקסט משמאל לה */
 function rtlCheckboxLabelRowClassName(fullWidth = true) {
   return [
-    "flex flex-row items-center justify-start gap-3 text-right cursor-pointer select-none",
+    "flex flex-row items-center justify-center gap-3 text-center cursor-pointer select-none",
     fullWidth ? "w-full" : "",
   ]
     .filter(Boolean)
@@ -91,7 +91,7 @@ function TrialPickMediaAttachmentSection(props: {
   };
 
   return (
-    <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/35 to-zinc-50/40 p-4 text-right shadow-[0_8px_30px_-12px_rgba(95,64,178,0.15)]">
+    <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/35 to-zinc-50/40 p-4 text-center shadow-[0_8px_30px_-12px_rgba(95,64,178,0.15)]">
       <div className="space-y-1">
         <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
           <input
@@ -103,7 +103,7 @@ function TrialPickMediaAttachmentSection(props: {
           <span className="text-sm font-semibold text-zinc-800 tracking-tight">צירוף מדיה</span>
         </label>
         {planIsStarter ? (
-          <p className="text-[11px] font-semibold text-amber-600 text-right" title="זמין בחבילת Pro">
+          <p className="text-[11px] font-semibold text-amber-600 text-center" title="זמין בחבילת Pro">
             ⭐ Pro
           </p>
         ) : null}
@@ -189,7 +189,7 @@ function TrialPickMediaAttachmentSection(props: {
           )}
           {showRowUploadError ? (
             <p
-              className="text-sm text-red-700 text-right px-3 py-2.5 rounded-xl border border-red-200/80 bg-red-50/90 leading-snug"
+              className="text-sm text-red-700 text-center px-3 py-2.5 rounded-xl border border-red-200/80 bg-red-50/90 leading-snug"
               role="alert"
             >
               {err}
@@ -314,10 +314,10 @@ export default function Step3Trial(props: {
             className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
           >
             <div
-              className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100/80 text-right"
+              className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100/80 text-center"
               dir="rtl"
             >
-              <span className="text-[11px] font-medium text-zinc-600 w-full text-right">סוג הצעה</span>
+              <span className="text-[11px] font-medium text-zinc-600 w-full text-center">סוג הצעה</span>
               {(
                 [
                   { k: "trial" as const, label: "אימון ניסיון" },
@@ -334,7 +334,7 @@ export default function Step3Trial(props: {
                     setServices(arr);
                   }}
                   className={[
-                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0 text-right",
+                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0 text-center",
                     s.offer_kind === k
                       ? "border-[#7133da]/55 bg-[#f3edff] text-[#2d1a6e] shadow-[0_6px_16px_-8px_rgba(113,51,218,0.35)]"
                       : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/35",
@@ -381,7 +381,7 @@ export default function Step3Trial(props: {
                   placeholder="שם האימון (עד 15 תווים) *"
                   className="font-medium w-full"
                 />
-                <p className="text-[11px] text-zinc-500 text-right leading-snug pr-0.5">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</p>
+                <p className="text-[11px] text-zinc-500 text-center leading-snug pr-0.5">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</p>
               </div>
               <button
                 type="button"
@@ -509,7 +509,7 @@ export default function Step3Trial(props: {
               label={
                 <div
                   dir="rtl"
-                  className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 text-right"
+                  className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 text-center"
                 >
                   <span className="min-w-0">תיאור</span>
                   <Button
@@ -571,7 +571,7 @@ export default function Step3Trial(props: {
               />
             </Field>
 
-            <div className="space-y-3 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/25 to-zinc-50/50 p-4 text-right shadow-[0_8px_30px_-14px_rgba(95,64,178,0.12)]">
+            <div className="space-y-3 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/25 to-zinc-50/50 p-4 text-center shadow-[0_8px_30px_-14px_rgba(95,64,178,0.12)]">
               <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
                 <input
                   type="checkbox"
@@ -593,7 +593,7 @@ export default function Step3Trial(props: {
                 <span className="text-sm font-semibold text-zinc-800 tracking-tight">חלוקה לרמות</span>
               </label>
               {s.levels_enabled ? (
-                <div className="space-y-2 text-right pt-2 border-t border-[rgba(113,51,218,0.08)]">
+                <div className="space-y-2 text-center pt-2 border-t border-[rgba(113,51,218,0.08)]">
                   {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
                     <div key={`${s.ui_id}-level-${levelIndex}`} className="flex flex-row-reverse items-center gap-2">
                       <button
@@ -629,7 +629,7 @@ export default function Step3Trial(props: {
                   <Button
                     type="button"
                     variant="outline"
-                    className="w-full gap-2 text-right"
+                    className="w-full gap-2 text-center"
                     onClick={() => {
                       const arr = [...services];
                       arr[i] = { ...s, levels: [...s.levels, ""] };

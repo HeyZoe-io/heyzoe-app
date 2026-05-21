@@ -174,7 +174,7 @@ export default function Step4SalesFlow(props: any) {
               }}
               placeholder="כתבו את השאלה כאן…"
             />
-            <p className="text-[11px] text-zinc-500 text-right">כפתורי תשובה</p>
+            <p className="text-[11px] text-zinc-500 text-center">כפתורי תשובה</p>
             {st.options.map((o, oi) => (
               <div key={oi} className="flex gap-2">
                 <Input
@@ -241,7 +241,7 @@ export default function Step4SalesFlow(props: any) {
         desc="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
       />
         <div>
-          <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-start">
+          <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-center">
             <p className="text-sm font-medium text-zinc-700">מדיה לפתיחה (אופציונלי)</p>
             {planIsStarter ? (
               <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
@@ -338,7 +338,7 @@ export default function Step4SalesFlow(props: any) {
             </div>
           )}
           {mediaUploadError ? (
-            <p className="text-sm text-red-600 mt-2 text-right" role="alert">
+            <p className="text-sm text-red-600 mt-2 text-center" role="alert">
               {mediaUploadError}
             </p>
           ) : null}
@@ -390,7 +390,7 @@ export default function Step4SalesFlow(props: any) {
         </div>
 
         <div className="space-y-2">
-          <div dir="ltr" className="flex w-full flex-row items-center justify-start gap-3">
+          <div dir="ltr" className="flex w-full flex-row items-center justify-center gap-3">
             <Button
               type="button"
               variant="outline"
@@ -421,7 +421,7 @@ export default function Step4SalesFlow(props: any) {
                   {services.map((s: any, i: number) =>
                     !s.name.trim() ? null : (
                       <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-right text-sm font-medium text-[#2d1a6e]">
+                        <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
                           {s.name.trim()}
                         </div>
                         <Field label="תשובה">
@@ -443,7 +443,7 @@ export default function Step4SalesFlow(props: any) {
               </>
             ) : trialServiceNames.length === 1 ? (
               <>
-                <p className="text-xs text-zinc-600 text-right leading-relaxed">
+                <p className="text-xs text-zinc-600 text-center leading-relaxed">
                   מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום» למטה.
                 </p>
                 {(() => {
@@ -452,7 +452,7 @@ export default function Step4SalesFlow(props: any) {
                   const s = services[firstNamedIndex]!;
                   return (
                     <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                      <p className="text-xs font-medium text-zinc-700 text-right">תשובה לאימון: {s.name.trim()}</p>
+                      <p className="text-xs font-medium text-zinc-700 text-center">תשובה לאימון: {s.name.trim()}</p>
                       <Field label="תשובה">
                         <Textarea
                           rows={4}
@@ -470,7 +470,7 @@ export default function Step4SalesFlow(props: any) {
                 })()}
               </>
             ) : (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                 הוסיפו לפחות שירות אחד בטאב «מוצרים» כדי להגדיר את מסלול הבחירה.
               </p>
             )}
@@ -496,19 +496,19 @@ export default function Step4SalesFlow(props: any) {
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-            <p className="text-xs text-zinc-600 text-right leading-relaxed">
+            <p className="text-xs text-zinc-600 text-center leading-relaxed">
               פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 בשיעור ניסיון אפשר להשתמש במציין (שם האימון) — בצ׳אט הוא יוחלף לפי הבחירה. לסדנה ולקורס עורכים לשון נפרדת לכל סוג כאן ובטאב «מוצרים».
             </p>
 
             {trialServiceNames.length === 0 ? (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                 כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «מוצרים» (שלב 3).
               </p>
             ) : (
               <>
                 <div
                   dir="rtl"
-                  className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
+                  className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100 text-center"
                   role="tablist"
                   aria-label="סוג סשן חימום לעריכה"
                 >
@@ -517,7 +517,7 @@ export default function Step4SalesFlow(props: any) {
                       type="button"
                       role="tab"
                       aria-selected={warmOfferTab === "trial"}
-                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-right ${
+                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-center ${
                         warmOfferTab === "trial"
                           ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -532,7 +532,7 @@ export default function Step4SalesFlow(props: any) {
                       type="button"
                       role="tab"
                       aria-selected={warmOfferTab === "workshop"}
-                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-right ${
+                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-center ${
                         warmOfferTab === "workshop"
                           ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -547,7 +547,7 @@ export default function Step4SalesFlow(props: any) {
                       type="button"
                       role="tab"
                       aria-selected={warmOfferTab === "course"}
-                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-right ${
+                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-center ${
                         warmOfferTab === "course"
                           ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -583,7 +583,7 @@ export default function Step4SalesFlow(props: any) {
                         }
                       />
                     </Field>
-                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {([0, 1, 2] as const).map((i) => (
                         <Field key={i} label={`כפתור ${i + 1}`}>
@@ -640,7 +640,7 @@ export default function Step4SalesFlow(props: any) {
                         placeholder="למשל: איזו ציפייה יש לך מהסדנה?"
                       />
                     </Field>
-                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {([0, 1, 2] as const).map((i) => (
                         <Field key={i} label={`כפתור ${i + 1}`}>
@@ -705,7 +705,7 @@ export default function Step4SalesFlow(props: any) {
                         placeholder="למשל: יש לך ניסיון קודם בתחום?"
                       />
                     </Field>
-                    <p className="text-xs font-medium text-zinc-700 text-right">כפתורי תשובה</p>
+                    <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {([0, 1, 2] as const).map((i) => (
                         <Field key={i} label={`כפתור ${i + 1}`}>
@@ -780,7 +780,7 @@ export default function Step4SalesFlow(props: any) {
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
             <div
               dir="rtl"
-              className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
+              className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100 text-center"
               role="tablist"
               aria-label="סוג סשן הנעה לפעולה"
             >
@@ -789,7 +789,7 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "trial"}
-                  className={`text-sm font-medium text-right rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-sm font-medium text-center rounded-full px-3 py-1.5 border transition-colors ${
                     ctaOfferTab === "trial"
                       ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -804,7 +804,7 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "workshop"}
-                  className={`text-sm font-medium text-right rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-sm font-medium text-center rounded-full px-3 py-1.5 border transition-colors ${
                     ctaOfferTab === "workshop"
                       ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -819,7 +819,7 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "course"}
-                  className={`text-sm font-medium text-right rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-sm font-medium text-center rounded-full px-3 py-1.5 border transition-colors ${
                     ctaOfferTab === "course"
                       ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
@@ -853,7 +853,7 @@ export default function Step4SalesFlow(props: any) {
                 rows={4}
                 placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
               />
-              <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+              <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                 עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
               </p>
             </div>
@@ -877,11 +877,11 @@ export default function Step4SalesFlow(props: any) {
                   />
                 </Field>
                 <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                  <label className="text-xs font-medium text-zinc-600 block text-right">
+                  <label className="text-xs font-medium text-zinc-600 block text-center">
                     {ctaSlotRoleLabel(locked)}
                   </label>
                   {locked === "trial" ? (
-                    <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                    <p className="text-xs text-zinc-600 text-center leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
                       לינק מטאב «מוצרים»
                     </p>
                   ) : (
@@ -918,7 +918,7 @@ export default function Step4SalesFlow(props: any) {
                       </select>
                       {locked === "memberships" && slotSub === "range" ? (
                         <div className="w-full space-y-2 rounded-xl border border-dashed border-zinc-200 bg-[#fafafa] p-3">
-                          <p className="text-[11px] font-medium text-zinc-700 text-right">
+                          <p className="text-[11px] font-medium text-zinc-700 text-center">
                             טווח מחירים (יאספו להודעת ווטסאפ למנויים/כרטיסיות)
                           </p>
                           <div className="flex flex-row-reverse flex-wrap items-center gap-x-4 gap-y-2 justify-end">
@@ -971,12 +971,12 @@ export default function Step4SalesFlow(props: any) {
                 {b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "image" ? (
                   <div className="w-full space-y-2 border border-dashed border-zinc-200 rounded-xl p-3 bg-[#fafafa]">
                     {planIsStarter ? (
-                      <p className="text-[11px] text-amber-800 text-right bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                      <p className="text-[11px] text-amber-800 text-center bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
                         ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
                       </p>
                     ) : (
                       <div className="space-y-2 flex flex-col items-stretch">
-                        <p className="text-[11px] font-medium text-zinc-700 text-right">תמונת מערכת השעות (אינסרט לפני תפריט ההמשך)</p>
+                        <p className="text-[11px] font-medium text-zinc-700 text-center">תמונת מערכת השעות (אינסרט לפני תפריט ההמשך)</p>
                         {String(b.schedule_cta_image_url ?? "").trim() ? (
                           <div className="rounded-xl overflow-hidden border border-zinc-200 max-w-[200px] mr-auto ml-0 shadow-sm bg-white">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -987,7 +987,7 @@ export default function Step4SalesFlow(props: any) {
                             />
                           </div>
                         ) : null}
-                        <div className="flex flex-row-reverse flex-wrap gap-2 justify-start">
+                        <div className="flex flex-row-reverse flex-wrap gap-2 justify-center">
                           <Button
                             type="button"
                             variant="outline"
@@ -1051,7 +1051,7 @@ export default function Step4SalesFlow(props: any) {
               }}
             />
             {String(scheduleCtaMediaUploadError ?? "").trim() ? (
-              <p className="text-sm text-red-600 text-right" role="alert">
+              <p className="text-sm text-red-600 text-center" role="alert">
                 {String(scheduleCtaMediaUploadError).trim()}
               </p>
             ) : null}
@@ -1076,7 +1076,7 @@ export default function Step4SalesFlow(props: any) {
                     rows={4}
                     placeholder='מה דעתך על הסדנה שלנו? המחיר הוא x שקלים, היא נמשכת x דקות, ובאמת שהולך להיות כיף!'
                   />
-                  <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                     מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»
                   </p>
                 </div>
@@ -1103,7 +1103,7 @@ export default function Step4SalesFlow(props: any) {
                         />
                       </Field>
                       <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                        <label className="text-xs font-medium text-zinc-600 block text-right">
+                        <label className="text-xs font-medium text-zinc-600 block text-center">
                           {purchase ? "רכישת סדנה — אפשרות מסירה" : "יצירת קשר"}
                         </label>
                         {purchase ? (
@@ -1126,7 +1126,7 @@ export default function Step4SalesFlow(props: any) {
                             <option value="phone">מספר שירות לקוחות מהדשבורד</option>
                           </select>
                         ) : (
-                          <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                          <p className="text-xs text-zinc-600 text-center leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
                             מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
                           </p>
                         )}
@@ -1157,7 +1157,7 @@ export default function Step4SalesFlow(props: any) {
                     rows={4}
                     placeholder="מה דעתך להצטרף לקורס שלנו? המחיר הוא x שקלים, הוא נמשך כ־x מפגשים, ובאמת שהולך להיות כיף! התאריכים: x עד x"
                   />
-                  <p className="text-[11px] text-zinc-500 mt-1.5 text-right leading-relaxed">
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                     מחיר, מספר מפגשים ותאריכי הקורס יימשכו אוטומטית מהשירותים שמסוג «קורס» בטאב «מוצרים»
                   </p>
                 </div>
@@ -1184,7 +1184,7 @@ export default function Step4SalesFlow(props: any) {
                         />
                       </Field>
                       <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                        <label className="text-xs font-medium text-zinc-600 block text-right">
+                        <label className="text-xs font-medium text-zinc-600 block text-center">
                           {enroll ? "הצטרפות לקורס — אפשרות מסירה" : "יצירת קשר"}
                         </label>
                         {enroll ? (
@@ -1207,7 +1207,7 @@ export default function Step4SalesFlow(props: any) {
                             <option value="phone">מספר שירות לקוחות מהדשבורד</option>
                           </select>
                         ) : (
-                          <p className="text-xs text-zinc-600 text-right leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                          <p className="text-xs text-zinc-600 text-center leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
                             מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
                           </p>
                         )}
@@ -1239,7 +1239,7 @@ export default function Step4SalesFlow(props: any) {
             </Button>
           </div>
           <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
-            <p className="text-xs text-zinc-600 text-right leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
+            <p className="text-xs text-zinc-600 text-center leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
             <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
               <Textarea
                 value={salesFlowConfig.after_trial_registration_body}
