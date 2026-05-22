@@ -362,31 +362,41 @@ export default function Step3Trial(props: {
               >
                 <GripVertical className="h-4 w-4 pointer-events-none" />
               </span>
-              <div className="flex-1 space-y-1">
-                <Input
-                  dir="rtl"
-                  value={s.name}
-                  maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
-                  onChange={(e) => {
-                    const arr = [...services];
-                    const newName = [...e.target.value].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
-                    const slugFromName = toSlug(newName);
-                    arr[i] = {
-                      ...s,
-                      name: newName,
-                      service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
-                    };
-                    setServices(arr);
-                  }}
-                  placeholder="שם האימון (עד 15 תווים) *"
-                  className="font-medium w-full"
-                />
-                <p className="text-[11px] text-zinc-500 text-center leading-snug pr-0.5">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</p>
+              <div className="min-w-0 flex-1">
+                <Field
+                  inline
+                  className="max-w-none"
+                  label={
+                    <span className="inline-flex flex-col items-center gap-0.5 sm:items-end">
+                      <span>שם האימון</span>
+                      <span className="text-[11px] font-medium text-zinc-400">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</span>
+                    </span>
+                  }
+                >
+                  <Input
+                    dir="rtl"
+                    value={s.name}
+                    maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      const newName = [...e.target.value].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
+                      const slugFromName = toSlug(newName);
+                      arr[i] = {
+                        ...s,
+                        name: newName,
+                        service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
+                      };
+                      setServices(arr);
+                    }}
+                    placeholder="למשל אימון ניסיון"
+                    className="w-full text-center font-medium"
+                  />
+                </Field>
               </div>
               <button
                 type="button"
                 onClick={() => setServices((sv) => sv.filter((_, j) => j !== i))}
-                className="p-1 text-zinc-400 hover:text-red-400"
+                className="shrink-0 p-1 text-zinc-400 hover:text-red-400"
                 aria-label="הסר אימון"
               >
                 <Trash2 className="h-4 w-4" />
@@ -394,8 +404,8 @@ export default function Step3Trial(props: {
             </div>
 
             {s.offer_kind === "course" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="מחיר">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field inline className="max-w-none" label="מחיר">
                   <Input
                     dir="rtl"
                     value={s.price_text}
@@ -405,13 +415,14 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="₪ 80"
+                    className="text-center"
                   />
                 </Field>
-                <Field label="תאריך התחלה">
+                <Field inline className="max-w-none" label="תאריך התחלה">
                   <Input
                     dir="ltr"
                     type="date"
-                    className="font-mono text-sm"
+                    className="text-center font-mono text-sm"
                     value={s.course_start_date}
                     onChange={(e) => {
                       const arr = [...services];
@@ -420,11 +431,11 @@ export default function Step3Trial(props: {
                     }}
                   />
                 </Field>
-                <Field label="תאריך סיום">
+                <Field inline className="max-w-none" label="תאריך סיום">
                   <Input
                     dir="ltr"
                     type="date"
-                    className="font-mono text-sm"
+                    className="text-center font-mono text-sm"
                     value={s.course_end_date}
                     onChange={(e) => {
                       const arr = [...services];
@@ -433,7 +444,7 @@ export default function Step3Trial(props: {
                     }}
                   />
                 </Field>
-                <Field label="מספר מפגשים">
+                <Field inline className="max-w-none" label="מספר מפגשים">
                   <Input
                     dir="rtl"
                     inputMode="numeric"
@@ -444,12 +455,13 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="למשל 8"
+                    className="text-center"
                   />
                 </Field>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="מחיר">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field inline className="max-w-none" label="מחיר">
                   <Input
                     dir="rtl"
                     value={s.price_text}
@@ -459,9 +471,10 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="₪ 80"
+                    className="text-center"
                   />
                 </Field>
-                <Field label="משך (דקות)">
+                <Field inline className="max-w-none" label="משך (דקות)">
                   <Input
                     dir="rtl"
                     value={s.duration}
@@ -471,47 +484,50 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="60"
+                    className="text-center"
                   />
                 </Field>
               </div>
             )}
 
-            <Field label="לינק סליקה *">
-              <div className="flex gap-2 items-center">
-                <Link className="h-4 w-4 text-zinc-400 shrink-0" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field inline className="max-w-none" label="לינק סליקה *">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+                  <Input
+                    dir="ltr"
+                    value={s.payment_link}
+                    onChange={(e) => {
+                      const arr = [...services];
+                      arr[i] = { ...s, payment_link: e.target.value };
+                      setServices(arr);
+                    }}
+                    placeholder="https://..."
+                    className="min-w-0 flex-1 text-center"
+                  />
+                </div>
+              </Field>
+              <Field inline className="max-w-none" label="מיקום">
                 <Input
-                  dir="ltr"
-                  value={s.payment_link}
+                  dir="rtl"
+                  value={s.location_text}
                   onChange={(e) => {
                     const arr = [...services];
-                    arr[i] = { ...s, payment_link: e.target.value };
+                    arr[i] = { ...s, location_text: e.target.value };
                     setServices(arr);
                   }}
-                  placeholder="https://..."
+                  placeholder={address || "תל אביב"}
+                  className="text-center"
                 />
-              </div>
-            </Field>
-
-            <Field label="מיקום">
-              <Input
-                dir="rtl"
-                value={s.location_text}
-                onChange={(e) => {
-                  const arr = [...services];
-                  arr[i] = { ...s, location_text: e.target.value };
-                  setServices(arr);
-                }}
-                placeholder={address || "תל אביב"}
-              />
-            </Field>
+              </Field>
+            </div>
 
             <Field
+              inline
+              className="max-w-none"
               label={
-                <div
-                  dir="rtl"
-                  className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 text-center"
-                >
-                  <span className="min-w-0">תיאור</span>
+                <span className="inline-flex flex-col items-center gap-2 sm:items-end">
+                  <span>תיאור</span>
                   <Button
                     type="button"
                     variant="outline"
@@ -543,7 +559,7 @@ export default function Step3Trial(props: {
                     )}
                     {activeTrialBenefitUiId === s.ui_id ? "מג׳נרט..." : "ג׳נרט"}
                   </Button>
-                </div>
+                </span>
               }
             >
               <textarea
@@ -567,7 +583,7 @@ export default function Step3Trial(props: {
                 }}
                 placeholder="תיאור קצר על האימון (ייסרק מהאתר אם קיים)"
                 rows={4}
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed outline-none focus:border-[#7133da]/50"
+                className="w-full resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-center text-sm leading-relaxed outline-none focus:border-[#7133da]/50"
               />
             </Field>
 
