@@ -147,6 +147,7 @@ export function Field({
   className = "",
   description,
   inline = false,
+  inlineAlign = "center",
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
@@ -155,15 +156,18 @@ export function Field({
   description?: string;
   /** כותרת באותה שורה עם השדה (RTL) */
   inline?: boolean;
+  /** יישור אנכי בשורת inline (למשל בלוק עובדות גבוה) */
+  inlineAlign?: "center" | "start";
 }) {
   if (inline) {
+    const rowAlign = inlineAlign === "start" ? "sm:items-start" : "sm:items-center";
     return (
       <div className={`w-full space-y-2 ${className}`}>
         <div
-          className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-4"
+          className={`flex w-full flex-col items-stretch gap-2 sm:flex-row ${rowAlign} sm:gap-4`}
           dir="rtl"
         >
-          <div className="shrink-0 text-center text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 sm:text-right">
+          <div className="shrink-0 text-right text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">
             {label}
           </div>
           <div className="min-w-0 w-full flex-1">{children}</div>
