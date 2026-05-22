@@ -2624,8 +2624,7 @@ export default function SlugSettingsPage() {
                 </Field>
               </div>
 
-              <div className="mx-auto w-full max-w-3xl space-y-1">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field inline className="max-w-none" label="טלפון לשירות לקוחות">
                     <Input
                       dir="ltr"
