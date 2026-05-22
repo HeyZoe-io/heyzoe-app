@@ -2593,71 +2593,84 @@ export default function SlugSettingsPage() {
                 </Field>
               </div>
 
-              <Field
-                inline
-                label={
-                  <span className="inline-flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5 sm:justify-end">
-                    <span>תיאור העסק</span>
-                    <span className="text-[11px] font-medium text-zinc-400">קצר וקולע</span>
-                  </span>
-                }
-              >
-                <Input
-                  dir="rtl"
-                  value={businessTagline}
-                  onChange={(e) => setBusinessTagline(e.target.value)}
-                  placeholder="סטודיו לפילאטיס מכשירים לחיטוב ובריאות הגוף"
-                  className="text-center"
-                />
-              </Field>
+              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  inline
+                  className="max-w-none"
+                  label={
+                    <span className="inline-flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5 sm:justify-end">
+                      <span>תיאור העסק</span>
+                      <span className="text-[11px] font-medium text-zinc-400">קצר וקולע</span>
+                    </span>
+                  }
+                >
+                  <Input
+                    dir="rtl"
+                    value={businessTagline}
+                    onChange={(e) => setBusinessTagline(e.target.value)}
+                    placeholder="סטודיו לפילאטיס מכשירים לחיטוב ובריאות הגוף"
+                    className="text-center"
+                  />
+                </Field>
+                <Field inline className="max-w-none" label="כתובת">
+                  <Input
+                    dir="rtl"
+                    value={address}
+                    onChange={e => setAddress(e.target.value)}
+                    placeholder="רחוב הרצל 5, תל אביב"
+                    autoComplete="street-address"
+                    className="text-center"
+                  />
+                </Field>
+              </div>
 
-              <Field inline label="כתובת">
-                <Input
-                  dir="rtl"
-                  value={address}
-                  onChange={e => setAddress(e.target.value)}
-                  placeholder="רחוב הרצל 5, תל אביב"
-                  autoComplete="street-address"
-                  className="text-center"
-                />
-              </Field>
-
-              <Field inline label="טלפון לשירות לקוחות" description="במידה וזואי לא תדע לענות.">
-                <Input
-                  dir="ltr"
-                  className="text-center font-mono text-sm"
-                  value={customerServicePhone}
-                  onChange={(e) => setCustomerServicePhone(e.target.value)}
-                  placeholder="05…"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                />
-              </Field>
-
-              <Field
-                inline
-                label={
-                  <span className="inline-flex flex-wrap items-center justify-center gap-3 sm:justify-end">
-                    <span>הנחיות הגעה</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (plan === "basic") {
-                          setShowStarterMediaProModal(true);
-                          return;
-                        }
-                        setShowDirectionsMediaModal(true);
-                      }}
-                      className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
-                    >
-                      העלה קובץ
-                    </button>
-                  </span>
-                }
-              >
-                <Textarea value={directions} onChange={setDirections} placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..." rows={2} />
-              </Field>
+              <div className="mx-auto w-full max-w-3xl space-y-1">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field inline className="max-w-none" label="טלפון לשירות לקוחות">
+                    <Input
+                      dir="ltr"
+                      className="text-center font-mono text-sm"
+                      value={customerServicePhone}
+                      onChange={(e) => setCustomerServicePhone(e.target.value)}
+                      placeholder="05…"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                    />
+                  </Field>
+                  <Field
+                    inline
+                    className="max-w-none"
+                    label={
+                      <span className="inline-flex flex-wrap items-center justify-center gap-3 sm:justify-end">
+                        <span>הנחיות הגעה</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (plan === "basic") {
+                              setShowStarterMediaProModal(true);
+                              return;
+                            }
+                            setShowDirectionsMediaModal(true);
+                          }}
+                          className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
+                        >
+                          העלה קובץ
+                        </button>
+                      </span>
+                    }
+                  >
+                    <Input
+                      dir="rtl"
+                      value={directions}
+                      onChange={(e) => setDirections(e.target.value)}
+                      placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..."
+                      className="text-center"
+                    />
+                  </Field>
+                </div>
+                <p className="text-center text-xs leading-6 text-zinc-500">במידה וזואי לא תדע לענות.</p>
+              </div>
 
               <div className="mx-auto w-full max-w-2xl space-y-2 text-center">
                 <label className="block text-sm font-medium text-zinc-700">כל העובדות שכדאי לציין על העסק</label>
