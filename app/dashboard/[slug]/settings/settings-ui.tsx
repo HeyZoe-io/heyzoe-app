@@ -180,10 +180,10 @@ export function Field({
   }
 
   return (
-    <div className={`mx-auto w-full max-w-2xl space-y-2 text-center ${className}`}>
-      <div className="block text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">{label}</div>
+    <div className={`w-full space-y-2 ${className}`}>
+      <div className="block text-right text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">{label}</div>
       {description ? (
-        <p className="text-xs leading-6 text-zinc-500">{description}</p>
+        <p className="text-right text-xs leading-6 text-zinc-500">{description}</p>
       ) : null}
       {children}
     </div>

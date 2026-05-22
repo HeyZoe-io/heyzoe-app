@@ -529,12 +529,16 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
               >
                 <Copy className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} aria-hidden />
               </Button>
-              {whatsAppSendHref && !compact ? (
+              {whatsAppSendHref ? (
                 <a
                   href={whatsAppSendHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-[rgba(120,92,200,0.18)] bg-white/80 px-3 text-xs font-semibold tracking-[-0.01em] text-zinc-900 shadow-[0_10px_24px_rgba(117,90,180,0.1)] backdrop-blur-sm transition-all duration-200 hover:border-[rgba(113,51,218,0.26)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white hz-lift"
+                  className={
+                    compact
+                      ? "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-[rgba(120,92,200,0.18)] bg-white/80 px-2.5 text-[11px] font-semibold tracking-[-0.01em] text-zinc-900 shadow-[0_8px_18px_rgba(117,90,180,0.08)] backdrop-blur-sm transition-all duration-200 hover:border-[rgba(113,51,218,0.26)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                      : "inline-flex h-8 shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-[rgba(120,92,200,0.18)] bg-white/80 px-3 text-xs font-semibold tracking-[-0.01em] text-zinc-900 shadow-[0_10px_24px_rgba(117,90,180,0.1)] backdrop-blur-sm transition-all duration-200 hover:border-[rgba(113,51,218,0.26)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white hz-lift"
+                  }
                 >
                   שלח הודעה
                 </a>
@@ -2578,7 +2582,7 @@ export default function SlugSettingsPage() {
 
               <div className="grid w-full grid-cols-1 gap-4 border-b border-zinc-200/80 pb-5 sm:grid-cols-2">
                 <WhatsAppNumberSection slug={slug} compact />
-                <Field inline className="max-w-none" label="טלפון לשירות לקוחות">
+                <Field className="max-w-none" label="טלפון לשירות לקוחות">
                   <Input
                     dir="ltr"
                     className="text-center font-mono text-sm"
