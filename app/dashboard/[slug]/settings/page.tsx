@@ -2559,8 +2559,8 @@ export default function SlugSettingsPage() {
             <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
               <WhatsAppNumberSection slug={slug} />
 
-              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field inline label="שם העסק *">
+              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field inline className="max-w-none" label="שם העסק *">
                   {name.trim() && !businessNameEditing ? (
                     <div className="flex items-stretch gap-2 rounded-xl border border-zinc-300 bg-zinc-50 min-h-10">
                       <div className="flex-1 px-3 py-2.5 text-center text-sm font-semibold text-zinc-900 leading-snug">
@@ -2588,12 +2588,12 @@ export default function SlugSettingsPage() {
                     />
                   )}
                 </Field>
-                <Field inline label="שם הבוט">
+                <Field inline className="max-w-none" label="שם הבוט">
                   <Input dir="rtl" value={botName} onChange={e => setBotName(e.target.value)} placeholder="זואי" className="text-center" />
                 </Field>
               </div>
 
-              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field
                   inline
                   className="max-w-none"
@@ -2624,7 +2624,7 @@ export default function SlugSettingsPage() {
                 </Field>
               </div>
 
-              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field inline className="max-w-none" label="טלפון לשירות לקוחות">
                     <Input
                       dir="ltr"
@@ -2667,11 +2667,9 @@ export default function SlugSettingsPage() {
                       className="text-center"
                     />
                   </Field>
-                </div>
-                <p className="text-center text-xs leading-6 text-zinc-500">במידה וזואי לא תדע לענות.</p>
               </div>
 
-              <div className="mx-auto w-full max-w-2xl space-y-2 text-center">
+              <div className="w-full space-y-2 text-center">
                 <label className="block text-sm font-medium text-zinc-700">כל העובדות שכדאי לציין על העסק</label>
 
                 <div className="space-y-2">
@@ -2783,7 +2781,7 @@ export default function SlugSettingsPage() {
                 </Button>
               </div>
 
-              <Field inline label="הנחות ומבצעים">
+              <Field inline className="max-w-none" label="הנחות ומבצעים">
                 <Input
                   dir="rtl"
                   value={promotions}
