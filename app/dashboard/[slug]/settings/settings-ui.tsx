@@ -166,7 +166,7 @@ export function Field({
           <div className="shrink-0 text-center text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 sm:text-right">
             {label}
           </div>
-          <div className="min-w-0 w-full flex-1 sm:max-w-md">{children}</div>
+          <div className="min-w-0 w-full flex-1">{children}</div>
         </div>
         {description ? (
           <p className="text-center text-xs leading-6 text-zinc-500">{description}</p>
