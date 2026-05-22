@@ -297,7 +297,7 @@ function whatsAppPrefilledMessageHref(phoneDisplay: string, text: string): strin
   return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
 }
 
-function WhatsAppNumberSection({ slug }: { slug: string }) {
+function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compact?: boolean }) {
   const fetcher = useCallback(async (key: string) => {
     const res = await fetch(key, { method: "GET" });
     const j = (await res.json()) as { channel?: WhatsAppChannel; error?: string };
@@ -449,11 +449,19 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
   }, []);
 
   return (
-    <div className="border-b border-zinc-200/80 pb-6 mb-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-right">
-          <div className="text-sm font-semibold text-zinc-900">מספר ה‑WhatsApp שלך</div>
-          <div className="mt-0.5 text-xs text-zinc-500">המספר שעליו זואי עונה ללקוחות שלך</div>
+    <div
+      className={
+        compact ? "h-full min-w-0" : "border-b border-zinc-200/80 pb-6 mb-2"
+      }
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 text-right">
+          <div className="text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">
+            מספר ה‑WhatsApp שלך
+          </div>
+          {compact ? null : (
+            <div className="mt-0.5 text-xs text-zinc-500">המספר שעליו זואי עונה ללקוחות שלך</div>
+          )}
         </div>
         {badge ? (
           badge
@@ -478,29 +486,37 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
       </div>
 
       {error ? (
-        <div className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right">
+        <div
+          className={`${compact ? "mt-2" : "mt-3"} text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right`}
+        >
           לא ניתן לטעון את סטטוס המספר כרגע.
         </div>
       ) : null}
 
       {isLoading && !data ? (
-        <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-right text-sm text-zinc-600 flex items-center justify-between gap-3">
+        <div
+          className={`${compact ? "mt-2 p-3" : "mt-3 p-4"} rounded-xl border border-zinc-200 bg-zinc-50/60 text-right text-sm text-zinc-600 flex items-center justify-between gap-3`}
+        >
           <span>טוען…</span>
           <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
         </div>
       ) : null}
 
       {metaStatus === "CONNECTED" || status === "active" ? (
-        <div className="mt-3 space-y-2 text-right">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-            <span className="text-sm font-semibold text-zinc-900" dir="ltr">
+        <div className={`${compact ? "mt-2" : "mt-3"} space-y-1.5 text-right`}>
+          <div
+            className={`flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white ${
+              compact ? "px-2.5 py-1.5" : "px-3 py-2"
+            }`}
+          >
+            <span className={`font-semibold text-zinc-900 ${compact ? "text-xs" : "text-sm"}`} dir="ltr">
               {friendly || data?.phone_display || "—"}
             </span>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1">
               <Button
                 type="button"
                 variant="outline"
-                className="h-8 w-9 px-0"
+                className={compact ? "h-7 w-8 px-0" : "h-8 w-9 px-0"}
                 aria-label="העתקת מספר"
                 onClick={() => {
                   void (async () => {
@@ -511,9 +527,9 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
                   })();
                 }}
               >
-                <Copy className="h-4 w-4" aria-hidden />
+                <Copy className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} aria-hidden />
               </Button>
-              {whatsAppSendHref ? (
+              {whatsAppSendHref && !compact ? (
                 <a
                   href={whatsAppSendHref}
                   target="_blank"
@@ -525,10 +541,12 @@ function WhatsAppNumberSection({ slug }: { slug: string }) {
               ) : null}
             </div>
           </div>
-          {copied ? <div className="text-xs text-emerald-700">המספר הועתק</div> : null}
-          <p className="text-sm text-zinc-700">
-            {metaText || "זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!"}
-          </p>
+          {copied ? <div className="text-[11px] text-emerald-700">המספר הועתק</div> : null}
+          {compact ? null : (
+            <p className="text-sm text-zinc-700">
+              {metaText || "זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!"}
+            </p>
+          )}
         </div>
       ) : metaStatus === "PENDING" ? (
         <div className="mt-3 rounded-xl border border-amber-200/70 bg-amber-50/70 p-4 text-right">
@@ -2557,7 +2575,22 @@ export default function SlugSettingsPage() {
           <div className={step !== 2 ? "hidden" : undefined} aria-hidden={step !== 2}>
           <StepPanel className="space-y-5">
             <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
-              <WhatsAppNumberSection slug={slug} />
+
+              <div className="grid w-full grid-cols-1 gap-4 border-b border-zinc-200/80 pb-5 sm:grid-cols-2">
+                <WhatsAppNumberSection slug={slug} compact />
+                <Field inline className="max-w-none" label="טלפון לשירות לקוחות">
+                  <Input
+                    dir="ltr"
+                    className="text-center font-mono text-sm"
+                    value={customerServicePhone}
+                    onChange={(e) => setCustomerServicePhone(e.target.value)}
+                    placeholder="05…"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                  />
+                </Field>
+              </div>
 
               <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field inline className="max-w-none" label="שם העסק *">
@@ -2625,53 +2658,54 @@ export default function SlugSettingsPage() {
               </div>
 
               <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field inline className="max-w-none" label="טלפון לשירות לקוחות">
-                    <Input
-                      dir="ltr"
-                      className="text-center font-mono text-sm"
-                      value={customerServicePhone}
-                      onChange={(e) => setCustomerServicePhone(e.target.value)}
-                      placeholder="05…"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                    />
-                  </Field>
-                  <Field
-                    inline
-                    className="max-w-none"
-                    label={
-                      <span className="inline-flex flex-wrap items-center justify-center gap-3 sm:justify-end">
-                        <span>הנחיות הגעה</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (plan === "basic") {
-                              setShowStarterMediaProModal(true);
-                              return;
-                            }
-                            setShowDirectionsMediaModal(true);
-                          }}
-                          className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
-                        >
-                          העלה קובץ
-                        </button>
-                      </span>
-                    }
-                  >
-                    <Input
-                      dir="rtl"
-                      value={directions}
-                      onChange={(e) => setDirections(e.target.value)}
-                      placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..."
-                      className="text-center"
-                    />
-                  </Field>
+                <Field
+                  inline
+                  className="max-w-none"
+                  label={
+                    <span className="inline-flex flex-wrap items-center justify-center gap-3 sm:justify-end">
+                      <span>הנחיות הגעה</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (plan === "basic") {
+                            setShowStarterMediaProModal(true);
+                            return;
+                          }
+                          setShowDirectionsMediaModal(true);
+                        }}
+                        className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
+                      >
+                        העלה קובץ
+                      </button>
+                    </span>
+                  }
+                >
+                  <Input
+                    dir="rtl"
+                    value={directions}
+                    onChange={(e) => setDirections(e.target.value)}
+                    placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..."
+                    className="text-center"
+                  />
+                </Field>
+                <Field inline className="max-w-none" label="הנחות ומבצעים">
+                  <Input
+                    dir="rtl"
+                    value={promotions}
+                    onChange={(e) => setPromotions(e.target.value)}
+                    placeholder="20% הנחה על מנויים חדשים עד סוף החודש"
+                    className="text-center"
+                  />
+                </Field>
               </div>
 
-              <div className="w-full space-y-2 text-center">
-                <label className="block text-sm font-medium text-zinc-700">כל העובדות שכדאי לציין על העסק</label>
-
+              <Field
+                inline
+                inlineAlign="start"
+                className="max-w-none"
+                label="כל העובדות שכדאי לציין על העסק"
+              >
+                <div className="w-full space-y-2">
                 <div className="space-y-2">
                   {traits.map((row, i) => (
                     <div key={i} className="flex gap-2 items-center">
@@ -2782,16 +2816,7 @@ export default function SlugSettingsPage() {
                     </p>
                   )}
                 </Field>
-              </div>
-
-              <Field inline className="max-w-none" label="הנחות ומבצעים">
-                <Input
-                  dir="rtl"
-                  value={promotions}
-                  onChange={(e) => setPromotions(e.target.value)}
-                  placeholder="20% הנחה על מנויים חדשים עד סוף החודש"
-                  className="text-center"
-                />
+                </div>
               </Field>
 
           </StepPanel>
