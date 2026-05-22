@@ -2705,38 +2705,63 @@ export default function SlugSettingsPage() {
                   ))}
                 </div>
 
-                <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-3 text-center">
-                  <div className="flex flex-wrap items-start justify-center gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-[#2d1a6e]">שאלות נוספות</p>
-                    </div>
-                    {factQuestions.length > 1 ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-8 px-3 text-xs"
-                        onClick={() =>
-                          setFactQuestionIdx((i) =>
-                            factQuestions.length ? (i + 1) % factQuestions.length : 0
-                          )
-                        }
-                      >
-                        החלף
-                      </Button>
-                    ) : null}
-                  </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-1"
+                  onClick={() => setTraits((prev) => [...prev, ""])}
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף
+                </Button>
 
+                <Field
+                  inline
+                  className="max-w-none pt-1"
+                  label="שאלות נוספות"
+                >
                   {factQuestions.length ? (
                     (() => {
                       const q = factQuestions[factQuestionIdx] ?? factQuestions[0]!;
                       return (
-                        <div className="mt-3 rounded-xl border border-violet-200/70 bg-white/80 p-3">
-                          <div className="flex flex-wrap items-center justify-center gap-2">
-                            <p className="text-sm font-medium text-zinc-900">{q.question}</p>
+                        <div className="w-full space-y-2">
+                          <div
+                            className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3"
+                            dir="rtl"
+                          >
+                            <p className="shrink-0 text-center text-sm font-semibold tracking-[-0.01em] text-zinc-800 sm:max-w-[38%] sm:text-right">
+                              {q.question}
+                            </p>
+                            <Input
+                              dir="rtl"
+                              value={factAnswers[q.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setFactAnswers((m) => ({ ...m, [q.id]: v }));
+                              }}
+                              placeholder={q.placeholder}
+                              className="min-w-0 flex-1 text-center"
+                            />
+                            {factQuestions.length > 1 ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 shrink-0 px-3 text-xs"
+                                onClick={() =>
+                                  setFactQuestionIdx((i) =>
+                                    factQuestions.length ? (i + 1) % factQuestions.length : 0
+                                  )
+                                }
+                              >
+                                החלף
+                              </Button>
+                            ) : null}
+                          </div>
+                          <div className="flex justify-center sm:justify-start">
                             <Button
                               type="button"
                               variant="outline"
-                              className="h-8 px-3 text-xs gap-1"
+                              className="h-8 gap-1 px-3 text-xs"
                               onClick={() => {
                                 addFactLine(factFromQuestionAnswer(q.question, factAnswers[q.id] ?? ""));
                                 if (factQuestions.length > 1) {
@@ -2748,37 +2773,15 @@ export default function SlugSettingsPage() {
                               הוסף לעובדות
                             </Button>
                           </div>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Input
-                              dir="rtl"
-                              value={factAnswers[q.id] ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setFactAnswers((m) => ({ ...m, [q.id]: v }));
-                              }}
-                              placeholder={q.placeholder}
-                              className="text-center"
-                            />
-                          </div>
                         </div>
                       );
                     })()
                   ) : (
-                    <p className="mt-3 text-center text-sm text-zinc-700">
+                    <p className="text-center text-sm text-zinc-700 sm:text-right">
                       נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.
                     </p>
                   )}
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-1"
-                  onClick={() => setTraits((prev) => [...prev, ""])}
-                >
-                  <Plus className="h-4 w-4" />
-                  הוסף
-                </Button>
+                </Field>
               </div>
 
               <Field inline className="max-w-none" label="הנחות ומבצעים">
