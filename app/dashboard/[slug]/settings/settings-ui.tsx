@@ -158,9 +158,9 @@ export function Field({
 }) {
   if (inline) {
     return (
-      <div className={`mx-auto w-full max-w-2xl space-y-2 ${className}`}>
+      <div className={`w-full space-y-2 ${className}`}>
         <div
-          className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-center sm:gap-4"
+          className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-4"
           dir="rtl"
         >
           <div className="shrink-0 text-center text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 sm:text-right">
