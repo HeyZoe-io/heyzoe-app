@@ -1,4 +1,6 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { computeContactStatus, type ContactStatusKey } from "@/lib/contact-status";
+import { normalizePhone } from "@/lib/phone-normalize";
 
 export type SessionSummary = {
   session_id: string;
@@ -7,7 +9,48 @@ export type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
+  /** סטטוס ליד מטבלת contacts (אותה לוגיקה כמו בדף אנשי קשר) */
+  contactStatus?: ContactStatusKey | null;
 };
+
+function phoneLookupKey(phone: string): string {
+  const p = String(phone ?? "").trim();
+  return normalizePhone(p) ?? p.replace(/\D/g, "");
+}
+
+async function loadContactStatusByPhoneForBusiness(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<Map<string, ContactStatusKey | null>> {
+  const { data, error } = await admin
+    .from("contacts")
+    .select("phone, opted_out, trial_registered, session_phase, wa_followup_stage")
+    .eq("business_id", businessId);
+
+  if (error) {
+    console.warn("[conversations-sessions] contacts status load:", error.message);
+    return new Map();
+  }
+
+  const map = new Map<string, ContactStatusKey | null>();
+  for (const row of data ?? []) {
+    const phone = String((row as { phone?: string }).phone ?? "").trim();
+    const key = phoneLookupKey(phone);
+    if (!key) continue;
+    map.set(key, computeContactStatus(row as Parameters<typeof computeContactStatus>[0]));
+  }
+  return map;
+}
+
+function enrichSessionsWithContactStatus(
+  sessions: SessionSummary[],
+  byPhone: Map<string, ContactStatusKey | null>
+): SessionSummary[] {
+  return sessions.map((s) => ({
+    ...s,
+    contactStatus: byPhone.get(phoneLookupKey(s.phone)) ?? null,
+  }));
+}
 
 export function buildWaSessionPrefix(phoneNumberId: string): string {
   const id = String(phoneNumberId ?? "").trim();
@@ -143,5 +186,13 @@ export async function loadBusinessConversationSessions(
       )
       .map((p) => String((p as { session_id?: string }).session_id ?? ""))
   );
-  return aggregateSessionsFromMessages(filteredMessages, pausedSet);
+  const sessions = aggregateSessionsFromMessages(filteredMessages, pausedSet);
+
+  const norm = String(slug ?? "").trim().toLowerCase();
+  const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
+  const businessId = (biz as { id?: number } | null)?.id;
+  if (!businessId) return sessions;
+
+  const statusByPhone = await loadContactStatusByPhoneForBusiness(admin, Number(businessId));
+  return enrichSessionsWithContactStatus(sessions, statusByPhone);
 }
