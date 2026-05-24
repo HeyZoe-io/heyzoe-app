@@ -7,6 +7,7 @@ export type AdminNavTab =
   | "marketing"
   | "analytics"
   | "businesses"
+  | "leads"
   | "cancellations"
   | "requests";
 
@@ -16,6 +17,7 @@ const TABS: { key: AdminNavTab; href: string; label: string }[] = [
   { key: "marketing", href: "/admin/dashboard?tab=marketing", label: "פלואו שיווקי" },
   { key: "analytics", href: "/admin/analytics", label: "analytics" },
   { key: "businesses", href: "/admin/businesses", label: "עסקים" },
+  { key: "leads", href: "/admin/leads", label: "לידים" },
   { key: "cancellations", href: "/admin/cancellations", label: "ביטולים" },
   { key: "requests", href: "/admin/requests", label: "פניות מבעלי עסקים" },
 ];

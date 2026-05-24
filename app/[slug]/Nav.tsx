@@ -18,7 +18,7 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
   const items: { href: string; label: string }[] = [
     { href: `${base}/settings`, label: "מסלול מכירה" },
     { href: `${base}/conversations`, label: "שיחות" },
-    { href: `${base}/contacts`, label: "אנשי קשר" },
+    { href: `${base}/contacts`, label: "לידים" },
     { href: `${base}/analytics`, label: "אנליטיקס" },
   ];
 
