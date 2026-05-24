@@ -37,9 +37,6 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
   return (
     <div className="w-full border-t border-zinc-200/70 mt-3 pt-4 pb-1">
       <div className={`${DASHBOARD_SETTINGS_SHELL} flex flex-col items-stretch gap-3`}>
-        <p className="text-center text-xs font-light tracking-wide text-zinc-500">
-          שלבי הגדרת מסלול המכירה
-        </p>
         <nav
           className="flex min-w-0 justify-center overflow-x-auto pb-0.5"
           aria-label="שלבי מסלול מכירה"
