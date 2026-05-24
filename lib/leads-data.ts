@@ -1,4 +1,9 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { matchesMarketingRegisteredClick } from "@/lib/admin-marketing-analytics";
+import {
+  extractLeadPhoneFromMarketingSession,
+  MARKETING_CONVERSATIONS_SLUG,
+} from "@/lib/marketing-whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
 
@@ -58,6 +63,116 @@ export async function loadLeadsForBusiness(
 }
 
 const ADMIN_LEADS_LIMIT = 10_000;
+
+function deriveMarketingWaFollowupStage(row: {
+  followup_1_sent_at?: string | null;
+  followup_2_sent_at?: string | null;
+  followup_3_sent_at?: string | null;
+}): number {
+  if (row.followup_3_sent_at) return 3;
+  if (row.followup_2_sent_at) return 2;
+  if (row.followup_1_sent_at) return 1;
+  return 0;
+}
+
+function deriveMarketingSessionPhase(
+  row: { flow_completed?: boolean | null; current_node_id?: string | null },
+  registered: boolean
+): string | null {
+  if (registered) return "registered";
+  if (row.flow_completed) return "cta";
+  if (row.current_node_id) return "opening";
+  return null;
+}
+
+async function loadMarketingRegisteredPhoneKeys(
+  admin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<Set<string>> {
+  const { data: messages, error } = await admin
+    .from("messages")
+    .select("session_id, content")
+    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .eq("role", "user")
+    .order("created_at", { ascending: false })
+    .limit(50_000);
+
+  if (error) {
+    console.warn("[leads-data] marketing registered messages:", error.message);
+    return new Set();
+  }
+
+  const keys = new Set<string>();
+  for (const row of messages ?? []) {
+    const raw = row as { session_id?: string; content?: string };
+    if (!matchesMarketingRegisteredClick(String(raw.content ?? ""))) continue;
+    const phone = extractLeadPhoneFromMarketingSession(String(raw.session_id ?? ""));
+    const key = phoneKey(phone);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/** לידים מקו זואי אדמין (שיווק) — לא מטבלת contacts של עסקים */
+export async function loadMarketingAdminLeads(
+  admin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<LeadRow[]> {
+  const [{ data: sessions, error }, registeredKeys] = await Promise.all([
+    admin
+      .from("marketing_flow_sessions")
+      .select(
+        `
+        phone, created_at, updated_at, last_user_message_at,
+        flow_completed, current_node_id,
+        followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at
+      `
+      )
+      .order("created_at", { ascending: false })
+      .limit(ADMIN_LEADS_LIMIT),
+    loadMarketingRegisteredPhoneKeys(admin),
+  ]);
+
+  if (error) {
+    console.warn("[leads-data] marketing_flow_sessions load:", error.message);
+    return [];
+  }
+
+  return (sessions ?? []).map((row) => {
+    const s = row as Record<string, unknown>;
+    const phone = String(s.phone ?? "").trim();
+    const key = phoneKey(phone);
+    const registered = key ? registeredKeys.has(key) : false;
+    const waStage = deriveMarketingWaFollowupStage({
+      followup_1_sent_at: s.followup_1_sent_at as string | null,
+      followup_2_sent_at: s.followup_2_sent_at as string | null,
+      followup_3_sent_at: s.followup_3_sent_at as string | null,
+    });
+    const lastContact =
+      (s.last_user_message_at as string | null) ??
+      (s.updated_at as string | null) ??
+      (s.created_at as string | null);
+
+    return {
+      phone: phone || null,
+      full_name: null,
+      source: "זואי אדמין",
+      created_at: s.created_at as string | null,
+      opted_out: false,
+      session_phase: deriveMarketingSessionPhase(
+        {
+          flow_completed: s.flow_completed as boolean | null,
+          current_node_id: s.current_node_id as string | null,
+        },
+        registered
+      ),
+      trial_registered: registered,
+      wa_followup_stage: waStage,
+      last_contact_at: lastContact,
+      cta_clicked_at: null,
+      business_slug: MARKETING_CONVERSATIONS_SLUG,
+      business_name: "זואי אדמין",
+    };
+  });
+}
 
 export async function loadLeadsForAdmin(
   admin: ReturnType<typeof createSupabaseAdminClient>

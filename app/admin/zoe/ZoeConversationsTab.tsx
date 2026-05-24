@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ConversationsClient from "@/app/[slug]/conversations/client";
 import {
   MARKETING_CONVERSATIONS_SLUG,
@@ -47,10 +48,24 @@ export default function ZoeConversationsTab({
     ];
   }, [businesses]);
 
-  const [slug, setSlug] = useState(ZOE_ADMIN_ALL_CONVERSATIONS_SLUG);
+  const searchParams = useSearchParams();
+  const initialConvSlug = (searchParams.get("conv_slug") ?? "").trim();
+  const [slug, setSlug] = useState(() =>
+    initialConvSlug && [ZOE_ADMIN_ALL_CONVERSATIONS_SLUG, MARKETING_CONVERSATIONS_SLUG].includes(initialConvSlug)
+      ? initialConvSlug
+      : ZOE_ADMIN_ALL_CONVERSATIONS_SLUG
+  );
   const [initialSessions, setInitialSessions] = useState<ZoeAdminSessionSummary[]>(initialAllSessions);
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState("");
+
+  useEffect(() => {
+    const next = (searchParams.get("conv_slug") ?? "").trim();
+    if (!next) return;
+    if (next === ZOE_ADMIN_ALL_CONVERSATIONS_SLUG || next === MARKETING_CONVERSATIONS_SLUG) {
+      setSlug(next);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!slug) {

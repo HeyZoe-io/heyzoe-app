@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
-import { loadLeadsForAdmin } from "@/lib/leads-data";
+import { loadMarketingAdminLeads } from "@/lib/leads-data";
 import { AdminNav } from "@/app/admin/AdminNav";
 import ContactsClient from "@/app/[slug]/contacts/client";
 
@@ -16,7 +16,7 @@ export default async function AdminLeadsPage() {
   if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
   const admin = createSupabaseAdminClient();
-  const rows = await loadLeadsForAdmin(admin);
+  const rows = await loadMarketingAdminLeads(admin);
 
   return (
     <main
@@ -42,13 +42,13 @@ export default async function AdminLeadsPage() {
           <div style={{ textAlign: "right" }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 400, color: "#1a0a3c" }}>לידים</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>
-              כל הלידים מכל העסקים — פילטרים, סטטוסים וייצוא
+              לידים מקו זואי אדמין (שיווק) — פילטרים, סטטוסים וייצוא
             </p>
           </div>
           <AdminNav active="leads" />
         </header>
 
-        <ContactsClient initialContacts={rows} adminMode />
+        <ContactsClient initialContacts={rows} marketingAdminMode />
       </div>
     </main>
   );

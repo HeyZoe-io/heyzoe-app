@@ -15,6 +15,7 @@ import {
   type ContactStatusKey,
 } from "@/lib/contact-status";
 import type { LeadRow } from "@/lib/leads-types";
+import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 
 type Contact = LeadRow;
 
@@ -22,7 +23,10 @@ type Props = {
   /** נדרש במצב עסק; באדמין — slug לכל שורה */
   businessSlug?: string;
   initialContacts: Contact[];
+  /** לידים מכל העסקים — עמודת עסק */
   adminMode?: boolean;
+  /** לידים מקו זואי אדמין בלבד */
+  marketingAdminMode?: boolean;
 };
 
 function formatDate(iso: string | null): string {
@@ -91,15 +95,25 @@ function matchesCreatedAtRange(createdAt: string | null, from: string, to: strin
   return true;
 }
 
-function contactRowKey(c: Contact, idx: number, adminMode: boolean): string {
+function contactRowKey(
+  c: Contact,
+  idx: number,
+  multiBusinessAdmin: boolean
+): string {
   const phone = String(c.phone ?? "").trim();
   const slug = String(c.business_slug ?? "").trim();
-  if (adminMode && slug) return `${slug}::${phone || idx}`;
+  if (multiBusinessAdmin && slug) return `${slug}::${phone || idx}`;
   return phone || `row-${c.created_at ?? ""}-${idx}`;
 }
 
-function slugForContact(c: Contact, businessSlug: string, adminMode: boolean): string {
-  if (adminMode) return String(c.business_slug ?? "").trim().toLowerCase();
+function slugForContact(
+  c: Contact,
+  businessSlug: string,
+  multiBusinessAdmin: boolean,
+  marketingAdminMode: boolean
+): string {
+  if (marketingAdminMode) return MARKETING_CONVERSATIONS_SLUG;
+  if (multiBusinessAdmin) return String(c.business_slug ?? "").trim().toLowerCase();
   return businessSlug.trim().toLowerCase();
 }
 
@@ -227,8 +241,11 @@ export default function ContactsClient({
   businessSlug = "",
   initialContacts,
   adminMode = false,
+  marketingAdminMode = false,
 }: Props) {
   const router = useRouter();
+  const multiBusinessAdmin = adminMode && !marketingAdminMode;
+  const showBusinessColumn = multiBusinessAdmin;
   const todayInput = useMemo(() => toDateInputValue(new Date()), []);
   const [dateFrom, setDateFrom] = useState(() => defaultLast30DaysRange().from);
   const [dateTo, setDateTo] = useState(() => defaultLast30DaysRange().to);
@@ -252,8 +269,8 @@ export default function ContactsClient({
   }, [initialContacts, dateFrom, dateTo, statusFilter]);
 
   const filteredKeys = useMemo(
-    () => new Set(filteredContacts.map((c, i) => contactRowKey(c, i, adminMode))),
-    [filteredContacts, adminMode]
+    () => new Set(filteredContacts.map((c, i) => contactRowKey(c, i, multiBusinessAdmin))),
+    [filteredContacts, multiBusinessAdmin]
   );
 
   useEffect(() => {
@@ -264,17 +281,18 @@ export default function ContactsClient({
   }, [filteredKeys]);
 
   const selectedContacts = useMemo(
-    () => filteredContacts.filter((c, i) => selectedKeys.has(contactRowKey(c, i, adminMode))),
-    [filteredContacts, selectedKeys, adminMode]
+    () =>
+      filteredContacts.filter((c, i) => selectedKeys.has(contactRowKey(c, i, multiBusinessAdmin))),
+    [filteredContacts, selectedKeys, multiBusinessAdmin]
   );
 
   const selectedCount = selectedContacts.length;
   const canExport = selectedCount > 0;
   const allFilteredSelected =
     filteredContacts.length > 0 &&
-    filteredContacts.every((c, i) => selectedKeys.has(contactRowKey(c, i, adminMode)));
+    filteredContacts.every((c, i) => selectedKeys.has(contactRowKey(c, i, multiBusinessAdmin)));
   const someFilteredSelected = filteredContacts.some((c, i) =>
-    selectedKeys.has(contactRowKey(c, i, adminMode))
+    selectedKeys.has(contactRowKey(c, i, multiBusinessAdmin))
   );
 
   function toggleRow(key: string, checked: boolean) {
@@ -290,9 +308,9 @@ export default function ContactsClient({
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (allFilteredSelected) {
-        filteredContacts.forEach((c, i) => next.delete(contactRowKey(c, i, adminMode)));
+        filteredContacts.forEach((c, i) => next.delete(contactRowKey(c, i, multiBusinessAdmin)));
       } else {
-        filteredContacts.forEach((c, i) => next.add(contactRowKey(c, i, adminMode)));
+        filteredContacts.forEach((c, i) => next.add(contactRowKey(c, i, multiBusinessAdmin)));
       }
       return next;
     });
@@ -359,6 +377,20 @@ export default function ContactsClient({
     return { sent: Number(j.sent ?? 0), failed: Number(j.failed ?? 0) };
   }
 
+  async function sendMarketingManual(phone: string, message: string) {
+    const res = await fetch("/api/admin/marketing/manual-send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: marketingWaSessionId(phone),
+        text: message,
+      }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+    if (!res.ok) throw new Error(j?.error || "send_failed");
+    return { sent: 1, failed: 0 };
+  }
+
   function openSingle(c: Contact) {
     setSingleContact(c);
     setSingleMsg("");
@@ -366,7 +398,16 @@ export default function ContactsClient({
   }
 
   function viewConversations(phone: string, contact: Contact) {
-    const slug = slugForContact(contact, businessSlug, adminMode);
+    if (marketingAdminMode) {
+      const sp = new URLSearchParams({
+        tab: "conversations",
+        conv_slug: MARKETING_CONVERSATIONS_SLUG,
+        phone,
+      });
+      router.push(`/admin/zoe?${sp.toString()}`);
+      return;
+    }
+    const slug = slugForContact(contact, businessSlug, multiBusinessAdmin, marketingAdminMode);
     if (!slug) return;
     router.push(`/${encodeURIComponent(slug)}/conversations?phone=${encodeURIComponent(phone)}`);
   }
@@ -374,16 +415,24 @@ export default function ContactsClient({
   async function onSendSingle() {
     const c = singleContact;
     if (!c?.phone) return;
-    const slug = slugForContact(c, businessSlug, adminMode);
-    if (!slug) {
-      showToast("חסר מזהה עסק לשליחה");
-      return;
-    }
     const text = singleMsg.trim();
     if (!text) return;
     setSending(true);
     try {
-      const { sent, failed } = await sendViaApi(slug, { mode: "single", phone: c.phone, message: text });
+      const { sent, failed } = marketingAdminMode
+        ? await sendMarketingManual(c.phone, text)
+        : await (async () => {
+            const slug = slugForContact(c, businessSlug, multiBusinessAdmin, marketingAdminMode);
+            if (!slug) {
+              showToast("חסר מזהה עסק לשליחה");
+              return { sent: 0, failed: 1 };
+            }
+            return sendViaApi(slug, { mode: "single", phone: c.phone!, message: text });
+          })();
+      if (sent === 0 && failed === 1 && !marketingAdminMode) {
+        setSending(false);
+        return;
+      }
       if (sent === 1 && failed === 0) showToast("נשלח בהצלחה ✅");
       else showToast(`נשלח: ${sent}, נכשלו: ${failed}`);
       setSingleOpen(false);
@@ -397,21 +446,22 @@ export default function ContactsClient({
 
   function onExportExcel() {
     if (!canExport) return;
-    exportContactsToExcel(selectedContacts, adminMode);
+    exportContactsToExcel(selectedContacts, showBusinessColumn);
   }
 
-  const emptyListMsg = adminMode ? "אין לידים בטווח שנבחר." : "אין לידים בטווח שנבחר.";
+  const emptyListMsg = "אין לידים בטווח שנבחר.";
+  const embeddedAdmin = adminMode || marketingAdminMode;
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className={adminMode ? undefined : "hz-wave hz-wave-1"}>
+      <div className={embeddedAdmin ? undefined : "hz-wave hz-wave-1"}>
         <h1 className="text-2xl font-semibold text-zinc-900 text-right">לידים</h1>
         <p className="text-sm text-zinc-600 text-right">
           סה״כ {stats.total} לידים ({stats.active} בתהליך מכירה)
         </p>
       </div>
 
-      <Card className={adminMode ? undefined : "hz-wave hz-wave-2"}>
+      <Card className={embeddedAdmin ? undefined : "hz-wave hz-wave-2"}>
         <CardHeader className="space-y-4">
           <CardTitle className="text-right">רשימת לידים</CardTitle>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
@@ -471,7 +521,7 @@ export default function ContactsClient({
             ) : (
               filteredContacts.map((c, idx) => {
                 const optedOut = Boolean(c.opted_out);
-                const rowKey = contactRowKey(c, idx, adminMode);
+                const rowKey = contactRowKey(c, idx, multiBusinessAdmin);
                 const checked = selectedKeys.has(rowKey);
                 return (
                   <div
@@ -493,12 +543,12 @@ export default function ContactsClient({
                           type="button"
                           className="text-sm font-semibold text-zinc-900 underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500 truncate max-w-[78vw]"
                           onClick={() => (c.phone ? viewConversations(c.phone, c) : null)}
-                          disabled={!c.phone || (adminMode && !c.business_slug)}
+                          disabled={!c.phone || (multiBusinessAdmin && !c.business_slug)}
                         >
                           {c.phone ?? "—"}
                         </button>
                         <p className="mt-1 text-xs text-zinc-600">
-                          {adminMode && (c.business_name || c.business_slug) ? (
+                          {showBusinessColumn && (c.business_name || c.business_slug) ? (
                             <span className="block text-[#7133da]">{c.business_name || c.business_slug}</span>
                           ) : null}
                           {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
@@ -518,7 +568,7 @@ export default function ContactsClient({
                         type="button"
                         variant="outline"
                         onClick={() => (c.phone ? viewConversations(c.phone, c) : null)}
-                        disabled={!c.phone || (adminMode && !c.business_slug)}
+                        disabled={!c.phone || (multiBusinessAdmin && !c.business_slug)}
                       >
                         צפה בשיחות
                       </Button>
@@ -526,7 +576,9 @@ export default function ContactsClient({
                         type="button"
                         variant="outline"
                         onClick={() => openSingle(c)}
-                        disabled={sending || optedOut || !c.phone || (adminMode && !c.business_slug)}
+                        disabled={
+                          sending || optedOut || !c.phone || (multiBusinessAdmin && !c.business_slug)
+                        }
                       >
                         שלח הודעה
                       </Button>
@@ -553,7 +605,7 @@ export default function ContactsClient({
                       aria-label="בחר הכל"
                     />
                   </th>
-                  {adminMode ? <th className="py-3 px-2 font-medium">עסק</th> : null}
+                  {showBusinessColumn ? <th className="py-3 px-2 font-medium">עסק</th> : null}
                   <th className="py-3 px-2 font-medium">טלפון</th>
                   <th className="py-3 px-2 font-medium">שם</th>
                   <th className="py-3 px-2 font-medium">מקור</th>
@@ -565,14 +617,14 @@ export default function ContactsClient({
               <tbody>
                 {filteredContacts.length === 0 ? (
                   <tr>
-                    <td colSpan={adminMode ? 8 : 7} className="py-8 text-center text-zinc-500">
+                    <td colSpan={showBusinessColumn ? 8 : 7} className="py-8 text-center text-zinc-500">
                       {emptyListMsg}
                     </td>
                   </tr>
                 ) : (
                   filteredContacts.map((c, idx) => {
                     const optedOut = Boolean(c.opted_out);
-                    const rowKey = contactRowKey(c, idx, adminMode);
+                    const rowKey = contactRowKey(c, idx, multiBusinessAdmin);
                     const checked = selectedKeys.has(rowKey);
                     return (
                       <tr key={rowKey} className="border-b border-zinc-100 text-right">
@@ -585,7 +637,7 @@ export default function ContactsClient({
                             aria-label="בחירה לייצוא"
                           />
                         </td>
-                        {adminMode ? (
+                        {showBusinessColumn ? (
                           <td className="py-3 px-2 text-zinc-700">
                             {c.business_name?.trim() || c.business_slug?.trim() || "—"}
                           </td>
@@ -603,7 +655,7 @@ export default function ContactsClient({
                               type="button"
                               variant="outline"
                               onClick={() => (c.phone ? viewConversations(c.phone, c) : null)}
-                              disabled={!c.phone || (adminMode && !c.business_slug)}
+                              disabled={!c.phone || (multiBusinessAdmin && !c.business_slug)}
                             >
                               צפה בשיחות
                             </Button>
@@ -612,7 +664,10 @@ export default function ContactsClient({
                               variant="outline"
                               onClick={() => openSingle(c)}
                               disabled={
-                                sending || optedOut || !c.phone || (adminMode && !c.business_slug)
+                                sending ||
+                                optedOut ||
+                                !c.phone ||
+                                (multiBusinessAdmin && !c.business_slug)
                               }
                             >
                               שלח הודעה
