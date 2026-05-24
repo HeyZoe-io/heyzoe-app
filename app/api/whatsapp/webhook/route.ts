@@ -983,13 +983,19 @@ async function processIncoming(
       }
 
       const { logMarketingWhatsAppMessage } = await import("@/lib/marketing-whatsapp");
-      const { applyMarketingInboundFollowupSideEffects } = await import("@/lib/marketing-followups");
+      const { applyMarketingInboundFollowupSideEffects, touchMarketingLeadDisplayName } =
+        await import("@/lib/marketing-followups");
+      const profileName =
+        typeof (msg as { profileName?: string }).profileName === "string"
+          ? (msg as { profileName: string }).profileName.trim()
+          : "";
       await logMarketingWhatsAppMessage({ leadPhone: msg.from, role: "user", content: msg.text });
 
       const { handleMarketingFlowInbound, answerOpenQuestionDuringMarketingFlow, deliverMarketingPostFlowAiResponse } =
         await import("@/lib/marketing-flow-runtime");
-      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text);
+      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text, { profileName });
       await applyMarketingInboundFollowupSideEffects(msg.from, msg.text);
+      if (profileName) await touchMarketingLeadDisplayName(msg.from, profileName);
       if (!flowResult.handled) {
         const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
         if (await tryHandleMarketingHumanAgentInbound(msg.from, msg.text)) {

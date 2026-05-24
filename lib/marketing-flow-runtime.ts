@@ -541,7 +541,8 @@ async function sendNodeChain(
  */
 export async function handleMarketingFlowInbound(
   phoneRaw: string,
-  userText: string
+  userText: string,
+  opts?: { profileName?: string }
 ): Promise<MarketingFlowInboundResult> {
   const { isHeyzoeOwnerOptInMessage, tryHandleHeyzoeOwnerOptIn } = await import(
     "@/lib/notifications/owner-opt-in"
@@ -585,17 +586,17 @@ export async function handleMarketingFlowInbound(
     const { waitingForAnswer, nextNodeId } = await sendNodeChain(startNode, phone, edges, nodes);
 
     const nowIso = new Date().toISOString();
-    await admin.from("marketing_flow_sessions").upsert(
-      {
-        phone,
-        current_node_id: nextNodeId,
-        flow_completed: !waitingForAnswer && !nextNodeId,
-        open_q_pause_state: "none",
-        last_user_message_at: nowIso,
-        updated_at: nowIso,
-      },
-      { onConflict: "phone" }
-    );
+    const profileName = String(opts?.profileName ?? "").trim();
+    const sessionUpsert: Record<string, unknown> = {
+      phone,
+      current_node_id: nextNodeId,
+      flow_completed: !waitingForAnswer && !nextNodeId,
+      open_q_pause_state: "none",
+      last_user_message_at: nowIso,
+      updated_at: nowIso,
+    };
+    if (profileName) sessionUpsert.full_name = profileName;
+    await admin.from("marketing_flow_sessions").upsert(sessionUpsert, { onConflict: "phone" });
 
     if (!session) {
       const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");

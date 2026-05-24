@@ -35,6 +35,24 @@ export type MarketingFlowSessionFollowupRow = {
   flow_completed: boolean;
 };
 
+/** עדכון שם פרופיל וואטסאפ לסשן שיווקי קיים */
+export async function touchMarketingLeadDisplayName(
+  phoneRaw: string,
+  displayNameRaw: string
+): Promise<void> {
+  const phone = normalizePhone(phoneRaw);
+  const full_name = String(displayNameRaw ?? "").trim();
+  if (!phone || !full_name) return;
+  const admin = createSupabaseAdminClient();
+  const { error } = await admin
+    .from("marketing_flow_sessions")
+    .update({ full_name, updated_at: new Date().toISOString() })
+    .eq("phone", phone);
+  if (error && !/full_name|column/i.test(String(error.message ?? ""))) {
+    console.warn("[marketing-followups] touch full_name:", error.message);
+  }
+}
+
 /** עדכון זמן הודעת משתמש אחרונה (לא מאפס דגלי פולואפ שנשלחו). */
 export async function touchMarketingLeadLastUserMessage(phoneRaw: string): Promise<void> {
   const phone = normalizePhone(phoneRaw);

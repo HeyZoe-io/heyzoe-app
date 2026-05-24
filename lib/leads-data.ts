@@ -121,7 +121,7 @@ export async function loadMarketingAdminLeads(
       .from("marketing_flow_sessions")
       .select(
         `
-        phone, created_at, updated_at, last_user_message_at,
+        phone, full_name, created_at, updated_at, last_user_message_at,
         flow_completed, current_node_id,
         followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at
       `
@@ -153,7 +153,7 @@ export async function loadMarketingAdminLeads(
 
     return {
       phone: phone || null,
-      full_name: null,
+      full_name: (s.full_name as string | null) ?? null,
       source: "זואי אדמין",
       created_at: s.created_at as string | null,
       opted_out: false,
