@@ -6,14 +6,15 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  computeContactStatus,
+  contactStatusLabel,
+  CONTACT_STATUS_META,
+  type ContactStatusKey,
+} from "@/lib/contact-status";
+import type { ContactRow } from "./page";
 
-type Contact = {
-  phone: string | null;
-  full_name: string | null;
-  source: string | null;
-  created_at: string | null;
-  opted_out: boolean | null;
-};
+type Contact = ContactRow;
 
 type Props = {
   businessSlug: string;
@@ -25,6 +26,88 @@ function formatDate(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("he-IL", { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("he-IL", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function startOfDayIso(dateInput: string): string | null {
+  if (!dateInput.trim()) return null;
+  const d = new Date(`${dateInput}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function endOfDayIso(dateInput: string): string | null {
+  if (!dateInput.trim()) return null;
+  const d = new Date(`${dateInput}T23:59:59.999`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function matchesCreatedAtRange(createdAt: string | null, from: string, to: string): boolean {
+  if (!from && !to) return true;
+  if (!createdAt) return false;
+  const t = new Date(createdAt).getTime();
+  if (Number.isNaN(t)) return false;
+  const fromIso = from ? startOfDayIso(from) : null;
+  const toIso = to ? endOfDayIso(to) : null;
+  if (fromIso && t < new Date(fromIso).getTime()) return false;
+  if (toIso && t > new Date(toIso).getTime()) return false;
+  return true;
+}
+
+function escapeCsvCell(value: string): string {
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+function exportContactsToExcel(rows: Contact[]): void {
+  const headers = ["שם", "טלפון", "מקור", "תאריך כניסה", "סטטוס", "תאריך פעילות אחרונה"];
+  const lines = [
+    headers.join(","),
+    ...rows.map((c) => {
+      const statusKey = computeContactStatus(c);
+      const cells = [
+        c.full_name?.trim() || "",
+        c.phone ?? "",
+        c.source?.trim() || "",
+        formatDate(c.created_at),
+        contactStatusLabel(statusKey),
+        formatDateTime(c.last_contact_at),
+      ];
+      return cells.map(escapeCsvCell).join(",");
+    }),
+  ];
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ContactStatusBadge({ contact }: { contact: Contact }) {
+  const key = computeContactStatus(contact);
+  if (!key) return <span className="text-zinc-400">—</span>;
+  const meta = CONTACT_STATUS_META[key];
+  return (
+    <Badge className={meta.badgeClass} title={meta.tooltip}>
+      {meta.label}
+    </Badge>
+  );
 }
 
 function Textarea({
@@ -94,7 +177,8 @@ function ModalShell({
 
 export default function ContactsClient({ businessSlug, initialContacts }: Props) {
   const router = useRouter();
-  const contacts = initialContacts;
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -102,11 +186,27 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
   const [singleContact, setSingleContact] = useState<Contact | null>(null);
   const [singleMsg, setSingleMsg] = useState("");
 
+  const filteredContacts = useMemo(
+    () => initialContacts.filter((c) => matchesCreatedAtRange(c.created_at, dateFrom, dateTo)),
+    [initialContacts, dateFrom, dateTo]
+  );
+
   const stats = useMemo(() => {
-    const total = contacts.length;
-    const active = contacts.filter((c) => !c.opted_out).length;
-    return { total, active };
-  }, [contacts]);
+    const total = filteredContacts.length;
+    const byStatus: Record<ContactStatusKey, number> = {
+      active: 0,
+      followup: 0,
+      no_response: 0,
+      registered: 0,
+      opted_out: 0,
+    };
+    for (const c of filteredContacts) {
+      const key = computeContactStatus(c);
+      if (key) byStatus[key] += 1;
+    }
+    const active = byStatus.active + byStatus.followup + byStatus.no_response;
+    return { total, active, byStatus };
+  }, [filteredContacts]);
 
   function showToast(text: string) {
     setToast(text);
@@ -122,7 +222,7 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
         ...payload,
       }),
     });
-    const j = (await res.json().catch(() => ({}))) as any;
+    const j = (await res.json().catch(() => ({}))) as { error?: string; sent?: number; failed?: number };
     if (!res.ok) throw new Error(j?.error || "send_failed");
     return { sent: Number(j.sent ?? 0), failed: Number(j.failed ?? 0) };
   }
@@ -156,26 +256,71 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
     }
   }
 
+  function onExportExcel() {
+    if (filteredContacts.length === 0) {
+      showToast("אין נתונים לייצוא בטווח שנבחר");
+      return;
+    }
+    exportContactsToExcel(filteredContacts);
+  }
+
   return (
     <div className="space-y-6" dir="rtl">
       <div className="hz-wave hz-wave-1">
         <h1 className="text-2xl font-semibold text-zinc-900 text-right">אנשי קשר</h1>
         <p className="text-sm text-zinc-600 text-right">
-          סה״כ {stats.total} אנשי קשר ({stats.active} פעילים)
+          סה״כ {stats.total} אנשי קשר ({stats.active} בתהליך מכירה)
         </p>
       </div>
 
       <Card className="hz-wave hz-wave-2">
-        <CardHeader>
+        <CardHeader className="space-y-4">
           <CardTitle className="text-right">רשימת אנשי קשר</CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-right">
+                <span className="text-xs text-zinc-500">מתאריך כניסה</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-right">
+                <span className="text-xs text-zinc-500">עד תאריך כניסה</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                />
+              </label>
+              {(dateFrom || dateTo) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mb-0.5"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                >
+                  נקה תאריכים
+                </Button>
+              )}
+            </div>
+            <Button type="button" variant="outline" onClick={onExportExcel}>
+              ייצוא ל-Excel
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {/* Mobile: cards (no horizontal scroll). Desktop: table. */}
           <div className="space-y-3 md:hidden">
-            {contacts.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-500">אין אנשי קשר עדיין.</p>
+            {filteredContacts.length === 0 ? (
+              <p className="py-8 text-center text-sm text-zinc-500">אין אנשי קשר בטווח שנבחר.</p>
             ) : (
-              contacts.map((c, idx) => {
+              filteredContacts.map((c, idx) => {
                 const optedOut = Boolean(c.opted_out);
                 return (
                   <div
@@ -196,13 +341,12 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                           {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">הצטרף: {formatDate(c.created_at)}</p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          פעילות אחרונה: {formatDateTime(c.last_contact_at)}
+                        </p>
                       </div>
                       <div className="shrink-0">
-                        {optedOut ? (
-                          <Badge className="border-red-200 bg-red-50 text-red-700">הוסר</Badge>
-                        ) : (
-                          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">פעיל</Badge>
-                        )}
+                        <ContactStatusBadge contact={c} />
                       </div>
                     </div>
 
@@ -243,14 +387,14 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                 </tr>
               </thead>
               <tbody>
-                {contacts.length === 0 ? (
+                {filteredContacts.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-zinc-500">
-                      אין אנשי קשר עדיין.
+                      אין אנשי קשר בטווח שנבחר.
                     </td>
                   </tr>
                 ) : (
-                  contacts.map((c, idx) => {
+                  filteredContacts.map((c, idx) => {
                     const optedOut = Boolean(c.opted_out);
                     return (
                       <tr key={`${c.phone ?? "row"}-${idx}`} className="border-b border-zinc-100 text-right">
@@ -259,11 +403,7 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                         <td className="py-3 px-2">{c.source?.trim() || "—"}</td>
                         <td className="py-3 px-2 whitespace-nowrap">{formatDate(c.created_at)}</td>
                         <td className="py-3 px-2">
-                          {optedOut ? (
-                            <Badge className="border-red-200 bg-red-50 text-red-700">הוסר</Badge>
-                          ) : (
-                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">פעיל</Badge>
-                          )}
+                          <ContactStatusBadge contact={c} />
                         </td>
                         <td className="py-3 px-2">
                           <div className="flex flex-wrap justify-end gap-2">
@@ -326,4 +466,3 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
     </div>
   );
 }
-
