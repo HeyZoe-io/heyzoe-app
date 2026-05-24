@@ -221,6 +221,17 @@ export default function DashboardLoginPage() {
               </div>
             ) : null}
           </form>
+
+          <div className="mt-6 flex items-center justify-center gap-3 text-xs text-zinc-500">
+            <a
+              className="underline underline-offset-4 hover:text-zinc-700"
+              href="https://heyzoe.io/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Privacy Policy
+            </a>
+          </div>
         </CardContent>
       </Card>
     </main>
