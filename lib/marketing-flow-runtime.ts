@@ -210,18 +210,104 @@ async function loadFlow(): Promise<{ nodes: FlowNode[]; edges: FlowEdge[]; isAct
   return snapshot;
 }
 
-/**
- * Decode edge label — may contain JSON with sourceHandle info.
- */
-function decodeEdgeLabel(raw: string): string {
+type EdgeLabelMeta = { text: string; sourceHandle: string | null };
+
+/** Decode edge label — may contain JSON with sourceHandle (btn-0, btn-1, …). */
+function decodeEdgeMeta(raw: string): EdgeLabelMeta {
   const s = String(raw ?? "");
   if (s.startsWith("{")) {
     try {
-      const o = JSON.parse(s) as { _mf?: number; t?: string };
-      if (o && o._mf === 1) return String(o.t ?? "");
-    } catch { /* plain text */ }
+      const o = JSON.parse(s) as { _mf?: number; h?: string; t?: string };
+      if (o && o._mf === 1) {
+        return {
+          text: String(o.t ?? ""),
+          sourceHandle: typeof o.h === "string" && o.h.trim() ? o.h.trim() : null,
+        };
+      }
+    } catch {
+      /* plain text */
+    }
   }
-  return s;
+  return { text: s, sourceHandle: null };
+}
+
+function decodeEdgeLabel(raw: string): string {
+  return decodeEdgeMeta(raw).text;
+}
+
+function questionButtonsFromNode(node: FlowNode): string[] {
+  const data = node.data as Record<string, unknown>;
+  return Array.isArray(data.buttons)
+    ? data.buttons.map((b) => String(b ?? "").trim()).filter(Boolean)
+    : [];
+}
+
+/** אינדקס כפתור (0-based) לפי תשובת הלקוח — טקסט כפתור או מספר 1/2/3 */
+function resolveQuestionButtonIndex(node: FlowNode, outEdges: FlowEdge[], userText: string): number | null {
+  const buttons = questionButtonsFromNode(node);
+  if (buttons.length === 0) return null;
+
+  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
+  if (!normalized) return null;
+
+  for (let i = 0; i < buttons.length; i++) {
+    const label = normalizeMarketingInboundText(buttons[i]).toLowerCase();
+    if (label && normalized === label) return i;
+  }
+
+  const numOnly = /^(\d+)\.?$/u.exec(normalized);
+  if (numOnly) {
+    const idx = Number(numOnly[1]) - 1;
+    if (idx >= 0 && idx < buttons.length) return idx;
+  }
+
+  if (normalized.length <= 40) {
+    for (let i = 0; i < buttons.length; i++) {
+      const label = normalizeMarketingInboundText(buttons[i]).toLowerCase();
+      if (!label) continue;
+      if (normalized === label || normalized.startsWith(`${label} `) || normalized.startsWith(`${label},`)) {
+        return i;
+      }
+    }
+  }
+
+  for (const e of outEdges) {
+    const { text, sourceHandle } = decodeEdgeMeta(e.label);
+    const edgeText = normalizeMarketingInboundText(text).toLowerCase();
+    if (!edgeText || edgeText !== normalized) continue;
+    if (sourceHandle?.startsWith("btn-")) {
+      const idx = Number.parseInt(sourceHandle.replace("btn-", ""), 10);
+      if (idx >= 0 && idx < buttons.length) return idx;
+    }
+  }
+
+  return null;
+}
+
+function findQuestionOutEdge(currentNode: FlowNode, outEdges: FlowEdge[], userText: string): FlowEdge | null {
+  const btnIndex = resolveQuestionButtonIndex(currentNode, outEdges, userText);
+  const buttons = questionButtonsFromNode(currentNode);
+
+  if (btnIndex !== null) {
+    const handleId = `btn-${btnIndex}`;
+    const byHandle = outEdges.find((e) => decodeEdgeMeta(e.label).sourceHandle === handleId);
+    if (byHandle) return byHandle;
+
+    const want = normalizeMarketingInboundText(buttons[btnIndex] ?? "").toLowerCase();
+    const byCurrentButtonText = outEdges.find((e) => {
+      const t = normalizeMarketingInboundText(decodeEdgeMeta(e.label).text).toLowerCase();
+      return want && t === want;
+    });
+    if (byCurrentButtonText) return byCurrentButtonText;
+  }
+
+  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
+  return (
+    outEdges.find((e) => {
+      const t = normalizeMarketingInboundText(decodeEdgeMeta(e.label).text).toLowerCase();
+      return t && t === normalized;
+    }) ?? null
+  );
 }
 
 function getMarketingQuestionAnswerOptions(currentNode: FlowNode, edges: FlowEdge[]): string[] {
@@ -295,19 +381,16 @@ function findNextNode(
   if (outEdges.length === 0) return null;
 
   if (currentNode?.type === "question" && outEdges.length > 1 && userText) {
-    const normalized = userText.trim().toLowerCase();
-    const edgeLabel = (e: FlowEdge) => decodeEdgeLabel(e.label).trim().toLowerCase();
-    const matched =
-      outEdges.find((e) => {
-        const label = edgeLabel(e);
-        return label && normalized === label;
-      }) ??
-      outEdges.find((e) => {
-        const label = edgeLabel(e);
-        return label && normalized.includes(label);
-      });
-    const targetId = matched?.target_node_id ?? outEdges[0]!.target_node_id;
-    return nodes.find((n) => n.id === targetId) ?? null;
+    const matched = findQuestionOutEdge(currentNode, outEdges, userText);
+    if (matched) {
+      return nodes.find((n) => n.id === matched.target_node_id) ?? null;
+    }
+    console.warn("[marketing-flow] no matching edge for question answer", {
+      nodeId: currentNodeId,
+      userText: userText.slice(0, 80),
+      outEdges: outEdges.length,
+    });
+    return null;
   }
 
   const targetId = outEdges[0]!.target_node_id;
