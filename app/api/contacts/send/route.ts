@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 
@@ -21,7 +22,12 @@ async function requireUser() {
   return data.user ?? null;
 }
 
-async function requireBusinessAccess(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string, slug: string) {
+async function requireBusinessAccess(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+  slug: string,
+  userEmail?: string | null
+) {
   const slugNorm = String(slug ?? "").trim().toLowerCase();
   if (!slugNorm) return { ok: false as const, error: "missing_business_slug" as const };
 
@@ -33,6 +39,10 @@ async function requireBusinessAccess(admin: ReturnType<typeof createSupabaseAdmi
 
   if (bizErr) return { ok: false as const, error: "business_lookup_failed" as const };
   if (!biz?.id) return { ok: false as const, error: "business_not_found" as const };
+
+  if (isAdminAllowedEmail(String(userEmail ?? "").trim().toLowerCase())) {
+    return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
+  }
 
   const ownerOk = String(biz.user_id ?? "") === userId;
   if (ownerOk) return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
@@ -103,7 +113,7 @@ export async function POST(req: NextRequest) {
   if (mode === "single" && !phone) return NextResponse.json({ error: "missing_phone" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const access = await requireBusinessAccess(admin, user.id, businessSlug);
+  const access = await requireBusinessAccess(admin, user.id, businessSlug, user.email);
   if (!access.ok) {
     const status = access.error === "forbidden" ? 403 : access.error === "business_not_found" ? 404 : 400;
     return NextResponse.json({ error: access.error }, { status });

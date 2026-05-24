@@ -59,7 +59,7 @@ export function contactStatusLabel(key: ContactStatusKey | null): string {
   return CONTACT_STATUS_META[key].label;
 }
 
-/** סדר תצוגה בפילטר סטטוס בדף אנשי קשר */
+/** סדר תצוגה בפילטר סטטוס בדף לידים */
 export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
   "active",
   "followup",

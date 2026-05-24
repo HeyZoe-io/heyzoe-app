@@ -14,13 +14,15 @@ import {
   type ContactStatusFilterValue,
   type ContactStatusKey,
 } from "@/lib/contact-status";
-import type { ContactRow } from "./page";
+import type { LeadRow } from "@/lib/leads-types";
 
-type Contact = ContactRow;
+type Contact = LeadRow;
 
 type Props = {
-  businessSlug: string;
+  /** נדרש במצב עסק; באדמין — slug לכל שורה */
+  businessSlug?: string;
   initialContacts: Contact[];
+  adminMode?: boolean;
 };
 
 function formatDate(iso: string | null): string {
@@ -89,9 +91,16 @@ function matchesCreatedAtRange(createdAt: string | null, from: string, to: strin
   return true;
 }
 
-function contactRowKey(c: Contact, idx: number): string {
+function contactRowKey(c: Contact, idx: number, adminMode: boolean): string {
   const phone = String(c.phone ?? "").trim();
+  const slug = String(c.business_slug ?? "").trim();
+  if (adminMode && slug) return `${slug}::${phone || idx}`;
   return phone || `row-${c.created_at ?? ""}-${idx}`;
+}
+
+function slugForContact(c: Contact, businessSlug: string, adminMode: boolean): string {
+  if (adminMode) return String(c.business_slug ?? "").trim().toLowerCase();
+  return businessSlug.trim().toLowerCase();
 }
 
 function escapeCsvCell(value: string): string {
@@ -99,20 +108,32 @@ function escapeCsvCell(value: string): string {
   return value;
 }
 
-function exportContactsToExcel(rows: Contact[]): void {
-  const headers = ["שם", "טלפון", "מקור", "תאריך כניסה", "סטטוס", "תאריך פעילות אחרונה"];
+function exportContactsToExcel(rows: Contact[], adminMode: boolean): void {
+  const headers = adminMode
+    ? ["עסק", "שם", "טלפון", "מקור", "תאריך כניסה", "סטטוס", "תאריך פעילות אחרונה"]
+    : ["שם", "טלפון", "מקור", "תאריך כניסה", "סטטוס", "תאריך פעילות אחרונה"];
   const lines = [
     headers.join(","),
     ...rows.map((c) => {
       const statusKey = computeContactStatus(c);
-      const cells = [
-        c.full_name?.trim() || "",
-        c.phone ?? "",
-        c.source?.trim() || "",
-        formatDate(c.created_at),
-        contactStatusLabel(statusKey),
-        formatDateTime(c.last_contact_at),
-      ];
+      const cells = adminMode
+        ? [
+            c.business_name?.trim() || c.business_slug?.trim() || "",
+            c.full_name?.trim() || "",
+            c.phone ?? "",
+            c.source?.trim() || "",
+            formatDate(c.created_at),
+            contactStatusLabel(statusKey),
+            formatDateTime(c.last_contact_at),
+          ]
+        : [
+            c.full_name?.trim() || "",
+            c.phone ?? "",
+            c.source?.trim() || "",
+            formatDate(c.created_at),
+            contactStatusLabel(statusKey),
+            formatDateTime(c.last_contact_at),
+          ];
       return cells.map(escapeCsvCell).join(",");
     }),
   ];
@@ -121,7 +142,7 @@ function exportContactsToExcel(rows: Contact[]): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -202,7 +223,11 @@ function ModalShell({
   );
 }
 
-export default function ContactsClient({ businessSlug, initialContacts }: Props) {
+export default function ContactsClient({
+  businessSlug = "",
+  initialContacts,
+  adminMode = false,
+}: Props) {
   const router = useRouter();
   const todayInput = useMemo(() => toDateInputValue(new Date()), []);
   const [dateFrom, setDateFrom] = useState(() => defaultLast30DaysRange().from);
@@ -227,8 +252,8 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
   }, [initialContacts, dateFrom, dateTo, statusFilter]);
 
   const filteredKeys = useMemo(
-    () => new Set(filteredContacts.map((c, i) => contactRowKey(c, i))),
-    [filteredContacts]
+    () => new Set(filteredContacts.map((c, i) => contactRowKey(c, i, adminMode))),
+    [filteredContacts, adminMode]
   );
 
   useEffect(() => {
@@ -239,16 +264,18 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
   }, [filteredKeys]);
 
   const selectedContacts = useMemo(
-    () => filteredContacts.filter((c, i) => selectedKeys.has(contactRowKey(c, i))),
-    [filteredContacts, selectedKeys]
+    () => filteredContacts.filter((c, i) => selectedKeys.has(contactRowKey(c, i, adminMode))),
+    [filteredContacts, selectedKeys, adminMode]
   );
 
   const selectedCount = selectedContacts.length;
   const canExport = selectedCount > 0;
   const allFilteredSelected =
     filteredContacts.length > 0 &&
-    filteredContacts.every((c, i) => selectedKeys.has(contactRowKey(c, i)));
-  const someFilteredSelected = filteredContacts.some((c, i) => selectedKeys.has(contactRowKey(c, i)));
+    filteredContacts.every((c, i) => selectedKeys.has(contactRowKey(c, i, adminMode)));
+  const someFilteredSelected = filteredContacts.some((c, i) =>
+    selectedKeys.has(contactRowKey(c, i, adminMode))
+  );
 
   function toggleRow(key: string, checked: boolean) {
     setSelectedKeys((prev) => {
@@ -263,9 +290,9 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (allFilteredSelected) {
-        filteredContacts.forEach((c, i) => next.delete(contactRowKey(c, i)));
+        filteredContacts.forEach((c, i) => next.delete(contactRowKey(c, i, adminMode)));
       } else {
-        filteredContacts.forEach((c, i) => next.add(contactRowKey(c, i)));
+        filteredContacts.forEach((c, i) => next.add(contactRowKey(c, i, adminMode)));
       }
       return next;
     });
@@ -315,12 +342,15 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
 
   const hasNonDefaultFilters = statusFilter !== "all" || !isDefaultDateRange(dateFrom, dateTo);
 
-  async function sendViaApi(payload: { mode: "single"; phone: string; message: string }) {
+  async function sendViaApi(
+    slug: string,
+    payload: { mode: "single"; phone: string; message: string }
+  ) {
     const res = await fetch("/api/contacts/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        business_slug: businessSlug,
+        business_slug: slug,
         ...payload,
       }),
     });
@@ -335,18 +365,25 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
     setSingleOpen(true);
   }
 
-  function viewConversations(phone: string) {
-    router.push(`/${encodeURIComponent(businessSlug)}/conversations?phone=${encodeURIComponent(phone)}`);
+  function viewConversations(phone: string, contact: Contact) {
+    const slug = slugForContact(contact, businessSlug, adminMode);
+    if (!slug) return;
+    router.push(`/${encodeURIComponent(slug)}/conversations?phone=${encodeURIComponent(phone)}`);
   }
 
   async function onSendSingle() {
     const c = singleContact;
     if (!c?.phone) return;
+    const slug = slugForContact(c, businessSlug, adminMode);
+    if (!slug) {
+      showToast("חסר מזהה עסק לשליחה");
+      return;
+    }
     const text = singleMsg.trim();
     if (!text) return;
     setSending(true);
     try {
-      const { sent, failed } = await sendViaApi({ mode: "single", phone: c.phone, message: text });
+      const { sent, failed } = await sendViaApi(slug, { mode: "single", phone: c.phone, message: text });
       if (sent === 1 && failed === 0) showToast("נשלח בהצלחה ✅");
       else showToast(`נשלח: ${sent}, נכשלו: ${failed}`);
       setSingleOpen(false);
@@ -360,21 +397,23 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
 
   function onExportExcel() {
     if (!canExport) return;
-    exportContactsToExcel(selectedContacts);
+    exportContactsToExcel(selectedContacts, adminMode);
   }
+
+  const emptyListMsg = adminMode ? "אין לידים בטווח שנבחר." : "אין לידים בטווח שנבחר.";
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="hz-wave hz-wave-1">
-        <h1 className="text-2xl font-semibold text-zinc-900 text-right">אנשי קשר</h1>
+      <div className={adminMode ? undefined : "hz-wave hz-wave-1"}>
+        <h1 className="text-2xl font-semibold text-zinc-900 text-right">לידים</h1>
         <p className="text-sm text-zinc-600 text-right">
-          סה״כ {stats.total} אנשי קשר ({stats.active} בתהליך מכירה)
+          סה״כ {stats.total} לידים ({stats.active} בתהליך מכירה)
         </p>
       </div>
 
-      <Card className="hz-wave hz-wave-2">
+      <Card className={adminMode ? undefined : "hz-wave hz-wave-2"}>
         <CardHeader className="space-y-4">
-          <CardTitle className="text-right">רשימת אנשי קשר</CardTitle>
+          <CardTitle className="text-right">רשימת לידים</CardTitle>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-right">
@@ -424,29 +463,15 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
               ייצוא ל-Excel{canExport ? ` (${selectedCount})` : ""}
             </Button>
           </div>
-          {filteredContacts.length > 0 ? (
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-400"
-                checked={allFilteredSelected}
-                ref={(el) => {
-                  if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
-                }}
-                onChange={toggleSelectAllFiltered}
-              />
-              <span>בחר הכל ברשימה ({filteredContacts.length})</span>
-            </label>
-          ) : null}
         </CardHeader>
         <CardContent>
           <div className="space-y-3 md:hidden">
             {filteredContacts.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-500">אין אנשי קשר בטווח שנבחר.</p>
+              <p className="py-8 text-center text-sm text-zinc-500">{emptyListMsg}</p>
             ) : (
               filteredContacts.map((c, idx) => {
                 const optedOut = Boolean(c.opted_out);
-                const rowKey = contactRowKey(c, idx);
+                const rowKey = contactRowKey(c, idx, adminMode);
                 const checked = selectedKeys.has(rowKey);
                 return (
                   <div
@@ -467,12 +492,15 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                         <button
                           type="button"
                           className="text-sm font-semibold text-zinc-900 underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500 truncate max-w-[78vw]"
-                          onClick={() => (c.phone ? viewConversations(c.phone) : null)}
-                          disabled={!c.phone}
+                          onClick={() => (c.phone ? viewConversations(c.phone, c) : null)}
+                          disabled={!c.phone || (adminMode && !c.business_slug)}
                         >
                           {c.phone ?? "—"}
                         </button>
                         <p className="mt-1 text-xs text-zinc-600">
+                          {adminMode && (c.business_name || c.business_slug) ? (
+                            <span className="block text-[#7133da]">{c.business_name || c.business_slug}</span>
+                          ) : null}
                           {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">הצטרף: {formatDate(c.created_at)}</p>
@@ -489,8 +517,8 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => (c.phone ? viewConversations(c.phone) : null)}
-                        disabled={!c.phone}
+                        onClick={() => (c.phone ? viewConversations(c.phone, c) : null)}
+                        disabled={!c.phone || (adminMode && !c.business_slug)}
                       >
                         צפה בשיחות
                       </Button>
@@ -498,7 +526,7 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                         type="button"
                         variant="outline"
                         onClick={() => openSingle(c)}
-                        disabled={sending || optedOut || !c.phone}
+                        disabled={sending || optedOut || !c.phone || (adminMode && !c.business_slug)}
                       >
                         שלח הודעה
                       </Button>
@@ -525,6 +553,7 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                       aria-label="בחר הכל"
                     />
                   </th>
+                  {adminMode ? <th className="py-3 px-2 font-medium">עסק</th> : null}
                   <th className="py-3 px-2 font-medium">טלפון</th>
                   <th className="py-3 px-2 font-medium">שם</th>
                   <th className="py-3 px-2 font-medium">מקור</th>
@@ -536,14 +565,14 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
               <tbody>
                 {filteredContacts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-zinc-500">
-                      אין אנשי קשר בטווח שנבחר.
+                    <td colSpan={adminMode ? 8 : 7} className="py-8 text-center text-zinc-500">
+                      {emptyListMsg}
                     </td>
                   </tr>
                 ) : (
                   filteredContacts.map((c, idx) => {
                     const optedOut = Boolean(c.opted_out);
-                    const rowKey = contactRowKey(c, idx);
+                    const rowKey = contactRowKey(c, idx, adminMode);
                     const checked = selectedKeys.has(rowKey);
                     return (
                       <tr key={rowKey} className="border-b border-zinc-100 text-right">
@@ -556,6 +585,11 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                             aria-label="בחירה לייצוא"
                           />
                         </td>
+                        {adminMode ? (
+                          <td className="py-3 px-2 text-zinc-700">
+                            {c.business_name?.trim() || c.business_slug?.trim() || "—"}
+                          </td>
+                        ) : null}
                         <td className="py-3 px-2 whitespace-nowrap">{c.phone ?? "—"}</td>
                         <td className="py-3 px-2">{c.full_name?.trim() || "—"}</td>
                         <td className="py-3 px-2">{c.source?.trim() || "—"}</td>
@@ -568,8 +602,8 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                             <Button
                               type="button"
                               variant="outline"
-                              onClick={() => (c.phone ? viewConversations(c.phone) : null)}
-                              disabled={!c.phone}
+                              onClick={() => (c.phone ? viewConversations(c.phone, c) : null)}
+                              disabled={!c.phone || (adminMode && !c.business_slug)}
                             >
                               צפה בשיחות
                             </Button>
@@ -577,7 +611,9 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                               type="button"
                               variant="outline"
                               onClick={() => openSingle(c)}
-                              disabled={sending || optedOut || !c.phone}
+                              disabled={
+                                sending || optedOut || !c.phone || (adminMode && !c.business_slug)
+                              }
                             >
                               שלח הודעה
                             </Button>
@@ -598,7 +634,7 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
           <div className="space-y-3">
             <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3">
               <p className="text-sm font-medium text-zinc-900 text-right">
-                {singleContact.full_name?.trim() || "איש קשר"}
+                {singleContact.full_name?.trim() || "ליד"}
               </p>
               <p className="text-sm text-zinc-600 text-right">{singleContact.phone ?? "—"}</p>
             </div>
