@@ -174,10 +174,50 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: contactErr.message }, { status: 500 });
     }
     if (!contact) {
+      const { data: channel } = await admin
+        .from("whatsapp_channels")
+        .select("phone_number_id")
+        .eq("business_slug", debugSlug)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+      const phoneDigits = debugPhone.replace(/\D/g, "");
+      const sessionId = channel?.phone_number_id
+        ? `wa_${String(channel.phone_number_id).trim()}_${phoneDigits}`
+        : null;
+      let messages_hint: Record<string, unknown> | null = null;
+      if (sessionId) {
+        const { data: lastUser } = await admin
+          .from("messages")
+          .select("created_at")
+          .eq("business_slug", debugSlug)
+          .eq("session_id", sessionId)
+          .eq("role", "user")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const { data: lastAssist } = await admin
+          .from("messages")
+          .select("created_at, model_used")
+          .eq("business_slug", debugSlug)
+          .eq("session_id", sessionId)
+          .eq("role", "assistant")
+          .order("created_at", { ascending: false })
+          .limit(5);
+        const realAssist = (lastAssist ?? []).find(
+          (r) => !String((r as { model_used?: string }).model_used ?? "").startsWith("wa_followup_")
+        );
+        messages_hint = {
+          session_id: sessionId,
+          last_user_at: lastUser?.created_at ?? null,
+          last_assistant_at: realAssist?.created_at ?? null,
+        };
+      }
       console.info("[cron/wa-followups] skip", {
         skip_reason: "no_contact_row",
         phone: maskPhone(debugPhone),
         business_slug: debugSlug,
+        messages_hint,
       });
       return NextResponse.json({
         ok: true,
@@ -185,6 +225,8 @@ export async function GET(req: NextRequest) {
         skip_reason: "no_contact_row",
         phone: maskPhone(debugPhone),
         business_slug: debugSlug,
+        note: "contact missing in contacts table — cron batch only includes existing rows",
+        messages_hint,
       });
     }
     const evalResult = await evaluateBusinessWaFollowup({
