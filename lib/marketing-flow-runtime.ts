@@ -225,17 +225,6 @@ export async function realignMarketingFlowSessionsAfterFlowSave(validNodeIds: st
       console.warn("[marketing-flow] realign session update failed:", upErr.message);
       continue;
     }
-    const leadPhone = String(row.phone ?? "").trim();
-    if (leadPhone) {
-      try {
-        await sendMarketingWhatsApp(leadPhone, MARKETING_FLOW_REALIGN_NOTICE, {
-          model_used: "marketing_flow_realign_notice",
-        });
-        await sendMarketingFlowResumePrompt(leadPhone);
-      } catch (e) {
-        console.warn("[marketing-flow] realign notify failed:", leadPhone, e);
-      }
-    }
     console.info("[marketing-flow] realigned session after flow save", {
       phone: row.phone,
       staleNodeId: nid,
@@ -645,14 +634,12 @@ export async function handleMarketingFlowInbound(
   }
 
   if (needsReplay) {
-    await setMarketingOpenQPauseState(admin, phone, "none");
-    const restarted = await runMarketingFlowFromStart(admin, phone, nodes, edges, true);
-    console.info("[marketing-flow] replay after flow save (mid-session realign)", {
-      phone,
-      userText: userText.slice(0, 60),
-      restarted,
+    await setMarketingOpenQPauseState(admin, phone, "await_resume");
+    await sendMarketingWhatsApp(phone, MARKETING_FLOW_REALIGN_NOTICE, {
+      model_used: "marketing_flow_realign_notice",
     });
-    return { handled: restarted };
+    await sendMarketingFlowResumePrompt(phone);
+    return { handled: true };
   }
 
   if (sess.flow_completed) {
@@ -675,9 +662,19 @@ export async function handleMarketingFlowInbound(
       phone,
       current_node_id: sess.current_node_id,
     });
-    await setMarketingOpenQPauseState(admin, phone, "none");
-    const restarted = await runMarketingFlowFromStart(admin, phone, nodes, edges, true);
-    return { handled: restarted };
+    await admin
+      .from("marketing_flow_sessions")
+      .update({
+        current_node_id: null,
+        open_q_pause_state: "await_resume",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sess.id);
+    await sendMarketingWhatsApp(phone, MARKETING_FLOW_REALIGN_NOTICE, {
+      model_used: "marketing_flow_realign_notice",
+    });
+    await sendMarketingFlowResumePrompt(phone);
+    return { handled: true };
   }
 
   let nextNode: FlowNode | null;
