@@ -129,7 +129,7 @@ export default function Step4SalesFlow(props: any) {
   const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = [
     { id: "media", label: "מדיה", hint: "פתיחה" },
     { id: "opening", label: "פתיחה", hint: "סשן" },
-    { id: "service_pick", label: "בחירה", hint: "שירות" },
+    { id: "service_pick", label: "מוצר", hint: "שירות" },
     { id: "warmup", label: "חימום", hint: "סשן" },
     { id: "cta", label: "הנעה", hint: "לפעולה" },
     { id: "after_trial", label: "אחרי הרשמה", hint: "ניסיון" },
@@ -446,7 +446,7 @@ export default function Step4SalesFlow(props: any) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="service_pick"
-          title="בחירת סוג השירות"
+          title="בחירת מוצר"
           open={openSections.service_pick}
           onToggle={() => toggle("service_pick")}
           filled={trialServiceNames.length > 0}
@@ -470,7 +470,7 @@ export default function Step4SalesFlow(props: any) {
           <div className="space-y-3">
             {trialServiceNames.length > 1 ? (
               <>
-                <Field label="בחירת סוג השירות" className="space-y-1">
+                <Field label="בחירת מוצר" className="space-y-1">
                   <Textarea
                     value={salesFlowConfig.multi_service_question}
                     onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, multi_service_question: v }))}
@@ -564,7 +564,7 @@ export default function Step4SalesFlow(props: any) {
         >
           <div className="space-y-3">
             <p className="text-xs text-zinc-600 text-center leading-relaxed">
-              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 בשיעור ניסיון אפשר להשתמש במציין (שם האימון) — בצ׳אט הוא יוחלף לפי הבחירה. לסדנה ולקורס עורכים לשון נפרדת לכל סוג כאן ובטאב «מוצרים».
+              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂
             </p>
 
             {trialServiceNames.length === 0 ? (
@@ -1294,7 +1294,7 @@ export default function Step4SalesFlow(props: any) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="after_trial"
-          title="אחרי הרשמה לשיעור ניסיון"
+          title="אחרי הרשמה"
           open={openSections.after_trial}
           onToggle={() => toggle("after_trial")}
           filled={Boolean(salesFlowConfig.after_trial_registration_body?.trim())}
