@@ -55,6 +55,9 @@ export const MARKETING_FLOW_BTN_CONTINUE = "בואו נמשיך!";
 export const MARKETING_FLOW_BTN_MORE_Q = "יש לי עוד שאלה";
 export const MARKETING_FLOW_MORE_Q_REPLY = "אין בעיה! אני כאן בשביל זה. מה השאלה?";
 
+export const MARKETING_FLOW_REALIGN_NOTICE =
+  "עדכנו את הפלואו בשיווק 🙂 לחצו «בואו נמשיך!» כדי להמשיך בגרסה המעודכנת.";
+
 /** שורת סיום חובה בתשובות AI אחרי סיום הפלואו השיווקי (נשלחת עם כפתורים) */
 export const MARKETING_POST_FLOW_CLOSING_LINE =
   "יש לך שאלות נוספות או שאנחנו מוכנים להתחיל? :)";
@@ -72,6 +75,14 @@ function normalizeOpenQPauseState(raw: unknown): MarketingOpenQPauseState {
   const s = String(raw ?? "").trim();
   if (s === "await_resume" || s === "more_questions") return s;
   return "none";
+}
+
+/** פלואו פעיל אבל current_node_id ריק — בדרך כלל אחרי שמירת פלואו באדמין (מזהי נודים חדשים) */
+function sessionNeedsFlowReplay(sess: {
+  flow_completed: boolean;
+  current_node_id: string | null;
+}): boolean {
+  return !sess.flow_completed && !sess.current_node_id;
 }
 
 function labelMatchesChoice(text: string, choice: string): boolean {
@@ -206,13 +217,24 @@ export async function realignMarketingFlowSessionsAfterFlowSave(validNodeIds: st
       .from("marketing_flow_sessions")
       .update({
         current_node_id: null,
-        open_q_pause_state: "none",
+        open_q_pause_state: "await_resume",
         updated_at: nowIso,
       })
       .eq("id", row.id);
     if (upErr) {
       console.warn("[marketing-flow] realign session update failed:", upErr.message);
       continue;
+    }
+    const leadPhone = String(row.phone ?? "").trim();
+    if (leadPhone) {
+      try {
+        await sendMarketingWhatsApp(leadPhone, MARKETING_FLOW_REALIGN_NOTICE, {
+          model_used: "marketing_flow_realign_notice",
+        });
+        await sendMarketingFlowResumePrompt(leadPhone);
+      } catch (e) {
+        console.warn("[marketing-flow] realign notify failed:", leadPhone, e);
+      }
     }
     console.info("[marketing-flow] realigned session after flow save", {
       phone: row.phone,
@@ -612,7 +634,9 @@ export async function handleMarketingFlowInbound(
     }
   }
 
-  if (isMarketingFlowMoreQuestionChoice(userText)) {
+  const needsReplay = sessionNeedsFlowReplay(sess);
+
+  if (isMarketingFlowMoreQuestionChoice(userText) && !needsReplay) {
     await sendMarketingWhatsApp(phone, MARKETING_FLOW_MORE_Q_REPLY, {
       model_used: "marketing_flow_more_q",
     });
@@ -620,7 +644,18 @@ export async function handleMarketingFlowInbound(
     return { handled: true };
   }
 
-  if (sess.flow_completed || !sess.current_node_id) {
+  if (needsReplay) {
+    await setMarketingOpenQPauseState(admin, phone, "none");
+    const restarted = await runMarketingFlowFromStart(admin, phone, nodes, edges, true);
+    console.info("[marketing-flow] replay after flow save (mid-session realign)", {
+      phone,
+      userText: userText.slice(0, 60),
+      restarted,
+    });
+    return { handled: restarted };
+  }
+
+  if (sess.flow_completed) {
     if (await tryHandleMarketingPostFlowMenuReply(phone, userText)) {
       return { handled: true };
     }
@@ -640,19 +675,9 @@ export async function handleMarketingFlowInbound(
       phone,
       current_node_id: sess.current_node_id,
     });
-    await admin
-      .from("marketing_flow_sessions")
-      .update({
-        current_node_id: null,
-        open_q_pause_state: "none",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", sess.id);
-    await sendMarketingWhatsApp(
-      phone,
-      "עדכנו את הפלואו. לחצו «בואו נמשיך!» כדי לראות את הגרסה המעודכנת, או «היי זואי!» להתחלה מחדש 🙂"
-    );
-    return { handled: true };
+    await setMarketingOpenQPauseState(admin, phone, "none");
+    const restarted = await runMarketingFlowFromStart(admin, phone, nodes, edges, true);
+    return { handled: restarted };
   }
 
   let nextNode: FlowNode | null;
@@ -1053,7 +1078,9 @@ async function isMarketingPostFlowAiContext(leadPhone: string): Promise<boolean>
   const admin = createSupabaseAdminClient();
   const session = await loadMarketingFlowSession(admin, phone);
   if (!session) return true;
-  if (session.flow_completed || !session.current_node_id) return true;
+  if (session.flow_completed) return true;
+  if (sessionNeedsFlowReplay(session)) return false;
+  if (!session.current_node_id) return true;
   const pause = normalizeOpenQPauseState(session.open_q_pause_state);
   return pause === "none";
 }
