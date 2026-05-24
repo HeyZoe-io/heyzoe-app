@@ -18,6 +18,22 @@ export const MARKETING_HUMAN_AGENT_NOTIFY_PHONE = "972508318162";
 
 export const MARKETING_HUMAN_AGENT_TEMPLATE = "marketing_human_agent_request";
 
+/** נוד פלואו שיווקי (למשל נוד 8) — במקום טקסט חופשי שולחים template לבעלים + הודעת ליד קבועה */
+export const MARKETING_FLOW_NODE_HUMAN_AGENT_ACTION = "marketing_human_agent_request";
+
+export function isMarketingHumanAgentHandoffFlowNode(node: {
+  type?: string;
+  data?: Record<string, unknown> | null;
+}): boolean {
+  const data = (node.data && typeof node.data === "object" ? node.data : {}) as Record<string, unknown>;
+  if (String(data.action ?? "").trim() === MARKETING_FLOW_NODE_HUMAN_AGENT_ACTION) return true;
+  const text = String(data.text ?? "").trim();
+  if (!text) return false;
+  return /מעביר(ה|ים)?\s*את\s*השיחה|נציגה\s*אנושית\s*ואדאג|נציגה\s*אנושית|פתרון\s*עבורך.*נציגה|מגניב\s*מאוד.*נציג/i.test(
+    text
+  );
+}
+
 function formatLeadPhoneForTemplate(phone: string): string {
   const d = normalizePhone(phone) ?? String(phone ?? "").replace(/\D/g, "");
   if (d.startsWith("972") && d.length >= 12) return `0${d.slice(3)}`;
@@ -108,9 +124,14 @@ export async function applyMarketingHumanAgentSideEffects(phoneRaw: string): Pro
 /**
  * טיפול בבקשת נציג: הודעה לליד (אלא אם כבר נשלחה העברה בפלואו), template ל-972508318162, opt-out פולואפים.
  */
+/** נוד פלואו: template marketing_human_agent_request ל-972508318162 + הודעה לליד */
+export async function deliverMarketingHumanAgentHandoffFromFlowNode(phoneRaw: string): Promise<void> {
+  await handleMarketingHumanAgentRequest(phoneRaw, { forceLeadMessage: true, fromFlowNode: true });
+}
+
 export async function handleMarketingHumanAgentRequest(
   phoneRaw: string,
-  opts?: { skipLeadMessage?: boolean; forceLeadMessage?: boolean }
+  opts?: { skipLeadMessage?: boolean; forceLeadMessage?: boolean; fromFlowNode?: boolean }
 ): Promise<void> {
   const phone = normalizePhone(phoneRaw);
   if (!phone) return;
@@ -123,7 +144,7 @@ export async function handleMarketingHumanAgentRequest(
   if (skipLead) return;
 
   await sendMarketingWhatsApp(phone, MARKETING_HUMAN_AGENT_LEAD_REPLY, {
-    model_used: "marketing_human_agent",
+    model_used: opts?.fromFlowNode ? "marketing_flow_human_agent_node" : "marketing_human_agent",
   });
 }
 

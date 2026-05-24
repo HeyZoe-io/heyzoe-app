@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { stripTrailingFollowUpQuestion } from "@/lib/wa-split-answer";
 import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
 import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
@@ -497,6 +498,13 @@ function findNextNode(
 async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
   const data = node.data;
   const text = String(data.text ?? "").trim();
+
+  const { isMarketingHumanAgentHandoffFlowNode, deliverMarketingHumanAgentHandoffFromFlowNode } =
+    await import("@/lib/marketing-human-agent");
+  if (isMarketingHumanAgentHandoffFlowNode(node)) {
+    await deliverMarketingHumanAgentHandoffFromFlowNode(phone);
+    return;
+  }
 
   switch (node.type) {
     case "message":
@@ -1206,6 +1214,11 @@ function prepareMarketingPostFlowAiReply(text: string): string {
   return lines.join("\n").trim();
 }
 
+/** תשובה באמצע פלואו — בלי שאלת המשך (נשלחת בהודעה נפרדת) */
+function prepareMarketingOpenFlowAiReply(text: string): string {
+  return stripTrailingFollowUpQuestion(prepareMarketingPostFlowAiReply(text));
+}
+
 async function sendMarketingPostFlowActionMenu(phone: string): Promise<void> {
   const interactive = buildMetaInteractivePayload(MARKETING_POST_FLOW_CLOSING_LINE, [
     MARKETING_POST_FLOW_BTN_CHECKOUT,
@@ -1439,7 +1452,9 @@ ${supportWaUrl}
         const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
         void applyMarketingHumanAgentSideEffects(leadPhone);
       }
-      if (!opts?.skipPostFlowClosing && leadPhone) {
+      if (opts?.skipPostFlowClosing) {
+        out = prepareMarketingOpenFlowAiReply(out);
+      } else if (leadPhone) {
         const postFlow = await isMarketingPostFlowAiContext(leadPhone);
         if (postFlow) out = prepareMarketingPostFlowAiReply(out);
       }
