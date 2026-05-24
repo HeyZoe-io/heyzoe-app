@@ -147,6 +147,80 @@ async function resendMarketingFlowQuestionNode(phone: string, node: FlowNode): P
   await sendNodeMessage(node, phone);
 }
 
+async function runMarketingFlowFromStart(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  hadSession: boolean
+): Promise<boolean> {
+  const startNode = findStartNode(nodes, edges);
+  if (!startNode) return false;
+
+  const { waitingForAnswer, nextNodeId } = await sendNodeChain(startNode, phone, edges, nodes);
+  const nowIso = new Date().toISOString();
+  await admin.from("marketing_flow_sessions").upsert(
+    {
+      phone,
+      current_node_id: nextNodeId,
+      flow_completed: !waitingForAnswer && !nextNodeId,
+      open_q_pause_state: "none",
+      last_user_message_at: nowIso,
+      updated_at: nowIso,
+    },
+    { onConflict: "phone" }
+  );
+
+  if (!hadSession) {
+    const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");
+    void trackWaNewLead(phone);
+  }
+
+  return true;
+}
+
+/**
+ * אחרי שמירת פלואו בדשבורד — מזהי נודים משתנים; סשנים פעילים עם current_node_id ישן
+ * מסומנים ל«המשך מההתחלה» במקום ליפול ל-AI.
+ */
+export async function realignMarketingFlowSessionsAfterFlowSave(validNodeIds: string[]): Promise<void> {
+  const valid = new Set(validNodeIds.map((id) => String(id)));
+  if (valid.size === 0) return;
+
+  const admin = createSupabaseAdminClient();
+  const { data: rows, error } = await admin
+    .from("marketing_flow_sessions")
+    .select("id, phone, current_node_id, flow_completed")
+    .eq("flow_completed", false);
+
+  if (error) {
+    console.warn("[marketing-flow] realign sessions load failed:", error.message);
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  for (const row of rows ?? []) {
+    const nid = row.current_node_id != null ? String(row.current_node_id) : "";
+    if (!nid || valid.has(nid)) continue;
+    const { error: upErr } = await admin
+      .from("marketing_flow_sessions")
+      .update({
+        current_node_id: null,
+        open_q_pause_state: "none",
+        updated_at: nowIso,
+      })
+      .eq("id", row.id);
+    if (upErr) {
+      console.warn("[marketing-flow] realign session update failed:", upErr.message);
+      continue;
+    }
+    console.info("[marketing-flow] realigned session after flow save", {
+      phone: row.phone,
+      staleNodeId: nid,
+    });
+  }
+}
+
 /** תשובת AI + «מה דעתך, אפשר להמשיך?» באמצע פלואו פעיל */
 export async function answerOpenQuestionDuringMarketingFlow(
   phoneRaw: string,
@@ -496,30 +570,8 @@ export async function handleMarketingFlowInbound(
     await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
     console.info("[marketing-flow] flow start/restart for:", phone, { hadSession: Boolean(session) });
 
-    const startNode = findStartNode(nodes, edges);
-    if (!startNode) return { handled: false };
-
-    const { waitingForAnswer, nextNodeId } = await sendNodeChain(startNode, phone, edges, nodes);
-
-    const nowIso = new Date().toISOString();
-    await admin.from("marketing_flow_sessions").upsert(
-      {
-        phone,
-        current_node_id: nextNodeId,
-        flow_completed: !waitingForAnswer && !nextNodeId,
-        open_q_pause_state: "none",
-        last_user_message_at: nowIso,
-        updated_at: nowIso,
-      },
-      { onConflict: "phone" }
-    );
-
-    if (!session) {
-      const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");
-      void trackWaNewLead(phone);
-    }
-
-    return { handled: true };
+    const started = await runMarketingFlowFromStart(admin, phone, nodes, edges, Boolean(session));
+    return { handled: started };
   }
 
   if (!session) {
@@ -530,23 +582,34 @@ export async function handleMarketingFlowInbound(
   }
 
   const sess = session as unknown as Session;
+  const pauseState = normalizeOpenQPauseState(sess.open_q_pause_state);
+  const currentNode = sess.current_node_id
+    ? nodes.find((n) => n.id === sess.current_node_id) ?? null
+    : null;
 
-  if (sess.flow_completed || !sess.current_node_id) {
-    if (await tryHandleMarketingPostFlowMenuReply(phone, userText)) {
+  if (isMarketingFlowContinueChoice(userText)) {
+    await setMarketingOpenQPauseState(admin, phone, "none");
+
+    if (currentNode?.type === "question") {
+      await resendMarketingFlowQuestionNode(phone, currentNode);
+      console.info("[marketing-flow] resume flow after open Q — resend question", {
+        phone,
+        nodeId: currentNode.id,
+      });
       return { handled: true };
     }
-    return { handled: false };
-  }
 
-  const pauseState = normalizeOpenQPauseState(sess.open_q_pause_state);
-
-  const currentNode = nodes.find((n) => n.id === sess.current_node_id);
-
-  if (isMarketingFlowContinueChoice(userText) && currentNode) {
-    await resendMarketingFlowQuestionNode(phone, currentNode);
-    await setMarketingOpenQPauseState(admin, phone, "none");
-    console.info("[marketing-flow] resume flow after open Q", { phone, nodeId: currentNode.id });
-    return { handled: true };
+    if (!sess.flow_completed) {
+      const restarted = await runMarketingFlowFromStart(admin, phone, nodes, edges, true);
+      if (restarted) {
+        console.info("[marketing-flow] resume flow — replay from start (stale or realigned session)", {
+          phone,
+          hadNodeId: Boolean(sess.current_node_id),
+          staleNodeId: sess.current_node_id,
+        });
+        return { handled: true };
+      }
+    }
   }
 
   if (isMarketingFlowMoreQuestionChoice(userText)) {
@@ -555,6 +618,13 @@ export async function handleMarketingFlowInbound(
     });
     await setMarketingOpenQPauseState(admin, phone, "more_questions");
     return { handled: true };
+  }
+
+  if (sess.flow_completed || !sess.current_node_id) {
+    if (await tryHandleMarketingPostFlowMenuReply(phone, userText)) {
+      return { handled: true };
+    }
+    return { handled: false };
   }
 
   if (pauseState === "more_questions") {
@@ -570,10 +640,17 @@ export async function handleMarketingFlowInbound(
       phone,
       current_node_id: sess.current_node_id,
     });
-    await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
+    await admin
+      .from("marketing_flow_sessions")
+      .update({
+        current_node_id: null,
+        open_q_pause_state: "none",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", sess.id);
     await sendMarketingWhatsApp(
       phone,
-      "עדכנו את הפלואו בשיווק. שלחו «היי זואי!» כדי להתחיל מחדש 🙂"
+      "עדכנו את הפלואו. לחצו «בואו נמשיך!» כדי לראות את הגרסה המעודכנת, או «היי זואי!» להתחלה מחדש 🙂"
     );
     return { handled: true };
   }
