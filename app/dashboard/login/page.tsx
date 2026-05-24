@@ -225,6 +225,15 @@ export default function DashboardLoginPage() {
           <div className="mt-6 flex items-center justify-center gap-3 text-xs text-zinc-500">
             <a
               className="underline underline-offset-4 hover:text-zinc-700"
+              href="https://heyzoe.io/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Terms of Service
+            </a>
+            <span className="text-zinc-300">•</span>
+            <a
+              className="underline underline-offset-4 hover:text-zinc-700"
               href="https://heyzoe.io/privacy"
               target="_blank"
               rel="noopener noreferrer"
