@@ -5,12 +5,29 @@ import { sendWhatsAppMessage, resolveTwilioAccountSid, resolveTwilioAuthToken } 
 import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
+import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
 
+/** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
- 
+
 const BATCH = 200;
 const FOLLOWUP_FOOTER = "\n\n_לביטול קבלת הודעות שלח *הסר*_";
+
+const MS_20_MIN = 20 * 60 * 1000;
+const MS_2_H = 2 * 60 * 60 * 1000;
+const MS_23_H = 23 * 60 * 60 * 1000;
+
+type WaFollowupSkipReason =
+  | "time_window"
+  | "invalid_contact"
+  | "no_active_channel"
+  | "no_assistant_message"
+  | "no_user_message"
+  | "over_24h"
+  | "already_replied"
+  | "not_due_yet"
+  | "send_failed";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -24,12 +41,51 @@ function authorizeCron(req: NextRequest): boolean {
   return auth === `Bearer ${secret}`;
 }
 
+function logWaFollowupSkip(
+  reason: WaFollowupSkipReason,
+  meta: Record<string, unknown>
+): void {
+  console.info("[cron/wa-followups] skip", { skip_reason: reason, ...meta });
+}
+
+function maskPhone(phone: string): string {
+  const d = String(phone ?? "").replace(/\D/g, "");
+  if (d.length < 4) return "***";
+  return `***${d.slice(-4)}`;
+}
+
 function fillTemplate(tpl: string, vars: Record<string, string>): string {
   let out = tpl;
   for (const [k, v] of Object.entries(vars)) {
     out = out.replaceAll(`{{${k}}}`, v);
   }
   return out;
+}
+
+function notDueYetDetail(stageCurrent: number, elapsedMs: number): Record<string, unknown> {
+  if (stageCurrent >= 3) return { wa_followup_stage: stageCurrent, detail: "all_stages_sent" };
+  if (stageCurrent < 1) {
+    return {
+      wa_followup_stage: stageCurrent,
+      detail: "waiting_20m",
+      elapsed_ms: elapsedMs,
+      need_ms: Math.max(0, MS_20_MIN - elapsedMs),
+    };
+  }
+  if (stageCurrent < 2) {
+    return {
+      wa_followup_stage: stageCurrent,
+      detail: "waiting_2h",
+      elapsed_ms: elapsedMs,
+      need_ms: Math.max(0, MS_2_H - elapsedMs),
+    };
+  }
+  return {
+    wa_followup_stage: stageCurrent,
+    detail: "waiting_23h",
+    elapsed_ms: elapsedMs,
+    need_ms: Math.max(0, MS_23_H - elapsedMs),
+  };
 }
 
 /** Last assistant turn that is not our own WA follow-up (those must not reset the silence clock). */
@@ -99,13 +155,74 @@ export async function GET(req: NextRequest) {
   const authToken = resolveTwilioAuthToken();
   const admin = createSupabaseAdminClient();
 
+  const debugPhone = req.nextUrl.searchParams.get("debug_phone")?.trim() ?? "";
+  const debugSlug = req.nextUrl.searchParams.get("debug_slug")?.trim().toLowerCase() ?? "";
+  if (debugPhone && debugSlug) {
+    const { data: biz } = await admin.from("businesses").select("id").eq("slug", debugSlug).maybeSingle();
+    if (!biz?.id) {
+      return NextResponse.json({ ok: false, error: "business_not_found", debug_slug: debugSlug }, { status: 404 });
+    }
+    const { data: contact, error: contactErr } = await admin
+      .from("contacts")
+      .select(
+        "id, phone, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered"
+      )
+      .eq("business_id", biz.id)
+      .eq("phone", debugPhone)
+      .maybeSingle();
+    if (contactErr) {
+      return NextResponse.json({ ok: false, error: contactErr.message }, { status: 500 });
+    }
+    if (!contact) {
+      console.info("[cron/wa-followups] skip", {
+        skip_reason: "no_contact_row",
+        phone: maskPhone(debugPhone),
+        business_slug: debugSlug,
+      });
+      return NextResponse.json({
+        ok: true,
+        debug: true,
+        skip_reason: "no_contact_row",
+        phone: maskPhone(debugPhone),
+        business_slug: debugSlug,
+      });
+    }
+    const evalResult = await evaluateBusinessWaFollowup({
+      admin,
+      business_slug: debugSlug,
+      phone: debugPhone,
+      contact,
+    });
+    if (evalResult.skip_reason !== "eligible") {
+      logWaFollowupSkip(evalResult.skip_reason as WaFollowupSkipReason, {
+        phone: maskPhone(debugPhone),
+        business_slug: debugSlug,
+        contact_id: contact.id,
+        ...evalResult.detail,
+      });
+    }
+    const { business_slug: _bizSlug, ...evalBody } = evalResult;
+    return NextResponse.json({
+      ok: true,
+      debug: true,
+      phone: maskPhone(debugPhone),
+      business_slug: debugSlug,
+      contact_id: contact.id,
+      wa_followup_stage: contact.wa_followup_stage,
+      last_contact_at: contact.last_contact_at,
+      ...evalBody,
+    });
+  }
+
   const now = new Date();
   const allowedAt = nextAllowedWhatsAppSendTimeIsrael(now);
   if (allowedAt.getTime() > now.getTime()) {
+    logWaFollowupSkip("time_window", { next_allowed_at: allowedAt.toISOString() });
     return NextResponse.json({
       ok: true,
       skipped: true,
       reason: "outside_send_window",
+      skip_reason: "time_window",
       next_allowed_at: allowedAt.toISOString(),
     });
   }
@@ -128,13 +245,26 @@ export async function GET(req: NextRequest) {
   let examined = 0;
   let sent = 0;
   let skipped = 0;
+  const skipCounts: Record<string, number> = {};
+
+  const bumpSkip = (reason: WaFollowupSkipReason) => {
+    skipped += 1;
+    skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
+  };
 
   for (const c of contacts ?? []) {
     examined += 1;
-    const phone = String((c as any).phone ?? "").trim();
-    const businessId = (c as any).business_id;
+    const contactId = (c as { id?: string | number }).id;
+    const phone = String((c as { phone?: string }).phone ?? "").trim();
+    const businessId = (c as { business_id?: number | null }).business_id;
+
     if (!phone || businessId == null) {
-      skipped += 1;
+      logWaFollowupSkip("invalid_contact", {
+        contact_id: contactId ?? null,
+        phone: phone ? maskPhone(phone) : null,
+        business_id: businessId ?? null,
+      });
+      bumpSkip("invalid_contact");
       continue;
     }
 
@@ -147,7 +277,12 @@ export async function GET(req: NextRequest) {
         .limit(1)
         .maybeSingle();
       if (!channel?.phone_number_id || !channel?.business_slug) {
-        skipped += 1;
+        logWaFollowupSkip("no_active_channel", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_id: businessId,
+        });
+        bumpSkip("no_active_channel");
         continue;
       }
 
@@ -157,51 +292,103 @@ export async function GET(req: NextRequest) {
 
       const lastAssist = await fetchLatestRealAssistantMessageAt({ admin, business_slug, session_id: sessionId });
       if (!lastAssist) {
-        skipped += 1;
+        logWaFollowupSkip("no_assistant_message", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+        });
+        bumpSkip("no_assistant_message");
         continue;
       }
 
       const lastAssistAtIso = lastAssist.created_at;
       if (!lastAssistAtIso) {
-        skipped += 1;
+        logWaFollowupSkip("no_assistant_message", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+          detail: "missing_assistant_timestamp",
+        });
+        bumpSkip("no_assistant_message");
         continue;
       }
 
-      // Meta 24h rule: do not send any non-template messages >24h after the user's last message.
       const lastUserAtIso = await fetchLatestUserMessageAt({ admin, business_slug, session_id: sessionId });
       if (!lastUserAtIso) {
-        skipped += 1;
+        logWaFollowupSkip("no_user_message", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+        });
+        bumpSkip("no_user_message");
         continue;
       }
+
       const hoursSinceUser = (Date.now() - new Date(lastUserAtIso).getTime()) / (1000 * 60 * 60);
       if (!Number.isFinite(hoursSinceUser) || hoursSinceUser >= 24) {
-        skipped += 1;
+        logWaFollowupSkip("over_24h", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+          hours_since_user: hoursSinceUser,
+          last_user_at: lastUserAtIso,
+        });
+        bumpSkip("over_24h");
         continue;
       }
 
       if (await hasUserReplyAfter({ admin, business_slug, session_id: sessionId, afterIso: lastAssistAtIso })) {
-        skipped += 1;
+        logWaFollowupSkip("already_replied", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+          last_assistant_at: lastAssistAtIso,
+        });
+        bumpSkip("already_replied");
         continue;
       }
 
       const elapsedMs = Date.now() - new Date(lastAssistAtIso).getTime();
       if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-        skipped += 1;
+        logWaFollowupSkip("not_due_yet", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+          detail: "invalid_elapsed",
+          elapsed_ms: elapsedMs,
+          last_assistant_at: lastAssistAtIso,
+        });
+        bumpSkip("not_due_yet");
         continue;
       }
 
-      const stageCurrent = Number((c as any).wa_followup_stage ?? 0) || 0;
+      const stageCurrent = Number((c as { wa_followup_stage?: number | null }).wa_followup_stage ?? 0) || 0;
       const nextStage =
-        stageCurrent < 1 && elapsedMs >= 20 * 60 * 1000
+        stageCurrent < 1 && elapsedMs >= MS_20_MIN
           ? 1
-          : stageCurrent < 2 && elapsedMs >= 2 * 60 * 60 * 1000
+          : stageCurrent < 2 && elapsedMs >= MS_2_H
             ? 2
-            : stageCurrent < 3 && elapsedMs >= 23 * 60 * 60 * 1000
+            : stageCurrent < 3 && elapsedMs >= MS_23_H
               ? 3
               : 0;
 
       if (nextStage < 1) {
-        skipped += 1;
+        logWaFollowupSkip("not_due_yet", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+          last_assistant_at: lastAssistAtIso,
+          last_assistant_model: lastAssist.model_used,
+          ...notDueYetDetail(stageCurrent, elapsedMs),
+        });
+        bumpSkip("not_due_yet");
         continue;
       }
 
@@ -210,9 +397,9 @@ export async function GET(req: NextRequest) {
         .select("name, bot_name, social_links")
         .eq("id", businessId)
         .maybeSingle();
-      const businessName = String((biz as any)?.name ?? "").trim() || business_slug;
-      const botName = String((biz as any)?.bot_name ?? "").trim() || "זואי";
-      const phoneDisplay = String((channel as any)?.phone_display ?? "").trim();
+      const businessName = String((biz as { name?: string }).name ?? "").trim() || business_slug;
+      const botName = String((biz as { bot_name?: string }).bot_name ?? "").trim() || "זואי";
+      const phoneDisplay = String((channel as { phone_display?: string }).phone_display ?? "").trim();
 
       const vars = {
         bot_name: botName,
@@ -220,7 +407,7 @@ export async function GET(req: NextRequest) {
         phone: phoneDisplay || "",
       };
 
-      const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as any)?.social_links);
+      const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as { social_links?: unknown }).social_links);
       const raw =
         nextStage === 1
           ? fillTemplate(t1, vars)
@@ -245,15 +432,20 @@ export async function GET(req: NextRequest) {
       if (nextStage === 2) patch.wa_followup_2_sent_at = nowIso;
       if (nextStage === 3) patch.wa_followup_3_sent_at = nowIso;
 
-      await admin.from("contacts").update(patch).eq("id", (c as any).id);
+      await admin.from("contacts").update(patch).eq("id", contactId);
 
       sent += 1;
     } catch (e) {
       console.error("[cron/wa-followups] failed:", e);
-      skipped += 1;
+      logWaFollowupSkip("send_failed", {
+        contact_id: contactId,
+        phone: maskPhone(phone),
+        business_id: businessId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      bumpSkip("send_failed");
     }
   }
 
-  return NextResponse.json({ ok: true, examined, sent, skipped });
+  return NextResponse.json({ ok: true, examined, sent, skipped, skip_counts: skipCounts });
 }
-

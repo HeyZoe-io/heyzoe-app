@@ -41,6 +41,10 @@ import {
   resolveWarmupExperienceConfig,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
+import {
+  shouldResetWaFollowupCycleOnInbound,
+  WA_FOLLOWUP_CYCLE_RESET_PATCH,
+} from "@/lib/wa-followup-cycle-reset";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
@@ -1122,13 +1126,28 @@ async function processIncoming(
         business_slug,
         phone,
       });
+      let priorContact: {
+        id?: string | number;
+        wa_followup_stage?: number | null;
+        last_contact_at?: string | null;
+      } | null = null;
       try {
-        const { data: priorContact } = await supabase
+        const priorQ = await supabase
           .from("contacts")
-          .select("id")
+          .select("id, wa_followup_stage, last_contact_at")
           .eq("business_id", businessId)
           .eq("phone", phone)
           .maybeSingle();
+        if (!priorQ.error) priorContact = priorQ.data;
+        else {
+          const fallback = await supabase
+            .from("contacts")
+            .select("id")
+            .eq("business_id", businessId)
+            .eq("phone", phone)
+            .maybeSingle();
+          if (!fallback.error) priorContact = fallback.data;
+        }
         isFirstTimeContact = !priorContact?.id;
       } catch {
         isFirstTimeContact = false;
@@ -1148,6 +1167,16 @@ async function processIncoming(
         followup_sent: false,
       };
       if (fullName) upsertPayload.full_name = fullName;
+
+      if (shouldResetWaFollowupCycleOnInbound(priorContact)) {
+        Object.assign(upsertPayload, WA_FOLLOWUP_CYCLE_RESET_PATCH);
+        console.info("[WA Webhook] wa_followup cycle reset (48h+ since last_contact_at)", {
+          business_slug,
+          phone,
+          prior_stage: priorContact?.wa_followup_stage ?? 0,
+          prior_last_contact_at: priorContact?.last_contact_at ?? null,
+        });
+      }
 
       let contactRow: any = null;
       let upsertErr: any = null;

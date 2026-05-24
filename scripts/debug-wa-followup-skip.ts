@@ -1,0 +1,76 @@
+/**
+ * Usage (from repo root, with Supabase env loaded):
+ *   npx tsx --env-file=.env.local scripts/debug-wa-followup-skip.ts <phone> <business_slug>
+ * Example:
+ *   npx tsx --env-file=.env.local scripts/debug-wa-followup-skip.ts 972549400776 acrobyjoe
+ *
+ * Production (after deploy): GET with CRON_SECRET
+ *   /api/cron/wa-followups?debug_phone=972...&debug_slug=acrobyjoe
+ */
+import { createSupabaseAdminClient } from "../lib/supabase-admin";
+import { evaluateBusinessWaFollowup } from "../lib/wa-followup-cron-eval";
+
+async function main() {
+  const phone = process.argv[2]?.trim();
+  const slug = (process.argv[3] ?? "acrobyjoe").trim().toLowerCase();
+  if (!phone) {
+    console.error("Usage: npx tsx scripts/debug-wa-followup-skip.ts <phone> [business_slug]");
+    process.exit(1);
+  }
+
+  const admin = createSupabaseAdminClient();
+  const { data: biz } = await admin.from("businesses").select("id").eq("slug", slug).maybeSingle();
+  if (!biz?.id) {
+    console.error("Business not found:", slug);
+    process.exit(1);
+  }
+
+  const { data: contact, error } = await admin
+    .from("contacts")
+    .select(
+      "id, phone, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered"
+    )
+    .eq("business_id", biz.id)
+    .eq("phone", phone)
+    .maybeSingle();
+
+  if (error) {
+    console.error("contacts query error:", error.message);
+    process.exit(1);
+  }
+  if (!contact) {
+    console.log(JSON.stringify({ phone, business_slug: slug, skip_reason: "no_contact_row" }, null, 2));
+    process.exit(0);
+  }
+
+  const result = await evaluateBusinessWaFollowup({
+    admin,
+    business_slug: slug,
+    phone,
+    contact,
+  });
+
+  const { business_slug: _bizSlug, ...evalBody } = result;
+  console.log(
+    JSON.stringify(
+      {
+        phone,
+        business_slug: slug,
+        contact_id: contact.id,
+        wa_followup_stage: contact.wa_followup_stage,
+        last_contact_at: contact.last_contact_at,
+        wa_followup_1_sent_at: contact.wa_followup_1_sent_at,
+        wa_followup_2_sent_at: contact.wa_followup_2_sent_at,
+        wa_followup_3_sent_at: contact.wa_followup_3_sent_at,
+        ...evalBody,
+      },
+      null,
+      2
+    )
+  );
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
