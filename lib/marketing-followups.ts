@@ -124,6 +124,25 @@ export function pickMarketingFollowupStage(row: MarketingFlowSessionFollowupRow,
   return 0;
 }
 
+/** סיבת דילוג כש־pickMarketingFollowupStage מחזיר 0 (ללוגי cron) */
+export function pickMarketingFollowupSkipReason(
+  row: MarketingFlowSessionFollowupRow,
+  nowMs: number
+): string {
+  const lastAt = row.last_user_message_at ? new Date(row.last_user_message_at).getTime() : NaN;
+  if (!Number.isFinite(lastAt)) return "no_user_message_at";
+  const elapsedMs = nowMs - lastAt;
+  if (elapsedMs < 0) return "invalid_timestamp";
+
+  if (row.followup_1_sent_at && row.followup_2_sent_at && row.followup_3_sent_at) {
+    return "all_followups_sent";
+  }
+  if (!row.followup_1_sent_at && elapsedMs < MS_10_MIN) return "not_due_yet";
+  if (!row.followup_2_sent_at && row.followup_1_sent_at && elapsedMs < MS_2_H) return "not_due_yet";
+  if (!row.followup_3_sent_at && row.followup_2_sent_at && elapsedMs < MS_23_H) return "not_due_yet";
+  return "not_due_yet";
+}
+
 export function marketingFollowupBody(stage: 1 | 2 | 3): string {
   if (stage === 1) return MARKETING_FOLLOWUP_1_TEXT;
   if (stage === 2) return MARKETING_FOLLOWUP_2_TEXT;
