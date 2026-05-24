@@ -11,7 +11,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, SalesSessionTitle, StepHeader, StepPanel, Textarea } from "../settings-ui";
+import { Field, StepPanel, Textarea } from "../settings-ui";
+import {
+  SalesPathSectionBlock,
+  SalesPathStepShell,
+  useSalesPathSections,
+} from "./sales-path-shell";
 import {
   ctaLockedKindForSlot,
   ctaSlotRoleLabel,
@@ -119,6 +124,29 @@ export default function Step4SalesFlow(props: any) {
       null,
     [services]
   );
+
+  type SalesSectionId = "media" | "opening" | "service_pick" | "warmup" | "cta" | "after_trial";
+  const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = [
+    { id: "media", label: "מדיה", hint: "פתיחה" },
+    { id: "opening", label: "פתיחה", hint: "סשן" },
+    { id: "service_pick", label: "בחירה", hint: "שירות" },
+    { id: "warmup", label: "חימום", hint: "סשן" },
+    { id: "cta", label: "הנעה", hint: "לפעולה" },
+    { id: "after_trial", label: "אחרי הרשמה", hint: "ניסיון" },
+  ];
+  const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
+    useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
+      media: true,
+      opening: true,
+      service_pick: false,
+      warmup: false,
+      cta: false,
+      after_trial: false,
+    });
+
+  useEffect(() => {
+    setStepPrefix("sales");
+  }, [setStepPrefix]);
 
   const firstCourseSvcForWarmup = useMemo(
     () =>
@@ -234,12 +262,26 @@ export default function Step4SalesFlow(props: any) {
   }
 
   return (
-    <StepPanel className="space-y-6">
-      <StepHeader
-        n={4}
+    <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
+      <SalesPathStepShell
+        stepNumber={4}
         title="מסלול מכירה"
-        desc="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
-      />
+        description="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
+        stepPrefix="sales"
+        sections={SALES_SECTIONS}
+        activeNav={activeNav}
+        onNavClick={scrollToSection}
+        mainRef={mainRef}
+        navAriaLabel="ניווט בתוך מסלול מכירה"
+      >
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="media"
+          title="מדיה לפתיחה (אופציונלי)"
+          open={openSections.media}
+          onToggle={() => toggle("media")}
+          filled={showOpeningMediaPreview}
+        >
         <div>
           <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-center">
             <p className="text-sm font-medium text-zinc-700">מדיה לפתיחה (אופציונלי)</p>
@@ -354,10 +396,21 @@ export default function Step4SalesFlow(props: any) {
             }}
           />
         </div>
+        </SalesPathSectionBlock>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <SalesSessionTitle>סשן פתיחה</SalesSessionTitle>
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="opening"
+          title="סשן פתיחה"
+          open={openSections.opening}
+          onToggle={() => toggle("opening")}
+          filled={Boolean(
+            (salesFlowConfig.greeting_body_override !== undefined
+              ? salesFlowConfig.greeting_body_override
+              : salesOpeningAutoText
+            )?.trim()
+          )}
+          headerAction={
             <Button
               type="button"
               variant="outline"
@@ -372,8 +425,9 @@ export default function Step4SalesFlow(props: any) {
               )}
               {isGen("opening") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
-          </div>
-          <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
+          }
+        >
+          <div className="space-y-3">
             <Field label="טקסט פתיחה ללקוח">
               <Textarea
                 value={
@@ -387,10 +441,16 @@ export default function Step4SalesFlow(props: any) {
               />
             </Field>
           </div>
-        </div>
+        </SalesPathSectionBlock>
 
-        <div className="space-y-2">
-          <div dir="ltr" className="flex w-full flex-row items-center justify-center gap-3">
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="service_pick"
+          title="בחירת סוג השירות"
+          open={openSections.service_pick}
+          onToggle={() => toggle("service_pick")}
+          filled={trialServiceNames.length > 0}
+          headerAction={
             <Button
               type="button"
               variant="outline"
@@ -405,8 +465,9 @@ export default function Step4SalesFlow(props: any) {
               )}
               {isGen("service_pick") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
-          </div>
-          <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white ring-1 ring-[#7133da]/[0.06]">
+          }
+        >
+          <div className="space-y-3">
             {trialServiceNames.length > 1 ? (
               <>
                 <Field label="בחירת סוג השירות" className="space-y-1">
@@ -475,11 +536,16 @@ export default function Step4SalesFlow(props: any) {
               </p>
             )}
           </div>
-        </div>
+        </SalesPathSectionBlock>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <SalesSessionTitle>סשן חימום</SalesSessionTitle>
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="warmup"
+          title="סשן חימום"
+          open={openSections.warmup}
+          onToggle={() => toggle("warmup")}
+          filled={Boolean(salesFlowConfig.experience_question?.trim())}
+          headerAction={
             <Button
               type="button"
               variant="outline"
@@ -494,8 +560,9 @@ export default function Step4SalesFlow(props: any) {
               )}
               {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
-          </div>
-          <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
+          }
+        >
+          <div className="space-y-3">
             <p className="text-xs text-zinc-600 text-center leading-relaxed">
               פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂 בשיעור ניסיון אפשר להשתמש במציין (שם האימון) — בצ׳אט הוא יוחלף לפי הבחירה. לסדנה ולקורס עורכים לשון נפרדת לכל סוג כאן ובטאב «מוצרים».
             </p>
@@ -755,29 +822,33 @@ export default function Step4SalesFlow(props: any) {
               </>
             )}
           </div>
-        </div>
+        </SalesPathSectionBlock>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <SalesSessionTitle>סשן הנעה לפעולה</SalesSessionTitle>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-1 text-xs py-1.5 px-3 h-auto"
-                disabled={isSalesGenerating}
-                onClick={() => regenerateSalesFlowSection("cta")}
-              >
-                {isGen("cta") ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                {isGen("cta") ? "מג׳נרט..." : "ג׳נרט מחדש"}
-              </Button>
-            </div>
-          </div>
-          <div className="border border-zinc-200 rounded-2xl p-4 space-y-4 bg-white">
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="cta"
+          title="סשן הנעה לפעולה"
+          open={openSections.cta}
+          onToggle={() => toggle("cta")}
+          filled={Boolean(String(salesFlowConfig.cta_body ?? "").trim())}
+          headerAction={
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1 text-xs py-1.5 px-3 h-auto"
+              disabled={isSalesGenerating}
+              onClick={() => regenerateSalesFlowSection("cta")}
+            >
+              {isGen("cta") ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isGen("cta") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+            </Button>
+          }
+        >
+          <div className="space-y-4">
             <div
               dir="rtl"
               className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100 text-center"
@@ -1218,11 +1289,16 @@ export default function Step4SalesFlow(props: any) {
               </>
             ) : null}
           </div>
-        </div>
+        </SalesPathSectionBlock>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <SalesSessionTitle>אחרי הרשמה לשיעור ניסיון</SalesSessionTitle>
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="after_trial"
+          title="אחרי הרשמה לשיעור ניסיון"
+          open={openSections.after_trial}
+          onToggle={() => toggle("after_trial")}
+          filled={Boolean(salesFlowConfig.after_trial_registration_body?.trim())}
+          headerAction={
             <Button
               type="button"
               variant="outline"
@@ -1237,8 +1313,9 @@ export default function Step4SalesFlow(props: any) {
               )}
               {isGen("after_trial_registration") ? "מג׳נרט..." : "ג׳נרט מחדש"}
             </Button>
-          </div>
-          <div className="border border-zinc-200 rounded-2xl p-4 space-y-3 bg-white">
+          }
+        >
+          <div className="space-y-3">
             <p className="text-xs text-zinc-600 text-center leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
             <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
               <Textarea
@@ -1248,7 +1325,8 @@ export default function Step4SalesFlow(props: any) {
               />
             </Field>
           </div>
-        </div>
+        </SalesPathSectionBlock>
+      </SalesPathStepShell>
     </StepPanel>
   );
 }
