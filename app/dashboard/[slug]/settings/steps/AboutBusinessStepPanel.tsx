@@ -20,7 +20,7 @@ const INPUT = SALES_PATH_INPUT;
 type SectionId = "contact" | "identity" | "location" | "knowledge";
 
 const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
-  { id: "contact", label: "קשר", hint: "וואטסאפ ושירות" },
+  { id: "contact", label: "מספרים", hint: "וואטסאפ ושירות" },
   { id: "identity", label: "זהות", hint: "שם ותיאור" },
   { id: "location", label: "מיקום", hint: "כתובת והגעה" },
   { id: "knowledge", label: "ידע לזואי", hint: "עובדות ומבצעים" },
@@ -124,7 +124,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     <SalesPathStepShell
       stepNumber={2}
       title="על העסק"
-      description="מה שזואי צריכה לדעת — מסודר לפי נושאים. פתחו רק את מה שרוצים לערוך."
+      description="כל מה זואי צריכה לדעת על העסק."
       stepPrefix="about"
       sections={SECTIONS}
       activeNav={activeNav}
@@ -135,7 +135,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           <SalesPathSectionBlock
             stepPrefix="about"
             id="contact"
-            title="קשר ווואטסאפ"
+            title="מספרי טלפון"
             hint="מספרים שזואי משתמשת בהם בשיחה"
             open={openSections.contact}
             onToggle={() => toggle("contact")}
@@ -195,7 +195,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                 )}
               </div>
               <div>
-                <SalesPathFieldLabel hint="איך הבוט מציג את עצמו">שם הבוט</SalesPathFieldLabel>
+                <SalesPathFieldLabel>שם הבוט</SalesPathFieldLabel>
                 <Input
                   dir="rtl"
                   value={botName}
@@ -206,7 +206,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
               </div>
             </div>
             <div>
-              <SalesPathFieldLabel hint="משפט אחד — זואי משתמשת בו בהקדמה">תיאור העסק</SalesPathFieldLabel>
+              <SalesPathFieldLabel hint="משפט אחד - זואי משתמשת בו בהקדמה">תיאור העסק</SalesPathFieldLabel>
               <Input
                 dir="rtl"
                 value={businessTagline}

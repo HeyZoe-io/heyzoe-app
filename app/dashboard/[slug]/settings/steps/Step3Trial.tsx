@@ -4,8 +4,11 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, StepPanel } from "../settings-ui";
+import { StepPanel } from "../settings-ui";
 import {
+  SALES_PATH_INPUT,
+  SALES_PATH_TEXTAREA,
+  SalesPathFieldLabel,
   SalesPathSectionBlock,
   SalesPathStepShell,
   useSalesPathSections,
@@ -16,10 +19,11 @@ import { normalizeMasculinePredicatesAfterPracticeHead, type OfferKind } from "@
 /** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
 const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
 
-/** שורת טופס RTL: תמיד input לפני הטקסט ב־DOM ו־justify-center — תיבה צמודה לימין והטקסט משמאל לה */
+const PRODUCT_INPUT = SALES_PATH_INPUT;
+
 function rtlCheckboxLabelRowClassName(fullWidth = true) {
   return [
-    "flex flex-row items-center justify-center gap-3 text-center cursor-pointer select-none",
+    "flex flex-row items-center justify-end gap-3 text-right cursor-pointer select-none",
     fullWidth ? "w-full" : "",
   ]
     .filter(Boolean)
@@ -96,7 +100,7 @@ function TrialPickMediaAttachmentSection(props: {
   };
 
   return (
-    <div className="rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/35 to-zinc-50/40 p-4 text-center shadow-[0_8px_30px_-12px_rgba(95,64,178,0.15)]">
+    <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right">
       <div className="space-y-1">
         <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
           <input
@@ -331,7 +335,7 @@ export default function Step3Trial(props: {
               {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
             </Button>
           </div>
-          <p className="text-xs text-zinc-600 leading-snug text-right w-full">
+          <p className="text-xs text-zinc-600 leading-snug text-center w-full">
             {!websiteUrl.trim()
               ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
               : "הסריקה לא תשנה מוצרים שכבר הזנתם, רק תוסיף חדשים במידה וזוהו."}
@@ -349,104 +353,95 @@ export default function Step3Trial(props: {
           filled={productsFilled}
         >
         {services.map((s, i) => (
-          <div
+          <article
             key={s.ui_id}
             onDragOver={(e) => onDragOver(e, i)}
-            className="border border-[rgba(113,51,218,0.1)] rounded-2xl p-4 space-y-3 bg-white hover:border-[rgba(113,51,218,0.25)] transition-colors"
+            className="overflow-hidden rounded-xl border border-zinc-200/80 bg-white transition-colors hover:border-[#7133da]/25"
           >
-            <div
-              className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100/80 text-center"
-              dir="rtl"
-            >
-              <span className="text-[11px] font-medium text-zinc-600 w-full text-center">סוג הצעה</span>
-              {(
-                [
-                  { k: "trial" as const, label: "אימון ניסיון" },
-                  { k: "workshop" as const, label: "סדנה" },
-                  { k: "course" as const, label: "קורס" },
-                ] as const
-              ).map(({ k, label }) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => {
-                    const arr = [...services];
-                    arr[i] = { ...s, offer_kind: k };
-                    setServices(arr);
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50/60 px-3 py-2.5" dir="rtl">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  draggable
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    onDragStart(i);
                   }}
-                  className={[
-                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors shrink-0 text-center",
-                    s.offer_kind === k
-                      ? "border-[#7133da]/55 bg-[#f3edff] text-[#2d1a6e] shadow-[0_6px_16px_-8px_rgba(113,51,218,0.35)]"
-                      : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/35",
-                  ].join(" ")}
+                  onDragEnd={(e) => {
+                    e.stopPropagation();
+                    onDragEnd();
+                  }}
+                  className="inline-flex cursor-grab touch-none items-center justify-center rounded p-1 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"
+                  aria-label="גרירה לשינוי סדר"
+                  title="גררו מהאייקון כדי לסדר מחדש"
                 >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-2 items-center">
-              <span
-                draggable
-                onDragStart={(e) => {
-                  e.stopPropagation();
-                  onDragStart(i);
-                }}
-                onDragEnd={(e) => {
-                  e.stopPropagation();
-                  onDragEnd();
-                }}
-                className="inline-flex items-center justify-center p-1 -m-1 rounded-lg cursor-grab active:cursor-grabbing text-zinc-300 hover:text-zinc-500 shrink-0 touch-none select-none"
-                aria-label="גרירה לשינוי סדר"
-                title="גררו מהאייקון כדי לסדר מחדש"
-              >
-                <GripVertical className="h-4 w-4 pointer-events-none" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <Field
-                  inline
-                  className="max-w-none"
-                  label={
-                    <span className="inline-flex flex-col items-center gap-0.5 sm:items-end">
-                      <span>שם האימון</span>
-                      <span className="text-[11px] font-medium text-zinc-400">{`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}</span>
-                    </span>
-                  }
-                >
-                  <Input
-                    dir="rtl"
-                    value={s.name}
-                    maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
-                    onChange={(e) => {
+                  <GripVertical className="h-4 w-4 pointer-events-none" />
+                </span>
+                <span className="text-xs font-medium text-zinc-500">מוצר {i + 1}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { k: "trial" as const, label: "אימון ניסיון" },
+                    { k: "workshop" as const, label: "סדנה" },
+                    { k: "course" as const, label: "קורס" },
+                  ] as const
+                ).map(({ k, label }) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => {
                       const arr = [...services];
-                      const newName = [...e.target.value].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
-                      const slugFromName = toSlug(newName);
-                      arr[i] = {
-                        ...s,
-                        name: newName,
-                        service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
-                      };
+                      arr[i] = { ...s, offer_kind: k };
                       setServices(arr);
                     }}
-                    placeholder="למשל אימון ניסיון"
-                    className="w-full text-center font-medium"
-                  />
-                </Field>
+                    className={[
+                      "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                      s.offer_kind === k
+                        ? "border-[#7133da]/50 bg-[#f3edff] text-[#2d1a6e]"
+                        : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/30",
+                    ].join(" ")}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setServices((sv) => sv.filter((_, j) => j !== i))}
+                  className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                  aria-label="הסר אימון"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setServices((sv) => sv.filter((_, j) => j !== i))}
-                className="shrink-0 p-1 text-zinc-400 hover:text-red-400"
-                aria-label="הסר אימון"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
             </div>
 
+            <div className="space-y-4 p-4">
+              <div>
+                <SalesPathFieldLabel hint={`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}>שם האימון</SalesPathFieldLabel>
+                <Input
+                  dir="rtl"
+                  value={s.name}
+                  maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
+                  onChange={(e) => {
+                    const arr = [...services];
+                    const newName = [...e.target.value].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
+                    const slugFromName = toSlug(newName);
+                    arr[i] = {
+                      ...s,
+                      name: newName,
+                      service_slug: slugFromName || s.service_slug || `trial-${s.ui_id}`,
+                    };
+                    setServices(arr);
+                  }}
+                  placeholder="למשל אימון ניסיון"
+                  className={PRODUCT_INPUT}
+                />
+              </div>
+
             {s.offer_kind === "course" ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field inline className="max-w-none" label="מחיר">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <SalesPathFieldLabel>מחיר</SalesPathFieldLabel>
                   <Input
                     dir="rtl"
                     value={s.price_text}
@@ -456,14 +451,15 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="₪ 80"
-                    className="text-center"
+                    className={PRODUCT_INPUT}
                   />
-                </Field>
-                <Field inline className="max-w-none" label="תאריך התחלה">
+                </div>
+                <div>
+                  <SalesPathFieldLabel>תאריך התחלה</SalesPathFieldLabel>
                   <Input
                     dir="ltr"
                     type="date"
-                    className="text-center font-mono text-sm"
+                    className={`${PRODUCT_INPUT} font-mono text-sm`}
                     value={s.course_start_date}
                     onChange={(e) => {
                       const arr = [...services];
@@ -471,12 +467,13 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                   />
-                </Field>
-                <Field inline className="max-w-none" label="תאריך סיום">
+                </div>
+                <div>
+                  <SalesPathFieldLabel>תאריך סיום</SalesPathFieldLabel>
                   <Input
                     dir="ltr"
                     type="date"
-                    className="text-center font-mono text-sm"
+                    className={`${PRODUCT_INPUT} font-mono text-sm`}
                     value={s.course_end_date}
                     onChange={(e) => {
                       const arr = [...services];
@@ -484,8 +481,9 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                   />
-                </Field>
-                <Field inline className="max-w-none" label="מספר מפגשים">
+                </div>
+                <div>
+                  <SalesPathFieldLabel>מספר מפגשים</SalesPathFieldLabel>
                   <Input
                     dir="rtl"
                     inputMode="numeric"
@@ -496,13 +494,14 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="למשל 8"
-                    className="text-center"
+                    className={PRODUCT_INPUT}
                   />
-                </Field>
+                </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field inline className="max-w-none" label="מחיר">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <SalesPathFieldLabel>מחיר</SalesPathFieldLabel>
                   <Input
                     dir="rtl"
                     value={s.price_text}
@@ -512,10 +511,11 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="₪ 80"
-                    className="text-center"
+                    className={PRODUCT_INPUT}
                   />
-                </Field>
-                <Field inline className="max-w-none" label="משך (דקות)">
+                </div>
+                <div>
+                  <SalesPathFieldLabel>משך (דקות)</SalesPathFieldLabel>
                   <Input
                     dir="rtl"
                     value={s.duration}
@@ -525,14 +525,15 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="60"
-                    className="text-center"
+                    className={PRODUCT_INPUT}
                   />
-                </Field>
+                </div>
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field inline className="max-w-none" label="לינק סליקה *">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <SalesPathFieldLabel>לינק סליקה *</SalesPathFieldLabel>
                 <div className="flex min-w-0 items-center gap-2">
                   <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
                   <Input
@@ -544,11 +545,12 @@ export default function Step3Trial(props: {
                       setServices(arr);
                     }}
                     placeholder="https://..."
-                    className="min-w-0 flex-1 text-center"
+                    className={`${PRODUCT_INPUT} min-w-0 flex-1 text-left font-mono text-sm`}
                   />
                 </div>
-              </Field>
-              <Field inline className="max-w-none" label="מיקום">
+              </div>
+              <div>
+                <SalesPathFieldLabel>מיקום</SalesPathFieldLabel>
                 <Input
                   dir="rtl"
                   value={s.location_text}
@@ -558,21 +560,18 @@ export default function Step3Trial(props: {
                     setServices(arr);
                   }}
                   placeholder={address || "תל אביב"}
-                  className="text-center"
+                  className={PRODUCT_INPUT}
                 />
-              </Field>
+              </div>
             </div>
 
-            <Field
-              inline
-              className="max-w-none"
-              label={
-                <span className="inline-flex flex-col items-center gap-2 sm:items-end">
-                  <span>תיאור</span>
+            <div>
+              <SalesPathFieldLabel
+                action={
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-8 gap-1 text-xs shrink-0 border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
+                    className="h-8 gap-1 px-2.5 text-xs"
                     disabled={isTrialBenefitGenerating}
                     onClick={() => {
                       runBusy(`${TRIAL_BENEFIT_BUSY_PREFIX}${s.ui_id}`, () => {
@@ -600,9 +599,10 @@ export default function Step3Trial(props: {
                     )}
                     {activeTrialBenefitUiId === s.ui_id ? "מג׳נרט..." : "ג׳נרט"}
                   </Button>
-                </span>
-              }
-            >
+                }
+              >
+                תיאור
+              </SalesPathFieldLabel>
               <textarea
                 dir="rtl"
                 value={s.description}
@@ -624,11 +624,11 @@ export default function Step3Trial(props: {
                 }}
                 placeholder="תיאור קצר על האימון (ייסרק מהאתר אם קיים)"
                 rows={4}
-                className="w-full resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-center text-sm leading-relaxed outline-none focus:border-[#7133da]/50"
+                className={SALES_PATH_TEXTAREA}
               />
-            </Field>
+            </div>
 
-            <div className="space-y-3 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-gradient-to-br from-white via-[#faf8ff]/25 to-zinc-50/50 p-4 text-center shadow-[0_8px_30px_-14px_rgba(95,64,178,0.12)]">
+            <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right">
               <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
                 <input
                   type="checkbox"
@@ -650,23 +650,9 @@ export default function Step3Trial(props: {
                 <span className="text-sm font-semibold text-zinc-800 tracking-tight">חלוקה לרמות</span>
               </label>
               {s.levels_enabled ? (
-                <div className="space-y-2 text-center pt-2 border-t border-[rgba(113,51,218,0.08)]">
+                <div className="space-y-2 border-t border-zinc-200/70 pt-3">
                   {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
-                    <div key={`${s.ui_id}-level-${levelIndex}`} className="flex flex-row-reverse items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const arr = [...services];
-                          const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
-                          nextLevels.splice(levelIndex, 1);
-                          arr[i] = { ...s, levels: nextLevels };
-                          setServices(arr);
-                        }}
-                        className="p-1 text-zinc-400 hover:text-red-400"
-                        aria-label="הסר רמה"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    <div key={`${s.ui_id}-level-${levelIndex}`} className="flex items-center gap-2">
                       <Input
                         dir="rtl"
                         value={level}
@@ -680,20 +666,35 @@ export default function Step3Trial(props: {
                         placeholder={
                           levelIndex === 0 ? "מתחילים" : levelIndex === 1 ? "מתקדמים" : "רמה נוספת"
                         }
+                        className={`${PRODUCT_INPUT} flex-1`}
                       />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const arr = [...services];
+                          const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
+                          nextLevels.splice(levelIndex, 1);
+                          arr[i] = { ...s, levels: nextLevels };
+                          setServices(arr);
+                        }}
+                        className="shrink-0 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                        aria-label="הסר רמה"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   ))}
                   <Button
                     type="button"
                     variant="outline"
-                    className="w-full gap-2 text-center"
+                    className="h-9 w-full gap-1 border-dashed text-xs"
                     onClick={() => {
                       const arr = [...services];
                       arr[i] = { ...s, levels: [...s.levels, ""] };
                       setServices(arr);
                     }}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-3.5 w-3.5" />
                     הוסף רמה
                   </Button>
                 </div>
@@ -711,7 +712,8 @@ export default function Step3Trial(props: {
               service={s}
               setServices={setServices}
             />
-          </div>
+            </div>
+          </article>
         ))}
 
         <Button

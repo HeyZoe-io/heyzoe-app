@@ -209,7 +209,7 @@ export function SalesPathStepShell<T extends string>({
         </div>
       </div>
 
-      <nav className="mt-4 flex gap-1 overflow-x-auto pb-1 lg:hidden" aria-label={`${navAriaLabel} — מובייל`}>
+      <nav className="mt-4 flex gap-1 overflow-x-auto pb-1 lg:hidden" aria-label={`${navAriaLabel} - מובייל`}>
         {sections.map((s) => (
           <button
             key={s.id}

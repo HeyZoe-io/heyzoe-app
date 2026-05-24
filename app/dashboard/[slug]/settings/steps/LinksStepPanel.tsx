@@ -16,7 +16,7 @@ type SectionId = "website" | "booking" | "social";
 
 const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
   { id: "website", label: "אתר", hint: "סריקה אוטומטית" },
-  { id: "booking", label: "הזמנות", hint: "שעות ומנויים" },
+  { id: "booking", label: "קישורים", hint: "שעות ומנויים" },
   { id: "social", label: "רשתות", hint: "אינסטגרם" },
 ];
 
@@ -129,7 +129,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
       <SalesPathSectionBlock
         stepPrefix="links"
         id="booking"
-        title="מערכות הזמנה"
+        title="קישורי מערכת"
         open={openSections.booking}
         onToggle={() => toggle("booking")}
         filled={filled.booking}
