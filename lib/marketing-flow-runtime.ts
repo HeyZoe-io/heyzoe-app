@@ -48,6 +48,7 @@ type Session = {
   current_node_id: string | null;
   flow_completed: boolean;
   open_q_pause_state?: string | null;
+  last_question_node_id?: string | null;
 };
 
 export const MARKETING_FLOW_RESUME_PROMPT = "מה דעתך, אפשר להמשיך?";
@@ -106,13 +107,21 @@ async function loadMarketingFlowSession(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   phone: string
 ): Promise<Session | null> {
-  const withPause = await admin
+  const withLastQ = await admin
     .from("marketing_flow_sessions")
-    .select("id, phone, current_node_id, flow_completed, open_q_pause_state")
+    .select("id, phone, current_node_id, flow_completed, open_q_pause_state, last_question_node_id")
     .eq("phone", phone)
     .maybeSingle();
-  if (!withPause.error) return (withPause.data as Session | null) ?? null;
-  if (/open_q_pause_state|column/i.test(String(withPause.error.message ?? ""))) {
+  if (!withLastQ.error) return (withLastQ.data as Session | null) ?? null;
+  if (/last_question_node_id|column/i.test(String(withLastQ.error.message ?? ""))) {
+    const withPause = await admin
+      .from("marketing_flow_sessions")
+      .select("id, phone, current_node_id, flow_completed, open_q_pause_state")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (!withPause.error) return (withPause.data as Session | null) ?? null;
+  }
+  if (/open_q_pause_state|column/i.test(String(withLastQ.error.message ?? ""))) {
     const fallback = await admin
       .from("marketing_flow_sessions")
       .select("id, phone, current_node_id, flow_completed")
@@ -122,6 +131,91 @@ async function loadMarketingFlowSession(
     return (fallback.data as Session | null) ?? null;
   }
   return null;
+}
+
+async function persistMarketingFlowPosition(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  sessionId: string;
+  nextNodeId: string | null;
+  waitingForAnswer: boolean;
+  /** undefined = אל תשנה את last_question_node_id */
+  lastQuestionNodeId?: string | null;
+}): Promise<void> {
+  const patch: Record<string, unknown> = {
+    current_node_id: input.nextNodeId,
+    flow_completed: !input.waitingForAnswer && !input.nextNodeId,
+    open_q_pause_state: "none",
+    updated_at: new Date().toISOString(),
+  };
+  if (input.lastQuestionNodeId !== undefined) {
+    patch.last_question_node_id = input.lastQuestionNodeId;
+  }
+  const { error } = await input.admin
+    .from("marketing_flow_sessions")
+    .update(patch)
+    .eq("id", input.sessionId);
+  if (error && /last_question_node_id|column/i.test(String(error.message ?? ""))) {
+    delete patch.last_question_node_id;
+    await input.admin
+      .from("marketing_flow_sessions")
+      .update(patch)
+      .eq("id", input.sessionId);
+  }
+}
+
+/** ניתוב מחדש לפי כפתור אחר בשאלה האחרונה שנענתה (שאלה אחת אחורה) */
+async function tryRerouteFromLastAnsweredQuestion(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  sess: Session;
+  currentNode: FlowNode | undefined;
+  userText: string;
+  phone: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}): Promise<MarketingFlowInboundResult | null> {
+  const lastId = String(input.sess.last_question_node_id ?? "").trim();
+  if (!lastId) return null;
+  if (input.currentNode?.id === lastId) return null;
+
+  const lastQuestion = input.nodes.find((n) => n.id === lastId);
+  if (!lastQuestion || lastQuestion.type !== "question") return null;
+  if (!matchesMarketingFlowQuestionAnswer(lastQuestion, input.edges, input.userText)) return null;
+
+  const nextNode = findNextNode(lastQuestion.id, input.edges, input.nodes, input.userText);
+  if (!nextNode) {
+    await persistMarketingFlowPosition({
+      admin: input.admin,
+      sessionId: input.sess.id,
+      nextNodeId: null,
+      waitingForAnswer: false,
+      lastQuestionNodeId: lastQuestion.id,
+    });
+    return { handled: false };
+  }
+
+  const { waitingForAnswer, nextNodeId } = await sendNodeChain(
+    nextNode,
+    input.phone,
+    input.edges,
+    input.nodes
+  );
+
+  await persistMarketingFlowPosition({
+    admin: input.admin,
+    sessionId: input.sess.id,
+    nextNodeId,
+    waitingForAnswer,
+    lastQuestionNodeId: lastQuestion.id,
+  });
+
+  console.info("[marketing-flow] reroute from last answered question", {
+    phone: input.phone,
+    lastQuestionNodeId: lastId,
+    newCurrentNodeId: nextNodeId,
+    userText: input.userText.slice(0, 80),
+  });
+
+  return { handled: true };
 }
 
 async function sendMarketingFlowResumePrompt(phone: string): Promise<void> {
@@ -592,6 +686,7 @@ export async function handleMarketingFlowInbound(
       current_node_id: nextNodeId,
       flow_completed: !waitingForAnswer && !nextNodeId,
       open_q_pause_state: "none",
+      last_question_node_id: null,
       last_user_message_at: nowIso,
       updated_at: nowIso,
     };
@@ -663,37 +758,64 @@ export async function handleMarketingFlowInbound(
   }
 
   let nextNode: FlowNode | null;
+  let answeredQuestionId: string | null = null;
+
   if (currentNode.type === "question") {
     if (!matchesMarketingFlowQuestionAnswer(currentNode, edges, userText)) {
+      const rerouted = await tryRerouteFromLastAnsweredQuestion({
+        admin,
+        sess,
+        currentNode,
+        userText,
+        phone,
+        nodes,
+        edges,
+      });
+      if (rerouted) return rerouted;
+
       console.info("[marketing-flow] open question during flow — AI + resume prompt", {
         phone,
         nodeId: currentNode.id,
       });
       return { handled: false, openQuestionInFlow: true };
     }
+    answeredQuestionId = currentNode.id;
     nextNode = findNextNode(currentNode.id, edges, nodes, userText);
   } else {
+    const rerouted = await tryRerouteFromLastAnsweredQuestion({
+      admin,
+      sess,
+      currentNode,
+      userText,
+      phone,
+      nodes,
+      edges,
+    });
+    if (rerouted) return rerouted;
+
     nextNode = findNextNode(currentNode.id, edges, nodes);
   }
 
   if (!nextNode) {
-    await admin.from("marketing_flow_sessions").update({
-      flow_completed: true,
-      current_node_id: null,
-      open_q_pause_state: "none",
-      updated_at: new Date().toISOString(),
-    }).eq("id", sess.id);
+    await persistMarketingFlowPosition({
+      admin,
+      sessionId: sess.id,
+      nextNodeId: null,
+      waitingForAnswer: false,
+      ...(answeredQuestionId ? { lastQuestionNodeId: answeredQuestionId } : {}),
+    });
     return { handled: false };
   }
 
   const { waitingForAnswer, nextNodeId } = await sendNodeChain(nextNode, phone, edges, nodes);
 
-  await admin.from("marketing_flow_sessions").update({
-    current_node_id: nextNodeId,
-    flow_completed: !waitingForAnswer && !nextNodeId,
-    open_q_pause_state: "none",
-    updated_at: new Date().toISOString(),
-  }).eq("id", sess.id);
+  await persistMarketingFlowPosition({
+    admin,
+    sessionId: sess.id,
+    nextNodeId,
+    waitingForAnswer,
+    ...(answeredQuestionId ? { lastQuestionNodeId: answeredQuestionId } : {}),
+  });
 
   return { handled: true };
 }
