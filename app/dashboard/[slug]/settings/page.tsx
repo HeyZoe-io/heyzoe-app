@@ -43,7 +43,7 @@ import {
 } from "@/lib/sales-flow";
 import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
-import { buildFactQuestions, factFromQuestionAnswer } from "@/lib/fact-questions";
+import { buildFactQuestions } from "@/lib/fact-questions";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
@@ -1080,19 +1080,16 @@ function displayNameFromSlug(s: string) {
   return parts.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 
-function traitPlaceholder(index: number): string {
-  if (index === 0) return "מתאים לשיקום פציעות";
-  if (index === 1) return "מתאים לכל הרמות";
-  if (index === 2) return "הסטודיו הגדול בעיר";
-  return "מאפיין נוסף";
-}
-
 function normalizeTraitsState(arr: string[]): string[] {
   const t = arr.map((s) => String(s ?? ""));
   if (t.length === 0) return ["", "", ""];
   if (t.length < 3) return [...t, ...Array(3 - t.length).fill("")];
   return t;
 }
+
+import { AboutBusinessStepPanel } from "./steps/AboutBusinessStepPanel";
+import { FollowupStepPanel } from "./steps/FollowupStepPanel";
+import { LinksStepPanel } from "./steps/LinksStepPanel";
 
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
@@ -2499,331 +2496,60 @@ export default function SlugSettingsPage() {
 
         {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
-          <StepPanel className="space-y-5">
-            <StepHeader
-              n={1}
-              title="לינקים"
-              desc="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
+          <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
+            <LinksStepPanel
+              websiteUrl={websiteUrl}
+              setWebsiteUrl={setWebsiteUrl}
+              fetchSite={() => void fetchSite()}
+              fetchingUrl={fetchingUrl}
+              fetchSiteError={fetchSiteError}
+              fetchSiteNotice={fetchSiteNotice}
+              arboxLink={arboxLink}
+              setArboxLink={setArboxLink}
+              membershipsUrl={membershipsUrl}
+              setMembershipsUrl={setMembershipsUrl}
+              instagramUrl={instagramUrl}
+              setInstagramUrl={setInstagramUrl}
+              instagramIcon={<InstagramGlyph className="h-5 w-5" />}
             />
-              <Field label="לינק לאתר">
-                <p className="text-xs text-zinc-500 mt-0.5 mb-2 leading-relaxed">
-                  סרקו והמתינו דקה ליצירת תוכן אוטומטית
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  <Input
-                    dir="ltr"
-                    placeholder="https://your-business.com"
-                    value={websiteUrl}
-                    onChange={e => setWebsiteUrl(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && fetchSite()}
-                    className="min-w-[min(100%,280px)] max-w-xl"
-                  />
-                  <Button onClick={() => void fetchSite()} disabled={!websiteUrl || fetchingUrl} className="shrink-0 gap-2">
-                    {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {fetchingUrl ? "סורק..." : "סרוק"}
-                  </Button>
-                </div>
-              </Field>
-              {fetchingUrl && (
-                <p className="text-sm text-[#7133da] flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  מנתח את האתר - זה לוקח כמה שניות...
-                </p>
-              )}
-              {fetchSiteError ? (
-                <p className="text-sm text-red-600" role="alert">
-                  {fetchSiteError}
-                </p>
-              ) : null}
-              {fetchSiteNotice ? (
-                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                  {fetchSiteNotice}
-                </p>
-              ) : null}
-
-              <Field label="לינק מערכת שעות">
-                <Input dir="ltr" value={arboxLink} onChange={e => setArboxLink(e.target.value)} placeholder="https://..." />
-              </Field>
-
-              <Field label="לינק לדף מנויים וכרטיסיות">
-                <Input
-                  dir="ltr"
-                  value={membershipsUrl}
-                  onChange={(e) => setMembershipsUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </Field>
-
-              <Field label="לינק לאינסטגרם">
-                <div className="flex flex-row-reverse gap-2 items-stretch">
-                  <span
-                    className="flex items-center justify-center w-11 shrink-0 rounded-xl border border-zinc-200 bg-gradient-to-br from-fuchsia-500/10 to-pink-500/15 text-pink-600"
-                    aria-hidden
-                  >
-                    <InstagramGlyph className="h-5 w-5" />
-                  </span>
-                  <Input
-                    dir="ltr"
-                    className="flex-1 min-w-0"
-                    placeholder="https://instagram.com/..."
-                    value={instagramUrl}
-                    onChange={(e) => setInstagramUrl(e.target.value)}
-                  />
-                </div>
-              </Field>
           </StepPanel>
         )}
 
         {/* ════════════════════ STEP 2 — על העסק ════════════════════ */}
         {keepAboutBusinessStepMountedRef.current ? (
           <div className={step !== 2 ? "hidden" : undefined} aria-hidden={step !== 2}>
-          <StepPanel className="space-y-5">
-            <StepHeader n={2} title="על העסק" desc="שם, תיאור, כתובת והטון - מה שזואי יודעת עליכם." />
-
-              <div className="grid w-full grid-cols-1 gap-4 border-b border-zinc-200/80 pb-5 sm:grid-cols-2">
-                <WhatsAppNumberSection slug={slug} compact />
-                <Field className="max-w-none" label="טלפון לשירות לקוחות">
-                  <Input
-                    dir="ltr"
-                    className="text-center font-mono text-sm"
-                    value={customerServicePhone}
-                    onChange={(e) => setCustomerServicePhone(e.target.value)}
-                    placeholder="05…"
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                  />
-                </Field>
-              </div>
-
-              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field inline className="max-w-none" label="שם העסק *">
-                  {name.trim() && !businessNameEditing ? (
-                    <div className="flex items-stretch gap-2 rounded-xl border border-zinc-300 bg-zinc-50 min-h-10">
-                      <div className="flex-1 px-3 py-2.5 text-center text-sm font-semibold text-zinc-900 leading-snug">
-                        {name}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setBusinessNameEditing(true)}
-                        className="shrink-0 px-3 text-xs font-medium text-[#7133da] hover:bg-[#f0eaff] rounded-l-xl border-r border-zinc-200"
-                      >
-                        עריכה
-                      </button>
-                    </div>
-                  ) : (
-                    <Input
-                      dir="rtl"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      onBlur={() => {
-                        if (name.trim()) setBusinessNameEditing(false);
-                      }}
-                      placeholder="שם העסק"
-                      className="text-center font-medium text-zinc-900"
-                      autoFocus={businessNameEditing}
-                    />
-                  )}
-                </Field>
-                <Field inline className="max-w-none" label="שם הבוט">
-                  <Input dir="rtl" value={botName} onChange={e => setBotName(e.target.value)} placeholder="זואי" className="text-center" />
-                </Field>
-              </div>
-
-              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field
-                  inline
-                  className="max-w-none"
-                  label={
-                    <span className="inline-flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5 sm:justify-end">
-                      <span>תיאור העסק</span>
-                      <span className="text-[11px] font-medium text-zinc-400">קצר וקולע</span>
-                    </span>
-                  }
-                >
-                  <Input
-                    dir="rtl"
-                    value={businessTagline}
-                    onChange={(e) => setBusinessTagline(e.target.value)}
-                    placeholder="סטודיו לפילאטיס מכשירים לחיטוב ובריאות הגוף"
-                    className="text-center"
-                  />
-                </Field>
-                <Field inline className="max-w-none" label="כתובת">
-                  <Input
-                    dir="rtl"
-                    value={address}
-                    onChange={e => setAddress(e.target.value)}
-                    placeholder="רחוב הרצל 5, תל אביב"
-                    autoComplete="street-address"
-                    className="text-center"
-                  />
-                </Field>
-              </div>
-
-              <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field
-                  inline
-                  className="max-w-none"
-                  label={
-                    <span className="inline-flex flex-wrap items-center justify-center gap-3 sm:justify-end">
-                      <span>הנחיות הגעה</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (plan === "basic") {
-                            setShowStarterMediaProModal(true);
-                            return;
-                          }
-                          setShowDirectionsMediaModal(true);
-                        }}
-                        className="text-sm font-light text-[#027eb5] hover:text-[#02638f]"
-                      >
-                        העלה קובץ
-                      </button>
-                    </span>
-                  }
-                >
-                  <Input
-                    dir="rtl"
-                    value={directions}
-                    onChange={(e) => setDirections(e.target.value)}
-                    placeholder="חנייה בחינם מאחורי הבניין, כניסה מצד ימין..."
-                    className="text-center"
-                  />
-                </Field>
-                <Field inline className="max-w-none" label="הנחות ומבצעים">
-                  <Input
-                    dir="rtl"
-                    value={promotions}
-                    onChange={(e) => setPromotions(e.target.value)}
-                    placeholder="20% הנחה על מנויים חדשים עד סוף החודש"
-                    className="text-center"
-                  />
-                </Field>
-              </div>
-
-              <Field
-                inline
-                inlineAlign="start"
-                className="max-w-none"
-                label="כל העובדות שכדאי לציין על העסק"
-              >
-                <div className="w-full space-y-2">
-                <div className="space-y-2">
-                  {traits.map((row, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <span className="text-sm text-zinc-500 w-6 shrink-0 text-center">{i + 1}</span>
-                      <Input
-                        dir="rtl"
-                        value={row}
-                        onChange={(e) =>
-                          setTraits((prev) => {
-                            const next = [...prev];
-                            next[i] = e.target.value;
-                            return next;
-                          })
-                        }
-                        placeholder={traitPlaceholder(i)}
-                        className="flex-1 text-center"
-                      />
-                      {traits.length > 1 ? (
-                        <button
-                          type="button"
-                          onClick={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
-                          className="p-1.5 text-zinc-400 hover:text-red-500 shrink-0"
-                          aria-label="הסר שורה"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <span className="w-8 shrink-0" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-1"
-                  onClick={() => setTraits((prev) => [...prev, ""])}
-                >
-                  <Plus className="h-4 w-4" />
-                  הוסף
-                </Button>
-
-                <Field
-                  inline
-                  className="max-w-none pt-1"
-                  label="שאלות נוספות"
-                >
-                  {factQuestions.length ? (
-                    (() => {
-                      const q = factQuestions[factQuestionIdx] ?? factQuestions[0]!;
-                      return (
-                        <div className="w-full space-y-2">
-                          <div
-                            className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3"
-                            dir="rtl"
-                          >
-                            <p className="shrink-0 text-center text-sm font-semibold tracking-[-0.01em] text-zinc-800 sm:max-w-[38%] sm:text-right">
-                              {q.question}
-                            </p>
-                            <Input
-                              dir="rtl"
-                              value={factAnswers[q.id] ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setFactAnswers((m) => ({ ...m, [q.id]: v }));
-                              }}
-                              placeholder={q.placeholder}
-                              className="min-w-0 flex-1 text-center"
-                            />
-                            {factQuestions.length > 1 ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 shrink-0 px-3 text-xs"
-                                onClick={() =>
-                                  setFactQuestionIdx((i) =>
-                                    factQuestions.length ? (i + 1) % factQuestions.length : 0
-                                  )
-                                }
-                              >
-                                החלף
-                              </Button>
-                            ) : null}
-                          </div>
-                          <div className="flex justify-center sm:justify-start">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-8 gap-1 px-3 text-xs"
-                              onClick={() => {
-                                addFactLine(factFromQuestionAnswer(q.question, factAnswers[q.id] ?? ""));
-                                if (factQuestions.length > 1) {
-                                  setFactQuestionIdx((i) => (i + 1) % factQuestions.length);
-                                }
-                              }}
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              הוסף לעובדות
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <p className="text-center text-sm text-zinc-700 sm:text-right">
-                      נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.
-                    </p>
-                  )}
-                </Field>
-                </div>
-              </Field>
-
-          </StepPanel>
+            <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
+              <AboutBusinessStepPanel
+                whatsAppSlot={<WhatsAppNumberSection slug={slug} compact />}
+                customerServicePhone={customerServicePhone}
+                setCustomerServicePhone={setCustomerServicePhone}
+                name={name}
+                setName={setName}
+                businessNameEditing={businessNameEditing}
+                setBusinessNameEditing={setBusinessNameEditing}
+                botName={botName}
+                setBotName={setBotName}
+                businessTagline={businessTagline}
+                setBusinessTagline={setBusinessTagline}
+                address={address}
+                setAddress={setAddress}
+                directions={directions}
+                setDirections={setDirections}
+                planIsStarter={plan === "basic"}
+                onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
+                onDirectionsMediaClick={() => setShowDirectionsMediaModal(true)}
+                promotions={promotions}
+                setPromotions={setPromotions}
+                traits={traits}
+                setTraits={setTraits}
+                factQuestions={factQuestions}
+                factAnswers={factAnswers}
+                setFactAnswers={setFactAnswers}
+                factQuestionIdx={factQuestionIdx}
+                setFactQuestionIdx={setFactQuestionIdx}
+                addFactLine={addFactLine}
+              />
+            </StepPanel>
           </div>
         ) : null}
 
@@ -2907,37 +2633,17 @@ export default function SlugSettingsPage() {
 
         {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
         {step === 5 && (
-          <StepPanel className="space-y-5">
-            <StepHeader
-              n={5}
-              title="פולואפ"
-              desc="הודעות פולואפ לליד שהפסיק לענות. השליחה לא תתבצע בלילות ובמהלך השבת, או אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
+          <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
+            <FollowupStepPanel
+              waSalesFollowup1={waSalesFollowup1}
+              setWaSalesFollowup1={setWaSalesFollowup1}
+              waSalesFollowup2={waSalesFollowup2}
+              setWaSalesFollowup2={setWaSalesFollowup2}
+              waSalesFollowup3={waSalesFollowup3}
+              setWaSalesFollowup3={setWaSalesFollowup3}
+              busyAction={busyAction}
+              onApplyDefaults={() => runBusy("followup:defaults", applyWaSalesFollowupDefaults)}
             />
-              <div className="flex flex-wrap justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-1 text-xs py-1.5 px-3 h-auto"
-                  disabled={busyAction === "followup:defaults"}
-                  onClick={() => runBusy("followup:defaults", applyWaSalesFollowupDefaults)}
-                >
-                  {busyAction === "followup:defaults" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
-                  )}
-                  איפוס לטקסטי ברירת מחדל
-                </Button>
-              </div>
-              <Field label="הודעה ראשונה (~20 דקות אחרי תשובת הבוט)">
-                <Textarea value={waSalesFollowup1} onChange={setWaSalesFollowup1} rows={5} />
-              </Field>
-              <Field label="הודעה שנייה (~שעתיים)">
-                <Textarea value={waSalesFollowup2} onChange={setWaSalesFollowup2} rows={5} />
-              </Field>
-              <Field label="הודעה שלישית (~23 שעות)">
-                <Textarea value={waSalesFollowup3} onChange={setWaSalesFollowup3} rows={6} />
-              </Field>
           </StepPanel>
         )}
 

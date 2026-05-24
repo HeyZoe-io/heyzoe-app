@@ -4,7 +4,12 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, StepHeader, StepPanel } from "../settings-ui";
+import { Field, StepPanel } from "../settings-ui";
+import {
+  SalesPathSectionBlock,
+  SalesPathStepShell,
+  useSalesPathSections,
+} from "./sales-path-shell";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
 import { normalizeMasculinePredicatesAfterPracticeHead, type OfferKind } from "@/lib/sales-flow";
 
@@ -275,18 +280,44 @@ export default function Step3Trial(props: {
 
   const isTrialBenefitGenerating = activeTrialBenefitUiId !== null;
 
+  type ProductsSectionId = "scan" | "products";
+  const PRODUCT_SECTIONS = [
+    { id: "scan" as const, label: "סריקה", hint: "מהאתר" },
+    { id: "products" as const, label: "מוצרים", hint: "ההצעות שלכם" },
+  ];
+  const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
+    useSalesPathSections<ProductsSectionId>(PRODUCT_SECTIONS, { scan: true, products: true });
+
+  useEffect(() => {
+    setStepPrefix("products");
+  }, [setStepPrefix]);
+
+  const productsFilled = services.some((s) => s.name.trim());
+
   return (
-    <StepPanel className="space-y-4">
-      <StepHeader
-        n={3}
+    <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
+      <SalesPathStepShell
+        stepNumber={3}
         title="מוצרים"
-        desc={
-          "מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\\סדנה\\קורס וערכו"
-        }
-      />
+        description={"מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\\סדנה\\קורס וערכו"}
+        stepPrefix="products"
+        sections={PRODUCT_SECTIONS}
+        activeNav={activeNav}
+        onNavClick={scrollToSection}
+        mainRef={mainRef}
+        navAriaLabel="ניווט בתוך מוצרים"
+      >
+        <SalesPathSectionBlock
+          stepPrefix="products"
+          id="scan"
+          title="סריקה מהאתר"
+          open={openSections.scan}
+          onToggle={() => toggle("scan")}
+          filled={Boolean(websiteUrl.trim())}
+        >
         <div
           dir="rtl"
-          className="-mt-2 sm:mt-0 rounded-xl border border-zinc-200 bg-gradient-to-b from-[#faf8ff] to-zinc-50/90 px-4 py-4 sm:py-5 space-y-3 text-center"
+          className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4 space-y-3"
         >
           <div className="flex justify-center w-full">
             <Button
@@ -300,13 +331,23 @@ export default function Step3Trial(props: {
               {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
             </Button>
           </div>
-          <p className="text-xs text-zinc-600 leading-snug text-center w-full max-w-xl mx-auto">
+          <p className="text-xs text-zinc-600 leading-snug text-right w-full">
             {!websiteUrl.trim()
               ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
               : "הסריקה לא תשנה מוצרים שכבר הזנתם, רק תוסיף חדשים במידה וזוהו."}
           </p>
         </div>
+        </SalesPathSectionBlock>
 
+        <SalesPathSectionBlock
+          stepPrefix="products"
+          id="products"
+          title="רשימת מוצרים"
+          hint={`${services.length} פריטים`}
+          open={openSections.products}
+          onToggle={() => toggle("products")}
+          filled={productsFilled}
+        >
         {services.map((s, i) => (
           <div
             key={s.ui_id}
@@ -703,6 +744,8 @@ export default function Step3Trial(props: {
         >
           <Plus className="h-4 w-4" /> הוסף אימון
         </Button>
+        </SalesPathSectionBlock>
+      </SalesPathStepShell>
     </StepPanel>
   );
 }
