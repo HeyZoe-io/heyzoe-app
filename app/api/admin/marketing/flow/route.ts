@@ -3,12 +3,163 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { invalidateMarketingFlowCache } from "@/lib/marketing-flow-cache";
-import { realignMarketingFlowSessionsAfterFlowSave } from "@/lib/marketing-flow-runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NODE_TYPES = new Set(["message", "question", "media", "cta", "followup", "delay"]);
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(s: string): boolean {
+  return UUID_RE.test(s.trim());
+}
+
+function parseEdgeDbId(clientEdgeId: string): string | null {
+  const s = String(clientEdgeId ?? "").trim();
+  if (!s) return null;
+  if (s.startsWith("e_")) {
+    const rest = s.slice(2);
+    if (isUuid(rest)) return rest;
+    return null;
+  }
+  return isUuid(s) ? s : null;
+}
+
+function nodeRowFromPayload(n: unknown): {
+  clientId: string;
+  type: string;
+  data: unknown;
+  position_x: number;
+  position_y: number;
+} | null {
+  const o = n as Record<string, unknown>;
+  const clientId = String(o.id ?? "").trim();
+  if (!clientId) return null;
+  const type = String(o.type ?? "message");
+  const safeType = NODE_TYPES.has(type) ? type : "message";
+  const pos = (o.position && typeof o.position === "object" ? (o.position as Record<string, unknown>) : {}) as Record<
+    string,
+    unknown
+  >;
+  const data = o.data && typeof o.data === "object" ? o.data : {};
+  return {
+    clientId,
+    type: safeType,
+    data,
+    position_x: Number(pos.x ?? 0),
+    position_y: Number(pos.y ?? 0),
+  };
+}
+
+/** Update existing nodes/edges in place, insert new ones, delete removed — preserves node UUIDs for active sessions. */
+async function persistMarketingFlowGraph(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  rawNodes: unknown[],
+  rawEdges: unknown[]
+): Promise<{ nodeCount: number; edgeCount: number }> {
+  const { data: existingNodeRows, error: loadNE } = await admin.from("marketing_flow_nodes").select("id");
+  if (loadNE) throw new Error(`load_nodes: ${loadNE.message}`);
+  const existingNodeIds = new Set((existingNodeRows ?? []).map((r) => String((r as { id: string }).id)));
+
+  const { data: existingEdgeRows, error: loadEE } = await admin.from("marketing_flow_edges").select("id");
+  if (loadEE) throw new Error(`load_edges: ${loadEE.message}`);
+  const existingEdgeIds = new Set((existingEdgeRows ?? []).map((r) => String((r as { id: string }).id)));
+
+  if (rawNodes.length === 0) {
+    if (existingEdgeIds.size > 0) {
+      const { error } = await admin.from("marketing_flow_edges").delete().not("id", "is", null);
+      if (error) throw new Error(`delete_edges: ${error.message}`);
+    }
+    if (existingNodeIds.size > 0) {
+      const { error } = await admin.from("marketing_flow_nodes").delete().not("id", "is", null);
+      if (error) throw new Error(`delete_nodes: ${error.message}`);
+    }
+    return { nodeCount: 0, edgeCount: 0 };
+  }
+
+  const clientToDb = new Map<string, string>();
+  const keptNodeDbIds = new Set<string>();
+
+  for (const n of rawNodes) {
+    const parsed = nodeRowFromPayload(n);
+    if (!parsed) continue;
+    const { clientId, type, data, position_x, position_y } = parsed;
+    const row = { type, data, position_x, position_y };
+
+    if (isUuid(clientId) && existingNodeIds.has(clientId)) {
+      const { error } = await admin.from("marketing_flow_nodes").update(row).eq("id", clientId);
+      if (error) throw new Error(`update_node: ${error.message}`);
+      clientToDb.set(clientId, clientId);
+      keptNodeDbIds.add(clientId);
+    } else if (isUuid(clientId)) {
+      const { error } = await admin.from("marketing_flow_nodes").insert({ id: clientId, ...row });
+      if (error) throw new Error(`insert_node: ${error.message}`);
+      clientToDb.set(clientId, clientId);
+      keptNodeDbIds.add(clientId);
+    } else {
+      const { data: inserted, error } = await admin.from("marketing_flow_nodes").insert(row).select("id").single();
+      if (error || !inserted) throw new Error(`insert_node: ${error?.message ?? "missing id"}`);
+      const dbId = String((inserted as { id: string }).id);
+      clientToDb.set(clientId, dbId);
+      keptNodeDbIds.add(dbId);
+    }
+  }
+
+  const nodesToDelete = [...existingNodeIds].filter((id) => !keptNodeDbIds.has(id));
+
+  const resolveNodeRef = (ref: string): string | null => {
+    const s = String(ref ?? "").trim();
+    if (!s) return null;
+    return clientToDb.get(s) ?? null;
+  };
+
+  const payloadEdgeDbIds = new Set<string>();
+  for (const e of rawEdges) {
+    const dbId = parseEdgeDbId(String((e as Record<string, unknown>).id ?? ""));
+    if (dbId) payloadEdgeDbIds.add(dbId);
+  }
+
+  const edgesToDelete = [...existingEdgeIds].filter((id) => !payloadEdgeDbIds.has(id));
+  if (edgesToDelete.length > 0) {
+    const { error } = await admin.from("marketing_flow_edges").delete().in("id", edgesToDelete);
+    if (error) throw new Error(`delete_edge: ${error.message}`);
+  }
+
+  let edgeCount = 0;
+  for (const e of rawEdges) {
+    const o = e as Record<string, unknown>;
+    const clientEdgeId = String(o.id ?? "").trim();
+    const src = resolveNodeRef(String(o.source ?? ""));
+    const tgt = resolveNodeRef(String(o.target ?? ""));
+    if (!src || !tgt) continue;
+
+    const label = encodeEdgeLabel({
+      label: o.label != null ? String(o.label) : "",
+      sourceHandle: o.sourceHandle != null ? String(o.sourceHandle) : "",
+    });
+    const edgeRow = { source_node_id: src, target_node_id: tgt, label };
+    const dbId = parseEdgeDbId(clientEdgeId);
+
+    if (dbId && existingEdgeIds.has(dbId)) {
+      const { error } = await admin.from("marketing_flow_edges").update(edgeRow).eq("id", dbId);
+      if (error) throw new Error(`update_edge: ${error.message}`);
+    } else {
+      const insertRow = dbId ? { id: dbId, ...edgeRow } : edgeRow;
+      const { error } = await admin.from("marketing_flow_edges").insert(insertRow);
+      if (error) throw new Error(`insert_edge: ${error.message}`);
+    }
+    edgeCount += 1;
+  }
+
+  if (nodesToDelete.length > 0) {
+    const { error } = await admin.from("marketing_flow_nodes").delete().in("id", nodesToDelete);
+    if (error) throw new Error(`delete_node: ${error.message}`);
+  }
+
+  return { nodeCount: keptNodeDbIds.size, edgeCount };
+}
 
 async function requireAdmin(): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
@@ -106,76 +257,16 @@ export async function POST(req: NextRequest) {
 
     const admin = createSupabaseAdminClient();
 
-    const { error: delE } = await admin.from("marketing_flow_edges").delete().not("id", "is", null);
-    if (delE) { console.error("[marketing/flow] delete edges:", delE.message, delE.code, delE.details); return NextResponse.json({ error: `delete_edges: ${delE.message}` }, { status: 500 }); }
-
-    const { error: delN } = await admin.from("marketing_flow_nodes").delete().not("id", "is", null);
-    if (delN) { console.error("[marketing/flow] delete nodes:", delN.message, delN.code, delN.details); return NextResponse.json({ error: `delete_nodes: ${delN.message}` }, { status: 500 }); }
-
-    if (rawNodes.length === 0) {
-      if (typeof body.is_active === "boolean") {
-        const { error: setErr } = await admin
-          .from("marketing_flow_settings")
-          .update({ is_active: body.is_active, updated_at: new Date().toISOString() })
-          .eq("id", 1);
-        if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
-      }
-      console.info("[marketing/flow] POST ok (empty flow)");
-      invalidateMarketingFlowCache();
-      return NextResponse.json({ ok: true });
-    }
-
-    const insertRows = rawNodes.map((n) => {
-      const o = n as Record<string, unknown>;
-      const type = String(o.type ?? "message");
-      const safeType = NODE_TYPES.has(type) ? type : "message";
-      const pos = (o.position && typeof o.position === "object" ? (o.position as Record<string, unknown>) : {}) as Record<
-        string,
-        unknown
-      >;
-      const data = o.data && typeof o.data === "object" ? o.data : {};
-      return {
-        type: safeType,
-        data,
-        position_x: Number(pos.x ?? 0),
-        position_y: Number(pos.y ?? 0),
-      };
-    });
-
-    const { data: inserted, error: insErr } = await admin.from("marketing_flow_nodes").insert(insertRows).select("id");
-    if (insErr) { console.error("[marketing/flow] insert nodes:", insErr.message, insErr.code, insErr.details); return NextResponse.json({ error: `insert_nodes: ${insErr.message}` }, { status: 500 }); }
-    if (!inserted || inserted.length !== rawNodes.length) {
-      console.error("[marketing/flow] insert count mismatch — expected:", rawNodes.length, "got:", inserted?.length);
-      return NextResponse.json({ error: "insert_count_mismatch" }, { status: 500 });
-    }
-
-    const oldIdToNewId = new Map<string, string>();
-    rawNodes.forEach((n, i) => {
-      const oldId = String((n as Record<string, unknown>).id ?? "");
-      const newId = String((inserted[i] as { id: string }).id);
-      if (oldId) oldIdToNewId.set(oldId, newId);
-    });
-
-    const edgeInserts: { source_node_id: string; target_node_id: string; label: string }[] = [];
-    for (const e of rawEdges) {
-      const o = e as Record<string, unknown>;
-      const src = oldIdToNewId.get(String(o.source ?? ""));
-      const tgt = oldIdToNewId.get(String(o.target ?? ""));
-      if (!src || !tgt) continue;
-      const label = encodeEdgeLabel({
-        label: o.label != null ? String(o.label) : "",
-        sourceHandle: o.sourceHandle != null ? String(o.sourceHandle) : "",
-      });
-      edgeInserts.push({
-        source_node_id: src,
-        target_node_id: tgt,
-        label,
-      });
-    }
-
-    if (edgeInserts.length > 0) {
-      const { error: edgeErr } = await admin.from("marketing_flow_edges").insert(edgeInserts);
-      if (edgeErr) { console.error("[marketing/flow] insert edges:", edgeErr.message, edgeErr.code, edgeErr.details); return NextResponse.json({ error: `insert_edges: ${edgeErr.message}` }, { status: 500 }); }
+    let nodeCount = 0;
+    let edgeCount = 0;
+    try {
+      const saved = await persistMarketingFlowGraph(admin, rawNodes, rawEdges);
+      nodeCount = saved.nodeCount;
+      edgeCount = saved.edgeCount;
+    } catch (persistErr) {
+      const msg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+      console.error("[marketing/flow] persist:", msg);
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     if (typeof body.is_active === "boolean") {
@@ -186,10 +277,8 @@ export async function POST(req: NextRequest) {
       if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
     }
 
-    const newNodeIds = (inserted ?? []).map((row) => String((row as { id: string }).id));
-    console.info("[marketing/flow] POST ok — saved", rawNodes.length, "nodes,", edgeInserts.length, "edges");
+    console.info("[marketing/flow] POST ok — saved", nodeCount, "nodes,", edgeCount, "edges");
     invalidateMarketingFlowCache();
-    await realignMarketingFlowSessionsAfterFlowSave(newNodeIds);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[marketing/flow] POST exception:", e);
