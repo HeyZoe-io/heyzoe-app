@@ -81,10 +81,12 @@ async function persistMarketingFlowGraph(
 
   const clientToDb = new Map<string, string>();
   const keptNodeDbIds = new Set<string>();
+  const nodePayloadByClientId = new Map<string, Record<string, unknown>>();
 
   for (const n of rawNodes) {
     const parsed = nodeRowFromPayload(n);
     if (!parsed) continue;
+    nodePayloadByClientId.set(parsed.clientId, n as Record<string, unknown>);
     const { clientId, type, data, position_x, position_y } = parsed;
     const row = { type, data, position_x, position_y };
 
@@ -135,9 +137,25 @@ async function persistMarketingFlowGraph(
     const tgt = resolveNodeRef(String(o.target ?? ""));
     if (!src || !tgt) continue;
 
+    const sourceClientId = String(o.source ?? "").trim();
+    const sourceHandle = o.sourceHandle != null ? String(o.sourceHandle).trim() : "";
+    let edgeLabelText = o.label != null ? String(o.label) : "";
+    const srcNodeRaw = nodePayloadByClientId.get(sourceClientId);
+    if (sourceHandle.startsWith("btn-") && srcNodeRaw && String(srcNodeRaw.type ?? "") === "question") {
+      const nodeData =
+        srcNodeRaw.data && typeof srcNodeRaw.data === "object"
+          ? (srcNodeRaw.data as Record<string, unknown>)
+          : {};
+      const buttons = Array.isArray(nodeData.buttons) ? nodeData.buttons : [];
+      const btnIdx = Number.parseInt(sourceHandle.replace("btn-", ""), 10);
+      if (btnIdx >= 0 && btnIdx < buttons.length) {
+        edgeLabelText = String(buttons[btnIdx] ?? "").trim();
+      }
+    }
+
     const label = encodeEdgeLabel({
-      label: o.label != null ? String(o.label) : "",
-      sourceHandle: o.sourceHandle != null ? String(o.sourceHandle) : "",
+      label: edgeLabelText,
+      sourceHandle,
     });
     const edgeRow = { source_node_id: src, target_node_id: tgt, label };
     const dbId = parseEdgeDbId(clientEdgeId);
