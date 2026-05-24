@@ -14,7 +14,10 @@ import {
   getOffNicheMarketingHardReply,
   handleMarketingFlowInbound,
 } from "@/lib/marketing-flow-runtime";
-import { applyMarketingInboundFollowupSideEffects } from "@/lib/marketing-followups";
+import {
+  applyMarketingInboundFollowupSideEffects,
+  touchMarketingLeadDisplayName,
+} from "@/lib/marketing-followups";
 import { normalizePhone } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
@@ -88,9 +91,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, owner_opt_in: true });
     }
 
+    const profileName = typeof msg.profileName === "string" ? msg.profileName.trim() : "";
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
-    const flowResult = await handleMarketingFlowInbound(phone, userText);
+    const flowResult = await handleMarketingFlowInbound(phone, userText, { profileName });
     await applyMarketingInboundFollowupSideEffects(phone, userText);
+    if (profileName) await touchMarketingLeadDisplayName(phone, profileName);
 
     if (!flowResult.handled) {
       const { tryHandleMarketingHumanAgentInbound } = await import("@/lib/marketing-human-agent");
