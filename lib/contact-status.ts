@@ -58,3 +58,14 @@ export function contactStatusLabel(key: ContactStatusKey | null): string {
   if (!key) return "";
   return CONTACT_STATUS_META[key].label;
 }
+
+/** סדר תצוגה בפילטר סטטוס בדף אנשי קשר */
+export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
+  "active",
+  "followup",
+  "no_response",
+  "registered",
+  "opted_out",
+];
+
+export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";

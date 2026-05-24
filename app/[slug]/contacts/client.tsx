@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,8 @@ import {
   computeContactStatus,
   contactStatusLabel,
   CONTACT_STATUS_META,
+  CONTACT_STATUS_FILTER_ORDER,
+  type ContactStatusFilterValue,
   type ContactStatusKey,
 } from "@/lib/contact-status";
 import type { ContactRow } from "./page";
@@ -55,6 +57,26 @@ function endOfDayIso(dateInput: string): string | null {
   return d.toISOString();
 }
 
+function toDateInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 30 הימים האחרונים כולל היום */
+function defaultLast30DaysRange(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 29);
+  return { from: toDateInputValue(from), to: toDateInputValue(to) };
+}
+
+function isDefaultDateRange(from: string, to: string): boolean {
+  const d = defaultLast30DaysRange();
+  return from === d.from && to === d.to;
+}
+
 function matchesCreatedAtRange(createdAt: string | null, from: string, to: string): boolean {
   if (!from && !to) return true;
   if (!createdAt) return false;
@@ -65,6 +87,11 @@ function matchesCreatedAtRange(createdAt: string | null, from: string, to: strin
   if (fromIso && t < new Date(fromIso).getTime()) return false;
   if (toIso && t > new Date(toIso).getTime()) return false;
   return true;
+}
+
+function contactRowKey(c: Contact, idx: number): string {
+  const phone = String(c.phone ?? "").trim();
+  return phone || `row-${c.created_at ?? ""}-${idx}`;
 }
 
 function escapeCsvCell(value: string): string {
@@ -177,8 +204,11 @@ function ModalShell({
 
 export default function ContactsClient({ businessSlug, initialContacts }: Props) {
   const router = useRouter();
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const todayInput = useMemo(() => toDateInputValue(new Date()), []);
+  const [dateFrom, setDateFrom] = useState(() => defaultLast30DaysRange().from);
+  const [dateTo, setDateTo] = useState(() => defaultLast30DaysRange().to);
+  const [statusFilter, setStatusFilter] = useState<ContactStatusFilterValue>("all");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -186,10 +216,60 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
   const [singleContact, setSingleContact] = useState<Contact | null>(null);
   const [singleMsg, setSingleMsg] = useState("");
 
-  const filteredContacts = useMemo(
-    () => initialContacts.filter((c) => matchesCreatedAtRange(c.created_at, dateFrom, dateTo)),
-    [initialContacts, dateFrom, dateTo]
+  const filteredContacts = useMemo(() => {
+    return initialContacts.filter((c) => {
+      if (!matchesCreatedAtRange(c.created_at, dateFrom, dateTo)) return false;
+      if (statusFilter === "all") return true;
+      const status = computeContactStatus(c);
+      if (statusFilter === "none") return status === null;
+      return status === statusFilter;
+    });
+  }, [initialContacts, dateFrom, dateTo, statusFilter]);
+
+  const filteredKeys = useMemo(
+    () => new Set(filteredContacts.map((c, i) => contactRowKey(c, i))),
+    [filteredContacts]
   );
+
+  useEffect(() => {
+    setSelectedKeys((prev) => {
+      const next = new Set([...prev].filter((k) => filteredKeys.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredKeys]);
+
+  const selectedContacts = useMemo(
+    () => filteredContacts.filter((c, i) => selectedKeys.has(contactRowKey(c, i))),
+    [filteredContacts, selectedKeys]
+  );
+
+  const selectedCount = selectedContacts.length;
+  const canExport = selectedCount > 0;
+  const allFilteredSelected =
+    filteredContacts.length > 0 &&
+    filteredContacts.every((c, i) => selectedKeys.has(contactRowKey(c, i)));
+  const someFilteredSelected = filteredContacts.some((c, i) => selectedKeys.has(contactRowKey(c, i)));
+
+  function toggleRow(key: string, checked: boolean) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function toggleSelectAllFiltered() {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredContacts.forEach((c, i) => next.delete(contactRowKey(c, i)));
+      } else {
+        filteredContacts.forEach((c, i) => next.add(contactRowKey(c, i)));
+      }
+      return next;
+    });
+  }
 
   const stats = useMemo(() => {
     const total = filteredContacts.length;
@@ -212,6 +292,28 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
     setToast(text);
     window.setTimeout(() => setToast(null), 2600);
   }
+
+  function handleDateFromChange(value: string) {
+    setDateFrom(value);
+    if (value && dateTo && value > dateTo) setDateTo(value);
+  }
+
+  function handleDateToChange(value: string) {
+    if (value && dateFrom && value < dateFrom) {
+      setDateTo(dateFrom);
+      return;
+    }
+    setDateTo(value);
+  }
+
+  function resetFilters() {
+    const { from, to } = defaultLast30DaysRange();
+    setDateFrom(from);
+    setDateTo(to);
+    setStatusFilter("all");
+  }
+
+  const hasNonDefaultFilters = statusFilter !== "all" || !isDefaultDateRange(dateFrom, dateTo);
 
   async function sendViaApi(payload: { mode: "single"; phone: string; message: string }) {
     const res = await fetch("/api/contacts/send", {
@@ -257,11 +359,8 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
   }
 
   function onExportExcel() {
-    if (filteredContacts.length === 0) {
-      showToast("אין נתונים לייצוא בטווח שנבחר");
-      return;
-    }
-    exportContactsToExcel(filteredContacts);
+    if (!canExport) return;
+    exportContactsToExcel(selectedContacts);
   }
 
   return (
@@ -283,7 +382,8 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                 <input
                   type="date"
                   value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
+                  max={dateTo || todayInput}
+                  onChange={(e) => handleDateFromChange(e.target.value)}
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
                 />
               </label>
@@ -292,28 +392,52 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
                 <input
                   type="date"
                   value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
+                  min={dateFrom || undefined}
+                  max={todayInput}
+                  onChange={(e) => handleDateToChange(e.target.value)}
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
                 />
               </label>
-              {(dateFrom || dateTo) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="mb-0.5"
-                  onClick={() => {
-                    setDateFrom("");
-                    setDateTo("");
-                  }}
+              <label className="flex flex-col gap-1 text-right">
+                <span className="text-xs text-zinc-500">סטטוס</span>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as ContactStatusFilterValue)}
+                  className="min-w-[9rem] rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-right"
                 >
-                  נקה תאריכים
+                  <option value="all">הכל</option>
+                  {CONTACT_STATUS_FILTER_ORDER.map((key) => (
+                    <option key={key} value={key}>
+                      {CONTACT_STATUS_META[key].label}
+                    </option>
+                  ))}
+                  <option value="none">ללא סטטוס</option>
+                </select>
+              </label>
+              {hasNonDefaultFilters && (
+                <Button type="button" variant="outline" className="mb-0.5" onClick={resetFilters}>
+                  נקה פילטרים
                 </Button>
               )}
             </div>
-            <Button type="button" variant="outline" onClick={onExportExcel}>
-              ייצוא ל-Excel
+            <Button type="button" variant="outline" onClick={onExportExcel} disabled={!canExport}>
+              ייצוא ל-Excel{canExport ? ` (${selectedCount})` : ""}
             </Button>
           </div>
+          {filteredContacts.length > 0 ? (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-400"
+                checked={allFilteredSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                }}
+                onChange={toggleSelectAllFiltered}
+              />
+              <span>בחר הכל ברשימה ({filteredContacts.length})</span>
+            </label>
+          ) : null}
         </CardHeader>
         <CardContent>
           <div className="space-y-3 md:hidden">
@@ -322,13 +446,24 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
             ) : (
               filteredContacts.map((c, idx) => {
                 const optedOut = Boolean(c.opted_out);
+                const rowKey = contactRowKey(c, idx);
+                const checked = selectedKeys.has(rowKey);
                 return (
                   <div
-                    key={`${c.phone ?? "row"}-${idx}`}
+                    key={rowKey}
                     className="rounded-2xl border border-zinc-200 bg-white p-4 text-right"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <label className="flex shrink-0 cursor-pointer items-center pt-0.5">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-400"
+                          checked={checked}
+                          onChange={(e) => toggleRow(rowKey, e.target.checked)}
+                          aria-label="בחירה לייצוא"
+                        />
+                      </label>
+                      <div className="min-w-0 flex-1">
                         <button
                           type="button"
                           className="text-sm font-semibold text-zinc-900 underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500 truncate max-w-[78vw]"
@@ -378,6 +513,18 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
             <table className="w-full text-sm" dir="rtl">
               <thead>
                 <tr className="text-right text-xs text-zinc-500 border-b border-zinc-200">
+                  <th className="py-3 px-2 w-10 font-medium">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-400"
+                      checked={allFilteredSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                      }}
+                      onChange={toggleSelectAllFiltered}
+                      aria-label="בחר הכל"
+                    />
+                  </th>
                   <th className="py-3 px-2 font-medium">טלפון</th>
                   <th className="py-3 px-2 font-medium">שם</th>
                   <th className="py-3 px-2 font-medium">מקור</th>
@@ -389,15 +536,26 @@ export default function ContactsClient({ businessSlug, initialContacts }: Props)
               <tbody>
                 {filteredContacts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-zinc-500">
+                    <td colSpan={7} className="py-8 text-center text-zinc-500">
                       אין אנשי קשר בטווח שנבחר.
                     </td>
                   </tr>
                 ) : (
                   filteredContacts.map((c, idx) => {
                     const optedOut = Boolean(c.opted_out);
+                    const rowKey = contactRowKey(c, idx);
+                    const checked = selectedKeys.has(rowKey);
                     return (
-                      <tr key={`${c.phone ?? "row"}-${idx}`} className="border-b border-zinc-100 text-right">
+                      <tr key={rowKey} className="border-b border-zinc-100 text-right">
+                        <td className="py-3 px-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-400"
+                            checked={checked}
+                            onChange={(e) => toggleRow(rowKey, e.target.checked)}
+                            aria-label="בחירה לייצוא"
+                          />
+                        </td>
                         <td className="py-3 px-2 whitespace-nowrap">{c.phone ?? "—"}</td>
                         <td className="py-3 px-2">{c.full_name?.trim() || "—"}</td>
                         <td className="py-3 px-2">{c.source?.trim() || "—"}</td>

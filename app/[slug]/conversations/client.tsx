@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Badge } from "@/components/ui/badge";
+import { CONTACT_STATUS_META, type ContactStatusKey } from "@/lib/contact-status";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 
@@ -20,10 +22,21 @@ type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
+  contactStatus?: ContactStatusKey | null;
   /** טאב זואי אדמין — «כל השיחות» */
   source_slug?: string;
   source_name?: string;
 };
+
+function SessionContactStatusBadge({ statusKey }: { statusKey: ContactStatusKey | null | undefined }) {
+  if (!statusKey) return <span className="text-[11px] text-zinc-400">—</span>;
+  const meta = CONTACT_STATUS_META[statusKey];
+  return (
+    <Badge className={`text-[11px] font-medium px-3 py-1 ${meta.badgeClass}`} title={meta.tooltip}>
+      {meta.label}
+    </Badge>
+  );
+}
 
 export default function ConversationsClient({
   slug,
@@ -313,15 +326,7 @@ export default function ConversationsClient({
               </p>
             </div>
             <div className="flex flex-col items-end gap-1">
-              <span
-                className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${
-                  s.isOpen
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-zinc-50 text-zinc-600 border border-zinc-200"
-                }`}
-              >
-                {s.isOpen ? "פתוחה" : "סגורה"}
-              </span>
+              <SessionContactStatusBadge statusKey={s.contactStatus} />
               {s.isPaused && (
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                   בוט מושהה
