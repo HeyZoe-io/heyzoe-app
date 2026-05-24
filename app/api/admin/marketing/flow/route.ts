@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { invalidateMarketingFlowCache } from "@/lib/marketing-flow-cache";
+import { realignMarketingFlowSessionsAfterFlowSave } from "@/lib/marketing-flow-runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -185,8 +186,10 @@ export async function POST(req: NextRequest) {
       if (setErr) console.warn("[marketing/flow] settings update:", setErr.message, setErr.code, setErr.details);
     }
 
+    const newNodeIds = (inserted ?? []).map((row) => String((row as { id: string }).id));
     console.info("[marketing/flow] POST ok — saved", rawNodes.length, "nodes,", edgeInserts.length, "edges");
     invalidateMarketingFlowCache();
+    await realignMarketingFlowSessionsAfterFlowSave(newNodeIds);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[marketing/flow] POST exception:", e);
