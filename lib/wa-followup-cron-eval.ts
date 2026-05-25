@@ -1,4 +1,5 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { waSessionPhoneKey } from "@/lib/phone-normalize";
 
 const MS_20_MIN = 20 * 60 * 1000;
 const MS_2_H = 2 * 60 * 60 * 1000;
@@ -156,7 +157,7 @@ export async function evaluateBusinessWaFollowup(input: {
   }
 
   const phoneNumberId = String(channel.phone_number_id).trim();
-  const sessionId = `wa_${phoneNumberId}_${phone}`;
+  const sessionId = `wa_${phoneNumberId}_${waSessionPhoneKey(phone)}`;
 
   const lastAssist = await fetchLatestRealAssistantMessageAt({
     admin: input.admin,
