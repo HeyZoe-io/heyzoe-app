@@ -3339,6 +3339,7 @@ async function processIncoming(
 
   let replyText = replyCoreClean;
   replyText = softenWebsiteAttribution(replyText);
+  let assistantReplyLogged = false;
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
   if (!isFallbackErrorReply) {
@@ -3420,6 +3421,15 @@ async function processIncoming(
           )
         );
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: answerOnly,
+          model_used: replyModelUsed,
+          session_id: sessionId,
+          error_code: replyErrorCode,
+        });
+        assistantReplyLogged = true;
         await sleepMs(650);
         if (businessId && knowledge?.salesFlowConfig) {
           await sendSalesFlowCtaMenuWithPhaseUpdate({
@@ -3468,6 +3478,15 @@ async function processIncoming(
           stripMenuEchoFromAnswer(answerBody, menuQuestion, menuLabels)
         );
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: answerOnly,
+          model_used: replyModelUsed,
+          session_id: sessionId,
+          error_code: replyErrorCode,
+        });
+        assistantReplyLogged = true;
         await sleepMs(1500);
         if (knowledge && businessId) {
           await sendFlowContinuation({
@@ -3545,14 +3564,16 @@ async function processIncoming(
   }
 
   // Log assistant reply
-  await logMessage({
-    business_slug,
-    role: "assistant",
-    content: replyText,
-    model_used: matched?.reply ? "static" : replyModelUsed,
-    session_id: sessionId,
-    error_code: replyErrorCode,
-  });
+  if (!assistantReplyLogged) {
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: replyText,
+      model_used: matched?.reply ? "static" : replyModelUsed,
+      session_id: sessionId,
+      error_code: replyErrorCode,
+    });
+  }
 
   // Increment Claude usage counter (only when Claude was called and we did not fall back).
   if (didCallClaude && businessId && !isFallbackErrorReply) {

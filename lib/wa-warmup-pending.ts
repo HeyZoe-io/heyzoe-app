@@ -6,6 +6,7 @@ import { normalizeLineForMenuEcho } from "@/lib/wa-split-answer";
 export const WA_WARMUP_EXPERIENCE_SENT_MODEL = "flow_continuation_warmup_experience";
 
 const EXPERIENCE_ANSWERED_MODELS = ["sales_flow_after_experience", "sales_flow_warmup_extra"] as const;
+const EXPERIENCE_SENT_MODELS = [WA_WARMUP_EXPERIENCE_SENT_MODEL, "sales_flow"] as const;
 
 export type WarmupExperienceMenu = {
   question: string;
@@ -57,7 +58,7 @@ export async function isWarmupExperienceQuestionPending(input: {
     .eq("business_slug", input.business_slug)
     .eq("session_id", input.session_id)
     .eq("role", "assistant")
-    .eq("model_used", WA_WARMUP_EXPERIENCE_SENT_MODEL)
+    .in("model_used", [...EXPERIENCE_SENT_MODELS])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -87,6 +88,7 @@ export function stripPendingWarmupMenuFromAnswer(text: string, menu: WarmupExper
   const raw = String(text ?? "").replace(/\r\n/g, "\n");
   const lines = raw.split("\n");
   const out: string[] = [];
+  const buttonsBlock = /^\[כפתורים:\s*(.+)\]$/u;
 
   for (const line of lines) {
     const n = normalizeLineForMenuEcho(line);
@@ -96,6 +98,14 @@ export function stripPendingWarmupMenuFromAnswer(text: string, menu: WarmupExper
     }
     if (qNorm && (n === qNorm || n.includes(qNorm) || qNorm.includes(n))) continue;
     if (labelNorms.some((x) => x === n)) continue;
+    const blockMatch = line.trim().match(buttonsBlock);
+    if (blockMatch) {
+      const labelsInBlock = blockMatch[1]
+        .split("|")
+        .map((label) => normalizeLineForMenuEcho(label))
+        .filter(Boolean);
+      if (labelsInBlock.some((label) => labelNorms.includes(label))) continue;
+    }
     if (/^בחרו (אחת|אחד) מהאפשרויות:?$/u.test(line.trim())) continue;
     if (n === "כפתורים" || n === "כפתורים:" || n === "אפשרויות" || n === "אפשרויות:") continue;
     out.push(line);
