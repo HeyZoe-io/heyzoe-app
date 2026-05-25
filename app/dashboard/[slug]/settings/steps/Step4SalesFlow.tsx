@@ -541,6 +541,7 @@ export default function Step4SalesFlow(props: any) {
           stepPrefix="sales"
           id="warmup"
           title="סשן חימום"
+          hint="פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂"
           open={openSections.warmup}
           onToggle={() => toggle("warmup")}
           filled={Boolean(salesFlowConfig.experience_question?.trim())}
@@ -562,10 +563,6 @@ export default function Step4SalesFlow(props: any) {
           }
         >
           <div className="space-y-3">
-            <p className="text-xs text-zinc-600 text-center leading-relaxed">
-              פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂
-            </p>
-
             {trialServiceNames.length === 0 ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                 כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «מוצרים» (שלב 3).
@@ -850,7 +847,7 @@ export default function Step4SalesFlow(props: any) {
           <div className="space-y-4">
             <div
               dir="rtl"
-              className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100 text-center"
+              className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
               role="tablist"
               aria-label="סוג סשן הנעה לפעולה"
             >
@@ -859,9 +856,9 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "trial"}
-                  className={`text-sm font-medium text-center rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
                     ctaOfferTab === "trial"
-                      ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                      ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                   }`}
                   onClick={() => setCtaOfferTab("trial")}
@@ -874,9 +871,9 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "workshop"}
-                  className={`text-sm font-medium text-center rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
                     ctaOfferTab === "workshop"
-                      ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                      ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                   }`}
                   onClick={() => setCtaOfferTab("workshop")}
@@ -889,9 +886,9 @@ export default function Step4SalesFlow(props: any) {
                   type="button"
                   role="tab"
                   aria-selected={ctaOfferTab === "course"}
-                  className={`text-sm font-medium text-center rounded-full px-3 py-1.5 border transition-colors ${
+                  className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
                     ctaOfferTab === "course"
-                      ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                      ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                   }`}
                   onClick={() => setCtaOfferTab("course")}
