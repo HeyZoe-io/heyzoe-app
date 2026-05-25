@@ -443,6 +443,11 @@ function pickResponseShapeBlock(
     const b = getZoePlatformCategoryBlock(platform, "response_web");
     return b ? `\n${b}\n` : RESPONSE_SHAPE_BLOCK_WEB;
   }
+  if (waCtx?.suppressFollowUpQuestion) {
+    const split = getZoePlatformCategoryBlock(platform, "response_wa_split_followup");
+    if (split) return `\n${split}\n`;
+    return RESPONSE_SHAPE_BLOCK_WA_SPLIT_FOLLOWUP;
+  }
   const postTrial = waCtx?.trialRegistered === true;
   const phase = waCtx?.sessionPhase;
   let id: "response_wa" | "response_wa_pre_cta" | "response_wa_post_trial" = "response_wa";
@@ -478,6 +483,14 @@ const RESPONSE_SHAPE_BLOCK_WA = `
 3) הציעי 2-4 תשובות אפשריות כשורות נפרדות, ממוספרות 1. 2. 3. - הלקוח יכול לענות במספר או לפי הטקסט.
 גם לשאלות פתוחות: אם יש מענה מדויק בידע - עני ואז (2)+(3). אם אין - אל תנחשי; עברי לסעיף «חוסר ידע מדויק» אחרי בלוק הידע. בלי Markdown.`;
 
+/** שאלה פתוחה כשהמערכת שולחת CTA / המשך פלואו / תפריט בנפרד — בלי שאלת המשך בגוף */
+const RESPONSE_SHAPE_BLOCK_WA_SPLIT_FOLLOWUP = `
+מבנה תשובה - שאלה פתוחה כשהמערכת שולחת מיד אחרייך הודעת המשך (כפתורים / CTA / שאלת פלואו) בנפרד:
+1) מענה קצר וישיר לשאלת הליד — רק מהידע. בלי מחיר/משך/ניסיון אלא אם נשאל במפורש.
+2) אל תוסיפי שאלת המשך, שאלה קשורה, או «מה דעתך» בסוף — ההודעה הבאה מהמערכת כבר מניעה לפעולה.
+3) אל תוסיפי רשימות ממוספרות 1. 2. 3. — אין כפתורים בגוף ההודעה.
+בלי Markdown.`;
+
 /** שלב פתיחה/חימום — בלי רשימות ממוספרות שמחקות תפריט ההנעה לפעולה (המערכת שולחת כפתורים נפרדים). */
 const RESPONSE_SHAPE_BLOCK_WA_PRE_CTA = `
 מבנה תשובה - בשלב פתיחה או חימום (לפני תפריט ההנעה לפעולה):
@@ -497,6 +510,10 @@ const RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL = `
 export type WhatsAppPromptContext = {
   sessionPhase?: "opening" | "warmup" | "cta" | "registered";
   trialRegistered?: boolean;
+  /** המערכת תשלח CTA / המשך פלואו / תפריט בנפרד — בלי שאלת המשך בגוף התשובה */
+  suppressFollowUpQuestion?: boolean;
+  /** שאלת חימום עם כפתורים עדיין ממתינה — אל תחזרי עליה בטקסט */
+  pendingWarmupExperienceResume?: boolean;
 };
 
 export function buildSystemPrompt(
@@ -535,8 +552,15 @@ export function buildSystemPrompt(
     ? "- הלקוח כבר נרשם לאימון ניסיון: אסור למכור ניסיון או להציע הרשמה לניסיון; מותר מידע תפעולי, כתובת, שעות, אינסטגרם, FAQ, מנויים."
     : "- אם נשאל על הרשמה/תשלום: לכלול CTA אם קיים.";
 
+  const warmupResumeRule =
+    isWhatsApp && waCtx?.pendingWarmupExperienceResume
+      ? "- הלקוח שאל שאלה פתוחה לפני שענה על שאלת החימום (כפתורים). עני רק על השאלה הפתוחה. מותר משפט גשר קצר כמו «עכשיו, בחזרה לשאלה שלנו» — בלי לחזור על נוסח השאלה ואסור לרשום את אפשרויות הכפתורים בטקסט; המערכת תשלח את השאלה שוב עם כפתורים אמיתיים."
+      : "";
+
   const structureRule = isWhatsApp
-    ? postTrial || (phase && phase !== "cta")
+    ? waCtx?.suppressFollowUpQuestion
+      ? "- הלקוח שאל שאלה פתוחה והמערכת שולחת אחרייך הודעת המשך/כפתורים בנפרד — עני רק על השאלה, בלי שאלת המשך ובלי רשימות ממוספרות."
+    : postTrial || (phase && phase !== "cta")
       ? "- שמרי על מבנה התשובה לפי בלוק «מבנה תשובה» למטה (בלי לדרוש רשימות ממוספרות שמחקות תפריט המערכת)."
       : "- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות). הקפידי על קצרנות בכל חלק."
     : "- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות). בצ'אט האתר מותר להרחיב במענה הראשון אם ביקשו פירוט.";
@@ -555,6 +579,7 @@ ${toneAnalysis ? `\n${toneAnalysis}` : ""}
 כללים:
 ${legalRules}
 ${structureRule}
+${warmupResumeRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}
 ${formatFollowupSnippets(knowledge)}
