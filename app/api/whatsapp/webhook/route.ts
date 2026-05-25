@@ -45,11 +45,33 @@ import {
   shouldResetWaFollowupCycleOnInbound,
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
+import { stripMenuEchoFromAnswer, stripTrailingFollowUpQuestion } from "@/lib/wa-split-answer";
+import {
+  buildWarmupExperienceMenu,
+  isWarmupExperienceQuestionPending,
+  stripPendingWarmupMenuFromAnswer,
+  WA_WARMUP_EXPERIENCE_SENT_MODEL,
+} from "@/lib/wa-warmup-pending";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
 const SECONDARY_PURCHASE_POST_HINT = "כשמסיימים, אפשר לכתוב כאן אם צריך עזרה 🙂";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
+
+function formatInteractiveConversationLog(
+  body: string,
+  labels: string[],
+  footerHint = ZOE_WHATSAPP_MENU_FOOTER
+): string {
+  const cleanLabels = labels.map((label) => String(label ?? "").trim()).filter(Boolean);
+  return [
+    String(body ?? "").trim(),
+    cleanLabels.length > 0 ? `[כפתורים: ${cleanLabels.join(" | ")}]` : "",
+    String(footerHint ?? "").trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
@@ -475,7 +497,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   await logMessage({
     business_slug,
     role: "assistant",
-    content: `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+    content: formatInteractiveConversationLog(ctaBody, ctaLabels),
     model_used: modelUsed,
     session_id: sessionId,
   });
@@ -526,6 +548,80 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     session_id: sessionId,
   });
   await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "cta" });
+}
+
+/** שאלת חימום «ניסיון קודם» + כפתורי וואטסאפ */
+async function sendWarmupExperienceQuestionMenu(input: {
+  cfg: import("@/lib/sales-flow").SalesFlowConfig;
+  salesFlowServices: SfServiceRow[];
+  business_slug: string;
+  sessionId: string;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  blockTrialPickMedia: boolean;
+  bumpFlowStep: boolean;
+}): Promise<boolean> {
+  const menu = await buildWarmupExperienceMenu({
+    cfg: input.cfg,
+    salesFlowServices: input.salesFlowServices,
+    fetchLastSfServiceEventName,
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+  });
+  if (!menu) return false;
+
+  if (input.bumpFlowStep) {
+    const named =
+      input.salesFlowServices.length === 1
+        ? input.salesFlowServices[0]!.name
+        : (await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.sessionId })) ??
+          "";
+    const svcRow =
+      input.salesFlowServices.length === 1
+        ? input.salesFlowServices[0] ?? null
+        : input.salesFlowServices.find((s) => s.name === named) ?? null;
+    await sendTrialPickMediaIfAllowed({
+      blockMedia: input.blockTrialPickMedia,
+      mediaUrl: svcRow?.trialPickMediaUrl ?? "",
+      mediaType: svcRow?.trialPickMediaType ?? "",
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+    });
+  }
+
+  await sendWhatsAppTextOrMenu(
+    input.msg.toNumber,
+    input.msg.from,
+    menu.question,
+    menu.options,
+    input.accountSid,
+    input.authToken,
+    { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+  ).catch((e) => console.error("[WA Webhook] warmup experience menu failed:", e));
+
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: formatInteractiveConversationLog(menu.question, menu.options),
+    model_used: WA_WARMUP_EXPERIENCE_SENT_MODEL,
+    session_id: input.sessionId,
+  });
+
+  if (input.bumpFlowStep) {
+    await bumpContactFlowStep({
+      supabase: input.supabase,
+      businessId: input.businessId,
+      phone: input.msg.from,
+      nextStep: 1,
+    });
+  }
+  return true;
 }
 
 function scheduleFlowContinuation(input: {
@@ -647,6 +743,30 @@ async function sendFlowContinuation(input: {
     return;
   }
 
+  if (phase === "warmup") {
+    const pendingExp = await isWarmupExperienceQuestionPending({
+      admin: supabase,
+      business_slug,
+      session_id: sessionId,
+    });
+    if (pendingExp) {
+      await sendWarmupExperienceQuestionMenu({
+        cfg,
+        salesFlowServices,
+        business_slug,
+        sessionId,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        blockTrialPickMedia,
+        bumpFlowStep: false,
+      });
+      return;
+    }
+  }
+
   const step = Number.isFinite(contact.flow_step) ? contact.flow_step : 0;
 
   if (phase === "opening") {
@@ -668,7 +788,7 @@ async function sendFlowContinuation(input: {
       await logMessage({
         business_slug,
         role: "assistant",
-        content: `${st.question}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+        content: formatInteractiveConversationLog(st.question, st.options),
         model_used: "flow_continuation_opening_extra",
         session_id: sessionId,
       });
@@ -686,7 +806,7 @@ async function sendFlowContinuation(input: {
       await logMessage({
         business_slug,
         role: "assistant",
-        content: `${q}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+        content: formatInteractiveConversationLog(q, labels),
         model_used: "flow_continuation_opening_service_pick",
         session_id: sessionId,
       });
@@ -714,102 +834,82 @@ async function sendFlowContinuation(input: {
     return;
   }
 
-  // warmup
-  if (step === 0) {
-    const named =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0]!.name
-        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-    if (!named) return;
-    const svcRow =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0] ?? null
-        : salesFlowServices.find((s) => s.name === named) ?? null;
-    await sendTrialPickMediaIfAllowed({
-      blockMedia: blockTrialPickMedia,
-      mediaUrl: svcRow?.trialPickMediaUrl ?? "",
-      mediaType: svcRow?.trialPickMediaType ?? "",
+  // warmup — שאלת ניסיון קודם (פעם ראשונה בלבד)
+  if (phase === "warmup" && step === 0) {
+    const sent = await sendWarmupExperienceQuestionMenu({
+      cfg,
+      salesFlowServices,
+      business_slug,
+      sessionId,
       msg,
       accountSid,
       authToken,
+      supabase,
+      businessId,
+      blockTrialPickMedia,
+      bumpFlowStep: true,
+    });
+    if (sent) return;
+  }
+
+  if (phase === "warmup") {
+    const namedForWarmExtras =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+    const svcRowForWarmExtras =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0] ?? null
+        : salesFlowServices.find((s) => s.name === namedForWarmExtras) ?? null;
+    const warmKindForExtras = svcRowForWarmExtras?.offerKind ?? "trial";
+    const warmExtras = resolveWarmupExperienceConfig(cfg, warmKindForExtras).extras;
+    const cleanWarm = warmExtras
+      .map((s) => ({
+        question: String((s as any)?.question ?? "").trim(),
+        options: Array.isArray((s as any)?.options)
+          ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((s) => s.question && s.options.length >= 2);
+    const idx = step - 1;
+    const st = cleanWarm[idx];
+    if (st) {
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
+        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      }).catch((e) => console.error("[WA Webhook] flow continuation warmup extra failed:", e));
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: formatInteractiveConversationLog(st.question, st.options),
+        model_used: "flow_continuation_warmup_extra",
+        session_id: sessionId,
+      });
+      await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: step + 1 });
+      return;
+    }
+
+    const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+    const promo = knowledge?.promotionsText?.trim() ?? "";
+    const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
+    const shouldAttachTrialPromo =
+      trialRegistered !== true && promoIsTrial && lastAssistModelForCta !== "sales_flow_cta";
+    await sendSalesFlowCtaMenuWithPhaseUpdate({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
       business_slug,
       sessionId,
+      salesFlowServices,
+      trialRegistered,
+      allowTrialCta,
+      sfConsumedKinds,
+      extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
+      modelUsed: "flow_continuation_cta",
     });
-    const warmKind = svcRow?.offerKind ?? "trial";
-    const wb = resolveWarmupExperienceConfig(cfg, warmKind);
-    const q = String(wb.question ?? "").replace(/\{serviceName\}/g, named);
-    const opts = [...wb.options].map((o) => String(o ?? "").trim()).filter(Boolean);
-    if (!q || opts.length < 2) return;
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, opts, accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-    }).catch((e) => console.error("[WA Webhook] flow continuation warmup experience failed:", e));
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: `${q}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-      model_used: "flow_continuation_warmup_experience",
-      session_id: sessionId,
-    });
-    await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
-    return;
   }
-
-  const namedForWarmExtras =
-    salesFlowServices.length === 1
-      ? salesFlowServices[0]!.name
-      : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-  const svcRowForWarmExtras =
-    salesFlowServices.length === 1
-      ? salesFlowServices[0] ?? null
-      : salesFlowServices.find((s) => s.name === namedForWarmExtras) ?? null;
-  const warmKindForExtras = svcRowForWarmExtras?.offerKind ?? "trial";
-  const warmExtras = resolveWarmupExperienceConfig(cfg, warmKindForExtras).extras;
-  const cleanWarm = warmExtras
-    .map((s) => ({
-      question: String((s as any)?.question ?? "").trim(),
-      options: Array.isArray((s as any)?.options)
-        ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
-        : [],
-    }))
-    .filter((s) => s.question && s.options.length >= 2);
-  const idx = step - 1;
-  const st = cleanWarm[idx];
-  if (st) {
-    await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-    }).catch((e) => console.error("[WA Webhook] flow continuation warmup extra failed:", e));
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: `${st.question}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
-      model_used: "flow_continuation_warmup_extra",
-      session_id: sessionId,
-    });
-    await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: step + 1 });
-    return;
-  }
-
-  const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-  const promo = knowledge?.promotionsText?.trim() ?? "";
-  const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
-  const shouldAttachTrialPromo =
-    trialRegistered !== true && promoIsTrial && lastAssistModelForCta !== "sales_flow_cta";
-  await sendSalesFlowCtaMenuWithPhaseUpdate({
-    knowledge,
-    msg,
-    accountSid,
-    authToken,
-    supabase,
-    businessId,
-    business_slug,
-    sessionId,
-    salesFlowServices,
-    trialRegistered,
-    allowTrialCta,
-    sfConsumedKinds,
-    extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
-    modelUsed: "flow_continuation_cta",
-  });
 }
 
 // ─── GET — Meta webhook verification ─────────────────────────────────────────
@@ -1018,6 +1118,8 @@ async function processIncoming(
       }
       // Flow completed → AI fallback
       console.info("[WA Webhook] Marketing flow done, AI fallback for:", msg.from);
+      const { recordMarketingLeadOpenQuestion } = await import("@/lib/marketing-lead-questions");
+      await recordMarketingLeadOpenQuestion({ phone: msg.from, questionText: msg.text });
       await deliverMarketingPostFlowAiResponse(msg.from, msg.text);
       console.info("[WA Webhook] Marketing AI + post-flow menu sent to:", msg.from);
     } catch (e) {
@@ -1972,11 +2074,6 @@ async function processIncoming(
         const q = String(wbPick.question ?? "").replace(/\{serviceName\}/g, picked.name);
         const opts = [...wbPick.options];
 
-        const out =
-          [afterPick, "", q, ...opts]
-            .filter((x) => x !== undefined && String(x).trim().length > 0)
-            .join("\n")
-            .trim() + `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
         const bodyOnly = [afterPick, "", q]
           .filter((x) => String(x ?? "").trim().length > 0)
           .join("\n\n")
@@ -2004,7 +2101,7 @@ async function processIncoming(
         await logMessage({
           business_slug,
           role: "assistant",
-          content: out,
+          content: formatInteractiveConversationLog(bodyOnly, opts),
           model_used: "sales_flow",
           session_id: sessionId,
         });
@@ -2666,7 +2763,7 @@ async function processIncoming(
               await logMessage({
                 business_slug,
                 role: "assistant",
-                content: `${next.question}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+                content: formatInteractiveConversationLog(next.question, next.options),
                 model_used: "sales_flow_warmup_extra",
                 session_id: sessionId,
               });
@@ -2754,7 +2851,7 @@ async function processIncoming(
             await logMessage({
               business_slug,
               role: "assistant",
-              content: `${combined}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`,
+              content: formatInteractiveConversationLog(combined, first.options),
               model_used: "sales_flow_warmup_extra",
               session_id: sessionId,
             });
@@ -2948,6 +3045,14 @@ async function processIncoming(
   // We send CTA menus deterministically; avoid appending a CTA prompt to free-text answers.
   const ctaPromptQuestion = "";
 
+  const isFreeTextSalesFlowAi =
+    msg.type === "text" &&
+    Boolean(knowledge?.salesFlowConfig) &&
+    Boolean(businessId) &&
+    contactTrialRegistered !== true &&
+    !matched?.reply &&
+    !matchedPredefinedClosedLabel;
+
   let replyCore: string;
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
@@ -3017,6 +3122,14 @@ async function processIncoming(
 
     // Any free-form question → Claude/Gemini (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
     const platformGuidelines = await loadZoePlatformGuidelines();
+    let pendingWarmupExperienceResume = false;
+    if (isFreeTextSalesFlowAi && contactSessionPhase === "warmup" && knowledge?.salesFlowConfig) {
+      pendingWarmupExperienceResume = await isWarmupExperienceQuestionPending({
+        admin: supabase,
+        business_slug,
+        session_id: sessionId,
+      });
+    }
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -3024,6 +3137,8 @@ async function processIncoming(
       {
         sessionPhase: contactSessionPhase,
         trialRegistered: contactTrialRegistered === true,
+        suppressFollowUpQuestion: isFreeTextSalesFlowAi,
+        pendingWarmupExperienceResume,
       },
       platformGuidelines
     );
@@ -3206,28 +3321,6 @@ async function processIncoming(
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
-  function stripMenuEchoFromAnswer(text: string, menuQuestion: string, menuLabels: string[]): string {
-    const qNorm = normalizeLine(menuQuestion);
-    const labelNorms = (menuLabels ?? []).map((l) => normalizeLine(l)).filter(Boolean);
-    const raw = String(text ?? "").replace(/\r\n/g, "\n");
-    const lines = raw.split("\n");
-    const out: string[] = [];
-    for (const line of lines) {
-      const n = normalizeLine(line);
-      if (!n) {
-        out.push(line);
-        continue;
-      }
-      if (qNorm && n === qNorm) continue;
-      if (labelNorms.length && labelNorms.some((x) => x === n)) continue;
-      if (n === "כפתורים" || n === "כפתורים:" || n === "אפשרויות" || n === "אפשרויות:") continue;
-      // Avoid leaking "בחרו אחת מהאפשרויות" headers in plain text answers
-      if (/^בחרו (אחת|אחד) מהאפשרויות:?$/u.test(line.trim())) continue;
-      out.push(line);
-    }
-    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  }
-
   function stripSalesFlowCtaHookFromAnswer(text: string): string {
     // In CTA phase, when we split into (answer) + (CTA menu), we must keep the first message
     // as a pure answer without a sales hook line like "מה דעתך להגיע לאימון ניסיון בקרוב...".
@@ -3310,15 +3403,7 @@ async function processIncoming(
           ? knowledge?.ctaLink?.trim()
           : "";
 
-      const isFreeTextSalesFlowContinuation =
-        msg.type === "text" &&
-        Boolean(businessId) &&
-        Boolean(knowledge?.salesFlowConfig) &&
-        !isFallbackErrorReply &&
-        !matched?.reply &&
-        !matchedPredefinedClosedLabel &&
-        !msg.metaInteractiveReplyId?.trim() &&
-        !matchesTrialRegisteredMessage(msg.text.trim());
+      const isFreeTextSalesFlowContinuation = isFreeTextSalesFlowAi && !isFallbackErrorReply;
 
       const shouldSplitOpeningWarmupAnswerAndFlow =
         isFreeTextSalesFlowContinuation &&
@@ -3329,8 +3414,10 @@ async function processIncoming(
         // CTA phase + free-text question:
         // 1) answer only (no CTA, no buttons, no footer)
         // 2) send the CTA menu in a separate message
-        const answerOnly = stripSalesFlowCtaHookFromAnswer(
-          softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean))
+        const answerOnly = stripTrailingFollowUpQuestion(
+          stripSalesFlowCtaHookFromAnswer(
+            softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean))
+          )
         );
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await sleepMs(650);
@@ -3357,10 +3444,28 @@ async function processIncoming(
         // 2) continue the deterministic flow in a separate message (question + WhatsApp buttons)
         const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
         const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
-        const answerOnly = stripMenuEchoFromAnswer(
-          softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean)),
-          menuQuestion,
-          menuLabels
+        let answerBody = softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean));
+        if (knowledge?.salesFlowConfig) {
+          const pendingWarmup = await isWarmupExperienceQuestionPending({
+            admin: supabase,
+            business_slug,
+            session_id: sessionId,
+          });
+          if (pendingWarmup) {
+            const warmupMenu = await buildWarmupExperienceMenu({
+              cfg: knowledge.salesFlowConfig,
+              salesFlowServices,
+              fetchLastSfServiceEventName,
+              business_slug,
+              session_id: sessionId,
+            });
+            if (warmupMenu) {
+              answerBody = stripPendingWarmupMenuFromAnswer(answerBody, warmupMenu);
+            }
+          }
+        }
+        const answerOnly = stripTrailingFollowUpQuestion(
+          stripMenuEchoFromAnswer(answerBody, menuQuestion, menuLabels)
         );
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await sleepMs(1500);
