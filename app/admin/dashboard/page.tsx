@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import Link from "next/link";
 import { AdminNav } from "@/app/admin/AdminNav";
-import ProvisionNumberModal from "./ProvisionNumberModal";
 import MarketingDashboardClient from "./MarketingDashboardClient";
+import type { ZoeBusinessOption } from "@/app/admin/zoe/ZoeConversationsTab";
+import { loadAllZoeAdminConversationSessions, type ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,8 +48,29 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   const toDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(toRaw) ? toRaw : isoDateOnly(new Date());
   const fromTs = `${fromDateOnly}T00:00:00.000Z`;
   const toTs = `${toDateOnly}T23:59:59.999Z`;
+  const admin = createSupabaseAdminClient();
 
   if (marketingTab) {
+    const { data: bizRows } = await admin
+      .from("businesses")
+      .select("slug, name")
+      .order("name", { ascending: true })
+      .limit(2000);
+
+    const marketingBusinesses: ZoeBusinessOption[] = (bizRows ?? [])
+      .map((b) => ({
+        slug: String((b as { slug?: string }).slug ?? "").trim().toLowerCase(),
+        name: ((b as { name?: string | null }).name ?? null) as string | null,
+      }))
+      .filter((b) => b.slug);
+
+    let marketingInitialAllSessions: ZoeAdminSessionSummary[] = [];
+    try {
+      marketingInitialAllSessions = await loadAllZoeAdminConversationSessions(admin, marketingBusinesses);
+    } catch (e) {
+      console.error("[admin/dashboard] preload marketing conversations failed:", e);
+    }
+
     return (
       <DashboardV2
         marketingTab
@@ -62,11 +84,11 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
         waNumbers={[]}
         businessOverview={[]}
         health={[]}
+        marketingBusinesses={marketingBusinesses}
+        marketingInitialAllSessions={marketingInitialAllSessions}
       />
     );
   }
-
-  const admin = createSupabaseAdminClient();
 
   const [{ data: bizRows }, { data: msgRows }, { data: inquiries }, { data: waChannels }, { data: msgWeek }] = await Promise.all([
     admin
@@ -271,6 +293,8 @@ function DashboardV2(props: {
     conversations_week: number;
   }>;
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
+  marketingBusinesses?: ZoeBusinessOption[];
+  marketingInitialAllSessions?: ZoeAdminSessionSummary[];
 }) {
   const isMarketing = Boolean(props.marketingTab);
 
@@ -280,7 +304,7 @@ function DashboardV2(props: {
         dir="rtl"
         style={{
           minHeight: "100vh",
-          background: "#f5f3ff",
+          background: "#fafafa",
           fontFamily: "Fredoka, Heebo, system-ui, sans-serif",
           padding: "28px 18px 48px",
           color: "#1a0a3c",
@@ -289,7 +313,8 @@ function DashboardV2(props: {
         <div style={{ maxWidth: 1320, margin: "0 auto" }}>
           <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
             <div style={{ textAlign: "right" }}>
-              <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>פלואו שיווקי</h1>
+              <p style={{ margin: "0 0 5px", fontSize: 12, color: "#7133da", fontWeight: 600 }}>אדמין</p>
+              <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: "-0.03em" }}>פלואו שיווקי</h1>
             </div>
             <AdminNav active="marketing" />
           </header>
@@ -309,7 +334,10 @@ function DashboardV2(props: {
               </div>
             }
           >
-            <MarketingDashboardClient />
+            <MarketingDashboardClient
+              businesses={props.marketingBusinesses ?? []}
+              initialAllSessions={props.marketingInitialAllSessions ?? []}
+            />
           </Suspense>
         </div>
       </main>
@@ -321,17 +349,18 @@ function DashboardV2(props: {
       dir="rtl"
       style={{
         minHeight: "100vh",
-        background: "#f5f3ff",
+        background: "#fafafa",
         fontFamily: "Fredoka, Heebo, system-ui, sans-serif",
         padding: "28px 18px 48px",
         color: "#1a0a3c",
       }}
     >
-      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
           <div style={{ textAlign: "right" }}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400 }}>דשבורד סופר אדמין</h1>
-            <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>סקירה מערכתית + עסקים + התראות</p>
+            <p style={{ margin: "0 0 5px", fontSize: 12, color: "#7133da", fontWeight: 600 }}>HeyZoe Admin</p>
+            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: "-0.03em" }}>דשבורד אדמין</h1>
+            <p style={{ margin: "6px 0 0", fontSize: 14, color: "#71717a" }}>סקירה נקייה של לקוחות, הכנסות, פעילות ופניות</p>
           </div>
           <AdminNav active="dashboard" />
         </header>
@@ -339,8 +368,8 @@ function DashboardV2(props: {
         <section
           style={{
             marginTop: 16,
-            background: "rgba(255,255,255,0.72)",
-            border: "1px solid rgba(113,51,218,0.14)",
+            background: "white",
+            border: "1px solid rgba(24,24,27,0.08)",
             borderRadius: 18,
             padding: 12,
             display: "flex",
@@ -361,7 +390,7 @@ function DashboardV2(props: {
                   height: 38,
                   padding: "0 12px",
                   borderRadius: 12,
-                  border: "1px solid rgba(113,51,218,0.18)",
+                  border: "1px solid rgba(24,24,27,0.12)",
                   background: "white",
                   color: "#1a0a3c",
                 }}
@@ -377,7 +406,7 @@ function DashboardV2(props: {
                   height: 38,
                   padding: "0 12px",
                   borderRadius: 12,
-                  border: "1px solid rgba(113,51,218,0.18)",
+                  border: "1px solid rgba(24,24,27,0.12)",
                   background: "white",
                   color: "#1a0a3c",
                 }}
@@ -389,8 +418,8 @@ function DashboardV2(props: {
                 height: 38,
                 padding: "0 14px",
                 borderRadius: 999,
-                border: "1px solid rgba(113,51,218,0.18)",
-                background: "linear-gradient(135deg,#7133da,#ff92ff)",
+                border: "1px solid #7133da",
+                background: "#7133da",
                 color: "white",
                 fontWeight: 400,
                 cursor: "pointer",
@@ -413,9 +442,9 @@ function DashboardV2(props: {
               key={m.label}
               style={{
                 background: "white",
-                border: "1px solid rgba(113,51,218,0.14)",
+                border: "1px solid rgba(24,24,27,0.08)",
                 borderRadius: 18,
-                boxShadow: "0 8px 40px rgba(113,51,218,0.10)",
+                boxShadow: "0 12px 34px rgba(24,24,27,0.06)",
                 padding: "14px 14px 16px",
                 textAlign: "right",
               }}
@@ -426,19 +455,19 @@ function DashboardV2(props: {
           ))}
         </section>
 
-        <section style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "1.1fr 0.9fr" }}>
+        <section style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "minmax(0, 1.1fr) minmax(260px, 0.9fr)" }}>
           <div
             style={{
               background: "white",
-              border: "1px solid rgba(113,51,218,0.14)",
+              border: "1px solid rgba(24,24,27,0.08)",
               borderRadius: 18,
-              boxShadow: "0 8px 40px rgba(113,51,218,0.08)",
+              boxShadow: "0 12px 34px rgba(24,24,27,0.06)",
               padding: 16,
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>פניות מבעלי עסקים</h2>
-              <Link href="/admin/contacts" prefetch style={{ color: "#7133da", fontWeight: 400, textDecoration: "none", fontSize: 12 }}>
+              <Link href="/admin/businesses?tab=requests" prefetch style={{ color: "#7133da", fontWeight: 400, textDecoration: "none", fontSize: 12 }}>
                 כל הפניות
               </Link>
             </div>
@@ -455,7 +484,7 @@ function DashboardV2(props: {
                       border: "1px solid rgba(113,51,218,0.12)",
                       borderRadius: 16,
                       padding: 12,
-                      background: "rgba(245,243,255,0.65)",
+                      background: "rgba(250,250,250,0.9)",
                       display: "block",
                     }}
                   >
@@ -492,33 +521,40 @@ function DashboardV2(props: {
           <div
             style={{
               background: "white",
-              border: "1px solid rgba(113,51,218,0.14)",
+              border: "1px solid rgba(24,24,27,0.08)",
               borderRadius: 18,
-              boxShadow: "0 8px 40px rgba(113,51,218,0.08)",
+              boxShadow: "0 12px 34px rgba(24,24,27,0.06)",
               padding: 16,
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>מספרי WhatsApp פעילים</h2>
-            <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>מקור: whatsapp_channels · שיחות נכנסות (7 ימים)</p>
-            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
-              <ProvisionNumberModal />
-            </div>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>מוקדי עבודה</h2>
+            <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
+              קיצורי דרך לאזורים שעברו לעמוד עסקים.
+            </p>
             <div style={{ display: "grid", gap: 8 }}>
-              {props.waNumbers.length ? (
-                props.waNumbers.slice(0, 10).map((n, idx) => (
-                  <div key={idx} style={{ border: "1px solid rgba(113,51,218,0.12)", borderRadius: 16, padding: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                      <span style={{ fontWeight: 400 }}>{n.phone}</span>
-                      <span style={{ color: "#6b5b9a" }}>
-                        {n.incoming_7d} נכנסות · {n.provisioning_status}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 12, color: "#6b5b9a" }}>{n.business_slug}</div>
-                  </div>
-                ))
-              ) : (
-                <div style={{ color: "#6b5b9a", fontSize: 13, textAlign: "center", padding: 10 }}>אין מספרים פעילים.</div>
-              )}
+              {[
+                { href: "/admin/businesses", label: "רשימת עסקים", desc: "סטטוס, חבילה, מספר ווטסאפ וקישורים" },
+                { href: "/admin/businesses?tab=cancellations", label: "ביטולים", desc: "סיבות ביטול ופירוט" },
+                { href: "/admin/businesses?tab=requests", label: "פניות מבעלי עסקים", desc: "צ׳אט עזרה ובקשות חזרה טלפונית" },
+              ].map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch
+                  style={{
+                    display: "block",
+                    border: "1px solid rgba(24,24,27,0.08)",
+                    borderRadius: 16,
+                    padding: 12,
+                    textDecoration: "none",
+                    color: "inherit",
+                    background: "rgba(250,250,250,0.9)",
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "#1a0a3c" }}>{item.label}</div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: "#6b5b9a" }}>{item.desc}</div>
+                </Link>
+              ))}
             </div>
           </div>
         </section>

@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.info("[marketing-webhook] flow done, routing to AI for:", phone);
-    void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
+    await recordMarketingLeadOpenQuestion({ phone, questionText: userText });
     await deliverMarketingPostFlowAiResponse(phone, userText);
     console.info("[marketing-webhook] AI reply + post-flow menu sent to:", phone);
   } catch (e) {

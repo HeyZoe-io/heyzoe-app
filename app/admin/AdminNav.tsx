@@ -3,23 +3,17 @@ import type { CSSProperties } from "react";
 
 export type AdminNavTab =
   | "dashboard"
-  | "zoe"
   | "marketing"
   | "analytics"
   | "businesses"
-  | "leads"
-  | "cancellations"
-  | "requests";
+  | "leads";
 
 const TABS: { key: AdminNavTab; href: string; label: string }[] = [
   { key: "dashboard", href: "/admin/dashboard", label: "ראשי" },
-  { key: "zoe", href: "/admin/zoe", label: "זואי" },
   { key: "marketing", href: "/admin/dashboard?tab=marketing", label: "פלואו שיווקי" },
   { key: "analytics", href: "/admin/analytics", label: "analytics" },
   { key: "businesses", href: "/admin/businesses", label: "עסקים" },
   { key: "leads", href: "/admin/leads", label: "לידים" },
-  { key: "cancellations", href: "/admin/cancellations", label: "ביטולים" },
-  { key: "requests", href: "/admin/requests", label: "פניות מבעלי עסקים" },
 ];
 
 const pillBase: CSSProperties = {

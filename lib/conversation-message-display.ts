@@ -33,10 +33,18 @@ function parseNumberedTail(lines: string[]): { bodyLines: string[]; chips: strin
   return { bodyLines: body, chips };
 }
 
+function cleanButtonLabel(raw: string): string {
+  return String(raw ?? "")
+    .trim()
+    .replace(/^[-*•]\s*/, "")
+    .replace(/^\d+[.)]\s*/, "")
+    .trim();
+}
+
 function splitButtonsPipe(raw: string): string[] {
   return raw
     .split("|")
-    .map((s) => s.trim())
+    .map(cleanButtonLabel)
     .filter(Boolean);
 }
 
@@ -59,11 +67,29 @@ function extractFooterHint(text: string): { text: string; footerHint?: string } 
 
 function asInteractive(
   text: string,
-  buttons: WaConversationButton[]
+  buttons: WaConversationButton[],
+  footerHintOverride?: string
 ): ParsedWaConversationMessage {
   const { text: body, footerHint } = extractFooterHint(text);
   if (buttons.length === 0) return { kind: "text", text: body || text };
-  return { kind: "interactive", text: body, buttons, footerHint };
+  return { kind: "interactive", text: body, buttons, footerHint: footerHintOverride ?? footerHint };
+}
+
+function parsePlainButtonsSection(text: string): { text: string; buttons: WaConversationButton[] } | null {
+  const lines = text.split("\n");
+  const markerIdx = lines.findIndex((line) => {
+    const normalized = line.trim().replace(/[:：]\s*$/, "");
+    return normalized === "כפתורים" || normalized === "אפשרויות";
+  });
+  if (markerIdx < 0) return null;
+
+  const before = lines.slice(0, markerIdx).join("\n").trim();
+  const after = lines.slice(markerIdx + 1).map(cleanButtonLabel).filter(Boolean);
+  if (after.length === 0) return null;
+
+  const buttonLabels = after.flatMap((line) => splitButtonsPipe(line));
+  if (buttonLabels.length === 0) return null;
+  return { text: before, buttons: buttonLabels.map(parseButtonToken) };
 }
 
 /** מפרק תוכן הודעה מה-DB לתצוגה דמוית וואטסאפ (כפתורים, מדיה, CTA). */
@@ -80,6 +106,9 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
     return { kind: "media", url, caption: caption || undefined, isVideo };
   }
 
+  const withoutFooter = extractFooterHint(s);
+  const displaySource = withoutFooter.footerHint ? withoutFooter.text : s;
+
   if (s.startsWith(HEYZOE_MARKETING_CTA_SENT)) {
     s = s.slice(HEYZOE_MARKETING_CTA_SENT.length).trim();
     const lines = s.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -89,31 +118,42 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
     return asInteractive(text, [{ label: "לחצו כאן", url }]);
   }
 
-  const buttonsBlock = s.match(/\n?\[כפתורים:\s*([^\]]+)\]\s*$/);
+  const buttonsBlock = displaySource.match(/\n?\[כפתורים:\s*([^\]]+)\]\s*$/);
   if (buttonsBlock) {
-    const text = s.slice(0, buttonsBlock.index).trim();
+    const text = displaySource.slice(0, buttonsBlock.index).trim();
     const buttons = splitButtonsPipe(buttonsBlock[1]!).map((label) => ({ label }));
-    return asInteractive(text, buttons);
+    return asInteractive(text, buttons, withoutFooter.footerHint);
+  }
+
+  const ctaBlock = displaySource.match(/\n?\[([^:\]\n]{1,80}):\s*(https?:\/\/[^\]\s]+)\]\s*$/i);
+  if (ctaBlock) {
+    const text = displaySource.slice(0, ctaBlock.index).trim();
+    return asInteractive(text, [{ label: cleanButtonLabel(ctaBlock[1]!), url: ctaBlock[2]!.trim() }], withoutFooter.footerHint);
   }
 
   const singleButtons: WaConversationButton[] = [];
-  let withoutSingle = s.replace(/\n?\[כפתור:\s*([^\]]+)\]\s*/g, (_, inner: string) => {
+  let withoutSingle = displaySource.replace(/\n?\[כפתור:\s*([^\]]+)\]\s*/g, (_, inner: string) => {
     singleButtons.push(parseButtonToken(inner));
     return "";
   }).trim();
   if (singleButtons.length > 0) {
-    return asInteractive(withoutSingle, singleButtons);
+    return asInteractive(withoutSingle, singleButtons, withoutFooter.footerHint);
   }
 
-  const lines = s.split("\n");
+  const plainButtons = parsePlainButtonsSection(displaySource);
+  if (plainButtons) {
+    return asInteractive(plainButtons.text, plainButtons.buttons, withoutFooter.footerHint);
+  }
+
+  const lines = displaySource.split("\n");
   const { bodyLines, chips } = parseNumberedTail(lines);
   if (chips.length >= 2) {
     const body = bodyLines.join("\n").trim();
-    return asInteractive(body, chips.map((label) => ({ label })));
+    return asInteractive(body, chips.map((label) => ({ label })), withoutFooter.footerHint);
   }
 
   if (chips.length === 1 && bodyLines.every((l) => !l.trim())) {
-    return asInteractive("", chips.map((label) => ({ label })));
+    return asInteractive("", chips.map((label) => ({ label })), withoutFooter.footerHint);
   }
 
   return { kind: "text", text: s };
