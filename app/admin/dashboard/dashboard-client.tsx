@@ -171,7 +171,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
             <h1 className="text-2xl font-normal text-zinc-900">דשבורד סופר אדמין</h1>
             <p className="text-sm text-zinc-500">סקירה מערכתית + עסקים + התראות</p>
             <p className="text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1 justify-end">
-              <a className="underline underline-offset-4 text-[#7133da]" href="/admin/requests">
+              <a className="underline underline-offset-4 text-[#7133da]" href="/admin/businesses?tab=requests">
                 פניות מבעלי עסקים
               </a>
               <a className="underline underline-offset-4 text-[#7133da]" href="/admin/lp-zoe">

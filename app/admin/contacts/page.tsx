@@ -47,7 +47,7 @@ export default async function AdminContactsPage() {
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 400, color: "#1a0a3c" }}>פניות מבעלי עסקים</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>תיבת פניות פשוטה (business_inquiries)</p>
           </div>
-          <AdminNav active="requests" />
+          <AdminNav active="businesses" />
         </header>
 
         <div style={{ marginTop: 14, display: "grid", gap: 10 }}>

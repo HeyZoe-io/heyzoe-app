@@ -254,7 +254,7 @@ export async function answerOpenQuestionDuringMarketingFlow(
   if (await tryHandleMarketingHumanAgentInbound(phone, userText)) return;
 
   const { recordMarketingLeadOpenQuestion } = await import("@/lib/marketing-lead-questions");
-  void recordMarketingLeadOpenQuestion({ phone, questionText: userText });
+  await recordMarketingLeadOpenQuestion({ phone, questionText: userText });
 
   const reply = await callMarketingAI(userText, { leadPhone: phone, skipPostFlowClosing: true });
   await sendMarketingWhatsApp(phone, reply, { model_used: "marketing_ai_open_q" });
