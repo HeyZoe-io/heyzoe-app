@@ -6,6 +6,10 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
+import {
+  contactPhoneLookupVariants,
+  waSessionPhoneKey,
+} from "@/lib/phone-normalize";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -52,6 +56,29 @@ function maskPhone(phone: string): string {
   const d = String(phone ?? "").replace(/\D/g, "");
   if (d.length < 4) return "***";
   return `***${d.slice(-4)}`;
+}
+
+const CONTACT_DEBUG_SELECT =
+  "id, phone, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered";
+
+async function findContactByPhone(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: string | number,
+  phoneInput: string
+): Promise<{ row: Record<string, unknown> | null; lookup_variants: string[] }> {
+  const lookup_variants = contactPhoneLookupVariants(phoneInput);
+  if (!lookup_variants.length) return { row: null, lookup_variants };
+
+  const { data, error } = await admin
+    .from("contacts")
+    .select(CONTACT_DEBUG_SELECT)
+    .eq("business_id", businessId)
+    .in("phone", lookup_variants)
+    .limit(1);
+
+  if (error) throw error;
+  const row = (data?.[0] as Record<string, unknown> | undefined) ?? null;
+  return { row, lookup_variants };
 }
 
 function fillTemplate(tpl: string, vars: Record<string, string>): string {
@@ -162,16 +189,15 @@ export async function GET(req: NextRequest) {
     if (!biz?.id) {
       return NextResponse.json({ ok: false, error: "business_not_found", debug_slug: debugSlug }, { status: 404 });
     }
-    const { data: contact, error: contactErr } = await admin
-      .from("contacts")
-      .select(
-        "id, phone, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered"
-      )
-      .eq("business_id", biz.id)
-      .eq("phone", debugPhone)
-      .maybeSingle();
-    if (contactErr) {
-      return NextResponse.json({ ok: false, error: contactErr.message }, { status: 500 });
+    let contact: Record<string, unknown> | null = null;
+    let phoneLookupVariants: string[] = [];
+    try {
+      const found = await findContactByPhone(admin, biz.id, debugPhone);
+      contact = found.row;
+      phoneLookupVariants = found.lookup_variants;
+    } catch (contactErr) {
+      const message = contactErr instanceof Error ? contactErr.message : String(contactErr);
+      return NextResponse.json({ ok: false, error: message }, { status: 500 });
     }
     if (!contact) {
       const { data: channel } = await admin
@@ -181,9 +207,9 @@ export async function GET(req: NextRequest) {
         .eq("is_active", true)
         .limit(1)
         .maybeSingle();
-      const phoneDigits = debugPhone.replace(/\D/g, "");
+      const sessionPhoneKey = waSessionPhoneKey(debugPhone);
       const sessionId = channel?.phone_number_id
-        ? `wa_${String(channel.phone_number_id).trim()}_${phoneDigits}`
+        ? `wa_${String(channel.phone_number_id).trim()}_${sessionPhoneKey}`
         : null;
       let messages_hint: Record<string, unknown> | null = null;
       if (sessionId) {
@@ -225,15 +251,22 @@ export async function GET(req: NextRequest) {
         skip_reason: "no_contact_row",
         phone: maskPhone(debugPhone),
         business_slug: debugSlug,
+        phone_lookup_variants: phoneLookupVariants,
         note: "contact missing in contacts table — cron batch only includes existing rows",
         messages_hint,
       });
     }
+    const contactPhone = String(contact.phone ?? "").trim();
     const evalResult = await evaluateBusinessWaFollowup({
       admin,
       business_slug: debugSlug,
-      phone: debugPhone,
-      contact,
+      phone: contactPhone,
+      contact: contact as {
+        id?: string | number;
+        wa_followup_stage?: number | null;
+        opted_out?: boolean | null;
+        trial_registered?: boolean | null;
+      },
     });
     if (evalResult.skip_reason !== "eligible") {
       logWaFollowupSkip(evalResult.skip_reason as WaFollowupSkipReason, {
@@ -243,13 +276,17 @@ export async function GET(req: NextRequest) {
         ...evalResult.detail,
       });
     }
-    const { business_slug: _bizSlug, ...evalBody } = evalResult;
+    const evalBody = Object.fromEntries(Object.entries(evalResult).filter(([key]) => key !== "business_slug"));
     return NextResponse.json({
       ok: true,
       debug: true,
-      phone: maskPhone(debugPhone),
+      phone: maskPhone(contactPhone),
+      phone_query: maskPhone(debugPhone),
       business_slug: debugSlug,
       contact_id: contact.id,
+      trial_registered: contact.trial_registered ?? null,
+      opted_out: contact.opted_out ?? null,
+      phone_lookup_variants: phoneLookupVariants,
       wa_followup_stage: contact.wa_followup_stage,
       last_contact_at: contact.last_contact_at,
       ...evalBody,
@@ -330,7 +367,7 @@ export async function GET(req: NextRequest) {
 
       const business_slug = String(channel.business_slug).trim().toLowerCase();
       const phoneNumberId = String(channel.phone_number_id).trim();
-      const sessionId = `wa_${phoneNumberId}_${phone}`;
+      const sessionId = `wa_${phoneNumberId}_${waSessionPhoneKey(phone)}`;
 
       const lastAssist = await fetchLatestRealAssistantMessageAt({ admin, business_slug, session_id: sessionId });
       if (!lastAssist) {

@@ -28,3 +28,31 @@ export function normalizePhoneToE164(input: unknown): string | null {
   const digits = normalizePhone(input);
   return digits ? `+${digits}` : null;
 }
+
+/** סיומת session_id ב-webhook: wa_{phone_number_id}_{972...} (בלי +). */
+export function waSessionPhoneKey(input: unknown): string {
+  const normalized = normalizePhone(input);
+  if (normalized) return normalized;
+  const digits = String(input ?? "").replace(/\D/g, "");
+  return digits || String(input ?? "").trim();
+}
+
+/** וריאנטים לחיפוש contacts.phone (+972..., 972..., וכו'). */
+export function contactPhoneLookupVariants(input: unknown): string[] {
+  const trimmed = String(input ?? "").trim();
+  if (!trimmed) return [];
+
+  const normalized = normalizePhone(trimmed);
+  const digits = trimmed.replace(/\D/g, "");
+  const out = new Set<string>();
+
+  out.add(trimmed);
+  if (trimmed.startsWith("+")) out.add(trimmed.slice(1));
+  if (digits) out.add(digits);
+  if (normalized) {
+    out.add(normalized);
+    out.add(`+${normalized}`);
+  }
+
+  return [...out].filter(Boolean);
+}

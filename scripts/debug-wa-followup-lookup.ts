@@ -3,6 +3,7 @@
  */
 import { createSupabaseAdminClient } from "../lib/supabase-admin";
 import { evaluateBusinessWaFollowup } from "../lib/wa-followup-cron-eval";
+import { contactPhoneLookupVariants } from "../lib/phone-normalize";
 
 async function main() {
   const admin = createSupabaseAdminClient();
@@ -19,28 +20,37 @@ async function main() {
   }
 
   for (const phone of phones) {
-    const { data: contact } = await admin
+    const lookupVariants = contactPhoneLookupVariants(phone);
+    const { data: rows } = await admin
       .from("contacts")
       .select(
         "id, phone, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered, source"
       )
       .eq("business_id", biz.id)
-      .eq("phone", phone)
-      .maybeSingle();
+      .in("phone", lookupVariants)
+      .limit(1);
 
+    const contact = rows?.[0] ?? null;
     if (!contact) {
-      console.log(JSON.stringify({ phone, business_slug: slug, skip_reason: "no_contact_row" }, null, 2));
+      console.log(
+        JSON.stringify(
+          { phone, business_slug: slug, skip_reason: "no_contact_row", phone_lookup_variants: lookupVariants },
+          null,
+          2
+        )
+      );
       continue;
     }
 
+    const contactPhone = String(contact.phone ?? "").trim();
     const evalResult = await evaluateBusinessWaFollowup({
       admin,
       business_slug: slug,
-      phone,
+      phone: contactPhone,
       contact,
     });
 
-    const { business_slug: _s, ...evalBody } = evalResult;
+    const evalBody = Object.fromEntries(Object.entries(evalResult).filter(([key]) => key !== "business_slug"));
     console.log(
       JSON.stringify(
         {
