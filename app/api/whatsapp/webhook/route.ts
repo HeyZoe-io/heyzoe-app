@@ -36,6 +36,7 @@ import {
   getEffectiveFollowupMenuLabels,
   getEffectiveSalesFlowCtaButtons,
   getEffectiveSecondaryOfferCtaButtons,
+  matchesTrialAlreadyRegisteredMessage,
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
   resolveWarmupExperienceConfig,
@@ -1195,8 +1196,7 @@ async function processIncoming(
   let contactClaudeCount: number | null = null;
   let contactTrialRegistered: boolean | null = null;
   let contactTrialRegisteredAt: string | null = null;
-  // Session-only override: allow offering the trial CTA again after a greeting reset,
-  // without mutating the persisted trial_registered conversion flag.
+  // Persisted registration blocks trial CTA even if the flow is reset later.
   let allowTrialCtaThisSession = false;
   let contactSessionPhase: HeyzoeSessionPhase = "opening";
   let contactFlowStep = 0;
@@ -1500,27 +1500,14 @@ async function processIncoming(
     }
   }
 
-  // Persisted conversions: allow showing trial CTA again *after a reset* (greeting/opening),
-  // without mutating trial_registered/trial_registered_at.
+  // Persisted conversions are terminal for the trial CTA, even if a flow reset started a new opening.
   if (businessId && contactTrialRegistered === true) {
+    allowTrialCtaThisSession = false;
+    contactSessionPhase = "registered";
     try {
-      const { data: resetMsg } = await supabase
-        .from("messages")
-        .select("created_at, model_used")
-        .eq("business_slug", business_slug)
-        .eq("session_id", sessionId)
-        .eq("role", "assistant")
-        .in("model_used", ["greeting", "default_opening"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const resetAt = resetMsg?.created_at ? String(resetMsg.created_at) : "";
-      const regAt = contactTrialRegisteredAt ? String(contactTrialRegisteredAt) : "";
-      if (resetAt && (!regAt || resetAt > regAt)) {
-        allowTrialCtaThisSession = true;
-      }
+      await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "registered" });
     } catch (e) {
-      console.warn("[WA Webhook] allowTrialCtaThisSession compute failed (continuing):", e);
+      console.warn("[WA Webhook] registered phase sync failed (continuing):", e);
     }
   }
 
@@ -1693,6 +1680,7 @@ async function processIncoming(
     const rawTrimmed = msg.text.trim();
     if (matchesTrialRegisteredMessage(rawTrimmed)) {
       try {
+        const alreadyRegisteredClaim = matchesTrialAlreadyRegisteredMessage(rawTrimmed);
         let alreadyRegistered = false;
         const sel = await supabase
           .from("contacts")
@@ -1717,6 +1705,44 @@ async function processIncoming(
             role: "assistant",
             content: repeatTxt,
             model_used: "trial_registered_repeat_ack",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (alreadyRegisteredClaim) {
+          const { error: upErr } = await supabase
+            .from("contacts")
+            .update({ trial_registered: true, trial_registered_at: contactTrialRegisteredAt || nowIso })
+            .eq("business_id", businessId)
+            .eq("phone", msg.from);
+          if (upErr) {
+            console.warn("[WA Webhook] trial_registered already-claim update failed:", upErr.message);
+          } else {
+            await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "registered" });
+            contactTrialRegistered = true;
+            allowTrialCtaThisSession = false;
+            contactSessionPhase = "registered";
+            contactFlowStep = 0;
+            await logMessage({
+              business_slug,
+              role: "event",
+              content: HEYZOE_SF_REGISTERED,
+              model_used: "sf_registered_already_claim",
+              session_id: sessionId,
+            });
+          }
+
+          const ackTxt =
+            "מעולה, תודה שעדכנת אותי. לא אשלח עוד הודעות הרשמה לשיעור ניסיון. אם יש עוד משהו שתרצו לדעת - כתבו לי כאן ואשמח לעזור 🙂";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, ackTxt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send trial already-registered ack failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: ackTxt,
+            model_used: "trial_registered_already_ack",
             session_id: sessionId,
           });
           return;
@@ -1920,7 +1946,8 @@ async function processIncoming(
     });
 
     if (businessId && knowledge?.salesFlowConfig) {
-      const phase: HeyzoeSessionPhase = salesFlowServices.length === 1 ? "warmup" : "opening";
+      const phase: HeyzoeSessionPhase =
+        contactTrialRegistered === true ? "registered" : salesFlowServices.length === 1 ? "warmup" : "opening";
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
       contactSessionPhase = phase;
       contactFlowStep = 0;
@@ -1993,11 +2020,11 @@ async function processIncoming(
         session_id: sessionId,
       });
       if (businessId && knowledge?.salesFlowConfig) {
-        // Greeting resets the *flow* (session_phase + flow_step) but must NOT mutate trial_registered conversion history.
-        // We allow trial CTA again for this session only.
-        allowTrialCtaThisSession = true;
+        // Greeting resets the flow only for non-registered leads. Registered leads stay post-trial.
+        allowTrialCtaThisSession = contactTrialRegistered !== true;
 
-        const phase: HeyzoeSessionPhase = salesFlowServices.length === 1 ? "warmup" : "opening";
+        const phase: HeyzoeSessionPhase =
+          contactTrialRegistered === true ? "registered" : salesFlowServices.length === 1 ? "warmup" : "opening";
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
         contactFlowStep = 0;
