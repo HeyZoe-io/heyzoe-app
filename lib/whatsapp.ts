@@ -800,12 +800,50 @@ export async function sendWhatsAppMediaMessage(
   const metaToken = resolveMetaAccessToken();
   if (isMetaCloudPhoneNumberId(fromNumber) && metaToken) {
     const toDigits = to.replace(/^\+/, "");
-    const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(fromNumber.trim())}/messages`;
-    const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
+    const fetched = await fetch(cleanUrl, { cache: "no-store" });
+    if (!fetched.ok) {
+      const err = await fetched.text().catch(() => "");
+      throw new Error(`[Meta WA media fetch] ${fetched.status} ${fetched.statusText}: ${err}`);
+    }
+
+    const contentType =
+      fetched.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ||
+      (mediaKind === "video" ? "video/mp4" : "image/jpeg");
+    const bytes = await fetched.arrayBuffer();
+    const filename = (() => {
+      try {
+        const last = new URL(cleanUrl).pathname.split("/").filter(Boolean).pop() ?? "";
+        return decodeURIComponent(last) || (mediaKind === "video" ? "media.mp4" : "media.jpg");
+      } catch {
+        return mediaKind === "video" ? "media.mp4" : "media.jpg";
+      }
+    })();
     const isVideo =
       mediaKind === "video" ||
-      /\.(mp4|mov|webm)(\?|$)/i.test(cleanUrl) ||
-      /video\//i.test(cleanUrl);
+      contentType.startsWith("video/") ||
+      /\.(mp4|mov|webm)(\?|$)/i.test(cleanUrl);
+
+    const uploadUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(fromNumber.trim())}/media`;
+    const form = new FormData();
+    form.set("messaging_product", "whatsapp");
+    form.set("file", new Blob([bytes], { type: contentType }), filename);
+    const uploadRes = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${metaToken}`,
+      },
+      body: form,
+    });
+    if (!uploadRes.ok) {
+      const err = await uploadRes.text().catch(() => "");
+      throw new Error(`[Meta WA upload media] ${uploadRes.status} ${uploadRes.statusText}: ${err}`);
+    }
+    const uploaded = (await uploadRes.json().catch(() => ({}))) as { id?: string };
+    const mediaId = String(uploaded.id ?? "").trim();
+    if (!mediaId) throw new Error("[Meta WA upload media] missing media id");
+
+    const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(fromNumber.trim())}/messages`;
+    const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
     const payload: Record<string, unknown> = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -813,9 +851,9 @@ export async function sendWhatsAppMediaMessage(
       type: isVideo ? "video" : "image",
     };
     if (isVideo) {
-      payload.video = cap ? { link: cleanUrl, caption: cap } : { link: cleanUrl };
+      payload.video = cap ? { id: mediaId, caption: cap } : { id: mediaId };
     } else {
-      payload.image = cap ? { link: cleanUrl, caption: cap } : { link: cleanUrl };
+      payload.image = cap ? { id: mediaId, caption: cap } : { id: mediaId };
     }
     const res = await fetch(apiUrl, {
       method: "POST",
