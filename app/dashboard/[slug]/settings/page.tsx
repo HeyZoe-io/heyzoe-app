@@ -24,6 +24,7 @@ import {
   type SalesFlowConfig,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
+  appendTrialPromotionToCtaBody,
   composeGreeting,
   composeAfterServicePickReply,
   composeAfterServicePickReplyFromTrialDescription,
@@ -1012,7 +1013,6 @@ function SalesFlowExtraStepsEditor({
             }}
             placeholder="כתבו את השאלה כאן…"
           />
-          <p className="text-[11px] text-zinc-500 text-right">כפתורי תשובה</p>
           {st.options.map((o, oi) => (
             <div key={oi} className="flex gap-2">
               <Input
@@ -1252,6 +1252,7 @@ export default function SlugSettingsPage() {
   /** true = יש פתיחה שמורה בשרת או שכבר מילאנו טמפלייט — לא לדרוס אוטומטית */
   const welcomeOpeningLockedRef = useRef(false);
   const servicesSignatureRef = useRef("");
+  const lastTrialPromoAppliedRef = useRef("");
 
   const servicesSignature = useMemo(
     () => services.map((s) => s.name.trim()).filter(Boolean).join("\0"),
@@ -1326,6 +1327,25 @@ export default function SlugSettingsPage() {
       addressText: address,
     });
   }, [traits, directions, promotions, services, address]);
+
+  useEffect(() => {
+    if (!settingsHydrated || !hasTrialOffers) return;
+    const promo = promotions.trim();
+    if (!promo) {
+      lastTrialPromoAppliedRef.current = "";
+      return;
+    }
+    const promoKey = `${slug}\0${promo}`;
+    if (lastTrialPromoAppliedRef.current === promoKey) return;
+
+    setSalesFlowConfig((current) => {
+      const nextCtaBody = appendTrialPromotionToCtaBody(current.cta_body, promo);
+      if (nextCtaBody === current.cta_body) return current;
+      return { ...current, cta_body: nextCtaBody };
+    });
+    lastTrialPromoAppliedRef.current = promoKey;
+  }, [settingsHydrated, hasTrialOffers, promotions, slug]);
+
   const [factAnswers, setFactAnswers] = useState<Record<string, string>>({});
   const [factQuestionIdx, setFactQuestionIdx] = useState(0);
   useEffect(() => {

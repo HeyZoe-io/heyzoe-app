@@ -27,9 +27,9 @@ import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
 import {
   composeGreeting,
   defaultSalesFlowConfig,
+  appendTrialPromotionToCtaBody,
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
-  fillCtaBodyTemplate,
   fillOfferKindCtaBody,
   formatAfterTrialRegistrationForWhatsAppDelivery,
   ctaButtonsForOfferKind,
@@ -476,8 +476,10 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     promoIsTrial &&
     lastAssistModelForPromo !== "sales_flow_cta";
 
-  const ctaBody = [baseCtaBody, ...(extraBodyLines ?? []).map((x) => String(x ?? "").trim()).filter(Boolean)]
-    .concat(shouldAttachTrialPromo ? [promo] : [])
+  const ctaBody = [
+    shouldAttachTrialPromo ? appendTrialPromotionToCtaBody(baseCtaBody, promo) : baseCtaBody,
+    ...(extraBodyLines ?? []).map((x) => String(x ?? "").trim()).filter(Boolean),
+  ]
     .filter(Boolean)
     .join("\n")
     .trim();
@@ -719,11 +721,6 @@ async function sendFlowContinuation(input: {
   }
 
   if (phase === "cta") {
-    const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-    const promo = knowledge?.promotionsText?.trim() ?? "";
-    const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
-    const shouldAttachTrialPromo =
-      trialRegistered !== true && promoIsTrial && lastAssistModelForCta !== "sales_flow_cta";
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
       msg,
@@ -737,7 +734,6 @@ async function sendFlowContinuation(input: {
       trialRegistered,
       allowTrialCta,
       sfConsumedKinds,
-      extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
       modelUsed: "flow_continuation_cta",
     });
     return;
@@ -888,11 +884,6 @@ async function sendFlowContinuation(input: {
       return;
     }
 
-    const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-    const promo = knowledge?.promotionsText?.trim() ?? "";
-    const promoIsTrial = promo && /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
-    const shouldAttachTrialPromo =
-      trialRegistered !== true && promoIsTrial && lastAssistModelForCta !== "sales_flow_cta";
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
       msg,
@@ -906,7 +897,6 @@ async function sendFlowContinuation(input: {
       trialRegistered,
       allowTrialCta,
       sfConsumedKinds,
-      extraBodyLines: shouldAttachTrialPromo ? [promo] : [],
       modelUsed: "flow_continuation_cta",
     });
   }
