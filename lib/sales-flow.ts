@@ -745,6 +745,43 @@ export function fillOfferKindCtaBody(
   return fillCtaBodyTemplate(cfg.cta_body, row.priceText, row.durationText);
 }
 
+function normalizePromoForCompare(value: string): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^0-9a-z\u0590-\u05FF\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isTrialPromotionText(promotionsText: string): boolean {
+  const promo = String(promotionsText ?? "").trim();
+  if (!promo) return false;
+  return /(אימון|שיעור)\s*ניסיון|ניסיון/u.test(promo);
+}
+
+export function buildTrialPromotionCtaLine(promotionsText: string): string {
+  const promo = String(promotionsText ?? "").trim();
+  if (!promo || !isTrialPromotionText(promo)) return "";
+  const clean = promo.replace(/[.!?…\s]+$/u, "").trim();
+  if (!clean) return "";
+  return `ויש לנו גם מבצע מהמם בשבילכם - ${clean}!`;
+}
+
+export function appendTrialPromotionToCtaBody(body: string, promotionsText: string): string {
+  const base = String(body ?? "").trim();
+  const line = buildTrialPromotionCtaLine(promotionsText);
+  if (!line) return base;
+
+  const bodyNorm = normalizePromoForCompare(base);
+  const promoNorm = normalizePromoForCompare(promotionsText);
+  const lineNorm = normalizePromoForCompare(line);
+  if ((promoNorm && bodyNorm.includes(promoNorm)) || (lineNorm && bodyNorm.includes(lineNorm))) {
+    return base;
+  }
+  return [base, line].filter(Boolean).join("\n");
+}
+
 export function offerKindFromServiceMeta(meta: Record<string, unknown>): OfferKind {
   const k = String(meta.offer_kind ?? "trial").trim().toLowerCase();
   if (k === "workshop" || k === "course") return k;

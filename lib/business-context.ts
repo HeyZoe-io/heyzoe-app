@@ -429,7 +429,8 @@ function formatUnknownKnowledgeBlock(phoneDisplay: string, platform: ZoePlatform
       : `- טלפון שירות לקוחות לא הוגדר בידע - אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
   return `
 חוסר ידע מדויק - כששאלה פתוחה ואין לה מענה כלל בידע העסקי:
-${staticBlock || "התנצלות קצרה; אל תמציאי ואל תנחשי."}
+${staticBlock || "רק אם באמת אין מידע: פתחי ב«אני מתנצלת, אין לי כרגע מידע על כך» או «אני מתנצלת, אין לי כרגע מידע לגבי [הנושא]». אל תכתבי את המילה «התנצלות» כחלק מהתשובה; אל תמציאי ואל תנחשי."}
+- בכל מקרה של חוסר ידע, אסור לנסח «התנצלות ש...» או «התנצלות שלא...»; זה לא משפט תקין בעברית.
 ${phoneHint}
 `;
 }
@@ -556,6 +557,10 @@ export function buildSystemPrompt(
     isWhatsApp && waCtx?.pendingWarmupExperienceResume
       ? "- הלקוח שאל שאלה פתוחה לפני שענה על שאלת החימום (כפתורים). עני רק על השאלה הפתוחה. מותר משפט גשר קצר כמו «עכשיו, בחזרה לשאלה שלנו» — בלי לחזור על נוסח השאלה ואסור לרשום את אפשרויות הכפתורים בטקסט; המערכת תשלח את השאלה שוב עם כפתורים אמיתיים."
       : "";
+  const promotionsText = knowledge?.promotionsText?.trim() ?? "";
+  const promotionsRule = promotionsText
+    ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
+    : "- אם נשאלת על הנחה או מבצע ואין מידע בשדה «הנחות ומבצעים» - אל תמציאי; אמרי שאין לך מבצע מוגדר כרגע והציעי לבדוק מול העסק.";
 
   const structureRule = isWhatsApp
     ? waCtx?.suppressFollowUpQuestion
@@ -580,6 +585,7 @@ ${toneAnalysis ? `\n${toneAnalysis}` : ""}
 ${legalRules}
 ${structureRule}
 ${warmupResumeRule}
+${promotionsRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}
 ${formatFollowupSnippets(knowledge)}
@@ -588,7 +594,7 @@ ${formatFollowupSnippets(knowledge)}
 נישה: ${knowledge?.niche ?? ""}
 תיאור עסק: ${knowledge?.businessDescription ?? "לא הוגדר"}
 ${(knowledge?.traits?.length ?? 0) > 0 ? `עובדות על העסק (השתמשי במידע הזה גם אם הוא תיאורי ולא מספרי — זה ידע רשמי מבעל העסק):\n${knowledge!.traits.map((t) => `- ${t}`).join("\n")}` : ""}
-הנחות ומבצעים: ${knowledge?.promotionsText?.trim() || "לא הוגדר"}
+הנחות ומבצעים (ידע רשמי לשאלות פתוחות על הנחה/מבצע/מחיר מוזל): ${promotionsText || "לא הוגדר"}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
 ${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${knowledge.membershipsAndCardsText}\n` : ""}FAQ:

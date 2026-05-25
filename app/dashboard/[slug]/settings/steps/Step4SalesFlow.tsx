@@ -202,7 +202,6 @@ export default function Step4SalesFlow(props: any) {
               }}
               placeholder="כתבו את השאלה כאן…"
             />
-            <p className="text-[11px] text-zinc-500 text-center">כפתורי תשובה</p>
             {st.options.map((o, oi) => (
               <div key={oi} className="flex gap-2">
                 <Input
@@ -575,7 +574,7 @@ export default function Step4SalesFlow(props: any) {
               <>
                 <div
                   dir="rtl"
-                  className="flex w-full flex-wrap gap-2 justify-center pb-1 border-b border-zinc-100 text-center"
+                  className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
                   role="tablist"
                   aria-label="סוג סשן חימום לעריכה"
                 >
@@ -584,9 +583,9 @@ export default function Step4SalesFlow(props: any) {
                       type="button"
                       role="tab"
                       aria-selected={warmOfferTab === "trial"}
-                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-center ${
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
                         warmOfferTab === "trial"
-                          ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                       }`}
                       onClick={() => setWarmOfferTab("trial")}
@@ -599,9 +598,9 @@ export default function Step4SalesFlow(props: any) {
                       type="button"
                       role="tab"
                       aria-selected={warmOfferTab === "workshop"}
-                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-center ${
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
                         warmOfferTab === "workshop"
-                          ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                       }`}
                       onClick={() => setWarmOfferTab("workshop")}
@@ -614,9 +613,9 @@ export default function Step4SalesFlow(props: any) {
                       type="button"
                       role="tab"
                       aria-selected={warmOfferTab === "course"}
-                      className={`text-sm font-medium rounded-full px-3 py-1.5 border transition-colors text-center ${
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
                         warmOfferTab === "course"
-                          ? "border-[#7133da] bg-[#f5f3ff] text-[#2d1a6e]"
+                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
                           : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                       }`}
                       onClick={() => setWarmOfferTab("course")}
