@@ -924,185 +924,188 @@ export default function Step4SalesFlow(props: any) {
                 עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
               </p>
             </div>
-            {salesFlowConfig.cta_buttons.map((b: any, bi: number) => {
-              const locked = ctaLockedKindForSlot(bi, b.id);
-              const slotSub = salesFlowSubChoiceForSlot(b, locked);
-              return (
-              <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
-                <Field label={`כפתור ${bi + 1} - תווית`}>
-                  <Input
-                    dir="rtl"
-                    className="min-w-[12rem]"
-                    value={b.label}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setSalesFlowConfig((c: any) => ({
-                        ...c,
-                        cta_buttons: c.cta_buttons.map((x: any) => (x.id === b.id ? { ...x, label: v } : x)),
-                      }));
-                    }}
-                  />
-                </Field>
-                <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                  <label className="text-xs font-medium text-zinc-600 block text-center">
-                    {ctaSlotRoleLabel(locked)}
-                  </label>
-                  {locked === "trial" ? (
-                    <p className="text-xs text-zinc-600 text-center leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
-                      לינק מטאב «מוצרים»
-                    </p>
-                  ) : (
-                    <>
-                      <select
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {salesFlowConfig.cta_buttons.map((b: any, bi: number) => {
+                const locked = ctaLockedKindForSlot(bi, b.id);
+                const slotSub = salesFlowSubChoiceForSlot(b, locked);
+                return (
+                  <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                    <Field label={`כפתור ${bi + 1}`}>
+                      <Input
                         dir="rtl"
-                        className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
-                        value={slotSub}
+                        value={b.label}
                         onChange={(e) => {
-                          const sub = e.target.value as CtaSlotSubChoice;
+                          const v = e.target.value;
                           setSalesFlowConfig((c: any) => ({
                             ...c,
-                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                              x.id === b.id
-                                ? salesFlowApplyLockedSubChoice({ id: x.id, label: x.label }, x, locked, sub)
-                                : x
-                            ),
+                            cta_buttons: c.cta_buttons.map((x: any) => (x.id === b.id ? { ...x, label: v } : x)),
                           }));
                         }}
-                      >
-                        {locked === "schedule" ? (
-                          <>
-                            <option value="link">לינק מטאב «לינקים»</option>
-                            <option value="image">תמונה</option>
-                            <option value="none">ללא</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="link">לינק</option>
-                            <option value="range">טווח</option>
-                            <option value="none">ללא</option>
-                          </>
-                        )}
-                      </select>
-                      {locked === "memberships" && slotSub === "range" ? (
-                        <div className="w-full space-y-2 rounded-xl border border-dashed border-zinc-200 bg-[#fafafa] p-3">
-                          <p className="text-[11px] font-medium text-zinc-700 text-center">
-                            טווח מחירים (יאספו להודעת ווטסאפ למנויים/כרטיסיות)
-                          </p>
-                          <div className="flex flex-row-reverse flex-wrap items-center gap-x-4 gap-y-2 justify-end">
-                            <div className="flex flex-row-reverse items-center gap-1.5 shrink-0">
-                              <span className="text-xs text-zinc-600 shrink-0">₪</span>
-                              <Input
-                                dir="rtl"
-                                inputMode="decimal"
-                                className="w-24 shrink-0"
-                                placeholder="מספר"
-                                value={String(b.memberships_price_range_min ?? "")}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  setSalesFlowConfig((c: any) => ({
-                                    ...c,
-                                    cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                      x.id === b.id ? { ...x, memberships_price_range_min: v } : x
-                                    ),
-                                  }));
-                                }}
-                              />
-                              <span className="text-xs font-medium text-zinc-700 shrink-0">בין:</span>
-                            </div>
-                            <div className="flex flex-row-reverse items-center gap-1.5 shrink-0">
-                              <span className="text-xs text-zinc-600 shrink-0">₪</span>
-                              <Input
-                                dir="rtl"
-                                inputMode="decimal"
-                                className="w-24 shrink-0"
-                                placeholder="מספר"
-                                value={String(b.memberships_price_range_max ?? "")}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  setSalesFlowConfig((c: any) => ({
-                                    ...c,
-                                    cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                      x.id === b.id ? { ...x, memberships_price_range_max: v } : x
-                                    ),
-                                  }));
-                                }}
-                              />
-                              <span className="text-xs font-medium text-zinc-700 shrink-0">ל־</span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-                {b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "image" ? (
-                  <div className="w-full space-y-2 border border-dashed border-zinc-200 rounded-xl p-3 bg-[#fafafa]">
-                    {planIsStarter ? (
-                      <p className="text-[11px] text-amber-800 text-center bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                        ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
-                      </p>
-                    ) : (
-                      <div className="space-y-2 flex flex-col items-stretch">
-                        <p className="text-[11px] font-medium text-zinc-700 text-center">תמונת מערכת השעות (אינסרט לפני תפריט ההמשך)</p>
-                        {String(b.schedule_cta_image_url ?? "").trim() ? (
-                          <div className="rounded-xl overflow-hidden border border-zinc-200 max-w-[200px] mr-auto ml-0 shadow-sm bg-white">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={(b.schedule_cta_image_url ?? "").trim()}
-                              alt=""
-                              className="w-full h-auto max-h-40 object-cover block"
-                            />
-                          </div>
-                        ) : null}
-                        <div className="flex flex-row-reverse flex-wrap gap-2 justify-center">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="text-xs gap-1 h-8"
-                            disabled={uploadingScheduleCtaMedia}
-                            onClick={() => {
-                              if (planIsStarter) {
-                                onStarterMediaBlocked?.();
-                                return;
-                              }
-                              scheduleCtaMediaInputRef?.current?.click();
+                      />
+                    </Field>
+                    <div className="space-y-1.5">
+                      <label className="block text-center text-xs font-medium text-zinc-600">
+                        {ctaSlotRoleLabel(locked)}
+                      </label>
+                      {locked === "trial" ? (
+                        <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
+                          לינק מטאב «מוצרים»
+                        </p>
+                      ) : (
+                        <>
+                          <select
+                            dir="rtl"
+                            className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                            value={slotSub}
+                            onChange={(e) => {
+                              const sub = e.target.value as CtaSlotSubChoice;
+                              setSalesFlowConfig((c: any) => ({
+                                ...c,
+                                cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                  x.id === b.id
+                                    ? salesFlowApplyLockedSubChoice({ id: x.id, label: x.label }, x, locked, sub)
+                                    : x
+                                ),
+                              }));
                             }}
                           >
-                            {uploadingScheduleCtaMedia ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {locked === "schedule" ? (
+                              <>
+                                <option value="link">לינק מטאב «לינקים»</option>
+                                <option value="image">תמונה</option>
+                                <option value="none">ללא</option>
+                              </>
                             ) : (
-                              <Upload className="h-3.5 w-3.5" />
+                              <>
+                                <option value="link">לינק</option>
+                                <option value="range">טווח</option>
+                                <option value="none">ללא</option>
+                              </>
                             )}
-                            {uploadingScheduleCtaMedia ? "מעלה…" : "העלה תמונה"}
-                          </Button>
-                          {String(b.schedule_cta_image_url ?? "").trim() ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="text-xs h-8 text-red-600 border-red-200 hover:bg-red-50"
-                              onClick={() =>
-                                setSalesFlowConfig((c: any) => ({
-                                  ...c,
-                                  cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                    x.id === b.id
-                                      ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
-                                      : x
-                                  ),
-                                }))
-                              }
-                            >
-                              <X className="h-3.5 w-3.5" />
-                              הסר תמונה
-                            </Button>
+                          </select>
+                          {locked === "memberships" && slotSub === "range" ? (
+                            <div className="w-full space-y-2 rounded-xl border border-dashed border-zinc-200 bg-[#fafafa] p-3">
+                              <p className="text-center text-[11px] font-medium text-zinc-700">
+                                טווח מחירים (יאספו להודעת ווטסאפ למנויים/כרטיסיות)
+                              </p>
+                              <div className="flex flex-row-reverse flex-wrap items-center justify-center gap-x-4 gap-y-2">
+                                <div className="flex shrink-0 flex-row-reverse items-center gap-1.5">
+                                  <span className="shrink-0 text-xs text-zinc-600">₪</span>
+                                  <Input
+                                    dir="rtl"
+                                    inputMode="decimal"
+                                    className="w-24 shrink-0"
+                                    placeholder="מספר"
+                                    value={String(b.memberships_price_range_min ?? "")}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setSalesFlowConfig((c: any) => ({
+                                        ...c,
+                                        cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                          x.id === b.id ? { ...x, memberships_price_range_min: v } : x
+                                        ),
+                                      }));
+                                    }}
+                                  />
+                                  <span className="shrink-0 text-xs font-medium text-zinc-700">בין:</span>
+                                </div>
+                                <div className="flex shrink-0 flex-row-reverse items-center gap-1.5">
+                                  <span className="shrink-0 text-xs text-zinc-600">₪</span>
+                                  <Input
+                                    dir="rtl"
+                                    inputMode="decimal"
+                                    className="w-24 shrink-0"
+                                    placeholder="מספר"
+                                    value={String(b.memberships_price_range_max ?? "")}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setSalesFlowConfig((c: any) => ({
+                                        ...c,
+                                        cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                          x.id === b.id ? { ...x, memberships_price_range_max: v } : x
+                                        ),
+                                      }));
+                                    }}
+                                  />
+                                  <span className="shrink-0 text-xs font-medium text-zinc-700">ל־</span>
+                                </div>
+                              </div>
+                            </div>
                           ) : null}
-                        </div>
+                        </>
+                      )}
+                    </div>
+                    {b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "image" ? (
+                      <div className="w-full space-y-2 rounded-xl border border-dashed border-zinc-200 bg-[#fafafa] p-3">
+                        {planIsStarter ? (
+                          <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-center text-[11px] text-amber-800">
+                            ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
+                          </p>
+                        ) : (
+                          <div className="flex flex-col items-stretch space-y-2">
+                            <p className="text-center text-[11px] font-medium text-zinc-700">
+                              תמונת מערכת השעות (אינסרט לפני תפריט ההמשך)
+                            </p>
+                            {String(b.schedule_cta_image_url ?? "").trim() ? (
+                              <div className="mx-auto max-w-[200px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={(b.schedule_cta_image_url ?? "").trim()}
+                                  alt=""
+                                  className="block h-auto max-h-40 w-full object-cover"
+                                />
+                              </div>
+                            ) : null}
+                            <div className="flex flex-row-reverse flex-wrap justify-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 gap-1 text-xs"
+                                disabled={uploadingScheduleCtaMedia}
+                                onClick={() => {
+                                  if (planIsStarter) {
+                                    onStarterMediaBlocked?.();
+                                    return;
+                                  }
+                                  scheduleCtaMediaInputRef?.current?.click();
+                                }}
+                              >
+                                {uploadingScheduleCtaMedia ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Upload className="h-3.5 w-3.5" />
+                                )}
+                                {uploadingScheduleCtaMedia ? "מעלה…" : "העלה תמונה"}
+                              </Button>
+                              {String(b.schedule_cta_image_url ?? "").trim() ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 border-red-200 text-xs text-red-600 hover:bg-red-50"
+                                  onClick={() =>
+                                    setSalesFlowConfig((c: any) => ({
+                                      ...c,
+                                      cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                        x.id === b.id
+                                          ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
+                                          : x
+                                      ),
+                                    }))
+                                  }
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  הסר תמונה
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            );
-            })}
+                );
+              })}
+            </div>
             <input
               ref={scheduleCtaMediaInputRef}
               type="file"
@@ -1147,60 +1150,61 @@ export default function Step4SalesFlow(props: any) {
                     מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»
                   </p>
                 </div>
-                {(salesFlowConfig.cta_workshop_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
-                  const purchase = b.kind === "workshop_purchase";
-                  const del: SecondaryPurchaseCtaDelivery =
-                    b.secondary_purchase_delivery === "phone" ? "phone" : "link";
-                  return (
-                    <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
-                      <Field label={`כפתור ${bi + 1} - תווית`}>
-                        <Input
-                          dir="rtl"
-                          className="min-w-[12rem]"
-                          value={b.label}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setSalesFlowConfig((c: any) => ({
-                              ...c,
-                              cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
-                                x.id === b.id ? { ...x, label: v } : x
-                              ),
-                            }));
-                          }}
-                        />
-                      </Field>
-                      <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                        <label className="text-xs font-medium text-zinc-600 block text-center">
-                          {purchase ? "רכישת סדנה — אפשרות מסירה" : "יצירת קשר"}
-                        </label>
-                        {purchase ? (
-                          <select
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {(salesFlowConfig.cta_workshop_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
+                    const purchase = b.kind === "workshop_purchase";
+                    const del: SecondaryPurchaseCtaDelivery =
+                      b.secondary_purchase_delivery === "phone" ? "phone" : "link";
+                    return (
+                      <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                        <Field label={`כפתור ${bi + 1}`}>
+                          <Input
                             dir="rtl"
-                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
-                            value={del}
+                            value={b.label}
                             onChange={(e) => {
-                              const next: SecondaryPurchaseCtaDelivery =
-                                e.target.value === "phone" ? "phone" : "link";
+                              const v = e.target.value;
                               setSalesFlowConfig((c: any) => ({
                                 ...c,
                                 cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
-                                  x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                  x.id === b.id ? { ...x, label: v } : x
                                 ),
                               }));
                             }}
-                          >
-                            <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
-                            <option value="phone">מספר שירות לקוחות מהדשבורד</option>
-                          </select>
-                        ) : (
-                          <p className="text-xs text-zinc-600 text-center leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
-                            מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
-                          </p>
-                        )}
+                          />
+                        </Field>
+                        <div className="space-y-1.5">
+                          <label className="block text-center text-xs font-medium text-zinc-600">
+                            {purchase ? "רכישת סדנה — אפשרות מסירה" : "יצירת קשר"}
+                          </label>
+                          {purchase ? (
+                            <select
+                              dir="rtl"
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                              value={del}
+                              onChange={(e) => {
+                                const next: SecondaryPurchaseCtaDelivery =
+                                  e.target.value === "phone" ? "phone" : "link";
+                                setSalesFlowConfig((c: any) => ({
+                                  ...c,
+                                  cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                    x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                  ),
+                                }));
+                              }}
+                            >
+                              <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
+                              <option value="phone">מספר שירות לקוחות מהדשבורד</option>
+                            </select>
+                          ) : (
+                            <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
+                              מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </>
             ) : null}
 
@@ -1228,60 +1232,61 @@ export default function Step4SalesFlow(props: any) {
                     מחיר, מספר מפגשים ותאריכי הקורס יימשכו אוטומטית מהשירותים שמסוג «קורס» בטאב «מוצרים»
                   </p>
                 </div>
-                {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
-                  const enroll = b.kind === "course_enroll";
-                  const del: SecondaryPurchaseCtaDelivery =
-                    b.secondary_purchase_delivery === "phone" ? "phone" : "link";
-                  return (
-                    <div key={b.id} className="flex flex-wrap gap-2 items-end border-t border-zinc-100 pt-3">
-                      <Field label={`כפתור ${bi + 1} - תווית`}>
-                        <Input
-                          dir="rtl"
-                          className="min-w-[12rem]"
-                          value={b.label}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setSalesFlowConfig((c: any) => ({
-                              ...c,
-                              cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
-                                x.id === b.id ? { ...x, label: v } : x
-                              ),
-                            }));
-                          }}
-                        />
-                      </Field>
-                      <div className="space-y-1 flex-1 min-w-[min(100%,18rem)]">
-                        <label className="text-xs font-medium text-zinc-600 block text-center">
-                          {enroll ? "הצטרפות לקורס — אפשרות מסירה" : "יצירת קשר"}
-                        </label>
-                        {enroll ? (
-                          <select
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
+                    const enroll = b.kind === "course_enroll";
+                    const del: SecondaryPurchaseCtaDelivery =
+                      b.secondary_purchase_delivery === "phone" ? "phone" : "link";
+                    return (
+                      <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                        <Field label={`כפתור ${bi + 1}`}>
+                          <Input
                             dir="rtl"
-                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm text-zinc-800 bg-white min-w-[14rem]"
-                            value={del}
+                            value={b.label}
                             onChange={(e) => {
-                              const next: SecondaryPurchaseCtaDelivery =
-                                e.target.value === "phone" ? "phone" : "link";
+                              const v = e.target.value;
                               setSalesFlowConfig((c: any) => ({
                                 ...c,
                                 cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
-                                  x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                  x.id === b.id ? { ...x, label: v } : x
                                 ),
                               }));
                             }}
-                          >
-                            <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
-                            <option value="phone">מספר שירות לקוחות מהדשבורד</option>
-                          </select>
-                        ) : (
-                          <p className="text-xs text-zinc-600 text-center leading-relaxed rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
-                            מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
-                          </p>
-                        )}
+                          />
+                        </Field>
+                        <div className="space-y-1.5">
+                          <label className="block text-center text-xs font-medium text-zinc-600">
+                            {enroll ? "הצטרפות לקורס — אפשרות מסירה" : "יצירת קשר"}
+                          </label>
+                          {enroll ? (
+                            <select
+                              dir="rtl"
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                              value={del}
+                              onChange={(e) => {
+                                const next: SecondaryPurchaseCtaDelivery =
+                                  e.target.value === "phone" ? "phone" : "link";
+                                setSalesFlowConfig((c: any) => ({
+                                  ...c,
+                                  cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                    x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                  ),
+                                }));
+                              }}
+                            >
+                              <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
+                              <option value="phone">מספר שירות לקוחות מהדשבורד</option>
+                            </select>
+                          ) : (
+                            <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
+                              מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </>
             ) : null}
           </div>
