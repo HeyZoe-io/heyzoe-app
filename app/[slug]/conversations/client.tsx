@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { CONTACT_STATUS_META, type ContactStatusKey } from "@/lib/contact-status";
+import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 
@@ -382,32 +383,16 @@ export default function ConversationsClient({
 
             <div
               id="hz-convo-messages"
-              className="flex-1 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-[#faf7ff] p-3 max-h-72 overflow-y-auto overflow-x-hidden"
+              className="flex-1 rounded-xl border border-[#d1d7db] bg-[#e5ddd5] p-3 max-h-72 overflow-y-auto overflow-x-hidden"
             >
               {(messagesQuery.data ?? []).map((m, idx) => (
-                <div
+                <WaConversationMessage
                   key={`${m.created_at}-${idx}`}
-                  className={`mb-2 text-xs flex ${m.role === "user" ? "justify-start" : "justify-end"}`}
-                >
-                  <div
-                    className={
-                      "max-w-[85%] rounded-2xl px-3 py-2 border overflow-hidden " +
-                      (m.role === "user"
-                        ? "bg-white text-zinc-800 border-[rgba(113,51,218,0.1)]"
-                        : "text-white border-[rgba(113,51,218,0.18)] bg-[linear-gradient(135deg,#7133da,#ff92ff)]")
-                    }
-                  >
-                    <p className="text-[10px] opacity-80 mb-1">
-                      {m.role === "user" ? "לקוח" : "הבוט"}
-                    </p>
-                    <p className="text-sm leading-snug break-words whitespace-pre-wrap">{m.content}</p>
-                    {m.role !== "user" && m.error_code ? (
-                      <p className="mt-1 text-[10px] opacity-80">
-                        קוד שגיאה: {m.error_code}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
+                  role={m.role}
+                  content={m.content}
+                  createdAt={m.created_at}
+                  errorCode={m.error_code}
+                />
               ))}
             </div>
 
@@ -424,7 +409,7 @@ export default function ConversationsClient({
                   type="button"
                   onClick={sendManual}
                   disabled={sending || !manualText.trim()}
-                  className="w-full rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50 bg-[linear-gradient(135deg,#7133da,#ff92ff)] hover:opacity-95"
+                  className="w-full rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50 bg-[#128c7e] hover:bg-[#0f7a6e]"
                 >
                   {sending ? "שולח..." : "שליחת הודעה ידנית"}
                 </button>

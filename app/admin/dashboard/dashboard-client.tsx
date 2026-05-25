@@ -6,6 +6,7 @@ import { AlertTriangle, CalendarDays } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -447,26 +448,21 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                   <p className="text-sm text-zinc-500 text-right">אין שיחות</p>
                                 )}
                               </div>
-                              <div className="rounded-2xl border border-zinc-200 bg-white p-3 max-h-[360px] overflow-auto">
+                              <div className="rounded-2xl border border-zinc-200 bg-[#e5ddd5] p-3 max-h-[360px] overflow-auto">
                                 {selectedSessionBySlug[b.slug] ? (
                                   <div className="space-y-2">
-                                    <p className="text-xs text-zinc-500 font-mono">
+                                    <p className="rounded-md bg-white/80 px-2 py-1 text-xs text-zinc-500 font-mono">
                                       {selectedSessionBySlug[b.slug]}
                                     </p>
                                     {(messagesByKey[`${b.slug}::${selectedSessionBySlug[b.slug]}`] ?? []).map(
                                       (m, idx) => (
-                                        <div key={idx} className={`flex ${m.role === "user" ? "justify-start" : "justify-end"}`}>
-                                          <div
-                                            className={
-                                              "max-w-[86%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap border " +
-                                              (m.role === "user"
-                                                ? "bg-white border-zinc-200 text-zinc-900"
-                                                : "bg-[#f0eaff] border-[rgba(113,51,218,0.2)] text-[#2d1a6e]")
-                                            }
-                                          >
-                                            {m.content}
-                                          </div>
-                                        </div>
+                                        <WaConversationMessage
+                                          key={`${m.created_at}-${idx}`}
+                                          role={m.role}
+                                          content={m.content}
+                                          createdAt={m.created_at}
+                                          errorCode={m.error_code}
+                                        />
                                       )
                                     )}
                                   </div>
