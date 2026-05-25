@@ -1685,13 +1685,35 @@ export function expandAfterTrialRegistrationForPrompt(
 
 const TRIAL_REGISTERED_PHRASES = ["נרשמתי", "נרשמת", "נרשמנו", "registered", "signed up"] as const;
 
+function normalizeTrialRegisteredText(raw: string): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[!?….,;:"'׳״()[\]{}]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function matchesTrialAlreadyRegisteredMessage(raw: string): boolean {
+  const t = normalizeTrialRegisteredText(raw);
+  if (!t) return false;
+  return (
+    /\b(?:i\s+)?already\s+(?:registered|signed\s+up)\b/.test(t) ||
+    /\bi\s+(?:registered|signed\s+up)\b/.test(t) ||
+    /(?:^|\s)(?:אני\s+)?כבר\s+נרשמ(?:תי|נו|ת)(?:\s|$)/u.test(t) ||
+    /(?:^|\s)נרשמ(?:תי|נו|ת)\s+כבר(?:\s|$)/u.test(t) ||
+    /(?:^|\s)(?:אני\s+)?כבר\s+רשומ(?:ה|ים|ות)?(?:\s|$)/u.test(t) ||
+    /(?:^|\s)(?:אני\s+)?רשומ(?:ה|ים|ות)?\s+כבר(?:\s|$)/u.test(t)
+  );
+}
+
 /** זיהוי הודעת «סיימתי להירשם» לווטסאפ (התאמה מלאה אחרי trim, case-insensitive לאנגלית). */
 export function matchesTrialRegisteredMessage(raw: string): boolean {
-  const t = raw.trim().toLowerCase();
+  const t = normalizeTrialRegisteredText(raw);
   for (const p of TRIAL_REGISTERED_PHRASES) {
     if (t === p.toLowerCase()) return true;
   }
-  return false;
+  return matchesTrialAlreadyRegisteredMessage(raw);
 }
 
 /**
