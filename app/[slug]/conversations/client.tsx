@@ -29,6 +29,8 @@ type SessionSummary = {
   source_name?: string;
 };
 
+const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 function SessionContactStatusBadge({ statusKey }: { statusKey: ContactStatusKey | null | undefined }) {
   if (!statusKey) return <span className="text-[11px] text-zinc-400">—</span>;
   const meta = CONTACT_STATUS_META[statusKey];
@@ -281,6 +283,24 @@ export default function ConversationsClient({
     }
   }
 
+  const lastUserMessageAt = useMemo(() => {
+    const selectedMessages = messagesQuery.data ?? [];
+    for (let i = selectedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = selectedMessages[i];
+      if (String(msg?.role ?? "").trim() !== "user") continue;
+      const createdAt = String(msg.created_at ?? "").trim();
+      const ts = new Date(createdAt).getTime();
+      if (Number.isFinite(ts)) return ts;
+    }
+    return null;
+  }, [messagesQuery.data]);
+  const manualReplyWindowExpired =
+    lastUserMessageAt != null && Date.now() - lastUserMessageAt > WHATSAPP_REPLY_WINDOW_MS;
+  const stopBotDisabled = Boolean(selected && !selected.isPaused && manualReplyWindowExpired);
+  const stopBotDisabledText = selected
+    ? `לא ניתן לשלוח הודעה לאחר 24 שעות. ניתן ליצור קשר מהמספר שלכם: ${selected.phone || "מספר הליד"}`
+    : "";
+
   return (
     <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] overflow-x-hidden">
       <div className="space-y-2 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 max-h-[520px] overflow-y-auto overflow-x-hidden">
@@ -365,8 +385,12 @@ export default function ConversationsClient({
               </div>
               <button
                 type="button"
-                onClick={() => toggleBot(selected.session_id, !selected.isPaused)}
-                disabled={pausing === selected.session_id}
+                onClick={() => {
+                  if (stopBotDisabled) return;
+                  void toggleBot(selected.session_id, !selected.isPaused);
+                }}
+                disabled={pausing === selected.session_id || stopBotDisabled}
+                title={stopBotDisabled ? stopBotDisabledText : undefined}
                 className={`rounded-full px-3 py-1 text-[11px] font-medium border ${
                   selected.isPaused
                     ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
@@ -380,6 +404,11 @@ export default function ConversationsClient({
                   : "עצור בוט"}
               </button>
             </div>
+            {stopBotDisabled ? (
+              <p className="mb-2 text-right text-[11px] leading-relaxed text-amber-700">
+                {stopBotDisabledText}
+              </p>
+            ) : null}
 
             <div
               id="hz-convo-messages"
@@ -417,7 +446,7 @@ export default function ConversationsClient({
             )}
             {!selected.isPaused && (
               <p className="mt-2 text-[11px] text-zinc-500">
-                כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על "עצור בוט". לא לשכוח להפעיל מחדש :)
+                כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על &quot;עצור בוט&quot;. לא לשכוח להפעיל מחדש :)
               </p>
             )}
           </>
