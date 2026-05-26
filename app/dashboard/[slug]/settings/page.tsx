@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
 import {
   WA_SALES_FOLLOWUP_1_DEFAULT,
@@ -107,7 +106,6 @@ const AUTOSAVE_ENABLE_DELAY_MS = 500;
 const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
-const SETTINGS_PRESENCE_PREFIX = "settings";
 
 function videoUrlForPreview(url: string) {
   if (!url) return url;
@@ -1134,7 +1132,13 @@ function InstagramGlyph({ className }: { className?: string }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function SlugSettingsPage() {
+export default function SlugSettingsPage({
+  settingsPresenceLocked = false,
+  settingsPresenceEditorName = "",
+}: {
+  settingsPresenceLocked?: boolean;
+  settingsPresenceEditorName?: string;
+} = {}) {
   const { slug } = useParams() as { slug: string };
   const router = useRouter();
   const pathname = usePathname();
@@ -1166,109 +1170,6 @@ export default function SlugSettingsPage() {
   const [canAutosave, setCanAutosave] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
-  const [settingsPresenceLocked, setSettingsPresenceLocked] = useState(false);
-  const [settingsPresenceEditorName, setSettingsPresenceEditorName] = useState("");
-  const settingsPresenceClientIdRef = useRef("");
-
-  useEffect(() => {
-    const businessSlug = String(slug ?? "").trim().toLowerCase();
-    if (!businessSlug) return;
-
-    let cancelled = false;
-    const supabase = createSupabaseBrowserClient();
-    let presenceChannel: ReturnType<typeof supabase.channel> | null = null;
-    const clientId =
-      settingsPresenceClientIdRef.current ||
-      (typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2));
-    settingsPresenceClientIdRef.current = clientId;
-
-    type PresencePayload = {
-      client_id?: string;
-      user_id?: string;
-      name?: string;
-      online_at?: string;
-    };
-
-    const pickEarliest = (rows: PresencePayload[]): PresencePayload | null =>
-      [...rows].sort((a, b) => {
-        const at = String(a.online_at ?? "");
-        const bt = String(b.online_at ?? "");
-        if (at !== bt) return at.localeCompare(bt);
-        return String(a.client_id ?? "").localeCompare(String(b.client_id ?? ""));
-      })[0] ?? null;
-
-    void (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (cancelled) return;
-      const user = data.user;
-      const userId = String(user?.id ?? "").trim();
-      const userName =
-        String(user?.user_metadata?.full_name ?? "").trim() ||
-        String(user?.user_metadata?.name ?? "").trim() ||
-        String(user?.email ?? "").trim() ||
-        "משתמש";
-
-      const channel = supabase.channel(`${SETTINGS_PRESENCE_PREFIX}-${businessSlug}`, {
-        config: { presence: { key: clientId } },
-      });
-      presenceChannel = channel;
-
-      const updateLockState = () => {
-        if (cancelled) return;
-        const state = channel.presenceState() as Record<string, PresencePayload[]>;
-        const presences = Object.values(state).flat();
-        const currentUserPresences = presences.filter((presence) => {
-          const presenceClientId = String(presence.client_id ?? "");
-          const presenceUserId = String(presence.user_id ?? "").trim();
-          return presenceClientId === clientId || Boolean(userId && presenceUserId === userId);
-        });
-        const otherUserPresences = presences.filter((presence) => {
-          const presenceClientId = String(presence.client_id ?? "");
-          const presenceUserId = String(presence.user_id ?? "").trim();
-          if (presenceClientId === clientId) return false;
-          if (userId && presenceUserId === userId) return false;
-          return true;
-        });
-
-        const currentEditor = pickEarliest(currentUserPresences);
-        const otherEditor = pickEarliest(otherUserPresences);
-        const shouldLock = Boolean(
-          otherEditor &&
-            (!currentEditor ||
-              String(otherEditor.online_at ?? "").localeCompare(String(currentEditor.online_at ?? "")) <= 0)
-        );
-
-        setSettingsPresenceLocked(shouldLock);
-        setSettingsPresenceEditorName(shouldLock ? String(otherEditor?.name ?? "משתמש אחר").trim() : "");
-      };
-
-      channel
-        .on("presence", { event: "sync" }, updateLockState)
-        .on("presence", { event: "join" }, updateLockState)
-        .on("presence", { event: "leave" }, updateLockState)
-        .subscribe((status) => {
-          if (status !== "SUBSCRIBED" || cancelled) return;
-          void channel.track({
-            client_id: clientId,
-            user_id: userId,
-            name: userName,
-            online_at: new Date().toISOString(),
-          });
-        });
-
-      updateLockState();
-    })();
-
-    return () => {
-      cancelled = true;
-      if (presenceChannel) {
-        void presenceChannel.untrack();
-        void supabase.removeChannel(presenceChannel);
-      }
-    };
-  }, [slug]);
 
   /** מונע שחזור גלילה של הדפדפן שמתנגש עם ההאדר (קפיצות בטאבים / מכירה) */
   useLayoutEffect(() => {

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
-import SettingsClient from "../../dashboard/[slug]/settings/page";
+import SettingsPresenceClient from "./client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -35,6 +35,6 @@ export default async function SettingsPage({ params, searchParams }: Props) {
     const returnTo = `/${encodeURIComponent(slug)}/settings${queryFromSearchParams(sp)}`;
     redirect(`/dashboard/login?next=${encodeURIComponent(returnTo)}`);
   }
-  return <SettingsClient />;
+  return <SettingsPresenceClient slug={slug} />;
 }
 
