@@ -4,6 +4,7 @@ export type ContactStatusInput = {
   opted_out?: boolean | null;
   trial_registered?: boolean | null;
   session_phase?: string | null;
+  wa_no_response_at?: string | null;
   wa_followup_stage?: number | null;
 };
 
@@ -12,6 +13,7 @@ const ACTIVE_PHASES = new Set(["opening", "warmup", "cta"]);
 export function computeContactStatus(input: ContactStatusInput): ContactStatusKey | null {
   if (input.opted_out === true) return "opted_out";
   if (input.trial_registered === true || input.session_phase === "registered") return "registered";
+  if (input.wa_no_response_at) return "no_response";
 
   const stage = Number(input.wa_followup_stage ?? 0);
   if (stage === 3) return "no_response";

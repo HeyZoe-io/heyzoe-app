@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +93,13 @@ function matchesCreatedAtRange(createdAt: string | null, from: string, to: strin
   if (fromIso && t < new Date(fromIso).getTime()) return false;
   if (toIso && t > new Date(toIso).getTime()) return false;
   return true;
+}
+
+function resolveInitialStatusFilter(raw: string | null): ContactStatusFilterValue {
+  const value = String(raw ?? "").trim();
+  if (value === "all" || value === "none") return value;
+  if (CONTACT_STATUS_FILTER_ORDER.includes(value as ContactStatusKey)) return value as ContactStatusKey;
+  return "all";
 }
 
 function contactRowKey(
@@ -244,12 +251,15 @@ export default function ContactsClient({
   marketingAdminMode = false,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const multiBusinessAdmin = adminMode && !marketingAdminMode;
   const showBusinessColumn = multiBusinessAdmin;
   const todayInput = useMemo(() => toDateInputValue(new Date()), []);
   const [dateFrom, setDateFrom] = useState(() => defaultLast30DaysRange().from);
   const [dateTo, setDateTo] = useState(() => defaultLast30DaysRange().to);
-  const [statusFilter, setStatusFilter] = useState<ContactStatusFilterValue>("all");
+  const [statusFilter, setStatusFilter] = useState<ContactStatusFilterValue>(() =>
+    resolveInitialStatusFilter(searchParams.get("status"))
+  );
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
