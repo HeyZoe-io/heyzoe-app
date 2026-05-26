@@ -16,6 +16,12 @@ type NoResponseLead = {
   phone: string | null;
 };
 
+type LeadForEmail = {
+  id: string | number;
+  full_name: string | null;
+  phone: string | null;
+};
+
 type BusinessRow = {
   id: number;
   slug: string | null;
@@ -45,11 +51,11 @@ function esc(s: string): string {
     .replaceAll("'", "&#039;");
 }
 
-function leadName(lead: NoResponseLead): string {
+function leadName(lead: LeadForEmail): string {
   return String(lead.full_name ?? "").trim() || "ליד";
 }
 
-function leadPhone(lead: NoResponseLead): string {
+function leadPhone(lead: LeadForEmail): string {
   return String(lead.phone ?? "").trim() || "—";
 }
 
@@ -79,6 +85,33 @@ function buildEmailHtml(input: {
     `<tbody>${rows}</tbody>`,
     `</table>`,
     `<p>לצפייה ברשימה המלאה ולייצוא:<br/>👉 <a href="${esc(listUrl)}" style="color:#7133da;font-weight:700">לחץ כאן</a> → ${esc(listUrl)}</p>`,
+    `<p>זואי עשתה את שלה, עכשיו התור שלך 🙂</p>`,
+    `</div>`,
+  ].join("");
+}
+
+function buildMarketingAdminEmailHtml(leads: LeadForEmail[]): string {
+  const listUrl = "https://heyzoe.io/admin/leads";
+  const rows = leads
+    .map(
+      (lead) => `
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right">${esc(leadName(lead))}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right" dir="ltr">${esc(leadPhone(lead))}</td>
+        </tr>`
+    )
+    .join("");
+
+  return [
+    `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
+    `<p>היי HeyZoe,</p>`,
+    `<p>ביממה האחרונה יש ${leads.length} לידים שסיימו את כל 3 הפולואפים של זואי<br/>ועדיין לא ענו. הם לא אבודים, רק צריכים טאץ׳ אנושי 📞</p>`,
+    `<p>הלידים שממתינים לשיחה:</p>`,
+    `<table dir="rtl" style="border-collapse:collapse;width:100%;max-width:620px;margin:12px 0;text-align:right">`,
+    `<thead><tr><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">שם</th><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">טלפון</th></tr></thead>`,
+    `<tbody>${rows}</tbody>`,
+    `</table>`,
+    `<p>לצפייה ברשימה המלאה:<br/>👉 <a href="${esc(listUrl)}" style="color:#7133da;font-weight:700">לחץ כאן</a> → ${esc(listUrl)}</p>`,
     `<p>זואי עשתה את שלה, עכשיו התור שלך 🙂</p>`,
     `</div>`,
   ].join("");
@@ -136,26 +169,24 @@ export async function GET(req: NextRequest) {
     byBusiness.set(businessId, group);
   }
 
-  if (!byBusiness.size) {
-    return NextResponse.json({ ok: true, businesses_examined: 0, emails_sent: 0, leads_notified: 0 });
-  }
-
   const businessIds = [...byBusiness.keys()];
-  const { data: businessesData, error: bizErr } = await admin
-    .from("businesses")
-    .select("id, slug, name, email, user_id")
-    .in("id", businessIds);
-
-  if (bizErr) {
-    console.error("[cron/daily-no-response-email] businesses query:", bizErr);
-    return NextResponse.json({ error: "business_query_failed" }, { status: 500 });
-  }
-
   const businesses = new Map<number, BusinessRow>();
-  for (const row of businessesData ?? []) {
-    const biz = row as BusinessRow;
-    const id = Number(biz.id);
-    if (Number.isFinite(id)) businesses.set(id, biz);
+  if (businessIds.length) {
+    const { data: businessesData, error: bizErr } = await admin
+      .from("businesses")
+      .select("id, slug, name, email, user_id")
+      .in("id", businessIds);
+
+    if (bizErr) {
+      console.error("[cron/daily-no-response-email] businesses query:", bizErr);
+      return NextResponse.json({ error: "business_query_failed" }, { status: 500 });
+    }
+
+    for (const row of businessesData ?? []) {
+      const biz = row as BusinessRow;
+      const id = Number(biz.id);
+      if (Number.isFinite(id)) businesses.set(id, biz);
+    }
   }
 
   const authEmailByUserId = await loadOwnerEmailsByUserId(
@@ -210,11 +241,59 @@ export async function GET(req: NextRequest) {
     emailsSent += 1;
   }
 
+  let marketingAdminEmailsSent = 0;
+  let marketingAdminLeadsNotified = 0;
+  const { data: marketingRows, error: marketingErr } = await admin
+    .from("marketing_flow_sessions")
+    .select("id, full_name, phone")
+    .not("followup_3_sent_at", "is", null)
+    .is("no_response_notified_at", null)
+    .limit(BATCH);
+
+  if (marketingErr) {
+    if (/no_response_notified_at|column/i.test(String(marketingErr.message ?? ""))) {
+      errors.push("heyzoe-marketing: no_response_notified_at column missing");
+    } else {
+      console.error("[cron/daily-no-response-email] marketing query:", marketingErr);
+      errors.push(`heyzoe-marketing: ${marketingErr.message}`);
+    }
+  } else {
+    const marketingLeads = (marketingRows ?? []) as LeadForEmail[];
+    if (marketingLeads.length) {
+      const result = await sendEmail({
+        to: "office@heyzoe.io",
+        subject: `🔔 ${marketingLeads.length} לידים מחכים לשיחה ממך`,
+        htmlContent: buildMarketingAdminEmailHtml(marketingLeads),
+      });
+
+      if (!result.ok) {
+        errors.push(`heyzoe-marketing: ${result.error}`);
+        skipped += 1;
+      } else {
+        const ids = marketingLeads.map((lead) => lead.id).filter((id) => id != null);
+        if (ids.length) {
+          const { error: updateErr } = await admin
+            .from("marketing_flow_sessions")
+            .update({ no_response_notified_at: nowIso })
+            .in("id", ids);
+          if (updateErr) {
+            errors.push(`heyzoe-marketing: update ${updateErr.message}`);
+          } else {
+            marketingAdminLeadsNotified = ids.length;
+          }
+        }
+        marketingAdminEmailsSent = 1;
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     businesses_examined: byBusiness.size,
     emails_sent: emailsSent,
     leads_notified: leadsNotified,
+    marketing_admin_emails_sent: marketingAdminEmailsSent,
+    marketing_admin_leads_notified: marketingAdminLeadsNotified,
     skipped,
     errors: errors.slice(0, 12),
   });
