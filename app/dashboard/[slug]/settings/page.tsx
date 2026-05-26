@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
 import {
   WA_SALES_FOLLOWUP_1_DEFAULT,
@@ -106,6 +107,7 @@ const AUTOSAVE_ENABLE_DELAY_MS = 500;
 const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
+const SETTINGS_PRESENCE_PREFIX = "settings";
 
 function videoUrlForPreview(url: string) {
   if (!url) return url;
@@ -1164,6 +1166,109 @@ export default function SlugSettingsPage() {
   const [canAutosave, setCanAutosave] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
+  const [settingsPresenceLocked, setSettingsPresenceLocked] = useState(false);
+  const [settingsPresenceEditorName, setSettingsPresenceEditorName] = useState("");
+  const settingsPresenceClientIdRef = useRef("");
+
+  useEffect(() => {
+    const businessSlug = String(slug ?? "").trim().toLowerCase();
+    if (!businessSlug) return;
+
+    let cancelled = false;
+    const supabase = createSupabaseBrowserClient();
+    let presenceChannel: ReturnType<typeof supabase.channel> | null = null;
+    const clientId =
+      settingsPresenceClientIdRef.current ||
+      (typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2));
+    settingsPresenceClientIdRef.current = clientId;
+
+    type PresencePayload = {
+      client_id?: string;
+      user_id?: string;
+      name?: string;
+      online_at?: string;
+    };
+
+    const pickEarliest = (rows: PresencePayload[]): PresencePayload | null =>
+      [...rows].sort((a, b) => {
+        const at = String(a.online_at ?? "");
+        const bt = String(b.online_at ?? "");
+        if (at !== bt) return at.localeCompare(bt);
+        return String(a.client_id ?? "").localeCompare(String(b.client_id ?? ""));
+      })[0] ?? null;
+
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (cancelled) return;
+      const user = data.user;
+      const userId = String(user?.id ?? "").trim();
+      const userName =
+        String(user?.user_metadata?.full_name ?? "").trim() ||
+        String(user?.user_metadata?.name ?? "").trim() ||
+        String(user?.email ?? "").trim() ||
+        "משתמש";
+
+      const channel = supabase.channel(`${SETTINGS_PRESENCE_PREFIX}-${businessSlug}`, {
+        config: { presence: { key: clientId } },
+      });
+      presenceChannel = channel;
+
+      const updateLockState = () => {
+        if (cancelled) return;
+        const state = channel.presenceState() as Record<string, PresencePayload[]>;
+        const presences = Object.values(state).flat();
+        const currentUserPresences = presences.filter((presence) => {
+          const presenceClientId = String(presence.client_id ?? "");
+          const presenceUserId = String(presence.user_id ?? "").trim();
+          return presenceClientId === clientId || Boolean(userId && presenceUserId === userId);
+        });
+        const otherUserPresences = presences.filter((presence) => {
+          const presenceClientId = String(presence.client_id ?? "");
+          const presenceUserId = String(presence.user_id ?? "").trim();
+          if (presenceClientId === clientId) return false;
+          if (userId && presenceUserId === userId) return false;
+          return true;
+        });
+
+        const currentEditor = pickEarliest(currentUserPresences);
+        const otherEditor = pickEarliest(otherUserPresences);
+        const shouldLock = Boolean(
+          otherEditor &&
+            (!currentEditor ||
+              String(otherEditor.online_at ?? "").localeCompare(String(currentEditor.online_at ?? "")) <= 0)
+        );
+
+        setSettingsPresenceLocked(shouldLock);
+        setSettingsPresenceEditorName(shouldLock ? String(otherEditor?.name ?? "משתמש אחר").trim() : "");
+      };
+
+      channel
+        .on("presence", { event: "sync" }, updateLockState)
+        .on("presence", { event: "join" }, updateLockState)
+        .on("presence", { event: "leave" }, updateLockState)
+        .subscribe((status) => {
+          if (status !== "SUBSCRIBED" || cancelled) return;
+          void channel.track({
+            client_id: clientId,
+            user_id: userId,
+            name: userName,
+            online_at: new Date().toISOString(),
+          });
+        });
+
+      updateLockState();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (presenceChannel) {
+        void presenceChannel.untrack();
+        void supabase.removeChannel(presenceChannel);
+      }
+    };
+  }, [slug]);
 
   /** מונע שחזור גלילה של הדפדפן שמתנגש עם ההאדר (קפיצות בטאבים / מכירה) */
   useLayoutEffect(() => {
@@ -1848,7 +1953,7 @@ export default function SlugSettingsPage() {
   getSavePayloadRef.current = getSavePayload;
 
   useEffect(() => {
-    if (!canAutosave) return;
+    if (!canAutosave || settingsPresenceLocked) return;
     const flush = () => {
       try {
         const body = JSON.stringify(getSavePayloadRef.current());
@@ -1864,10 +1969,10 @@ export default function SlugSettingsPage() {
     };
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
-  }, [canAutosave]);
+  }, [canAutosave, settingsPresenceLocked]);
 
   useEffect(() => {
-    if (!canAutosave) return;
+    if (!canAutosave || settingsPresenceLocked) return;
     let cancelled = false;
     const id = window.setTimeout(() => {
       void (async () => {
@@ -1905,9 +2010,19 @@ export default function SlugSettingsPage() {
       cancelled = true;
       clearTimeout(id);
     };
-  }, [canAutosave, postSettings]);
+  }, [canAutosave, postSettings, settingsPresenceLocked]);
+
+  useEffect(() => {
+    if (!settingsPresenceLocked) return;
+    setAutosaveStatus("idle");
+    setAutoSaveErr("");
+  }, [settingsPresenceLocked]);
 
   const saveAll = useCallback(async () => {
+    if (settingsPresenceLocked) {
+      setSaveErr("משתמש אחר עורך כרגע את ההגדרות. נסה שוב בעוד מעט.");
+      return false;
+    }
     setSaving(true);
     setSaveErr("");
     setAutoSaveErr("");
@@ -1930,7 +2045,7 @@ export default function SlugSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [postSettings]);
+  }, [postSettings, settingsPresenceLocked]);
 
   const applyWaSalesFollowupDefaults = useCallback(() => {
     setWaSalesFollowup1(WA_SALES_FOLLOWUP_1_DEFAULT);
@@ -2468,6 +2583,7 @@ export default function SlugSettingsPage() {
 
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
+  const effectiveCanAutosave = canAutosave && !settingsPresenceLocked;
 
   function nextStep() {
     setStep((s) => Math.min(STEPS.length, s + 1));
@@ -2480,7 +2596,21 @@ export default function SlugSettingsPage() {
   return (
     <div className="min-h-[50vh]" dir="rtl">
       <div className={DASHBOARD_SETTINGS_SHELL}>
-        {canAutosave ? (
+        {settingsPresenceLocked ? (
+          <div
+            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right text-sm font-medium text-amber-800"
+            role="status"
+          >
+            משתמש אחר עורך כרגע את ההגדרות. נסה שוב בעוד מעט.
+            {settingsPresenceEditorName ? (
+              <span className="block pt-1 text-xs font-normal text-amber-700">
+                עורך כרגע: {settingsPresenceEditorName}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {effectiveCanAutosave ? (
           <div
             className="flex min-h-[1.25rem] items-center justify-end gap-1.5 pb-3 text-xs text-zinc-500"
             aria-live="polite"
@@ -2521,6 +2651,11 @@ export default function SlugSettingsPage() {
       ) : null}
 
       <div className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}>
+        <fieldset
+          disabled={settingsPresenceLocked}
+          aria-disabled={settingsPresenceLocked}
+          className={`m-0 border-0 p-0 ${settingsPresenceLocked ? "pointer-events-none select-text opacity-75" : ""}`}
+        >
 
         {/* ════════════════════ STEP 1 — לינקים ════════════════════ */}
         {step === 1 && (
@@ -2678,6 +2813,7 @@ export default function SlugSettingsPage() {
             />
           </StepPanel>
         )}
+        </fieldset>
 
         {saveErr ? <p className="mt-4 text-center text-sm text-red-500">{saveErr}</p> : null}
 
@@ -2698,7 +2834,7 @@ export default function SlugSettingsPage() {
           {isLast ? (
             <Button
               onClick={() => void saveAll()}
-              disabled={saving || !settingsHydrated}
+              disabled={saving || !settingsHydrated || settingsPresenceLocked}
               className="gap-2"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2708,6 +2844,10 @@ export default function SlugSettingsPage() {
             <Button
               disabled={saving || !settingsHydrated}
               onClick={() => {
+                if (settingsPresenceLocked) {
+                  nextStep();
+                  return;
+                }
                 void (async () => {
                   const ok = await saveAll();
                   if (ok) nextStep();
