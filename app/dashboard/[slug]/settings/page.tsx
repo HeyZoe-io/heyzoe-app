@@ -2671,6 +2671,8 @@ export default function SlugSettingsPage({
             regeneratingKey={busyAction}
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}
+            scheduleDirectRegistration={scheduleDirectRegistration}
+            arboxLink={arboxLink}
             warmupSessionEnabled={warmupSessionEnabled}
             setWarmupSessionEnabled={setWarmupSessionEnabled}
             salesOpeningAutoText={salesOpeningAutoText}

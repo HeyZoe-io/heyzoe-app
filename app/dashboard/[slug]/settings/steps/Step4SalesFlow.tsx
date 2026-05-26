@@ -49,6 +49,8 @@ export default function Step4SalesFlow(props: any) {
     regeneratingKey,
     salesFlowConfig,
     setSalesFlowConfig,
+    scheduleDirectRegistration = true,
+    arboxLink = "",
     warmupSessionEnabled = true,
     setWarmupSessionEnabled,
     salesOpeningAutoText,
@@ -127,21 +129,36 @@ export default function Step4SalesFlow(props: any) {
     [services]
   );
 
-  type SalesSectionId = "media" | "opening" | "service_pick" | "warmup" | "cta" | "after_trial";
-  const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = [
-    { id: "media", label: "מדיה", hint: "פתיחה" },
-    { id: "opening", label: "פתיחה", hint: "סשן" },
-    { id: "service_pick", label: "מוצר", hint: "שירות" },
-    { id: "warmup", label: "חימום", hint: "סשן" },
-    { id: "cta", label: "הנעה", hint: "לפעולה" },
-    { id: "after_trial", label: "אחרי הרשמה", hint: "ניסיון" },
-  ];
+  const showScheduleSelectionSession = scheduleDirectRegistration === false;
+  type SalesSectionId =
+    | "media"
+    | "opening"
+    | "service_pick"
+    | "warmup"
+    | "schedule_selection"
+    | "cta"
+    | "after_trial";
+  const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = useMemo(
+    () => [
+      { id: "media", label: "מדיה", hint: "פתיחה" },
+      { id: "opening", label: "פתיחה", hint: "סשן" },
+      { id: "service_pick", label: "מוצר", hint: "שירות" },
+      { id: "warmup", label: "חימום", hint: "סשן" },
+      ...(showScheduleSelectionSession
+        ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "סשן" }] as const)
+        : []),
+      { id: "cta", label: "הנעה", hint: "לפעולה" },
+      { id: "after_trial", label: "אחרי הרשמה", hint: "ניסיון" },
+    ],
+    [showScheduleSelectionSession]
+  );
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
     useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
       media: true,
       opening: true,
       service_pick: false,
       warmup: false,
+      schedule_selection: false,
       cta: false,
       after_trial: false,
     });
@@ -847,6 +864,50 @@ export default function Step4SalesFlow(props: any) {
             )}
           </div>
         </SalesPathSectionBlock>
+
+        {showScheduleSelectionSession ? (
+          <SalesPathSectionBlock
+            stepPrefix="sales"
+            id="schedule_selection"
+            title="בחירת יום ושעה"
+            hint="נשלח כשאין הרשמה ישירה ממערכת השעות"
+            open={openSections.schedule_selection}
+            onToggle={() => toggle("schedule_selection")}
+            filled
+          >
+            <div className="space-y-3">
+              <p className="rounded-xl border border-[#7133da]/15 bg-[#f8f5ff] px-3 py-2 text-center text-xs leading-relaxed text-[#4b2a86]">
+                הסשן הזה מופעל אוטומטית כי בטאב לינקים הוגדר: הרשמה ישירות מהמערכת? לא.
+                הוא לא יישלח עבור קורס עם תאריכי התחלה וסיום מוגדרים.
+              </p>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                  <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 1 — תאריך</p>
+                  <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                    {[
+                      `כאן ניתן לראות את מערכת השעות שלנו: ${String(arboxLink ?? "").trim() || "[schedule_link]"}`,
+                      "באיזה תאריך הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב תאריך בפורמט: 24.5",
+                    ].join("\n")}
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                    זואי מקבלת רק DD.M או DD.MM. אם הפורמט לא תקין היא מבקשת לנסות שוב.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                  <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 2 — שעה</p>
+                  <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                    באיזו שעה הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב שעה בפורמט: 19:00
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                    זואי מקבלת רק HH:MM. אם הליד שואל משהו באמצע, היא עונה קצר וחוזרת לשאלת השעה.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </SalesPathSectionBlock>
+        ) : null}
 
         <SalesPathSectionBlock
           stepPrefix="sales"
