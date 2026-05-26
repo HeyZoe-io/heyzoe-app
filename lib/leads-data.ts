@@ -25,7 +25,7 @@ export async function loadLeadsForBusiness(
   const { data: contacts } = await admin
     .from("contacts")
     .select(
-      "phone, full_name, source, created_at, opted_out, session_phase, trial_registered, wa_followup_stage, last_contact_at"
+      "phone, full_name, source, created_at, opted_out, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at"
     )
     .eq("business_id", businessId)
     .order("created_at", { ascending: false });
@@ -55,6 +55,8 @@ export async function loadLeadsForBusiness(
       opted_out: row.opted_out as boolean | null,
       session_phase: row.session_phase as string | null,
       trial_registered: row.trial_registered as boolean | null,
+      wa_no_response_at: row.wa_no_response_at as string | null,
+      no_response_notified_at: row.no_response_notified_at as string | null,
       wa_followup_stage: mapWaStage(row.wa_followup_stage),
       last_contact_at: row.last_contact_at as string | null,
       cta_clicked_at: key ? (ctaByPhone.get(key) ?? null) : null,
@@ -165,6 +167,8 @@ export async function loadMarketingAdminLeads(
         registered
       ),
       trial_registered: registered,
+      wa_no_response_at: null,
+      no_response_notified_at: null,
       wa_followup_stage: waStage,
       last_contact_at: lastContact,
       cta_clicked_at: null,
@@ -182,7 +186,7 @@ export async function loadLeadsForAdmin(
     .select(
       `
       phone, full_name, source, created_at, opted_out,
-      session_phase, trial_registered, wa_followup_stage, last_contact_at,
+      session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at,
       business_id,
       businesses ( slug, name )
     `
@@ -224,6 +228,8 @@ export async function loadLeadsForAdmin(
       opted_out: c.opted_out as boolean | null,
       session_phase: c.session_phase as string | null,
       trial_registered: c.trial_registered as boolean | null,
+      wa_no_response_at: c.wa_no_response_at as string | null,
+      no_response_notified_at: c.no_response_notified_at as string | null,
       wa_followup_stage: mapWaStage(c.wa_followup_stage),
       last_contact_at: c.last_contact_at as string | null,
       business_slug: biz?.slug ?? null,

@@ -28,6 +28,7 @@ type WaFollowupSkipReason =
   | "no_active_channel"
   | "no_assistant_message"
   | "no_user_message"
+  | "no_response"
   | "over_24h"
   | "already_replied"
   | "not_due_yet"
@@ -59,7 +60,7 @@ function maskPhone(phone: string): string {
 }
 
 const CONTACT_DEBUG_SELECT =
-  "id, phone, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered";
+  "id, phone, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered";
 
 async function findContactByPhone(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -309,7 +310,7 @@ export async function GET(req: NextRequest) {
   const { data: contacts, error } = await admin
     .from("contacts")
     .select(
-      "id, phone, business_id, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
+      "id, phone, business_id, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
     )
     .eq("source", "whatsapp")
     .or("opted_out.eq.false,opted_out.is.null")
@@ -336,6 +337,18 @@ export async function GET(req: NextRequest) {
     const contactId = (c as { id?: string | number }).id;
     const phone = String((c as { phone?: string }).phone ?? "").trim();
     const businessId = (c as { business_id?: number | null }).business_id;
+    const noResponseAt = String((c as { wa_no_response_at?: string | null }).wa_no_response_at ?? "").trim();
+
+    if (noResponseAt) {
+      logWaFollowupSkip("no_response", {
+        contact_id: contactId ?? null,
+        phone: phone ? maskPhone(phone) : null,
+        business_id: businessId ?? null,
+        wa_no_response_at: noResponseAt,
+      });
+      bumpSkip("no_response");
+      continue;
+    }
 
     if (!phone || businessId == null) {
       logWaFollowupSkip("invalid_contact", {
