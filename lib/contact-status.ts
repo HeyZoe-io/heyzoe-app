@@ -8,7 +8,7 @@ export type ContactStatusInput = {
   wa_followup_stage?: number | null;
 };
 
-const ACTIVE_PHASES = new Set(["opening", "warmup", "cta"]);
+const ACTIVE_PHASES = new Set(["opening", "warmup", "schedule_date", "schedule_time", "cta"]);
 
 export function computeContactStatus(input: ContactStatusInput): ContactStatusKey | null {
   if (input.opted_out === true) return "opted_out";

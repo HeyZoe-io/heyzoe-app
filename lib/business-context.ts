@@ -38,6 +38,8 @@ export type BusinessKnowledgePack = {
   schedulePublicUrl: string;
   /** קישור לדף מנויים וכרטיסיות (social_links.memberships_url) */
   membershipsUrl: string;
+  scheduleDirectRegistration: boolean;
+  warmupSessionEnabled: boolean;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
@@ -131,7 +133,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const admin = createSupabaseAdminClient();
     const { data: business } = await admin
       .from("businesses")
-      .select("id, name, niche, cta_text, cta_link, social_links, bot_name")
+      .select("id, name, niche, cta_text, cta_link, social_links, bot_name, schedule_direct_registration, warmup_session_enabled")
       .eq("slug", slug)
       .maybeSingle();
     if (!business) return null;
@@ -350,6 +352,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       arboxLink,
       schedulePublicUrl,
       membershipsUrl,
+      scheduleDirectRegistration: (business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false,
+      warmupSessionEnabled: (business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false,
       openingMediaUrl,
       openingMediaType,
       servicesShortText,
@@ -509,7 +513,7 @@ const RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL = `
 
 /** הקשר לפרומפט וואטסאפ (שלב שיחה + סטטוס הרשמה לניסיון). */
 export type WhatsAppPromptContext = {
-  sessionPhase?: "opening" | "warmup" | "cta" | "registered";
+  sessionPhase?: "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
   trialRegistered?: boolean;
   /** המערכת תשלח CTA / המשך פלואו / תפריט בנפרד — בלי שאלת המשך בגוף התשובה */
   suppressFollowUpQuestion?: boolean;

@@ -125,6 +125,8 @@ export async function GET(req: NextRequest) {
       schedule_text: typeof social.schedule_text === "string" ? social.schedule_text : "",
       facebook_pixel_id: typeof business.facebook_pixel_id === "string" ? business.facebook_pixel_id : "",
       conversions_api_token: typeof business.conversions_api_token === "string" ? business.conversions_api_token : "",
+      schedule_direct_registration: business.schedule_direct_registration !== false,
+      warmup_session_enabled: business.warmup_session_enabled !== false,
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -208,6 +210,8 @@ export async function POST(req: NextRequest) {
     cta_link: String(firstServiceWithCta?.cta_link ?? business.cta_link ?? ""),
     facebook_pixel_id: String(business.facebook_pixel_id ?? ""),
     conversions_api_token: String(business.conversions_api_token ?? ""),
+    schedule_direct_registration: business.schedule_direct_registration !== false,
+    warmup_session_enabled: business.warmup_session_enabled !== false,
   };
 
   const { data: savedBiz, error: bizErr } = await admin

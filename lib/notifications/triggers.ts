@@ -126,12 +126,22 @@ export async function triggerHumanRequestedNotification(input: {
 export async function triggerLeadRegisteredNotification(input: {
   businessId: number;
   leadPhone: string;
+  scheduleDirectRegistration?: boolean;
+  requestedDate?: string | null;
+  requestedTime?: string | null;
 }): Promise<void> {
+  const directRegistration = input.scheduleDirectRegistration !== false;
   await sendIfEnabled({
     businessId: input.businessId,
     key: "lead_registered",
-    templateName: "lead_registered",
-    components: bodyParams(formatLeadPhoneDisplay(input.leadPhone)),
+    templateName: directRegistration ? "lead_registered" : "lead_registered_with_time",
+    components: directRegistration
+      ? bodyParams(formatLeadPhoneDisplay(input.leadPhone))
+      : bodyParams(
+          formatLeadPhoneDisplay(input.leadPhone),
+          String(input.requestedDate ?? "").trim(),
+          String(input.requestedTime ?? "").trim()
+        ),
   });
 }
 

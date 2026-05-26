@@ -189,11 +189,18 @@ function isAddressOrDirectionsIntent(text: string): boolean {
   );
 }
 
-type HeyzoeSessionPhase = "opening" | "warmup" | "cta" | "registered";
+type HeyzoeSessionPhase = "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
 
 function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
   const s = String(raw ?? "").trim();
-  if (s === "warmup" || s === "cta" || s === "registered" || s === "opening") return s;
+  if (
+    s === "warmup" ||
+    s === "schedule_date" ||
+    s === "schedule_time" ||
+    s === "cta" ||
+    s === "registered" ||
+    s === "opening"
+  ) return s;
   return "opening";
 }
 
@@ -254,6 +261,155 @@ async function bumpSfConsumedCtaKind(input: {
     console.warn("[WA Webhook] sf_clicked_cta_kinds update threw:", e);
   }
   return previous;
+}
+
+type ContactScheduleSelectionState = {
+  requestedDate: string;
+  requestedTime: string;
+};
+
+function isCourseWithDefinedDates(service: SfServiceRow | null): boolean {
+  return Boolean(
+    service?.offerKind === "course" &&
+      service.courseStartDate.trim().length > 0 &&
+      service.courseEndDate.trim().length > 0
+  );
+}
+
+function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): boolean {
+  return knowledge.scheduleDirectRegistration === false && !isCourseWithDefinedDates(service);
+}
+
+function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): HeyzoeSessionPhase {
+  if (knowledge.warmupSessionEnabled !== false) return "warmup";
+  return shouldCollectScheduleSelection(knowledge, service) ? "schedule_date" : "cta";
+}
+
+function parseScheduleDateInput(text: string): string | null {
+  const m = text.trim().match(/^(\d{1,2})\.(\d{1,2})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+    return null;
+  }
+  return `${day}.${month}`;
+}
+
+function parseScheduleTimeInput(text: string): string | null {
+  const m = text.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!m) return null;
+  return `${m[1]}:${m[2]}`;
+}
+
+function buildScheduleDateQuestion(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
+  const scheduleLink = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
+  const serviceName = service?.name?.trim() || "האימון";
+  return [
+    `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink || "מערכת השעות תתעדכן בקרוב"}`,
+    `באיזה תאריך הכי מתאים לך להגיע ל${serviceName}? נא לכתוב תאריך בפורמט: 24.5`,
+  ].join("\n");
+}
+
+function buildScheduleTimeQuestion(service: SfServiceRow | null): string {
+  const serviceName = service?.name?.trim() || "האימון";
+  return `באיזו שעה הכי מתאים לך להגיע ל${serviceName}? נא לכתוב שעה בפורמט: 19:00`;
+}
+
+function buildScheduleTimeSideAnswer(text: string, knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
+  if (isAddressOrDirectionsIntent(text)) {
+    const address = knowledge.addressText?.trim() ?? "";
+    const directions = knowledge.directionsText?.trim() ?? "";
+    return address
+      ? [`הכתובת שלנו: ${address}`, directions ? `ככה מגיעים אלינו: ${directions}` : ""].filter(Boolean).join("\n")
+      : "הכתובת תתעדכן בקרוב, ונשמח לשלוח לך את כל הפרטים.";
+  }
+  const norm = normalizeGreetingToken(text);
+  if (/(מחיר|כמה עולה|עלות|תשלום|עולה)/u.test(norm)) {
+    const price = service?.priceText?.trim() ?? "";
+    return price ? `המחיר הוא ${price}.` : "אין לי מחיר מדויק כאן, הצוות ישמח לעזור בזה.";
+  }
+  if (/(נציג|שירות|טלפון|לדבר|חוזר|תחזרו)/u.test(norm)) {
+    const phone = knowledge.customerServicePhone?.trim() ?? "";
+    return phone ? `אפשר לדבר עם שירות הלקוחות כאן: ${phone}` : "אפשר לכתוב כאן, והצוות יחזור אליך בהקדם.";
+  }
+  if (/[?؟]/.test(text)) {
+    return "בשמחה, אפשר לשאול כאן ואעזור בקצרה.";
+  }
+  return "";
+}
+
+async function fetchContactScheduleSelectionState(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  phone: string;
+}): Promise<ContactScheduleSelectionState> {
+  try {
+    const { data, error } = await input.supabase
+      .from("contacts")
+      .select("sf_requested_date, sf_requested_time")
+      .eq("business_id", input.businessId)
+      .eq("phone", input.phone)
+      .maybeSingle();
+    if (error || !data) return { requestedDate: "", requestedTime: "" };
+    return {
+      requestedDate: String((data as { sf_requested_date?: unknown }).sf_requested_date ?? "").trim(),
+      requestedTime: String((data as { sf_requested_time?: unknown }).sf_requested_time ?? "").trim(),
+    };
+  } catch {
+    return { requestedDate: "", requestedTime: "" };
+  }
+}
+
+async function sendScheduleSelectionDateQuestion(input: {
+  knowledge: BusinessKnowledgePack;
+  selectedService: SfServiceRow | null;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const question = buildScheduleDateQuestion(input.knowledge, input.selectedService);
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, question, input.accountSid, input.authToken).catch((e) =>
+    console.error("[WA Webhook] Send schedule date question failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: question,
+    model_used: "sales_flow_schedule_date_question",
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({ supabase: input.supabase, businessId: input.businessId, phone: input.msg.from, phase: "schedule_date" });
+}
+
+async function sendScheduleSelectionTimeQuestion(input: {
+  selectedService: SfServiceRow | null;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  prefix?: string;
+}): Promise<void> {
+  const question = buildScheduleTimeQuestion(input.selectedService);
+  const text = [input.prefix?.trim() ?? "", question].filter(Boolean).join("\n\n");
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, text, input.accountSid, input.authToken).catch((e) =>
+    console.error("[WA Webhook] Send schedule time question failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: text,
+    model_used: "sales_flow_schedule_time_question",
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({ supabase: input.supabase, businessId: input.businessId, phone: input.msg.from, phase: "schedule_time" });
 }
 
 function getWhatsAppOpeningGreetingTextOnly(k: BusinessKnowledgePack): string {
@@ -450,6 +606,37 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
       : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
   const selectedService =
     salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+  if (shouldCollectScheduleSelection(knowledge, selectedService)) {
+    const scheduleState = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
+    if (!scheduleState.requestedDate) {
+      await sendScheduleSelectionDateQuestion({
+        knowledge,
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+    if (!scheduleState.requestedTime) {
+      await sendScheduleSelectionTimeQuestion({
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+  }
 
   const activeOfferKind = selectedService?.offerKind ?? "trial";
   const ctaBank = ctaButtonsForOfferKind(cfg, activeOfferKind);
@@ -740,7 +927,44 @@ async function sendFlowContinuation(input: {
     return;
   }
 
+  if (phase === "schedule_date" || phase === "schedule_time") {
+    await sendSalesFlowCtaMenuWithPhaseUpdate({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      salesFlowServices,
+      trialRegistered,
+      allowTrialCta,
+      sfConsumedKinds,
+      modelUsed: "flow_continuation_schedule_selection",
+    });
+    return;
+  }
+
   if (phase === "warmup") {
+    if (knowledge.warmupSessionEnabled === false) {
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        modelUsed: "flow_continuation_cta",
+      });
+      return;
+    }
     const pendingExp = await isWarmupExperienceQuestionPending({
       admin: supabase,
       business_slug,
@@ -810,8 +1034,9 @@ async function sendFlowContinuation(input: {
       return;
     }
 
-      await sendFlowContinuation({
-      phase: "warmup",
+    const singleService = salesFlowServices[0] ?? null;
+    await sendFlowContinuation({
+      phase: scheduleSelectionPhaseAfterService(knowledge, singleService),
       contact: { flow_step: 0 },
       knowledge,
       msg,
@@ -833,6 +1058,24 @@ async function sendFlowContinuation(input: {
 
   // warmup — שאלת ניסיון קודם (פעם ראשונה בלבד)
   if (phase === "warmup" && step === 0) {
+    if (knowledge.warmupSessionEnabled === false) {
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        modelUsed: "flow_continuation_cta",
+      });
+      return;
+    }
     const sent = await sendWarmupExperienceQuestionMenu({
       cfg,
       salesFlowServices,
@@ -850,6 +1093,24 @@ async function sendFlowContinuation(input: {
   }
 
   if (phase === "warmup") {
+    if (knowledge.warmupSessionEnabled === false) {
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        modelUsed: "flow_continuation_cta",
+      });
+      return;
+    }
     const namedForWarmExtras =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
@@ -1200,6 +1461,8 @@ async function processIncoming(
   let allowTrialCtaThisSession = false;
   let contactSessionPhase: HeyzoeSessionPhase = "opening";
   let contactFlowStep = 0;
+  let contactScheduleRequestedDate = "";
+  let contactScheduleRequestedTime = "";
   let contactId: string | number | null = null;
   let starterQuotaNoticeMonth: string | null = null;
   /** אל תחזירו הנעה לאינסטגרם לאחר שנשלחה כבר הזמנה לעקוב */
@@ -1279,8 +1542,8 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
-            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, id, starter_quota_notice_month",
@@ -1317,6 +1580,8 @@ async function processIncoming(
       contactSessionPhase = normalizeSessionPhase((contactRow as any)?.session_phase);
       const fs = (contactRow as any)?.flow_step;
       contactFlowStep = typeof fs === "number" && Number.isFinite(fs) ? fs : 0;
+      contactScheduleRequestedDate = String((contactRow as any)?.sf_requested_date ?? "").trim();
+      contactScheduleRequestedTime = String((contactRow as any)?.sf_requested_time ?? "").trim();
 
       const cid = (contactRow as any)?.id;
       contactId = cid !== undefined && cid !== null ? cid : null;
@@ -1788,6 +2053,9 @@ async function processIncoming(
             void triggerLeadRegisteredNotification({
               businessId: Number(businessId),
               leadPhone: msg.from,
+              scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
+              requestedDate: contactScheduleRequestedDate,
+              requestedTime: contactScheduleRequestedTime,
             });
           } catch (e) {
             console.warn("[WA Webhook] lead_registered notification failed:", e);
@@ -1947,14 +2215,18 @@ async function processIncoming(
 
     if (businessId && knowledge?.salesFlowConfig) {
       const phase: HeyzoeSessionPhase =
-        contactTrialRegistered === true ? "registered" : salesFlowServices.length === 1 ? "warmup" : "opening";
+        contactTrialRegistered === true
+          ? "registered"
+          : salesFlowServices.length === 1
+            ? scheduleSelectionPhaseAfterService(knowledge, salesFlowServices[0] ?? null)
+            : "opening";
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
       contactSessionPhase = phase;
       contactFlowStep = 0;
       {
         const clr = await supabase
           .from("contacts")
-          .update({ sf_clicked_cta_kinds: [] })
+          .update({ sf_clicked_cta_kinds: [], sf_requested_date: null, sf_requested_time: null })
           .eq("business_id", businessId)
           .eq("phone", msg.from);
         if (clr.error) console.warn("[WA Webhook] sf_clicked_cta_kinds clear (new lead):", clr.error.message);
@@ -2024,14 +2296,18 @@ async function processIncoming(
         allowTrialCtaThisSession = contactTrialRegistered !== true;
 
         const phase: HeyzoeSessionPhase =
-          contactTrialRegistered === true ? "registered" : salesFlowServices.length === 1 ? "warmup" : "opening";
+          contactTrialRegistered === true
+            ? "registered"
+            : salesFlowServices.length === 1
+              ? scheduleSelectionPhaseAfterService(knowledge, salesFlowServices[0] ?? null)
+              : "opening";
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
         contactFlowStep = 0;
         {
           const clr = await supabase
             .from("contacts")
-            .update({ sf_clicked_cta_kinds: [] })
+            .update({ sf_clicked_cta_kinds: [], sf_requested_date: null, sf_requested_time: null })
             .eq("business_id", businessId)
             .eq("phone", msg.from);
           if (clr.error) console.warn("[WA Webhook] sf_clicked_cta_kinds clear (greeting):", clr.error.message);
@@ -2087,6 +2363,65 @@ async function processIncoming(
       if (picked) {
         const cfg = knowledge.salesFlowConfig;
         const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit);
+        if (knowledge.warmupSessionEnabled === false) {
+          await sendTrialPickMediaIfAllowed({
+            blockMedia: starterBlocksMedia,
+            mediaUrl: picked.trialPickMediaUrl,
+            mediaType: picked.trialPickMediaType,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+          });
+          if (afterPick.trim()) {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, afterPick.trim(), accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send sales-flow pick reply failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: afterPick.trim(),
+              model_used: "sales_flow",
+              session_id: sessionId,
+            });
+          }
+          await logMessage({
+            business_slug,
+            role: "event",
+            content: `${HEYZOE_SF_SERVICE_PREFIX}${picked.name}`,
+            model_used: "sf_service_pick",
+            session_id: sessionId,
+          });
+          const nextPhase = scheduleSelectionPhaseAfterService(knowledge, picked);
+          await supabase
+            .from("contacts")
+            .update({ session_phase: nextPhase, flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+            .eq("business_id", businessId)
+            .eq("phone", msg.from);
+          contactSessionPhase = nextPhase;
+          contactFlowStep = 0;
+          await sleepMs(700);
+          await sendFlowContinuation({
+            phase: nextPhase,
+            contact: { flow_step: 0 },
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            blockTrialPickMedia: starterBlocksMedia,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          });
+          return;
+        }
         const wbPick = resolveWarmupExperienceConfig(cfg, picked.offerKind ?? "trial");
         const q = String(wbPick.question ?? "").replace(/\{serviceName\}/g, picked.name);
         const opts = [...wbPick.options];
@@ -2130,7 +2465,11 @@ async function processIncoming(
           session_id: sessionId,
         });
         if (businessId) {
-          await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "warmup" });
+          await supabase
+            .from("contacts")
+            .update({ session_phase: "warmup", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+            .eq("business_id", businessId)
+            .eq("phone", msg.from);
           await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
           contactSessionPhase = "warmup";
           contactFlowStep = 1;
@@ -2139,6 +2478,122 @@ async function processIncoming(
       }
     } catch (e) {
       console.warn("[WA Webhook] Sales-flow service pick failed (continuing):", e);
+    }
+  }
+
+  // 1.5) Sales flow: בחירת יום ושעה לפני CTA כשאין הרשמה ישירה מהמערכת
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time")
+  ) {
+    try {
+      const selectedServiceName =
+        salesFlowServices.length === 1
+          ? salesFlowServices[0]!.name
+          : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+      const selectedService =
+        salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+      if (!shouldCollectScheduleSelection(knowledge, selectedService)) {
+        await sendSalesFlowCtaMenuWithPhaseUpdate({
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          sfConsumedKinds: sfClickedCtaKinds,
+          modelUsed: "sales_flow_cta",
+        });
+        return;
+      }
+
+      if (contactSessionPhase === "schedule_date") {
+        const parsedDate = parseScheduleDateInput(msg.text);
+        if (!parsedDate) {
+          const txt = "לא הצלחתי לזהות את התאריך, נסה שוב בפורמט: 24.5";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_schedule_date_invalid",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        const { error } = await supabase
+          .from("contacts")
+          .update({ sf_requested_date: parsedDate, session_phase: "schedule_time", flow_step: 0 })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        if (error) console.warn("[WA Webhook] sf_requested_date update failed:", error.message);
+        contactScheduleRequestedDate = parsedDate;
+        contactSessionPhase = "schedule_time";
+        await sendScheduleSelectionTimeQuestion({
+          selectedService,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+        });
+        return;
+      }
+
+      const parsedTime = parseScheduleTimeInput(msg.text);
+      if (!parsedTime) {
+        const sideAnswer = buildScheduleTimeSideAnswer(msg.text, knowledge, selectedService);
+        const txt = sideAnswer
+          ? `${sideAnswer}\n\n${buildScheduleTimeQuestion(selectedService)}`
+          : "לא הצלחתי לזהות את השעה, נסה שוב בפורמט: 19:00";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: txt,
+          model_used: sideAnswer ? "sales_flow_schedule_time_reask" : "sales_flow_schedule_time_invalid",
+          session_id: sessionId,
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from("contacts")
+        .update({ sf_requested_time: parsedTime, session_phase: "cta", flow_step: 0 })
+        .eq("business_id", businessId)
+        .eq("phone", msg.from);
+      if (error) console.warn("[WA Webhook] sf_requested_time update failed:", error.message);
+      contactScheduleRequestedTime = parsedTime;
+      contactSessionPhase = "cta";
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered: contactTrialRegistered,
+        allowTrialCta: allowTrialCtaThisSession,
+        sfConsumedKinds: sfClickedCtaKinds,
+        modelUsed: "sales_flow_cta",
+      });
+      return;
+    } catch (e) {
+      console.warn("[WA Webhook] Sales-flow schedule selection failed (continuing):", e);
     }
   }
 
@@ -2744,7 +3199,7 @@ async function processIncoming(
   }
 
   // 2.5) Sales flow: שאלות נוספות בסשן חימום (אחרי שאלת ניסיון קודם, לפני CTA)
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
+  if (msg.type === "text" && knowledge?.salesFlowConfig && knowledge.warmupSessionEnabled !== false && businessId) {
     try {
       const cfg = knowledge.salesFlowConfig!;
       const selectedForWarmExtrasName =
@@ -2823,7 +3278,13 @@ async function processIncoming(
   }
 
   // 3) Sales flow: מענה על שאלת ניסיון קודם → הנעה לפעולה + תפריט CTA
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length >= 1) {
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    knowledge.warmupSessionEnabled !== false &&
+    businessId &&
+    salesFlowServices.length >= 1
+  ) {
     try {
       const cfg = knowledge.salesFlowConfig;
       const selectedServiceName =

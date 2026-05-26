@@ -29,6 +29,8 @@ export type LinksStepPanelProps = {
   fetchSiteNotice: string;
   arboxLink: string;
   setArboxLink: (v: string) => void;
+  scheduleDirectRegistration: boolean;
+  setScheduleDirectRegistration: (v: boolean) => void;
   membershipsUrl: string;
   setMembershipsUrl: (v: string) => void;
   instagramUrl: string;
@@ -46,6 +48,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     fetchSiteNotice,
     arboxLink,
     setArboxLink,
+    scheduleDirectRegistration,
+    setScheduleDirectRegistration,
     membershipsUrl,
     setMembershipsUrl,
     instagramUrl,
@@ -143,6 +147,34 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             placeholder="https://..."
             className={SALES_PATH_INPUT}
           />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2">
+            <span className="text-sm font-medium text-zinc-800">הרשמה ישירות מהמערכת?</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={scheduleDirectRegistration}
+              onClick={() => setScheduleDirectRegistration(!scheduleDirectRegistration)}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                scheduleDirectRegistration
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-zinc-200 bg-white text-zinc-600"
+              }`}
+            >
+              <span>{scheduleDirectRegistration ? "כן" : "לא"}</span>
+              <span
+                className={`h-4 w-7 rounded-full p-0.5 transition-colors ${
+                  scheduleDirectRegistration ? "bg-emerald-500" : "bg-zinc-300"
+                }`}
+                aria-hidden
+              >
+                <span
+                  className={`block h-3 w-3 rounded-full bg-white transition-transform ${
+                    scheduleDirectRegistration ? "translate-x-0" : "-translate-x-3"
+                  }`}
+                />
+              </span>
+            </button>
+          </div>
         </div>
         <div>
           <SalesPathFieldLabel>לינק לדף מנויים וכרטיסיות</SalesPathFieldLabel>

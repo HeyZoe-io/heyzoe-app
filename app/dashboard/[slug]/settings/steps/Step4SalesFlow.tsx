@@ -49,6 +49,8 @@ export default function Step4SalesFlow(props: any) {
     regeneratingKey,
     salesFlowConfig,
     setSalesFlowConfig,
+    warmupSessionEnabled = true,
+    setWarmupSessionEnabled,
     salesOpeningAutoText,
     trialServiceNames,
     firstNamedService,
@@ -544,26 +546,52 @@ export default function Step4SalesFlow(props: any) {
           hint="פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂"
           open={openSections.warmup}
           onToggle={() => toggle("warmup")}
-          filled={Boolean(salesFlowConfig.experience_question?.trim())}
+          filled={warmupSessionEnabled && Boolean(salesFlowConfig.experience_question?.trim())}
           headerAction={
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              disabled={isSalesGenerating}
-              onClick={() => regenerateSalesFlowSection("warmup")}
-            >
-              {isGen("warmup") ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
-            </Button>
+            warmupSessionEnabled ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-red-100 bg-white p-1.5 text-red-500 transition-colors hover:bg-red-50"
+                  onClick={() => setWarmupSessionEnabled?.(false)}
+                  aria-label="הסר סשן חימום"
+                  title="הסר סשן חימום"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1 text-xs py-1.5 px-3 h-auto"
+                  disabled={isSalesGenerating}
+                  onClick={() => regenerateSalesFlowSection("warmup")}
+                >
+                  {isGen("warmup") ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+                </Button>
+              </div>
+            ) : null
           }
         >
           <div className="space-y-3">
-            {trialServiceNames.length === 0 ? (
+            {!warmupSessionEnabled ? (
+              <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-4 py-5 text-center">
+                <p className="text-sm text-zinc-600">סשן החימום מוסר מהפלואו.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-3 gap-1"
+                  onClick={() => setWarmupSessionEnabled?.(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  הוסף סשן חימום
+                </Button>
+              </div>
+            ) : trialServiceNames.length === 0 ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                 כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «מוצרים» (שלב 3).
               </p>
