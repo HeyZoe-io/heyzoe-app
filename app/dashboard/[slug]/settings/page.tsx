@@ -1198,6 +1198,8 @@ export default function SlugSettingsPage() {
   const [promotions, setPromotions] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
+  const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
+  const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
   const [membershipsUrl, setMembershipsUrl] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
@@ -1556,6 +1558,8 @@ export default function SlugSettingsPage() {
         }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setMembershipsUrl(typeof sl.memberships_url === "string" ? sl.memberships_url.trim() : "");
+        setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
+        setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
         const fullWelcome = String(business.welcome_message ?? "");
@@ -1721,6 +1725,8 @@ export default function SlugSettingsPage() {
         welcome_message: buildWelcomeMessageForStorage(wf.intro, wf.question, wf.options),
         facebook_pixel_id: facebookPixelId,
         conversions_api_token: conversionsApiToken,
+        schedule_direct_registration: scheduleDirectRegistration,
+        warmup_session_enabled: warmupSessionEnabled,
         social_links: {
           website_url: websiteUrl,
           instagram: instagramUrl.trim(),
@@ -1819,6 +1825,8 @@ export default function SlugSettingsPage() {
       segQuestions,
       quickReplies,
       arboxLink,
+      scheduleDirectRegistration,
+      warmupSessionEnabled,
       objections,
       waSalesFollowup1,
       waSalesFollowup2,
@@ -2526,6 +2534,8 @@ export default function SlugSettingsPage() {
               fetchSiteNotice={fetchSiteNotice}
               arboxLink={arboxLink}
               setArboxLink={setArboxLink}
+              scheduleDirectRegistration={scheduleDirectRegistration}
+              setScheduleDirectRegistration={setScheduleDirectRegistration}
               membershipsUrl={membershipsUrl}
               setMembershipsUrl={setMembershipsUrl}
               instagramUrl={instagramUrl}
@@ -2625,6 +2635,8 @@ export default function SlugSettingsPage() {
             regeneratingKey={busyAction}
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}
+            warmupSessionEnabled={warmupSessionEnabled}
+            setWarmupSessionEnabled={setWarmupSessionEnabled}
             salesOpeningAutoText={salesOpeningAutoText}
             trialServiceNames={trialServiceNames}
             firstNamedService={firstNamedService}
