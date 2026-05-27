@@ -102,6 +102,10 @@ function sniffIsImage(buf: Buffer): ImageMediaType | null {
 type SlotRow = { day: string; time: string };
 type ServiceSlots = { name: string; slots: SlotRow[] };
 
+type ClaudeUserContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: ImageMediaType; data: string } };
+
 function extractJsonObject(text: string): unknown {
   const t = text.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -193,6 +197,93 @@ function mapToCanonicalNames(services: ServiceSlots[], canonical: string[]): Ser
   }));
 }
 
+function decodeBasicHtmlAttr(s: string): string {
+  return String(s ?? "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/gi, "'")
+    .trim();
+}
+
+/** ניקוד לבחירת תמונות שסביר שייצגו לוח שעות (לא באנר/לוגו קטן). */
+function scheduleImageUrlScore(url: string): number {
+  let u = url.toLowerCase();
+  try {
+    u = decodeURIComponent(u).toLowerCase();
+  } catch {
+    /* keep ascii-only u */
+  }
+  let s = 0;
+  if (/\.(jpe?g|png|webp)(\?|#|$)/i.test(u)) s += 3;
+  if (/schedule|לוח|שעות|מערכת|timetable|weekly|sep[-_]?schedule/i.test(u)) s += 4;
+  if (/יוגה|yoga|class|שיעור/i.test(u)) s += 1;
+  if (/banner|logo|icon|favicon|pixel|tracking|spacer|1x1/i.test(u)) s -= 5;
+  return s;
+}
+
+function extractImageUrlsFromHtml(html: string, pageUrl: string): string[] {
+  const base = new URL(pageUrl);
+  const found = new Set<string>();
+  for (const m of html.matchAll(/<img[^>]+>/gi)) {
+    const tag = m[0] ?? "";
+    const srcMatch = tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    const dataSrcMatch = tag.match(/\bdata-src\s*=\s*["']([^"']+)["']/i);
+    const raw = (srcMatch?.[1] ?? dataSrcMatch?.[1])?.trim();
+    if (!raw || raw.startsWith("data:")) continue;
+    const src = decodeBasicHtmlAttr(raw);
+    try {
+      const abs = new URL(src, base).href;
+      if (abs.startsWith("http://") || abs.startsWith("https://")) found.add(abs);
+    } catch {
+      /* skip */
+    }
+  }
+  return [...found].sort((a, b) => scheduleImageUrlScore(b) - scheduleImageUrlScore(a));
+}
+
+const MAX_IMAGE_FETCH_BYTES = 2_500_000;
+const MAX_IMAGES_FOR_VISION = 3;
+
+async function tryFetchImageAsBase64(
+  imageUrl: string
+): Promise<{ mime: ImageMediaType; b64: string } | null> {
+  const safe = await assertSafePublicUrl(imageUrl);
+  if (!safe.ok) return null;
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(safe.url, { headers: BROWSER_HEADERS, redirect: "follow" });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 4000 || buf.length > MAX_IMAGE_FETCH_BYTES) return null;
+  const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+  const mime = resolveImageMediaType(ct) ?? sniffIsImage(buf);
+  if (!mime) return null;
+  return { mime, b64: buf.toString("base64") };
+}
+
+function countTotalSlots(rows: ServiceSlots[]): number {
+  return rows.reduce((n, s) => n + s.slots.length, 0);
+}
+
+async function claudeExtractSchedule(
+  client: Anthropic,
+  systemRules: string,
+  userContent: string | ClaudeUserContentBlock[]
+): Promise<ServiceSlots[]> {
+  const response = await client.messages.create({
+    model: CLAUDE_CHAT_MODEL,
+    max_tokens: 4096,
+    system: systemRules,
+    messages: [{ role: "user", content: userContent }],
+  });
+  const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  const parsed = extractJsonObject(text);
+  return parseServicesPayload(parsed);
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -260,50 +351,64 @@ export async function POST(req: NextRequest) {
 
   if (imageMime) {
     const b64 = buf.toString("base64");
-    const response = await client.messages.create({
-      model: CLAUDE_CHAT_MODEL,
-      max_tokens: 4096,
-      system: systemRules,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: imageMime, data: b64 } },
-            {
-              type: "text",
-              text: `Studio products (Hebrew names):\n${namesList}\n\nExtract weekly slots per product from this schedule image.`,
-            },
-          ],
-        },
-      ],
+    const services = await claudeExtractSchedule(client, systemRules, [
+      { type: "image", source: { type: "base64", media_type: imageMime, data: b64 } },
+      {
+        type: "text",
+        text: `Studio products (Hebrew names):\n${namesList}\n\nExtract weekly slots per product from this schedule image.`,
+      },
+    ]);
+    const mapped = mapToCanonicalNames(services, serviceNames);
+    return NextResponse.json({
+      ok: true,
+      mode: "image",
+      services: mapped,
+      slots_found: countTotalSlots(mapped),
+      hint: countTotalSlots(mapped) === 0 ? "no_slots" : undefined,
     });
-    const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
-    const parsed = extractJsonObject(text);
-    const services = parseServicesPayload(parsed);
-    return NextResponse.json({ ok: true, mode: "image", services: mapToCanonicalNames(services, serviceNames) });
   }
 
   const htmlOrText = buf.toString("utf8");
   const extracted = stripHtmlToText(htmlOrText).slice(0, TEXT_EXTRACT_MAX);
 
-  const response = await client.messages.create({
-    model: CLAUDE_CHAT_MODEL,
-    max_tokens: 4096,
-    system: systemRules,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `Studio products (Hebrew names):\n${namesList}\n\nSchedule page text (may be noisy):\n${extracted}`,
-          },
-        ],
-      },
-    ],
+  const textServices = await claudeExtractSchedule(
+    client,
+    systemRules,
+    `Studio products (Hebrew names):\n${namesList}\n\nSchedule page text (may be noisy):\n${extracted}`
+  );
+  let merged = mapToCanonicalNames(textServices, serviceNames);
+  let total = countTotalSlots(merged);
+  let mode: "html" | "page_images" = "html";
+
+  if (total === 0) {
+    const imgUrls = extractImageUrlsFromHtml(htmlOrText, safe.url).slice(0, 12);
+    const images: { mime: ImageMediaType; b64: string }[] = [];
+    for (const u of imgUrls) {
+      const img = await tryFetchImageAsBase64(u);
+      if (img) images.push(img);
+      if (images.length >= MAX_IMAGES_FOR_VISION) break;
+    }
+    if (images.length > 0) {
+      const blocks: ClaudeUserContentBlock[] = [];
+      for (const im of images) {
+        blocks.push({ type: "image", source: { type: "base64", media_type: im.mime, data: im.b64 } });
+      }
+      blocks.push({
+        type: "text",
+        text: `Studio products (Hebrew names):\n${namesList}\n\nOne or more images above may show the weekly timetable (often a JPEG/PNG). Read Hebrew day names and times for each product. If multiple images, combine all visible slots.`,
+      });
+      const visServices = await claudeExtractSchedule(client, systemRules, blocks);
+      merged = mapToCanonicalNames(visServices, serviceNames);
+      total = countTotalSlots(merged);
+      mode = "page_images";
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    mode,
+    services: merged,
+    slots_found: total,
+    hint: total === 0 ? "no_slots" : undefined,
   });
-  const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
-  const parsed = extractJsonObject(text);
-  const services = parseServicesPayload(parsed);
-  return NextResponse.json({ ok: true, mode: "html", services: mapToCanonicalNames(services, serviceNames) });
 }
