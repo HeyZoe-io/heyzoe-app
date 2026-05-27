@@ -227,7 +227,21 @@ async function updateContactSessionPhase(input: {
   }
 }
 
-/** איפוס מצב פלואו/CTA ב«היי» — לא נוגע ב-trial_registered (המרה לבעל העסק). */
+/** חלון שבו «נרשמתי» חוזר נחשב לחיצה כפולה (לא המרה חדשה). */
+const TRIAL_REGISTRATION_REPEAT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function shouldAckRepeatTrialRegistration(input: {
+  trialRegistered: boolean;
+  trialRegisteredAt: string | null;
+  sessionPhase: HeyzoeSessionPhase;
+}): boolean {
+  if (!input.trialRegistered || input.sessionPhase !== "registered") return false;
+  if (!input.trialRegisteredAt) return true;
+  const ageMs = Date.now() - new Date(input.trialRegisteredAt).getTime();
+  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < TRIAL_REGISTRATION_REPEAT_WINDOW_MS;
+}
+
+/** איפוס מצב פלואו/CTA ב«היי» — מאפס trial_registered לסשן חדש; היסטוריית HEYZOE_SF_REGISTERED נשמרת ב-messages. */
 async function resetContactSalesFlowStateForGreeting(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
@@ -243,6 +257,8 @@ async function resetContactSalesFlowStateForGreeting(input: {
         sf_requested_time: null,
         instagram_follow_prompt_sent: false,
         flow_step: 0,
+        trial_registered: false,
+        trial_registered_at: null,
       })
       .eq("business_id", businessId)
       .eq("phone", phone);
@@ -2010,20 +2026,30 @@ async function processIncoming(
     if (matchesTrialRegisteredMessage(rawTrimmed)) {
       try {
         const alreadyRegisteredClaim = matchesTrialAlreadyRegisteredMessage(rawTrimmed);
-        let alreadyRegistered = false;
+        let repeatRegistrationInSameSession = false;
         const sel = await supabase
           .from("contacts")
-          .select("trial_registered")
+          .select("trial_registered, trial_registered_at, session_phase")
           .eq("business_id", businessId)
           .eq("phone", msg.from)
           .maybeSingle();
         if (sel.error) {
           console.warn("[WA Webhook] trial_registered select:", sel.error.message);
-        } else if ((sel.data as { trial_registered?: boolean } | null)?.trial_registered === true) {
-          alreadyRegistered = true;
+        } else {
+          const row = sel.data as {
+            trial_registered?: boolean;
+            trial_registered_at?: string | null;
+            session_phase?: string | null;
+          } | null;
+          repeatRegistrationInSameSession = shouldAckRepeatTrialRegistration({
+            trialRegistered: row?.trial_registered === true,
+            trialRegisteredAt:
+              typeof row?.trial_registered_at === "string" ? row.trial_registered_at : null,
+            sessionPhase: normalizeSessionPhase(row?.session_phase),
+          });
         }
 
-        if (alreadyRegistered) {
+        if (repeatRegistrationInSameSession) {
           const repeatTxt =
             "כבר שלחנו את הוראות ההמשך. אם משהו חסר - כתבו כאן ונעזור 😊";
           await sendWhatsAppMessage(msg.toNumber, msg.from, repeatTxt, accountSid, authToken).catch((e) =>
@@ -2295,6 +2321,8 @@ async function processIncoming(
       contactFlowStep = 0;
       sfClickedCtaKinds = [];
       contactInstagramFollowPromptSent = false;
+      contactTrialRegistered = false;
+      contactTrialRegisteredAt = null;
       allowTrialCtaThisSession = true;
       // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
       // We send the continuation within this request to guarantee delivery order.
@@ -2311,7 +2339,7 @@ async function processIncoming(
         business_slug,
         sessionId,
         salesFlowServices,
-        trialRegistered: contactTrialRegistered,
+        trialRegistered: false,
         allowTrialCta: true,
         blockTrialPickMedia: starterBlocksMedia,
         sfConsumedKinds: [],
@@ -2328,7 +2356,7 @@ async function processIncoming(
     const greet = normalizeGreetingToken(msg.text);
     const GREETINGS = new Set(["שלום", "היי", "הי", "אהלן", "hello", "hi"]);
     if (GREETINGS.has(greet)) {
-      // «היי» מאפס את הפלואו; trial_registered נשמר לדוחות בעל העסק.
+      // «היי» מאפס את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
       if (didSendOpeningMedia) {
         // WhatsApp clients can render media later than subsequent texts; delay so the media appears first.
@@ -2355,7 +2383,7 @@ async function processIncoming(
         model_used: "greeting",
         session_id: sessionId,
       });
-      // «היי» — איפוס מלא של הפלואו וה-CTA; trial_registered נשמר לדוחות בעל העסק.
+      // «היי» — איפוס מלא של הפלואו וה-CTA לסשן חדש.
       if (businessId && knowledge?.salesFlowConfig) {
         allowTrialCtaThisSession = true;
 
@@ -2366,6 +2394,8 @@ async function processIncoming(
         contactFlowStep = 0;
         sfClickedCtaKinds = [];
         contactInstagramFollowPromptSent = false;
+        contactTrialRegistered = false;
+        contactTrialRegisteredAt = null;
         // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
         // We send the continuation within this request to guarantee delivery order.
         await sleepMs(1500);
@@ -2381,7 +2411,7 @@ async function processIncoming(
           business_slug,
           sessionId,
           salesFlowServices,
-          trialRegistered: contactTrialRegistered,
+          trialRegistered: false,
           allowTrialCta: true,
           blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: [],
