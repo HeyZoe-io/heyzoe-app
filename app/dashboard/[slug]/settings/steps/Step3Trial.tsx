@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { HEBREW_DAY_OPTIONS } from "@/lib/product-schedule-slots";
 import { StepPanel } from "../settings-ui";
 import {
   SALES_PATH_INPUT,
@@ -49,6 +50,7 @@ type ServiceItem = {
   benefit_line: string;
   trial_pick_media_url: string;
   trial_pick_media_type: "" | "image" | "video";
+  schedule_slots: { id: string; day: string; time: string }[];
 };
 
 /** צירוף מדיה: מוצג רק לאחר סימון; שומר הסרה מלאה בביטול סימון */
@@ -249,6 +251,10 @@ export default function Step3Trial(props: {
   scheduleAutoRegenSalesFromTrialDescription?: () => void;
   /** אחרי «ג׳נרט» ליד התיאור — מיידית (לא מחכה ל-debounce) */
   flushAutoRegenSalesFromTrialDescription?: () => void;
+  /** כבוי = מערכת שעות לא־אינטראקטיבית — מציג מועדי לוח למוצר */
+  scheduleDirectRegistration: boolean;
+  /** לינק מערכת השעות (טאב לינקים) */
+  scheduleUrl: string;
 }) {
   const {
     websiteUrl,
@@ -275,7 +281,12 @@ export default function Step3Trial(props: {
     runBusy,
     scheduleAutoRegenSalesFromTrialDescription,
     flushAutoRegenSalesFromTrialDescription,
+    scheduleDirectRegistration,
+    scheduleUrl,
   } = props;
+
+  const [scheduleExtractBusy, setScheduleExtractBusy] = useState(false);
+  const [scheduleExtractError, setScheduleExtractError] = useState("");
 
   const activeTrialBenefitUiId = useMemo(() => {
     if (typeof busyAction !== "string" || !busyAction.startsWith(TRIAL_BENEFIT_BUSY_PREFIX)) return null;
@@ -298,6 +309,64 @@ export default function Step3Trial(props: {
   }, [setStepPrefix]);
 
   const productsFilled = services.some((s) => s.name.trim());
+  const namedServices = useMemo(() => services.filter((s) => s.name.trim()), [services]);
+
+  const runScheduleSlotsExtract = async () => {
+    const url = scheduleUrl.trim();
+    if (!url) {
+      setScheduleExtractError("חסר לינק מערכת שעות — הזינו אותו בטאב «לינקים חשובים».");
+      return;
+    }
+    if (!namedServices.length) {
+      setScheduleExtractError("הוסיפו לפחות מוצר אחד עם שם, כדי לשייך מועדים.");
+      return;
+    }
+    setScheduleExtractError("");
+    setScheduleExtractBusy(true);
+    try {
+      const res = await fetch("/api/dashboard/extract-product-schedule-slots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scheduleUrl: url,
+          services: namedServices.map((s) => ({ name: s.name.trim() })),
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        services?: { name: string; slots: { day: string; time: string }[] }[];
+      };
+      if (!res.ok || !j?.services) {
+        setScheduleExtractError(
+          j.error === "missing_anthropic_key"
+            ? "חסר מפתח Anthropic בשרת — לא ניתן לסרוק כרגע."
+            : typeof j.error === "string" && j.error.trim()
+              ? j.error.trim()
+              : `הסריקה נכשלה (${res.status}).`
+        );
+        return;
+      }
+      setServices((prev) =>
+        prev.map((svc) => {
+          const hit = j.services!.find((x) => x.name.trim() === svc.name.trim());
+          if (!hit) return svc;
+          return {
+            ...svc,
+            schedule_slots: hit.slots.map((sl) => ({
+              id: uid(),
+              day: sl.day,
+              time: sl.time,
+            })),
+          };
+        })
+      );
+    } catch {
+      setScheduleExtractError("בעיית רשת — נסו שוב.");
+    } finally {
+      setScheduleExtractBusy(false);
+    }
+  };
 
   return (
     <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
@@ -353,6 +422,40 @@ export default function Step3Trial(props: {
           onToggle={() => toggle("products")}
           filled={productsFilled}
         >
+        {scheduleDirectRegistration === false ? (
+          <div
+            dir="rtl"
+            className="mb-4 space-y-3 rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/80 px-4 py-4 text-right"
+          >
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות (AI)</p>
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                כשההרשמה מהמערכת כבויה, אפשר למשוך מועדים מהלינק ללוח (תמונה או טקסט בדף) ולשייך אותם לכל מוצר.
+                תמיד אפשר לערוך, למחוק או להוסיף שורות ידנית.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2 border-[#7133da]/30 bg-white"
+                disabled={scheduleExtractBusy || !scheduleUrl.trim() || !namedServices.length}
+                onClick={() => void runScheduleSlotsExtract()}
+              >
+                {scheduleExtractBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
+                {scheduleExtractBusy ? "סורק…" : "סרוק מהלינק"}
+              </Button>
+              {!scheduleUrl.trim() ? (
+                <span className="text-xs text-amber-700">חסר לינק מערכת שעות בטאב לינקים.</span>
+              ) : null}
+            </div>
+            {scheduleExtractError ? (
+              <p className="text-sm text-red-600" role="alert">
+                {scheduleExtractError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {services.map((s, i) => (
           <article
             key={s.ui_id}
@@ -629,6 +732,88 @@ export default function Step3Trial(props: {
               />
             </div>
 
+            {scheduleDirectRegistration === false ? (
+              <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
+                <SalesPathFieldLabel hint="יישום כפתורי ווטסאפ יגיע בשלב הבא">
+                  מועדי לוח (שבועי)
+                </SalesPathFieldLabel>
+                <p className="text-[11px] text-zinc-500 leading-snug">
+                  לכל הופעה של המוצר בלוח — שורה נפרדת (יום א׳–שבת + שעה 24 שעות).
+                </p>
+                <div className="space-y-2">
+                  {(s.schedule_slots ?? []).map((slot, si) => (
+                    <div key={slot.id} className="flex flex-wrap items-end gap-2 border-t border-zinc-200/60 pt-2 first:border-t-0 first:pt-0">
+                      <div className="min-w-[160px] flex-1 space-y-1">
+                        <span className="text-[11px] font-medium text-zinc-500">יום</span>
+                        <select
+                          className={PRODUCT_INPUT}
+                          value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : "א"}
+                          onChange={(e) => {
+                            const arr = [...services];
+                            const slots = [...(arr[i]!.schedule_slots ?? [])];
+                            slots[si] = { ...slot, day: e.target.value };
+                            arr[i] = { ...arr[i]!, schedule_slots: slots };
+                            setServices(arr);
+                          }}
+                        >
+                          {HEBREW_DAY_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="w-[108px] space-y-1">
+                        <span className="text-[11px] font-medium text-zinc-500">שעה</span>
+                        <Input
+                          dir="ltr"
+                          className={`${PRODUCT_INPUT} font-mono text-sm text-left`}
+                          placeholder="19:00"
+                          value={slot.time}
+                          onChange={(e) => {
+                            const arr = [...services];
+                            const slots = [...(arr[i]!.schedule_slots ?? [])];
+                            slots[si] = { ...slot, time: e.target.value };
+                            arr[i] = { ...arr[i]!, schedule_slots: slots };
+                            setServices(arr);
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="mb-0.5 shrink-0 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                        aria-label="מחק מועד"
+                        onClick={() => {
+                          const arr = [...services];
+                          const slots = (arr[i]!.schedule_slots ?? []).filter((_, j) => j !== si);
+                          arr[i] = { ...arr[i]!, schedule_slots: slots };
+                          setServices(arr);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 w-full gap-1 border-dashed text-xs"
+                  onClick={() => {
+                    const arr = [...services];
+                    arr[i] = {
+                      ...s,
+                      schedule_slots: [...(s.schedule_slots ?? []), { id: uid(), day: "א", time: "19:00" }],
+                    };
+                    setServices(arr);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  הוסף מועד
+                </Button>
+              </div>
+            ) : null}
+
             <TrialPickMediaAttachmentSection
               planIsStarter={planIsStarter}
               onStarterMediaBlocked={onStarterMediaBlocked}
@@ -667,6 +852,7 @@ export default function Step3Trial(props: {
                 benefit_line: "",
                 trial_pick_media_url: "",
                 trial_pick_media_type: "",
+                schedule_slots: [],
               },
             ])
           }

@@ -38,6 +38,7 @@ import {
   trialServicePhraseForAfterPick,
 } from "@/lib/sales-flow";
 import { truncateTrialServiceName } from "@/lib/trial-service";
+import { normalizeProductScheduleSlotsFromMeta } from "@/lib/product-schedule-slots";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 import { buildFactQuestions } from "@/lib/fact-questions";
 import {
@@ -69,6 +70,8 @@ type ServiceItem = {
   /** מדיה שנשלחת לפני תשובת «בחירת סוג האימון» בווטסאפ */
   trial_pick_media_url: string;
   trial_pick_media_type: "image" | "video" | "";
+  /** מועדי לוח שבועיים למוצר (מערכת שעות לא־אינטראקטיבית) */
+  schedule_slots: { id: string; day: string; time: string }[];
 };
 
 type WhatsAppChannel = {
@@ -154,6 +157,15 @@ function readTrialServicesStash(slug: string): ServiceItem[] | null {
         course_sessions_count: String(r.course_sessions_count ?? "").trim(),
         trial_pick_media_url: String(r.trial_pick_media_url ?? "").trim(),
         trial_pick_media_type: mediaType === "video" || mediaType === "image" ? mediaType : "",
+        schedule_slots: Array.isArray(r.schedule_slots)
+          ? (r.schedule_slots as { id?: unknown; day?: unknown; time?: unknown }[])
+              .map((slot) => ({
+                id: String(slot?.id ?? "").trim() || uid(),
+                day: String(slot?.day ?? "").trim(),
+                time: String(slot?.time ?? "").trim(),
+              }))
+              .filter((slot) => slot.day && slot.time)
+          : [],
       });
     }
     return out.length ? out : null;
@@ -246,6 +258,7 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
       course_start_date: String(meta.course_start_date ?? "").trim(),
       course_end_date: String(meta.course_end_date ?? "").trim(),
       course_sessions_count: String(meta.course_sessions_count ?? "").trim(),
+      schedule_slots: normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, uid),
     };
   });
 }
@@ -625,6 +638,7 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "benefit_suggestions",
   "trial_pick_media_url",
   "trial_pick_media_type",
+  "schedule_slots",
   "offer_kind",
   "course_start_date",
   "course_end_date",
@@ -818,6 +832,7 @@ function trialServiceItemFromSiteProduct(
     benefit_line,
     trial_pick_media_url: "",
     trial_pick_media_type: "",
+    schedule_slots: [],
   };
 }
 
@@ -1686,6 +1701,7 @@ export default function SlugSettingsPage({
                   : s.trial_pick_media_type === "image"
                     ? "image"
                     : "",
+              schedule_slots: s.schedule_slots,
             }),
           })),
         }
@@ -2536,6 +2552,8 @@ export default function SlugSettingsPage({
             runBusy={runBusy}
             scheduleAutoRegenSalesFromTrialDescription={scheduleAutoRegenSalesFromTrialDescription}
             flushAutoRegenSalesFromTrialDescription={flushAutoRegenSalesFromTrialDescription}
+            scheduleDirectRegistration={scheduleDirectRegistration}
+            scheduleUrl={arboxLink}
           />
         )}
 
