@@ -753,7 +753,7 @@ section{padding:80px 6%;}
 .faq-arrow{width:24px;height:24px;border-radius:50%;background:rgba(113,51,218,0.1);display:flex;align-items:center;justify-content:center;color:var(--purple);font-size:16px;flex-shrink:0;transition:transform 0.3s;}
 .faq-item.open .faq-arrow{transform:rotate(45deg);}
 .faq-a{font-size:16px;color:var(--muted);line-height:1.75;max-height:0;overflow:hidden;transition:max-height 0.4s ease,margin-top 0.3s;}
-.faq-item.open .faq-a{max-height:420px;margin-top:10px;}
+.faq-item.open .faq-a{max-height:1200px;margin-top:10px;}
 
 /* PRICING */
 .pricing-section{background:white;padding:80px 6%;}
@@ -1604,6 +1604,7 @@ const faqs = [
   {q:'האם אני יכול לצפות בשיחות שזואי מנהלת?', a:'כמובן! דרך הדשבורד, בטאב שיחות, תוכלו לראות את כל השיחות בזמן אמת, לעצור את זואי ולהתערב בשיחה עצמאית.'},
   {q:'האם אני חייב לקרוא לבוטית שלי זואי?', a:'האמת שלא :) מרגע שזואי תהיה שלך, היא יכולה להיקרא איך שתרצה, והיא תציג את עצמה ללקוחות באיזה שם שתבחר, אפילו אם השם יהיה אמנון.'},
   {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'לא, המחיר נשאר איתכם זהה לכל החיים. אם שילמת מחיר הנחה על החודש הראשון, הוא ישאר המחיר שלכם.'},
+  {q:'האם יש עלויות נוספות לשליחת הודעות?', a:'השימוש בוואטסאפ מתחלק לשני מצבים:<br><br><strong>חינם לחלוטין:</strong> כשליד פותח שיחה בעצמו דרך מודעה (click-to-whatsapp), קישור או כפתור, כל השיחה עם זואי לא עולה כלום. זה המצב הנפוץ ביותר בעבודה עם HeyZoe.<br><br><strong>עם עלות:</strong> הודעות שזואי שולחת ביוזמתה (למשל שליחת וואטסאפ מקמפיין <em>לידים</em>) דורשות טמפלייט מאושר של מטא ועולות כמה סנט לכל הודעה.<br><br>לרוב העסקים הישראלים שעובדים עם HeyZoe — העלות למטא (בעלים של וואטסאפ) זניחה או אפסית.'},
 ];
 const fl = document.getElementById('faqList');
 faqs.forEach(f=>{
