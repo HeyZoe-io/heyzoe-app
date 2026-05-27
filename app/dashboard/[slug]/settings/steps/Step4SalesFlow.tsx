@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import {
   Loader2,
   Sparkles,
@@ -23,12 +23,213 @@ import {
   salesFlowApplyLockedSubChoice,
   salesFlowSubChoiceForSlot,
   type CtaSlotSubChoice,
+  type OfferKind,
+  type SalesFlowConfig,
   type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
 
-export default function Step4SalesFlow(props: any) {
+type ServiceItem = {
+  ui_id: string;
+  name: string;
+  price_text: string;
+  duration: string;
+  payment_link: string;
+  service_slug: string;
+  location_text: string;
+  description: string;
+  levels_enabled: boolean;
+  levels: string[];
+  offer_kind: OfferKind;
+  course_start_date: string;
+  course_end_date: string;
+  course_sessions_count: string;
+  benefit_line: string;
+  trial_pick_media_url: string;
+  trial_pick_media_type: "image" | "video" | "";
+};
+
+type CtaOfferTab = "trial" | "workshop" | "course";
+
+type Step4SalesFlowProps = {
+  planIsStarter: boolean;
+  onStarterMediaBlocked: () => void;
+  openingMediaUrl: string;
+  openingMediaType: "image" | "video" | "";
+  uploadingMedia: boolean;
+  mediaInputRef: RefObject<HTMLInputElement | null>;
+  scheduleCtaMediaInputRef: RefObject<HTMLInputElement | null>;
+  uploadingScheduleCtaMedia: boolean;
+  scheduleCtaMediaUploadError: string;
+  setScheduleCtaMediaUploadError: (v: string) => void;
+  uploadMedia: (file: File, target: "opening" | "directions" | "schedule_cta") => Promise<void>;
+  setOpeningMediaUrl: (v: string) => void;
+  setOpeningMediaType: Dispatch<SetStateAction<"image" | "video" | "">>;
+  setMediaUploadError: (v: string) => void;
+  mediaUploadError: string;
+  regenerateSalesFlowSection: (
+    section: "opening" | "service_pick" | "warmup" | "cta" | "after_trial_registration"
+  ) => void;
+  regeneratingKey: string | null;
+  salesFlowConfig: SalesFlowConfig;
+  setSalesFlowConfig: Dispatch<SetStateAction<SalesFlowConfig>>;
+  scheduleDirectRegistration?: boolean;
+  arboxLink?: string;
+  warmupSessionEnabled?: boolean;
+  setWarmupSessionEnabled: (v: boolean) => void;
+  salesOpeningAutoText: string;
+  trialServiceNames: string[];
+  firstNamedService: ServiceItem | null;
+  firstTrialForTemplates: { name: string; priceText: string; durationText: string };
+  services: ServiceItem[];
+  setServices: Dispatch<SetStateAction<ServiceItem[]>>;
+  videoUrlForPreview: (url: string) => string;
+  experienceQuestionForDisplay: (stored: string, serviceName: string) => string;
+  experienceQuestionToStore: (typed: string, serviceName: string) => string;
+  ctaBodyForDisplay: (stored: string) => string;
+  ctaBodyToStore: (typed: string, priceText: string, durationText: string) => string;
+  afterExperienceForDisplay: (stored: string, service: ServiceItem | null) => string;
+  afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
+  hasTrialOffers: boolean;
+  hasWorkshopOffers: boolean;
+  hasCourseOffers: boolean;
+  workshopCtaSample: { priceText: string; durationText: string };
+  courseCtaSample: { priceText: string; sessionsText: string; startDate: string; endDate: string };
+  workshopCtaBodyForDisplayUi: (stored: string) => string;
+  workshopCtaBodyToStore: (typed: string, priceText: string, durationText: string) => string;
+  courseCtaBodyForDisplayUi: (stored: string) => string;
+  courseCtaBodyToStore: (
+    typed: string,
+    priceText: string,
+    sessionsText: string,
+    startDate: string,
+    endDate: string
+  ) => string;
+  uid: () => string;
+};
+
+function resolveOfferTab(
+  preferred: CtaOfferTab,
+  hasTrial: boolean,
+  hasWorkshop: boolean,
+  hasCourse: boolean
+): CtaOfferTab {
+  const ok =
+    (preferred === "trial" && hasTrial) ||
+    (preferred === "workshop" && hasWorkshop) ||
+    (preferred === "course" && hasCourse);
+  if (ok) return preferred;
+  if (hasTrial) return "trial";
+  if (hasWorkshop) return "workshop";
+  return "course";
+}
+
+function SalesFlowExtraStepsEditor({
+  steps,
+  onChange,
+  addButtonLabel,
+  startAt = 1,
+  questionHeaderClassName = "",
+  uid,
+}: {
+  steps: SalesFlowExtraStep[];
+  onChange: (next: SalesFlowExtraStep[]) => void;
+  addButtonLabel: string;
+  startAt?: number;
+  questionHeaderClassName?: string;
+  uid: () => string;
+}) {
+  return (
+    <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
+      {steps.map((st, si) => (
+        <div
+          key={st.id}
+          className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/60"
+        >
+          <div className="flex justify-between items-center gap-2">
+            <span
+              className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
+            >
+              שאלה {si + startAt}
+            </span>
+            <button
+              type="button"
+              className="p-1 text-zinc-400 hover:text-red-500"
+              onClick={() => onChange(steps.filter((x) => x.id !== st.id))}
+              aria-label="הסר שאלה"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+          <Input
+            dir="rtl"
+            value={st.question}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
+            }}
+            placeholder="כתבו את השאלה כאן…"
+          />
+          {st.options.map((o, oi) => (
+            <div key={oi} className="flex gap-2">
+              <Input
+                dir="rtl"
+                className="flex-1"
+                value={o}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  onChange(
+                    steps.map((x) =>
+                      x.id === st.id
+                        ? { ...x, options: x.options.map((t, j) => (j === oi ? v : t)) }
+                        : x
+                    )
+                  );
+                }}
+              />
+              <button
+                type="button"
+                className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
+                onClick={() =>
+                  onChange(
+                    steps.map((x) =>
+                      x.id === st.id ? { ...x, options: x.options.filter((_, j) => j !== oi) } : x
+                    )
+                  )
+                }
+                aria-label="הסר כפתור"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full text-xs h-8"
+            onClick={() =>
+              onChange(steps.map((x) => (x.id === st.id ? { ...x, options: [...x.options, ""] } : x)))
+            }
+          >
+            <Plus className="h-3 w-3" /> הוסף כפתור תשובה
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full gap-1 text-sm"
+        onClick={() => onChange([...steps, { id: uid(), question: "", options: ["", ""] }])}
+      >
+        <Plus className="h-4 w-4" />
+        {addButtonLabel}
+      </Button>
+    </div>
+  );
+}
+
+export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const {
     planIsStarter,
     onStarterMediaBlocked,
@@ -76,56 +277,50 @@ export default function Step4SalesFlow(props: any) {
     courseCtaBodyForDisplayUi,
     courseCtaBodyToStore,
     uid,
-  } = props as any;
+  } = props;
 
   const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
   const isGen = (section: string) => regeneratingKey === `sales:${section}`;
 
-  type CtaOfferTab = "trial" | "workshop" | "course";
-  const [ctaOfferTab, setCtaOfferTab] = useState<CtaOfferTab>(() => {
+  const [ctaOfferTabPreferred, setCtaOfferTab] = useState<CtaOfferTab>(() => {
     if (hasTrialOffers) return "trial";
     if (hasWorkshopOffers) return "workshop";
     return "course";
   });
+  const ctaOfferTab = useMemo(
+    () =>
+      resolveOfferTab(
+        ctaOfferTabPreferred,
+        hasTrialOffers,
+        hasWorkshopOffers,
+        hasCourseOffers
+      ),
+    [ctaOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
+  );
 
-  useEffect(() => {
-    const ok =
-      (ctaOfferTab === "trial" && hasTrialOffers) ||
-      (ctaOfferTab === "workshop" && hasWorkshopOffers) ||
-      (ctaOfferTab === "course" && hasCourseOffers);
-    if (ok) return;
-    if (hasTrialOffers) setCtaOfferTab("trial");
-    else if (hasWorkshopOffers) setCtaOfferTab("workshop");
-    else if (hasCourseOffers) setCtaOfferTab("course");
-  }, [ctaOfferTab, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
-
-  type WarmOfferTab = "trial" | "workshop" | "course";
-  const [warmOfferTab, setWarmOfferTab] = useState<WarmOfferTab>(() => {
+  const [warmOfferTabPreferred, setWarmOfferTab] = useState<CtaOfferTab>(() => {
     if (hasTrialOffers) return "trial";
     if (hasWorkshopOffers) return "workshop";
     return "course";
   });
-
-  useEffect(() => {
-    const ok =
-      (warmOfferTab === "trial" && hasTrialOffers) ||
-      (warmOfferTab === "workshop" && hasWorkshopOffers) ||
-      (warmOfferTab === "course" && hasCourseOffers);
-    if (ok) return;
-    if (hasTrialOffers) setWarmOfferTab("trial");
-    else if (hasWorkshopOffers) setWarmOfferTab("workshop");
-    else if (hasCourseOffers) setWarmOfferTab("course");
-  }, [warmOfferTab, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+  const warmOfferTab = useMemo(
+    () =>
+      resolveOfferTab(
+        warmOfferTabPreferred,
+        hasTrialOffers,
+        hasWorkshopOffers,
+        hasCourseOffers
+      ),
+    [warmOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
+  );
 
   const firstTrialSvcForWarmup = useMemo(() => {
-    const row = (services as any[]).find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
+    const row = services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
     return row ?? firstNamedService;
   }, [services, firstNamedService]);
 
   const firstWorkshopSvcForWarmup = useMemo(
-    () =>
-      ((services as any[]).find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "workshop") as any) ??
-      null,
+    () => services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "workshop") ?? null,
     [services]
   );
 
@@ -168,116 +363,13 @@ export default function Step4SalesFlow(props: any) {
   }, [setStepPrefix]);
 
   const firstCourseSvcForWarmup = useMemo(
-    () =>
-      ((services as any[]).find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "course") as any) ?? null,
+    () => services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "course") ?? null,
     [services]
   );
 
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
   const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
-
-  function SalesFlowExtraStepsEditor({
-    steps,
-    onChange,
-    addButtonLabel,
-    startAt = 1,
-    questionHeaderClassName = "",
-  }: {
-    steps: SalesFlowExtraStep[];
-    onChange: (next: SalesFlowExtraStep[]) => void;
-    addButtonLabel: string;
-    startAt?: number;
-    questionHeaderClassName?: string;
-  }) {
-    return (
-      <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
-        {steps.map((st, si) => (
-          <div
-            key={st.id}
-            className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/60"
-          >
-            <div className="flex justify-between items-center gap-2">
-              <span
-                className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
-              >
-                שאלה {si + startAt}
-              </span>
-              <button
-                type="button"
-                className="p-1 text-zinc-400 hover:text-red-500"
-                onClick={() => onChange(steps.filter((x) => x.id !== st.id))}
-                aria-label="הסר שאלה"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-            <Input
-              dir="rtl"
-              value={st.question}
-              onChange={(e) => {
-                const v = e.target.value;
-                onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
-              }}
-              placeholder="כתבו את השאלה כאן…"
-            />
-            {st.options.map((o, oi) => (
-              <div key={oi} className="flex gap-2">
-                <Input
-                  dir="rtl"
-                  className="flex-1"
-                  value={o}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    onChange(
-                      steps.map((x) =>
-                        x.id === st.id
-                          ? { ...x, options: x.options.map((t, j) => (j === oi ? v : t)) }
-                          : x
-                      )
-                    );
-                  }}
-                />
-                <button
-                  type="button"
-                  className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
-                  onClick={() =>
-                    onChange(
-                      steps.map((x) =>
-                        x.id === st.id ? { ...x, options: x.options.filter((_, j) => j !== oi) } : x
-                      )
-                    )
-                  }
-                  aria-label="הסר כפתור"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full text-xs h-8"
-              onClick={() =>
-                onChange(steps.map((x) => (x.id === st.id ? { ...x, options: [...x.options, ""] } : x)))
-              }
-            >
-              <Plus className="h-3 w-3" /> הוסף כפתור תשובה
-            </Button>
-          </div>
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full gap-1 text-sm"
-          onClick={() => onChange([...steps, { id: uid(), question: "", options: ["", ""] }])}
-        >
-          <Plus className="h-4 w-4" />
-          {addButtonLabel}
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
@@ -453,7 +545,7 @@ export default function Step4SalesFlow(props: any) {
                     ? salesFlowConfig.greeting_body_override
                     : salesOpeningAutoText
                 }
-                onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, greeting_body_override: v }))}
+                onChange={(v) => setSalesFlowConfig((c) => ({ ...c, greeting_body_override: v }))}
                 rows={5}
                 placeholder={salesOpeningAutoText}
               />
@@ -491,13 +583,13 @@ export default function Step4SalesFlow(props: any) {
                 <Field label="בחירת מוצר" className="space-y-1">
                   <Textarea
                     value={salesFlowConfig.multi_service_question}
-                    onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, multi_service_question: v }))}
+                    onChange={(v) => setSalesFlowConfig((c) => ({ ...c, multi_service_question: v }))}
                     rows={4}
                     placeholder="למשל: איזה אימון הכי מדבר אליך?"
                   />
                 </Field>
                 <div className="space-y-3">
-                  {services.map((s: any, i: number) =>
+                  {services.map((s: ServiceItem, i: number) =>
                     !s.name.trim() ? null : (
                       <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
                         <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
@@ -526,7 +618,7 @@ export default function Step4SalesFlow(props: any) {
                   מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום» למטה.
                 </p>
                 {(() => {
-                  const firstNamedIndex = services.findIndex((s: any) => s.name.trim());
+                  const firstNamedIndex = services.findIndex((s: ServiceItem) => s.name.trim());
                   if (firstNamedIndex < 0) return null;
                   const s = services[firstNamedIndex]!;
                   return (
@@ -679,7 +771,7 @@ export default function Step4SalesFlow(props: any) {
                         onChange={(e) => {
                           const sn =
                             trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? "";
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
                             experience_question: experienceQuestionToStore(e.target.value, sn),
                           }));
@@ -701,7 +793,7 @@ export default function Step4SalesFlow(props: any) {
                             onChange={(e) => {
                               const next = [...salesFlowConfig.experience_options] as [string, string, string];
                               next[i] = e.target.value;
-                              setSalesFlowConfig((c: any) => ({ ...c, experience_options: next }));
+                              setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
                             }}
                           />
                         </Field>
@@ -711,7 +803,7 @@ export default function Step4SalesFlow(props: any) {
                       <Textarea
                         value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstTrialSvcForWarmup)}
                         onChange={(v) =>
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
                             after_experience: afterExperienceToStore(v, firstTrialSvcForWarmup),
                           }))
@@ -722,9 +814,10 @@ export default function Step4SalesFlow(props: any) {
                     </Field>
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps}
-                      onChange={(next) => setSalesFlowConfig((c: any) => ({ ...c, opening_extra_steps: next }))}
+                      onChange={(next) => setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))}
                       addButtonLabel="הוסף שאלה בסשן חימום"
                       startAt={2}
+                      uid={uid}
                     />
                   </>
                 ) : null}
@@ -740,7 +833,7 @@ export default function Step4SalesFlow(props: any) {
                         )}
                         onChange={(e) => {
                           const sn = firstWorkshopSvcForWarmup?.name?.trim() ?? "";
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
                             experience_question_workshop: experienceQuestionToStore(e.target.value, sn),
                           }));
@@ -761,7 +854,7 @@ export default function Step4SalesFlow(props: any) {
                                 (["", "", ""] as [string, string, string]);
                               const next = [...cur] as [string, string, string];
                               next[i] = e.target.value;
-                              setSalesFlowConfig((c: any) => ({ ...c, experience_options_workshop: next }));
+                              setSalesFlowConfig((c) => ({ ...c, experience_options_workshop: next }));
                             }}
                           />
                         </Field>
@@ -774,7 +867,7 @@ export default function Step4SalesFlow(props: any) {
                           firstWorkshopSvcForWarmup
                         )}
                         onChange={(v) =>
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
                             after_experience_workshop: afterExperienceToStore(v, firstWorkshopSvcForWarmup),
                           }))
@@ -786,10 +879,11 @@ export default function Step4SalesFlow(props: any) {
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps_workshop ?? []}
                       onChange={(next) =>
-                        setSalesFlowConfig((c: any) => ({ ...c, opening_extra_steps_workshop: next }))
+                        setSalesFlowConfig((c) => ({ ...c, opening_extra_steps_workshop: next }))
                       }
                       addButtonLabel="הוסף שאלה בסשן חימום (סדנה)"
                       startAt={2}
+                      uid={uid}
                     />
                   </>
                 ) : null}
@@ -805,7 +899,7 @@ export default function Step4SalesFlow(props: any) {
                         )}
                         onChange={(e) => {
                           const sn = firstCourseSvcForWarmup?.name?.trim() ?? "";
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
                             experience_question_course: experienceQuestionToStore(e.target.value, sn),
                           }));
@@ -825,7 +919,7 @@ export default function Step4SalesFlow(props: any) {
                                 salesFlowConfig.experience_options_course ?? (["", "", ""] as [string, string, string]);
                               const next = [...cur] as [string, string, string];
                               next[i] = e.target.value;
-                              setSalesFlowConfig((c: any) => ({ ...c, experience_options_course: next }));
+                              setSalesFlowConfig((c) => ({ ...c, experience_options_course: next }));
                             }}
                           />
                         </Field>
@@ -838,7 +932,7 @@ export default function Step4SalesFlow(props: any) {
                           firstCourseSvcForWarmup
                         )}
                         onChange={(v) =>
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
                             after_experience_course: afterExperienceToStore(v, firstCourseSvcForWarmup),
                           }))
@@ -850,13 +944,14 @@ export default function Step4SalesFlow(props: any) {
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps_course ?? []}
                       onChange={(next) =>
-                        setSalesFlowConfig((c: any) => ({
+                        setSalesFlowConfig((c) => ({
                           ...c,
                           opening_extra_steps_course: next,
                         }))
                       }
                       addButtonLabel="הוסף שאלה בסשן חימום (קורס)"
                       startAt={2}
+                      uid={uid}
                     />
                   </>
                 ) : null}
@@ -876,34 +971,23 @@ export default function Step4SalesFlow(props: any) {
             filled
           >
             <div className="space-y-3">
-              <p className="rounded-xl border border-[#7133da]/15 bg-[#f8f5ff] px-3 py-2 text-center text-xs leading-relaxed text-[#4b2a86]">
-                הסשן הזה מופעל אוטומטית כי בטאב לינקים הוגדר: הרשמה ישירות מהמערכת? לא.
-                הוא לא יישלח עבור קורס עם תאריכי התחלה וסיום מוגדרים.
-              </p>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                  <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 1 — תאריך</p>
-                  <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                    {[
-                      `כאן ניתן לראות את מערכת השעות שלנו: ${String(arboxLink ?? "").trim() || "[schedule_link]"}`,
-                      "באיזה תאריך הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב תאריך בפורמט: 24.5",
-                    ].join("\n")}
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                    זואי מקבלת רק DD.M או DD.MM. אם הפורמט לא תקין היא מבקשת לנסות שוב.
-                  </p>
+              <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 1 — תאריך</p>
+                <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                  {[
+                    `כאן ניתן לראות את מערכת השעות שלנו: ${String(arboxLink ?? "").trim() || "[schedule_link]"}`,
+                    "באיזה תאריך הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב תאריך בפורמט: 24.5",
+                  ].join("\n")}
                 </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">פורמט DD.M או DD.MM.</p>
+              </div>
 
-                <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                  <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 2 — שעה</p>
-                  <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                    באיזו שעה הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב שעה בפורמט: 19:00
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                    זואי מקבלת רק HH:MM. אם הליד שואל משהו באמצע, היא עונה קצר וחוזרת לשאלת השעה.
-                  </p>
+              <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 2 — שעה</p>
+                <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                  באיזו שעה הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב שעה בפורמט: 19:00
                 </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">פורמט HH:MM.</p>
               </div>
             </div>
           </SalesPathSectionBlock>
@@ -991,13 +1075,9 @@ export default function Step4SalesFlow(props: any) {
               <>
             <div>
               <Textarea
-                value={ctaBodyForDisplay(
-                  salesFlowConfig.cta_body,
-                  firstTrialForTemplates.priceText,
-                  firstTrialForTemplates.durationText
-                )}
+                value={ctaBodyForDisplay(salesFlowConfig.cta_body)}
                 onChange={(v) =>
-                  setSalesFlowConfig((c: any) => ({
+                  setSalesFlowConfig((c) => ({
                     ...c,
                     cta_body: ctaBodyToStore(
                       v,
@@ -1014,7 +1094,7 @@ export default function Step4SalesFlow(props: any) {
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {salesFlowConfig.cta_buttons.map((b: any, bi: number) => {
+              {salesFlowConfig.cta_buttons.map((b: SalesFlowCtaButton, bi: number) => {
                 const locked = ctaLockedKindForSlot(bi, b.id);
                 const slotSub = salesFlowSubChoiceForSlot(b, locked);
                 return (
@@ -1025,9 +1105,9 @@ export default function Step4SalesFlow(props: any) {
                         value={b.label}
                         onChange={(e) => {
                           const v = e.target.value;
-                          setSalesFlowConfig((c: any) => ({
+                          setSalesFlowConfig((c) => ({
                             ...c,
-                            cta_buttons: c.cta_buttons.map((x: any) => (x.id === b.id ? { ...x, label: v } : x)),
+                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => (x.id === b.id ? { ...x, label: v } : x)),
                           }));
                         }}
                       />
@@ -1048,7 +1128,7 @@ export default function Step4SalesFlow(props: any) {
                             value={slotSub}
                             onChange={(e) => {
                               const sub = e.target.value as CtaSlotSubChoice;
-                              setSalesFlowConfig((c: any) => ({
+                              setSalesFlowConfig((c) => ({
                                 ...c,
                                 cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
                                   x.id === b.id
@@ -1088,7 +1168,7 @@ export default function Step4SalesFlow(props: any) {
                                     value={String(b.memberships_price_range_min ?? "")}
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      setSalesFlowConfig((c: any) => ({
+                                      setSalesFlowConfig((c) => ({
                                         ...c,
                                         cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
                                           x.id === b.id ? { ...x, memberships_price_range_min: v } : x
@@ -1108,7 +1188,7 @@ export default function Step4SalesFlow(props: any) {
                                     value={String(b.memberships_price_range_max ?? "")}
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      setSalesFlowConfig((c: any) => ({
+                                      setSalesFlowConfig((c) => ({
                                         ...c,
                                         cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
                                           x.id === b.id ? { ...x, memberships_price_range_max: v } : x
@@ -1172,7 +1252,7 @@ export default function Step4SalesFlow(props: any) {
                                   variant="outline"
                                   className="h-8 border-red-200 text-xs text-red-600 hover:bg-red-50"
                                   onClick={() =>
-                                    setSalesFlowConfig((c: any) => ({
+                                    setSalesFlowConfig((c) => ({
                                       ...c,
                                       cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
                                         x.id === b.id
@@ -1223,7 +1303,7 @@ export default function Step4SalesFlow(props: any) {
                   <Textarea
                     value={workshopCtaBodyForDisplayUi(salesFlowConfig.cta_workshop_body ?? "")}
                     onChange={(v) =>
-                      setSalesFlowConfig((c: any) => ({
+                      setSalesFlowConfig((c) => ({
                         ...c,
                         cta_workshop_body: workshopCtaBodyToStore(
                           v,
@@ -1252,7 +1332,7 @@ export default function Step4SalesFlow(props: any) {
                             value={b.label}
                             onChange={(e) => {
                               const v = e.target.value;
-                              setSalesFlowConfig((c: any) => ({
+                              setSalesFlowConfig((c) => ({
                                 ...c,
                                 cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
                                   x.id === b.id ? { ...x, label: v } : x
@@ -1273,7 +1353,7 @@ export default function Step4SalesFlow(props: any) {
                               onChange={(e) => {
                                 const next: SecondaryPurchaseCtaDelivery =
                                   e.target.value === "phone" ? "phone" : "link";
-                                setSalesFlowConfig((c: any) => ({
+                                setSalesFlowConfig((c) => ({
                                   ...c,
                                   cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
                                     x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
@@ -1303,7 +1383,7 @@ export default function Step4SalesFlow(props: any) {
                   <Textarea
                     value={courseCtaBodyForDisplayUi(salesFlowConfig.cta_course_body ?? "")}
                     onChange={(v) =>
-                      setSalesFlowConfig((c: any) => ({
+                      setSalesFlowConfig((c) => ({
                         ...c,
                         cta_course_body: courseCtaBodyToStore(
                           v,
@@ -1334,7 +1414,7 @@ export default function Step4SalesFlow(props: any) {
                             value={b.label}
                             onChange={(e) => {
                               const v = e.target.value;
-                              setSalesFlowConfig((c: any) => ({
+                              setSalesFlowConfig((c) => ({
                                 ...c,
                                 cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
                                   x.id === b.id ? { ...x, label: v } : x
@@ -1355,7 +1435,7 @@ export default function Step4SalesFlow(props: any) {
                               onChange={(e) => {
                                 const next: SecondaryPurchaseCtaDelivery =
                                   e.target.value === "phone" ? "phone" : "link";
-                                setSalesFlowConfig((c: any) => ({
+                                setSalesFlowConfig((c) => ({
                                   ...c,
                                   cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
                                     x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
@@ -1410,7 +1490,7 @@ export default function Step4SalesFlow(props: any) {
             <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
               <Textarea
                 value={salesFlowConfig.after_trial_registration_body}
-                onChange={(v) => setSalesFlowConfig((c: any) => ({ ...c, after_trial_registration_body: v }))}
+                onChange={(v) => setSalesFlowConfig((c) => ({ ...c, after_trial_registration_body: v }))}
                 rows={12}
               />
             </Field>
