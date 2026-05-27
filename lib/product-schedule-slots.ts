@@ -10,12 +10,12 @@ export type ProductScheduleSlot = {
 
 /** תווים מותרים ליום — א׳ (ראשון) עד ש׳ (שבת) */
 export const HEBREW_DAY_OPTIONS: { value: string; label: string }[] = [
-  { value: "א", label: "א׳ (ראשון)" },
-  { value: "ב", label: "ב׳ (שני)" },
-  { value: "ג", label: "ג׳ (שלישי)" },
-  { value: "ד", label: "ד׳ (רביעי)" },
-  { value: "ה", label: "ה׳ (חמישי)" },
-  { value: "ו", label: "ו׳ (שישי)" },
+  { value: "א", label: "ראשון" },
+  { value: "ב", label: "שני" },
+  { value: "ג", label: "שלישי" },
+  { value: "ד", label: "רביעי" },
+  { value: "ה", label: "חמישי" },
+  { value: "ו", label: "שישי" },
   { value: "ש", label: "שבת" },
 ];
 
@@ -60,7 +60,7 @@ export function normalizeProductScheduleSlotsFromMeta(raw: unknown, newId: () =>
 /** לתצוגה בווטסאפ / שמירה ב־sf_requested_date — למשל «יום ב׳» */
 export function formatYomForContactSlotDate(dayLetter: string): string {
   const opt = HEBREW_DAY_OPTIONS.find((o) => o.value === dayLetter);
-  const short = opt ? opt.label.split("(")[0]?.trim() ?? opt.label : dayLetter;
+  const short = opt ? opt.label.trim() : dayLetter;
   return `יום ${short}`;
 }
 
