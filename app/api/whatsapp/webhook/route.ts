@@ -18,6 +18,7 @@ import {
   resolveMetaVerifyToken,
   verifyMetaSignature256,
   isMetaCloudPhoneNumberId,
+  resolveMetaAccessToken,
   type WaIncomingMessage,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
@@ -97,7 +98,7 @@ import {
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
-import { normalizeProductScheduleSlotsFromMeta } from "@/lib/product-schedule-slots";
+import { normalizeProductScheduleSlotsFromMeta, formatSlotPickButtonLabel, formatYomForContactSlotDate } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 
@@ -504,6 +505,75 @@ async function sendScheduleSelectionTimeQuestion(input: {
   await updateContactSessionPhase({ supabase: input.supabase, businessId: input.businessId, phone: input.msg.from, phase: "schedule_time" });
 }
 
+const SCHEDULE_SLOT_PICK_MAX = 10;
+
+async function sendScheduleSlotPickMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  selectedService: SfServiceRow | null;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const slots = (input.selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
+  if (!slots.length) {
+    await sendScheduleSelectionDateQuestion({
+      knowledge: input.knowledge,
+      selectedService: input.selectedService,
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
+      supabase: input.supabase,
+      businessId: input.businessId,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+    });
+    return;
+  }
+
+  const labels = slots.map((s) => formatSlotPickButtonLabel(s));
+  const link = (input.knowledge.schedulePublicUrl?.trim() || input.knowledge.arboxLink?.trim() || "").trim();
+  const serviceName = input.selectedService?.name?.trim() || "האימון";
+  const introLines = [
+    link ? `כאן ניתן לראות את מערכת השעות שלנו: ${link}` : "",
+    `בוחרים מועד ל${serviceName}:`,
+    labels.length > 1 ? "בחרו אחת מהאפשרויות:" : "לחצו על הכפתור:",
+  ].filter(Boolean);
+  const body = stripTrailingNumberedChoiceLines(introLines.join("\n\n"));
+
+  let outboundLog = body;
+  if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
+    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
+      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+    });
+    outboundLog = formatInteractiveConversationLog(body, labels);
+  } else {
+    const numbered = ["בחרו מועד — כתבו את המספר מהרשימה:", ...labels.map((l, i) => `${i + 1}. ${l}`)].join("\n");
+    const full = `${body}\n\n${numbered}`;
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, full, input.accountSid, input.authToken).catch((e) =>
+      console.error("[WA Webhook] Send schedule slot pick (Twilio) failed:", e)
+    );
+    outboundLog = full;
+  }
+
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: outboundLog,
+    model_used: "sales_flow_schedule_slot_menu",
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    phase: "schedule_date",
+  });
+}
+
 function getWhatsAppOpeningGreetingTextOnly(k: BusinessKnowledgePack): string {
   if (k.salesFlowConfig) {
     return composeGreeting(
@@ -703,32 +773,50 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (shouldCollectScheduleSelection(knowledge, selectedService)) {
     const scheduleState = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
-    if (!scheduleState.requestedDate) {
-      await sendScheduleSelectionDateQuestion({
-        knowledge,
-        selectedService,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-      });
-      return;
-    }
-    if (!scheduleState.requestedTime) {
-      await sendScheduleSelectionTimeQuestion({
-        selectedService,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-      });
-      return;
+    const slots = selectedService?.scheduleSlots ?? [];
+    if (slots.length > 0) {
+      if (!scheduleState.requestedDate || !scheduleState.requestedTime) {
+        await sendScheduleSlotPickMenu({
+          knowledge,
+          selectedService,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+        });
+        return;
+      }
+    } else {
+      if (!scheduleState.requestedDate) {
+        await sendScheduleSelectionDateQuestion({
+          knowledge,
+          selectedService,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+        });
+        return;
+      }
+      if (!scheduleState.requestedTime) {
+        await sendScheduleSelectionTimeQuestion({
+          selectedService,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+        });
+        return;
+      }
     }
   }
 
@@ -1019,17 +1107,31 @@ async function sendFlowContinuation(input: {
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-    await sendScheduleSelectionDateQuestion({
-      knowledge,
-      selectedService,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      business_slug,
-      sessionId,
-    });
+    if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
+      await sendScheduleSlotPickMenu({
+        knowledge,
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    } else {
+      await sendScheduleSelectionDateQuestion({
+        knowledge,
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    }
     return;
   }
 
@@ -1040,16 +1142,30 @@ async function sendFlowContinuation(input: {
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-    await sendScheduleSelectionTimeQuestion({
-      selectedService,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      business_slug,
-      sessionId,
-    });
+    if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
+      await sendScheduleSlotPickMenu({
+        knowledge,
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    } else {
+      await sendScheduleSelectionTimeQuestion({
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    }
     return;
   }
 
@@ -2643,6 +2759,79 @@ async function processIncoming(
         return;
       }
 
+      const slotsForPick = (selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
+      if (slotsForPick.length > 0) {
+        const labels = slotsForPick.map((s) => formatSlotPickButtonLabel(s));
+        const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
+        const idx = labels.findIndex((l) => waLabelMatches(l, resolved));
+        if (idx < 0) {
+          const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_schedule_slot_invalid",
+            session_id: sessionId,
+          });
+          await sendScheduleSlotPickMenu({
+            knowledge,
+            selectedService,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+          });
+          return;
+        }
+
+        const slot = slotsForPick[idx]!;
+        const dateTxt = formatYomForContactSlotDate(slot.day);
+        const timeTxt = slot.time;
+        const { error } = await supabase
+          .from("contacts")
+          .update({ sf_requested_date: dateTxt, sf_requested_time: timeTxt, session_phase: "cta", flow_step: 0 })
+          .eq("business_id", businessId)
+          .eq("phone", msg.from);
+        if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
+        contactScheduleRequestedDate = dateTxt;
+        contactScheduleRequestedTime = timeTxt;
+        contactSessionPhase = "cta";
+        const afterScheduleText =
+          (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
+          "מהמם! נדאג לשבץ אותך למועד שבחרת!";
+        await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send after schedule selection failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: afterScheduleText,
+          model_used: "sales_flow_after_schedule_selection",
+          session_id: sessionId,
+        });
+        await sleepMs(450);
+        await sendSalesFlowCtaMenuWithPhaseUpdate({
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          sfConsumedKinds: sfClickedCtaKinds,
+          modelUsed: "sales_flow_cta",
+        });
+        return;
+      }
+
       if (contactSessionPhase === "schedule_date") {
         const parsedDate = parseScheduleDateInput(msg.text);
         if (!parsedDate) {
@@ -2700,24 +2889,24 @@ async function processIncoming(
         return;
       }
 
-      const { error } = await supabase
+      const { error: timeUpErr } = await supabase
         .from("contacts")
         .update({ sf_requested_time: parsedTime, session_phase: "cta", flow_step: 0 })
         .eq("business_id", businessId)
         .eq("phone", msg.from);
-      if (error) console.warn("[WA Webhook] sf_requested_time update failed:", error.message);
+      if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
       contactScheduleRequestedTime = parsedTime;
       contactSessionPhase = "cta";
-      const afterScheduleText =
+      const afterScheduleTextLegacy =
         (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
         "מהמם! נדאג לשבץ אותך למועד שבחרת!";
-      await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
+      await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleTextLegacy, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send after schedule selection failed:", e)
       );
       await logMessage({
         business_slug,
         role: "assistant",
-        content: afterScheduleText,
+        content: afterScheduleTextLegacy,
         model_used: "sales_flow_after_schedule_selection",
         session_id: sessionId,
       });
