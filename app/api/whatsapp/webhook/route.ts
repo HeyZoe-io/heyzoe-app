@@ -227,6 +227,31 @@ async function updateContactSessionPhase(input: {
   }
 }
 
+/** איפוס מצב פלואו/CTA ב«היי» — לא נוגע ב-trial_registered (המרה לבעל העסק). */
+async function resetContactSalesFlowStateForGreeting(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  phone: string;
+}): Promise<void> {
+  const { supabase, businessId, phone } = input;
+  try {
+    const { error } = await supabase
+      .from("contacts")
+      .update({
+        sf_clicked_cta_kinds: [],
+        sf_requested_date: null,
+        sf_requested_time: null,
+        instagram_follow_prompt_sent: false,
+        flow_step: 0,
+      })
+      .eq("business_id", businessId)
+      .eq("phone", phone);
+    if (error) console.warn("[WA Webhook] sales flow greeting reset failed:", error.message);
+  } catch (e) {
+    console.warn("[WA Webhook] sales flow greeting reset threw:", e);
+  }
+}
+
 async function bumpContactFlowStep(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
@@ -1622,9 +1647,12 @@ async function processIncoming(
           : null;
       contactTrialRegisteredAt =
         typeof (contactRow as any)?.trial_registered_at === "string" ? (contactRow as any).trial_registered_at : null;
-      allowTrialCtaThisSession = contactTrialRegistered !== true;
 
       contactSessionPhase = normalizeSessionPhase((contactRow as any)?.session_phase);
+      // CTA ניסיון חוזר מותר אחרי «היי» (phase ≠ registered) גם אם trial_registered=true.
+      allowTrialCtaThisSession =
+        contactTrialRegistered !== true || contactSessionPhase !== "registered";
+
       const fs = (contactRow as any)?.flow_step;
       contactFlowStep = typeof fs === "number" && Number.isFinite(fs) ? fs : 0;
       contactScheduleRequestedDate = String((contactRow as any)?.sf_requested_date ?? "").trim();
@@ -1810,11 +1838,6 @@ async function processIncoming(
     } catch (e) {
       console.warn("[WA Webhook] human_requested notification failed:", e);
     }
-  }
-
-  // Persisted conversions block trial CTA retries, but «היי» still restarts the sales flow.
-  if (businessId && contactTrialRegistered === true) {
-    allowTrialCtaThisSession = false;
   }
 
   // Detect "new lead" (first inbound user message in this session).
@@ -2267,17 +2290,12 @@ async function processIncoming(
     if (businessId && knowledge?.salesFlowConfig) {
       const phase = salesFlowPhaseAfterOpeningReset(knowledge, salesFlowServices);
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
+      await resetContactSalesFlowStateForGreeting({ supabase, businessId, phone: msg.from });
       contactSessionPhase = phase;
       contactFlowStep = 0;
-      {
-        const clr = await supabase
-          .from("contacts")
-          .update({ sf_clicked_cta_kinds: [], sf_requested_date: null, sf_requested_time: null })
-          .eq("business_id", businessId)
-          .eq("phone", msg.from);
-        if (clr.error) console.warn("[WA Webhook] sf_clicked_cta_kinds clear (new lead):", clr.error.message);
-        else sfClickedCtaKinds = [];
-      }
+      sfClickedCtaKinds = [];
+      contactInstagramFollowPromptSent = false;
+      allowTrialCtaThisSession = true;
       // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
       // We send the continuation within this request to guarantee delivery order.
       await sleepMs(1500);
@@ -2294,10 +2312,10 @@ async function processIncoming(
         sessionId,
         salesFlowServices,
         trialRegistered: contactTrialRegistered,
-        allowTrialCta: allowTrialCtaThisSession,
+        allowTrialCta: true,
         blockTrialPickMedia: starterBlocksMedia,
-        sfConsumedKinds: sfClickedCtaKinds,
-        instagramFollowPromptSent: contactInstagramFollowPromptSent,
+        sfConsumedKinds: [],
+        instagramFollowPromptSent: false,
       });
     }
 
@@ -2310,7 +2328,7 @@ async function processIncoming(
     const greet = normalizeGreetingToken(msg.text);
     const GREETINGS = new Set(["שלום", "היי", "הי", "אהלן", "hello", "hi"]);
     if (GREETINGS.has(greet)) {
-      // איפוס שלב שיחה בלבד (לא trial_registered) — פלואו מתחיל מחדש.
+      // «היי» מאפס את הפלואו; trial_registered נשמר לדוחות בעל העסק.
       const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
       if (didSendOpeningMedia) {
         // WhatsApp clients can render media later than subsequent texts; delay so the media appears first.
@@ -2337,23 +2355,17 @@ async function processIncoming(
         model_used: "greeting",
         session_id: sessionId,
       });
+      // «היי» — איפוס מלא של הפלואו וה-CTA; trial_registered נשמר לדוחות בעל העסק.
       if (businessId && knowledge?.salesFlowConfig) {
-        // «היי» מאפס את מסלול המכירה; trial_registered נשמר (ללא CTA ניסיון חוזר).
-        allowTrialCtaThisSession = contactTrialRegistered !== true;
+        allowTrialCtaThisSession = true;
 
         const phase = salesFlowPhaseAfterOpeningReset(knowledge, salesFlowServices);
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
+        await resetContactSalesFlowStateForGreeting({ supabase, businessId, phone: msg.from });
         contactSessionPhase = phase;
         contactFlowStep = 0;
-        {
-          const clr = await supabase
-            .from("contacts")
-            .update({ sf_clicked_cta_kinds: [], sf_requested_date: null, sf_requested_time: null })
-            .eq("business_id", businessId)
-            .eq("phone", msg.from);
-          if (clr.error) console.warn("[WA Webhook] sf_clicked_cta_kinds clear (greeting):", clr.error.message);
-          else sfClickedCtaKinds = [];
-        }
+        sfClickedCtaKinds = [];
+        contactInstagramFollowPromptSent = false;
         // IMPORTANT: route handlers may run in a serverless context where setTimeout is not reliable after response.
         // We send the continuation within this request to guarantee delivery order.
         await sleepMs(1500);
@@ -2370,10 +2382,10 @@ async function processIncoming(
           sessionId,
           salesFlowServices,
           trialRegistered: contactTrialRegistered,
-          allowTrialCta: allowTrialCtaThisSession,
+          allowTrialCta: true,
           blockTrialPickMedia: starterBlocksMedia,
-          sfConsumedKinds: sfClickedCtaKinds,
-          instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          sfConsumedKinds: [],
+          instagramFollowPromptSent: false,
         });
       }
       return;
