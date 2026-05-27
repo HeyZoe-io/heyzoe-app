@@ -8,6 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BATCH = 5000;
+/** חלון 24 שעות אחורה (תואם לניסוח «ביממה האחרונה» במייל). */
+const NO_RESPONSE_EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type NoResponseLead = {
   id: string | number;
@@ -143,11 +145,14 @@ export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const admin = createSupabaseAdminClient();
+  const sinceIso = new Date(Date.now() - NO_RESPONSE_EMAIL_WINDOW_MS).toISOString();
+
   const { data: leadsData, error } = await admin
     .from("contacts")
     .select("id, business_id, full_name, phone")
     .eq("source", "whatsapp")
     .not("wa_no_response_at", "is", null)
+    .gte("wa_no_response_at", sinceIso)
     .is("no_response_notified_at", null)
     .limit(BATCH);
 
@@ -247,6 +252,7 @@ export async function GET(req: NextRequest) {
     .from("marketing_flow_sessions")
     .select("id, full_name, phone")
     .not("followup_3_sent_at", "is", null)
+    .gte("followup_3_sent_at", sinceIso)
     .is("no_response_notified_at", null)
     .limit(BATCH);
 
