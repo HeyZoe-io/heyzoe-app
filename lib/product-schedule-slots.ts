@@ -57,7 +57,19 @@ export function normalizeProductScheduleSlotsFromMeta(raw: unknown, newId: () =>
   return out;
 }
 
+/** לתצוגה בווטסאפ / שמירה ב־sf_requested_date — למשל «יום ב׳» */
+export function formatYomForContactSlotDate(dayLetter: string): string {
+  const opt = HEBREW_DAY_OPTIONS.find((o) => o.value === dayLetter);
+  const short = opt ? opt.label.split("(")[0]?.trim() ?? opt.label : dayLetter;
+  return `יום ${short}`;
+}
+
+/** תווית כפתור: «יום ב׳ ב19:00» */
+export function formatSlotPickButtonLabel(slot: { day: string; time: string }): string {
+  return `${formatYomForContactSlotDate(slot.day)} ב${slot.time}`;
+}
+
 export function formatScheduleSlotsForKnowledge(slots: ProductScheduleSlot[]): string {
   if (!slots.length) return "";
-  return slots.map((s) => `יום ${s.day} ${s.time}`).join(", ");
+  return slots.map((s) => `${formatYomForContactSlotDate(s.day)} ${s.time}`).join(", ");
 }

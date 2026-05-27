@@ -707,7 +707,8 @@ export async function sendWhatsAppTextOrMenu(
 
   if (isMetaCloudPhoneNumberId(fromNumber) && resolveMetaAccessToken()) {
     const baseBody = bodyText.trim();
-    if (labels.length >= 2) {
+    // 1–3 reply buttons or 4–10 list rows (Meta); single-slot menus need this branch too.
+    if (labels.length >= 1) {
       const interactive = buildMetaInteractivePayload(baseBody, labels, footer || undefined);
       if (interactive) {
         try {
