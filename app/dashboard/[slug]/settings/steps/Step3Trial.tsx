@@ -747,18 +747,38 @@ export default function Step3Trial(props: {
 
             {scheduleDirectRegistration === false ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
-                <SalesPathFieldLabel hint="יישום כפתורי ווטסאפ יגיע בשלב הבא">
-                  מועדי לוח (שבועי)
-                </SalesPathFieldLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <SalesPathFieldLabel hint="יישום כפתורי ווטסאפ יגיע בשלב הבא">מועדי לוח (שבועי)</SalesPathFieldLabel>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 gap-1 border-dashed bg-white/70 px-3 text-xs"
+                    onClick={() => {
+                      const arr = [...services];
+                      arr[i] = {
+                        ...s,
+                        schedule_slots: [...(s.schedule_slots ?? []), { id: uid(), day: "ו", time: "08:15" }],
+                      };
+                      setServices(arr);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    הוסף מועד
+                  </Button>
+                </div>
                 <p className="text-[11px] text-zinc-500 leading-snug">
-                  לכל הופעה של המוצר בלוח — שורה נפרדת (יום א׳–שבת + שעה 24 שעות).
+                  לכל הופעה של המוצר בלוח — שורה נפרדת (ראשון–שבת + שעה בפורמט 24 שעות).
                 </p>
                 <div className="space-y-2">
                   {(s.schedule_slots ?? []).map((slot, si) => (
-                    <div key={slot.id} className="flex flex-wrap items-end gap-2 border-t border-zinc-200/60 pt-2 first:border-t-0 first:pt-0">
-                      <div className="min-w-[160px] flex-1 space-y-1">
+                    <div
+                      key={slot.id}
+                      className="flex flex-wrap items-end gap-2 border-t border-zinc-200/60 pt-2 first:border-t-0 first:pt-0 flex-row-reverse"
+                    >
+                      <div className="min-w-[180px] flex-1 space-y-1 text-right">
                         <span className="text-[11px] font-medium text-zinc-500">יום</span>
                         <select
+                          dir="rtl"
                           className={PRODUCT_INPUT}
                           value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : "א"}
                           onChange={(e) => {
@@ -776,7 +796,7 @@ export default function Step3Trial(props: {
                           ))}
                         </select>
                       </div>
-                      <div className="w-[108px] space-y-1">
+                      <div className="w-[112px] space-y-1 text-right">
                         <span className="text-[11px] font-medium text-zinc-500">שעה</span>
                         <Input
                           dir="ltr"
@@ -808,22 +828,6 @@ export default function Step3Trial(props: {
                     </div>
                   ))}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 w-full gap-1 border-dashed text-xs"
-                  onClick={() => {
-                    const arr = [...services];
-                    arr[i] = {
-                      ...s,
-                      schedule_slots: [...(s.schedule_slots ?? []), { id: uid(), day: "א", time: "19:00" }],
-                    };
-                    setServices(arr);
-                  }}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  הוסף מועד
-                </Button>
               </div>
             ) : null}
 
