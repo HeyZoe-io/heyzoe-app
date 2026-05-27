@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import dynamic from "next/dynamic";
 import NextLink from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -9,10 +8,9 @@ import useSWR, { useSWRConfig } from "swr";
 import {
   ArrowLeft, ArrowRight, Check,
   Copy,
-  GripVertical, Link, Loader2, Plus, RotateCcw, Sparkles, Trash2, Upload, X,
+  Loader2, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { buildWelcomeMessageForStorage, splitWelcomeForChat } from "@/lib/welcome-message";
 import {
   WA_SALES_FOLLOWUP_1_DEFAULT,
@@ -22,8 +20,6 @@ import {
 import {
   type OfferKind,
   type SalesFlowConfig,
-  type SalesFlowCtaButton,
-  type SalesFlowExtraStep,
   appendTrialPromotionToCtaBody,
   composeGreeting,
   composeAfterServicePickReply,
@@ -31,7 +27,6 @@ import {
   normalizeMasculinePredicatesAfterPracticeHead,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
-  fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
   fillCourseCtaBodyTemplate,
   fillWorkshopCtaBodyTemplate,
@@ -42,17 +37,15 @@ import {
   syncWelcomeFromSalesFlow,
   trialServicePhraseForAfterPick,
 } from "@/lib/sales-flow";
-import { TRIAL_SERVICE_NAME_MAX_CHARS, truncateTrialServiceName } from "@/lib/trial-service";
+import { truncateTrialServiceName } from "@/lib/trial-service";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 import { buildFactQuestions } from "@/lib/fact-questions";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
-  Field,
   SALES_PATH_STEPS,
   StepHeader,
   StepPanel,
-  Textarea,
 } from "./settings-ui";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -175,13 +168,17 @@ function writeTrialServicesStash(slug: string, rows: ServiceItem[]) {
     if (!named.length) return;
     const payload = {
       savedAt: Date.now(),
-      rows: named.map(({ ui_id: _omit, ...rest }) => ({
-        ...rest,
-        trial_pick_media_type:
-          rest.trial_pick_media_type === "video" || rest.trial_pick_media_type === "image"
-            ? rest.trial_pick_media_type
-            : ("" as const),
-      })),
+      rows: named.map((s) => {
+        const { ui_id, ...rest } = s;
+        void ui_id;
+        return {
+          ...rest,
+          trial_pick_media_type:
+            rest.trial_pick_media_type === "video" || rest.trial_pick_media_type === "image"
+              ? rest.trial_pick_media_type
+              : ("" as const),
+        };
+      }),
     };
     sessionStorage.setItem(trialServicesStashStorageKey(slug), JSON.stringify(payload));
   } catch {
@@ -340,7 +337,9 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
       if (metaReqIdRef.current !== my) return null;
       const st = String(j?.status ?? "").trim().toUpperCase();
       if (st === "NOT_PROVISIONED" || st === "not_provisioned") return null;
-      if (st === "CONNECTED" || st === "PENDING" || st === "UNVERIFIED") return st as any;
+      if (st === "CONNECTED" || st === "PENDING" || st === "UNVERIFIED") {
+        return st as "CONNECTED" | "PENDING" | "UNVERIFIED";
+      }
       return null;
     } catch {
       return null;
@@ -352,10 +351,10 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
       window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
-    setMetaStatus(null);
 
     let cancelled = false;
     void (async () => {
+      setMetaStatus(null);
       const st = await fetchMetaStatus();
       if (cancelled) return;
       setMetaChecked(true);
@@ -666,11 +665,6 @@ function parseStoredServiceDescription(rawDescription: string): {
   }
 }
 
-function parseServiceDescriptionMeta(rawDescription: string): Record<string, unknown> {
-  const { isStructured, meta } = parseStoredServiceDescription(rawDescription);
-  return isStructured ? meta : {};
-}
-
 function serviceReplyPhrase(serviceName: string): string {
   const trimmed = serviceName.trim();
   if (!trimmed) return "האימון";
@@ -688,16 +682,6 @@ function deriveBenefitLineFromDescription(serviceName: string, description: stri
     String(serviceName ?? ""),
     String(description ?? "")
   );
-}
-
-function formatLevelsForSentence(levels: string[]): string {
-  const clean = (levels ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
-  if (clean.length === 0) return "";
-  if (clean.length === 1) return `לרמת ${clean[0]}`;
-  if (clean.length === 2) return `לרמת ${clean[0]} ולרמת ${clean[1]}`;
-  const last = clean[clean.length - 1]!;
-  const head = clean.slice(0, -1).map((x) => `לרמת ${x}`).join(", ");
-  return `${head} ולרמת ${last}`;
 }
 
 function resolveServiceReplyFocus(serviceName: string): string {
@@ -907,7 +891,7 @@ function afterExperienceToStore(typed: string, service: ServiceItem | null): str
   return s;
 }
 
-function ctaBodyForDisplay(stored: string, priceText: string, durationText: string): string {
+function ctaBodyForDisplay(stored: string): string {
   // ב־UI מציגים משתנה קבוע (x) כי המחיר/משך תלויים בבחירת סוג האימון
   return fillCtaBodyTemplate(stored, "x", "x");
 }
@@ -965,112 +949,6 @@ function courseCtaBodyToStore(
   if (a && s.includes(a)) s = s.split(a).join("{start_date}");
   if (b && s.includes(b)) s = s.split(b).join("{end_date}");
   return s;
-}
-
-function SalesFlowExtraStepsEditor({
-  steps,
-  onChange,
-  addButtonLabel,
-  startAt = 1,
-  questionHeaderClassName = "",
-}: {
-  steps: SalesFlowExtraStep[];
-  onChange: (next: SalesFlowExtraStep[]) => void;
-  addButtonLabel: string;
-  /** for warmup extras: start at 2 (since question 1 already exists above) */
-  startAt?: number;
-  /** match typography of surrounding question headers */
-  questionHeaderClassName?: string;
-}) {
-  return (
-    <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
-      {steps.map((st, si) => (
-        <div
-          key={st.id}
-          className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/60"
-        >
-          <div className="flex justify-between items-center gap-2">
-            <span
-              className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
-            >
-              שאלה {si + startAt}
-            </span>
-            <button
-              type="button"
-              className="p-1 text-zinc-400 hover:text-red-500"
-              onClick={() => onChange(steps.filter((x) => x.id !== st.id))}
-              aria-label="הסר שאלה"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-          <Input
-            dir="rtl"
-            value={st.question}
-            onChange={(e) => {
-              const v = e.target.value;
-              onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
-            }}
-            placeholder="כתבו את השאלה כאן…"
-          />
-          {st.options.map((o, oi) => (
-            <div key={oi} className="flex gap-2">
-              <Input
-                dir="rtl"
-                className="flex-1"
-                value={o}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  onChange(
-                    steps.map((x) =>
-                      x.id === st.id
-                        ? { ...x, options: x.options.map((t, j) => (j === oi ? v : t)) }
-                        : x
-                    )
-                  );
-                }}
-              />
-              <button
-                type="button"
-                className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
-                onClick={() =>
-                  onChange(
-                    steps.map((x) =>
-                      x.id === st.id ? { ...x, options: x.options.filter((_, j) => j !== oi) } : x
-                    )
-                  )
-                }
-                aria-label="הסר כפתור"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full text-xs h-8"
-            onClick={() =>
-              onChange(
-                steps.map((x) => (x.id === st.id ? { ...x, options: [...x.options, ""] } : x))
-              )
-            }
-          >
-            <Plus className="h-3 w-3" /> הוסף כפתור תשובה
-          </Button>
-        </div>
-      ))}
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full gap-1 text-sm"
-        onClick={() => onChange([...steps, { id: uid(), question: "", options: ["", ""] }])}
-      >
-        <Plus className="h-4 w-4" />
-        {addButtonLabel}
-      </Button>
-    </div>
-  );
 }
 
 /** שם תצוגה מ־slug כשאין שם שמור בדאטהבייס */
@@ -1230,9 +1108,9 @@ export default function SlugSettingsPage({
   const [trialPickFailedUiId, setTrialPickFailedUiId] = useState<string | null>(null);
 
   // ── מסלול מכירה: פתיחה + כפתורים
-  const [welcomeIntro, setWelcomeIntro] = useState("");
-  const [welcomeQuestion, setWelcomeQuestion] = useState("");
-  const [welcomeOptions, setWelcomeOptions] = useState<string[]>(["", "", ""]);
+  const [, setWelcomeIntro] = useState("");
+  const [, setWelcomeQuestion] = useState("");
+  const [, setWelcomeOptions] = useState<string[]>(["", "", ""]);
   const [salesFlowConfig, setSalesFlowConfig] = useState<SalesFlowConfig>(() =>
     defaultSalesFlowConfig([])
   );
@@ -1624,7 +1502,11 @@ export default function SlugSettingsPage({
             ? (sl.quick_replies as QuickReply[]).map((r) =>
                 typeof r === "string"
                   ? { id: uid(), label: r, reply: "" } // migrate old string format
-                  : { id: (r as any).id ?? uid(), label: String((r as any).label ?? ""), reply: String((r as any).reply ?? "") }
+                  : {
+                      id: String((r as Partial<QuickReply>).id ?? uid()),
+                      label: String((r as Partial<QuickReply>).label ?? ""),
+                      reply: String((r as Partial<QuickReply>).reply ?? ""),
+                    }
               )
             : [];
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
@@ -1695,7 +1577,7 @@ export default function SlugSettingsPage({
         }
         setSettingsHydrated(true);
         if (serialized) swrLastAppliedPayloadJsonRef.current = serialized;
-  }, [slug, swrSettings, swrSettingsError, settingsHydrated, servicesHydrated]);
+  }, [slug, swrSettings, swrSettingsError, settingsHydrated, servicesHydrated, settingsKey, revalidateDashboardSettings]);
 
   useEffect(() => {
     if (blockingSettingsLoad || !settingsHydrated) {
@@ -1828,6 +1710,7 @@ export default function SlugSettingsPage({
       vibe,
       openingMediaUrl,
       openingMediaType,
+      promotions,
       segQuestions,
       quickReplies,
       arboxLink,
@@ -1911,7 +1794,7 @@ export default function SlugSettingsPage({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [canAutosave, postSettings, settingsPresenceLocked]);
+  }, [canAutosave, postSettings, settingsPresenceLocked, slug]);
 
   useEffect(() => {
     if (!settingsPresenceLocked) return;
@@ -1946,7 +1829,7 @@ export default function SlugSettingsPage({
     } finally {
       setSaving(false);
     }
-  }, [postSettings, settingsPresenceLocked]);
+  }, [postSettings, settingsPresenceLocked, slug]);
 
   const applyWaSalesFollowupDefaults = useCallback(() => {
     setWaSalesFollowup1(WA_SALES_FOLLOWUP_1_DEFAULT);
@@ -1960,13 +1843,13 @@ export default function SlugSettingsPage({
     setBusyError("");
     Promise.resolve()
       .then(fn)
-      .catch((err) => {
-        const e: any = err;
+      .catch((err: unknown) => {
+        const e = err as { name?: string; message?: string; code?: string };
         const name = String(e?.name ?? "").trim();
         const msg = String(e?.message ?? "").trim();
         const code = String(e?.code ?? "").trim();
         const kind = code || name || "unknown_error";
-        const detail = msg || String(e ?? "").trim() || "לא ידוע";
+        const detail = msg || String(err ?? "").trim() || "לא ידוע";
         setBusyError(`שגיאה בג׳ינרוט (${kind}): ${detail}`);
       })
       .finally(() => {
@@ -2070,7 +1953,7 @@ export default function SlugSettingsPage({
         return { ...c, after_trial_registration_body: base.after_trial_registration_body };
       });
     },
-    [services, vibe]
+    [vibe]
   );
 
   const regenerateSalesFlowSectionBusy = useCallback(
