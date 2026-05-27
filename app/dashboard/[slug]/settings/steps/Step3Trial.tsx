@@ -335,6 +335,7 @@ export default function Step3Trial(props: {
       const j = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        hint?: string;
         services?: { name: string; slots: { day: string; time: string }[] }[];
       };
       if (!res.ok || !j?.services) {
@@ -344,6 +345,18 @@ export default function Step3Trial(props: {
             : typeof j.error === "string" && j.error.trim()
               ? j.error.trim()
               : `הסריקה נכשלה (${res.status}).`
+        );
+        return;
+      }
+      const totalSlots = j.services.reduce(
+        (n, x) => n + (Array.isArray(x.slots) ? x.slots.length : 0),
+        0
+      );
+      if (totalSlots === 0) {
+        setScheduleExtractError(
+          j.hint === "no_slots"
+            ? "לא זוהו מועדים אוטומטית בדף הזה (לוח בתמונה או בפורמט שלא נקרא). אפשר לנסות לינק ישיר לקובץ תמונת הלוח, או להעלות תמונה, או למלא ידנית."
+            : "לא זוהו מועדים — נסו לינק לתמונת לוח או מילוי ידני."
         );
         return;
       }
