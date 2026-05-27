@@ -23,7 +23,8 @@ const PRODUCT_INPUT = SALES_PATH_INPUT;
 
 function rtlCheckboxLabelRowClassName(fullWidth = true) {
   return [
-    "flex flex-row items-center justify-end gap-3 text-right cursor-pointer select-none",
+    // RTL-friendly: checkbox on the right, label to its left.
+    "flex flex-row-reverse items-center justify-end gap-3 text-right cursor-pointer select-none",
     fullWidth ? "w-full" : "",
   ]
     .filter(Boolean)
@@ -626,79 +627,6 @@ export default function Step3Trial(props: {
                 rows={4}
                 className={SALES_PATH_TEXTAREA}
               />
-            </div>
-
-            <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right">
-              <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
-                <input
-                  type="checkbox"
-                  checked={s.levels_enabled}
-                  onChange={(e) => {
-                    const arr = [...services];
-                    arr[i] = {
-                      ...s,
-                      levels_enabled: e.target.checked,
-                      levels:
-                        e.target.checked && s.levels.filter((level) => level.trim()).length === 0
-                          ? ["מתחילים", "מתקדמים"]
-                          : s.levels,
-                    };
-                    setServices(arr);
-                  }}
-                  className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
-                />
-                <span className="text-sm font-semibold text-zinc-800 tracking-tight">חלוקה לרמות</span>
-              </label>
-              {s.levels_enabled ? (
-                <div className="space-y-2 border-t border-zinc-200/70 pt-3">
-                  {(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"]).map((level, levelIndex) => (
-                    <div key={`${s.ui_id}-level-${levelIndex}`} className="flex items-center gap-2">
-                      <Input
-                        dir="rtl"
-                        value={level}
-                        onChange={(e) => {
-                          const arr = [...services];
-                          const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
-                          nextLevels[levelIndex] = e.target.value;
-                          arr[i] = { ...s, levels: nextLevels };
-                          setServices(arr);
-                        }}
-                        placeholder={
-                          levelIndex === 0 ? "מתחילים" : levelIndex === 1 ? "מתקדמים" : "רמה נוספת"
-                        }
-                        className={`${PRODUCT_INPUT} flex-1`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const arr = [...services];
-                          const nextLevels = [...(s.levels.length ? s.levels : ["מתחילים", "מתקדמים"])];
-                          nextLevels.splice(levelIndex, 1);
-                          arr[i] = { ...s, levels: nextLevels };
-                          setServices(arr);
-                        }}
-                        className="shrink-0 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                        aria-label="הסר רמה"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 w-full gap-1 border-dashed text-xs"
-                    onClick={() => {
-                      const arr = [...services];
-                      arr[i] = { ...s, levels: [...s.levels, ""] };
-                      setServices(arr);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    הוסף רמה
-                  </Button>
-                </div>
-              ) : null}
             </div>
 
             <TrialPickMediaAttachmentSection
