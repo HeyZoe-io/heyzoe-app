@@ -86,6 +86,12 @@ export type SalesFlowConfig = {
   free_chat_invite_reply: string;
   /** הודעה/הנחיה לזואי אחרי שהלקוח השלים הרשמה לאימון ניסיון */
   after_trial_registration_body: string;
+  /** תשובה אחרי שהליד בחר תאריך ושעה (כשאין הרשמה ישירה ממערכת השעות) */
+  after_schedule_selection: string;
+  /** גוף CTA לאימון ניסיון אחרי סשן בחירת יום ושעה */
+  cta_body_after_schedule: string;
+  /** תבנית הודעה ללקוח אחרי הרשמה — כשאין הרשמה ישירה (כולל {requested_date} / {requested_time}) */
+  after_trial_registration_body_after_schedule: string;
   /** מיגרציה ממסלול ישן — דורס את הברכה המורכבת */
   greeting_body_override?: string;
   /** @deprecated נגזר מ־memberships_cta_delivery בכפתור המנויים; נשמר לתאימות לקוחות ישנים */
@@ -173,6 +179,21 @@ const FRIENDLY: SalesFlowConfig = {
     "מחירי מנויים",
   ],
   free_chat_invite_reply: "אין בעיה! כתבו בטקסט חופשי ואענה 🙂",
+  after_schedule_selection: "מהמם! נדאג לשבץ אותך למועד שבחרת!",
+  cta_body_after_schedule:
+    "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף. שנתקדם?",
+  after_trial_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
+
+מתרגשים לראותך בקרוב בתאריך {requested_date} בשעה {requested_time}
+זה קורה בכתובת: {business_address}
+
+ככה מגיעים אלינו:
+{business_directions}
+
+מומלץ להגיע לאימון לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
+סופר מחכים לראותך. נתראה בקרוב!
+
+{instagram_cta}`,
   after_trial_registration_body: `כל הכבוד! נרשמת בהצלחה 🎉
 
 מתרגשים לראותך בקרוב!
@@ -745,6 +766,17 @@ export function fillOfferKindCtaBody(
   return fillCtaBodyTemplate(cfg.cta_body, row.priceText, row.durationText);
 }
 
+/** CTA לאימון ניסיון אחרי סשן בחירת יום ושעה (ללא כפתור מערכת שעות) */
+export function filterTrialCtaButtonsAfterSchedule(buttons: SalesFlowCtaButton[]): SalesFlowCtaButton[] {
+  return buttons.filter((b) => b.kind !== "schedule");
+}
+
+export function resolveTrialCtaBodyTemplate(cfg: SalesFlowConfig, afterScheduleFlow: boolean): string {
+  if (!afterScheduleFlow) return cfg.cta_body;
+  const alt = String(cfg.cta_body_after_schedule ?? "").trim();
+  return alt || cfg.cta_body;
+}
+
 function normalizePromoForCompare(value: string): string {
   return String(value ?? "")
     .trim()
@@ -1001,6 +1033,18 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_trial_registration_body === "string"
         ? o.after_trial_registration_body
         : base.after_trial_registration_body,
+    after_schedule_selection:
+      typeof o.after_schedule_selection === "string"
+        ? o.after_schedule_selection
+        : base.after_schedule_selection,
+    cta_body_after_schedule:
+      typeof o.cta_body_after_schedule === "string"
+        ? o.cta_body_after_schedule
+        : base.cta_body_after_schedule,
+    after_trial_registration_body_after_schedule:
+      typeof o.after_trial_registration_body_after_schedule === "string"
+        ? o.after_trial_registration_body_after_schedule
+        : base.after_trial_registration_body_after_schedule,
     greeting_body_override: migrateLegacyGreetingBodyOverride(o.greeting_body_override),
     /** ברירת מחדל true — לתאימות בלבד; בשימוש אפשרי עם applyLegacyMembershipsCheckbox */
     show_memberships_button: o.show_memberships_button === false ? false : true,
@@ -1089,6 +1133,9 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     followup_after_next_class_options: [...c.followup_after_next_class_options],
     free_chat_invite_reply: c.free_chat_invite_reply,
     after_trial_registration_body: c.after_trial_registration_body,
+    after_schedule_selection: c.after_schedule_selection,
+    cta_body_after_schedule: c.cta_body_after_schedule,
+    after_trial_registration_body_after_schedule: c.after_trial_registration_body_after_schedule,
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
   };
 }
@@ -1637,6 +1684,8 @@ export function getWhatsAppOpeningPreviewSections(
 const INSTAGRAM_CTA_PLACEHOLDER = "{instagram_cta}";
 const ADDRESS_PLACEHOLDER = "{business_address}";
 const DIRECTIONS_PLACEHOLDER = "{business_directions}";
+const REQUESTED_DATE_PLACEHOLDER = "{requested_date}";
+const REQUESTED_TIME_PLACEHOLDER = "{requested_time}";
 
 /**
  * מרחיב תבנית «אחרי הרשמה לאימון ניסיון» לפרומפט: ממלא את {instagram_cta}
@@ -1716,6 +1765,32 @@ export function matchesTrialRegisteredMessage(raw: string): boolean {
   return matchesTrialAlreadyRegisteredMessage(raw);
 }
 
+export function resolveAfterTrialRegistrationBodyTemplate(
+  cfg: SalesFlowConfig,
+  afterScheduleFlow: boolean
+): string {
+  if (!afterScheduleFlow) return cfg.after_trial_registration_body;
+  const alt = String(cfg.after_trial_registration_body_after_schedule ?? "").trim();
+  return alt || cfg.after_trial_registration_body;
+}
+
+function fillAfterTrialSchedulePlaceholders(body: string, requestedDate: string, requestedTime: string): string {
+  const date = requestedDate.trim();
+  const time = requestedTime.trim();
+  if (date && time) {
+    return body
+      .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
+      .replaceAll(REQUESTED_TIME_PLACEHOLDER, time);
+  }
+  return body
+    .replace(
+      /מתרגשים לראותך בקרוב בתאריך \{requested_date\} בשעה \{requested_time\}/gu,
+      "מתרגשים לראותך בקרוב!"
+    )
+    .replaceAll(REQUESTED_DATE_PLACEHOLDER, "")
+    .replaceAll(REQUESTED_TIME_PLACEHOLDER, "");
+}
+
 /**
  * מכין את תבנית «אחרי הרשמה» לשליחה ללקוח בווטסאפ: אינסטגרם, הסרת הערות «מלאי», מילוי ____ בכתובת והגעה, השמטת שורות ריקות אחרי נקודתיים.
  */
@@ -1723,9 +1798,15 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   body: string,
   instagramUrl: string,
   address: string,
-  directions: string
+  directions: string,
+  scheduleSelection?: { requestedDate?: string; requestedTime?: string }
 ): string {
   let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions);
+  s = fillAfterTrialSchedulePlaceholders(
+    s,
+    String(scheduleSelection?.requestedDate ?? ""),
+    String(scheduleSelection?.requestedTime ?? "")
+  );
   s = s
     .split("\n")
     .map((x) => x.trim())
