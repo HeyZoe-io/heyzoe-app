@@ -289,6 +289,17 @@ function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, se
   return shouldCollectScheduleSelection(knowledge, service) ? "schedule_date" : "cta";
 }
 
+/** שלב ראשון במסלול מכירה אחרי פתיחה / «היי» — תמיד מתחיל מחדש (גם אם trial_registered=true). */
+function salesFlowPhaseAfterOpeningReset(
+  knowledge: BusinessKnowledgePack,
+  salesFlowServices: SfServiceRow[]
+): HeyzoeSessionPhase {
+  if (salesFlowServices.length === 1) {
+    return scheduleSelectionPhaseAfterService(knowledge, salesFlowServices[0] ?? null);
+  }
+  return "opening";
+}
+
 function parseScheduleDateInput(text: string): string | null {
   const m = text.trim().match(/^(\d{1,2})\.(\d{1,2})$/);
   if (!m) return null;
@@ -922,6 +933,47 @@ async function sendFlowContinuation(input: {
     return;
   }
 
+  if (phase === "schedule_date") {
+    const selectedServiceName =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+    const selectedService =
+      salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+    await sendScheduleSelectionDateQuestion({
+      knowledge,
+      selectedService,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+    });
+    return;
+  }
+
+  if (phase === "schedule_time") {
+    const selectedServiceName =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+    const selectedService =
+      salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+    await sendScheduleSelectionTimeQuestion({
+      selectedService,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+    });
+    return;
+  }
+
   if (phase === "cta") {
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
@@ -937,25 +989,6 @@ async function sendFlowContinuation(input: {
       allowTrialCta,
       sfConsumedKinds,
       modelUsed: "flow_continuation_cta",
-    });
-    return;
-  }
-
-  if (phase === "schedule_date" || phase === "schedule_time") {
-    await sendSalesFlowCtaMenuWithPhaseUpdate({
-      knowledge,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      business_slug,
-      sessionId,
-      salesFlowServices,
-      trialRegistered,
-      allowTrialCta,
-      sfConsumedKinds,
-      modelUsed: "flow_continuation_schedule_selection",
     });
     return;
   }
@@ -1779,15 +1812,9 @@ async function processIncoming(
     }
   }
 
-  // Persisted conversions are terminal for the trial CTA, even if a flow reset started a new opening.
+  // Persisted conversions block trial CTA retries, but «היי» still restarts the sales flow.
   if (businessId && contactTrialRegistered === true) {
     allowTrialCtaThisSession = false;
-    contactSessionPhase = "registered";
-    try {
-      await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "registered" });
-    } catch (e) {
-      console.warn("[WA Webhook] registered phase sync failed (continuing):", e);
-    }
   }
 
   // Detect "new lead" (first inbound user message in this session).
@@ -2238,12 +2265,7 @@ async function processIncoming(
     });
 
     if (businessId && knowledge?.salesFlowConfig) {
-      const phase: HeyzoeSessionPhase =
-        contactTrialRegistered === true
-          ? "registered"
-          : salesFlowServices.length === 1
-            ? scheduleSelectionPhaseAfterService(knowledge, salesFlowServices[0] ?? null)
-            : "opening";
+      const phase = salesFlowPhaseAfterOpeningReset(knowledge, salesFlowServices);
       await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
       contactSessionPhase = phase;
       contactFlowStep = 0;
@@ -2316,15 +2338,10 @@ async function processIncoming(
         session_id: sessionId,
       });
       if (businessId && knowledge?.salesFlowConfig) {
-        // Greeting resets the flow only for non-registered leads. Registered leads stay post-trial.
+        // «היי» מאפס את מסלול המכירה; trial_registered נשמר (ללא CTA ניסיון חוזר).
         allowTrialCtaThisSession = contactTrialRegistered !== true;
 
-        const phase: HeyzoeSessionPhase =
-          contactTrialRegistered === true
-            ? "registered"
-            : salesFlowServices.length === 1
-              ? scheduleSelectionPhaseAfterService(knowledge, salesFlowServices[0] ?? null)
-              : "opening";
+        const phase = salesFlowPhaseAfterOpeningReset(knowledge, salesFlowServices);
         await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase });
         contactSessionPhase = phase;
         contactFlowStep = 0;
