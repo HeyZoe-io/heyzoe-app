@@ -48,6 +48,7 @@ type ServiceItem = {
   benefit_line: string;
   trial_pick_media_url: string;
   trial_pick_media_type: "image" | "video" | "";
+  schedule_slots: { id: string; day: string; time: string }[];
 };
 
 type CtaOfferTab = "trial" | "workshop" | "course";

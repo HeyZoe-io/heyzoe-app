@@ -97,6 +97,7 @@ import {
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
+import { normalizeProductScheduleSlotsFromMeta } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 
@@ -637,6 +638,8 @@ type SfServiceRow = {
   courseSessionsText: string;
   courseStartDate: string;
   courseEndDate: string;
+  /** מועדי לוח שבועיים (מוצר) — לשימוש בהמשך בכפתורי ווטסאפ */
+  scheduleSlots: { day: string; time: string }[];
 };
 
 /** כש-JSON ב-description שבור — משחזרים לפחות את שדות מדיית בחירת השירות */
@@ -1947,6 +1950,12 @@ async function processIncoming(
                 courseSessionsText: String(meta.course_sessions_count ?? "").trim(),
                 courseStartDate: String(meta.course_start_date ?? "").trim(),
                 courseEndDate: String(meta.course_end_date ?? "").trim(),
+                scheduleSlots: (() => {
+                  let c = 0;
+                  return normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${c++}`).map(
+                    ({ day, time }) => ({ day, time })
+                  );
+                })(),
               };
             } catch {
               const raw = String(s.description ?? "");
@@ -1964,6 +1973,7 @@ async function processIncoming(
                 courseSessionsText: "",
                 courseStartDate: "",
                 courseEndDate: "",
+                scheduleSlots: [],
               };
             }
           })(),

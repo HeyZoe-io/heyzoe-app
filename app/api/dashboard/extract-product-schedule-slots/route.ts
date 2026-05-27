@@ -1,0 +1,309 @@
+import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
+import dns from "dns/promises";
+import net from "net";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { resolveClaudeApiKey } from "@/lib/server-env";
+import { CLAUDE_CHAT_MODEL } from "@/lib/claude";
+
+export const runtime = "nodejs";
+
+const FETCH_TIMEOUT_MS = 14_000;
+const MAX_DOWNLOAD_BYTES = 4_000_000;
+const TEXT_EXTRACT_MAX = 14_000;
+
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8",
+  "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+};
+
+type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
+function isPrivateIp(ip: string): boolean {
+  if (!net.isIP(ip)) return false;
+  if (ip === "::1") return true;
+  if (ip.toLowerCase().startsWith("fc") || ip.toLowerCase().startsWith("fd")) return true;
+  if (ip.toLowerCase().startsWith("fe80:")) return true;
+  const parts = ip.split(".").map((x) => Number(x));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return false;
+  const [a, b] = parts;
+  if (a === 127) return true;
+  if (a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 0) return true;
+  return false;
+}
+
+async function assertSafePublicUrl(input: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  let u: URL;
+  try {
+    u = new URL(input.trim());
+  } catch {
+    return { ok: false, error: "invalid_url" };
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, error: "invalid_protocol" };
+  const host = u.hostname;
+  if (!host) return { ok: false, error: "invalid_host" };
+  if (host === "localhost" || host.endsWith(".localhost")) return { ok: false, error: "blocked_host" };
+  if (u.username || u.password) return { ok: false, error: "blocked_credentials" };
+  try {
+    const addrs = await dns.lookup(host, { all: true });
+    if (!addrs.length) return { ok: false, error: "dns_failed" };
+    if (addrs.some((a) => isPrivateIp(a.address))) return { ok: false, error: "blocked_private_ip" };
+  } catch {
+    return { ok: false, error: "dns_failed" };
+  }
+  return { ok: true, url: u.toString() };
+}
+
+async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveImageMediaType(mime: string): ImageMediaType | null {
+  const m = mime.toLowerCase();
+  if (m.includes("jpeg") || m.includes("jpg")) return "image/jpeg";
+  if (m.includes("png")) return "image/png";
+  if (m.includes("gif")) return "image/gif";
+  if (m.includes("webp")) return "image/webp";
+  return null;
+}
+
+function sniffIsImage(buf: Buffer): ImageMediaType | null {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "image/gif";
+  if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return "image/webp";
+  return null;
+}
+
+type SlotRow = { day: string; time: string };
+type ServiceSlots = { name: string; slots: SlotRow[] };
+
+function extractJsonObject(text: string): unknown {
+  const t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = (fence?.[1] ?? t).trim();
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(body.slice(start, end + 1)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSlotRow(o: unknown): SlotRow | null {
+  if (!o || typeof o !== "object") return null;
+  const r = o as Record<string, unknown>;
+  const day = String(r.day ?? r.day_letter ?? "").trim();
+  const time = String(r.time ?? "").trim();
+  const d0 = [...day.replace(/[\u0591-\u05C7]/g, "")][0] ?? "";
+  if (!d0 || !/[א-ת]/u.test(d0)) return null;
+  const tm = time.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!tm) return null;
+  const h = Number(tm[1]);
+  const min = Number(tm[2]);
+  return { day: d0, time: `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}` };
+}
+
+function parseServicesPayload(parsed: unknown): ServiceSlots[] {
+  if (!parsed || typeof parsed !== "object") return [];
+  const rec = parsed as Record<string, unknown>;
+  const rawList = (rec.services ?? rec.items) as unknown;
+  if (!Array.isArray(rawList)) return [];
+  const out: ServiceSlots[] = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const name = String(o.name ?? o.service_name ?? "").trim();
+    const slotsRaw = o.slots;
+    if (!name || !Array.isArray(slotsRaw)) continue;
+    const slots: SlotRow[] = [];
+    for (const s of slotsRaw) {
+      const row = normalizeSlotRow(s);
+      if (row) slots.push(row);
+    }
+    out.push({ name, slots });
+  }
+  return out;
+}
+
+function bestMatchCanonicalName(aiName: string, candidates: string[]): string | null {
+  const a = aiName.trim().toLowerCase();
+  if (!a) return null;
+  for (const c of candidates) {
+    const cc = c.trim();
+    if (!cc) continue;
+    if (cc.toLowerCase() === a) return cc;
+  }
+  for (const c of candidates) {
+    const cc = c.trim();
+    if (!cc) continue;
+    const lc = cc.toLowerCase();
+    if (lc.includes(a) || a.includes(lc)) return cc;
+  }
+  return null;
+}
+
+function mapToCanonicalNames(services: ServiceSlots[], canonical: string[]): ServiceSlots[] {
+  const map = new Map<string, SlotRow[]>();
+  for (const s of services) {
+    const key = bestMatchCanonicalName(s.name, canonical);
+    if (!key) continue;
+    const prev = map.get(key) ?? [];
+    prev.push(...s.slots);
+    map.set(key, prev);
+  }
+  const merged = new Map<string, SlotRow[]>();
+  for (const [k, slots] of map) {
+    const dedup = new Map<string, SlotRow>();
+    for (const sl of slots) {
+      dedup.set(`${sl.day}|${sl.time}`, sl);
+    }
+    merged.set(k, [...dedup.values()]);
+  }
+
+  return canonical.map((name) => ({
+    name,
+    slots: merged.get(name) ?? [],
+  }));
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  let body: { scheduleUrl?: unknown; services?: unknown };
+  try {
+    body = (await req.json()) as { scheduleUrl?: unknown; services?: unknown };
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  const scheduleUrl = String(body.scheduleUrl ?? "").trim();
+  const serviceNames = Array.isArray(body.services)
+    ? body.services
+        .map((x) => {
+          if (!x || typeof x !== "object") return "";
+          return String((x as { name?: unknown }).name ?? "").trim();
+        })
+        .filter(Boolean)
+    : [];
+
+  if (!scheduleUrl) return NextResponse.json({ error: "missing_schedule_url" }, { status: 400 });
+  if (!serviceNames.length) return NextResponse.json({ error: "missing_services" }, { status: 400 });
+
+  const safe = await assertSafePublicUrl(scheduleUrl);
+  if (!safe.ok) return NextResponse.json({ error: safe.error }, { status: 400 });
+
+  const apiKey = resolveClaudeApiKey();
+  if (!apiKey) return NextResponse.json({ error: "missing_anthropic_key" }, { status: 500 });
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(safe.url, { headers: BROWSER_HEADERS, redirect: "follow" });
+  } catch {
+    return NextResponse.json({ error: "fetch_failed" }, { status: 502 });
+  }
+  if (!res.ok) return NextResponse.json({ error: `fetch_http_${res.status}` }, { status: 502 });
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > MAX_DOWNLOAD_BYTES) {
+    return NextResponse.json({ error: "response_too_large" }, { status: 413 });
+  }
+
+  const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+  const imageMime = resolveImageMediaType(ct) ?? sniffIsImage(buf);
+
+  const namesList = serviceNames.map((n) => `- ${n}`).join("\n");
+
+  const systemRules = [
+    "You extract weekly class schedule information for a Hebrew fitness/yoga studio.",
+    'Return ONLY JSON (no markdown), shape:',
+    '{"services":[{"name":"<exact studio product name from input list>","slots":[{"day":"א|ב|ג|ד|ה|ו|ש","time":"HH:MM"}]}]}',
+    "Rules:",
+    "- day letters: א=Sunday ב=Monday ג=Tuesday ד=Wednesday ה=Thursday ו=Friday ש=Saturday (Israel week starting Sunday).",
+    "- time is 24h HH:MM.",
+    "- For each product from the input list, include ALL distinct weekly slots visible for that product name.",
+    "- If a product is not found in the schedule, include it with slots: [].",
+    "- Prefer Hebrew product names exactly as given in the input list.",
+  ].join("\n");
+
+  const client = new Anthropic({ apiKey });
+
+  if (imageMime) {
+    const b64 = buf.toString("base64");
+    const response = await client.messages.create({
+      model: CLAUDE_CHAT_MODEL,
+      max_tokens: 4096,
+      system: systemRules,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: imageMime, data: b64 } },
+            {
+              type: "text",
+              text: `Studio products (Hebrew names):\n${namesList}\n\nExtract weekly slots per product from this schedule image.`,
+            },
+          ],
+        },
+      ],
+    });
+    const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+    const parsed = extractJsonObject(text);
+    const services = parseServicesPayload(parsed);
+    return NextResponse.json({ ok: true, mode: "image", services: mapToCanonicalNames(services, serviceNames) });
+  }
+
+  const htmlOrText = buf.toString("utf8");
+  const extracted = stripHtmlToText(htmlOrText).slice(0, TEXT_EXTRACT_MAX);
+
+  const response = await client.messages.create({
+    model: CLAUDE_CHAT_MODEL,
+    max_tokens: 4096,
+    system: systemRules,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Studio products (Hebrew names):\n${namesList}\n\nSchedule page text (may be noisy):\n${extracted}`,
+          },
+        ],
+      },
+    ],
+  });
+  const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  const parsed = extractJsonObject(text);
+  const services = parseServicesPayload(parsed);
+  return NextResponse.json({ ok: true, mode: "html", services: mapToCanonicalNames(services, serviceNames) });
+}

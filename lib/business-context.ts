@@ -15,6 +15,7 @@ import {
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
 } from "@/lib/sales-flow";
+import { formatScheduleSlotsForKnowledge, normalizeProductScheduleSlotsFromMeta } from "@/lib/product-schedule-slots";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -171,7 +172,12 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
               : [];
             const levelsText =
               meta.levels_enabled === true && levels.length > 0 ? ` | רמות: ${levels.join(", ")}` : "";
-            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText} | תיאור: ${truncateText(descriptionText, 140)}`;
+            let slotId = 0;
+            const slotRows = normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${slotId++}`);
+            const slotsText = slotRows.length
+              ? ` | מועדי לוח (שבועי): ${formatScheduleSlotsForKnowledge(slotRows)}`
+              : "";
+            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText}${slotsText} | תיאור: ${truncateText(descriptionText, 140)}`;
           })
           .join("\n")
       : "אין שירותים מוגדרים.";
