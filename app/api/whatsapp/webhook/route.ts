@@ -342,7 +342,11 @@ function salesFlowPhaseAfterOpeningReset(
 }
 
 function parseScheduleDateInput(text: string): string | null {
-  const m = text.trim().match(/^(\d{1,2})\.(\d{1,2})$/);
+  const cleaned = text
+    .trim()
+    // Strip common bidi/isolation marks that WhatsApp may append (e.g. trailing U+2069).
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "");
+  const m = cleaned.match(/^(\d{1,2})\.(\d{1,2})$/);
   if (!m) return null;
   const day = Number(m[1]);
   const month = Number(m[2]);
@@ -353,9 +357,40 @@ function parseScheduleDateInput(text: string): string | null {
 }
 
 function parseScheduleTimeInput(text: string): string | null {
-  const m = text.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  const cleaned = text
+    .trim()
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "");
+  const m = cleaned.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
   if (!m) return null;
   return `${m[1]}:${m[2]}`;
+}
+
+function heDayOfWeekForDm(dm: string): string | null {
+  const m = String(dm ?? "")
+    .trim()
+    .match(/^(\d{1,2})\.(\d{1,2})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || day < 1 || day > 31 || month < 1 || month > 12) return null;
+
+  const now = new Date();
+  const yearNow = now.getFullYear();
+  // If the picked date already passed this year (or is invalid for current year), treat it as next year's date.
+  const tryDate = (year: number) => new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  let d = tryDate(yearNow);
+  if (Number.isNaN(d.getTime()) || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
+  const nowUtc = new Date(Date.UTC(yearNow, now.getMonth(), now.getDate(), 12, 0, 0));
+  if (d.getTime() < nowUtc.getTime() - 2 * 24 * 60 * 60 * 1000) {
+    const d2 = tryDate(yearNow + 1);
+    if (!Number.isNaN(d2.getTime()) && d2.getUTCMonth() === month - 1 && d2.getUTCDate() === day) d = d2;
+  }
+
+  try {
+    return new Intl.DateTimeFormat("he-IL", { weekday: "long", timeZone: "Asia/Jerusalem" }).format(d);
+  } catch {
+    return null;
+  }
 }
 
 function buildScheduleDateQuestion(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
@@ -2636,7 +2671,11 @@ async function processIncoming(
 
       const parsedTime = parseScheduleTimeInput(msg.text);
       if (!parsedTime) {
-        const sideAnswer = buildScheduleTimeSideAnswer(msg.text, knowledge, selectedService);
+        const maybeDate = parseScheduleDateInput(msg.text);
+        const dow = maybeDate ? heDayOfWeekForDm(maybeDate) : null;
+        const datePrefix =
+          maybeDate && dow ? `תודה! ${maybeDate} זה ${dow}.` : maybeDate ? `תודה! ${maybeDate}.` : "";
+        const sideAnswer = datePrefix || buildScheduleTimeSideAnswer(msg.text, knowledge, selectedService);
         const txt = sideAnswer
           ? `${sideAnswer}\n\n${buildScheduleTimeQuestion(selectedService)}`
           : "לא הצלחתי לזהות את השעה, נסה שוב בפורמט: 19:00";
