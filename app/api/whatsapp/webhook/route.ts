@@ -30,15 +30,19 @@ import {
   appendTrialPromotionToCtaBody,
   fillAfterExperienceTemplate,
   fillAfterServicePickTemplate,
+  fillCtaBodyTemplate,
   fillOfferKindCtaBody,
   formatAfterTrialRegistrationForWhatsAppDelivery,
   ctaButtonsForOfferKind,
+  filterTrialCtaButtonsAfterSchedule,
   getEffectiveFollowupMenuLabels,
   getEffectiveSalesFlowCtaButtons,
   getEffectiveSecondaryOfferCtaButtons,
   matchesTrialAlreadyRegisteredMessage,
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
+  resolveTrialCtaBodyTemplate,
+  resolveAfterTrialRegistrationBodyTemplate,
   resolveWarmupExperienceConfig,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
@@ -639,7 +643,11 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   }
 
   const activeOfferKind = selectedService?.offerKind ?? "trial";
-  const ctaBank = ctaButtonsForOfferKind(cfg, activeOfferKind);
+  const inScheduleTrialFlow =
+    activeOfferKind === "trial" && shouldCollectScheduleSelection(knowledge, selectedService);
+  const ctaBank = inScheduleTrialFlow
+    ? filterTrialCtaButtonsAfterSchedule(ctaButtonsForOfferKind(cfg, activeOfferKind))
+    : ctaButtonsForOfferKind(cfg, activeOfferKind);
   const filtered =
     activeOfferKind === "trial"
       ? getEffectiveSalesFlowCtaButtons(ctaBank, sfEff)
@@ -647,13 +655,19 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
-  const baseCtaBody = fillOfferKindCtaBody(activeOfferKind, cfg, {
-    priceText: selectedService?.priceText ?? "",
-    durationText: selectedService?.durationText ?? "",
-    sessionsText: selectedService?.courseSessionsText ?? "",
-    startDate: selectedService?.courseStartDate ?? "",
-    endDate: selectedService?.courseEndDate ?? "",
-  }).trim();
+  const baseCtaBody = inScheduleTrialFlow
+    ? fillCtaBodyTemplate(
+        resolveTrialCtaBodyTemplate(cfg, true),
+        selectedService?.priceText ?? "",
+        selectedService?.durationText ?? ""
+      )
+    : fillOfferKindCtaBody(activeOfferKind, cfg, {
+        priceText: selectedService?.priceText ?? "",
+        durationText: selectedService?.durationText ?? "",
+        sessionsText: selectedService?.courseSessionsText ?? "",
+        startDate: selectedService?.courseStartDate ?? "",
+        endDate: selectedService?.courseEndDate ?? "",
+      }).trim();
 
   const lastAssistModelForPromo = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
   const promo = knowledge?.promotionsText?.trim() ?? "";
@@ -2013,8 +2027,12 @@ async function processIncoming(
           return;
         }
 
+        const useScheduleRegistrationTemplate = knowledge.scheduleDirectRegistration === false;
+        const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
         const bodyTemplate =
-          knowledge.salesFlowConfig?.after_trial_registration_body?.trim() ||
+          (useScheduleRegistrationTemplate
+            ? resolveAfterTrialRegistrationBodyTemplate(sfCfg, true)
+            : sfCfg.after_trial_registration_body)?.trim() ||
           defaultSalesFlowConfig(knowledge.vibeLabels ?? []).after_trial_registration_body;
 
         const igUrlRaw = knowledge.instagramUrl?.trim() ?? "";
@@ -2023,7 +2041,13 @@ async function processIncoming(
           bodyTemplate,
           includeIgPrompt ? igUrlRaw : "",
           knowledge.addressText ?? "",
-          knowledge.directionsText ?? ""
+          knowledge.directionsText ?? "",
+          useScheduleRegistrationTemplate
+            ? {
+                requestedDate: contactScheduleRequestedDate,
+                requestedTime: contactScheduleRequestedTime,
+              }
+            : undefined
         );
         const outText =
           delivered.trim().length > 0
@@ -2576,6 +2600,20 @@ async function processIncoming(
       if (error) console.warn("[WA Webhook] sf_requested_time update failed:", error.message);
       contactScheduleRequestedTime = parsedTime;
       contactSessionPhase = "cta";
+      const afterScheduleText =
+        (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
+        "מהמם! נדאג לשבץ אותך למועד שבחרת!";
+      await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] Send after schedule selection failed:", e)
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: afterScheduleText,
+        model_used: "sales_flow_after_schedule_selection",
+        session_id: sessionId,
+      });
+      await sleepMs(450);
       await sendSalesFlowCtaMenuWithPhaseUpdate({
         knowledge,
         msg,

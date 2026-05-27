@@ -1939,6 +1939,9 @@ export default function SlugSettingsPage({
           return {
             ...c,
             cta_body: base.cta_body,
+            cta_body_after_schedule: base.cta_body_after_schedule,
+            after_schedule_selection: base.after_schedule_selection,
+            after_trial_registration_body_after_schedule: base.after_trial_registration_body_after_schedule,
             cta_buttons: structuredClone(base.cta_buttons),
             cta_workshop_body: base.cta_workshop_body,
             cta_workshop_buttons: structuredClone(base.cta_workshop_buttons),
@@ -1950,7 +1953,11 @@ export default function SlugSettingsPage({
             free_chat_invite_reply: base.free_chat_invite_reply,
           };
         }
-        return { ...c, after_trial_registration_body: base.after_trial_registration_body };
+        return {
+          ...c,
+          after_trial_registration_body: base.after_trial_registration_body,
+          after_trial_registration_body_after_schedule: base.after_trial_registration_body_after_schedule,
+        };
       });
     },
     [vibe]

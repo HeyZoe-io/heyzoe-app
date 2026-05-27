@@ -325,6 +325,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   const showScheduleSelectionSession = scheduleDirectRegistration === false;
+  const trialCtaButtonsForUi = useMemo(
+    () =>
+      showScheduleSelectionSession
+        ? salesFlowConfig.cta_buttons.filter((b) => b.kind !== "schedule")
+        : salesFlowConfig.cta_buttons,
+    [showScheduleSelectionSession, salesFlowConfig.cta_buttons]
+  );
   type SalesSectionId =
     | "media"
     | "opening"
@@ -968,7 +975,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             hint="נשלח כשאין הרשמה ישירה ממערכת השעות"
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
-            filled
+            filled={Boolean(String(salesFlowConfig.after_schedule_selection ?? "").trim())}
           >
             <div className="space-y-3">
               <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
@@ -989,6 +996,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">פורמט HH:MM.</p>
               </div>
+
+              <Field label="תשובה">
+                <Textarea
+                  value={salesFlowConfig.after_schedule_selection ?? ""}
+                  onChange={(v) =>
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      after_schedule_selection: v,
+                    }))
+                  }
+                  rows={2}
+                  placeholder="מהמם! נדאג לשבץ אותך למועד שבחרת!"
+                />
+              </Field>
             </div>
           </SalesPathSectionBlock>
         ) : null}
@@ -1075,26 +1096,47 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               <>
             <div>
               <Textarea
-                value={ctaBodyForDisplay(salesFlowConfig.cta_body)}
+                value={ctaBodyForDisplay(
+                  showScheduleSelectionSession
+                    ? salesFlowConfig.cta_body_after_schedule
+                    : salesFlowConfig.cta_body
+                )}
                 onChange={(v) =>
                   setSalesFlowConfig((c) => ({
                     ...c,
-                    cta_body: ctaBodyToStore(
-                      v,
-                      firstTrialForTemplates.priceText,
-                      firstTrialForTemplates.durationText
-                    ),
+                    ...(showScheduleSelectionSession
+                      ? {
+                          cta_body_after_schedule: ctaBodyToStore(
+                            v,
+                            firstTrialForTemplates.priceText,
+                            firstTrialForTemplates.durationText
+                          ),
+                        }
+                      : {
+                          cta_body: ctaBodyToStore(
+                            v,
+                            firstTrialForTemplates.priceText,
+                            firstTrialForTemplates.durationText
+                          ),
+                        }),
                   }))
                 }
                 rows={4}
-                placeholder="מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
+                placeholder={
+                  showScheduleSelectionSession
+                    ? "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף. שנתקדם?"
+                    : "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
+                }
               />
               <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                 עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
+                {showScheduleSelectionSession ? " · ללא כפתור מערכת שעות (נשלחה כבר בסשן קודם)" : ""}
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {salesFlowConfig.cta_buttons.map((b: SalesFlowCtaButton, bi: number) => {
+            <div
+              className={`grid grid-cols-1 gap-3 ${showScheduleSelectionSession ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}
+            >
+              {trialCtaButtonsForUi.map((b: SalesFlowCtaButton, bi: number) => {
                 const locked = ctaLockedKindForSlot(bi, b.id);
                 const slotSub = salesFlowSubChoiceForSlot(b, locked);
                 return (
@@ -1489,11 +1531,32 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             <p className="text-xs text-zinc-600 text-center leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
             <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
               <Textarea
-                value={salesFlowConfig.after_trial_registration_body}
-                onChange={(v) => setSalesFlowConfig((c) => ({ ...c, after_trial_registration_body: v }))}
+                value={
+                  showScheduleSelectionSession
+                    ? salesFlowConfig.after_trial_registration_body_after_schedule
+                    : salesFlowConfig.after_trial_registration_body
+                }
+                onChange={(v) =>
+                  setSalesFlowConfig((c) => ({
+                    ...c,
+                    ...(showScheduleSelectionSession
+                      ? { after_trial_registration_body_after_schedule: v }
+                      : { after_trial_registration_body: v }),
+                  }))
+                }
                 rows={12}
+                placeholder={
+                  showScheduleSelectionSession
+                    ? "מתרגשים לראותך בקרוב בתאריך {requested_date} בשעה {requested_time}…"
+                    : undefined
+                }
               />
             </Field>
+            {showScheduleSelectionSession ? (
+              <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
+                בווטסאפ ימולאו אוטומטית התאריך והשעה שהליד בחר בסשן «יום ושעה»
+              </p>
+            ) : null}
           </div>
         </SalesPathSectionBlock>
       </SalesPathStepShell>
