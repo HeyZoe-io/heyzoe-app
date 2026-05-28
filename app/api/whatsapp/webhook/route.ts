@@ -569,7 +569,7 @@ async function sendScheduleSlotPickMenu(input: {
     !input.blockMedia;
 
   if (canSendScheduleImage) {
-    const cap = link ? `כאן ניתן לראות את מערכת השעות שלנו:\n${link}` : undefined;
+    const cap = "כאן ניתן לראות את מערכת השעות שלנו";
     await sendWhatsAppMediaMessage(input.msg.toNumber, input.msg.from, scheduleImgUrl, input.accountSid, input.authToken, cap, "image")
       .then(async () => {
         await logMessage({
@@ -586,9 +586,8 @@ async function sendScheduleSlotPickMenu(input: {
 
   const introLines = [
     canSendScheduleImage
-      ? "כאן ניתן לראות את מערכת השעות שלנו: (תמונה)"
-      : `כאן ניתן לראות את מערכת השעות שלנו: ${link || "מערכת השעות תתעדכן בקרוב"}`,
-    `מתי נוח לך להגיע ל${serviceName}?`,
+      ? `מתי נוח לך להגיע ל${serviceName}?`
+      : `כאן ניתן לראות את מערכת השעות שלנו: ${link || "מערכת השעות תתעדכן בקרוב"}\n\nמתי נוח לך להגיע ל${serviceName}?`,
   ];
   const body = stripTrailingNumberedChoiceLines(introLines.join("\n\n"));
 
@@ -887,7 +886,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
         !blockMedia;
 
       if (canSendScheduleImage) {
-        const cap = ["כאן ניתן לראות את מערכת השעות שלנו:", scheduleLink].filter(Boolean).join("\n").trim() || undefined;
+        const cap = "כאן ניתן לראות את מערכת השעות שלנו";
         await sendWhatsAppMediaMessage(msg.toNumber, msg.from, scheduleImgUrl, accountSid, authToken, cap, "image").catch((e) =>
           console.error("[WA Webhook] Send course schedule image failed:", e)
         );
