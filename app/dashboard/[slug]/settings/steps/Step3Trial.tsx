@@ -806,13 +806,50 @@ export default function Step3Trial(props: {
                           dir="ltr"
                           className={`${PRODUCT_INPUT} font-mono text-sm text-left`}
                           placeholder="19:00"
+                          inputMode="numeric"
+                          maxLength={5}
                           value={slot.time}
                           onChange={(e) => {
+                            const el = e.currentTarget;
+                            const prev = String(slot.time ?? "");
+                            let next = String(e.target.value ?? "");
+
+                            // Keep only digits and ":" (supports paste like 1015 → 10:15)
+                            next = next.replace(/[^\d:]/g, "");
+                            const digits = next.replace(/:/g, "");
+                            const hasColon = next.includes(":");
+
+                            // If user pasted 3-4 digits, normalize to HH:MM as much as possible.
+                            if (!hasColon && digits.length >= 3) {
+                              next = `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+                            } else if (!hasColon && digits.length === 2) {
+                              // Typing "10" → "10:" and move caret to minutes.
+                              next = `${digits}:`;
+                            } else if (hasColon) {
+                              const [hRaw, mRaw = ""] = next.split(":");
+                              const h = (hRaw ?? "").replace(/\D/g, "").slice(0, 2);
+                              const m = (mRaw ?? "").replace(/\D/g, "").slice(0, 2);
+                              next = `${h}${next.includes(":") ? ":" : ""}${m}`;
+                            } else {
+                              next = digits.slice(0, 2);
+                            }
+
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
-                            slots[si] = { ...slot, time: e.target.value };
+                            slots[si] = { ...slot, time: next };
                             arr[i] = { ...arr[i]!, schedule_slots: slots };
                             setServices(arr);
+
+                            // If we just auto-inserted ":" after HH, move caret to minutes.
+                            if (next.endsWith(":") && prev.replace(/[^\d]/g, "").length === 1) {
+                              requestAnimationFrame(() => {
+                                try {
+                                  el.setSelectionRange(3, 3);
+                                } catch {
+                                  /* ignore */
+                                }
+                              });
+                            }
                           }}
                         />
                       </div>
