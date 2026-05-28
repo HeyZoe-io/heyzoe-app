@@ -37,6 +37,8 @@ export type BusinessKnowledgePack = {
   arboxLink: string;
   /** קישור לוח שיעורים ציבורי (social_links.schedule_public_url / arbox_schedule_url) */
   schedulePublicUrl: string;
+  /** תמונת מערכת שעות לשימוש בסריקה / הצגה בליד (social_links.schedule_scan_image_url) */
+  scheduleScanImageUrl: string;
   /** קישור לדף מנויים וכרטיסיות (social_links.memberships_url) */
   membershipsUrl: string;
   scheduleDirectRegistration: boolean;
@@ -221,6 +223,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
           ? String(social.arbox_schedule_url).trim()
           : "";
     const schedulePublicUrl = schedulePublicUrlRaw;
+    const scheduleScanImageUrl =
+      typeof social.schedule_scan_image_url === "string" ? String(social.schedule_scan_image_url).trim() : "";
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url).trim() : "";
     const openingMediaType =
@@ -357,6 +361,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       customerServicePhone,
       arboxLink,
       schedulePublicUrl,
+      scheduleScanImageUrl,
       membershipsUrl,
       scheduleDirectRegistration: (business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false,
       warmupSessionEnabled: (business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false,
