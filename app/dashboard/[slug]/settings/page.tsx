@@ -2528,7 +2528,10 @@ export default function SlugSettingsPage({
         </div>
       ) : null}
 
-      <div className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}>
+      <div
+        className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}
+        style={{ overflowAnchor: "none" }}
+      >
         <fieldset
           disabled={settingsPresenceLocked}
           aria-disabled={settingsPresenceLocked}
