@@ -315,6 +315,22 @@ type ContactScheduleSelectionState = {
   requestedTime: string;
 };
 
+const HE_DAY_SORT_ORDER: Record<string, number> = { א: 0, ב: 1, ג: 2, ד: 3, ה: 4, ו: 5, ש: 6 };
+
+function sortHeScheduleSlots<T extends { day: string; time: string }>(slots: T[]): T[] {
+  const toMin = (t: string): number => {
+    const m = String(t ?? "").trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    if (!m) return 10_000;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  return [...slots].sort((a, b) => {
+    const da = HE_DAY_SORT_ORDER[a.day] ?? 99;
+    const db = HE_DAY_SORT_ORDER[b.day] ?? 99;
+    if (da !== db) return da - db;
+    return toMin(a.time) - toMin(b.time);
+  });
+}
+
 function isCourseWithDefinedDates(service: SfServiceRow | null): boolean {
   return Boolean(
     service?.offerKind === "course" &&
@@ -763,6 +779,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   sfConsumedKinds?: string[];
   extraBodyLines?: string[];
   modelUsed: string;
+  blockMedia?: boolean;
 }): Promise<void> {
   const {
     knowledge,
@@ -779,6 +796,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     sfConsumedKinds,
     extraBodyLines,
     modelUsed,
+    blockMedia = false,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -846,6 +864,72 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   }
 
   const activeOfferKind = selectedService?.offerKind ?? "trial";
+
+  // Courses have fixed days/times: show them once, then proceed to CTA.
+  if (knowledge.scheduleDirectRegistration === false && activeOfferKind === "course") {
+    const already = (sfConsumedKinds ?? []).includes("course_schedule_info");
+    const slots = (selectedService?.scheduleSlots ?? []).filter((s) => s && s.day && s.time);
+    if (!already && slots.length > 0) {
+      const serviceName = selectedService?.name?.trim() || "הקורס";
+      const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
+      const scheduleImgUrl = String(schedBtn?.schedule_cta_image_url ?? "").trim();
+      const scheduleLink = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
+      const canSendScheduleImage =
+        Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") === "image") &&
+        scheduleImgUrl.length > 0 &&
+        !blockMedia;
+
+      if (canSendScheduleImage) {
+        const cap = ["כאן ניתן לראות את מערכת השעות שלנו:", scheduleLink].filter(Boolean).join("\n").trim() || undefined;
+        await sendWhatsAppMediaMessage(msg.toNumber, msg.from, scheduleImgUrl, accountSid, authToken, cap, "image").catch((e) =>
+          console.error("[WA Webhook] Send course schedule image failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: cap ? `[media] ${scheduleImgUrl}\n\n${cap}` : `[media] ${scheduleImgUrl}`,
+          model_used: "sales_flow_course_schedule_image",
+          session_id: sessionId,
+        });
+        await sleepMs(900);
+      }
+
+      const lines = sortHeScheduleSlots(slots)
+        .map((s) => `${formatYomForContactSlotDate(s.day)} בשעה ${s.time}`)
+        .join("\n");
+      const txt = [
+        canSendScheduleImage
+          ? ""
+          : `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink || "מערכת השעות תתעדכן בקרוב"}`,
+        `קורס ${serviceName} מתקיים ב:`,
+        lines,
+        "מה שנותר כעת הוא לשריין לך מקום בקורס!",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] Send course schedule info failed:", e)
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: txt,
+        model_used: "sales_flow_course_schedule_info",
+        session_id: sessionId,
+      });
+
+      await bumpSfConsumedCtaKind({
+        supabase,
+        businessId,
+        phone: msg.from,
+        kind: "course_schedule_info",
+        previous: sfConsumedKinds ?? [],
+      });
+      await sleepMs(350);
+    }
+  }
+
   const inScheduleTrialFlow =
     activeOfferKind === "trial" && shouldCollectScheduleSelection(knowledge, selectedService);
   const ctaBank = inScheduleTrialFlow
