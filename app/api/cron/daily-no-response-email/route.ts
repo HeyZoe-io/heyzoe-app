@@ -92,6 +92,17 @@ function buildEmailHtml(input: {
   ].join("");
 }
 
+function buildAllClearEmailHtml(input: { businessName: string }): string {
+  return [
+    `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
+    `<p>היי ${esc(input.businessName)},</p>`,
+    `<p>רק רצינו לעדכן שאין לידים שממתינים לשיחה מ-24 השעות האחרונות.</p>`,
+    `<p>זואי דיברה עם מי שצריך, שלחה פולואפים, ואין כרגע מה לטפל בו.</p>`,
+    `<p>המשיכו כך 💜 צוות HeyZoe</p>`,
+    `</div>`,
+  ].join("");
+}
+
 function buildMarketingAdminEmailHtml(leads: LeadForEmail[]): string {
   const listUrl = "https://heyzoe.io/admin/leads";
   const rows = leads
@@ -147,6 +158,23 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const sinceIso = new Date(Date.now() - NO_RESPONSE_EMAIL_WINDOW_MS).toISOString();
 
+  const { data: channelRows, error: channelErr } = await admin
+    .from("whatsapp_channels")
+    .select("business_id")
+    .eq("is_active", true)
+    .limit(BATCH);
+  if (channelErr) {
+    console.error("[cron/daily-no-response-email] whatsapp_channels query:", channelErr);
+    return NextResponse.json({ error: "channels_query_failed" }, { status: 500 });
+  }
+  const targetBusinessIds = Array.from(
+    new Set(
+      (channelRows ?? [])
+        .map((r) => Number((r as { business_id?: unknown }).business_id))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    )
+  );
+
   const { data: leadsData, error } = await admin
     .from("contacts")
     .select("id, business_id, full_name, phone")
@@ -174,7 +202,7 @@ export async function GET(req: NextRequest) {
     byBusiness.set(businessId, group);
   }
 
-  const businessIds = [...byBusiness.keys()];
+  const businessIds = targetBusinessIds.length ? targetBusinessIds : [...byBusiness.keys()];
   const businesses = new Map<number, BusinessRow>();
   if (businessIds.length) {
     const { data: businessesData, error: bizErr } = await admin
@@ -205,7 +233,8 @@ export async function GET(req: NextRequest) {
   const errors: string[] = [];
   const nowIso = new Date().toISOString();
 
-  for (const [businessId, group] of byBusiness.entries()) {
+  for (const businessId of businessIds) {
+    const group = byBusiness.get(businessId) ?? [];
     const biz = businesses.get(businessId);
     const slug = String(biz?.slug ?? "").trim().toLowerCase();
     const businessName = String(biz?.name ?? "").trim() || slug || "העסק שלך";
@@ -214,16 +243,22 @@ export async function GET(req: NextRequest) {
       authEmailByUserId.get(String(biz?.user_id ?? "").trim()) ||
       "";
 
-    if (!biz || !slug || !email || !group.length) {
+    if (!biz || !slug || !email) {
       skipped += 1;
       continue;
     }
 
-    const result = await sendEmail({
-      to: email,
-      subject: `🔔 ${group.length} לידים מחכים לשיחה ממך`,
-      htmlContent: buildEmailHtml({ businessName, slug, leads: group }),
-    });
+    const result = group.length
+      ? await sendEmail({
+          to: email,
+          subject: `🔔 ${group.length} לידים מחכים לשיחה ממך`,
+          htmlContent: buildEmailHtml({ businessName, slug, leads: group }),
+        })
+      : await sendEmail({
+          to: email,
+          subject: "כל הלידים מטופלים - אין צורך בפעולה ✅",
+          htmlContent: buildAllClearEmailHtml({ businessName }),
+        });
 
     if (!result.ok) {
       errors.push(`${slug}: ${result.error}`);
