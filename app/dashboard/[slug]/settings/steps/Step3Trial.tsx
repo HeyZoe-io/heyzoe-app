@@ -777,10 +777,7 @@ export default function Step3Trial(props: {
                       const arr = [...services];
                       arr[i] = {
                         ...s,
-                        schedule_slots: sortScheduleSlots([
-                          ...(s.schedule_slots ?? []),
-                          { id: uid(), day: "ו", time: "08:15" },
-                        ]),
+                        schedule_slots: sortScheduleSlots([...(s.schedule_slots ?? []), { id: uid(), day: "א", time: "19:00" }]),
                       };
                       setServices(arr);
                     }}
@@ -808,7 +805,13 @@ export default function Step3Trial(props: {
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
                             slots[si] = { ...slot, day: e.target.value };
-                            arr[i] = { ...arr[i]!, schedule_slots: sortScheduleSlots(slots) };
+                            arr[i] = { ...arr[i]!, schedule_slots: slots };
+                            setServices(arr);
+                          }}
+                          onBlur={() => {
+                            const arr = [...services];
+                            const slots = sortScheduleSlots(arr[i]!.schedule_slots ?? []);
+                            arr[i] = { ...arr[i]!, schedule_slots: slots };
                             setServices(arr);
                           }}
                         >
@@ -856,7 +859,7 @@ export default function Step3Trial(props: {
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
                             slots[si] = { ...slot, time: next };
-                            arr[i] = { ...arr[i]!, schedule_slots: sortScheduleSlots(slots) };
+                            arr[i] = { ...arr[i]!, schedule_slots: slots };
                             setServices(arr);
 
                             // If we just auto-inserted ":" after HH, move caret to minutes.
@@ -869,6 +872,12 @@ export default function Step3Trial(props: {
                                 }
                               });
                             }
+                          }}
+                          onBlur={() => {
+                            const arr = [...services];
+                            const slots = sortScheduleSlots(arr[i]!.schedule_slots ?? []);
+                            arr[i] = { ...arr[i]!, schedule_slots: slots };
+                            setServices(arr);
                           }}
                         />
                       </div>
