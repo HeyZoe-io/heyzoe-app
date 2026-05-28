@@ -376,11 +376,14 @@ export async function POST(req: NextRequest) {
     'Return ONLY JSON (no markdown), shape:',
     '{"services":[{"name":"<exact studio product name from input list>","slots":[{"day":"א|ב|ג|ד|ה|ו|ש","time":"HH:MM"}]}]}',
     "Rules:",
-    "- day letters: א=Sunday ב=Monday ג=Tuesday ד=Wednesday ה=Thursday ו=Friday ש=Saturday (Israel week starting Sunday).",
-    "- time is 24h HH:MM.",
-    "- For each product from the input list, include ALL distinct weekly slots visible for that product name.",
-    "- If a product is not found in the schedule, include it with slots: [].",
-    "- Prefer Hebrew product names exactly as given in the input list.",
+    "- Output ONLY from what is explicitly visible in the timetable. Do NOT guess, infer, or \"fill in\" missing values.",
+    "- Ignore calendar dates and date ranges; we only need a weekly timetable.",
+    "- Determine the day by the day label you can read (e.g. \"שישי\", \"יום ג׳\"). Do not assume the order of columns.",
+    "- day letters: א=Sunday ב=Monday ג=Tuesday ד=Wednesday ה=Thursday ו=Friday ש=Saturday.",
+    "- time is 24h HH:MM (e.g. 08:15).",
+    "- Add a slot ONLY when you can read: (product/class name) + (day) + (time) on the schedule.",
+    "- For each product from the input list: include slots where the product name appears clearly on the schedule. If not found, slots must be [].",
+    "- Use Hebrew product names EXACTLY as given in the input list for the output 'name'.",
   ].join("\n");
 
   const client = new Anthropic({ apiKey });
