@@ -25,6 +25,7 @@ import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
+import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import {
   composeGreeting,
   defaultSalesFlowConfig,
@@ -250,6 +251,7 @@ async function resetContactSalesFlowStateForGreeting(input: {
   phone: string;
 }): Promise<void> {
   const { supabase, businessId, phone } = input;
+  const phoneVariants = contactPhoneLookupVariants(phone);
   try {
     const { error } = await supabase
       .from("contacts")
@@ -263,7 +265,7 @@ async function resetContactSalesFlowStateForGreeting(input: {
         trial_registered_at: null,
       })
       .eq("business_id", businessId)
-      .eq("phone", phone);
+      .in("phone", phoneVariants.length ? phoneVariants : [phone]);
     if (error) console.warn("[WA Webhook] sales flow greeting reset failed:", error.message);
   } catch (e) {
     console.warn("[WA Webhook] sales flow greeting reset threw:", e);
