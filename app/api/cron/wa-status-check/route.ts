@@ -42,23 +42,45 @@ export async function GET(req: NextRequest) {
   const cutoffIso = new Date(now - NO_RESPONSE_AFTER_MS).toISOString();
   const channelByBusinessId = new Map<number, ChannelRow | null>();
 
-  const { data: contacts, error } = await admin
+  let contacts: any[] | null = null;
+  const { data: contactsData, error } = await admin
     .from("contacts")
-    .select("id, phone, business_id, session_phase")
+    .select("id, phone, business_id, session_phase, wa_no_response_due_at")
     .eq("source", "whatsapp")
     .or("opted_out.eq.false,opted_out.is.null")
     .or("trial_registered.eq.false,trial_registered.is.null")
     .is("wa_no_response_at", null)
-    .not("last_contact_at", "is", null)
-    .lt("last_contact_at", cutoffIso)
+    .not("wa_no_response_due_at", "is", null)
+    .lt("wa_no_response_due_at", nowIso)
     .limit(BATCH);
+  contacts = (contactsData as any[] | null) ?? null;
 
   if (error) {
     if (/wa_no_response_at|column/i.test(String(error.message ?? ""))) {
       return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
     }
-    console.error("[cron/wa-status-check] contacts query:", error);
-    return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    const msg = String(error.message ?? "");
+    // Back-compat: if due-at column is not deployed yet, fall back to last_contact_at cutoff.
+    if (/wa_no_response_due_at|column/i.test(msg)) {
+      const { data: legacy, error: legacyErr } = await admin
+        .from("contacts")
+        .select("id, phone, business_id, session_phase")
+        .eq("source", "whatsapp")
+        .or("opted_out.eq.false,opted_out.is.null")
+        .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("wa_no_response_at", null)
+        .not("last_contact_at", "is", null)
+        .lt("last_contact_at", cutoffIso)
+        .limit(BATCH);
+      if (legacyErr) {
+        console.error("[cron/wa-status-check] contacts query (legacy):", legacyErr);
+        return NextResponse.json({ error: "query_failed" }, { status: 500 });
+      }
+      contacts = (legacy as any[] | null) ?? null;
+    } else {
+      console.error("[cron/wa-status-check] contacts query:", error);
+      return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    }
   }
 
   let examined = 0;
