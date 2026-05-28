@@ -179,7 +179,7 @@ const FRIENDLY: SalesFlowConfig = {
     "מחירי מנויים",
   ],
   free_chat_invite_reply: "אין בעיה! כתבו בטקסט חופשי ואענה 🙂",
-  after_schedule_selection: "מהמם! נדאג לשבץ אותך למועד שבחרת!",
+  after_schedule_selection: "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}",
   cta_body_after_schedule:
     "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף. שנתקדם?",
   after_trial_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
