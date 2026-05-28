@@ -69,6 +69,20 @@ export function formatSlotPickButtonLabel(slot: { day: string; time: string }): 
   return `${formatYomForContactSlotDate(slot.day)} ב${slot.time}`;
 }
 
+/** נרמול לזיהוי בחירת מועד מרשימת וואטסאפ (ב-18:45 מול ב18:45, רווחים). */
+export function normalizeScheduleSlotPickLabel(s: string): string {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/ב\s*-\s*/gu, "ב")
+    .replace(/ב\s+(?=\d)/gu, "ב");
+}
+
+export function scheduleSlotPickLabelsMatch(a: string, b: string): boolean {
+  return normalizeScheduleSlotPickLabel(a) === normalizeScheduleSlotPickLabel(b);
+}
+
 export function formatScheduleSlotsForKnowledge(slots: ProductScheduleSlot[]): string {
   if (!slots.length) return "";
   return slots.map((s) => `${formatYomForContactSlotDate(s.day)} ${s.time}`).join(", ");

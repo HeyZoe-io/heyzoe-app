@@ -79,6 +79,14 @@ function formatInteractiveConversationLog(
     .filter(Boolean)
     .join("\n\n");
 }
+
+/** מסיר שורת לוג פנימית שהמודל לעיתים מעתיק לתשובה ללקוח. */
+function stripAssistantInteractiveButtonsLog(text: string): string {
+  return String(text ?? "")
+    .replace(/\n?\[כפתורים:\s*[^\]]+\]\s*/gu, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
@@ -99,7 +107,12 @@ import {
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
-import { normalizeProductScheduleSlotsFromMeta, formatSlotPickButtonLabel, formatYomForContactSlotDate } from "@/lib/product-schedule-slots";
+import {
+  normalizeProductScheduleSlotsFromMeta,
+  formatSlotPickButtonLabel,
+  formatYomForContactSlotDate,
+  scheduleSlotPickLabelsMatch,
+} from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 
@@ -2755,11 +2768,12 @@ async function processIncoming(
             session_id: sessionId,
           });
           const nextPhase = scheduleSelectionPhaseAfterService(knowledge, picked);
+          const phoneVariantsAfterPick = contactPhoneLookupVariants(msg.from);
           await supabase
             .from("contacts")
             .update({ session_phase: nextPhase, flow_step: 0, sf_requested_date: null, sf_requested_time: null })
             .eq("business_id", businessId)
-            .eq("phone", msg.from);
+            .in("phone", phoneVariantsAfterPick.length ? phoneVariantsAfterPick : [msg.from]);
           contactSessionPhase = nextPhase;
           contactFlowStep = 0;
           await sleepMs(700);
@@ -2826,11 +2840,12 @@ async function processIncoming(
           session_id: sessionId,
         });
         if (businessId) {
+          const phoneVariantsWarmup = contactPhoneLookupVariants(msg.from);
           await supabase
             .from("contacts")
             .update({ session_phase: "warmup", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
             .eq("business_id", businessId)
-            .eq("phone", msg.from);
+            .in("phone", phoneVariantsWarmup.length ? phoneVariantsWarmup : [msg.from]);
           await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: 1 });
           contactSessionPhase = "warmup";
           contactFlowStep = 1;
@@ -2879,13 +2894,8 @@ async function processIncoming(
     }
   }
 
-  // 1.5) Sales flow: בחירת יום ושעה לפני CTA כשאין הרשמה ישירה מהמערכת
-  if (
-    msg.type === "text" &&
-    knowledge?.salesFlowConfig &&
-    businessId &&
-    (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time")
-  ) {
+  // 1.5) Sales flow: בחירת מועד ממערכת שעות (list_reply/כפתורים) + תאריך/שעה חופשיים
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
     try {
       const selectedServiceName =
         salesFlowServices.length === 1
@@ -2893,32 +2903,43 @@ async function processIncoming(
           : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
       const selectedService =
         salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+      const inSchedulePhase =
+        contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time";
 
       if (!shouldCollectScheduleSelection(knowledge, selectedService)) {
-        await sendSalesFlowCtaMenuWithPhaseUpdate({
-          knowledge,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          salesFlowServices,
-          trialRegistered: contactTrialRegistered,
-          allowTrialCta: allowTrialCtaThisSession,
-          sfConsumedKinds: sfClickedCtaKinds,
-          modelUsed: "sales_flow_cta",
-        });
-        return;
-      }
+        if (inSchedulePhase) {
+          await sendSalesFlowCtaMenuWithPhaseUpdate({
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            sfConsumedKinds: sfClickedCtaKinds,
+            modelUsed: "sales_flow_cta",
+          });
+          return;
+        }
+      } else {
+        const slotsForPick = (selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
+        if (slotsForPick.length > 0) {
+          const labels = slotsForPick
+            .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
+            .map((s) => formatSlotPickButtonLabel(s));
+          labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
+          const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
+          const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+          const expectsScheduleSlotPick =
+            inSchedulePhase ||
+            lastAssistForSchedule === "sales_flow_schedule_slot_menu" ||
+            Boolean(msg.metaInteractiveReplyId?.trim());
 
-      const slotsForPick = (selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
-      if (slotsForPick.length > 0) {
-        const labels = slotsForPick.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1)).map((s) => formatSlotPickButtonLabel(s));
-        labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
-        const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
-        if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
+          if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
           const phoneVariants = contactPhoneLookupVariants(msg.from);
           await supabase
             .from("contacts")
@@ -2943,34 +2964,10 @@ async function processIncoming(
             session_id: sessionId,
           });
           return;
-        }
-        const idx = labels.findIndex((l) => waLabelMatches(l, resolved));
-        if (idx < 0) {
-          const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
-          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: txt,
-            model_used: "sales_flow_schedule_slot_invalid",
-            session_id: sessionId,
-          });
-          await sendScheduleSlotPickMenu({
-            knowledge,
-            selectedService,
-            blockMedia: starterBlocksMedia,
-            msg,
-            accountSid,
-            authToken,
-            supabase,
-            businessId,
-            business_slug,
-            sessionId,
-          });
-          return;
-        }
-
-        const slot = slotsForPick[idx]!;
+          }
+          const idx = labels.findIndex((l) => scheduleSlotPickLabelsMatch(l, resolved));
+          if (idx >= 0) {
+            const slot = slotsForPick[idx]!;
         const dateTxt = formatYomForContactSlotDate(slot.day);
         const timeTxt = slot.time;
         const phoneVariants = contactPhoneLookupVariants(msg.from);
@@ -3016,9 +3013,35 @@ async function processIncoming(
           sfConsumedKinds: sfClickedCtaKinds,
           modelUsed: "sales_flow_cta",
         });
-        return;
-      }
+            return;
+          }
+          if (expectsScheduleSlotPick) {
+            const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_schedule_slot_invalid",
+              session_id: sessionId,
+            });
+            await sendScheduleSlotPickMenu({
+              knowledge,
+              selectedService,
+              blockMedia: starterBlocksMedia,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+            });
+            return;
+          }
+        }
 
+        if (inSchedulePhase && slotsForPick.length === 0) {
       if (contactSessionPhase === "schedule_date") {
         const parsedDate = parseScheduleDateInput(msg.text);
         if (!parsedDate) {
@@ -3118,6 +3141,8 @@ async function processIncoming(
         modelUsed: "sales_flow_cta",
       });
       return;
+        }
+      }
     } catch (e) {
       console.warn("[WA Webhook] Sales-flow schedule selection failed (continuing):", e);
     }
@@ -4280,10 +4305,9 @@ async function processIncoming(
   const replyCoreForMenu = shouldStripModelNumberedChoices
     ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore), stripCandidates)
     : replyCore;
-  const replyCoreClean = replyCoreForMenu
-    .replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const replyCoreClean = stripAssistantInteractiveButtonsLog(
+    replyCoreForMenu.replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "").replace(/\n{3,}/g, "\n\n")
+  );
 
   function softenWebsiteAttribution(text: string): string {
     // Keep replies sounding like the business, not "the website".
