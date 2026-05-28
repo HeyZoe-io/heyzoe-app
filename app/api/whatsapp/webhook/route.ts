@@ -218,12 +218,13 @@ async function updateContactSessionPhase(input: {
   phase: HeyzoeSessionPhase;
 }): Promise<void> {
   const { supabase, businessId, phone, phase } = input;
+  const phoneVariants = contactPhoneLookupVariants(phone);
   try {
     const { error } = await supabase
       .from("contacts")
       .update({ session_phase: phase, flow_step: 0 })
       .eq("business_id", businessId)
-      .eq("phone", phone);
+      .in("phone", phoneVariants.length ? phoneVariants : [phone]);
     if (error) console.warn("[WA Webhook] session_phase update failed:", error.message);
   } catch (e) {
     console.warn("[WA Webhook] session_phase update threw:", e);
@@ -525,6 +526,7 @@ async function sendScheduleSelectionTimeQuestion(input: {
 }
 
 const SCHEDULE_SLOT_PICK_MAX = 10;
+const SCHEDULE_PICK_CHANGE_SERVICE_LABEL = "בחירת אימון אחר";
 
 async function sendScheduleSlotPickMenu(input: {
   knowledge: BusinessKnowledgePack;
@@ -554,7 +556,8 @@ async function sendScheduleSlotPickMenu(input: {
     return;
   }
 
-  const labels = slots.map((s) => formatSlotPickButtonLabel(s));
+  const labels = slots.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1)).map((s) => formatSlotPickButtonLabel(s));
+  labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
   const link = (input.knowledge.schedulePublicUrl?.trim() || input.knowledge.arboxLink?.trim() || "").trim();
   const serviceName = input.selectedService?.name?.trim() || "האימון";
   const cfg = input.knowledge.salesFlowConfig;
@@ -566,7 +569,7 @@ async function sendScheduleSlotPickMenu(input: {
     !input.blockMedia;
 
   if (canSendScheduleImage) {
-    const cap = ["כאן ניתן לראות את מערכת השעות שלנו:", link].filter(Boolean).join("\n").trim() || undefined;
+    const cap = link ? `כאן ניתן לראות את מערכת השעות שלנו:\n${link}` : undefined;
     await sendWhatsAppMediaMessage(input.msg.toNumber, input.msg.from, scheduleImgUrl, input.accountSid, input.authToken, cap, "image")
       .then(async () => {
         await logMessage({
@@ -582,9 +585,11 @@ async function sendScheduleSlotPickMenu(input: {
   }
 
   const introLines = [
-    !canSendScheduleImage ? `כאן ניתן לראות את מערכת השעות שלנו: ${link || "מערכת השעות תתעדכן בקרוב"}` : "",
+    canSendScheduleImage
+      ? "כאן ניתן לראות את מערכת השעות שלנו: (תמונה)"
+      : `כאן ניתן לראות את מערכת השעות שלנו: ${link || "מערכת השעות תתעדכן בקרוב"}`,
     `מתי נוח לך להגיע ל${serviceName}?`,
-  ].filter(Boolean);
+  ];
   const body = stripTrailingNumberedChoiceLines(introLines.join("\n\n"));
 
   let outboundLog = body;
@@ -2874,8 +2879,41 @@ async function processIncoming(
 
       const slotsForPick = (selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
       if (slotsForPick.length > 0) {
-        const labels = slotsForPick.map((s) => formatSlotPickButtonLabel(s));
+        const labels = slotsForPick.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1)).map((s) => formatSlotPickButtonLabel(s));
+        labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
         const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
+        if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
+          const phoneVariants = contactPhoneLookupVariants(msg.from);
+          await supabase
+            .from("contacts")
+            .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+            .eq("business_id", businessId)
+            .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+          contactScheduleRequestedDate = "";
+          contactScheduleRequestedTime = "";
+          contactSessionPhase = "opening";
+          contactFlowStep = 0;
+          await sleepMs(450);
+          await sendFlowContinuation({
+            phase: "opening",
+            contact: { flow_step: 0 },
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            blockTrialPickMedia: starterBlocksMedia,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          });
+          return;
+        }
         const idx = labels.findIndex((l) => waLabelMatches(l, resolved));
         if (idx < 0) {
           const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
@@ -2905,11 +2943,12 @@ async function processIncoming(
         const slot = slotsForPick[idx]!;
         const dateTxt = formatYomForContactSlotDate(slot.day);
         const timeTxt = slot.time;
+        const phoneVariants = contactPhoneLookupVariants(msg.from);
         const { error } = await supabase
           .from("contacts")
           .update({ sf_requested_date: dateTxt, sf_requested_time: timeTxt, session_phase: "cta", flow_step: 0 })
           .eq("business_id", businessId)
-          .eq("phone", msg.from);
+          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
         if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
         contactScheduleRequestedDate = dateTxt;
         contactScheduleRequestedTime = timeTxt;
@@ -2969,7 +3008,7 @@ async function processIncoming(
           .from("contacts")
           .update({ sf_requested_date: parsedDate, session_phase: "schedule_time", flow_step: 0 })
           .eq("business_id", businessId)
-          .eq("phone", msg.from);
+        .in("phone", contactPhoneLookupVariants(msg.from));
         if (error) console.warn("[WA Webhook] sf_requested_date update failed:", error.message);
         contactScheduleRequestedDate = parsedDate;
         contactSessionPhase = "schedule_time";
@@ -3011,7 +3050,7 @@ async function processIncoming(
         .from("contacts")
         .update({ sf_requested_time: parsedTime, session_phase: "cta", flow_step: 0 })
         .eq("business_id", businessId)
-        .eq("phone", msg.from);
+        .in("phone", contactPhoneLookupVariants(msg.from));
       if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
       contactScheduleRequestedTime = parsedTime;
       contactSessionPhase = "cta";
