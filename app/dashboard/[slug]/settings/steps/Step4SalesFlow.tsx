@@ -77,6 +77,8 @@ type Step4SalesFlowProps = {
   setSalesFlowConfig: Dispatch<SetStateAction<SalesFlowConfig>>;
   scheduleDirectRegistration?: boolean;
   arboxLink?: string;
+  schedulePublicUrl?: string;
+  scheduleScanImageUrl?: string;
   warmupSessionEnabled?: boolean;
   setWarmupSessionEnabled: (v: boolean) => void;
   salesOpeningAutoText: string;
@@ -253,6 +255,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     setSalesFlowConfig,
     scheduleDirectRegistration = true,
     arboxLink = "",
+    schedulePublicUrl = "",
+    scheduleScanImageUrl = "",
     warmupSessionEnabled = true,
     setWarmupSessionEnabled,
     salesOpeningAutoText,
@@ -326,6 +330,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   const showScheduleSelectionSession = scheduleDirectRegistration === false;
+  const scheduleLinkForPreview = String(schedulePublicUrl || arboxLink || "").trim();
+  const scheduleHasImageForPreview = String(scheduleScanImageUrl ?? "").trim().length > 0;
   const trialCtaButtonsForUi = useMemo(
     () =>
       showScheduleSelectionSession
@@ -983,7 +989,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
                 <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
                   {[
-                    `כאן ניתן לראות את מערכת השעות שלנו: ${String(arboxLink ?? "").trim() || "[schedule_link]"}`,
+                    scheduleHasImageForPreview
+                      ? "כאן ניתן לראות את מערכת השעות שלנו: (תמונה)"
+                      : `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLinkForPreview || "[schedule_link]"}`,
                     "מתי נוח לך להגיע ל[שם האימון]?",
                   ].join("\n")}
                 </div>
