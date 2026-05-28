@@ -2486,28 +2486,30 @@ export default function SlugSettingsPage({
           </div>
         ) : null}
 
-        {effectiveCanAutosave ? (
-          <div
-            className="flex min-h-[1.25rem] items-center justify-end gap-1.5 pb-3 text-xs text-zinc-500"
-            aria-live="polite"
-          >
-            {autosaveStatus === "saving" && (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
-                <span>שומר…</span>
-              </>
-            )}
-            {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
-            {autosaveStatus === "error" && (
-              <span
-                className="max-w-[min(20rem,55vw)] text-right text-amber-600"
-                title={autoSaveErr || undefined}
-              >
-                שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
-              </span>
-            )}
-          </div>
-        ) : null}
+        <div
+          className="flex min-h-[1.25rem] items-center justify-end gap-1.5 pb-3 text-xs text-zinc-500"
+          aria-live={effectiveCanAutosave ? "polite" : "off"}
+        >
+          {effectiveCanAutosave ? (
+            <>
+              {autosaveStatus === "saving" && (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
+                  <span>שומר…</span>
+                </>
+              )}
+              {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
+              {autosaveStatus === "error" && (
+                <span
+                  className="max-w-[min(20rem,55vw)] text-right text-amber-600"
+                  title={autoSaveErr || undefined}
+                >
+                  שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
+                </span>
+              )}
+            </>
+          ) : null}
+        </div>
 
       {settingsLoadError ? (
         <div
