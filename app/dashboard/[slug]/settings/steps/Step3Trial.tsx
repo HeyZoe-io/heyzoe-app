@@ -428,7 +428,7 @@ export default function Step3Trial(props: {
             {scheduleDirectRegistration === false ? (
               <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות (AI)</p>
+                  <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות</p>
                   <Button
                     type="button"
                     variant="outline"
