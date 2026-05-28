@@ -29,6 +29,12 @@ export type LinksStepPanelProps = {
   fetchSiteNotice: string;
   arboxLink: string;
   setArboxLink: (v: string) => void;
+  scheduleScanImageUrl: string;
+  setScheduleScanImageUrl: (v: string) => void;
+  scheduleScanMediaInputRef: React.RefObject<HTMLInputElement | null>;
+  uploadingScheduleScanMedia: boolean;
+  scheduleScanMediaUploadError: string;
+  uploadMedia: (file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") => Promise<void>;
   scheduleDirectRegistration: boolean;
   setScheduleDirectRegistration: (v: boolean) => void;
   membershipsUrl: string;
@@ -48,6 +54,12 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     fetchSiteNotice,
     arboxLink,
     setArboxLink,
+    scheduleScanImageUrl,
+    setScheduleScanImageUrl,
+    scheduleScanMediaInputRef,
+    uploadingScheduleScanMedia,
+    scheduleScanMediaUploadError,
+    uploadMedia,
     scheduleDirectRegistration,
     setScheduleDirectRegistration,
     membershipsUrl,
@@ -139,7 +151,34 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
         filled={filled.booking}
       >
         <div>
-          <SalesPathFieldLabel>לינק מערכת שעות</SalesPathFieldLabel>
+          <div className="flex items-center justify-between gap-2">
+            <SalesPathFieldLabel>לינק מערכת שעות</SalesPathFieldLabel>
+            <div className="flex items-center gap-2">
+              <input
+                ref={scheduleScanMediaInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  void uploadMedia(f, "schedule_scan");
+                  e.currentTarget.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 gap-2 border-[#7133da]/25 bg-white/80 px-3 text-xs"
+                onClick={() => scheduleScanMediaInputRef.current?.click()}
+                disabled={uploadingScheduleScanMedia}
+                title="מומלץ: צילום מסך/תמונה חתוכה של טבלת המערכת"
+              >
+                {uploadingScheduleScanMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                העלאת תמונה (מומלץ)
+              </Button>
+            </div>
+          </div>
           <Input
             dir="ltr"
             value={arboxLink}
@@ -147,6 +186,35 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             placeholder="https://..."
             className={SALES_PATH_INPUT}
           />
+          {scheduleScanImageUrl.trim() ? (
+            <div className="mt-3 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2" dir="rtl">
+                <p className="text-xs font-semibold text-zinc-800">תמונת לוח לסריקה (מועדפת)</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs border-zinc-200 bg-white hover:bg-red-50/70 text-red-600"
+                  onClick={() => setScheduleScanImageUrl("")}
+                >
+                  הסר
+                </Button>
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={scheduleScanImageUrl.trim()}
+                alt=""
+                className="mt-2 w-full max-h-52 rounded-lg object-contain bg-white"
+              />
+              <p className="mt-2 text-[11px] text-zinc-500 leading-snug" dir="rtl">
+                מומלץ להעלות צילום מסך חתוך רק של הטבלה (בלי תפריטים/באנרים) כדי לשפר דיוק.
+              </p>
+            </div>
+          ) : null}
+          {scheduleScanMediaUploadError ? (
+            <p className="mt-2 text-sm text-red-600" role="alert">
+              {scheduleScanMediaUploadError}
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2">
             <span className="text-sm font-medium text-zinc-800">הרשמה ישירות מהמערכת?</span>
             <button

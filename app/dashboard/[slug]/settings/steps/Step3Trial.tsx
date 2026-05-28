@@ -298,7 +298,7 @@ export default function Step3Trial(props: {
 
   type ProductsSectionId = "scan" | "products";
   const PRODUCT_SECTIONS = [
-    { id: "scan" as const, label: "סריקה", hint: "מהאתר" },
+    { id: "scan" as const, label: "סריקות", hint: "מוצרים ושעות" },
     { id: "products" as const, label: "מוצרים", hint: "ההצעות שלכם" },
   ];
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
@@ -397,32 +397,70 @@ export default function Step3Trial(props: {
         <SalesPathSectionBlock
           stepPrefix="products"
           id="scan"
-          title="סריקה מהאתר"
+          title="סריקות"
           open={openSections.scan}
           onToggle={() => toggle("scan")}
           filled={Boolean(websiteUrl.trim())}
         >
-        <div
-          dir="rtl"
-          className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4 space-y-3"
-        >
-          <div className="flex justify-center w-full">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 h-10 text-sm shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
-              onClick={() => void fetchSite(3)}
-              disabled={!websiteUrl.trim() || fetchingUrl}
-            >
-              {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
-            </Button>
+        <div dir="rtl" className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-zinc-900">סריקת מוצרים</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 h-9 text-xs shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
+                  onClick={() => void fetchSite(3)}
+                  disabled={!websiteUrl.trim() || fetchingUrl}
+                >
+                  {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
+                {!websiteUrl.trim()
+                  ? "הוסיפו כתובת אתר בטאב «לינקים» כדי לסרוק מוצרים."
+                  : "הסריקה לא תדרוס מוצרים קיימים — רק תוסיף חדשים אם זוהו."}
+              </p>
+            </div>
+
+            {scheduleDirectRegistration === false ? (
+              <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות (AI)</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2 h-9 border-[#7133da]/30 bg-white text-xs"
+                    disabled={scheduleExtractBusy || !scheduleUrl.trim() || !namedServices.length}
+                    onClick={() => void runScheduleSlotsExtract()}
+                  >
+                    {scheduleExtractBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
+                    {scheduleExtractBusy ? "סורק…" : "סרוק"}
+                  </Button>
+                </div>
+                <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
+                  מושך מועדים מהלינק/תמונה שהוגדרו בטאב «לינקים», ומשייך אותם לכל מוצר.
+                </p>
+                {!scheduleUrl.trim() ? (
+                  <p className="mt-2 text-[11px] font-semibold text-amber-700">חסר לינק/תמונה למערכת שעות בטאב לינקים.</p>
+                ) : null}
+                {scheduleExtractError ? (
+                  <p className="mt-2 text-sm text-red-600" role="alert">
+                    {scheduleExtractError}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
+                <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות</p>
+                <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
+                  כש״הרשמה ישירות מהמערכת״ מופעלת — אין צורך במועדי לוח. כבו את האפשרות בטאב «לינקים» כדי לסרוק מועדים.
+                </p>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-zinc-600 leading-snug text-center w-full">
-            {!websiteUrl.trim()
-              ? "הוסיפו כתובת אתר בטאב «לינקים חשובים» ולחצו «סרוק» כדי למלא את הרשימה."
-              : "הסריקה לא תשנה מוצרים שכבר הזנתם, רק תוסיף חדשים במידה וזוהו."}
-          </p>
         </div>
         </SalesPathSectionBlock>
 
@@ -435,40 +473,6 @@ export default function Step3Trial(props: {
           onToggle={() => toggle("products")}
           filled={productsFilled}
         >
-        {scheduleDirectRegistration === false ? (
-          <div
-            dir="rtl"
-            className="mb-4 space-y-3 rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/80 px-4 py-4 text-right"
-          >
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות (AI)</p>
-              <p className="text-xs text-zinc-600 leading-relaxed">
-                כשההרשמה מהמערכת כבויה, אפשר למשוך מועדים מהלינק ללוח (תמונה או טקסט בדף) ולשייך אותם לכל מוצר.
-                תמיד אפשר לערוך, למחוק או להוסיף שורות ידנית.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2 border-[#7133da]/30 bg-white"
-                disabled={scheduleExtractBusy || !scheduleUrl.trim() || !namedServices.length}
-                onClick={() => void runScheduleSlotsExtract()}
-              >
-                {scheduleExtractBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
-                {scheduleExtractBusy ? "סורק…" : "סרוק מהלינק"}
-              </Button>
-              {!scheduleUrl.trim() ? (
-                <span className="text-xs text-amber-700">חסר לינק מערכת שעות בטאב לינקים.</span>
-              ) : null}
-            </div>
-            {scheduleExtractError ? (
-              <p className="text-sm text-red-600" role="alert">
-                {scheduleExtractError}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
         {services.map((s, i) => (
           <article
             key={s.ui_id}
