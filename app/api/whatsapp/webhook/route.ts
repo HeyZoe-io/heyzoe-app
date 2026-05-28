@@ -400,7 +400,8 @@ function buildScheduleDateQuestion(knowledge: BusinessKnowledgePack, service: Sf
   const serviceName = service?.name?.trim() || "האימון";
   return [
     `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink || "מערכת השעות תתעדכן בקרוב"}`,
-    `באיזה תאריך הכי מתאים לך להגיע ל${serviceName}? נא לכתוב תאריך בפורמט: 24.5`,
+    `מתי נוח לך להגיע ל${serviceName}?`,
+    "בחרו מועד מהכפתורים למטה.",
   ].join("\n");
 }
 
@@ -510,6 +511,7 @@ const SCHEDULE_SLOT_PICK_MAX = 10;
 async function sendScheduleSlotPickMenu(input: {
   knowledge: BusinessKnowledgePack;
   selectedService: SfServiceRow | null;
+  blockMedia?: boolean;
   msg: Pick<WaIncomingMessage, "toNumber" | "from">;
   accountSid: string;
   authToken: string;
@@ -537,10 +539,33 @@ async function sendScheduleSlotPickMenu(input: {
   const labels = slots.map((s) => formatSlotPickButtonLabel(s));
   const link = (input.knowledge.schedulePublicUrl?.trim() || input.knowledge.arboxLink?.trim() || "").trim();
   const serviceName = input.selectedService?.name?.trim() || "האימון";
+  const cfg = input.knowledge.salesFlowConfig;
+  const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
+  const scheduleImgUrl = String(schedBtn?.schedule_cta_image_url ?? "").trim();
+  const canSendScheduleImage =
+    Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") === "image") &&
+    scheduleImgUrl.length > 0 &&
+    !input.blockMedia;
+
+  if (canSendScheduleImage) {
+    const cap = ["כאן ניתן לראות את מערכת השעות שלנו:", link].filter(Boolean).join("\n").trim() || undefined;
+    await sendWhatsAppMediaMessage(input.msg.toNumber, input.msg.from, scheduleImgUrl, input.accountSid, input.authToken, cap, "image")
+      .then(async () => {
+        await logMessage({
+          business_slug: input.business_slug,
+          role: "assistant",
+          content: cap ? `[media] ${scheduleImgUrl}\n\n${cap}` : `[media] ${scheduleImgUrl}`,
+          model_used: "sales_flow_schedule_image",
+          session_id: input.sessionId,
+        });
+        await sleepMs(900);
+      })
+      .catch((e) => console.error("[WA Webhook] Send schedule image (schedule pick) failed:", e));
+  }
+
   const introLines = [
-    link ? `כאן ניתן לראות את מערכת השעות שלנו: ${link}` : "",
-    `בוחרים מועד ל${serviceName}:`,
-    labels.length > 1 ? "בחרו אחת מהאפשרויות:" : "לחצו על הכפתור:",
+    !canSendScheduleImage ? `כאן ניתן לראות את מערכת השעות שלנו: ${link || "מערכת השעות תתעדכן בקרוב"}` : "",
+    `מתי נוח לך להגיע ל${serviceName}?`,
   ].filter(Boolean);
   const body = stripTrailingNumberedChoiceLines(introLines.join("\n\n"));
 
@@ -1111,6 +1136,7 @@ async function sendFlowContinuation(input: {
       await sendScheduleSlotPickMenu({
         knowledge,
         selectedService,
+        blockMedia: blockTrialPickMedia,
         msg,
         accountSid,
         authToken,
@@ -1146,6 +1172,7 @@ async function sendFlowContinuation(input: {
       await sendScheduleSlotPickMenu({
         knowledge,
         selectedService,
+        blockMedia: blockTrialPickMedia,
         msg,
         accountSid,
         authToken,
@@ -2777,6 +2804,7 @@ async function processIncoming(
           await sendScheduleSlotPickMenu({
             knowledge,
             selectedService,
+            blockMedia: starterBlocksMedia,
             msg,
             accountSid,
             authToken,
@@ -2800,9 +2828,13 @@ async function processIncoming(
         contactScheduleRequestedDate = dateTxt;
         contactScheduleRequestedTime = timeTxt;
         contactSessionPhase = "cta";
-        const afterScheduleText =
+        const rawTpl =
           (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
-          "מהמם! נדאג לשבץ אותך למועד שבחרת!";
+          "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}";
+        const afterScheduleText = rawTpl
+          .replace(/\{serviceName\}/g, selectedService?.name?.trim() || "האימון")
+          .replace(/\{requested_date\}/g, dateTxt)
+          .replace(/\{requested_time\}/g, timeTxt);
         await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send after schedule selection failed:", e)
         );
@@ -2897,9 +2929,13 @@ async function processIncoming(
       if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
       contactScheduleRequestedTime = parsedTime;
       contactSessionPhase = "cta";
-      const afterScheduleTextLegacy =
+      const rawTplLegacy =
         (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
-        "מהמם! נדאג לשבץ אותך למועד שבחרת!";
+        "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}";
+      const afterScheduleTextLegacy = rawTplLegacy
+        .replace(/\{serviceName\}/g, selectedService?.name?.trim() || "האימון")
+        .replace(/\{requested_date\}/g, String(contactScheduleRequestedDate || "").trim() || "המועד שבחרת")
+        .replace(/\{requested_time\}/g, parsedTime);
       await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleTextLegacy, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send after schedule selection failed:", e)
       );

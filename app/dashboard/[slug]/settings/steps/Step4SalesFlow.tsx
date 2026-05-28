@@ -972,7 +972,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <SalesPathSectionBlock
             stepPrefix="sales"
             id="schedule_selection"
-            title="בחירת יום ושעה"
+            title="בחירת מועד"
             hint="נשלח כשאין הרשמה ישירה ממערכת השעות"
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
@@ -980,22 +980,16 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           >
             <div className="space-y-3">
               <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 1 — תאריך</p>
+                <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
                 <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
                   {[
                     `כאן ניתן לראות את מערכת השעות שלנו: ${String(arboxLink ?? "").trim() || "[schedule_link]"}`,
-                    "באיזה תאריך הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב תאריך בפורמט: 24.5",
+                    "מתי נוח לך להגיע ל[שם האימון]?",
                   ].join("\n")}
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">פורמט DD.M או DD.MM.</p>
-              </div>
-
-              <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                <p className="mb-2 text-xs font-semibold text-zinc-700">שלב 2 — שעה</p>
-                <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                  באיזו שעה הכי מתאים לך להגיע ל[שם האימון]? נא לכתוב שעה בפורמט: 19:00
-                </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">פורמט HH:MM.</p>
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                  המועדים נשלחים ככפתורים לפי מה שהוזן בטאב «מוצרים» (למשל: «יום שני ב19:00»).
+                </p>
               </div>
 
               <Field label="תשובה">
@@ -1008,7 +1002,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     }))
                   }
                   rows={2}
-                  placeholder="מהמם! נדאג לשבץ אותך למועד שבחרת!"
+                  placeholder="מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}"
                 />
               </Field>
             </div>
