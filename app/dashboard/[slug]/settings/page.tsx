@@ -1102,6 +1102,7 @@ export default function SlugSettingsPage({
   const [membershipsUrl, setMembershipsUrl] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
+  const [scheduleScanImageUrl, setScheduleScanImageUrl] = useState("");
 
   // ── Step 2: Opening media
   const [openingMediaUrl, setOpeningMediaUrl]   = useState("");
@@ -1115,6 +1116,9 @@ export default function SlugSettingsPage({
   const scheduleCtaMediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingScheduleCtaMedia, setUploadingScheduleCtaMedia] = useState(false);
   const [scheduleCtaMediaUploadError, setScheduleCtaMediaUploadError] = useState("");
+  const scheduleScanMediaInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingScheduleScanMedia, setUploadingScheduleScanMedia] = useState(false);
+  const [scheduleScanMediaUploadError, setScheduleScanMediaUploadError] = useState("");
   const [showDirectionsMediaModal, setShowDirectionsMediaModal] = useState(false);
   const [showStarterMediaProModal, setShowStarterMediaProModal] = useState(false);
   const [uploadingTrialPickUiId, setUploadingTrialPickUiId] = useState<string | null>(null);
@@ -1457,6 +1461,7 @@ export default function SlugSettingsPage({
         }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setMembershipsUrl(typeof sl.memberships_url === "string" ? sl.memberships_url.trim() : "");
+        setScheduleScanImageUrl(typeof sl.schedule_scan_image_url === "string" ? sl.schedule_scan_image_url.trim() : "");
         setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
         setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
@@ -1666,6 +1671,7 @@ export default function SlugSettingsPage({
           membership_tiers: [],
           punch_cards: [],
           memberships_url: membershipsUrl.trim(),
+          schedule_scan_image_url: scheduleScanImageUrl.trim(),
         },
       },
       faqs: [] as unknown[],
@@ -1737,6 +1743,7 @@ export default function SlugSettingsPage({
       waSalesFollowup2,
       waSalesFollowup3,
       membershipsUrl,
+      scheduleScanImageUrl,
       servicesHydrated,
       services,
   ]);
@@ -2023,7 +2030,7 @@ export default function SlugSettingsPage({
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
-  async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta") {
+  async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") {
     if (target === "schedule_cta") {
       setScheduleCtaMediaUploadError("");
       if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
@@ -2095,6 +2102,68 @@ export default function SlugSettingsPage({
         setScheduleCtaMediaUploadError("בעיית רשת בהעלאה.");
       } finally {
         setUploadingScheduleCtaMedia(false);
+      }
+      return;
+    }
+    if (target === "schedule_scan") {
+      setScheduleScanMediaUploadError("");
+      if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
+        setScheduleScanMediaUploadError("קובץ WebP לא נתמך. אנא העלו JPG או PNG.");
+        return;
+      }
+      if (!file.type.startsWith("image")) {
+        setScheduleScanMediaUploadError("יש להעלות תמונה בלבד (JPG/PNG).");
+        return;
+      }
+      if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+        setScheduleScanMediaUploadError("הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ או להעלות קובץ קטן יותר.");
+        return;
+      }
+      setUploadingScheduleScanMedia(true);
+      try {
+        const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type || "application/octet-stream",
+            fileSize: file.size,
+          }),
+        });
+        let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
+        try {
+          signJson = (await signRes.json()) as typeof signJson;
+        } catch {
+          setScheduleScanMediaUploadError("תשובת שרת לא תקינה.");
+          return;
+        }
+        if (!signRes.ok) {
+          setScheduleScanMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+          return;
+        }
+        const signedUrl = signJson.signedUrl?.trim();
+        const publicUrl = signJson.publicUrl?.trim();
+        if (!signedUrl || !publicUrl) {
+          setScheduleScanMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+          return;
+        }
+        const putRes = await fetch(signedUrl, {
+          method: "PUT",
+          headers: {
+            "x-upsert": "true",
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!putRes.ok) {
+          setScheduleScanMediaUploadError(`העלאה ל-Storage נכשלה (${putRes.status}).`);
+          return;
+        }
+        setScheduleScanImageUrl(publicUrl);
+      } catch {
+        setScheduleScanMediaUploadError("בעיית רשת בהעלאה.");
+      } finally {
+        setUploadingScheduleScanMedia(false);
       }
       return;
     }
@@ -2476,6 +2545,12 @@ export default function SlugSettingsPage({
               fetchSiteNotice={fetchSiteNotice}
               arboxLink={arboxLink}
               setArboxLink={setArboxLink}
+              scheduleScanImageUrl={scheduleScanImageUrl}
+              setScheduleScanImageUrl={setScheduleScanImageUrl}
+              scheduleScanMediaInputRef={scheduleScanMediaInputRef}
+              uploadingScheduleScanMedia={uploadingScheduleScanMedia}
+              scheduleScanMediaUploadError={scheduleScanMediaUploadError}
+              uploadMedia={uploadMedia}
               scheduleDirectRegistration={scheduleDirectRegistration}
               setScheduleDirectRegistration={setScheduleDirectRegistration}
               membershipsUrl={membershipsUrl}
@@ -2553,7 +2628,7 @@ export default function SlugSettingsPage({
             scheduleAutoRegenSalesFromTrialDescription={scheduleAutoRegenSalesFromTrialDescription}
             flushAutoRegenSalesFromTrialDescription={flushAutoRegenSalesFromTrialDescription}
             scheduleDirectRegistration={scheduleDirectRegistration}
-            scheduleUrl={arboxLink}
+            scheduleUrl={(scheduleScanImageUrl.trim() || arboxLink).trim()}
           />
         )}
 
