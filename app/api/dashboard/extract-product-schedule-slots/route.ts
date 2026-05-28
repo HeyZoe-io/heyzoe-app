@@ -123,10 +123,46 @@ function extractJsonObject(text: string): unknown {
 function normalizeSlotRow(o: unknown): SlotRow | null {
   if (!o || typeof o !== "object") return null;
   const r = o as Record<string, unknown>;
-  const day = String(r.day ?? r.day_letter ?? "").trim();
+  const dayRaw = String(r.day ?? r.day_letter ?? "").trim();
   const time = String(r.time ?? "").trim();
-  const d0 = [...day.replace(/[\u0591-\u05C7]/g, "")][0] ?? "";
-  if (!d0 || !/[א-ת]/u.test(d0)) return null;
+  const dayClean = dayRaw
+    .replace(/[\u0591-\u05C7]/g, "")
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "")
+    .trim();
+  const dayLower = dayClean.toLowerCase();
+
+  // Prefer full Hebrew day names when present (avoids ambiguity: "שישי" starts with ש).
+  const byName: Record<string, SlotRow["day"]> = {
+    "ראשון": "א",
+    "יום ראשון": "א",
+    "שני": "ב",
+    "יום שני": "ב",
+    "שלישי": "ג",
+    "יום שלישי": "ג",
+    "רביעי": "ד",
+    "יום רביעי": "ד",
+    "חמישי": "ה",
+    "יום חמישי": "ה",
+    "שישי": "ו",
+    "יום שישי": "ו",
+    "שבת": "ש",
+    "יום שבת": "ש",
+  };
+  let d0: string = "";
+  for (const [k, v] of Object.entries(byName)) {
+    if (dayLower.includes(k)) {
+      d0 = v;
+      break;
+    }
+  }
+  if (!d0) {
+    const first = [...dayClean][0] ?? "";
+    if (!first || !/[א-ת]/u.test(first)) return null;
+    d0 = first;
+  }
+
+  // Only allow our canonical letters: א ב ג ד ה ו ש
+  if (!/^[אבגדהוש]$/u.test(d0)) return null;
   const tm = time.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
   if (!tm) return null;
   const h = Number(tm[1]);
