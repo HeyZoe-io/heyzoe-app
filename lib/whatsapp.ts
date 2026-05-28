@@ -739,20 +739,9 @@ export async function sendWhatsAppTextOrMenu(
   }
 
   // Twilio WhatsApp does not support interactive buttons.
-  // Fall back to a numbered list so the user can still choose (by replying with a digit).
-  // This applies to all menus on Twilio, including CTA and schedule options.
-  const baseBody = bodyText.trim();
-  const withChoices =
-    labels.length > 0
-      ? [
-          baseBody,
-          "",
-          ...labels.map((l, i) => `${i + 1}. ${l}`),
-        ]
-          .filter((x) => String(x ?? "").trim().length > 0)
-          .join("\n")
-      : baseBody;
-  await sendWhatsAppMessage(fromNumber, to, withFooterPlain(withChoices), accountSid, authToken);
+  // Product decision: never render menus as numbered lists in plain text.
+  // Send just the body + footer hint (if any).
+  await sendWhatsAppMessage(fromNumber, to, withFooterPlain(bodyText.trim()), accountSid, authToken);
 }
 
 /**
