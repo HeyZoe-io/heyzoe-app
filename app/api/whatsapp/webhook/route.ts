@@ -2964,10 +2964,10 @@ async function processIncoming(
           labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
           const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
           const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-          const expectsScheduleSlotPick =
-            inSchedulePhase ||
-            lastAssistForSchedule === "sales_flow_schedule_slot_menu" ||
-            Boolean(msg.metaInteractiveReplyId?.trim());
+          // רק כשבאמת בשלב מועד — לא לפי metaInteractiveReplyId (גם CTA/חימום/בחירת שירות הם interactive).
+          const inSchedulePickContext =
+            !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
+            (inSchedulePhase || lastAssistForSchedule === "sales_flow_schedule_slot_menu");
 
           if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
           const phoneVariants = contactPhoneLookupVariants(msg.from);
@@ -3045,7 +3045,7 @@ async function processIncoming(
         });
             return;
           }
-          if (expectsScheduleSlotPick) {
+          if (inSchedulePickContext) {
             const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
             await logMessage({
