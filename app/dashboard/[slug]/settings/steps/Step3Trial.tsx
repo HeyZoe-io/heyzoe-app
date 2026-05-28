@@ -32,6 +32,22 @@ function rtlCheckboxLabelRowClassName(fullWidth = true) {
     .join(" ");
 }
 
+const DAY_SORT_ORDER: Record<string, number> = { א: 0, ב: 1, ג: 2, ד: 3, ה: 4, ו: 5, ש: 6 };
+
+function sortScheduleSlots<T extends { day: string; time: string }>(slots: T[]): T[] {
+  const toMin = (t: string): number => {
+    const m = String(t ?? "").trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    if (!m) return 10_000;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  return [...slots].sort((a, b) => {
+    const da = DAY_SORT_ORDER[a.day] ?? 99;
+    const db = DAY_SORT_ORDER[b.day] ?? 99;
+    if (da !== db) return da - db;
+    return toMin(a.time) - toMin(b.time);
+  });
+}
+
 type ServiceItem = {
   ui_id: string;
   name: string;
@@ -761,7 +777,10 @@ export default function Step3Trial(props: {
                       const arr = [...services];
                       arr[i] = {
                         ...s,
-                        schedule_slots: [...(s.schedule_slots ?? []), { id: uid(), day: "ו", time: "08:15" }],
+                        schedule_slots: sortScheduleSlots([
+                          ...(s.schedule_slots ?? []),
+                          { id: uid(), day: "ו", time: "08:15" },
+                        ]),
                       };
                       setServices(arr);
                     }}
@@ -789,7 +808,7 @@ export default function Step3Trial(props: {
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
                             slots[si] = { ...slot, day: e.target.value };
-                            arr[i] = { ...arr[i]!, schedule_slots: slots };
+                            arr[i] = { ...arr[i]!, schedule_slots: sortScheduleSlots(slots) };
                             setServices(arr);
                           }}
                         >
@@ -837,7 +856,7 @@ export default function Step3Trial(props: {
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
                             slots[si] = { ...slot, time: next };
-                            arr[i] = { ...arr[i]!, schedule_slots: slots };
+                            arr[i] = { ...arr[i]!, schedule_slots: sortScheduleSlots(slots) };
                             setServices(arr);
 
                             // If we just auto-inserted ":" after HH, move caret to minutes.
