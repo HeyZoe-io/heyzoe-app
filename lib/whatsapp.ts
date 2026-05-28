@@ -97,6 +97,8 @@ export type WaIncomingText = {
   profileName?: string;
   /** Meta interactive reply `id` — use with {@link resolveMetaInteractiveLabel} for full label */
   metaInteractiveReplyId?: string;
+  /** Meta `interactive` subtype when inbound was button_reply / list_reply (not plain text). */
+  metaInteractiveReplyKind?: "button_reply" | "list_reply";
 };
 
 export type WaIncomingUnsupported = {
@@ -259,11 +261,14 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
     const itype = String(inter?.type ?? "").trim();
     let replyId = "";
     let title = "";
+    let metaInteractiveReplyKind: "button_reply" | "list_reply" | undefined;
     if (itype === "button_reply") {
+      metaInteractiveReplyKind = "button_reply";
       const br = inter?.button_reply as Record<string, unknown> | undefined;
       replyId = String(br?.id ?? "").trim();
       title = String(br?.title ?? "").trim();
     } else if (itype === "list_reply") {
+      metaInteractiveReplyKind = "list_reply";
       const lr = inter?.list_reply as Record<string, unknown> | undefined;
       replyId = String(lr?.id ?? "").trim();
       title = String(lr?.title ?? "").trim();
@@ -281,6 +286,7 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
       text,
       profileName: profileName || undefined,
       metaInteractiveReplyId: replyId || undefined,
+      metaInteractiveReplyKind,
     };
   }
 

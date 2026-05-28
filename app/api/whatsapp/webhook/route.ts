@@ -20,6 +20,7 @@ import {
   isMetaCloudPhoneNumberId,
   resolveMetaAccessToken,
   type WaIncomingMessage,
+  type WaIncomingText,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
@@ -86,6 +87,35 @@ function stripAssistantInteractiveButtonsLog(text: string): string {
     .replace(/\n?\[כפתורים:\s*[^\]]+\]\s*/gu, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function isMetaInteractiveMenuReply(msg: WaIncomingMessage): boolean {
+  if (msg.type !== "text") return false;
+  if (msg.metaInteractiveReplyKind === "button_reply" || msg.metaInteractiveReplyKind === "list_reply") {
+    return true;
+  }
+  // Meta always sets reply `id` on interactive; plain text inbound never has it.
+  return Boolean(msg.metaInteractiveReplyId?.trim());
+}
+
+/** list_reply / button_reply חייבים להיפתר בנתיב דטרמיניסטי — לא ב-Claude. */
+function warnInteractiveReplyRoutedToClaude(input: {
+  business_slug: string;
+  sessionId: string;
+  msg: WaIncomingText;
+  sessionPhase: HeyzoeSessionPhase;
+  isFreeTextSalesFlowAi: boolean;
+}): void {
+  console.warn("[WA Webhook] INVARIANT_VIOLATION: interactive reply routed to Claude free-text path", {
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+    session_phase: input.sessionPhase,
+    interactive_kind: input.msg.metaInteractiveReplyKind ?? "unknown",
+    meta_reply_id: input.msg.metaInteractiveReplyId ?? "",
+    text: input.msg.text,
+    from: input.msg.from,
+    is_free_text_sales_flow: input.isFreeTextSalesFlowAi,
+  });
 }
 import {
   CLAUDE_WHATSAPP_MODEL,
@@ -4147,6 +4177,30 @@ async function processIncoming(
       }
     } catch (e) {
       console.warn("[WA Webhook] 24h AI rate-limit check failed (continuing):", e);
+    }
+
+    if (msg.type === "text" && isMetaInteractiveMenuReply(msg)) {
+      warnInteractiveReplyRoutedToClaude({
+        business_slug,
+        sessionId,
+        msg,
+        sessionPhase: contactSessionPhase,
+        isFreeTextSalesFlowAi,
+      });
+      const txt =
+        "קיבלתי את הבחירה שלך 👍 אם רצית להמשיך דרך התפריט, אפשר לבחור שוב מהאפשרויות שמופיעות בהודעה האחרונה. לשאלה פתוחה אפשר פשוט לכתוב לי כאן.";
+      await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] Send interactive-leak guard reply failed:", e)
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: txt,
+        model_used: "interactive_reply_claude_leak_guard",
+        session_id: sessionId,
+        error_code: "interactive_reply_claude_leak",
+      });
+      return;
     }
 
     // Any free-form question → Claude/Gemini (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
