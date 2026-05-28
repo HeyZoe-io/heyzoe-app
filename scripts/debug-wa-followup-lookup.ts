@@ -12,10 +12,33 @@ async function main() {
     ? process.argv.slice(3)
     : ["972549400776", "972508318162"];
 
-  const { data: biz } = await admin.from("businesses").select("id, slug, name").eq("slug", slug).maybeSingle();
+  const { data: bizRows, error: bizErr } = await admin
+    .from("businesses")
+    .select("id, slug, name")
+    .eq("slug", slug)
+    .limit(5);
+  const biz = (bizRows?.[0] ?? null) as { id?: number; slug?: string; name?: string } | null;
   if (!biz?.id) {
-    const { data: similar } = await admin.from("businesses").select("id, slug, name").ilike("slug", `%${slug.slice(0, 4)}%`);
-    console.log(JSON.stringify({ error: "business_not_found", slug, similar }, null, 2));
+    const { data: similar, error: similarErr } = await admin
+      .from("businesses")
+      .select("id, slug, name")
+      .ilike("slug", `%${slug.slice(0, 4)}%`)
+      .limit(10);
+    console.log(
+      JSON.stringify(
+        {
+          error: "business_not_found",
+          slug,
+          biz_query_error: bizErr?.message ?? null,
+          biz_rows_found: bizRows?.length ?? 0,
+          biz_rows_sample: bizRows ?? [],
+          similar_query_error: similarErr?.message ?? null,
+          similar,
+        },
+        null,
+        2
+      )
+    );
     process.exit(1);
   }
 
