@@ -981,7 +981,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (!ctaBody) return;
 
-  if (ctaLabels.length >= 2) {
+  if (ctaLabels.length >= 1) {
     await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels, accountSid, authToken, {
       footerHint: ZOE_WHATSAPP_MENU_FOOTER,
     }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu failed:", e));
