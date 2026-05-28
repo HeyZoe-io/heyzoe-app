@@ -2892,24 +2892,18 @@ async function processIncoming(
           contactScheduleRequestedTime = "";
           contactSessionPhase = "opening";
           contactFlowStep = 0;
-          await sleepMs(450);
-          await sendFlowContinuation({
-            phase: "opening",
-            contact: { flow_step: 0 },
-            knowledge,
-            msg,
-            accountSid,
-            authToken,
-            supabase,
-            businessId,
+          const cfg = knowledge?.salesFlowConfig;
+          const serviceLabels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
+          const q = String(cfg?.multi_service_question ?? "").trim() || "איזה אימון הכי קורץ לך?";
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, serviceLabels, accountSid, authToken, {
+            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+          }).catch((e) => console.error("[WA Webhook] change service: send opening menu failed:", e));
+          await logMessage({
             business_slug,
-            sessionId,
-            salesFlowServices,
-            trialRegistered: contactTrialRegistered,
-            allowTrialCta: allowTrialCtaThisSession,
-            blockTrialPickMedia: starterBlocksMedia,
-            sfConsumedKinds: sfClickedCtaKinds,
-            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            role: "assistant",
+            content: formatInteractiveConversationLog(q, serviceLabels),
+            model_used: "flow_continuation_opening_service_pick",
+            session_id: sessionId,
           });
           return;
         }
