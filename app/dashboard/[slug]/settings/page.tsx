@@ -1097,6 +1097,7 @@ export default function SlugSettingsPage({
   const [promotions, setPromotions] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
+  const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
   const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
   const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
   const [membershipsUrl, setMembershipsUrl] = useState("");
@@ -1461,6 +1462,13 @@ export default function SlugSettingsPage({
         }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setMembershipsUrl(typeof sl.memberships_url === "string" ? sl.memberships_url.trim() : "");
+        setSchedulePublicUrl(
+          typeof sl.schedule_public_url === "string"
+            ? sl.schedule_public_url.trim()
+            : typeof sl.arbox_schedule_url === "string"
+              ? sl.arbox_schedule_url.trim()
+              : ""
+        );
         setScheduleScanImageUrl(typeof sl.schedule_scan_image_url === "string" ? sl.schedule_scan_image_url.trim() : "");
         setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
         setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
@@ -1671,6 +1679,7 @@ export default function SlugSettingsPage({
           membership_tiers: [],
           punch_cards: [],
           memberships_url: membershipsUrl.trim(),
+          schedule_public_url: schedulePublicUrl.trim(),
           schedule_scan_image_url: scheduleScanImageUrl.trim(),
         },
       },
