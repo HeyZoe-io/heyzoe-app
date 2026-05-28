@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
+  const cutoffIso = new Date(now - NO_RESPONSE_AFTER_MS).toISOString();
   const channelByBusinessId = new Map<number, ChannelRow | null>();
 
   const { data: contacts, error } = await admin
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest) {
     .or("opted_out.eq.false,opted_out.is.null")
     .or("trial_registered.eq.false,trial_registered.is.null")
     .is("wa_no_response_at", null)
+    .not("last_contact_at", "is", null)
+    .lt("last_contact_at", cutoffIso)
     .limit(BATCH);
 
   if (error) {

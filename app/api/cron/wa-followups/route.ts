@@ -307,6 +307,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
+  const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
   const { data: contacts, error } = await admin
     .from("contacts")
     .select(
@@ -315,6 +318,9 @@ export async function GET(req: NextRequest) {
     .eq("source", "whatsapp")
     .or("opted_out.eq.false,opted_out.is.null")
     .or("trial_registered.eq.false,trial_registered.is.null")
+    .lt("last_contact_at", cutoff20mIso)
+    .gte("last_contact_at", cutoff24hIso)
+    .lt("wa_followup_stage", 3)
     .limit(BATCH);
 
   if (error) {
