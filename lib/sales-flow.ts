@@ -681,6 +681,11 @@ export function getEffectiveSalesFlowCtaButtons(
     return true;
   });
 
+  // אחרי «מחירי מנויים» — רק ניסיון (לא מערכת שעות / כתובת / מנויים שוב).
+  if (consumed.has("memberships")) {
+    out = out.filter((b) => b.kind === "trial");
+  }
+
   const order: Record<SalesFlowCtaKind, number> = {
     trial: 0,
     schedule: 1,
@@ -840,9 +845,11 @@ export function getEffectiveFollowupMenuLabels(
   const consumed = new Set(
     (Array.from(input.consumedNonTrialKinds) as string[]).map((k) => String(k ?? "").trim()).filter(Boolean)
   );
+  const membershipsConsumed = consumed.has("memberships");
   const out: string[] = [];
   for (let i = 0; i < FOLLOW_KIND_ORDER.length; i++) {
     const kind = FOLLOW_KIND_ORDER[i]!;
+    if (membershipsConsumed && kind !== "trial") continue;
     if (!ctaKindEnabledInButtons(ctaButtons, kind)) continue;
     const label = String(options[i] ?? "").trim();
     if (!label) continue;
