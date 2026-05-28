@@ -789,7 +789,17 @@ export default function Step3Trial(props: {
                 <p className="text-[11px] text-zinc-500 leading-snug">
                   לכל הופעה של המוצר בלוח — שורה נפרדת (ראשון–שבת + שעה בפורמט 24 שעות).
                 </p>
-                <div className="space-y-2">
+                <div
+                  className="space-y-2"
+                  onBlurCapture={(e) => {
+                    const next = e.relatedTarget as Node | null;
+                    if (next && e.currentTarget.contains(next)) return;
+                    const arr = [...services];
+                    const slots = sortScheduleSlots(arr[i]!.schedule_slots ?? []);
+                    arr[i] = { ...arr[i]!, schedule_slots: slots };
+                    setServices(arr);
+                  }}
+                >
                   {(s.schedule_slots ?? []).map((slot, si) => (
                     <div
                       key={slot.id}
@@ -805,12 +815,6 @@ export default function Step3Trial(props: {
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
                             slots[si] = { ...slot, day: e.target.value };
-                            arr[i] = { ...arr[i]!, schedule_slots: slots };
-                            setServices(arr);
-                          }}
-                          onBlur={() => {
-                            const arr = [...services];
-                            const slots = sortScheduleSlots(arr[i]!.schedule_slots ?? []);
                             arr[i] = { ...arr[i]!, schedule_slots: slots };
                             setServices(arr);
                           }}
@@ -872,12 +876,6 @@ export default function Step3Trial(props: {
                                 }
                               });
                             }
-                          }}
-                          onBlur={() => {
-                            const arr = [...services];
-                            const slots = sortScheduleSlots(arr[i]!.schedule_slots ?? []);
-                            arr[i] = { ...arr[i]!, schedule_slots: slots };
-                            setServices(arr);
                           }}
                         />
                       </div>
