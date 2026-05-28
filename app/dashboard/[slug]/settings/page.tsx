@@ -2487,7 +2487,7 @@ export default function SlugSettingsPage({
         ) : null}
 
         <div
-          className="flex min-h-[1.25rem] items-center justify-end gap-1.5 pb-3 text-xs text-zinc-500"
+          className="flex h-5 items-center justify-end gap-1.5 pb-3 text-xs leading-none text-zinc-500"
           aria-live={effectiveCanAutosave ? "polite" : "off"}
         >
           {effectiveCanAutosave ? (
@@ -2507,8 +2507,11 @@ export default function SlugSettingsPage({
                   שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
                 </span>
               )}
+              {autosaveStatus === "idle" ? <span aria-hidden>&nbsp;</span> : null}
             </>
-          ) : null}
+          ) : (
+            <span aria-hidden>&nbsp;</span>
+          )}
         </div>
 
       {settingsLoadError ? (
