@@ -769,42 +769,37 @@ export default function Step3Trial(props: {
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
                 <div className="flex items-center justify-between gap-2">
                   <SalesPathFieldLabel>מועדי לוח (שבועי)</SalesPathFieldLabel>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 gap-1 border-zinc-200 bg-white/70 px-3 text-xs"
-                      onClick={() => {
-                        const arr = [...services];
-                        arr[i] = { ...arr[i]!, schedule_slots: sortScheduleSlots(arr[i]!.schedule_slots ?? []) };
-                        setServices(arr);
-                      }}
-                      title="מסדר לפי יום (ראשון→שבת) ואז לפי שעה"
-                    >
-                      סדר
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 gap-1 border-dashed bg-white/70 px-3 text-xs"
-                      onClick={() => {
-                        const arr = [...services];
-                        arr[i] = {
-                          ...s,
-                          schedule_slots: [...(s.schedule_slots ?? []), { id: uid(), day: "א", time: "19:00" }],
-                        };
-                        setServices(arr);
-                      }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      הוסף מועד
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 gap-1 border-dashed bg-white/70 px-3 text-xs"
+                    onClick={() => {
+                      const arr = [...services];
+                      arr[i] = {
+                        ...s,
+                        schedule_slots: sortScheduleSlots([...(s.schedule_slots ?? []), { id: uid(), day: "א", time: "19:00" }]),
+                      };
+                      setServices(arr);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    הוסף מועד
+                  </Button>
                 </div>
                 <p className="text-[11px] text-zinc-500 leading-snug">
                   לכל הופעה של המוצר בלוח — שורה נפרדת (ראשון–שבת + שעה בפורמט 24 שעות).
                 </p>
-                <div className="space-y-2">
+                <div
+                  className="space-y-2"
+                  onBlurCapture={(e) => {
+                    const next = e.relatedTarget as Node | null;
+                    if (next && e.currentTarget.contains(next)) return;
+                    const arr = [...services];
+                    const slots = sortScheduleSlots(arr[i]!.schedule_slots ?? []);
+                    arr[i] = { ...arr[i]!, schedule_slots: slots };
+                    setServices(arr);
+                  }}
+                >
                   {(s.schedule_slots ?? []).map((slot, si) => (
                     <div
                       key={slot.id}
