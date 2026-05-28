@@ -166,17 +166,19 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                   e.currentTarget.value = "";
                 }}
               />
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                className="h-8 gap-2 border-[#7133da]/25 bg-white/80 px-3 text-xs"
+                className={[
+                  "text-xs font-semibold underline underline-offset-4",
+                  "text-[#2f6feb] hover:text-[#1f5bd6]",
+                  "disabled:opacity-60 disabled:no-underline",
+                ].join(" ")}
                 onClick={() => scheduleScanMediaInputRef.current?.click()}
                 disabled={uploadingScheduleScanMedia}
                 title="מומלץ: צילום מסך/תמונה חתוכה של טבלת המערכת"
               >
-                {uploadingScheduleScanMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                העלאת תמונה (מומלץ)
-              </Button>
+                {uploadingScheduleScanMedia ? "מעלה…" : "העלאת תמונה (מומלץ)"}
+              </button>
             </div>
           </div>
           <Input
