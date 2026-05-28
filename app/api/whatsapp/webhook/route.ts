@@ -562,9 +562,9 @@ async function sendScheduleSlotPickMenu(input: {
   const serviceName = input.selectedService?.name?.trim() || "האימון";
   const cfg = input.knowledge.salesFlowConfig;
   const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
-  const scheduleImgUrl = String(schedBtn?.schedule_cta_image_url ?? "").trim();
+  const scheduleImgUrl =
+    String(schedBtn?.schedule_cta_image_url ?? "").trim() || String(input.knowledge.scheduleScanImageUrl ?? "").trim();
   const canSendScheduleImage =
-    Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") === "image") &&
     scheduleImgUrl.length > 0 &&
     !input.blockMedia;
 
@@ -879,10 +879,10 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     if (!already && slots.length > 0) {
       const serviceName = selectedService?.name?.trim() || "הקורס";
       const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
-      const scheduleImgUrl = String(schedBtn?.schedule_cta_image_url ?? "").trim();
+      const scheduleImgUrl =
+        String(schedBtn?.schedule_cta_image_url ?? "").trim() || String(knowledge.scheduleScanImageUrl ?? "").trim();
       const scheduleLink = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
       const canSendScheduleImage =
-        Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") === "image") &&
         scheduleImgUrl.length > 0 &&
         !blockMedia;
 
