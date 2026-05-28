@@ -2842,6 +2842,43 @@ async function processIncoming(
     }
   }
 
+  // Global escape hatch: "בחירת אימון אחר" should always route back to service selection menu,
+  // even if session_phase drifted and would otherwise fall into the open-ended AI path.
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
+    const label = SCHEDULE_PICK_CHANGE_SERVICE_LABEL;
+    const incomingResolved =
+      msg.metaInteractiveReplyId?.trim()
+        ? resolveMetaInteractiveLabel(msg.metaInteractiveReplyId, msg.text, [label])
+        : msg.text.trim();
+    if (waLabelMatches(incomingResolved, label)) {
+      const phoneVariants = contactPhoneLookupVariants(msg.from);
+      await supabase
+        .from("contacts")
+        .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+        .eq("business_id", businessId)
+        .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+      contactScheduleRequestedDate = "";
+      contactScheduleRequestedTime = "";
+      contactSessionPhase = "opening";
+      contactFlowStep = 0;
+
+      const cfg = knowledge.salesFlowConfig;
+      const serviceLabels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
+      const q = String(cfg?.multi_service_question ?? "").trim() || "איזה אימון הכי קורץ לך?";
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, serviceLabels, accountSid, authToken, {
+        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      }).catch((e) => console.error("[WA Webhook] change service (global): send opening menu failed:", e));
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: formatInteractiveConversationLog(q, serviceLabels),
+        model_used: "flow_continuation_opening_service_pick",
+        session_id: sessionId,
+      });
+      return;
+    }
+  }
+
   // 1.5) Sales flow: בחירת יום ושעה לפני CTA כשאין הרשמה ישירה מהמערכת
   if (
     msg.type === "text" &&
