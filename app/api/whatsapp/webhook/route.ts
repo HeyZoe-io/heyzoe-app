@@ -3000,7 +3000,7 @@ async function processIncoming(
           model_used: "sales_flow_after_schedule_selection",
           session_id: sessionId,
         });
-        await sleepMs(450);
+        await sleepMs(900);
         await sendSalesFlowCtaMenuWithPhaseUpdate({
           knowledge,
           msg,
