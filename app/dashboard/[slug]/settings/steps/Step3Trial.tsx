@@ -752,7 +752,7 @@ export default function Step3Trial(props: {
             {scheduleDirectRegistration === false ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
                 <div className="flex items-center justify-between gap-2">
-                  <SalesPathFieldLabel hint="יישום כפתורי ווטסאפ יגיע בשלב הבא">מועדי לוח (שבועי)</SalesPathFieldLabel>
+                  <SalesPathFieldLabel>מועדי לוח (שבועי)</SalesPathFieldLabel>
                   <Button
                     type="button"
                     variant="outline"
