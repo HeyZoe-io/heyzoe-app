@@ -307,25 +307,51 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
+  const nowIso = new Date().toISOString();
   const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: contacts, error } = await admin
+  let contacts: any[] | null = null;
+  const { data: contactsData, error } = await admin
     .from("contacts")
     .select(
-      "id, phone, business_id, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
+      "id, phone, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
     )
     .eq("source", "whatsapp")
     .or("opted_out.eq.false,opted_out.is.null")
     .or("trial_registered.eq.false,trial_registered.is.null")
-    .lt("last_contact_at", cutoff20mIso)
-    .gte("last_contact_at", cutoff24hIso)
     .lt("wa_followup_stage", 3)
+    .not("wa_next_followup_at", "is", null)
+    .lte("wa_next_followup_at", nowIso)
+    .gte("wa_next_followup_at", cutoff24hIso)
     .limit(BATCH);
+  contacts = (contactsData as any[] | null) ?? null;
 
   if (error) {
-    console.error("[cron/wa-followups] contacts query:", error);
-    return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    const msg = String(error.message ?? "");
+    // Back-compat: if due-at columns are not deployed yet, fall back to last_contact_at window.
+    if (/wa_next_followup_at|column/i.test(msg)) {
+      const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
+      const { data: legacy, error: legacyErr } = await admin
+        .from("contacts")
+        .select(
+          "id, phone, business_id, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
+        )
+        .eq("source", "whatsapp")
+        .or("opted_out.eq.false,opted_out.is.null")
+        .or("trial_registered.eq.false,trial_registered.is.null")
+        .lt("last_contact_at", cutoff20mIso)
+        .gte("last_contact_at", cutoff24hIso)
+        .lt("wa_followup_stage", 3)
+        .limit(BATCH);
+      if (legacyErr) {
+        console.error("[cron/wa-followups] contacts query (legacy):", legacyErr);
+        return NextResponse.json({ error: "query_failed" }, { status: 500 });
+      }
+      contacts = (legacy as any[] | null) ?? null;
+    } else {
+      console.error("[cron/wa-followups] contacts query:", error);
+      return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    }
   }
 
   let examined = 0;
