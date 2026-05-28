@@ -161,7 +161,6 @@ export async function GET(req: NextRequest) {
   const { data: channelRows, error: channelErr } = await admin
     .from("whatsapp_channels")
     .select("business_id")
-    .eq("is_active", true)
     .limit(BATCH);
   if (channelErr) {
     console.error("[cron/daily-no-response-email] whatsapp_channels query:", channelErr);
