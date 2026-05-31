@@ -68,3 +68,12 @@ create index if not exists idx_contacts_wa_no_response_due
     and (opted_out is distinct from true)
     and (trial_registered is distinct from true);
 
+-- Backfill: שורות קיימות לפני הטריגר — מפעיל חישוב מחדש של wa_next_followup_at / wa_no_response_due_at
+update public.contacts
+set
+  last_contact_at = last_contact_at,
+  wa_followup_stage = coalesce(wa_followup_stage, 0)
+where source = 'whatsapp'
+  and last_contact_at is not null
+  and (wa_next_followup_at is null or wa_no_response_due_at is null);
+
