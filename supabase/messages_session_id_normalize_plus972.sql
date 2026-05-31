@@ -1,5 +1,5 @@
 -- חד-פעמי: נרמול session_id של WhatsApp מ-+972 ל-972 (בלי +)
--- טבלאות: messages, conversations, paused_sessions, conversions
+-- טבלאות: messages, conversations, paused_sessions
 -- פורmat ישן: wa_{phone_number_id}_+972585300108
 -- פורmat קנוני: wa_{phone_number_id}_972585300108
 --
@@ -18,10 +18,6 @@ where session_id ~ '^wa_[^_]+_\+972'
 union all
 select 'paused_sessions', count(*)
 from public.paused_sessions
-where session_id ~ '^wa_[^_]+_\+972'
-union all
-select 'conversions', count(*)
-from public.conversions
 where session_id ~ '^wa_[^_]+_\+972';
 
 -- דוגמאות לפני/אחרי (עד 10 מכל טבלה)
@@ -40,12 +36,6 @@ limit 10;
 select 'paused_sessions' as tbl, session_id as before,
   regexp_replace(session_id, '^(wa_[^_]+)_\+(972.+)$', '\1_\2') as after
 from public.paused_sessions
-where session_id ~ '^wa_[^_]+_\+972'
-limit 10;
-
-select 'conversions' as tbl, session_id as before,
-  regexp_replace(session_id, '^(wa_[^_]+)_\+(972.+)$', '\1_\2') as after
-from public.conversions
 where session_id ~ '^wa_[^_]+_\+972'
 limit 10;
 
@@ -73,10 +63,6 @@ set session_id = regexp_replace(session_id, '^(wa_[^_]+)_\+(972.+)$', '\1_\2')
 where session_id ~ '^wa_[^_]+_\+972';
 
 update public.paused_sessions
-set session_id = regexp_replace(session_id, '^(wa_[^_]+)_\+(972.+)$', '\1_\2')
-where session_id ~ '^wa_[^_]+_\+972';
-
-update public.conversions
 set session_id = regexp_replace(session_id, '^(wa_[^_]+)_\+(972.+)$', '\1_\2')
 where session_id ~ '^wa_[^_]+_\+972';
 
@@ -109,8 +95,4 @@ where session_id ~ '^wa_[^_]+_\+972'
 union all
 select 'paused_sessions', count(*)
 from public.paused_sessions
-where session_id ~ '^wa_[^_]+_\+972'
-union all
-select 'conversions', count(*)
-from public.conversions
 where session_id ~ '^wa_[^_]+_\+972';
