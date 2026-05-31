@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { HEBREW_DAY_OPTIONS, createEmptyProductScheduleSlot } from "@/lib/product-schedule-slots";
 import { StepPanel } from "../settings-ui";
 import {
@@ -18,6 +19,20 @@ import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
 import { type OfferKind } from "@/lib/sales-flow";
 
 const PRODUCT_INPUT = SALES_PATH_INPUT;
+
+const SCHEDULE_SLOT_CONTROL =
+  "h-8 rounded-lg border border-zinc-200/90 bg-white px-2 text-xs text-zinc-800 shadow-none outline-none transition-colors hover:border-zinc-300 focus:border-[#7133da]/35 focus:ring-1 focus:ring-[#7133da]/25";
+
+const OFFER_KIND_OPTIONS = [
+  { k: "trial" as const, label: "אימון ניסיון" },
+  { k: "workshop" as const, label: "סדנה" },
+  { k: "course" as const, label: "קורס" },
+] as const;
+
+function productCardTitle(index: number, name: string): string {
+  const trimmed = name.trim();
+  return trimmed ? `מוצר ${index + 1} - ${trimmed}` : `מוצר ${index + 1}`;
+}
 
 function rtlCheckboxLabelRowClassName(fullWidth = true) {
   return [
@@ -305,6 +320,11 @@ export default function Step3Trial(props: {
 
   const productsFilled = services.some((s) => s.name.trim());
   const namedServices = useMemo(() => services.filter((s) => s.name.trim()), [services]);
+  const [openProducts, setOpenProducts] = useState<Record<string, boolean>>({});
+
+  const toggleProductOpen = (uiId: string) => {
+    setOpenProducts((prev) => ({ ...prev, [uiId]: !prev[uiId] }));
+  };
 
   const runScheduleSlotsExtract = async () => {
     const url = scheduleUrl.trim();
@@ -459,23 +479,52 @@ export default function Step3Trial(props: {
         </div>
         </SalesPathSectionBlock>
 
-        <SalesPathSectionBlock
-          stepPrefix="products"
-          id="products"
-          title="רשימת מוצרים"
-          hint={`${services.length} פריטים`}
-          open={openSections.products}
-          onToggle={() => toggle("products")}
-          filled={productsFilled}
+        <section
+          id="products-section-products"
+          className="scroll-mt-24 overflow-hidden rounded-xl border border-zinc-200/70 bg-white"
         >
-        {services.map((s, i) => (
+          <div className="flex items-center gap-2 px-4 py-3.5 text-right" dir="rtl">
+            <span
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                productsFilled ? "bg-[#7133da]" : "bg-zinc-200"
+              )}
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold tracking-[-0.01em] text-zinc-900">רשימת מוצרים</h3>
+              <p className="mt-0.5 text-xs text-zinc-500">{services.length} פריטים</p>
+            </div>
+          </div>
+          <div className="space-y-3 border-t border-zinc-100 px-4 pb-4 pt-3">
+            <div className="space-y-2">
+        {services.map((s, i) => {
+          const productOpen = Boolean(openProducts[s.ui_id]);
+          return (
           <article
             key={s.ui_id}
             onDragOver={(e) => onDragOver(e, i)}
             className="overflow-hidden rounded-xl border border-zinc-200/80 bg-white transition-colors hover:border-[#7133da]/25"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50/60 px-3 py-2.5" dir="rtl">
-              <div className="flex min-w-0 items-center gap-2">
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 bg-zinc-50/60 px-2 py-2 sm:px-3 sm:py-2.5"
+              dir="rtl"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleProductOpen(s.ui_id)}
+                  className="inline-flex shrink-0 items-center justify-center rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+                  aria-expanded={productOpen}
+                  aria-label={productOpen ? "סגור פרטי מוצר" : "פתח פרטי מוצר"}
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform duration-200",
+                      productOpen && "rotate-180"
+                    )}
+                  />
+                </button>
                 <span
                   draggable
                   onDragStart={(e) => {
@@ -492,16 +541,16 @@ export default function Step3Trial(props: {
                 >
                   <GripVertical className="h-4 w-4 pointer-events-none" />
                 </span>
-                <span className="text-xs font-medium text-zinc-500">מוצר {i + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleProductOpen(s.ui_id)}
+                  className="min-w-0 flex-1 truncate text-right text-sm font-semibold text-zinc-900 hover:text-[#2d1a6e]"
+                >
+                  {productCardTitle(i, s.name)}
+                </button>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                {(
-                  [
-                    { k: "trial" as const, label: "אימון ניסיון" },
-                    { k: "workshop" as const, label: "סדנה" },
-                    { k: "course" as const, label: "קורס" },
-                  ] as const
-                ).map(({ k, label }) => (
+                {OFFER_KIND_OPTIONS.map(({ k, label }) => (
                   <button
                     key={k}
                     type="button"
@@ -522,7 +571,14 @@ export default function Step3Trial(props: {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setServices((sv) => sv.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    setOpenProducts((prev) => {
+                      const next = { ...prev };
+                      delete next[s.ui_id];
+                      return next;
+                    });
+                    setServices((sv) => sv.filter((_, j) => j !== i));
+                  }}
                   className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
                   aria-label="הסר אימון"
                 >
@@ -531,7 +587,8 @@ export default function Step3Trial(props: {
               </div>
             </div>
 
-            <div className="space-y-4 p-4">
+            {productOpen ? (
+            <div className="space-y-4 border-t border-zinc-100 p-4">
               <div>
                 <SalesPathFieldLabel hint={`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}>שם האימון</SalesPathFieldLabel>
                 <Input
@@ -704,33 +761,12 @@ export default function Step3Trial(props: {
 
             {scheduleDirectRegistration === false ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
-                <div className="flex items-center justify-between gap-2">
-                  <SalesPathFieldLabel>מועדי לוח (שבועי)</SalesPathFieldLabel>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 gap-1 border-dashed bg-white/70 px-3 text-xs"
-                    onClick={() => {
-                      const arr = [...services];
-                      arr[i] = {
-                        ...s,
-                        schedule_slots: sortScheduleSlots([
-                          ...(s.schedule_slots ?? []),
-                          createEmptyProductScheduleSlot(uid),
-                        ]),
-                      };
-                      setServices(arr);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    הוסף מועד
-                  </Button>
-                </div>
+                <SalesPathFieldLabel>מועדי לוח (שבועי)</SalesPathFieldLabel>
                 <p className="text-[11px] text-zinc-500 leading-snug">
                   לכל הופעה של המוצר בלוח — שורה נפרדת (ראשון–שבת + שעה בפורמט 24 שעות).
                 </p>
                 <div
-                  className="space-y-2"
+                  className="grid grid-cols-1 gap-2 sm:grid-cols-2"
                   onBlurCapture={(e) => {
                     const next = e.relatedTarget as Node | null;
                     if (next && e.currentTarget.contains(next)) return;
@@ -743,13 +779,14 @@ export default function Step3Trial(props: {
                   {(s.schedule_slots ?? []).map((slot, si) => (
                     <div
                       key={slot.id}
-                      className="flex flex-wrap items-end gap-2 border-t border-zinc-200/60 pt-2 first:border-t-0 first:pt-0 flex-row-reverse"
+                      className="flex items-center gap-2 rounded-lg border border-zinc-200/70 bg-white/90 p-2"
+                      dir="rtl"
                     >
-                      <div className="min-w-[180px] flex-1 space-y-1 text-right">
-                        <span className="text-[11px] font-medium text-zinc-500">יום</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="shrink-0 text-[11px] font-medium text-zinc-500">יום</span>
                         <select
                           dir="rtl"
-                          className={PRODUCT_INPUT}
+                          className={`${SCHEDULE_SLOT_CONTROL} min-w-0 flex-1`}
                           value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : ""}
                           onChange={(e) => {
                             const arr = [...services];
@@ -767,11 +804,11 @@ export default function Step3Trial(props: {
                           ))}
                         </select>
                       </div>
-                      <div className="w-[112px] space-y-1 text-right">
+                      <div className="flex shrink-0 items-center gap-1.5">
                         <span className="text-[11px] font-medium text-zinc-500">שעה</span>
                         <Input
                           dir="ltr"
-                          className={`${PRODUCT_INPUT} font-mono text-sm text-left`}
+                          className={`${SCHEDULE_SLOT_CONTROL} w-[4.25rem] font-mono text-left`}
                           placeholder="00:00"
                           inputMode="numeric"
                           maxLength={5}
@@ -781,16 +818,13 @@ export default function Step3Trial(props: {
                             const prev = String(slot.time ?? "");
                             let next = String(e.target.value ?? "");
 
-                            // Keep only digits and ":" (supports paste like 1015 → 10:15)
                             next = next.replace(/[^\d:]/g, "");
                             const digits = next.replace(/:/g, "");
                             const hasColon = next.includes(":");
 
-                            // If user pasted 3-4 digits, normalize to HH:MM as much as possible.
                             if (!hasColon && digits.length >= 3) {
                               next = `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
                             } else if (!hasColon && digits.length === 2) {
-                              // Typing "10" → "10:" and move caret to minutes.
                               next = `${digits}:`;
                             } else if (hasColon) {
                               const [hRaw, mRaw = ""] = next.split(":");
@@ -807,7 +841,6 @@ export default function Step3Trial(props: {
                             arr[i] = { ...arr[i]!, schedule_slots: slots };
                             setServices(arr);
 
-                            // If we just auto-inserted ":" after HH, move caret to minutes.
                             if (next.endsWith(":") && prev.replace(/[^\d]/g, "").length === 1) {
                               requestAnimationFrame(() => {
                                 try {
@@ -822,7 +855,7 @@ export default function Step3Trial(props: {
                       </div>
                       <button
                         type="button"
-                        className="mb-0.5 shrink-0 rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                        className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
                         aria-label="מחק מועד"
                         onClick={() => {
                           const arr = [...services];
@@ -831,11 +864,30 @@ export default function Step3Trial(props: {
                           setServices(arr);
                         }}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   ))}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 w-full gap-1 border-dashed bg-white/70 text-xs"
+                  onClick={() => {
+                    const arr = [...services];
+                    arr[i] = {
+                      ...s,
+                      schedule_slots: sortScheduleSlots([
+                        ...(s.schedule_slots ?? []),
+                        createEmptyProductScheduleSlot(uid),
+                      ]),
+                    };
+                    setServices(arr);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  הוסף מועד
+                </Button>
               </div>
             ) : null}
 
@@ -851,41 +903,46 @@ export default function Step3Trial(props: {
               setServices={setServices}
             />
             </div>
+            ) : null}
           </article>
-        ))}
+          );
+        })}
+            </div>
 
-        <Button
-          variant="outline"
-          onClick={() =>
-            setServices((sv) => [
-              ...sv,
-              {
-                ui_id: uid(),
-                name: "",
-                price_text: "",
-                duration: "",
-                payment_link: "",
-                service_slug: "",
-                location_text: address,
-                description: "",
-                levels_enabled: false,
-                levels: [],
-                offer_kind: "trial",
-                course_start_date: "",
-                course_end_date: "",
-                course_sessions_count: "",
-                benefit_line: "",
-                trial_pick_media_url: "",
-                trial_pick_media_type: "",
-                schedule_slots: [],
-              },
-            ])
-          }
-          className="w-full gap-2"
-        >
-          <Plus className="h-4 w-4" /> הוסף אימון
-        </Button>
-        </SalesPathSectionBlock>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const newUiId = uid();
+                setServices((sv) => [
+                  ...sv,
+                  {
+                    ui_id: newUiId,
+                    name: "",
+                    price_text: "",
+                    duration: "",
+                    payment_link: "",
+                    service_slug: "",
+                    location_text: address,
+                    description: "",
+                    levels_enabled: false,
+                    levels: [],
+                    offer_kind: "trial",
+                    course_start_date: "",
+                    course_end_date: "",
+                    course_sessions_count: "",
+                    benefit_line: "",
+                    trial_pick_media_url: "",
+                    trial_pick_media_type: "",
+                    schedule_slots: [],
+                  },
+                ]);
+              }}
+              className="w-full gap-2"
+            >
+              <Plus className="h-4 w-4" /> הוסף אימון
+            </Button>
+          </div>
+        </section>
       </SalesPathStepShell>
     </StepPanel>
   );
