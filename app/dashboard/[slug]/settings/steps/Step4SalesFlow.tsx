@@ -28,6 +28,7 @@ import {
   type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
+  formatMultiServiceQuestionForPreview,
 } from "@/lib/sales-flow";
 
 type ServiceItem = {
@@ -594,6 +595,18 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <div className="space-y-3">
             {trialServiceNames.length > 1 ? (
               <>
+                <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                  <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
+                  <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                    {formatMultiServiceQuestionForPreview(salesFlowConfig.multi_service_question, {
+                      hasImage: scheduleHasImageForPreview,
+                      scheduleLink: scheduleLinkForPreview,
+                    })}
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                    כשיש תמונת מערכת שעות — נשלחת לפני השאלה; «(תמונה)» מוחלף בקישור רק כשאין תמונה.
+                  </p>
+                </div>
                 <Field label="בחירת מוצר" className="space-y-1">
                   <Textarea
                     value={salesFlowConfig.multi_service_question}
@@ -988,12 +1001,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
                 <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
                 <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                  {[
-                    scheduleHasImageForPreview
-                      ? "כאן ניתן לראות את מערכת השעות שלנו: (תמונה)"
-                      : `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLinkForPreview || "[schedule_link]"}`,
-                    "מתי נוח לך להגיע ל[שם האימון]?",
-                  ].join("\n")}
+                  מתי נוח לך להגיע ל[שם האימון]?
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
                   המועדים נשלחים ככפתורים לפי מה שהוזן בטאב «מוצרים» (למשל: «יום שני ב19:00»).
