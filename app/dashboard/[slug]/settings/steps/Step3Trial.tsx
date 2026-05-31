@@ -15,10 +15,7 @@ import {
   useSalesPathSections,
 } from "./sales-path-shell";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
-import { normalizeMasculinePredicatesAfterPracticeHead, type OfferKind } from "@/lib/sales-flow";
-
-/** מפתח busyAction לג׳ינרט benefit_line מטאב אימון ניסיון */
-const TRIAL_BENEFIT_BUSY_PREFIX = "trialBenefit:";
+import { type OfferKind } from "@/lib/sales-flow";
 
 const PRODUCT_INPUT = SALES_PATH_INPUT;
 
@@ -247,8 +244,6 @@ export default function Step3Trial(props: {
   services: ServiceItem[];
   setServices: React.Dispatch<React.SetStateAction<ServiceItem[]>>;
   fetchSite: (nextStepAfterScan?: number) => Promise<void>;
-  deriveBenefitLineFromDescription: (serviceName: string, description: string) => string;
-  isLegacyGeneratedServiceReply: (value: string, serviceName: string) => boolean;
   onDragOver: (e: React.DragEvent, index: number) => void;
   onDragStart: (index: number) => void;
   onDragEnd: () => void;
@@ -263,8 +258,6 @@ export default function Step3Trial(props: {
   videoUrlForPreview: (url: string) => string;
   busyAction: string | null;
   runBusy: (key: string, fn: () => void | Promise<void>) => void;
-  /** לאחר עדכון תיאור מוצר — debounce לעדכון שורת תועלת בלבד (לא דורס טאב מכירה) */
-  scheduleAutoRegenSalesFromTrialDescription?: () => void;
   /** כבוי = מערכת שעות לא־אינטראקטיבית — מציג מועדי לוח למוצר */
   scheduleDirectRegistration: boolean;
   /** לינק מערכת השעות (טאב לינקים) */
@@ -277,8 +270,6 @@ export default function Step3Trial(props: {
     services,
     setServices,
     fetchSite,
-    deriveBenefitLineFromDescription,
-    isLegacyGeneratedServiceReply,
     onDragOver,
     onDragStart,
     onDragEnd,
@@ -293,21 +284,12 @@ export default function Step3Trial(props: {
     videoUrlForPreview,
     busyAction,
     runBusy,
-    scheduleAutoRegenSalesFromTrialDescription,
     scheduleDirectRegistration,
     scheduleUrl,
   } = props;
 
   const [scheduleExtractBusy, setScheduleExtractBusy] = useState(false);
   const [scheduleExtractError, setScheduleExtractError] = useState("");
-
-  const activeTrialBenefitUiId = useMemo(() => {
-    if (typeof busyAction !== "string" || !busyAction.startsWith(TRIAL_BENEFIT_BUSY_PREFIX)) return null;
-    const id = busyAction.slice(TRIAL_BENEFIT_BUSY_PREFIX.length);
-    return id.trim() ? id : null;
-  }, [busyAction]);
-
-  const isTrialBenefitGenerating = activeTrialBenefitUiId !== null;
 
   type ProductsSectionId = "scan" | "products";
   const PRODUCT_SECTIONS = [
@@ -700,60 +682,19 @@ export default function Step3Trial(props: {
             </div>
 
             <div>
-              <SalesPathFieldLabel
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 gap-1 px-2.5 text-xs"
-                    disabled={isTrialBenefitGenerating}
-                    onClick={() => {
-                      runBusy(`${TRIAL_BENEFIT_BUSY_PREFIX}${s.ui_id}`, () => {
-                        setServices((prev) =>
-                          prev.map((row) => {
-                            if (row.ui_id !== s.ui_id) return row;
-                            const description = normalizeMasculinePredicatesAfterPracticeHead(
-                              String(row.description ?? "")
-                            );
-                            return {
-                              ...row,
-                              description,
-                              benefit_line: deriveBenefitLineFromDescription(String(row.name ?? ""), description),
-                            };
-                          })
-                        );
-                      });
-                    }}
-                  >
-                    {activeTrialBenefitUiId === s.ui_id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    ) : (
-                      <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                    )}
-                    {activeTrialBenefitUiId === s.ui_id ? "מג׳נרט..." : "ג׳נרט"}
-                  </Button>
-                }
-              >
-                תיאור
-              </SalesPathFieldLabel>
+              <SalesPathFieldLabel>תיאור</SalesPathFieldLabel>
               <textarea
                 dir="rtl"
                 value={s.description}
                 onChange={(e) => {
                   const nextDesc = e.target.value;
                   const arr = [...services];
-                  const prevBenefit = String(s.benefit_line ?? "");
-                  const shouldAuto =
-                    !prevBenefit.trim() || isLegacyGeneratedServiceReply(prevBenefit, String(s.name ?? ""));
                   arr[i] = {
                     ...s,
                     description: nextDesc,
-                    ...(shouldAuto
-                      ? { benefit_line: deriveBenefitLineFromDescription(String(s.name ?? ""), nextDesc) }
-                      : null),
+                    benefit_line: nextDesc,
                   };
                   setServices(arr);
-                  scheduleAutoRegenSalesFromTrialDescription?.();
                 }}
                 placeholder="תיאור קצר על האימון (ייסרק מהאתר אם קיים)"
                 rows={4}

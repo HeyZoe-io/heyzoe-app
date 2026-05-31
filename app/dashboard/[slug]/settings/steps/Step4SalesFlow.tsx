@@ -28,7 +28,6 @@ import {
   type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
-  formatMultiServiceQuestionForPreview,
 } from "@/lib/sales-flow";
 
 type ServiceItem = {
@@ -77,9 +76,6 @@ type Step4SalesFlowProps = {
   salesFlowConfig: SalesFlowConfig;
   setSalesFlowConfig: Dispatch<SetStateAction<SalesFlowConfig>>;
   scheduleDirectRegistration?: boolean;
-  arboxLink?: string;
-  schedulePublicUrl?: string;
-  scheduleScanImageUrl?: string;
   warmupSessionEnabled?: boolean;
   setWarmupSessionEnabled: (v: boolean) => void;
   salesOpeningAutoText: string;
@@ -255,9 +251,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     salesFlowConfig,
     setSalesFlowConfig,
     scheduleDirectRegistration = true,
-    arboxLink = "",
-    schedulePublicUrl = "",
-    scheduleScanImageUrl = "",
     warmupSessionEnabled = true,
     setWarmupSessionEnabled,
     salesOpeningAutoText,
@@ -331,8 +324,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   const showScheduleSelectionSession = scheduleDirectRegistration === false;
-  const scheduleLinkForPreview = String(schedulePublicUrl || arboxLink || "").trim();
-  const scheduleHasImageForPreview = String(scheduleScanImageUrl ?? "").trim().length > 0;
   const trialCtaButtonsForUi = useMemo(
     () =>
       showScheduleSelectionSession
@@ -595,25 +586,16 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <div className="space-y-3">
             {trialServiceNames.length > 1 ? (
               <>
-                <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                  <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
-                  <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                    {formatMultiServiceQuestionForPreview(salesFlowConfig.multi_service_question, {
-                      hasImage: scheduleHasImageForPreview,
-                      scheduleLink: scheduleLinkForPreview,
-                    })}
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                    כשיש תמונת מערכת שעות — נשלחת לפני השאלה; «(תמונה)» מוחלף בקישור רק כשאין תמונה.
-                  </p>
-                </div>
-                <Field label="בחירת מוצר" className="space-y-1">
+                <Field label="שאלה + כפתורי בחירה" className="space-y-1">
                   <Textarea
                     value={salesFlowConfig.multi_service_question}
                     onChange={(v) => setSalesFlowConfig((c) => ({ ...c, multi_service_question: v }))}
                     rows={4}
                     placeholder="למשל: איזה אימון הכי מדבר אליך?"
                   />
+                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                    כשיש תמונת מערכת שעות — נשלחת לפני השאלה; «(תמונה)» מוחלף בקישור רק כשאין תמונה.
+                  </p>
                 </Field>
                 <div className="space-y-3">
                   {services.map((s: ServiceItem, i: number) =>
@@ -631,7 +613,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                               arr[i] = { ...s, benefit_line: v };
                               setServices(arr);
                             }}
-                            placeholder="למשל: וואו! שיעורי עמידות ידיים הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
+                            placeholder="טקסט התשובה שיישלח אחרי בחירת המוצר (מסונכרן מהתיאור)"
                           />
                         </Field>
                       </div>
@@ -660,7 +642,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                             arr[firstNamedIndex] = { ...s, benefit_line: v };
                             setServices(arr);
                           }}
-                          placeholder="למשל: מדהים! שיעורי עמידות ידיים הם דרך מעולה לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות."
+                          placeholder="טקסט התשובה שיישלח אחרי בחירת המוצר (מסונכרן מהתיאור)"
                         />
                       </Field>
                     </div>

@@ -1715,17 +1715,11 @@ export function trialServicePhraseForAfterPick(serviceName: string): string {
   return buildServicePickSubjectFragment(serviceName);
 }
 
-/**
- * טקסט ללקוח אחרי בחירת סוג אימון.
- * benefit_line מהדשבורד הוא בדרך כלל משפט מלא (פתיחה + נושא + הם/היא + זנב).
- * תאימות לנתונים ישנים שבהם נשמר רק הזנב — עוטפים עם composeAfterServicePickReply.
- */
-export function fillAfterServicePickTemplate(_template: string, serviceName: string, benefitLine: string): string {
+/** טקסט ללקוח אחרי בחירת סוג אימון — benefit_line כפי שנכתב (תיאור המוצר / עריכה בטאב מכירה). */
+export function fillAfterServicePickTemplate(_template: string, _serviceName: string, benefitLine: string): string {
   void _template;
-  const trimmed = benefitLine.trim();
-  if (!trimmed) return composeAfterServicePickReply(serviceName, "");
-  if (benefitLineLooksFullyComposed(trimmed)) return trimmed;
-  return composeAfterServicePickReply(serviceName, trimmed);
+  void _serviceName;
+  return benefitLine.trim();
 }
 
 export function fillCtaBodyTemplate(
