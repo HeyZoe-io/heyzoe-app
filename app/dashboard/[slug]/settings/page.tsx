@@ -22,9 +22,6 @@ import {
   type SalesFlowConfig,
   appendTrialPromotionToCtaBody,
   composeGreeting,
-  composeAfterServicePickReply,
-  composeAfterServicePickReplyFromTrialDescription,
-  normalizeMasculinePredicatesAfterPracticeHead,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
   fillCtaBodyTemplate,
@@ -98,8 +95,6 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
-/** אחרי עריכת תיאור מוצר — עדכון שורת תועלת בלבד (debounced), בלי לדרוס הגדרות מסלול מכירה */
-const TRIAL_DESCRIPTION_BENEFIT_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
 
@@ -215,21 +210,6 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
     const meta = parsed.meta;
     const storedBenefit = String(meta.benefit_line ?? "").trim();
     const descriptionDraftSource = parsed.descriptionTextForUi;
-    const legacyBenefits = Array.isArray(meta.benefits)
-      ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
-      : [];
-    const legacySuggestions = Array.isArray(meta.benefit_suggestions)
-      ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
-      : [];
-    const regeneratedBenefit = buildServiceReplyDraft(
-      name,
-      descriptionDraftSource,
-      "",
-      legacyBenefits,
-      legacySuggestions,
-      meta.levels_enabled === true,
-      Array.isArray(meta.levels) ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean) : []
-    );
     return {
       ui_id: uid(),
       name,
@@ -243,10 +223,11 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
       levels: Array.isArray(meta.levels)
         ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
         : [],
-      benefit_line:
-        storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
+      benefit_line: descriptionDraftSource.trim()
+        ? descriptionDraftSource.trim()
+        : storedBenefit && !isLegacyGeneratedServiceReply(storedBenefit, name)
           ? storedBenefit
-          : regeneratedBenefit,
+          : "",
       trial_pick_media_url: String(meta.trial_pick_media_url ?? "").trim(),
       trial_pick_media_type:
         meta.trial_pick_media_type === "video"
@@ -605,26 +586,6 @@ function serviceSlugForPersistence(serviceSlugField: string, name: string, uiId:
   return `trial-${uiId}`;
 }
 
-function normalizeInterestingText(value: string): string {
-  return value
-    .replace(/\s*[•·]\s*/g, ", ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^[,.\-–—\s]+/, "")
-    .replace(/[,.\-–—\s]+$/, "");
-}
-
-function hasMeaningfulTextOverlap(a: string, b: string): boolean {
-  const tokenize = (value: string) =>
-    value
-      .toLowerCase()
-      .split(/[^a-zA-Z\u0590-\u05FF]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 4);
-  const left = new Set(tokenize(a));
-  return tokenize(b).some((token) => left.has(token));
-}
-
 /** מפתחות המזהים את אובייקט ה־JSON השמור בשדה description ב־API (לא טקסט חופשי) */
 const SERVICE_META_JSON_HINT_KEYS = new Set([
   "benefit_line",
@@ -687,79 +648,11 @@ function serviceReplyPhrase(serviceName: string): string {
   return trialServicePhraseForAfterPick(trimmed);
 }
 
-/**
- * משפט ווטסאפ מלא אחרי בחירת אימון — מתוך תיאור מטאב אימון ניסיון בלבד,
- * ללא עריכת התיאור (זיהוי כפילות מול השם בשלושים–ארבע המילים הראשונות בלבד).
- */
-function deriveBenefitLineFromDescription(serviceName: string, description: string): string {
-  return composeAfterServicePickReplyFromTrialDescription(
-    String(serviceName ?? ""),
-    String(description ?? "")
-  );
-}
-
-function resolveServiceReplyFocus(serviceName: string): string {
-  const name = serviceName.trim().toLowerCase();
-  if (/אקרו/.test(name)) {
-    return "להתחזק, להתגמש, לכבוש אתגרים חדשים ולהכיר קהילה מדהימה";
-  }
-  if (/עמיד(?:ת|ו) יד(?:יים|ים)|handstand/.test(name)) {
-    return "לבנות טכניקה נכונה, לחזק את הגוף ולהתקדם בהדרגה עד לעמידות ידיים יציבות ועצמאיות";
-  }
-  if (/יוגה/.test(name)) {
-    return "לאזן בין הגוף לנפש, לשפר גמישות, לחזק את הגוף ולפנות זמן איכות לעצמכם";
-  }
-  if (/פילאטיס/.test(name)) {
-    return "לחזק את מרכז הגוף, לשפר יציבה ולעבוד בדיוק, שליטה והארכה של הגוף";
-  }
-  if (/trx/.test(name)) {
-    return "לחזק את כל הגוף, לשפר סיבולת ולעבוד ביציבות, שליטה וקצב נכון";
-  }
-  if (/כושר|פונקציונלי|strength|fit/.test(name)) {
-    return "להתחזק, לשפר סיבולת לב ריאה ולהרגיש שהגוף עובד בצורה מדויקת וחכמה";
-  }
-  if (/ריקוד|dance/.test(name)) {
-    return "להשתחרר, ליהנות, לשפר קואורדינציה ולהרגיש יותר בטוחים בתנועה";
-  }
-  return "להתחזק, לשפר יכולות פיזיות ולהתקדם בקצב נכון ונעים";
-}
-
-function extractServiceReplyHighlights(
-  serviceName: string,
-  rawDescription: string,
-  flowFeatures: string,
-  benefits: string[],
-  suggestions: string[]
-): string[] {
-  const serviceTokens = serviceName
-    .toLowerCase()
-    .split(/[^a-zA-Z\u0590-\u05FF]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
-  const interesting = /(טכנ|חיזוק|גמיש|איזו|באלאנס|בלנס|שליט|יציב|קואורד|תקשורת|סיבולת|נשימ|שחרור|פאן|ביטחו|מודעות|כוח|ליבה|כתפ|עמיד|ידיים|תנועה|זרימ|דיוק|ניידות|גוף|נפש)/u;
-  const noise = /(לכל הרמות|בסטודיו|סטודיו מקצועי|מקצועי|מקצועית|ביטוח|שיעורים שבועיים|שיעור שבועי|קבוצות? קטנות?|קבוצה|בוקר|ערב|כתובת|הרשמה|תשלום|לינק)/u;
-  const candidates = [rawDescription, flowFeatures, ...benefits, ...suggestions]
-    .map(normalizeInterestingText)
-    .filter(Boolean);
-  const parts = candidates.flatMap((value) =>
-    value
-      .split(/[,.]| ו(?=חיזוק|שיפור|למידה|עבודה|פיתוח|גמישות|איזון|שליטה|תקשורת|יציבה|נשימה|סיבולת|כוח|טכניקה)/u)
-      .map((part) => normalizeInterestingText(part))
-      .filter(Boolean)
-  );
-  return parts.filter((part, index) => {
-    const lower = part.toLowerCase();
-    if (!interesting.test(part) || noise.test(part)) return false;
-    if (serviceTokens.some((token) => lower === token || lower === `שיעורי ${token}`)) return false;
-    return parts.findIndex((candidate) => candidate.toLowerCase() === lower) === index;
-  });
-}
-
 function isLegacyGeneratedServiceReply(value: string, serviceName: string): boolean {
   const trimmed = value.trim();
   const phrase = serviceReplyPhrase(serviceName);
   return (
-    /^(איזה כיף|אוקיי מדהים|כיף גדול|מהמם|כיף לשמוע)!/.test(trimmed) &&
+    /^(איזה כיף|אוקיי מדהים|כיף גדול|מהמם|כיף לשמוע|וואו|מדהים|מצוין|סופר)!/.test(trimmed) &&
     (trimmed.includes(`${phrase} מתמקדים ב`) ||
       trimmed.includes(`${phrase} שלנו מתמקדים ב`) ||
       trimmed.includes(`${phrase} אצלנו עובדים על בניית טכניקה נכונה`) ||
@@ -767,28 +660,8 @@ function isLegacyGeneratedServiceReply(value: string, serviceName: string): bool
   );
 }
 
-function buildServiceReplyDraft(
-  serviceName: string,
-  rawDescription: string,
-  flowFeatures: string,
-  benefits: string[],
-  suggestions: string[],
-  levelsEnabled: boolean,
-  levels: string[]
-): string {
-  void levelsEnabled;
-  void levels;
-  const rawDesc = String(rawDescription ?? "").trim();
-  if (rawDesc) return deriveBenefitLineFromDescription(serviceName, rawDesc);
-
-  const focus = resolveServiceReplyFocus(serviceName);
-  const highlights = extractServiceReplyHighlights(serviceName, rawDescription, flowFeatures, benefits, suggestions);
-  const highlight = highlights.find((item) => !hasMeaningfulTextOverlap(item, focus)) ?? "";
-  const extra = highlight ? ` יש גם דגש על ${highlight}.` : "";
-  const core = `דרך מעולה ${focus}`.trim().replace(/\s+/g, " ");
-  const out = `${core}.${extra}`.trim().replace(/\s+/g, " ");
-  const punct = /[.!?]$/.test(out) ? out : `${out}.`;
-  return composeAfterServicePickReply(serviceName, punct);
+function benefitLineFromProductDescription(description: string): string {
+  return String(description ?? "").trim();
 }
 
 /** מפתח למיזוג סריקה — אחרי קיצור שם וליישור פרפיקסים חוזים (שיעורי/אימון) */
@@ -805,15 +678,8 @@ function trialServiceItemFromSiteProduct(
   rowId: string
 ): ServiceItem {
   const pname = truncateTrialServiceName(String(p.name ?? ""));
-  const benefits = Array.isArray(p.benefits)
-    ? p.benefits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-    : [];
-  const sugg = Array.isArray(p.benefit_suggestions)
-    ? p.benefit_suggestions.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
-    : [];
-  const description = normalizeMasculinePredicatesAfterPracticeHead(String(p.description ?? "").trim());
-  const flowFeatures = typeof p.flow_features === "string" ? p.flow_features.trim() : "";
-  const benefit_line = buildServiceReplyDraft(pname, description, flowFeatures, benefits, sugg, false, []);
+  const description = String(p.description ?? "").trim();
+  const benefit_line = benefitLineFromProductDescription(description);
   return {
     ui_id: rowId,
     name: pname,
@@ -1893,50 +1759,21 @@ export default function SlugSettingsPage({
   }, []);
 
   const buildBenefitLineFromService = useCallback((service: ServiceItem) => {
-    const serviceName = service.name.trim();
-    if (!serviceName) return service;
-    const parsed = parseStoredServiceDescription(service.description);
-    const meta = parsed.meta;
-    const descriptionText = parsed.descriptionTextForUi;
-    const benefits = Array.isArray(meta.benefits)
-      ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
-      : [];
-    const suggestions = Array.isArray(meta.benefit_suggestions)
-      ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
-      : [];
     return {
       ...service,
-      benefit_line: buildServiceReplyDraft(
-        serviceName,
-        descriptionText,
-        "",
-        benefits,
-        suggestions,
-        service.levels_enabled,
-        service.levels
-      ),
+      benefit_line: benefitLineFromProductDescription(service.description),
     };
   }, []);
 
-  /** עדכון אוטומטי של שורת תועלת מתיאור המוצר — לא נוגע בשאלות/תשובות בטאב מכירה */
-  const regenerateServiceBenefitLinesFromDescriptions = useCallback(
-    (mode: "auto" | "all" = "auto") => {
-      setServices((prev) =>
-        prev.map((service) => {
-          const serviceName = service.name.trim();
-          if (!serviceName) return service;
-          if (mode === "auto") {
-            const prevBenefit = String(service.benefit_line ?? "");
-            const shouldAuto =
-              !prevBenefit.trim() || isLegacyGeneratedServiceReply(prevBenefit, serviceName);
-            if (!shouldAuto) return service;
-          }
-          return buildBenefitLineFromService(service);
-        })
-      );
-    },
-    [buildBenefitLineFromService]
-  );
+  /** מסנכרן תשובות בטאב מכירה מתיאור המוצר */
+  const regenerateServiceBenefitLinesFromDescriptions = useCallback(() => {
+    setServices((prev) =>
+      prev.map((service) => {
+        if (!service.name.trim()) return service;
+        return buildBenefitLineFromService(service);
+      })
+    );
+  }, [buildBenefitLineFromService]);
 
   const regenerateSalesFlowSection = useCallback(
     (
@@ -1949,7 +1786,7 @@ export default function SlugSettingsPage({
     ) => {
       const base = defaultSalesFlowConfig(vibe);
       if (section === "service_pick") {
-        regenerateServiceBenefitLinesFromDescriptions("all");
+        regenerateServiceBenefitLinesFromDescriptions();
       }
       setSalesFlowConfig((c) => {
         if (!c) return base;
@@ -2030,26 +1867,6 @@ export default function SlugSettingsPage({
     },
     [regenerateSalesFlowSection, runBusy]
   );
-
-  const trialDescSalesRegenTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    return () => {
-      if (trialDescSalesRegenTimerRef.current) {
-        window.clearTimeout(trialDescSalesRegenTimerRef.current);
-        trialDescSalesRegenTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  const scheduleAutoRegenSalesFromTrialDescription = useCallback(() => {
-    if (trialDescSalesRegenTimerRef.current) {
-      window.clearTimeout(trialDescSalesRegenTimerRef.current);
-    }
-    trialDescSalesRegenTimerRef.current = window.setTimeout(() => {
-      trialDescSalesRegenTimerRef.current = null;
-      regenerateServiceBenefitLinesFromDescriptions("auto");
-    }, TRIAL_DESCRIPTION_BENEFIT_REGEN_DEBOUNCE_MS);
-  }, [regenerateServiceBenefitLinesFromDescriptions]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
@@ -2640,8 +2457,6 @@ export default function SlugSettingsPage({
             services={services}
             setServices={setServices}
             fetchSite={fetchSite}
-            deriveBenefitLineFromDescription={deriveBenefitLineFromDescription}
-            isLegacyGeneratedServiceReply={isLegacyGeneratedServiceReply}
             onDragOver={onDragOver}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
@@ -2656,7 +2471,6 @@ export default function SlugSettingsPage({
             videoUrlForPreview={videoUrlForPreview}
             busyAction={busyAction}
             runBusy={runBusy}
-            scheduleAutoRegenSalesFromTrialDescription={scheduleAutoRegenSalesFromTrialDescription}
             scheduleDirectRegistration={scheduleDirectRegistration}
             scheduleUrl={(scheduleScanImageUrl.trim() || arboxLink).trim()}
           />
@@ -2685,9 +2499,6 @@ export default function SlugSettingsPage({
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}
             scheduleDirectRegistration={scheduleDirectRegistration}
-            arboxLink={arboxLink}
-            schedulePublicUrl={schedulePublicUrl}
-            scheduleScanImageUrl={scheduleScanImageUrl}
             warmupSessionEnabled={warmupSessionEnabled}
             setWarmupSessionEnabled={setWarmupSessionEnabled}
             salesOpeningAutoText={salesOpeningAutoText}
