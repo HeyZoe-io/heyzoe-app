@@ -1567,14 +1567,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 rows={12}
                 placeholder={
                   showScheduleSelectionSession
-                    ? "מתרגשים לראותך בקרוב בתאריך {requested_date} בשעה {requested_time}…"
+                    ? "מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}…"
                     : undefined
                 }
               />
             </Field>
             {showScheduleSelectionSession ? (
               <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
-                בווטסאפ ימולאו אוטומטית התאריך והשעה שהליד בחר בסשן «יום ושעה»
+                בווטסאפ ימולאו אוטומטית שם האימון, התאריך והשעה שהליד בחר בסשן «יום ושעה»
               </p>
             ) : null}
           </div>
