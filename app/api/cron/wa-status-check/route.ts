@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
-import { waSessionPhoneKey } from "@/lib/phone-normalize";
+import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -162,15 +162,15 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const sessionId = `wa_${phoneNumberId}_${waSessionPhoneKey(phone)}`;
-      const { data: lastMsg, error: msgErr } = await admin
+      const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
+      const { data: lastMsgRows, error: msgErr } = await admin
         .from("messages")
         .select("role, created_at")
         .eq("business_slug", businessSlug)
-        .eq("session_id", sessionId)
+        .in("session_id", sessionIds)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      const lastMsg = lastMsgRows?.[0] ?? null;
 
       if (msgErr || !lastMsg) {
         bumpSkip("no_message");

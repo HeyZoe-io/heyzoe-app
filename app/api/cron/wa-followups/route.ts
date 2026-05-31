@@ -6,10 +6,7 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
-import {
-  contactPhoneLookupVariants,
-  waSessionPhoneKey,
-} from "@/lib/phone-normalize";
+import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -120,13 +117,15 @@ function notDueYetDetail(stageCurrent: number, elapsedMs: number): Record<string
 async function fetchLatestRealAssistantMessageAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
-  session_id: string;
+  session_ids: string[];
 }): Promise<{ created_at: string; model_used: string | null } | null> {
+  const sessionIds = input.session_ids.filter(Boolean);
+  if (!sessionIds.length) return null;
   const { data } = await input.admin
     .from("messages")
     .select("created_at, model_used")
     .eq("business_slug", input.business_slug)
-    .eq("session_id", input.session_id)
+    .in("session_id", sessionIds)
     .eq("role", "assistant")
     .order("created_at", { ascending: false })
     .limit(40);
@@ -142,14 +141,16 @@ async function fetchLatestRealAssistantMessageAt(input: {
 async function hasUserReplyAfter(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
-  session_id: string;
+  session_ids: string[];
   afterIso: string;
 }): Promise<boolean> {
+  const sessionIds = input.session_ids.filter(Boolean);
+  if (!sessionIds.length) return false;
   const { data } = await input.admin
     .from("messages")
     .select("id, created_at")
     .eq("business_slug", input.business_slug)
-    .eq("session_id", input.session_id)
+    .in("session_id", sessionIds)
     .eq("role", "user")
     .gt("created_at", input.afterIso)
     .order("created_at", { ascending: false })
@@ -161,13 +162,15 @@ async function hasUserReplyAfter(input: {
 async function fetchLatestUserMessageAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
-  session_id: string;
+  session_ids: string[];
 }): Promise<string | null> {
+  const sessionIds = input.session_ids.filter(Boolean);
+  if (!sessionIds.length) return null;
   const { data } = await input.admin
     .from("messages")
     .select("created_at, role")
     .eq("business_slug", input.business_slug)
-    .eq("session_id", input.session_id)
+    .in("session_id", sessionIds)
     .eq("role", "user")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -208,17 +211,18 @@ export async function GET(req: NextRequest) {
         .eq("is_active", true)
         .limit(1)
         .maybeSingle();
-      const sessionPhoneKey = waSessionPhoneKey(debugPhone);
-      const sessionId = channel?.phone_number_id
-        ? `wa_${String(channel.phone_number_id).trim()}_${sessionPhoneKey}`
-        : null;
+      const sessionPhoneKey = buildWaSessionId(channel?.phone_number_id ?? "", debugPhone);
+      const sessionIds = channel?.phone_number_id
+        ? waSessionIdLookupVariants(channel.phone_number_id, debugPhone)
+        : [];
+      const sessionId = sessionPhoneKey || null;
       let messages_hint: Record<string, unknown> | null = null;
-      if (sessionId) {
+      if (sessionIds.length) {
         const { data: lastUser } = await admin
           .from("messages")
           .select("created_at")
           .eq("business_slug", debugSlug)
-          .eq("session_id", sessionId)
+          .in("session_id", sessionIds)
           .eq("role", "user")
           .order("created_at", { ascending: false })
           .limit(1)
@@ -227,7 +231,7 @@ export async function GET(req: NextRequest) {
           .from("messages")
           .select("created_at, model_used")
           .eq("business_slug", debugSlug)
-          .eq("session_id", sessionId)
+          .in("session_id", sessionIds)
           .eq("role", "assistant")
           .order("created_at", { ascending: false })
           .limit(5);
@@ -236,6 +240,7 @@ export async function GET(req: NextRequest) {
         );
         messages_hint = {
           session_id: sessionId,
+          session_id_variants: sessionIds,
           last_user_at: lastUser?.created_at ?? null,
           last_assistant_at: realAssist?.created_at ?? null,
         };
@@ -323,9 +328,8 @@ export async function GET(req: NextRequest) {
     .or("trial_registered.eq.false,trial_registered.is.null")
     .lt("wa_followup_stage", 3)
     .not("wa_next_followup_at", "is", null)
-    .not("last_contact_at", "is", null)
-    .gte("last_contact_at", cutoff24hIso)
     .lte("wa_next_followup_at", nowIso)
+    .gte("wa_next_followup_at", cutoff24hIso)
     .limit(BATCH);
   contacts = (contactsData as any[] | null) ?? null;
 
@@ -442,15 +446,17 @@ export async function GET(req: NextRequest) {
 
       const business_slug = String(channel.business_slug).trim().toLowerCase();
       const phoneNumberId = String(channel.phone_number_id).trim();
-      const sessionId = `wa_${phoneNumberId}_${waSessionPhoneKey(phone)}`;
+      const sessionId = buildWaSessionId(phoneNumberId, phone);
+      const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
 
-      const lastAssist = await fetchLatestRealAssistantMessageAt({ admin, business_slug, session_id: sessionId });
+      const lastAssist = await fetchLatestRealAssistantMessageAt({ admin, business_slug, session_ids: sessionIds });
       if (!lastAssist) {
         logWaFollowupSkip("no_assistant_message", {
           contact_id: contactId,
           phone: maskPhone(phone),
           business_slug,
           session_id: sessionId,
+          session_id_variants: sessionIds,
         });
         bumpSkip("no_assistant_message");
         continue;
@@ -469,7 +475,7 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const lastUserAtIso = await fetchLatestUserMessageAt({ admin, business_slug, session_id: sessionId });
+      const lastUserAtIso = await fetchLatestUserMessageAt({ admin, business_slug, session_ids: sessionIds });
       if (!lastUserAtIso) {
         logWaFollowupSkip("no_user_message", {
           contact_id: contactId,
@@ -495,7 +501,7 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      if (await hasUserReplyAfter({ admin, business_slug, session_id: sessionId, afterIso: lastAssistAtIso })) {
+      if (await hasUserReplyAfter({ admin, business_slug, session_ids: sessionIds, afterIso: lastAssistAtIso })) {
         logWaFollowupSkip("already_replied", {
           contact_id: contactId,
           phone: maskPhone(phone),

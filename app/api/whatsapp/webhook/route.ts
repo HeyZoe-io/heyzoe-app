@@ -26,7 +26,7 @@ import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
-import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { contactPhoneLookupVariants, buildWaSessionId } from "@/lib/phone-normalize";
 import {
   composeGreeting,
   defaultSalesFlowConfig,
@@ -2192,7 +2192,7 @@ async function processIncoming(
     return;
   }
 
-  const sessionId = `wa_${msg.toNumber}_${msg.from}`;
+  const sessionId = buildWaSessionId(msg.toNumber, msg.from);
 
   if (businessId) {
     try {
