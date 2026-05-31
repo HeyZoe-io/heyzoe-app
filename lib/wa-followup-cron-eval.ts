@@ -1,5 +1,5 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { waSessionPhoneKey } from "@/lib/phone-normalize";
+import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 
 const MS_20_MIN = 20 * 60 * 1000;
 const MS_2_H = 2 * 60 * 60 * 1000;
@@ -26,13 +26,15 @@ export type WaFollowupEvalResult = {
 async function fetchLatestRealAssistantMessageAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
-  session_id: string;
+  session_ids: string[];
 }): Promise<{ created_at: string; model_used: string | null } | null> {
+  const sessionIds = input.session_ids.filter(Boolean);
+  if (!sessionIds.length) return null;
   const { data } = await input.admin
     .from("messages")
     .select("created_at, model_used")
     .eq("business_slug", input.business_slug)
-    .eq("session_id", input.session_id)
+    .in("session_id", sessionIds)
     .eq("role", "assistant")
     .order("created_at", { ascending: false })
     .limit(40);
@@ -48,14 +50,16 @@ async function fetchLatestRealAssistantMessageAt(input: {
 async function hasUserReplyAfter(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
-  session_id: string;
+  session_ids: string[];
   afterIso: string;
 }): Promise<boolean> {
+  const sessionIds = input.session_ids.filter(Boolean);
+  if (!sessionIds.length) return false;
   const { data } = await input.admin
     .from("messages")
     .select("id")
     .eq("business_slug", input.business_slug)
-    .eq("session_id", input.session_id)
+    .in("session_id", sessionIds)
     .eq("role", "user")
     .gt("created_at", input.afterIso)
     .limit(1)
@@ -66,13 +70,15 @@ async function hasUserReplyAfter(input: {
 async function fetchLatestUserMessageAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
-  session_id: string;
+  session_ids: string[];
 }): Promise<string | null> {
+  const sessionIds = input.session_ids.filter(Boolean);
+  if (!sessionIds.length) return null;
   const { data } = await input.admin
     .from("messages")
     .select("created_at")
     .eq("business_slug", input.business_slug)
-    .eq("session_id", input.session_id)
+    .in("session_id", sessionIds)
     .eq("role", "user")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -157,26 +163,27 @@ export async function evaluateBusinessWaFollowup(input: {
   }
 
   const phoneNumberId = String(channel.phone_number_id).trim();
-  const sessionId = `wa_${phoneNumberId}_${waSessionPhoneKey(phone)}`;
+  const sessionId = buildWaSessionId(phoneNumberId, phone);
+  const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
 
   const lastAssist = await fetchLatestRealAssistantMessageAt({
     admin: input.admin,
     business_slug,
-    session_id: sessionId,
+    session_ids: sessionIds,
   });
   if (!lastAssist?.created_at) {
     return {
       skip_reason: "no_assistant_message",
       session_id: sessionId,
       business_slug,
-      detail: { contact_id: input.contact.id ?? null },
+      detail: { contact_id: input.contact.id ?? null, session_id_variants: sessionIds },
     };
   }
 
   const lastUserAtIso = await fetchLatestUserMessageAt({
     admin: input.admin,
     business_slug,
-    session_id: sessionId,
+    session_ids: sessionIds,
   });
   if (!lastUserAtIso) {
     return {
@@ -201,7 +208,7 @@ export async function evaluateBusinessWaFollowup(input: {
     await hasUserReplyAfter({
       admin: input.admin,
       business_slug,
-      session_id: sessionId,
+      session_ids: sessionIds,
       afterIso: lastAssist.created_at,
     })
   ) {

@@ -37,6 +37,26 @@ export function waSessionPhoneKey(input: unknown): string {
   return digits || String(input ?? "").trim();
 }
 
+/** session_id קנוני: wa_{phone_number_id}_{972...} */
+export function buildWaSessionId(phoneNumberId: unknown, leadPhone: unknown): string {
+  const pid = String(phoneNumberId ?? "").trim();
+  const key = waSessionPhoneKey(leadPhone);
+  return pid && key ? `wa_${pid}_${key}` : "";
+}
+
+/** וריאנטים לחיפוש messages.session_id (תאימות לשורות ישנות עם + ב-session_id). */
+export function waSessionIdLookupVariants(phoneNumberId: unknown, leadPhone: unknown): string[] {
+  const pid = String(phoneNumberId ?? "").trim();
+  if (!pid) return [];
+  const trimmed = String(leadPhone ?? "").trim();
+  const key = waSessionPhoneKey(leadPhone);
+  const out = new Set<string>();
+  if (key) out.add(`wa_${pid}_${key}`);
+  if (trimmed) out.add(`wa_${pid}_${trimmed}`);
+  if (key) out.add(`wa_${pid}_+${key}`);
+  return [...out].filter(Boolean);
+}
+
 /** וריאנטים לחיפוש contacts.phone (+972..., 972..., וכו'). */
 export function contactPhoneLookupVariants(input: unknown): string[] {
   const trimmed = String(input ?? "").trim();
