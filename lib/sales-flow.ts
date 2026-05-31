@@ -346,7 +346,7 @@ const FRIENDLY: SalesFlowConfig = {
     "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף. שנתקדם?",
   after_trial_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
 
-מתרגשים לראותך בקרוב בתאריך {requested_date} בשעה {requested_time}
+מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}
 זה קורה בכתובת: {business_address}
 
 ככה מגיעים אלינו:
@@ -1866,6 +1866,14 @@ const ADDRESS_PLACEHOLDER = "{business_address}";
 const DIRECTIONS_PLACEHOLDER = "{business_directions}";
 const REQUESTED_DATE_PLACEHOLDER = "{requested_date}";
 const REQUESTED_TIME_PLACEHOLDER = "{requested_time}";
+const SERVICE_NAME_PLACEHOLDER = "{serviceName}";
+const SERVICE_NAME_FRIENDLY_PLACEHOLDER = "(שם האימון)";
+
+export type AfterTrialScheduleFillInput = {
+  requestedDate?: string;
+  requestedTime?: string;
+  serviceName?: string;
+};
 
 /**
  * מרחיב תבנית «אחרי הרשמה לאימון ניסיון» לפרומפט: ממלא את {instagram_cta}
@@ -1954,15 +1962,26 @@ export function resolveAfterTrialRegistrationBodyTemplate(
   return alt || cfg.after_trial_registration_body;
 }
 
-function fillAfterTrialSchedulePlaceholders(body: string, requestedDate: string, requestedTime: string): string {
-  const date = requestedDate.trim();
-  const time = requestedTime.trim();
-  if (date && time) {
-    return body
-      .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
-      .replaceAll(REQUESTED_TIME_PLACEHOLDER, time);
-  }
+function fillAfterTrialServiceNamePlaceholders(body: string, serviceName: string): string {
+  const service = serviceName.trim() || "האימון";
   return body
+    .replaceAll(SERVICE_NAME_PLACEHOLDER, service)
+    .replaceAll(SERVICE_NAME_FRIENDLY_PLACEHOLDER, service);
+}
+
+function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialScheduleFillInput): string {
+  const service = String(fill.serviceName ?? "").trim() || "האימון";
+  let t = fillAfterTrialServiceNamePlaceholders(body, service);
+  const date = String(fill.requestedDate ?? "").trim();
+  const time = String(fill.requestedTime ?? "").trim();
+  if (date && time) {
+    return t.replaceAll(REQUESTED_DATE_PLACEHOLDER, date).replaceAll(REQUESTED_TIME_PLACEHOLDER, time);
+  }
+  return t
+    .replace(
+      /מתרגשים לראותך בקרוב ב[^\n]*?\s*בתאריך \{requested_date\} בשעה \{requested_time\}/gu,
+      service !== "האימון" ? `מתרגשים לראותך בקרוב ב${service}!` : "מתרגשים לראותך בקרוב!"
+    )
     .replace(
       /מתרגשים לראותך בקרוב בתאריך \{requested_date\} בשעה \{requested_time\}/gu,
       "מתרגשים לראותך בקרוב!"
@@ -1979,14 +1998,14 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   instagramUrl: string,
   address: string,
   directions: string,
-  scheduleSelection?: { requestedDate?: string; requestedTime?: string }
+  scheduleSelection?: AfterTrialScheduleFillInput
 ): string {
   let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions);
-  s = fillAfterTrialSchedulePlaceholders(
-    s,
-    String(scheduleSelection?.requestedDate ?? ""),
-    String(scheduleSelection?.requestedTime ?? "")
-  );
+  s = fillAfterTrialSchedulePlaceholders(s, {
+    requestedDate: scheduleSelection?.requestedDate,
+    requestedTime: scheduleSelection?.requestedTime,
+    serviceName: scheduleSelection?.serviceName,
+  });
   s = s
     .split("\n")
     .map((x) => x.trim())

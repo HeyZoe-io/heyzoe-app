@@ -502,16 +502,37 @@ async function fetchContactScheduleSelectionState(input: {
   phone: string;
 }): Promise<ContactScheduleSelectionState> {
   try {
+    const phoneVariants = contactPhoneLookupVariants(input.phone);
+    const phones = phoneVariants.length ? phoneVariants : [input.phone];
     const { data, error } = await input.supabase
       .from("contacts")
-      .select("sf_requested_date, sf_requested_time")
+      .select("sf_requested_date, sf_requested_time, last_contact_at")
       .eq("business_id", input.businessId)
-      .eq("phone", input.phone)
-      .maybeSingle();
-    if (error || !data) return { requestedDate: "", requestedTime: "" };
+      .in("phone", phones);
+    if (error || !data?.length) return { requestedDate: "", requestedTime: "" };
+
+    const rows = data as Array<{
+      sf_requested_date?: unknown;
+      sf_requested_time?: unknown;
+      last_contact_at?: string | null;
+    }>;
+
+    const withBoth = rows.filter((row) => {
+      const d = String(row.sf_requested_date ?? "").trim();
+      const t = String(row.sf_requested_time ?? "").trim();
+      return Boolean(d && t);
+    });
+    const pickFrom = withBoth.length ? withBoth : rows;
+    pickFrom.sort((a, b) => {
+      const ta = a.last_contact_at ? Date.parse(a.last_contact_at) : 0;
+      const tb = b.last_contact_at ? Date.parse(b.last_contact_at) : 0;
+      return tb - ta;
+    });
+    const row = pickFrom[0];
+    if (!row) return { requestedDate: "", requestedTime: "" };
     return {
-      requestedDate: String((data as { sf_requested_date?: unknown }).sf_requested_date ?? "").trim(),
-      requestedTime: String((data as { sf_requested_time?: unknown }).sf_requested_time ?? "").trim(),
+      requestedDate: String(row.sf_requested_date ?? "").trim(),
+      requestedTime: String(row.sf_requested_time ?? "").trim(),
     };
   } catch {
     return { requestedDate: "", requestedTime: "" };
@@ -2473,23 +2494,59 @@ async function processIncoming(
 
         const useScheduleRegistrationTemplate = knowledge.scheduleDirectRegistration === false;
         const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
-        const bodyTemplate =
+        const scheduleState = await fetchContactScheduleSelectionState({
+          supabase,
+          businessId,
+          phone: msg.from,
+        });
+        const requestedDate = scheduleState.requestedDate || contactScheduleRequestedDate;
+        const requestedTime = scheduleState.requestedTime || contactScheduleRequestedTime;
+        const hasScheduleSelection = Boolean(requestedDate && requestedTime);
+
+        const selectedServiceName =
+          salesFlowServices.length === 1
+            ? salesFlowServices[0]!.name
+            : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+        const selectedService =
+          salesFlowServices.find((service) => service.name === selectedServiceName) ??
+          salesFlowServices[0] ??
+          null;
+        const serviceName = selectedService?.name?.trim() || selectedServiceName.trim() || "האימון";
+
+        let bodyTemplate =
           (useScheduleRegistrationTemplate
             ? resolveAfterTrialRegistrationBodyTemplate(sfCfg, true)
             : sfCfg.after_trial_registration_body)?.trim() ||
           defaultSalesFlowConfig(knowledge.vibeLabels ?? []).after_trial_registration_body;
 
+        if (
+          !useScheduleRegistrationTemplate &&
+          hasScheduleSelection &&
+          (bodyTemplate.includes("{requested_date}") || bodyTemplate.includes("{requested_time}"))
+        ) {
+          const scheduleBody = resolveAfterTrialRegistrationBodyTemplate(sfCfg, true).trim();
+          if (scheduleBody) bodyTemplate = scheduleBody;
+        }
+
         const igUrlRaw = knowledge.instagramUrl?.trim() ?? "";
         const includeIgPrompt = igUrlRaw.length > 0 && !contactInstagramFollowPromptSent;
+        const shouldFillSchedule =
+          useScheduleRegistrationTemplate ||
+          hasScheduleSelection ||
+          bodyTemplate.includes("{requested_date}") ||
+          bodyTemplate.includes("{requested_time}") ||
+          bodyTemplate.includes("{serviceName}") ||
+          bodyTemplate.includes("(שם האימון)");
         const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
           bodyTemplate,
           includeIgPrompt ? igUrlRaw : "",
           knowledge.addressText ?? "",
           knowledge.directionsText ?? "",
-          useScheduleRegistrationTemplate
+          shouldFillSchedule
             ? {
-                requestedDate: contactScheduleRequestedDate,
-                requestedTime: contactScheduleRequestedTime,
+                requestedDate,
+                requestedTime,
+                serviceName,
               }
             : undefined
         );
@@ -2522,8 +2579,8 @@ async function processIncoming(
               businessId: Number(businessId),
               leadPhone: msg.from,
               scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
-              requestedDate: contactScheduleRequestedDate,
-              requestedTime: contactScheduleRequestedTime,
+              requestedDate,
+              requestedTime,
             });
           } catch (e) {
             console.warn("[WA Webhook] lead_registered notification failed:", e);
