@@ -47,6 +47,7 @@ import {
   resolveTrialCtaBodyTemplate,
   resolveAfterTrialRegistrationBodyTemplate,
   resolveWarmupExperienceConfig,
+  resolveWarmupExperienceReply,
   buildDefaultMultiServiceQuestion,
   buildScheduleSlotPickQuestion,
   resolveScheduleBoardAssets,
@@ -3833,30 +3834,40 @@ async function processIncoming(
       const steps = wbExtras.extras;
       const cleanSteps = steps
         .map((s) => ({
-          question: String((s as any)?.question ?? "").trim(),
-          options: Array.isArray((s as any)?.options)
-            ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+          question: String((s as { question?: unknown }).question ?? "").trim(),
+          options: Array.isArray((s as { options?: unknown }).options)
+            ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim())
+            : [],
+          replies: Array.isArray((s as { replies?: unknown }).replies)
+            ? (s as { replies: unknown[] }).replies.map((x) => String(x ?? "").trim())
             : [],
         }))
-        .filter((s) => s.question && s.options.length >= 2);
+        .filter((s) => s.question && s.options.filter(Boolean).length >= 2);
       if (cleanSteps.length > 0) {
         const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
         const lastIdx = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
         if (lastAssistModel === "sales_flow_warmup_extra" && lastIdx != null) {
           const current = cleanSteps[lastIdx];
           const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, current?.options ?? []);
-          const picked = (current?.options ?? []).find((o: string) => waLabelMatches(incomingResolved, o));
+          const pickedIdx = (current?.options ?? []).findIndex((o: string) =>
+            waLabelMatches(incomingResolved, o)
+          );
+          const picked = pickedIdx >= 0 ? current?.options[pickedIdx] : undefined;
           if (picked) {
+            const replyRaw =
+              pickedIdx >= 0 ? String(current?.replies?.[pickedIdx] ?? "").trim() : "";
             const nextIdx = lastIdx + 1;
             if (nextIdx < cleanSteps.length) {
               const next = cleanSteps[nextIdx]!;
-              await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, next.question, next.options, accountSid, authToken, {
+              const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
+              const combined = [replyRaw, next.question].filter(Boolean).join("\n\n").trim();
+              await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, nextOpts, accountSid, authToken, {
                 footerHint: ZOE_WHATSAPP_MENU_FOOTER,
               }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
               await logMessage({
                 business_slug,
                 role: "assistant",
-                content: formatInteractiveConversationLog(next.question, next.options),
+                content: formatInteractiveConversationLog(combined, nextOpts),
                 model_used: "sales_flow_warmup_extra",
                 session_id: sessionId,
               });
@@ -3868,6 +3879,18 @@ async function processIncoming(
                 session_id: sessionId,
               });
               return;
+            }
+            if (replyRaw) {
+              await sendWhatsAppMessage(msg.toNumber, msg.from, replyRaw, accountSid, authToken).catch((e) =>
+                console.error("[WA Webhook] Send warmup-extra final reply failed:", e)
+              );
+              await logMessage({
+                business_slug,
+                role: "assistant",
+                content: replyRaw,
+                model_used: "sales_flow_warmup_extra",
+                session_id: sessionId,
+              });
             }
             // Finished warmup extras → send CTA deterministically (no AI).
             if (businessId) {
@@ -3916,17 +3939,23 @@ async function processIncoming(
         salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
       const wb = resolveWarmupExperienceConfig(cfg, selectedService?.offerKind ?? "trial");
       const opts = wb.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-      if (opts.length >= 3) {
-        const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, opts);
-        const pickedExp = opts.find((o) => waLabelMatches(incomingResolved, o));
+      if (opts.length >= 2) {
+        const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, wb.options);
+        const pickedIdx = wb.options.findIndex((o) => waLabelMatches(incomingResolved, o));
+        const pickedExp = pickedIdx >= 0 ? wb.options[pickedIdx] : undefined;
         const canExperience =
           salesFlowServices.length === 1 ||
           Boolean(await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }));
         if (pickedExp && canExperience) {
           const warmupServiceName =
             (selectedService?.name ?? selectedServiceName).trim() || undefined;
+          const rawReply = resolveWarmupExperienceReply(
+            wb.replies,
+            pickedIdx,
+            wb.afterExperienceRaw
+          );
           const afterExperience = fillAfterExperienceTemplate(
-            wb.afterExperienceRaw,
+            rawReply,
             selectedService?.levelsEnabled ?? false,
             selectedService?.levels ?? [],
             warmupServiceName
@@ -3934,23 +3963,27 @@ async function processIncoming(
           const steps = wb.extras;
           const cleanSteps = steps
             .map((s) => ({
-              question: String((s as any)?.question ?? "").trim(),
-              options: Array.isArray((s as any)?.options)
-                ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+              question: String((s as { question?: unknown }).question ?? "").trim(),
+              options: Array.isArray((s as { options?: unknown }).options)
+                ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim())
+                : [],
+              replies: Array.isArray((s as { replies?: unknown }).replies)
+                ? (s as { replies: unknown[] }).replies.map((x) => String(x ?? "").trim())
                 : [],
             }))
-            .filter((s) => s.question && s.options.length >= 2);
+            .filter((s) => s.question && s.options.filter(Boolean).length >= 2);
           if (cleanSteps.length > 0) {
             const first = cleanSteps[0]!;
+            const firstOpts = first.options.map((o) => String(o ?? "").trim()).filter(Boolean);
             const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
             const combined = [bodyOnly, first.question].filter(Boolean).join("\n\n").trim();
-            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, first.options, accountSid, authToken, {
+            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, firstOpts, accountSid, authToken, {
               footerHint: ZOE_WHATSAPP_MENU_FOOTER,
             }).catch((e) => console.error("[WA Webhook] Send warmup-extra first step failed:", e));
             await logMessage({
               business_slug,
               role: "assistant",
-              content: formatInteractiveConversationLog(combined, first.options),
+              content: formatInteractiveConversationLog(combined, firstOpts),
               model_used: "sales_flow_warmup_extra",
               session_id: sessionId,
             });

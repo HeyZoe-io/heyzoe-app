@@ -6,7 +6,12 @@ export type SalesFlowExtraStep = {
   id: string;
   question: string;
   options: string[];
+  /** תשובה ייחודית לכל כפתור — באותו אורך כמו options */
+  replies: string[];
 };
+
+export const WARMUP_MIN_BUTTONS = 3;
+export const WARMUP_MAX_BUTTONS = 8;
 
 /** סוג הצעה בטאב «מוצרים» — קובע איזה סשן CTA בטאב מכירה ישלח בווטסאפ */
 export type OfferKind = "trial" | "workshop" | "course";
@@ -57,17 +62,20 @@ export type SalesFlowConfig = {
   multi_service_question: string;
   after_service_pick: string;
   experience_question: string;
-  experience_options: [string, string, string];
+  experience_options: string[];
+  experience_replies: string[];
   after_experience: string;
   opening_extra_steps: SalesFlowExtraStep[];
   /** סשן חימום — סדנה (כשיש שירותי סדנה) */
   experience_question_workshop: string;
-  experience_options_workshop: [string, string, string];
+  experience_options_workshop: string[];
+  experience_replies_workshop: string[];
   after_experience_workshop: string;
   opening_extra_steps_workshop: SalesFlowExtraStep[];
   /** סשן חימום — קורס */
   experience_question_course: string;
-  experience_options_course: [string, string, string];
+  experience_options_course: string[];
+  experience_replies_course: string[];
   after_experience_course: string;
   opening_extra_steps_course: SalesFlowExtraStep[];
   cta_body: string;
@@ -97,6 +105,59 @@ export type SalesFlowConfig = {
   /** @deprecated נגזר מ־memberships_cta_delivery בכפתור המנויים; נשמר לתאימות לקוחות ישנים */
   show_memberships_button?: boolean;
 };
+
+export function emptyWarmupButtonPairs(count = WARMUP_MIN_BUTTONS): { options: string[]; replies: string[] } {
+  const n = Math.min(Math.max(count, WARMUP_MIN_BUTTONS), WARMUP_MAX_BUTTONS);
+  return {
+    options: Array.from({ length: n }, () => ""),
+    replies: Array.from({ length: n }, () => ""),
+  };
+}
+
+/** מיישר אורכי כפתורים/תשובות (3–8); ממלא תשובות מ-fallback כשחסר (מיגרציה) */
+export function normalizeWarmupButtonPairs(
+  optionsIn: unknown,
+  repliesIn: unknown,
+  fallbackReply = ""
+): { options: string[]; replies: string[] } {
+  const optsRaw = Array.isArray(optionsIn) ? optionsIn.map((x) => String(x ?? "")) : [];
+  let repliesRaw = Array.isArray(repliesIn) ? repliesIn.map((x) => String(x ?? "")) : [];
+  const fallback = String(fallbackReply ?? "").trim();
+
+  let options =
+    optsRaw.length >= WARMUP_MIN_BUTTONS
+      ? optsRaw.slice(0, WARMUP_MAX_BUTTONS)
+      : [...optsRaw, ...Array(Math.max(0, WARMUP_MIN_BUTTONS - optsRaw.length)).fill("")];
+
+  if (repliesRaw.length === 0 && fallback) {
+    repliesRaw = options.map(() => fallback);
+  }
+  while (repliesRaw.length < options.length) repliesRaw.push("");
+  if (options.length < repliesRaw.length) {
+    while (options.length < repliesRaw.length) options.push("");
+  }
+
+  const len = Math.min(Math.max(options.length, WARMUP_MIN_BUTTONS), WARMUP_MAX_BUTTONS);
+  return {
+    options: options.slice(0, len),
+    replies: repliesRaw.slice(0, len),
+  };
+}
+
+export function createDefaultWarmupExtraStep(id: string): SalesFlowExtraStep {
+  const { options, replies } = emptyWarmupButtonPairs();
+  return { id, question: "", options, replies };
+}
+
+export function resolveWarmupExperienceReply(
+  replies: string[],
+  optionIndex: number,
+  fallback: string
+): string {
+  if (optionIndex < 0) return String(fallback ?? "").trim();
+  const picked = String(replies[optionIndex] ?? "").trim();
+  return picked || String(fallback ?? "").trim();
+}
 
 export const SCHEDULE_BOARD_CAPTION = "כאן ניתן לראות את מערכת השעות שלנו";
 export const SCHEDULE_BOARD_PREVIEW_IMAGE = "(תמונה)";
@@ -205,6 +266,11 @@ const FRIENDLY: SalesFlowConfig = {
   ],
   after_experience:
     "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+  experience_replies: [
+    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+    "מגניב לגמרי, {levelsText} כך שכל אחד ואחת יכולים למצוא את עצמם.",
+  ],
   opening_extra_steps: [],
   experience_question_workshop: "איזו ציפייה יש לך מהסדנה?",
   experience_options_workshop: [
@@ -214,11 +280,21 @@ const FRIENDLY: SalesFlowConfig = {
   ],
   after_experience_workshop:
     "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
+  experience_replies_workshop: [
+    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
+    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
+    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
+  ],
   opening_extra_steps_workshop: [],
   experience_question_course: "יש לך ניסיון קודם בתחום?",
   experience_options_course: ["כן, יש לי בסיס", "קצת", "בכלל לא"],
   after_experience_course:
     "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+  experience_replies_course: [
+    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+  ],
   opening_extra_steps_course: [],
   cta_body:
     "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
@@ -420,11 +496,12 @@ function parseExtraSteps(raw: unknown): SalesFlowExtraStep[] {
     .map((x) => {
       if (!x || typeof x !== "object") return null;
       const o = x as Record<string, unknown>;
-      const opts = Array.isArray(o.options) ? o.options.map((z) => String(z ?? "")) : [];
+      const pairs = normalizeWarmupButtonPairs(o.options, o.replies, "");
       return {
         id: typeof o.id === "string" ? o.id : Math.random().toString(36).slice(2, 9),
         question: String(o.question ?? ""),
-        options: opts,
+        options: pairs.options,
+        replies: pairs.replies,
       };
     })
     .filter((x): x is SalesFlowExtraStep => x !== null);
@@ -1020,15 +1097,32 @@ function migrateLegacyGreetingBodyOverride(raw: unknown): string | undefined {
 export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
-  const ex = (i: unknown): [string, string, string] => {
-    if (!Array.isArray(i) || i.length < 3) return structuredClone(FRIENDLY.experience_options);
-    return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
-  };
   const exFollow = (i: unknown): [string, string, string] => {
     if (!Array.isArray(i) || i.length < 3) return structuredClone(FRIENDLY.followup_after_next_class_options);
     return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
   };
   const base = defaultSalesFlowConfig([]);
+  const trialAfter =
+    typeof o.after_experience === "string" ? o.after_experience : base.after_experience;
+  const trialPairs = normalizeWarmupButtonPairs(o.experience_options, o.experience_replies, trialAfter);
+  const workshopAfter =
+    typeof o.after_experience_workshop === "string"
+      ? o.after_experience_workshop
+      : base.after_experience_workshop;
+  const workshopPairs = normalizeWarmupButtonPairs(
+    o.experience_options_workshop,
+    o.experience_replies_workshop,
+    workshopAfter
+  );
+  const courseAfter =
+    typeof o.after_experience_course === "string"
+      ? o.after_experience_course
+      : base.after_experience_course;
+  const coursePairs = normalizeWarmupButtonPairs(
+    o.experience_options_course,
+    o.experience_replies_course,
+    courseAfter
+  );
   const cfg: SalesFlowConfig = {
     opening_note: typeof o.opening_note === "string" ? o.opening_note : base.opening_note,
     greeting_opener: typeof o.greeting_opener === "string" ? o.greeting_opener : base.greeting_opener,
@@ -1081,33 +1175,24 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     })(),
     experience_question:
       typeof o.experience_question === "string" ? o.experience_question : base.experience_question,
-    experience_options: ex(o.experience_options),
-    after_experience: typeof o.after_experience === "string" ? o.after_experience : base.after_experience,
+    experience_options: trialPairs.options,
+    experience_replies: trialPairs.replies,
+    after_experience: trialAfter,
     experience_question_workshop:
       typeof o.experience_question_workshop === "string"
         ? o.experience_question_workshop
         : base.experience_question_workshop,
-    experience_options_workshop: ((): [string, string, string] => {
-      const i = o.experience_options_workshop;
-      if (!Array.isArray(i) || i.length < 3) return [...base.experience_options_workshop];
-      return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
-    })(),
-    after_experience_workshop:
-      typeof o.after_experience_workshop === "string"
-        ? o.after_experience_workshop
-        : base.after_experience_workshop,
+    experience_options_workshop: workshopPairs.options,
+    experience_replies_workshop: workshopPairs.replies,
+    after_experience_workshop: workshopAfter,
     opening_extra_steps_workshop: parseExtraSteps(o.opening_extra_steps_workshop ?? base.opening_extra_steps_workshop),
     experience_question_course:
       typeof o.experience_question_course === "string"
         ? o.experience_question_course
         : base.experience_question_course,
-    experience_options_course: ((): [string, string, string] => {
-      const i = o.experience_options_course;
-      if (!Array.isArray(i) || i.length < 3) return [...base.experience_options_course];
-      return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
-    })(),
-    after_experience_course:
-      typeof o.after_experience_course === "string" ? o.after_experience_course : base.after_experience_course,
+    experience_options_course: coursePairs.options,
+    experience_replies_course: coursePairs.replies,
+    after_experience_course: courseAfter,
     opening_extra_steps_course: parseExtraSteps(o.opening_extra_steps_course ?? base.opening_extra_steps_course),
     greeting_extra_steps: parseExtraSteps(o.greeting_extra_steps),
     opening_extra_steps: parseExtraSteps(o.opening_extra_steps),
@@ -1162,28 +1247,34 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     after_service_pick: c.after_service_pick,
     experience_question: c.experience_question,
     experience_options: [...c.experience_options],
+    experience_replies: [...c.experience_replies],
     after_experience: c.after_experience,
     experience_question_workshop: c.experience_question_workshop,
     experience_options_workshop: [...c.experience_options_workshop],
+    experience_replies_workshop: [...c.experience_replies_workshop],
     after_experience_workshop: c.after_experience_workshop,
     experience_question_course: c.experience_question_course,
     experience_options_course: [...c.experience_options_course],
+    experience_replies_course: [...c.experience_replies_course],
     after_experience_course: c.after_experience_course,
     greeting_extra_steps: [],
     opening_extra_steps: c.opening_extra_steps.map((s) => ({
       id: s.id,
       question: s.question,
-      options: s.options,
+      options: [...s.options],
+      replies: [...s.replies],
     })),
     opening_extra_steps_workshop: c.opening_extra_steps_workshop.map((s) => ({
       id: s.id,
       question: s.question,
-      options: s.options,
+      options: [...s.options],
+      replies: [...s.replies],
     })),
     opening_extra_steps_course: c.opening_extra_steps_course.map((s) => ({
       id: s.id,
       question: s.question,
-      options: s.options,
+      options: [...s.options],
+      replies: [...s.replies],
     })),
     cta_body: c.cta_body,
     cta_workshop_body: c.cta_workshop_body,
@@ -1270,18 +1361,16 @@ export function resolveWarmupExperienceConfig(
   kind: OfferKind
 ): {
   question: string;
-  options: [string, string, string];
+  options: string[];
+  replies: string[];
   extras: SalesFlowExtraStep[];
   afterExperienceRaw: string;
 } {
   if (kind === "workshop") {
     return {
       question: cfg.experience_question_workshop ?? FRIENDLY.experience_question_workshop,
-      options: [...(cfg.experience_options_workshop ?? FRIENDLY.experience_options_workshop)] as [
-        string,
-        string,
-        string,
-      ],
+      options: [...(cfg.experience_options_workshop ?? FRIENDLY.experience_options_workshop)],
+      replies: [...(cfg.experience_replies_workshop ?? FRIENDLY.experience_replies_workshop)],
       extras: structuredClone(cfg.opening_extra_steps_workshop ?? []),
       afterExperienceRaw:
         cfg.after_experience_workshop ??
@@ -1293,11 +1382,8 @@ export function resolveWarmupExperienceConfig(
   if (kind === "course") {
     return {
       question: cfg.experience_question_course ?? FRIENDLY.experience_question_course,
-      options: [...(cfg.experience_options_course ?? FRIENDLY.experience_options_course)] as [
-        string,
-        string,
-        string,
-      ],
+      options: [...(cfg.experience_options_course ?? FRIENDLY.experience_options_course)],
+      replies: [...(cfg.experience_replies_course ?? FRIENDLY.experience_replies_course)],
       extras: structuredClone(cfg.opening_extra_steps_course ?? []),
       afterExperienceRaw:
         cfg.after_experience_course ??
@@ -1309,6 +1395,7 @@ export function resolveWarmupExperienceConfig(
   return {
     question: cfg.experience_question,
     options: [...cfg.experience_options],
+    replies: [...cfg.experience_replies],
     extras: structuredClone(cfg.opening_extra_steps),
     afterExperienceRaw: cfg.after_experience,
   };

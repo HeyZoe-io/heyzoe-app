@@ -1157,7 +1157,7 @@ export default function SlugSettingsPage({
       salesFlowConfig,
       services.filter((s) => s.name.trim()).map((s) => ({
         name: s.name,
-        benefit_line: s.benefit_line,
+        benefit_line: benefitLineFromProductDescription(s.description),
         service_slug: s.service_slug,
         offer_kind: s.offer_kind,
       })),
@@ -1489,7 +1489,7 @@ export default function SlugSettingsPage({
       salesFlowConfig,
       services.filter((s) => s.name.trim()).map((s) => ({
         name: s.name,
-        benefit_line: s.benefit_line,
+        benefit_line: benefitLineFromProductDescription(s.description),
         service_slug: s.service_slug,
         offer_kind: s.offer_kind,
       })),
@@ -1567,7 +1567,7 @@ export default function SlugSettingsPage({
             description: JSON.stringify({
               duration: s.duration,
               payment_link: s.payment_link,
-              benefit_line: s.benefit_line,
+              benefit_line: benefitLineFromProductDescription(s.description),
               description_text: s.description,
               levels_enabled: s.levels_enabled,
               levels: s.levels,
@@ -1814,14 +1814,17 @@ export default function SlugSettingsPage({
             ...c,
             experience_question: base.experience_question,
             experience_options: structuredClone(base.experience_options),
+            experience_replies: structuredClone(base.experience_replies),
             after_experience: base.after_experience,
             opening_extra_steps: structuredClone(base.opening_extra_steps),
             experience_question_workshop: base.experience_question_workshop,
             experience_options_workshop: structuredClone(base.experience_options_workshop),
+            experience_replies_workshop: structuredClone(base.experience_replies_workshop),
             after_experience_workshop: base.after_experience_workshop,
             opening_extra_steps_workshop: structuredClone(base.opening_extra_steps_workshop),
             experience_question_course: base.experience_question_course,
             experience_options_course: structuredClone(base.experience_options_course),
+            experience_replies_course: structuredClone(base.experience_replies_course),
             after_experience_course: base.after_experience_course,
             opening_extra_steps_course: structuredClone(base.opening_extra_steps_course),
           };
@@ -2506,7 +2509,6 @@ export default function SlugSettingsPage({
             firstNamedService={firstNamedService}
             firstTrialForTemplates={firstTrialForTemplates}
             services={services}
-            setServices={setServices}
             videoUrlForPreview={videoUrlForPreview}
             experienceQuestionForDisplay={experienceQuestionForDisplay}
             experienceQuestionToStore={experienceQuestionToStore}

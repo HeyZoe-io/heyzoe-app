@@ -8,6 +8,7 @@ import {
   X,
   Trash2,
   Plus,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,9 @@ import {
   type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
   type SalesFlowExtraStep,
+  WARMUP_MAX_BUTTONS,
+  WARMUP_MIN_BUTTONS,
+  createDefaultWarmupExtraStep,
 } from "@/lib/sales-flow";
 
 type ServiceItem = {
@@ -83,7 +87,6 @@ type Step4SalesFlowProps = {
   firstNamedService: ServiceItem | null;
   firstTrialForTemplates: { name: string; priceText: string; durationText: string };
   services: ServiceItem[];
-  setServices: Dispatch<SetStateAction<ServiceItem[]>>;
   videoUrlForPreview: (url: string) => string;
   experienceQuestionForDisplay: (stored: string, serviceName: string) => string;
   experienceQuestionToStore: (typed: string, serviceName: string) => string;
@@ -125,6 +128,95 @@ function resolveOfferTab(
   return "course";
 }
 
+function WarmupButtonPairsEditor({
+  options,
+  replies,
+  onChange,
+  afterExperienceForDisplay,
+  afterExperienceToStore,
+  serviceForReply,
+}: {
+  options: string[];
+  replies: string[];
+  onChange: (nextOptions: string[], nextReplies: string[]) => void;
+  afterExperienceForDisplay: (stored: string, service: ServiceItem | null) => string;
+  afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
+  serviceForReply: ServiceItem | null;
+}) {
+  const updatePair = (index: number, patch: { label?: string; reply?: string }) => {
+    const nextOptions = [...options];
+    const nextReplies = [...replies];
+    if (patch.label !== undefined) nextOptions[index] = patch.label;
+    if (patch.reply !== undefined) nextReplies[index] = patch.reply;
+    onChange(nextOptions, nextReplies);
+  };
+
+  const removePair = (index: number) => {
+    if (options.length <= WARMUP_MIN_BUTTONS) return;
+    onChange(
+      options.filter((_, i) => i !== index),
+      replies.filter((_, i) => i !== index)
+    );
+  };
+
+  const addPair = () => {
+    if (options.length >= WARMUP_MAX_BUTTONS) return;
+    onChange([...options, ""], [...replies, ""]);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
+      {options.map((label, i) => (
+        <div key={i} className="rounded-xl border border-zinc-100 bg-white/80 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-zinc-700">כפתור {i + 1}</span>
+            {options.length > WARMUP_MIN_BUTTONS ? (
+              <button
+                type="button"
+                className="p-1 text-zinc-400 hover:text-red-500"
+                onClick={() => removePair(i)}
+                aria-label={`הסר כפתור ${i + 1}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3" dir="rtl">
+            <div className="min-w-0 flex-1 space-y-1">
+              <span className="text-[11px] font-medium text-zinc-500">תוכן הכפתור</span>
+              <Input
+                dir="rtl"
+                value={label}
+                onChange={(e) => updatePair(i, { label: e.target.value })}
+                placeholder={`כפתור ${i + 1}`}
+              />
+            </div>
+            <ArrowLeft className="mx-auto h-5 w-5 shrink-0 text-zinc-400 sm:mt-8" aria-hidden />
+            <div className="min-w-0 flex-1 space-y-1">
+              <span className="text-[11px] font-medium text-zinc-500">תשובה</span>
+              <Textarea
+                rows={2}
+                value={afterExperienceForDisplay(replies[i] ?? "", serviceForReply)}
+                onChange={(v) =>
+                  updatePair(i, { reply: afterExperienceToStore(v, serviceForReply) })
+                }
+                placeholder="משפט מעודד קצר אחרי לחיצה על הכפתור…"
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+      {options.length < WARMUP_MAX_BUTTONS ? (
+        <Button type="button" variant="outline" className="w-full gap-1 text-sm" onClick={addPair}>
+          <Plus className="h-4 w-4" />
+          הוסף כפתור ותשובה
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function SalesFlowExtraStepsEditor({
   steps,
   onChange,
@@ -132,6 +224,9 @@ function SalesFlowExtraStepsEditor({
   startAt = 1,
   questionHeaderClassName = "",
   uid,
+  afterExperienceForDisplay,
+  afterExperienceToStore,
+  serviceForReply,
 }: {
   steps: SalesFlowExtraStep[];
   onChange: (next: SalesFlowExtraStep[]) => void;
@@ -139,13 +234,16 @@ function SalesFlowExtraStepsEditor({
   startAt?: number;
   questionHeaderClassName?: string;
   uid: () => string;
+  afterExperienceForDisplay: (stored: string, service: ServiceItem | null) => string;
+  afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
+  serviceForReply: ServiceItem | null;
 }) {
   return (
     <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
       {steps.map((st, si) => (
         <div
           key={st.id}
-          className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-2 bg-zinc-50/60"
+          className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-3 bg-zinc-50/60"
         >
           <div className="flex justify-between items-center gap-2">
             <span
@@ -171,56 +269,27 @@ function SalesFlowExtraStepsEditor({
             }}
             placeholder="כתבו את השאלה כאן…"
           />
-          {st.options.map((o, oi) => (
-            <div key={oi} className="flex gap-2">
-              <Input
-                dir="rtl"
-                className="flex-1"
-                value={o}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  onChange(
-                    steps.map((x) =>
-                      x.id === st.id
-                        ? { ...x, options: x.options.map((t, j) => (j === oi ? v : t)) }
-                        : x
-                    )
-                  );
-                }}
-              />
-              <button
-                type="button"
-                className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
-                onClick={() =>
-                  onChange(
-                    steps.map((x) =>
-                      x.id === st.id ? { ...x, options: x.options.filter((_, j) => j !== oi) } : x
-                    )
-                  )
-                }
-                aria-label="הסר כפתור"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full text-xs h-8"
-            onClick={() =>
-              onChange(steps.map((x) => (x.id === st.id ? { ...x, options: [...x.options, ""] } : x)))
+          <WarmupButtonPairsEditor
+            options={st.options}
+            replies={st.replies}
+            onChange={(nextOptions, nextReplies) =>
+              onChange(
+                steps.map((x) =>
+                  x.id === st.id ? { ...x, options: nextOptions, replies: nextReplies } : x
+                )
+              )
             }
-          >
-            <Plus className="h-3 w-3" /> הוסף כפתור תשובה
-          </Button>
+            afterExperienceForDisplay={afterExperienceForDisplay}
+            afterExperienceToStore={afterExperienceToStore}
+            serviceForReply={serviceForReply}
+          />
         </div>
       ))}
       <Button
         type="button"
         variant="outline"
         className="w-full gap-1 text-sm"
-        onClick={() => onChange([...steps, { id: uid(), question: "", options: ["", ""] }])}
+        onClick={() => onChange([...steps, createDefaultWarmupExtraStep(uid())])}
       >
         <Plus className="h-4 w-4" />
         {addButtonLabel}
@@ -258,7 +327,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     firstNamedService,
     firstTrialForTemplates,
     services,
-    setServices,
     videoUrlForPreview,
     experienceQuestionForDisplay,
     experienceQuestionToStore,
@@ -598,23 +666,26 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   </p>
                 </Field>
                 <div className="space-y-3">
-                  {services.map((s: ServiceItem, i: number) =>
+                  {services.map((s: ServiceItem) =>
                     !s.name.trim() ? null : (
                       <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
                         <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
                           {s.name.trim()}
                         </div>
                         <Field label="תשובה">
-                          <Textarea
-                            rows={4}
-                            value={s.benefit_line}
-                            onChange={(v) => {
-                              const arr = [...services];
-                              arr[i] = { ...s, benefit_line: v };
-                              setServices(arr);
-                            }}
-                            placeholder="טקסט התשובה שיישלח אחרי בחירת המוצר (מסונכרן מהתיאור)"
-                          />
+                          <div
+                            dir="rtl"
+                            className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
+                          >
+                            {s.description.trim() ? (
+                              s.description
+                            ) : (
+                              <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
+                            )}
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-zinc-500">
+                            נערך בטאב «מוצרים» (שדה תיאור).
+                          </p>
                         </Field>
                       </div>
                     )
@@ -634,16 +705,19 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
                       <p className="text-xs font-medium text-zinc-700 text-center">תשובה לאימון: {s.name.trim()}</p>
                       <Field label="תשובה">
-                        <Textarea
-                          rows={4}
-                          value={s.benefit_line}
-                          onChange={(v) => {
-                            const arr = [...services];
-                            arr[firstNamedIndex] = { ...s, benefit_line: v };
-                            setServices(arr);
-                          }}
-                          placeholder="טקסט התשובה שיישלח אחרי בחירת המוצר (מסונכרן מהתיאור)"
-                        />
+                        <div
+                          dir="rtl"
+                          className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
+                        >
+                          {s.description.trim() ? (
+                            s.description
+                          ) : (
+                            <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-zinc-500">
+                          נערך בטאב «מוצרים» (שדה תיאור).
+                        </p>
                       </Field>
                     </div>
                   );
@@ -792,41 +866,29 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         }
                       />
                     </Field>
-                    <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {([0, 1, 2] as const).map((i) => (
-                        <Field key={i} label={`כפתור ${i + 1}`}>
-                          <Input
-                            dir="rtl"
-                            value={salesFlowConfig.experience_options[i]}
-                            onChange={(e) => {
-                              const next = [...salesFlowConfig.experience_options] as [string, string, string];
-                              next[i] = e.target.value;
-                              setSalesFlowConfig((c) => ({ ...c, experience_options: next }));
-                            }}
-                          />
-                        </Field>
-                      ))}
-                    </div>
-                    <Field label="תשובה">
-                      <Textarea
-                        value={afterExperienceForDisplay(salesFlowConfig.after_experience, firstTrialSvcForWarmup)}
-                        onChange={(v) =>
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            after_experience: afterExperienceToStore(v, firstTrialSvcForWarmup),
-                          }))
-                        }
-                        rows={3}
-                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
-                      />
-                    </Field>
+                    <WarmupButtonPairsEditor
+                      options={salesFlowConfig.experience_options}
+                      replies={salesFlowConfig.experience_replies}
+                      onChange={(nextOptions, nextReplies) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          experience_options: nextOptions,
+                          experience_replies: nextReplies,
+                        }))
+                      }
+                      afterExperienceForDisplay={afterExperienceForDisplay}
+                      afterExperienceToStore={afterExperienceToStore}
+                      serviceForReply={firstTrialSvcForWarmup}
+                    />
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps}
                       onChange={(next) => setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))}
                       addButtonLabel="הוסף שאלה בסשן חימום"
                       startAt={2}
                       uid={uid}
+                      afterExperienceForDisplay={afterExperienceForDisplay}
+                      afterExperienceToStore={afterExperienceToStore}
+                      serviceForReply={firstTrialSvcForWarmup}
                     />
                   </>
                 ) : null}
@@ -850,41 +912,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         placeholder="למשל: איזו ציפייה יש לך מהסדנה?"
                       />
                     </Field>
-                    <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {([0, 1, 2] as const).map((i) => (
-                        <Field key={i} label={`כפתור ${i + 1}`}>
-                          <Input
-                            dir="rtl"
-                            value={salesFlowConfig.experience_options_workshop?.[i] ?? ""}
-                            onChange={(e) => {
-                              const cur =
-                                salesFlowConfig.experience_options_workshop ??
-                                (["", "", ""] as [string, string, string]);
-                              const next = [...cur] as [string, string, string];
-                              next[i] = e.target.value;
-                              setSalesFlowConfig((c) => ({ ...c, experience_options_workshop: next }));
-                            }}
-                          />
-                        </Field>
-                      ))}
-                    </div>
-                    <Field label="תשובה">
-                      <Textarea
-                        value={afterExperienceForDisplay(
-                          salesFlowConfig.after_experience_workshop ?? salesFlowConfig.after_experience,
-                          firstWorkshopSvcForWarmup
-                        )}
-                        onChange={(v) =>
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            after_experience_workshop: afterExperienceToStore(v, firstWorkshopSvcForWarmup),
-                          }))
-                        }
-                        rows={3}
-                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
-                      />
-                    </Field>
+                    <WarmupButtonPairsEditor
+                      options={salesFlowConfig.experience_options_workshop ?? []}
+                      replies={salesFlowConfig.experience_replies_workshop ?? []}
+                      onChange={(nextOptions, nextReplies) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          experience_options_workshop: nextOptions,
+                          experience_replies_workshop: nextReplies,
+                        }))
+                      }
+                      afterExperienceForDisplay={afterExperienceForDisplay}
+                      afterExperienceToStore={afterExperienceToStore}
+                      serviceForReply={firstWorkshopSvcForWarmup}
+                    />
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps_workshop ?? []}
                       onChange={(next) =>
@@ -893,6 +934,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       addButtonLabel="הוסף שאלה בסשן חימום (סדנה)"
                       startAt={2}
                       uid={uid}
+                      afterExperienceForDisplay={afterExperienceForDisplay}
+                      afterExperienceToStore={afterExperienceToStore}
+                      serviceForReply={firstWorkshopSvcForWarmup}
                     />
                   </>
                 ) : null}
@@ -916,40 +960,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         placeholder="למשל: יש לך ניסיון קודם בתחום?"
                       />
                     </Field>
-                    <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {([0, 1, 2] as const).map((i) => (
-                        <Field key={i} label={`כפתור ${i + 1}`}>
-                          <Input
-                            dir="rtl"
-                            value={salesFlowConfig.experience_options_course?.[i] ?? ""}
-                            onChange={(e) => {
-                              const cur =
-                                salesFlowConfig.experience_options_course ?? (["", "", ""] as [string, string, string]);
-                              const next = [...cur] as [string, string, string];
-                              next[i] = e.target.value;
-                              setSalesFlowConfig((c) => ({ ...c, experience_options_course: next }));
-                            }}
-                          />
-                        </Field>
-                      ))}
-                    </div>
-                    <Field label="תשובה">
-                      <Textarea
-                        value={afterExperienceForDisplay(
-                          salesFlowConfig.after_experience_course ?? salesFlowConfig.after_experience,
-                          firstCourseSvcForWarmup
-                        )}
-                        onChange={(v) =>
-                          setSalesFlowConfig((c) => ({
-                            ...c,
-                            after_experience_course: afterExperienceToStore(v, firstCourseSvcForWarmup),
-                          }))
-                        }
-                        rows={3}
-                        placeholder="משפט מעודד קצר לפני המשך הפלואו…"
-                      />
-                    </Field>
+                    <WarmupButtonPairsEditor
+                      options={salesFlowConfig.experience_options_course ?? []}
+                      replies={salesFlowConfig.experience_replies_course ?? []}
+                      onChange={(nextOptions, nextReplies) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          experience_options_course: nextOptions,
+                          experience_replies_course: nextReplies,
+                        }))
+                      }
+                      afterExperienceForDisplay={afterExperienceForDisplay}
+                      afterExperienceToStore={afterExperienceToStore}
+                      serviceForReply={firstCourseSvcForWarmup}
+                    />
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps_course ?? []}
                       onChange={(next) =>
@@ -961,6 +985,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       addButtonLabel="הוסף שאלה בסשן חימום (קורס)"
                       startAt={2}
                       uid={uid}
+                      afterExperienceForDisplay={afterExperienceForDisplay}
+                      afterExperienceToStore={afterExperienceToStore}
+                      serviceForReply={firstCourseSvcForWarmup}
                     />
                   </>
                 ) : null}
