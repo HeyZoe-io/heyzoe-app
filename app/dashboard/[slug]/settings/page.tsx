@@ -98,8 +98,8 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
-/** אחרי עריכת תיאור באימון ניסיון — ג׳נרט «בחירת סוג האימון» בטאב מכירה (debounced) */
-const TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS = 1000;
+/** אחרי עריכת תיאור מוצר — עדכון שורת תועלת בלבד (debounced), בלי לדרוס הגדרות מסלול מכירה */
+const TRIAL_DESCRIPTION_BENEFIT_REGEN_DEBOUNCE_MS = 1000;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
 const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
 
@@ -1892,6 +1892,52 @@ export default function SlugSettingsPage({
       });
   }, []);
 
+  const buildBenefitLineFromService = useCallback((service: ServiceItem) => {
+    const serviceName = service.name.trim();
+    if (!serviceName) return service;
+    const parsed = parseStoredServiceDescription(service.description);
+    const meta = parsed.meta;
+    const descriptionText = parsed.descriptionTextForUi;
+    const benefits = Array.isArray(meta.benefits)
+      ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    const suggestions = Array.isArray(meta.benefit_suggestions)
+      ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
+      : [];
+    return {
+      ...service,
+      benefit_line: buildServiceReplyDraft(
+        serviceName,
+        descriptionText,
+        "",
+        benefits,
+        suggestions,
+        service.levels_enabled,
+        service.levels
+      ),
+    };
+  }, []);
+
+  /** עדכון אוטומטי של שורת תועלת מתיאור המוצר — לא נוגע בשאלות/תשובות בטאב מכירה */
+  const regenerateServiceBenefitLinesFromDescriptions = useCallback(
+    (mode: "auto" | "all" = "auto") => {
+      setServices((prev) =>
+        prev.map((service) => {
+          const serviceName = service.name.trim();
+          if (!serviceName) return service;
+          if (mode === "auto") {
+            const prevBenefit = String(service.benefit_line ?? "");
+            const shouldAuto =
+              !prevBenefit.trim() || isLegacyGeneratedServiceReply(prevBenefit, serviceName);
+            if (!shouldAuto) return service;
+          }
+          return buildBenefitLineFromService(service);
+        })
+      );
+    },
+    [buildBenefitLineFromService]
+  );
+
   const regenerateSalesFlowSection = useCallback(
     (
       section:
@@ -1902,6 +1948,9 @@ export default function SlugSettingsPage({
         | "after_trial_registration"
     ) => {
       const base = defaultSalesFlowConfig(vibe);
+      if (section === "service_pick") {
+        regenerateServiceBenefitLinesFromDescriptions("all");
+      }
       setSalesFlowConfig((c) => {
         if (!c) return base;
         if (section === "opening") {
@@ -1916,33 +1965,6 @@ export default function SlugSettingsPage({
           };
         }
         if (section === "service_pick") {
-          setServices((prev) =>
-            prev.map((service) => {
-              const serviceName = service.name.trim();
-              if (!serviceName) return service;
-              const parsed = parseStoredServiceDescription(service.description);
-              const meta = parsed.meta;
-              const descriptionText = parsed.descriptionTextForUi;
-              const benefits = Array.isArray(meta.benefits)
-                ? meta.benefits.map((x) => String(x ?? "").trim()).filter(Boolean)
-                : [];
-              const suggestions = Array.isArray(meta.benefit_suggestions)
-                ? meta.benefit_suggestions.map((x) => String(x ?? "").trim()).filter(Boolean)
-                : [];
-              return {
-                ...service,
-                benefit_line: buildServiceReplyDraft(
-                  serviceName,
-                  descriptionText,
-                  "",
-                  benefits,
-                  suggestions,
-                  service.levels_enabled,
-                  service.levels
-                ),
-              };
-            })
-          );
           return {
             ...c,
             multi_service_question: base.multi_service_question,
@@ -1992,7 +2014,7 @@ export default function SlugSettingsPage({
         };
       });
     },
-    [vibe]
+    [regenerateServiceBenefitLinesFromDescriptions, vibe]
   );
 
   const regenerateSalesFlowSectionBusy = useCallback(
@@ -2025,17 +2047,9 @@ export default function SlugSettingsPage({
     }
     trialDescSalesRegenTimerRef.current = window.setTimeout(() => {
       trialDescSalesRegenTimerRef.current = null;
-      regenerateSalesFlowSectionBusy("service_pick");
-    }, TRIAL_DESCRIPTION_SALES_REGEN_DEBOUNCE_MS);
-  }, [regenerateSalesFlowSectionBusy]);
-
-  const flushAutoRegenSalesFromTrialDescription = useCallback(() => {
-    if (trialDescSalesRegenTimerRef.current) {
-      window.clearTimeout(trialDescSalesRegenTimerRef.current);
-      trialDescSalesRegenTimerRef.current = null;
-    }
-    regenerateSalesFlowSectionBusy("service_pick");
-  }, [regenerateSalesFlowSectionBusy]);
+      regenerateServiceBenefitLinesFromDescriptions("auto");
+    }, TRIAL_DESCRIPTION_BENEFIT_REGEN_DEBOUNCE_MS);
+  }, [regenerateServiceBenefitLinesFromDescriptions]);
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
@@ -2643,7 +2657,6 @@ export default function SlugSettingsPage({
             busyAction={busyAction}
             runBusy={runBusy}
             scheduleAutoRegenSalesFromTrialDescription={scheduleAutoRegenSalesFromTrialDescription}
-            flushAutoRegenSalesFromTrialDescription={flushAutoRegenSalesFromTrialDescription}
             scheduleDirectRegistration={scheduleDirectRegistration}
             scheduleUrl={(scheduleScanImageUrl.trim() || arboxLink).trim()}
           />

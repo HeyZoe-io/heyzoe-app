@@ -47,6 +47,10 @@ import {
   resolveTrialCtaBodyTemplate,
   resolveAfterTrialRegistrationBodyTemplate,
   resolveWarmupExperienceConfig,
+  buildDefaultMultiServiceQuestion,
+  buildScheduleSlotPickQuestion,
+  resolveScheduleBoardAssets,
+  splitMultiServiceQuestionForWhatsApp,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
 import {
@@ -142,6 +146,7 @@ import {
   formatSlotPickButtonLabel,
   formatYomForContactSlotDate,
   scheduleSlotPickLabelsMatch,
+  filterConfiguredProductScheduleSlots,
 } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
@@ -457,14 +462,9 @@ function heDayOfWeekForDm(dm: string): string | null {
   }
 }
 
-function buildScheduleDateQuestion(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
-  const scheduleLink = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
+function buildScheduleDateQuestion(_knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
   const serviceName = service?.name?.trim() || "האימון";
-  return [
-    `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink || "מערכת השעות תתעדכן בקרוב"}`,
-    `מתי נוח לך להגיע ל${serviceName}?`,
-    "בחרו מועד מהכפתורים למטה.",
-  ].join("\n");
+  return [buildScheduleSlotPickQuestion(serviceName), "בחרו מועד מהכפתורים למטה."].join("\n");
 }
 
 function buildScheduleTimeQuestion(service: SfServiceRow | null): string {
@@ -571,6 +571,83 @@ async function sendScheduleSelectionTimeQuestion(input: {
 const SCHEDULE_SLOT_PICK_MAX = 10;
 const SCHEDULE_PICK_CHANGE_SERVICE_LABEL = "בחירת אימון אחר";
 
+function scheduleBoardAssetsFromKnowledge(knowledge: BusinessKnowledgePack, blockMedia: boolean) {
+  const schedBtn = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
+  return resolveScheduleBoardAssets({
+    schedulePublicUrl: knowledge.schedulePublicUrl,
+    arboxLink: knowledge.arboxLink,
+    scheduleScanImageUrl: knowledge.scheduleScanImageUrl,
+    scheduleCtaImageUrl: schedBtn?.schedule_cta_image_url,
+    blockMedia,
+  });
+}
+
+async function sendOpeningServicePickMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  blockMedia?: boolean;
+  modelUsed?: string;
+}): Promise<boolean> {
+  const cfg = input.knowledge.salesFlowConfig;
+  if (!cfg) return false;
+  const labels = input.salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
+  if (labels.length < 2) return false;
+
+  const qRaw = String(cfg.multi_service_question ?? "").trim() || buildDefaultMultiServiceQuestion();
+  const assets = scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockMedia ?? false);
+  const split = splitMultiServiceQuestionForWhatsApp(qRaw, assets);
+
+  if (split.sendScheduleMedia && assets.scheduleImgUrl) {
+    await sendWhatsAppMediaMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      assets.scheduleImgUrl,
+      input.accountSid,
+      input.authToken,
+      split.mediaCaption,
+      "image"
+    )
+      .then(async () => {
+        await logMessage({
+          business_slug: input.business_slug,
+          role: "assistant",
+          content: `[media] ${assets.scheduleImgUrl}\n\n${split.mediaCaption}`,
+          model_used: "sales_flow_service_pick_schedule_image",
+          session_id: input.sessionId,
+        });
+        await sleepMs(900);
+      })
+      .catch((e) => console.error("[WA Webhook] Send schedule image (service pick) failed:", e));
+  }
+
+  const body = split.menuBody.trim() || buildDefaultMultiServiceQuestion();
+  const modelUsed = input.modelUsed ?? "flow_continuation_opening_service_pick";
+  if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
+    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
+      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+    });
+  } else {
+    const numbered = labels.map((l, i) => `${i + 1}. ${l}`).join("\n");
+    const full = `${body}\n\n${numbered}`;
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, full, input.accountSid, input.authToken).catch((e) =>
+      console.error("[WA Webhook] Send service pick menu (Twilio) failed:", e)
+    );
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: formatInteractiveConversationLog(split.logBody, labels),
+    model_used: modelUsed,
+    session_id: input.sessionId,
+  });
+  return true;
+}
+
 async function sendScheduleSlotPickMenu(input: {
   knowledge: BusinessKnowledgePack;
   selectedService: SfServiceRow | null;
@@ -601,38 +678,8 @@ async function sendScheduleSlotPickMenu(input: {
 
   const labels = slots.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1)).map((s) => formatSlotPickButtonLabel(s));
   labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
-  const link = (input.knowledge.schedulePublicUrl?.trim() || input.knowledge.arboxLink?.trim() || "").trim();
   const serviceName = input.selectedService?.name?.trim() || "האימון";
-  const cfg = input.knowledge.salesFlowConfig;
-  const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
-  const scheduleImgUrl =
-    String(schedBtn?.schedule_cta_image_url ?? "").trim() || String(input.knowledge.scheduleScanImageUrl ?? "").trim();
-  const canSendScheduleImage =
-    scheduleImgUrl.length > 0 &&
-    !input.blockMedia;
-
-  if (canSendScheduleImage) {
-    const cap = "כאן ניתן לראות את מערכת השעות שלנו";
-    await sendWhatsAppMediaMessage(input.msg.toNumber, input.msg.from, scheduleImgUrl, input.accountSid, input.authToken, cap, "image")
-      .then(async () => {
-        await logMessage({
-          business_slug: input.business_slug,
-          role: "assistant",
-          content: cap ? `[media] ${scheduleImgUrl}\n\n${cap}` : `[media] ${scheduleImgUrl}`,
-          model_used: "sales_flow_schedule_image",
-          session_id: input.sessionId,
-        });
-        await sleepMs(900);
-      })
-      .catch((e) => console.error("[WA Webhook] Send schedule image (schedule pick) failed:", e));
-  }
-
-  const introLines = [
-    canSendScheduleImage
-      ? `מתי נוח לך להגיע ל${serviceName}?`
-      : `כאן ניתן לראות את מערכת השעות שלנו: ${link || "מערכת השעות תתעדכן בקרוב"}\n\nמתי נוח לך להגיע ל${serviceName}?`,
-  ];
-  const body = stripTrailingNumberedChoiceLines(introLines.join("\n\n"));
+  const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName));
 
   let outboundLog = body;
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
@@ -1420,18 +1467,15 @@ async function sendFlowContinuation(input: {
     }
 
     if (salesFlowServices.length > 1) {
-      const q = cfg.multi_service_question.trim();
-      const labels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
-      if (!q || labels.length < 2) return;
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, labels, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-      }).catch((e) => console.error("[WA Webhook] flow continuation opening services failed:", e));
-      await logMessage({
+      await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
         business_slug,
-        role: "assistant",
-        content: formatInteractiveConversationLog(q, labels),
-        model_used: "flow_continuation_opening_service_pick",
-        session_id: sessionId,
+        sessionId,
+        blockMedia: blockTrialPickMedia,
       });
       return;
     }
@@ -2228,8 +2272,10 @@ async function processIncoming(
                 courseEndDate: String(meta.course_end_date ?? "").trim(),
                 scheduleSlots: (() => {
                   let c = 0;
-                  return normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${c++}`).map(
-                    ({ day, time }) => ({ day, time })
+                  return filterConfiguredProductScheduleSlots(
+                    normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${c++}`).map(
+                      ({ day, time }) => ({ day, time })
+                    )
                   );
                 })(),
               };
@@ -2907,18 +2953,15 @@ async function processIncoming(
       contactSessionPhase = "opening";
       contactFlowStep = 0;
 
-      const cfg = knowledge.salesFlowConfig;
-      const serviceLabels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
-      const q = String(cfg?.multi_service_question ?? "").trim() || "איזה אימון הכי קורץ לך?";
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, serviceLabels, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-      }).catch((e) => console.error("[WA Webhook] change service (global): send opening menu failed:", e));
-      await logMessage({
+      await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
         business_slug,
-        role: "assistant",
-        content: formatInteractiveConversationLog(q, serviceLabels),
-        model_used: "flow_continuation_opening_service_pick",
-        session_id: sessionId,
+        sessionId,
+        blockMedia: starterBlocksMedia,
       });
       return;
     }
@@ -2980,18 +3023,15 @@ async function processIncoming(
           contactScheduleRequestedTime = "";
           contactSessionPhase = "opening";
           contactFlowStep = 0;
-          const cfg = knowledge?.salesFlowConfig;
-          const serviceLabels = salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
-          const q = String(cfg?.multi_service_question ?? "").trim() || "איזה אימון הכי קורץ לך?";
-          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, q, serviceLabels, accountSid, authToken, {
-            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-          }).catch((e) => console.error("[WA Webhook] change service: send opening menu failed:", e));
-          await logMessage({
+          await sendOpeningServicePickMenu({
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
             business_slug,
-            role: "assistant",
-            content: formatInteractiveConversationLog(q, serviceLabels),
-            model_used: "flow_continuation_opening_service_pick",
-            session_id: sessionId,
+            sessionId,
+            blockMedia: starterBlocksMedia,
           });
           return;
           }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { HEBREW_DAY_OPTIONS } from "@/lib/product-schedule-slots";
+import { HEBREW_DAY_OPTIONS, createEmptyProductScheduleSlot } from "@/lib/product-schedule-slots";
 import { StepPanel } from "../settings-ui";
 import {
   SALES_PATH_INPUT,
@@ -263,10 +263,8 @@ export default function Step3Trial(props: {
   videoUrlForPreview: (url: string) => string;
   busyAction: string | null;
   runBusy: (key: string, fn: () => void | Promise<void>) => void;
-  /** לאחר עדכון תיאור באימון — debounce לג׳נרט «בחירת סוג האימון» בטאב מכירה */
+  /** לאחר עדכון תיאור מוצר — debounce לעדכון שורת תועלת בלבד (לא דורס טאב מכירה) */
   scheduleAutoRegenSalesFromTrialDescription?: () => void;
-  /** אחרי «ג׳נרט» ליד התיאור — מיידית (לא מחכה ל-debounce) */
-  flushAutoRegenSalesFromTrialDescription?: () => void;
   /** כבוי = מערכת שעות לא־אינטראקטיבית — מציג מועדי לוח למוצר */
   scheduleDirectRegistration: boolean;
   /** לינק מערכת השעות (טאב לינקים) */
@@ -296,7 +294,6 @@ export default function Step3Trial(props: {
     busyAction,
     runBusy,
     scheduleAutoRegenSalesFromTrialDescription,
-    flushAutoRegenSalesFromTrialDescription,
     scheduleDirectRegistration,
     scheduleUrl,
   } = props;
@@ -725,7 +722,6 @@ export default function Step3Trial(props: {
                             };
                           })
                         );
-                        flushAutoRegenSalesFromTrialDescription?.();
                       });
                     }}
                   >
@@ -777,7 +773,10 @@ export default function Step3Trial(props: {
                       const arr = [...services];
                       arr[i] = {
                         ...s,
-                        schedule_slots: sortScheduleSlots([...(s.schedule_slots ?? []), { id: uid(), day: "א", time: "19:00" }]),
+                        schedule_slots: sortScheduleSlots([
+                          ...(s.schedule_slots ?? []),
+                          createEmptyProductScheduleSlot(uid),
+                        ]),
                       };
                       setServices(arr);
                     }}
@@ -810,7 +809,7 @@ export default function Step3Trial(props: {
                         <select
                           dir="rtl"
                           className={PRODUCT_INPUT}
-                          value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : "א"}
+                          value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : ""}
                           onChange={(e) => {
                             const arr = [...services];
                             const slots = [...(arr[i]!.schedule_slots ?? [])];
@@ -819,6 +818,7 @@ export default function Step3Trial(props: {
                             setServices(arr);
                           }}
                         >
+                          <option value="">בחר</option>
                           {HEBREW_DAY_OPTIONS.map((o) => (
                             <option key={o.value} value={o.value}>
                               {o.label}
@@ -831,7 +831,7 @@ export default function Step3Trial(props: {
                         <Input
                           dir="ltr"
                           className={`${PRODUCT_INPUT} font-mono text-sm text-left`}
-                          placeholder="19:00"
+                          placeholder="00:00"
                           inputMode="numeric"
                           maxLength={5}
                           value={slot.time}

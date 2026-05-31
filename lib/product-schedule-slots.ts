@@ -21,6 +21,25 @@ export const HEBREW_DAY_OPTIONS: { value: string; label: string }[] = [
 
 const DAY_SET = new Set(HEBREW_DAY_OPTIONS.map((o) => o.value));
 
+/** יום לא נבחר בדשבורד — לא נשלח לווטסאפ */
+export const SCHEDULE_SLOT_DAY_UNSET = "";
+
+export function isConfiguredProductScheduleSlot(slot: { day: string; time: string }): boolean {
+  const day = normalizeDayLetter(slot.day);
+  const time = normalizeTimeHHMM(slot.time);
+  return Boolean(day && time);
+}
+
+export function filterConfiguredProductScheduleSlots<T extends { day: string; time: string }>(
+  slots: readonly T[]
+): T[] {
+  return slots.filter(isConfiguredProductScheduleSlot);
+}
+
+export function createEmptyProductScheduleSlot(newId: () => string): ProductScheduleSlot {
+  return { id: newId(), day: SCHEDULE_SLOT_DAY_UNSET, time: "00:00" };
+}
+
 function normalizeDayLetter(raw: string): string {
   const t = String(raw ?? "").trim();
   if (!t) return "";
@@ -48,11 +67,13 @@ export function normalizeProductScheduleSlotsFromMeta(raw: unknown, newId: () =>
   for (const row of raw) {
     if (!row || typeof row !== "object") continue;
     const o = row as Record<string, unknown>;
-    const day = normalizeDayLetter(String(o.day ?? o.day_letter ?? ""));
-    const time = normalizeTimeHHMM(String(o.time ?? ""));
-    if (!day || !time) continue;
+    const dayRaw = String(o.day ?? o.day_letter ?? "").trim();
+    const day = dayRaw === "" ? SCHEDULE_SLOT_DAY_UNSET : normalizeDayLetter(dayRaw);
+    const timeRaw = String(o.time ?? "").trim();
+    const time = normalizeTimeHHMM(timeRaw) || (timeRaw.length > 0 ? timeRaw : "00:00");
+    if (day === SCHEDULE_SLOT_DAY_UNSET && !timeRaw) continue;
     const id = String(o.id ?? "").trim() || newId();
-    out.push({ id, day, time });
+    out.push({ id, day: day || SCHEDULE_SLOT_DAY_UNSET, time });
   }
   return out;
 }
@@ -84,6 +105,7 @@ export function scheduleSlotPickLabelsMatch(a: string, b: string): boolean {
 }
 
 export function formatScheduleSlotsForKnowledge(slots: ProductScheduleSlot[]): string {
-  if (!slots.length) return "";
-  return slots.map((s) => `${formatYomForContactSlotDate(s.day)} ${s.time}`).join(", ");
+  const configured = filterConfiguredProductScheduleSlots(slots);
+  if (!configured.length) return "";
+  return configured.map((s) => `${formatYomForContactSlotDate(s.day)} ${s.time}`).join(", ");
 }
