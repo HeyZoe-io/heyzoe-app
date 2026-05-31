@@ -42,10 +42,12 @@ export async function GET(req: NextRequest) {
   const cutoffIso = new Date(now - NO_RESPONSE_AFTER_MS).toISOString();
   const channelByBusinessId = new Map<number, ChannelRow | null>();
 
+  const statusSelect = "id, phone, business_id, session_phase, wa_no_response_due_at";
+
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
     .from("contacts")
-    .select("id, phone, business_id, session_phase, wa_no_response_due_at")
+    .select(statusSelect)
     .eq("source", "whatsapp")
     .or("opted_out.eq.false,opted_out.is.null")
     .or("trial_registered.eq.false,trial_registered.is.null")
@@ -80,6 +82,32 @@ export async function GET(req: NextRequest) {
     } else {
       console.error("[cron/wa-status-check] contacts query:", error);
       return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    }
+  } else {
+    const seen = new Set((contacts ?? []).map((c) => String((c as { id?: unknown }).id ?? "")));
+    const room = Math.max(0, BATCH - (contacts?.length ?? 0));
+    if (room > 0) {
+      const { data: nullDueRows, error: nullDueErr } = await admin
+        .from("contacts")
+        .select(statusSelect)
+        .eq("source", "whatsapp")
+        .or("opted_out.eq.false,opted_out.is.null")
+        .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("wa_no_response_at", null)
+        .is("wa_no_response_due_at", null)
+        .not("last_contact_at", "is", null)
+        .lt("last_contact_at", cutoffIso)
+        .limit(room);
+      if (nullDueErr) {
+        console.warn("[cron/wa-status-check] null due-at supplement query:", nullDueErr.message);
+      } else {
+        for (const row of nullDueRows ?? []) {
+          const id = String((row as { id?: unknown }).id ?? "");
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          contacts = [...(contacts ?? []), row];
+        }
+      }
     }
   }
 

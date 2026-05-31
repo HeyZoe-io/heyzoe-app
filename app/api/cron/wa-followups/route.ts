@@ -309,20 +309,23 @@ export async function GET(req: NextRequest) {
 
   const nowIso = new Date().toISOString();
   const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
+
+  const followupSelect =
+    "id, phone, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered";
 
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
     .from("contacts")
-    .select(
-      "id, phone, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
-    )
+    .select(followupSelect)
     .eq("source", "whatsapp")
     .or("opted_out.eq.false,opted_out.is.null")
     .or("trial_registered.eq.false,trial_registered.is.null")
     .lt("wa_followup_stage", 3)
     .not("wa_next_followup_at", "is", null)
+    .not("last_contact_at", "is", null)
+    .gte("last_contact_at", cutoff24hIso)
     .lte("wa_next_followup_at", nowIso)
-    .gte("wa_next_followup_at", cutoff24hIso)
     .limit(BATCH);
   contacts = (contactsData as any[] | null) ?? null;
 
@@ -330,18 +333,16 @@ export async function GET(req: NextRequest) {
     const msg = String(error.message ?? "");
     // Back-compat: if due-at columns are not deployed yet, fall back to last_contact_at window.
     if (/wa_next_followup_at|column/i.test(msg)) {
-      const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
       const { data: legacy, error: legacyErr } = await admin
         .from("contacts")
-        .select(
-          "id, phone, business_id, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered"
-        )
+        .select(followupSelect)
         .eq("source", "whatsapp")
         .or("opted_out.eq.false,opted_out.is.null")
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .lt("wa_followup_stage", 3)
+        .not("last_contact_at", "is", null)
         .lt("last_contact_at", cutoff20mIso)
         .gte("last_contact_at", cutoff24hIso)
-        .lt("wa_followup_stage", 3)
         .limit(BATCH);
       if (legacyErr) {
         console.error("[cron/wa-followups] contacts query (legacy):", legacyErr);
@@ -351,6 +352,35 @@ export async function GET(req: NextRequest) {
     } else {
       console.error("[cron/wa-followups] contacts query:", error);
       return NextResponse.json({ error: "query_failed" }, { status: 500 });
+    }
+  } else {
+    // לידים עם wa_next_followup_at ריק (לפני backfill / טריגר) — עדיין בתוך חלון 24ש׳ לפי last_contact_at
+    const seen = new Set((contacts ?? []).map((c) => String((c as { id?: unknown }).id ?? "")));
+    const room = Math.max(0, BATCH - (contacts?.length ?? 0));
+    if (room > 0) {
+      const { data: nullDueRows, error: nullDueErr } = await admin
+        .from("contacts")
+        .select(followupSelect)
+        .eq("source", "whatsapp")
+        .or("opted_out.eq.false,opted_out.is.null")
+        .or("trial_registered.eq.false,trial_registered.is.null")
+        .lt("wa_followup_stage", 3)
+        .is("wa_next_followup_at", null)
+        .is("wa_no_response_at", null)
+        .not("last_contact_at", "is", null)
+        .lt("last_contact_at", cutoff20mIso)
+        .gte("last_contact_at", cutoff24hIso)
+        .limit(room);
+      if (nullDueErr) {
+        console.warn("[cron/wa-followups] null due-at supplement query:", nullDueErr.message);
+      } else {
+        for (const row of nullDueRows ?? []) {
+          const id = String((row as { id?: unknown }).id ?? "");
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          contacts = [...(contacts ?? []), row];
+        }
+      }
     }
   }
 
