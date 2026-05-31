@@ -22,9 +22,23 @@ function pickEarliest(rows: PresencePayload[]): PresencePayload | null {
   })[0] ?? null;
 }
 
+function uniqueOtherEditorNames(rows: PresencePayload[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const row of rows) {
+    const uid = String(row.user_id ?? "").trim();
+    const dedupeKey = uid || String(row.client_id ?? "").trim();
+    if (!dedupeKey || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    names.push(String(row.name ?? "").trim() || "משתמש אחר");
+  }
+  return names;
+}
+
 export default function SettingsPresenceClient({ slug }: { slug: string }) {
   const [settingsPresenceLocked, setSettingsPresenceLocked] = useState(false);
   const [settingsPresenceEditorName, setSettingsPresenceEditorName] = useState("");
+  const [settingsPresenceConcurrentNames, setSettingsPresenceConcurrentNames] = useState<string[]>([]);
   const settingsPresenceClientIdRef = useRef("");
 
   useEffect(() => {
@@ -32,6 +46,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
     if (!businessSlug) return;
 
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
     const supabase = createSupabaseBrowserClient();
     let presenceChannel: ReturnType<typeof supabase.channel> | null = null;
     const clientId =
@@ -53,7 +68,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
         "משתמש";
 
       const channel = supabase.channel(`${SETTINGS_PRESENCE_PREFIX}-${businessSlug}`, {
-        config: { presence: { key: clientId } },
+        config: { presence: { key: clientId, enabled: true } },
       });
       presenceChannel = channel;
 
@@ -76,6 +91,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
 
         const currentEditor = pickEarliest(currentUserPresences);
         const otherEditor = pickEarliest(otherUserPresences);
+        const concurrentNames = uniqueOtherEditorNames(otherUserPresences);
         const shouldLock = Boolean(
           otherEditor &&
             (!currentEditor ||
@@ -84,27 +100,38 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
 
         setSettingsPresenceLocked(shouldLock);
         setSettingsPresenceEditorName(shouldLock ? String(otherEditor?.name ?? "משתמש אחר").trim() : "");
+        setSettingsPresenceConcurrentNames(concurrentNames);
       };
 
       channel
         .on("presence", { event: "sync" }, updateLockState)
         .on("presence", { event: "join" }, updateLockState)
         .on("presence", { event: "leave" }, updateLockState)
-        .subscribe((status) => {
-          if (status !== "SUBSCRIBED" || cancelled) return;
-          void channel.track({
+        .subscribe(async (status, err) => {
+          if (cancelled) return;
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.warn("[SettingsPresence] realtime channel failed:", status, err);
+            return;
+          }
+          if (status !== "SUBSCRIBED") return;
+          const trackStatus = await channel.track({
             client_id: clientId,
             user_id: userId,
             name: userName,
             online_at: new Date().toISOString(),
           });
+          if (trackStatus !== "ok") {
+            console.warn("[SettingsPresence] track failed:", trackStatus);
+          }
+          updateLockState();
         });
 
-      updateLockState();
+      pollTimer = setInterval(updateLockState, 2500);
     })();
 
     return () => {
       cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
       if (presenceChannel) {
         void presenceChannel.untrack();
         void supabase.removeChannel(presenceChannel);
@@ -116,6 +143,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
     <SettingsClient
       settingsPresenceLocked={settingsPresenceLocked}
       settingsPresenceEditorName={settingsPresenceEditorName}
+      settingsPresenceConcurrentNames={settingsPresenceConcurrentNames}
     />
   );
 }

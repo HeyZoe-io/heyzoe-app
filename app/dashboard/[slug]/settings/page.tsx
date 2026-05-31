@@ -889,14 +889,24 @@ function InstagramGlyph({ className }: { className?: string }) {
   );
 }
 
+function formatConcurrentEditorNames(names: string[]): string {
+  const cleaned = names.map((n) => n.trim()).filter(Boolean);
+  if (!cleaned.length) return "משתמש אחר";
+  if (cleaned.length === 1) return cleaned[0]!;
+  if (cleaned.length === 2) return `${cleaned[0]} ו${cleaned[1]}`;
+  return `${cleaned.slice(0, -1).join(", ")} ו${cleaned[cleaned.length - 1]}`;
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SlugSettingsPage({
   settingsPresenceLocked = false,
   settingsPresenceEditorName = "",
+  settingsPresenceConcurrentNames = [],
 }: {
   settingsPresenceLocked?: boolean;
   settingsPresenceEditorName?: string;
+  settingsPresenceConcurrentNames?: string[];
 } = {}) {
   const { slug } = useParams() as { slug: string };
   const router = useRouter();
@@ -2303,6 +2313,7 @@ export default function SlugSettingsPage({
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
   const effectiveCanAutosave = canAutosave && !settingsPresenceLocked;
+  const concurrentEditorsLabel = formatConcurrentEditorNames(settingsPresenceConcurrentNames);
 
   function nextStep() {
     setStep((s) => Math.min(STEPS.length, s + 1));
@@ -2326,6 +2337,13 @@ export default function SlugSettingsPage({
                 עורך כרגע: {settingsPresenceEditorName}
               </span>
             ) : null}
+          </div>
+        ) : settingsPresenceConcurrentNames.length > 0 ? (
+          <div
+            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right text-sm font-medium text-amber-800"
+            role="status"
+          >
+            {concurrentEditorsLabel} עורכ/ים גם כרגע את ההגדרות. שימו לב — שינויים עלולים להידרס.
           </div>
         ) : null}
 
