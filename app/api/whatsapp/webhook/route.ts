@@ -45,7 +45,7 @@ import {
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
   resolveTrialCtaBodyTemplate,
-  resolveAfterTrialRegistrationBodyTemplate,
+  resolveAfterRegistrationBodyTemplate,
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
   fillAfterCourseCyclePickTemplate,
@@ -2664,20 +2664,31 @@ async function processIncoming(
           salesFlowServices.find((service) => service.name === selectedServiceName) ??
           salesFlowServices[0] ??
           null;
-        const serviceName = selectedService?.name?.trim() || selectedServiceName.trim() || "האימון";
+        const regOfferKind = selectedService?.offerKind ?? "trial";
+        const regServiceFallback =
+          regOfferKind === "workshop" ? "הסדנה" : regOfferKind === "course" ? "הקורס" : "האימון";
+        const serviceName =
+          selectedService?.name?.trim() || selectedServiceName.trim() || regServiceFallback;
 
-        let bodyTemplate =
-          (useScheduleRegistrationTemplate
-            ? resolveAfterTrialRegistrationBodyTemplate(sfCfg, true)
-            : sfCfg.after_trial_registration_body)?.trim() ||
-          defaultSalesFlowConfig(knowledge.vibeLabels ?? []).after_trial_registration_body;
+        let bodyTemplate = resolveAfterRegistrationBodyTemplate(
+          sfCfg,
+          regOfferKind,
+          useScheduleRegistrationTemplate
+        ).trim();
+        if (!bodyTemplate) {
+          bodyTemplate = resolveAfterRegistrationBodyTemplate(
+            defaultSalesFlowConfig(knowledge.vibeLabels ?? []),
+            regOfferKind,
+            useScheduleRegistrationTemplate
+          ).trim();
+        }
 
         if (
           !useScheduleRegistrationTemplate &&
           hasScheduleSelection &&
           (bodyTemplate.includes("{requested_date}") || bodyTemplate.includes("{requested_time}"))
         ) {
-          const scheduleBody = resolveAfterTrialRegistrationBodyTemplate(sfCfg, true).trim();
+          const scheduleBody = resolveAfterRegistrationBodyTemplate(sfCfg, regOfferKind, true).trim();
           if (scheduleBody) bodyTemplate = scheduleBody;
         }
 
@@ -2703,10 +2714,13 @@ async function processIncoming(
               }
             : undefined
         );
-        const outText =
-          delivered.trim().length > 0
-            ? delivered
-            : "תודה על ההרשמה! נתראה באימון 🎉";
+        const outTextFallback =
+          regOfferKind === "workshop"
+            ? "תודה על ההרשמה! נתראה בסדנה 🎉"
+            : regOfferKind === "course"
+              ? "תודה על ההרשמה! נתראה בקורס 🎉"
+              : "תודה על ההרשמה! נתראה באימון 🎉";
+        const outText = delivered.trim().length > 0 ? delivered : outTextFallback;
 
         const { error: upErr } = await supabase
           .from("contacts")

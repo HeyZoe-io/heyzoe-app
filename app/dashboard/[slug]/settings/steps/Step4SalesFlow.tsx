@@ -359,6 +359,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const isGen = (section: string, offerTab?: CtaOfferTab) => {
     if (section === "warmup" && offerTab) return regeneratingKey === `sales:warmup:${offerTab}`;
     if (section === "cta" && offerTab) return regeneratingKey === `sales:cta:${offerTab}`;
+    if (section === "after_trial_registration" && offerTab)
+      return regeneratingKey === `sales:after_registration:${offerTab}`;
     return regeneratingKey === `sales:${section}`;
   };
 
@@ -427,6 +429,28 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     );
   }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
+  const [afterRegOfferTabPreferred, setAfterRegOfferTab] = useState<CtaOfferTab>(() => {
+    if (hasTrialOffers) return "trial";
+    if (hasWorkshopOffers) return "workshop";
+    return "course";
+  });
+  const afterRegOfferTab = useMemo(
+    () =>
+      resolveOfferTab(
+        afterRegOfferTabPreferred,
+        hasTrialOffers,
+        hasWorkshopOffers,
+        hasCourseOffers
+      ),
+    [afterRegOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
+  );
+
+  useEffect(() => {
+    setAfterRegOfferTab((prev) =>
+      resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers)
+    );
+  }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+
   const firstTrialSvcForWarmup = useMemo(() => {
     const row = services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
     return row ?? firstNamedService;
@@ -438,6 +462,35 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   const showScheduleSelectionSession = scheduleDirectRegistration === false;
+
+  const afterRegistrationFilled = useMemo(() => {
+    if (!hasAnyCtaOfferTab) return false;
+    const trialBody = showScheduleSelectionSession
+      ? salesFlowConfig.after_trial_registration_body_after_schedule
+      : salesFlowConfig.after_trial_registration_body;
+    const workshopBody = showScheduleSelectionSession
+      ? salesFlowConfig.after_workshop_registration_body_after_schedule
+      : salesFlowConfig.after_workshop_registration_body;
+    const courseBody = showScheduleSelectionSession
+      ? salesFlowConfig.after_course_registration_body_after_schedule
+      : salesFlowConfig.after_course_registration_body;
+    const trialOk = !hasTrialOffers || Boolean(String(trialBody ?? "").trim());
+    const workshopOk = !hasWorkshopOffers || Boolean(String(workshopBody ?? "").trim());
+    const courseOk = !hasCourseOffers || Boolean(String(courseBody ?? "").trim());
+    return trialOk && workshopOk && courseOk;
+  }, [
+    hasAnyCtaOfferTab,
+    hasTrialOffers,
+    hasWorkshopOffers,
+    hasCourseOffers,
+    showScheduleSelectionSession,
+    salesFlowConfig.after_trial_registration_body,
+    salesFlowConfig.after_trial_registration_body_after_schedule,
+    salesFlowConfig.after_workshop_registration_body,
+    salesFlowConfig.after_workshop_registration_body_after_schedule,
+    salesFlowConfig.after_course_registration_body,
+    salesFlowConfig.after_course_registration_body_after_schedule,
+  ]);
 
   const ctaSectionFilled = useMemo(() => {
     if (!hasAnyCtaOfferTab) return false;
@@ -485,7 +538,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "סשן" }] as const)
         : []),
       { id: "cta", label: "הנעה", hint: "לפעולה" },
-      { id: "after_trial", label: "אחרי הרשמה", hint: "ניסיון" },
+      { id: "after_trial", label: "אחרי הרשמה", hint: "סוג מוצר" },
     ],
     [showScheduleSelectionSession]
   );
@@ -1758,54 +1811,174 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           title="אחרי הרשמה"
           open={openSections.after_trial}
           onToggle={() => toggle("after_trial")}
-          filled={Boolean(salesFlowConfig.after_trial_registration_body?.trim())}
+          filled={afterRegistrationFilled}
           headerAction={
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              disabled={isSalesGenerating}
-              onClick={() => regenerateSalesFlowSection("after_trial_registration")}
-            >
-              {isGen("after_trial_registration") ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isGen("after_trial_registration") ? "מג׳נרט..." : "ג׳נרט מחדש"}
-            </Button>
+            hasAnyCtaOfferTab ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1 text-xs py-1.5 px-3 h-auto"
+                disabled={isSalesGenerating}
+                onClick={() =>
+                  regenerateSalesFlowSection("after_trial_registration", afterRegOfferTab)
+                }
+              >
+                {isGen("after_trial_registration", afterRegOfferTab) ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {isGen("after_trial_registration", afterRegOfferTab) ? "מג׳נרט..." : "ג׳נרט מחדש"}
+              </Button>
+            ) : null
           }
         >
           <div className="space-y-3">
             <p className="text-xs text-zinc-600 text-center leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
-            <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
-              <Textarea
-                value={
-                  showScheduleSelectionSession
-                    ? salesFlowConfig.after_trial_registration_body_after_schedule
-                    : salesFlowConfig.after_trial_registration_body
-                }
-                onChange={(v) =>
-                  setSalesFlowConfig((c) => ({
-                    ...c,
-                    ...(showScheduleSelectionSession
-                      ? { after_trial_registration_body_after_schedule: v }
-                      : { after_trial_registration_body: v }),
-                  }))
-                }
-                rows={12}
-                placeholder={
-                  showScheduleSelectionSession
-                    ? "מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}…"
-                    : undefined
-                }
-              />
-            </Field>
-            {showScheduleSelectionSession ? (
-              <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
-                בווטסאפ ימולאו אוטומטית שם האימון, התאריך והשעה שהליד בחר בסשן «יום ושעה»
+            {!hasAnyCtaOfferTab ? (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+                כדי לערוך «אחרי הרשמה» — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים».
               </p>
-            ) : null}
+            ) : (
+              <>
+                <div
+                  dir="rtl"
+                  className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
+                  role="tablist"
+                  aria-label="סוג מוצר אחרי הרשמה"
+                >
+                  {hasTrialOffers ? (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={afterRegOfferTab === "trial"}
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                        afterRegOfferTab === "trial"
+                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      onClick={() => setAfterRegOfferTab("trial")}
+                    >
+                      שיעור ניסיון
+                    </button>
+                  ) : null}
+                  {hasWorkshopOffers ? (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={afterRegOfferTab === "workshop"}
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                        afterRegOfferTab === "workshop"
+                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      onClick={() => setAfterRegOfferTab("workshop")}
+                    >
+                      סדנה
+                    </button>
+                  ) : null}
+                  {hasCourseOffers ? (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={afterRegOfferTab === "course"}
+                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                        afterRegOfferTab === "course"
+                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                      onClick={() => setAfterRegOfferTab("course")}
+                    >
+                      קורס
+                    </button>
+                  ) : null}
+                </div>
+
+                {afterRegOfferTab === "trial" && hasTrialOffers ? (
+                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
+                    <Textarea
+                      value={
+                        showScheduleSelectionSession
+                          ? salesFlowConfig.after_trial_registration_body_after_schedule
+                          : salesFlowConfig.after_trial_registration_body
+                      }
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          ...(showScheduleSelectionSession
+                            ? { after_trial_registration_body_after_schedule: v }
+                            : { after_trial_registration_body: v }),
+                        }))
+                      }
+                      rows={12}
+                      placeholder={
+                        showScheduleSelectionSession
+                          ? "מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}…"
+                          : undefined
+                      }
+                    />
+                  </Field>
+                ) : null}
+
+                {afterRegOfferTab === "workshop" && hasWorkshopOffers ? (
+                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
+                    <Textarea
+                      value={
+                        showScheduleSelectionSession
+                          ? salesFlowConfig.after_workshop_registration_body_after_schedule
+                          : salesFlowConfig.after_workshop_registration_body
+                      }
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          ...(showScheduleSelectionSession
+                            ? { after_workshop_registration_body_after_schedule: v }
+                            : { after_workshop_registration_body: v }),
+                        }))
+                      }
+                      rows={12}
+                      placeholder={
+                        showScheduleSelectionSession
+                          ? "מתרגשים לראותך בקרוב בסדנת {serviceName} בתאריך {requested_date} בשעה {requested_time}…"
+                          : "מתרגשים לראותך בקרוב בסדנה!…"
+                      }
+                    />
+                  </Field>
+                ) : null}
+
+                {afterRegOfferTab === "course" && hasCourseOffers ? (
+                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
+                    <Textarea
+                      value={
+                        showScheduleSelectionSession
+                          ? salesFlowConfig.after_course_registration_body_after_schedule
+                          : salesFlowConfig.after_course_registration_body
+                      }
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          ...(showScheduleSelectionSession
+                            ? { after_course_registration_body_after_schedule: v }
+                            : { after_course_registration_body: v }),
+                        }))
+                      }
+                      rows={12}
+                      placeholder={
+                        showScheduleSelectionSession
+                          ? "מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}…"
+                          : "מתרגשים לראותך בקרוב בקורס!…"
+                      }
+                    />
+                  </Field>
+                ) : null}
+
+                {showScheduleSelectionSession ? (
+                  <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
+                    בווטסאפ ימולאו אוטומטית שם המוצר, התאריך והשעה שהליד בחר בסשן «בחירת מועד»
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
         </SalesPathSectionBlock>
       </SalesPathStepShell>
