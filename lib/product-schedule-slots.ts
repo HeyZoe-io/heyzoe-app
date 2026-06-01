@@ -166,7 +166,7 @@ function hebrewDayLabelForPhrase(dayLetter: string): string {
   return opt?.label?.trim() || dayLetter;
 }
 
-function formatCycleSlotsPhrase(slots: ProductScheduleSlot[]): string {
+export function formatCycleSlotsPhrase(slots: ProductScheduleSlot[]): string {
   const configured = sortProductScheduleSlots(filterConfiguredProductScheduleSlots(slots));
   if (!configured.length) return "";
   return configured
@@ -225,6 +225,49 @@ export function buildCourseScheduleInfoMessage(serviceName: string, cycles: Cour
   return body.endsWith(".") ? body : `${body}.`;
 }
 
+function buildCourseSchedulePhraseLinesFromCycles(cycles: CourseCycle[]): string[] {
+  const lines: string[] = [];
+  for (const cycle of cycles) {
+    for (const slot of sortProductScheduleSlots(filterConfiguredProductScheduleSlots(cycle.schedule_slots))) {
+      const dayLabel = hebrewDayLabelForPhrase(slot.day);
+      lines.push(`כל יום ${dayLabel} בשעה ${slot.time}`);
+    }
+  }
+  return lines;
+}
+
+/** מחזור לפי תאריך התחלה כפי שנשמר ב־sf_requested_date (DD/MM/YYYY). */
+export function findCourseCycleByDisplayStartDate(
+  cycles: CourseCycle[],
+  displayStartDate: string
+): CourseCycle | null {
+  const want = String(displayStartDate ?? "").trim();
+  if (!want) return null;
+  for (const c of cycles) {
+    if (formatCycleDateShort(c.start_date) === want) return c;
+  }
+  return null;
+}
+
+/** לתבנית CTA / אחרי הרשמה — מועדים של מחזור בודד. */
+export function buildCourseSchedulePhraseForCycle(cycle: CourseCycle | null | undefined): string {
+  if (!cycle) return "";
+  const lines = buildCourseSchedulePhraseLinesFromCycles([cycle]);
+  if (!lines.length) return "";
+  if (lines.length === 1) return lines[0]!;
+  return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join(", ");
+}
+
+/** CTA קורס אחרי בחירת מחזור — רק המועד שנבחר; אחרת כל המחזורים. */
+export function buildCourseSchedulePhraseForCtaFromPick(
+  cycles: CourseCycle[],
+  pickedDisplayStartDate: string
+): string {
+  const picked = findCourseCycleByDisplayStartDate(cycles, pickedDisplayStartDate);
+  if (picked) return buildCourseSchedulePhraseForCycle(picked);
+  return buildCourseSchedulePhraseForCta(cycles);
+}
+
 /** לתבנית CTA קורס: «כל יום ראשון בשעה 08:30» (מכל המחזורים) */
 export function buildCourseSchedulePhraseForCta(cycles: CourseCycle[]): string {
   const sorted = sortCourseCyclesByStartDate(
@@ -235,13 +278,7 @@ export function buildCourseSchedulePhraseForCta(cycles: CourseCycle[]): string {
         filterConfiguredProductScheduleSlots(c.schedule_slots).length > 0
     )
   );
-  const lines: string[] = [];
-  for (const cycle of sorted) {
-    for (const slot of sortProductScheduleSlots(filterConfiguredProductScheduleSlots(cycle.schedule_slots))) {
-      const dayLabel = hebrewDayLabelForPhrase(slot.day);
-      lines.push(`כל יום ${dayLabel} בשעה ${slot.time}`);
-    }
-  }
+  const lines = buildCourseSchedulePhraseLinesFromCycles(sorted);
   if (!lines.length) return "";
   if (lines.length === 1) return lines[0]!;
   return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join(", ");

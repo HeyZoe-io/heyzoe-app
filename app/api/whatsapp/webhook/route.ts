@@ -152,6 +152,9 @@ import {
 import {
   buildCourseCostAfterWarmupLine,
   buildCourseScheduleInfoMessage,
+  buildCourseSchedulePhraseForCtaFromPick,
+  findCourseCycleByDisplayStartDate,
+  formatCycleSlotsPhrase,
   buildCourseSchedulePhraseForCta,
   courseCycleStartButtonLabelsMatch,
   courseCyclesForStartButtons,
@@ -432,14 +435,37 @@ function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, se
   return needsSchedulePick ? "schedule_date" : "cta";
 }
 
-function courseCtaFillFromService(service: SfServiceRow | null) {
+function courseCtaFillFromService(service: SfServiceRow | null, pickedCycleStartDisplay?: string) {
+  const cycles = service?.courseCycles ?? [];
+  const picked = pickedCycleStartDisplay?.trim()
+    ? findCourseCycleByDisplayStartDate(cycles, pickedCycleStartDisplay)
+    : null;
+  const schedulePhrase = pickedCycleStartDisplay?.trim()
+    ? buildCourseSchedulePhraseForCtaFromPick(cycles, pickedCycleStartDisplay)
+    : buildCourseSchedulePhraseForCta(cycles);
   return {
     priceText: service?.priceText ?? "",
     sessionsText: service?.courseSessionsText ?? "",
-    startDate: service?.courseStartDate ?? "",
-    endDate: service?.courseEndDate ?? "",
-    schedulePhrase: buildCourseSchedulePhraseForCta(service?.courseCycles ?? []),
+    startDate: picked ? formatCycleDateShort(picked.start_date) : service?.courseStartDate ?? "",
+    endDate: picked?.end_date?.trim()
+      ? formatCycleDateShort(picked.end_date)
+      : service?.courseEndDate ?? "",
+    schedulePhrase,
   };
+}
+
+function courseSchedulePhraseForRegistration(
+  service: SfServiceRow | null,
+  pickedDisplayStartDate: string
+): string {
+  if (!service || service.offerKind !== "course") return "";
+  const cycles = service.courseCycles ?? [];
+  const picked = findCourseCycleByDisplayStartDate(cycles, pickedDisplayStartDate);
+  if (picked) {
+    const slotPhrase = formatCycleSlotsPhrase(picked.schedule_slots);
+    if (slotPhrase) return slotPhrase;
+  }
+  return buildCourseSchedulePhraseForCtaFromPick(cycles, pickedDisplayStartDate);
 }
 
 function courseWarmupCostExtraLines(service: SfServiceRow | null): string[] {
@@ -1175,6 +1201,12 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
+  let pickedCycleStartForCta = "";
+  if (activeOfferKind === "course") {
+    const st = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
+    pickedCycleStartForCta = st.requestedDate?.trim() ?? "";
+  }
+
   const baseCtaBody = inScheduleTrialFlow
     ? fillCtaBodyTemplate(
         resolveTrialCtaBodyTemplate(cfg, true),
@@ -1183,7 +1215,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
       )
     : fillOfferKindCtaBody(activeOfferKind, cfg, {
         durationText: selectedService?.durationText ?? "",
-        ...courseCtaFillFromService(selectedService),
+        ...courseCtaFillFromService(selectedService, pickedCycleStartForCta || undefined),
       }).trim();
 
   const lastAssistModelForPromo = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
@@ -2721,6 +2753,10 @@ async function processIncoming(
           bodyTemplate.includes("{requested_time}") ||
           bodyTemplate.includes("{serviceName}") ||
           bodyTemplate.includes("(שם האימון)");
+        const courseSchedForReg =
+          regOfferKind === "course" && requestedDate
+            ? courseSchedulePhraseForRegistration(selectedService, requestedDate)
+            : "";
         const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
           bodyTemplate,
           includeIgPrompt ? igUrlRaw : "",
@@ -2731,6 +2767,8 @@ async function processIncoming(
                 requestedDate,
                 requestedTime,
                 serviceName,
+                offerKind: regOfferKind,
+                courseSchedulePhrase: courseSchedForReg,
               }
             : undefined
         );

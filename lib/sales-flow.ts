@@ -397,7 +397,7 @@ const FRIENDLY: SalesFlowConfig = {
 {instagram_cta}`,
   after_course_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
 
-מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}
+מתרגשים לראותך בקרוב ב{serviceName} — התחלה ב-{requested_date}{course_schedule}
 זה קורה בכתובת: {business_address}
 
 ככה מגיעים אלינו:
@@ -2003,6 +2003,7 @@ const ADDRESS_PLACEHOLDER = "{business_address}";
 const DIRECTIONS_PLACEHOLDER = "{business_directions}";
 const REQUESTED_DATE_PLACEHOLDER = "{requested_date}";
 const REQUESTED_TIME_PLACEHOLDER = "{requested_time}";
+const COURSE_SCHEDULE_PLACEHOLDER = "{course_schedule}";
 const SERVICE_NAME_PLACEHOLDER = "{serviceName}";
 const SERVICE_NAME_FRIENDLY_PLACEHOLDER = "(שם האימון)";
 
@@ -2010,6 +2011,9 @@ export type AfterTrialScheduleFillInput = {
   requestedDate?: string;
   requestedTime?: string;
   serviceName?: string;
+  offerKind?: OfferKind;
+  /** מועד שבועי של המחזור שנבחר (למשל «ביום ראשון בשעה 08:30») */
+  courseSchedulePhrase?: string;
 };
 
 /**
@@ -2136,8 +2140,26 @@ function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialSchedu
   let t = fillAfterTrialServiceNamePlaceholders(body, service);
   const date = String(fill.requestedDate ?? "").trim();
   const time = String(fill.requestedTime ?? "").trim();
+  const courseSched = String(fill.courseSchedulePhrase ?? "").trim();
+
+  if (fill.offerKind === "course" && date) {
+    const courseSchedSuffix = courseSched
+      ? courseSched.startsWith("ביום") || courseSched.startsWith("כל יום")
+        ? `, ${courseSched}`
+        : `, ${courseSched}`
+      : "";
+    return t
+      .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
+      .replace(/\s*בשעה\s*\{requested_time\}/gu, courseSchedSuffix)
+      .replaceAll(REQUESTED_TIME_PLACEHOLDER, "")
+      .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, courseSchedSuffix);
+  }
+
   if (date && time) {
-    return t.replaceAll(REQUESTED_DATE_PLACEHOLDER, date).replaceAll(REQUESTED_TIME_PLACEHOLDER, time);
+    return t
+      .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
+      .replaceAll(REQUESTED_TIME_PLACEHOLDER, time)
+      .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, "");
   }
   return t
     .replace(
