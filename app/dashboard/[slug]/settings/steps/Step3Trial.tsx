@@ -5,7 +5,12 @@ import { ChevronDown, GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Uploa
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { HEBREW_DAY_OPTIONS, createEmptyProductScheduleSlot } from "@/lib/product-schedule-slots";
+import {
+  HEBREW_DAY_OPTIONS,
+  createEmptyCourseCycle,
+  createEmptyProductScheduleSlot,
+  type CourseCycle,
+} from "@/lib/product-schedule-slots";
 import { StepPanel } from "../settings-ui";
 import {
   SALES_PATH_INPUT,
@@ -79,7 +84,30 @@ type ServiceItem = {
   trial_pick_media_url: string;
   trial_pick_media_type: "" | "image" | "video";
   schedule_slots: { id: string; day: string; time: string }[];
+  course_cycles: CourseCycle[];
 };
+
+function courseCyclesForOfferKindSwitch(
+  s: ServiceItem,
+  nextKind: OfferKind,
+  newId: () => string
+): CourseCycle[] {
+  if (nextKind !== "course") return s.course_cycles ?? [];
+  const existing = s.course_cycles ?? [];
+  if (existing.length) return existing;
+  const legacySlots = (s.schedule_slots ?? []).filter((sl) => sl.day && sl.time);
+  return [
+    {
+      id: newId(),
+      start_date: s.course_start_date.trim(),
+      end_date: s.course_end_date.trim(),
+      schedule_slots:
+        legacySlots.length > 0
+          ? legacySlots
+          : [createEmptyProductScheduleSlot(newId)],
+    },
+  ];
+}
 
 /** צירוף מדיה: מוצג רק לאחר סימון; שומר הסרה מלאה בביטול סימון */
 function TrialPickMediaAttachmentSection(props: {
@@ -379,6 +407,20 @@ export default function Step3Trial(props: {
         prev.map((svc) => {
           const hit = j.services!.find((x) => x.name.trim() === svc.name.trim());
           if (!hit) return svc;
+          if (svc.offer_kind === "course") {
+            const baseCycles = svc.course_cycles?.length
+              ? [...svc.course_cycles]
+              : [createEmptyCourseCycle(uid)];
+            baseCycles[0] = {
+              ...baseCycles[0]!,
+              schedule_slots: hit.slots.map((sl) => ({
+                id: uid(),
+                day: sl.day,
+                time: sl.time,
+              })),
+            };
+            return { ...svc, course_cycles: baseCycles };
+          }
           return {
             ...svc,
             schedule_slots: hit.slots.map((sl) => ({
@@ -556,7 +598,11 @@ export default function Step3Trial(props: {
                     type="button"
                     onClick={() => {
                       const arr = [...services];
-                      arr[i] = { ...s, offer_kind: k };
+                      arr[i] = {
+                        ...s,
+                        offer_kind: k,
+                        course_cycles: courseCyclesForOfferKindSwitch(s, k, uid),
+                      };
                       setServices(arr);
                     }}
                     className={[
@@ -625,34 +671,6 @@ export default function Step3Trial(props: {
                     }}
                     placeholder="₪ 80"
                     className={PRODUCT_INPUT}
-                  />
-                </div>
-                <div>
-                  <SalesPathFieldLabel>תאריך התחלה</SalesPathFieldLabel>
-                  <Input
-                    dir="ltr"
-                    type="date"
-                    className={`${PRODUCT_INPUT} font-mono text-sm`}
-                    value={s.course_start_date}
-                    onChange={(e) => {
-                      const arr = [...services];
-                      arr[i] = { ...s, course_start_date: e.target.value };
-                      setServices(arr);
-                    }}
-                  />
-                </div>
-                <div>
-                  <SalesPathFieldLabel>תאריך סיום</SalesPathFieldLabel>
-                  <Input
-                    dir="ltr"
-                    type="date"
-                    className={`${PRODUCT_INPUT} font-mono text-sm`}
-                    value={s.course_end_date}
-                    onChange={(e) => {
-                      const arr = [...services];
-                      arr[i] = { ...s, course_end_date: e.target.value };
-                      setServices(arr);
-                    }}
                   />
                 </div>
                 <div>
@@ -760,6 +778,215 @@ export default function Step3Trial(props: {
             </div>
 
             {scheduleDirectRegistration === false ? (
+              s.offer_kind === "course" ? (
+              <div className="space-y-4 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
+                <SalesPathFieldLabel>מחזורי קורס</SalesPathFieldLabel>
+                <p className="text-[11px] text-zinc-500 leading-snug">
+                  לכל מחזור — תאריך התחלה וסיום, ובתוכו ימים ושעות שבועיים (ראשון–שבת, 24 שעות).
+                </p>
+                {(s.course_cycles?.length ? s.course_cycles : [createEmptyCourseCycle(uid)]).map((cycle, ci) => (
+                  <div
+                    key={cycle.id}
+                    className="space-y-3 rounded-lg border border-zinc-200/70 bg-white/80 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-zinc-700">מחזור {ci + 1}</span>
+                      {(s.course_cycles ?? []).length > 1 ? (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                          aria-label="מחק מחזור"
+                          onClick={() => {
+                            const arr = [...services];
+                            const cycles = (arr[i]!.course_cycles ?? []).filter((_, j) => j !== ci);
+                            arr[i] = { ...arr[i]!, course_cycles: cycles };
+                            setServices(arr);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <SalesPathFieldLabel>תאריך התחלה</SalesPathFieldLabel>
+                        <Input
+                          dir="ltr"
+                          type="date"
+                          className={`${PRODUCT_INPUT} font-mono text-sm`}
+                          value={cycle.start_date}
+                          onChange={(e) => {
+                            const arr = [...services];
+                            const cycles = [...(arr[i]!.course_cycles ?? [])];
+                            cycles[ci] = { ...cycle, start_date: e.target.value };
+                            arr[i] = { ...arr[i]!, course_cycles: cycles };
+                            setServices(arr);
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <SalesPathFieldLabel>תאריך סיום</SalesPathFieldLabel>
+                        <Input
+                          dir="ltr"
+                          type="date"
+                          className={`${PRODUCT_INPUT} font-mono text-sm`}
+                          value={cycle.end_date}
+                          onChange={(e) => {
+                            const arr = [...services];
+                            const cycles = [...(arr[i]!.course_cycles ?? [])];
+                            cycles[ci] = { ...cycle, end_date: e.target.value };
+                            arr[i] = { ...arr[i]!, course_cycles: cycles };
+                            setServices(arr);
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                      onBlurCapture={(e) => {
+                        const next = e.relatedTarget as Node | null;
+                        if (next && e.currentTarget.contains(next)) return;
+                        const arr = [...services];
+                        const cycles = [...(arr[i]!.course_cycles ?? [])];
+                        const slots = sortScheduleSlots(cycles[ci]!.schedule_slots ?? []);
+                        cycles[ci] = { ...cycles[ci]!, schedule_slots: slots };
+                        arr[i] = { ...arr[i]!, course_cycles: cycles };
+                        setServices(arr);
+                      }}
+                    >
+                      {(cycle.schedule_slots ?? []).map((slot, si) => (
+                        <div
+                          key={slot.id}
+                          className="flex items-center gap-2 rounded-lg border border-zinc-200/70 bg-white/90 p-2"
+                          dir="rtl"
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="shrink-0 text-[11px] font-medium text-zinc-500">יום</span>
+                            <select
+                              dir="rtl"
+                              className={`${SCHEDULE_SLOT_CONTROL} min-w-0 flex-1`}
+                              value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : ""}
+                              onChange={(e) => {
+                                const arr = [...services];
+                                const cycles = [...(arr[i]!.course_cycles ?? [])];
+                                const slots = [...(cycles[ci]!.schedule_slots ?? [])];
+                                slots[si] = { ...slot, day: e.target.value };
+                                cycles[ci] = { ...cycles[ci]!, schedule_slots: slots };
+                                arr[i] = { ...arr[i]!, course_cycles: cycles };
+                                setServices(arr);
+                              }}
+                            >
+                              <option value="">בחר</option>
+                              {HEBREW_DAY_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-zinc-500">שעה</span>
+                            <Input
+                              dir="ltr"
+                              className={`${SCHEDULE_SLOT_CONTROL} w-[4.25rem] font-mono text-left`}
+                              placeholder="00:00"
+                              inputMode="numeric"
+                              maxLength={5}
+                              value={slot.time}
+                              onChange={(e) => {
+                                const el = e.currentTarget;
+                                const prev = String(slot.time ?? "");
+                                let next = String(e.target.value ?? "");
+                                next = next.replace(/[^\d:]/g, "");
+                                const digits = next.replace(/:/g, "");
+                                const hasColon = next.includes(":");
+                                if (!hasColon && digits.length >= 3) {
+                                  next = `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+                                } else if (!hasColon && digits.length === 2) {
+                                  next = `${digits}:`;
+                                } else if (hasColon) {
+                                  const [hRaw, mRaw = ""] = next.split(":");
+                                  const h = (hRaw ?? "").replace(/\D/g, "").slice(0, 2);
+                                  const m = (mRaw ?? "").replace(/\D/g, "").slice(0, 2);
+                                  next = `${h}${next.includes(":") ? ":" : ""}${m}`;
+                                } else {
+                                  next = digits.slice(0, 2);
+                                }
+                                const arr = [...services];
+                                const cycles = [...(arr[i]!.course_cycles ?? [])];
+                                const slots = [...(cycles[ci]!.schedule_slots ?? [])];
+                                slots[si] = { ...slot, time: next };
+                                cycles[ci] = { ...cycles[ci]!, schedule_slots: slots };
+                                arr[i] = { ...arr[i]!, course_cycles: cycles };
+                                setServices(arr);
+                                if (next.endsWith(":") && prev.replace(/[^\d]/g, "").length === 1) {
+                                  requestAnimationFrame(() => {
+                                    try {
+                                      el.setSelectionRange(3, 3);
+                                    } catch {
+                                      /* ignore */
+                                    }
+                                  });
+                                }
+                              }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                            aria-label="מחק מועד"
+                            onClick={() => {
+                              const arr = [...services];
+                              const cycles = [...(arr[i]!.course_cycles ?? [])];
+                              const slots = (cycles[ci]!.schedule_slots ?? []).filter((_, j) => j !== si);
+                              cycles[ci] = { ...cycles[ci]!, schedule_slots: slots };
+                              arr[i] = { ...arr[i]!, course_cycles: cycles };
+                              setServices(arr);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 w-full gap-1 border-dashed bg-white/70 text-xs"
+                      onClick={() => {
+                        const arr = [...services];
+                        const cycles = [...(arr[i]!.course_cycles ?? [createEmptyCourseCycle(uid)])];
+                        const slots = sortScheduleSlots([
+                          ...(cycles[ci]!.schedule_slots ?? []),
+                          createEmptyProductScheduleSlot(uid),
+                        ]);
+                        cycles[ci] = { ...cycles[ci]!, schedule_slots: slots };
+                        arr[i] = { ...arr[i]!, course_cycles: cycles };
+                        setServices(arr);
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      הוסף מועד
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 w-full gap-1 border-dashed bg-white/70 text-xs"
+                  onClick={() => {
+                    const arr = [...services];
+                    const cycles = [...(s.course_cycles?.length ? s.course_cycles : [createEmptyCourseCycle(uid)])];
+                    cycles.push(createEmptyCourseCycle(uid));
+                    arr[i] = { ...s, course_cycles: cycles };
+                    setServices(arr);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  הוסף מחזור
+                </Button>
+              </div>
+              ) : (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
                 <SalesPathFieldLabel>מועדי לוח (שבועי)</SalesPathFieldLabel>
                 <p className="text-[11px] text-zinc-500 leading-snug">
@@ -889,6 +1116,7 @@ export default function Step3Trial(props: {
                   הוסף מועד
                 </Button>
               </div>
+              )
             ) : null}
 
             <TrialPickMediaAttachmentSection
@@ -934,6 +1162,7 @@ export default function Step3Trial(props: {
                     trial_pick_media_url: "",
                     trial_pick_media_type: "",
                     schedule_slots: [],
+                    course_cycles: [],
                   },
                 ]);
               }}

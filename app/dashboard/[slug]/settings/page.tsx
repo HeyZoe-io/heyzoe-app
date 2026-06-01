@@ -35,7 +35,13 @@ import {
   trialServicePhraseForAfterPick,
 } from "@/lib/sales-flow";
 import { truncateTrialServiceName } from "@/lib/trial-service";
-import { normalizeProductScheduleSlotsFromMeta } from "@/lib/product-schedule-slots";
+import {
+  createEmptyCourseCycle,
+  migrateLegacyCourseToCycles,
+  normalizeProductScheduleSlotsFromMeta,
+  syncCourseLegacyDatesFromCycles,
+  type CourseCycle,
+} from "@/lib/product-schedule-slots";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
 import { buildFactQuestions } from "@/lib/fact-questions";
 import {
@@ -69,6 +75,8 @@ type ServiceItem = {
   trial_pick_media_type: "image" | "video" | "";
   /** מועדי לוח שבועיים למוצר (מערכת שעות לא־אינטראקטיבית) */
   schedule_slots: { id: string; day: string; time: string }[];
+  /** קורס בלבד: מחזורים (תאריכים + מועדים שבועיים) */
+  course_cycles: CourseCycle[];
 };
 
 type WhatsAppChannel = {
@@ -161,6 +169,20 @@ function readTrialServicesStash(slug: string): ServiceItem[] | null {
               }))
               .filter((slot) => slot.day && slot.time)
           : [],
+        course_cycles: Array.isArray(r.course_cycles)
+          ? (r.course_cycles as {
+              id?: unknown;
+              start_date?: unknown;
+              end_date?: unknown;
+              schedule_slots?: unknown;
+            }[])
+              .map((cy) => ({
+                id: String(cy?.id ?? "").trim() || uid(),
+                start_date: String(cy?.start_date ?? "").trim(),
+                end_date: String(cy?.end_date ?? "").trim(),
+                schedule_slots: normalizeProductScheduleSlotsFromMeta(cy?.schedule_slots, uid),
+              }))
+          : [],
       });
     }
     return out.length ? out : null;
@@ -236,12 +258,71 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
             ? "image"
             : "",
       offer_kind: offerKindFromServiceMeta(meta),
-      course_start_date: String(meta.course_start_date ?? "").trim(),
-      course_end_date: String(meta.course_end_date ?? "").trim(),
       course_sessions_count: String(meta.course_sessions_count ?? "").trim(),
-      schedule_slots: normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, uid),
+      ...(() => {
+        const kind = offerKindFromServiceMeta(meta);
+        if (kind === "course") {
+          let course_cycles = migrateLegacyCourseToCycles(meta, uid);
+          if (!course_cycles.length) course_cycles = [createEmptyCourseCycle(uid)];
+          const legacy = syncCourseLegacyDatesFromCycles(course_cycles);
+          return {
+            course_cycles,
+            course_start_date: legacy.course_start_date,
+            course_end_date: legacy.course_end_date,
+            schedule_slots: [] as ServiceItem["schedule_slots"],
+          };
+        }
+        return {
+          course_cycles: [] as CourseCycle[],
+          course_start_date: String(meta.course_start_date ?? "").trim(),
+          course_end_date: String(meta.course_end_date ?? "").trim(),
+          schedule_slots: normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, uid),
+        };
+      })(),
     };
   });
+}
+
+function serviceDescriptionMetaForSave(s: ServiceItem): Record<string, unknown> {
+  const base = {
+    duration: s.duration,
+    payment_link: s.payment_link,
+    benefit_line: benefitLineFromProductDescription(s.description),
+    description_text: s.description,
+    levels_enabled: s.levels_enabled,
+    levels: s.levels,
+    offer_kind: s.offer_kind,
+    course_sessions_count: s.course_sessions_count,
+    trial_pick_media_url: (s.trial_pick_media_url ?? "").trim(),
+    trial_pick_media_type:
+      s.trial_pick_media_type === "video"
+        ? "video"
+        : s.trial_pick_media_type === "image"
+          ? "image"
+          : "",
+  };
+  if (s.offer_kind === "course") {
+    const course_cycles = (s.course_cycles ?? []).map((cy) => ({
+      id: cy.id,
+      start_date: cy.start_date.trim(),
+      end_date: cy.end_date.trim(),
+      schedule_slots: cy.schedule_slots,
+    }));
+    const { course_start_date, course_end_date } = syncCourseLegacyDatesFromCycles(course_cycles);
+    return {
+      ...base,
+      course_cycles,
+      course_start_date,
+      course_end_date,
+      schedule_slots: [],
+    };
+  }
+  return {
+    ...base,
+    course_start_date: s.course_start_date,
+    course_end_date: s.course_end_date,
+    schedule_slots: s.schedule_slots,
+  };
 }
 
 function payloadSavedTrialsWereCleared(payload: Record<string, unknown>): boolean {
@@ -604,6 +685,7 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "course_start_date",
   "course_end_date",
   "course_sessions_count",
+  "course_cycles",
 ]);
 
 /**
@@ -699,6 +781,7 @@ function trialServiceItemFromSiteProduct(
     trial_pick_media_url: "",
     trial_pick_media_type: "",
     schedule_slots: [],
+    course_cycles: [],
   };
 }
 
@@ -1084,11 +1167,12 @@ export default function SlugSettingsPage({
     if (!row) {
       return { priceText: "", sessionsText: "", startDate: "", endDate: "" };
     }
+    const fromCycles = syncCourseLegacyDatesFromCycles(row.course_cycles ?? []);
     return {
       priceText: row.price_text.trim(),
       sessionsText: row.course_sessions_count.trim(),
-      startDate: row.course_start_date.trim(),
-      endDate: row.course_end_date.trim(),
+      startDate: fromCycles.course_start_date || row.course_start_date.trim(),
+      endDate: fromCycles.course_end_date || row.course_end_date.trim(),
     };
   }, [services]);
 
@@ -1574,26 +1658,7 @@ export default function SlugSettingsPage({
             price_text: s.price_text,
             location_text: s.location_text,
             location_mode: "location",
-            description: JSON.stringify({
-              duration: s.duration,
-              payment_link: s.payment_link,
-              benefit_line: benefitLineFromProductDescription(s.description),
-              description_text: s.description,
-              levels_enabled: s.levels_enabled,
-              levels: s.levels,
-              offer_kind: s.offer_kind,
-              course_start_date: s.course_start_date,
-              course_end_date: s.course_end_date,
-              course_sessions_count: s.course_sessions_count,
-              trial_pick_media_url: (s.trial_pick_media_url ?? "").trim(),
-              trial_pick_media_type:
-                s.trial_pick_media_type === "video"
-                  ? "video"
-                  : s.trial_pick_media_type === "image"
-                    ? "image"
-                    : "",
-              schedule_slots: s.schedule_slots,
-            }),
+            description: JSON.stringify(serviceDescriptionMetaForSave(s)),
           })),
         }
       : base;
