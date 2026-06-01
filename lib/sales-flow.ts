@@ -619,9 +619,17 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
         ? o.memberships_cta_delivery
         : undefined;
     const membershipsMin =
-      typeof o.memberships_price_range_min === "string" ? String(o.memberships_price_range_min).trim() : "";
+      typeof o.memberships_price_range_min === "string"
+        ? String(o.memberships_price_range_min).trim()
+        : o.memberships_price_range_min != null
+          ? String(o.memberships_price_range_min).trim()
+          : "";
     const membershipsMax =
-      typeof o.memberships_price_range_max === "string" ? String(o.memberships_price_range_max).trim() : "";
+      typeof o.memberships_price_range_max === "string"
+        ? String(o.memberships_price_range_max).trim()
+        : o.memberships_price_range_max != null
+          ? String(o.memberships_price_range_max).trim()
+          : "";
     const scheduleImgUrl = typeof o.schedule_cta_image_url === "string" ? o.schedule_cta_image_url.trim() : "";
     const scheduleImgType =
       o.schedule_cta_image_type === "image" ? ("image" as const) : ("" as const);
@@ -632,15 +640,16 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
       ...(kind === "trial"
         ? { trial_cta_delivery: trialDelivery ?? "link" }
         : kind === "memberships"
-          ? {
-              memberships_cta_delivery: membershipsDelivery ?? "link",
-              ...(membershipsDelivery === "range"
-                ? {
-                    memberships_price_range_min: membershipsMin,
-                    memberships_price_range_max: membershipsMax,
-                  }
-                : {}),
-            }
+          ? (() => {
+              const hasRangeValues = Boolean(membershipsMin || membershipsMax);
+              let delivery: MembershipsCtaDelivery = membershipsDelivery ?? "link";
+              if (hasRangeValues && delivery !== "range") delivery = "range";
+              return {
+                memberships_cta_delivery: delivery,
+                memberships_price_range_min: membershipsMin,
+                memberships_price_range_max: membershipsMax,
+              };
+            })()
           : {}),
       ...(kind === "schedule"
         ? {
@@ -692,22 +701,17 @@ export function normalizeCtaButtonForSlot(button: SalesFlowCtaButton, index: num
       else if (raw === "range") del = "range";
       else del = "link";
     }
-    let min = String(button.memberships_price_range_min ?? "").trim();
-    let max = String(button.memberships_price_range_max ?? "").trim();
-    if (del !== "range") {
-      min = "";
-      max = "";
-    }
-    return del === "range"
-      ? {
-          id,
-          label,
-          kind: "memberships",
-          memberships_cta_delivery: "range",
-          memberships_price_range_min: min,
-          memberships_price_range_max: max,
-        }
-      : { id, label, kind: "memberships", memberships_cta_delivery: del };
+    const min = String(button.memberships_price_range_min ?? "").trim();
+    const max = String(button.memberships_price_range_max ?? "").trim();
+    if ((min || max) && del !== "none") del = "range";
+    return {
+      id,
+      label,
+      kind: "memberships",
+      memberships_cta_delivery: del,
+      memberships_price_range_min: min,
+      memberships_price_range_max: max,
+    };
   }
 
   let sd: ScheduleCtaDelivery = "link";
@@ -828,11 +832,14 @@ export function salesFlowCtaButtonFromTypeUiChoice(
   }
 
   if (ui === "memberships:link" || ui === "memberships:none") {
+    const prevM = previous.kind === "memberships" ? previous : undefined;
     return {
       id,
       label,
       kind: "memberships",
       memberships_cta_delivery: ui === "memberships:none" ? "none" : "link",
+      memberships_price_range_min: prevM?.memberships_price_range_min ?? "",
+      memberships_price_range_max: prevM?.memberships_price_range_max ?? "",
     };
   }
 
@@ -1492,11 +1499,13 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
         row.schedule_cta_image_type = b.schedule_cta_image_type ?? "";
       }
       if (b.kind === "memberships") {
-        row.memberships_cta_delivery = b.memberships_cta_delivery ?? "link";
-        if ((b.memberships_cta_delivery ?? "link") === "range") {
-          row.memberships_price_range_min = String(b.memberships_price_range_min ?? "").trim();
-          row.memberships_price_range_max = String(b.memberships_price_range_max ?? "").trim();
-        }
+        const min = String(b.memberships_price_range_min ?? "").trim();
+        const max = String(b.memberships_price_range_max ?? "").trim();
+        let delivery = b.memberships_cta_delivery ?? "link";
+        if ((min || max) && delivery !== "none") delivery = "range";
+        row.memberships_cta_delivery = delivery;
+        row.memberships_price_range_min = min;
+        row.memberships_price_range_max = max;
       }
       return row;
     }),
