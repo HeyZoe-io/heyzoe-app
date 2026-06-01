@@ -149,38 +149,38 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
         open={openSections.booking}
         onToggle={() => toggle("booking")}
         filled={filled.booking}
+        titleAction={
+          <>
+            <input
+              ref={scheduleScanMediaInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                void uploadMedia(f, "schedule_scan");
+                e.currentTarget.value = "";
+              }}
+            />
+            <button
+              type="button"
+              className={[
+                "text-xs font-semibold underline underline-offset-4",
+                "text-[#2f6feb] hover:text-[#1f5bd6]",
+                "disabled:opacity-60 disabled:no-underline",
+              ].join(" ")}
+              onClick={() => scheduleScanMediaInputRef.current?.click()}
+              disabled={uploadingScheduleScanMedia}
+              title="מומלץ: צילום מסך/תמונה חתוכה של טבלת המערכת"
+            >
+              {uploadingScheduleScanMedia ? "מעלה…" : "העלאת תמונה (מומלץ)"}
+            </button>
+          </>
+        }
       >
         <div>
-          <div className="flex items-center justify-between gap-2">
-            <SalesPathFieldLabel>לינק מערכת שעות</SalesPathFieldLabel>
-            <div className="flex items-center gap-2">
-              <input
-                ref={scheduleScanMediaInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  void uploadMedia(f, "schedule_scan");
-                  e.currentTarget.value = "";
-                }}
-              />
-              <button
-                type="button"
-                className={[
-                  "text-xs font-semibold underline underline-offset-4",
-                  "text-[#2f6feb] hover:text-[#1f5bd6]",
-                  "disabled:opacity-60 disabled:no-underline",
-                ].join(" ")}
-                onClick={() => scheduleScanMediaInputRef.current?.click()}
-                disabled={uploadingScheduleScanMedia}
-                title="מומלץ: צילום מסך/תמונה חתוכה של טבלת המערכת"
-              >
-                {uploadingScheduleScanMedia ? "מעלה…" : "העלאת תמונה (מומלץ)"}
-              </button>
-            </div>
-          </div>
+          <SalesPathFieldLabel>לינק מערכת שעות</SalesPathFieldLabel>
           <Input
             dir="ltr"
             value={arboxLink}
