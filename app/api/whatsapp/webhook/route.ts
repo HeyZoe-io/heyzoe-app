@@ -53,8 +53,12 @@ import {
   resolveCourseCyclePickQuestion,
   buildDefaultMultiServiceQuestion,
   buildScheduleSlotPickQuestion,
+  DEFAULT_MULTI_SERVICE_QUESTION_TAIL,
   resolveScheduleBoardAssets,
+  SCHEDULE_BOARD_CAPTION,
   splitMultiServiceQuestionForWhatsApp,
+  stripScheduleLineFromMultiServiceQuestion,
+  type ScheduleBoardAssets,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
 import {
@@ -649,6 +653,60 @@ function scheduleBoardAssetsFromKnowledge(knowledge: BusinessKnowledgePack, bloc
   });
 }
 
+/** סשן מערכת שעות — נשלח אוטומטית אחרי הפתיחה (תמונה או קישור), לפני בחירת מוצר / המשך הפלואו. */
+async function sendScheduleBoardAfterOpening(input: {
+  assets: ScheduleBoardAssets;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  modelUsed?: string;
+}): Promise<boolean> {
+  const { assets, msg, accountSid, authToken, business_slug, sessionId } = input;
+  const modelUsed = input.modelUsed ?? "sales_flow_schedule_board_after_opening";
+  if (assets.canSendScheduleImage && assets.scheduleImgUrl) {
+    await sendWhatsAppMediaMessage(
+      msg.toNumber,
+      msg.from,
+      assets.scheduleImgUrl,
+      accountSid,
+      authToken,
+      SCHEDULE_BOARD_CAPTION,
+      "image"
+    )
+      .then(async () => {
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: `[media] ${assets.scheduleImgUrl}\n\n${SCHEDULE_BOARD_CAPTION}`,
+          model_used: modelUsed,
+          session_id: sessionId,
+        });
+        await sleepMs(900);
+      })
+      .catch((e) => console.error("[WA Webhook] Send schedule board after opening failed:", e));
+    return true;
+  }
+  const link = assets.link.trim();
+  if (link) {
+    const txt = `${SCHEDULE_BOARD_CAPTION}: ${link}`;
+    await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+      console.error("[WA Webhook] Send schedule board link after opening failed:", e)
+    );
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: txt,
+      model_used: modelUsed,
+      session_id: sessionId,
+    });
+    await sleepMs(450);
+    return true;
+  }
+  return false;
+}
+
 async function sendOpeningServicePickMenu(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -667,32 +725,20 @@ async function sendOpeningServicePickMenu(input: {
 
   const qRaw = String(cfg.multi_service_question ?? "").trim() || buildDefaultMultiServiceQuestion();
   const assets = scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockMedia ?? false);
+  await sendScheduleBoardAfterOpening({
+    assets,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    modelUsed: "sales_flow_schedule_board_before_service_pick",
+  });
   const split = splitMultiServiceQuestionForWhatsApp(qRaw, assets);
-
-  if (split.sendScheduleMedia && assets.scheduleImgUrl) {
-    await sendWhatsAppMediaMessage(
-      input.msg.toNumber,
-      input.msg.from,
-      assets.scheduleImgUrl,
-      input.accountSid,
-      input.authToken,
-      split.mediaCaption,
-      "image"
-    )
-      .then(async () => {
-        await logMessage({
-          business_slug: input.business_slug,
-          role: "assistant",
-          content: `[media] ${assets.scheduleImgUrl}\n\n${split.mediaCaption}`,
-          model_used: "sales_flow_service_pick_schedule_image",
-          session_id: input.sessionId,
-        });
-        await sleepMs(900);
-      })
-      .catch((e) => console.error("[WA Webhook] Send schedule image (service pick) failed:", e));
-  }
-
-  const body = split.menuBody.trim() || buildDefaultMultiServiceQuestion();
+  const body =
+    split.menuBody.trim() ||
+    stripScheduleLineFromMultiServiceQuestion(qRaw) ||
+    DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
   const modelUsed = input.modelUsed ?? "flow_continuation_opening_service_pick";
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
@@ -797,42 +843,8 @@ async function sendCourseCycleStartPickMenu(input: {
   const cyclesForButtons = courseCyclesForStartButtons(cycles).slice(0, SCHEDULE_SLOT_PICK_MAX - 1);
   const serviceName = service?.name?.trim() || "הקורס";
   const cfg = input.knowledge.salesFlowConfig;
-  const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
-  const scheduleImgUrl =
-    String(schedBtn?.schedule_cta_image_url ?? "").trim() ||
-    String(input.knowledge.scheduleScanImageUrl ?? "").trim();
-  const scheduleLink = (input.knowledge.schedulePublicUrl?.trim() || input.knowledge.arboxLink?.trim() || "").trim();
-  const canSendScheduleImage = scheduleImgUrl.length > 0 && !input.blockMedia;
-
-  if (canSendScheduleImage) {
-    const cap = "כאן ניתן לראות את מערכת השעות שלנו";
-    await sendWhatsAppMediaMessage(
-      input.msg.toNumber,
-      input.msg.from,
-      scheduleImgUrl,
-      input.accountSid,
-      input.authToken,
-      cap,
-      "image"
-    ).catch((e) => console.error("[WA Webhook] Send course schedule image failed:", e));
-    await logMessage({
-      business_slug: input.business_slug,
-      role: "assistant",
-      content: cap ? `[media] ${scheduleImgUrl}\n\n${cap}` : `[media] ${scheduleImgUrl}`,
-      model_used: "sales_flow_course_schedule_image",
-      session_id: input.sessionId,
-    });
-    await sleepMs(900);
-  }
-
   const infoText = buildCourseScheduleInfoMessage(serviceName, cycles);
-  const scheduleLinkLine =
-    !canSendScheduleImage && scheduleLink
-      ? `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink}`
-      : !canSendScheduleImage && !scheduleLink
-        ? ""
-        : "";
-  const introParts = [scheduleLinkLine, infoText].filter(Boolean);
+  const introParts = [infoText].filter(Boolean);
   const pickQuestion = resolveCourseCyclePickQuestion(cfg);
 
   if (cyclesForButtons.length === 0) {
@@ -1634,6 +1646,15 @@ async function sendFlowContinuation(input: {
     }
 
     const singleService = salesFlowServices[0] ?? null;
+    await sendScheduleBoardAfterOpening({
+      assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia),
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+      modelUsed: "sales_flow_schedule_board_after_opening_single",
+    });
     await sendFlowContinuation({
       phase: scheduleSelectionPhaseAfterService(knowledge, singleService),
       contact: { flow_step: 0 },

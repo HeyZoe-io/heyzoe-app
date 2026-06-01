@@ -32,6 +32,8 @@ import {
   WARMUP_MAX_BUTTONS,
   WARMUP_MIN_BUTTONS,
   createDefaultWarmupExtraStep,
+  SCHEDULE_BOARD_CAPTION,
+  stripScheduleLineFromMultiServiceQuestion,
 } from "@/lib/sales-flow";
 
 type ServiceItem = {
@@ -82,6 +84,8 @@ type Step4SalesFlowProps = {
   salesFlowConfig: SalesFlowConfig;
   setSalesFlowConfig: Dispatch<SetStateAction<SalesFlowConfig>>;
   scheduleDirectRegistration?: boolean;
+  scheduleScanImageUrl?: string;
+  scheduleBoardLink?: string;
   warmupSessionEnabled?: boolean;
   setWarmupSessionEnabled: (v: boolean) => void;
   salesOpeningAutoText: string;
@@ -329,6 +333,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     salesFlowConfig,
     setSalesFlowConfig,
     scheduleDirectRegistration = true,
+    scheduleScanImageUrl = "",
+    scheduleBoardLink = "",
     warmupSessionEnabled = true,
     setWarmupSessionEnabled,
     salesOpeningAutoText,
@@ -520,9 +526,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         : salesFlowConfig.cta_buttons,
     [showScheduleSelectionSession, salesFlowConfig.cta_buttons]
   );
+  const scheduleBoardConfigured = Boolean(
+    String(scheduleScanImageUrl ?? "").trim() || String(scheduleBoardLink ?? "").trim()
+  );
+
   type SalesSectionId =
     | "media"
     | "opening"
+    | "schedule_board"
     | "service_pick"
     | "warmup"
     | "schedule_selection"
@@ -532,6 +543,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     () => [
       { id: "media", label: "מדיה", hint: "פתיחה" },
       { id: "opening", label: "פתיחה", hint: "סשן" },
+      { id: "schedule_board", label: "מערכת שעות", hint: "אוטומטי" },
       { id: "service_pick", label: "מוצר", hint: "שירות" },
       { id: "warmup", label: "חימום", hint: "סשן" },
       ...(showScheduleSelectionSession
@@ -546,6 +558,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
       media: true,
       opening: true,
+      schedule_board: false,
       service_pick: false,
       warmup: false,
       schedule_selection: false,
@@ -750,6 +763,48 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
         <SalesPathSectionBlock
           stepPrefix="sales"
+          id="schedule_board"
+          title="מערכת שעות"
+          hint="אחרי הפתיחה"
+          open={openSections.schedule_board}
+          onToggle={() => toggle("schedule_board")}
+          filled={scheduleBoardConfigured}
+        >
+          <div className="space-y-3 text-right" dir="rtl">
+            <p className="text-sm text-zinc-700 leading-relaxed text-center">
+              מיד אחרי סשן הפתיחה זואי שולחת אוטומטית את מערכת השעות — לפני «בחירת מוצר» והמשך המסלול.
+            </p>
+            <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
+              <p className="text-xs font-semibold text-[#4b2a86]">כיתוב בווטסאפ</p>
+              <p className="mt-1 text-sm text-zinc-800">{SCHEDULE_BOARD_CAPTION}</p>
+            </div>
+            {String(scheduleScanImageUrl ?? "").trim() ? (
+              <div className="rounded-xl border border-zinc-100 bg-white p-3">
+                <p className="text-xs font-semibold text-zinc-700 text-center mb-2">תמונה שתישלח</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={scheduleScanImageUrl.trim()}
+                  alt=""
+                  className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
+                />
+              </div>
+            ) : String(scheduleBoardLink ?? "").trim() ? (
+              <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
+                ללא תמונה — יישלח קישור:{" "}
+                <span dir="ltr" className="font-mono text-[10px] break-all">
+                  {scheduleBoardLink.trim()}
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+                הוסיפו תמונה או לינק למערכת שעות בטאב «לינקים» → קישורי מערכת.
+              </p>
+            )}
+          </div>
+        </SalesPathSectionBlock>
+
+        <SalesPathSectionBlock
+          stepPrefix="sales"
           id="service_pick"
           title="בחירת מוצר"
           open={openSections.service_pick}
@@ -777,13 +832,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               <>
                 <Field label="שאלה + כפתורי בחירה" className="space-y-1">
                   <Textarea
-                    value={salesFlowConfig.multi_service_question}
-                    onChange={(v) => setSalesFlowConfig((c) => ({ ...c, multi_service_question: v }))}
+                    value={stripScheduleLineFromMultiServiceQuestion(
+                      salesFlowConfig.multi_service_question ?? ""
+                    )}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({
+                        ...c,
+                        multi_service_question: stripScheduleLineFromMultiServiceQuestion(v),
+                      }))
+                    }
                     rows={4}
-                    placeholder="למשל: איזה אימון הכי מדבר אליך?"
+                    placeholder="למשל: כדי שאוכל להתאים עבורך בול את מה שמעניין אותך, איזה אימון הכי קורץ לך?"
                   />
-                  <p className="text-[11px] leading-relaxed text-zinc-500">
-                    כשיש תמונת מערכת שעות — נשלחת לפני השאלה; «(תמונה)» מוחלף בקישור רק כשאין תמונה.
+                  <p className="text-[11px] leading-relaxed text-zinc-500 text-right">
+                    מערכת השעות נשלחת בסשן נפרד מעל — רק שאלת הבחירה כאן.
                   </p>
                 </Field>
                 <div className="space-y-3">
@@ -1554,7 +1616,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         ) : (
                           <div className="flex flex-col items-stretch space-y-2">
                             <p className="text-center text-[11px] font-medium text-zinc-700">
-                              תמונת מערכת השעות (אינסרט לפני תפריט ההמשך)
+                              תמונה לכפתור «צפייה במערכת השעות» ב-CTA
                             </p>
                             {String(b.schedule_cta_image_url ?? "").trim() ? (
                               <div className="mx-auto max-w-[200px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
