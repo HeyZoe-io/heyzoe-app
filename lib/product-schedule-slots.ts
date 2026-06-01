@@ -1,5 +1,7 @@
 /** מועדי לוח לפי מוצר (מערכת שעות לא־אינטראקטיבית) — נשמר ב־JSON של service.description */
 
+import { truncateWaButtonLabel } from "@/lib/wa-button-label";
+
 export type ProductScheduleSlot = {
   id: string;
   /** א׳–ש׳ (ראשון–שבת) — ערך יציב לכפתורים/תצוגה */
@@ -99,7 +101,7 @@ export function normalizeRequestedDateForTemplate(stored: string): string {
 
 /** תווית כפתור: «יום ב׳ ב19:00» */
 export function formatSlotPickButtonLabel(slot: { day: string; time: string }): string {
-  return `${formatYomForContactSlotDate(slot.day)} ב${slot.time}`;
+  return truncateWaButtonLabel(`${formatYomForContactSlotDate(slot.day)} ב${slot.time}`);
 }
 
 /** נרמול לזיהוי בחירת מועד מרשימת וואטסאפ (ב-18:45 מול ב18:45, רווחים). */
@@ -308,7 +310,7 @@ export function buildCourseCycleStartPickQuestion(): string {
 
 export function formatCourseCycleStartButtonLabel(startDateIso: string): string {
   const d = formatCycleDateShort(startDateIso);
-  return d ? `התחלה ב${d}` : "התחלה";
+  return truncateWaButtonLabel(d ? `התחלה ב${d}` : "התחלה");
 }
 
 export function courseCycleStartButtonLabelsMatch(a: string, b: string): boolean {
@@ -419,7 +421,7 @@ export function formatSlotPickButtonLabelWithCycle(
 ): string {
   const base = formatSlotPickButtonLabel(slot);
   const range = formatCourseCycleDateRange(cycle?.start_date ?? "", cycle?.end_date ?? "");
-  return range ? `${range} · ${base}` : base;
+  return truncateWaButtonLabel(range ? `${range} · ${base}` : base);
 }
 
 export function resolveScheduleSlotsForServiceMeta(

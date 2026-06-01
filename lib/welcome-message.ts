@@ -1,7 +1,9 @@
 /** פירוק/הרכבה של הודעת פתיחה: גוף (בועה) + צ'יפים (כפתורים) */
 
+import { truncateWaButtonLabel } from "@/lib/wa-button-label";
+
 export function buildWelcomeMessageForStorage(intro: string, question: string, options: string[]): string {
-  const trimmed = options.map((o) => o.trim()).filter(Boolean);
+  const trimmed = options.map((o) => truncateWaButtonLabel(o)).filter(Boolean);
   const optLines = trimmed.map((o, i) => `${i + 1}. ${o}`);
   return [intro.trim(), question.trim(), ...optLines].filter(Boolean).join("\n");
 }
@@ -17,7 +19,7 @@ function parseNumberedTail(lines: string[]): { bodyLines: string[]; chips: strin
     }
     const m = line.match(/^\d+\.\s*(.+)$/);
     if (m) {
-      chips.unshift(m[1].trim());
+      chips.unshift(truncateWaButtonLabel(m[1]!));
       body.pop();
       continue;
     }
@@ -34,7 +36,9 @@ export function splitWelcomeForChat(
   const intro = typeof s?.welcome_intro === "string" ? s.welcome_intro.trim() : "";
   const question = typeof s?.welcome_question === "string" ? s.welcome_question.trim() : "";
   const rawOpts = Array.isArray(s?.welcome_options) ? s.welcome_options : null;
-  const optsFromSocial = rawOpts ? rawOpts.map((x) => String(x ?? "").trim()).filter(Boolean) : [];
+  const optsFromSocial = rawOpts
+    ? rawOpts.map((x) => truncateWaButtonLabel(String(x ?? ""))).filter(Boolean)
+    : [];
 
   if (intro || question || optsFromSocial.length > 0) {
     const body = [intro, question].filter(Boolean).join("\n\n");

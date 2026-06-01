@@ -3,6 +3,7 @@
  */
 
 import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
+import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 
 export type SalesFlowExtraStep = {
   id: string;
@@ -153,7 +154,7 @@ export function normalizeWarmupButtonPairs(
 
   const len = Math.min(Math.max(options.length, WARMUP_MIN_BUTTONS), WARMUP_MAX_BUTTONS);
   return {
-    options: options.slice(0, len),
+    options: options.slice(0, len).map((o) => truncateWaButtonLabel(o)),
     replies: repliesRaw.slice(0, len),
   };
 }
@@ -567,7 +568,7 @@ function parseOfferKindFlowButtons(raw: unknown, fallback: SalesFlowCtaButton[])
       delRaw === "phone" || delRaw === "link" ? delRaw : "link";
     out.push({
       id: typeof o.id === "string" ? o.id : Math.random().toString(36).slice(2, 9),
-      label: String(o.label ?? ""),
+      label: truncateWaButtonLabel(String(o.label ?? "")),
       kind,
       ...(kind === "workshop_purchase" || kind === "course_enroll"
         ? { secondary_purchase_delivery: secondaryDel }
@@ -635,7 +636,7 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
       o.schedule_cta_image_type === "image" ? ("image" as const) : ("" as const);
     out.push({
       id: typeof o.id === "string" ? o.id : Math.random().toString(36).slice(2, 9),
-      label: String(o.label ?? ""),
+      label: truncateWaButtonLabel(String(o.label ?? "")),
       kind,
       ...(kind === "trial"
         ? { trial_cta_delivery: trialDelivery ?? "link" }
@@ -686,7 +687,8 @@ export function ctaSlotRoleLabel(locked: Exclude<SalesFlowCtaButton["kind"], "ad
 /** תאימות JSON ישן: כל כפתור מקבל רק את המבנה של סוגו (לפי id / מיקום) */
 export function normalizeCtaButtonForSlot(button: SalesFlowCtaButton, index: number): SalesFlowCtaButton {
   const locked = ctaLockedKindForSlot(index, button.id);
-  const { id, label } = button;
+  const id = button.id;
+  const label = truncateWaButtonLabel(button.label ?? "");
 
   if (locked === "trial") {
     void button.trial_cta_delivery;
@@ -1262,7 +1264,11 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
   const o = raw as Record<string, unknown>;
   const exFollow = (i: unknown): [string, string, string] => {
     if (!Array.isArray(i) || i.length < 3) return structuredClone(FRIENDLY.followup_after_next_class_options);
-    return [String(i[0] ?? ""), String(i[1] ?? ""), String(i[2] ?? "")];
+    return [
+      truncateWaButtonLabel(String(i[0] ?? "")),
+      truncateWaButtonLabel(String(i[1] ?? "")),
+      truncateWaButtonLabel(String(i[2] ?? "")),
+    ];
   };
   const base = defaultSalesFlowConfig([]);
   const trialAfter =
@@ -1435,40 +1441,40 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     multi_service_question: c.multi_service_question,
     after_service_pick: c.after_service_pick,
     experience_question: c.experience_question,
-    experience_options: [...c.experience_options],
+    experience_options: c.experience_options.map((o) => truncateWaButtonLabel(o)),
     experience_replies: [...c.experience_replies],
     after_experience: c.after_experience,
     experience_question_workshop: c.experience_question_workshop,
-    experience_options_workshop: [...c.experience_options_workshop],
+    experience_options_workshop: c.experience_options_workshop.map((o) => truncateWaButtonLabel(o)),
     experience_replies_workshop: [...c.experience_replies_workshop],
     after_experience_workshop: c.after_experience_workshop,
     experience_question_course: c.experience_question_course,
-    experience_options_course: [...c.experience_options_course],
+    experience_options_course: c.experience_options_course.map((o) => truncateWaButtonLabel(o)),
     experience_replies_course: [...c.experience_replies_course],
     after_experience_course: c.after_experience_course,
     greeting_extra_steps: [],
     opening_extra_steps: c.opening_extra_steps.map((s) => ({
       id: s.id,
       question: s.question,
-      options: [...s.options],
+      options: s.options.map((o) => truncateWaButtonLabel(o)),
       replies: [...s.replies],
     })),
     opening_extra_steps_workshop: c.opening_extra_steps_workshop.map((s) => ({
       id: s.id,
       question: s.question,
-      options: [...s.options],
+      options: s.options.map((o) => truncateWaButtonLabel(o)),
       replies: [...s.replies],
     })),
     opening_extra_steps_course: c.opening_extra_steps_course.map((s) => ({
       id: s.id,
       question: s.question,
-      options: [...s.options],
+      options: s.options.map((o) => truncateWaButtonLabel(o)),
       replies: [...s.replies],
     })),
     cta_body: c.cta_body,
     cta_workshop_body: c.cta_workshop_body,
     cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((b) => {
-      const row: Record<string, unknown> = { id: b.id, label: b.label, kind: b.kind };
+      const row: Record<string, unknown> = { id: b.id, label: truncateWaButtonLabel(b.label), kind: b.kind };
       if (b.kind === "workshop_purchase" || b.kind === "course_enroll") {
         row.secondary_purchase_delivery = b.secondary_purchase_delivery ?? "link";
       }
@@ -1476,7 +1482,7 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     }),
     cta_course_body: c.cta_course_body,
     cta_course_buttons: (c.cta_course_buttons ?? []).map((b) => {
-      const row: Record<string, unknown> = { id: b.id, label: b.label, kind: b.kind };
+      const row: Record<string, unknown> = { id: b.id, label: truncateWaButtonLabel(b.label), kind: b.kind };
       if (b.kind === "workshop_purchase" || b.kind === "course_enroll") {
         row.secondary_purchase_delivery = b.secondary_purchase_delivery ?? "link";
       }
@@ -1489,7 +1495,7 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
           (b.memberships_cta_delivery ?? "link") === "range")
     ),
     cta_buttons: c.cta_buttons.map((b) => {
-      const row: Record<string, unknown> = { id: b.id, label: b.label, kind: b.kind };
+      const row: Record<string, unknown> = { id: b.id, label: truncateWaButtonLabel(b.label), kind: b.kind };
       if (b.kind === "trial") {
         row.trial_cta_delivery = b.trial_cta_delivery ?? "link";
       }
@@ -1511,7 +1517,9 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     }),
     cta_extra_steps: [],
     followup_after_next_class_body: c.followup_after_next_class_body,
-    followup_after_next_class_options: [...c.followup_after_next_class_options],
+    followup_after_next_class_options: c.followup_after_next_class_options.map((o) =>
+      truncateWaButtonLabel(o)
+    ) as [string, string, string],
     free_chat_invite_reply: c.free_chat_invite_reply,
     after_trial_registration_body: c.after_trial_registration_body,
     after_schedule_selection: c.after_schedule_selection,
@@ -2033,13 +2041,13 @@ export function getWhatsAppOpeningPreviewSections(
   });
   for (const st of c.greeting_extra_steps) {
     const q = st.question.trim();
-    const labels = st.options.map((o) => o.trim()).filter(Boolean);
+    const labels = truncateWaButtonLabels(st.options.map((o) => o.trim()).filter(Boolean));
     if (q) sections.push({ kind: "text", text: q });
     if (labels.length) sections.push({ kind: "buttons", labels });
   }
   if (named.length > 1) {
     sections.push({ kind: "text", text: c.multi_service_question });
-    sections.push({ kind: "buttons", labels: [...named].slice(0, 12) });
+    sections.push({ kind: "buttons", labels: truncateWaButtonLabels([...named].slice(0, 12)) });
     if (named.length > 3) {
       sections.push({
         kind: "text",
@@ -2054,7 +2062,7 @@ export function getWhatsAppOpeningPreviewSections(
       kind: "text",
       text: wb.question.replace(/\{serviceName\}/g, sn),
     });
-    sections.push({ kind: "buttons", labels: [...wb.options] });
+    sections.push({ kind: "buttons", labels: truncateWaButtonLabels(wb.options) });
   }
   return sections;
 }

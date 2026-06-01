@@ -31,6 +31,7 @@ import {
   MARKETING_PHONE_DISPLAY,
   MARKETING_PHONE_WA_ME,
 } from "@/lib/marketing-whatsapp";
+import { WA_BUTTON_LABEL_MAX_CHARS, clampWaButtonLabelInput } from "@/lib/wa-button-label";
 
 const NodeDeleteCtx = createContext<((id: string) => void) | null>(null);
 
@@ -763,7 +764,7 @@ function MarketingFlowCanvas() {
     (index: number, value: string) => {
       if (!selected || selected.type !== "question") return;
       const buttons = [...((selected.data as MfNodeData)?.buttons ?? ["א", "ב"])];
-      buttons[index] = value;
+      buttons[index] = clampWaButtonLabelInput(value);
       updateSelectedData({ buttons });
     },
     [selected, updateSelectedData]
@@ -1271,11 +1272,14 @@ function MarketingFlowCanvas() {
               )}
               {selected.type === "question" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <span style={{ fontSize: 13 }}>כפתורים</span>
+                  <span style={{ fontSize: 13 }}>
+                    כפתורים <span style={{ color: "#6b5b9a" }}>(עד {WA_BUTTON_LABEL_MAX_CHARS} תווים)</span>
+                  </span>
                   {(((selected.data as MfNodeData)?.buttons ?? []) as string[]).map((b, i) => (
                     <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input
                         value={b}
+                        maxLength={WA_BUTTON_LABEL_MAX_CHARS}
                         onChange={(e) => setQuestionButton(i, e.target.value)}
                         style={{ flex: 1, borderRadius: 10, border: `1px solid rgba(113,51,218,0.2)`, padding: "6px 8px" }}
                       />
