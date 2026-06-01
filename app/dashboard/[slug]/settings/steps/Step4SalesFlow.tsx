@@ -1896,7 +1896,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           }
         >
           <div className="space-y-3">
-            <p className="text-xs text-zinc-600 text-center leading-relaxed">יושלם אוטומטית מ«על העסק»</p>
             {!hasAnyCtaOfferTab ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                 כדי לערוך «אחרי הרשמה» — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים».
