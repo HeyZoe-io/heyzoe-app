@@ -1,3 +1,5 @@
+import { isIdleAfterLastUserMessage, waNoResponseEligible } from "@/lib/wa-no-response";
+
 export type ContactStatusKey = "opted_out" | "registered" | "no_response" | "followup" | "active";
 
 export type ContactStatusInput = {
@@ -10,8 +12,6 @@ export type ContactStatusInput = {
 };
 
 const ACTIVE_PHASES = new Set(["opening", "warmup", "schedule_date", "schedule_time", "cta"]);
-/** תואם ל-cron/wa-status-check — ליד שלא דיבר 26+ שעות אחרי הודעת הבוט */
-const IDLE_NO_RESPONSE_MS = 26 * 60 * 60 * 1000;
 
 export function computeContactStatus(input: ContactStatusInput): ContactStatusKey | null {
   if (input.opted_out === true) return "opted_out";
@@ -20,12 +20,16 @@ export function computeContactStatus(input: ContactStatusInput): ContactStatusKe
 
   const stage = Number(input.wa_followup_stage ?? 0);
   if (stage === 3) return "no_response";
-  if (stage === 1 || stage === 2) return "followup";
 
-  const lastAtMs = input.last_contact_at ? new Date(String(input.last_contact_at)).getTime() : NaN;
-  if (Number.isFinite(lastAtMs) && Date.now() - lastAtMs >= IDLE_NO_RESPONSE_MS) {
+  // last_contact_at מתעדכן בהודעת user — 26ש׳+ בלי נרשם/הסר → ללא מענה (גם אם stage פולואפ תקוע)
+  if (
+    waNoResponseEligible(input) &&
+    isIdleAfterLastUserMessage(input.last_contact_at ? String(input.last_contact_at) : null)
+  ) {
     return "no_response";
   }
+
+  if (stage === 1 || stage === 2) return "followup";
 
   const phase = String(input.session_phase ?? "").trim();
   if (ACTIVE_PHASES.has(phase)) return "active";
@@ -49,7 +53,7 @@ export const CONTACT_STATUS_META: Record<
   },
   no_response: {
     label: "ללא מענה",
-    tooltip: "ללא מענה 26+ שעות אחרי הודעת הבוט, או סיום מחזור פולואפ",
+    tooltip: "26+ שעות מהודעת הליד האחרונה, בלי «נרשמתי» (לא נרשם / לא הסיר)",
     badgeClass: "border-red-200 bg-red-50 text-red-800",
   },
   registered: {
