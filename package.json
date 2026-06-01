@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "wa:find-phone-id": "node --env-file=.env.local scripts/find_id.js",
+    "wa:send-test": "node --env-file=.env.local scripts/send_test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
@@ -28,6 +30,8 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
