@@ -1900,7 +1900,8 @@ export default function SlugSettingsPage({
         | "service_pick"
         | "warmup"
         | "cta"
-        | "after_trial_registration"
+        | "after_trial_registration",
+      warmupOfferKind: OfferKind = "trial"
     ) => {
       const base = defaultSalesFlowConfig(vibe);
       if (section === "service_pick") {
@@ -1928,6 +1929,26 @@ export default function SlugSettingsPage({
           };
         }
         if (section === "warmup") {
+          if (warmupOfferKind === "workshop") {
+            return {
+              ...c,
+              experience_question_workshop: base.experience_question_workshop,
+              experience_options_workshop: structuredClone(base.experience_options_workshop),
+              experience_replies_workshop: structuredClone(base.experience_replies_workshop),
+              after_experience_workshop: base.after_experience_workshop,
+              opening_extra_steps_workshop: structuredClone(base.opening_extra_steps_workshop),
+            };
+          }
+          if (warmupOfferKind === "course") {
+            return {
+              ...c,
+              experience_question_course: base.experience_question_course,
+              experience_options_course: structuredClone(base.experience_options_course),
+              experience_replies_course: structuredClone(base.experience_replies_course),
+              after_experience_course: base.after_experience_course,
+              opening_extra_steps_course: structuredClone(base.opening_extra_steps_course),
+            };
+          }
           return {
             ...c,
             experience_question: base.experience_question,
@@ -1935,16 +1956,6 @@ export default function SlugSettingsPage({
             experience_replies: structuredClone(base.experience_replies),
             after_experience: base.after_experience,
             opening_extra_steps: structuredClone(base.opening_extra_steps),
-            experience_question_workshop: base.experience_question_workshop,
-            experience_options_workshop: structuredClone(base.experience_options_workshop),
-            experience_replies_workshop: structuredClone(base.experience_replies_workshop),
-            after_experience_workshop: base.after_experience_workshop,
-            opening_extra_steps_workshop: structuredClone(base.opening_extra_steps_workshop),
-            experience_question_course: base.experience_question_course,
-            experience_options_course: structuredClone(base.experience_options_course),
-            experience_replies_course: structuredClone(base.experience_replies_course),
-            after_experience_course: base.after_experience_course,
-            opening_extra_steps_course: structuredClone(base.opening_extra_steps_course),
           };
         }
         if (section === "cta") {
@@ -1982,9 +1993,12 @@ export default function SlugSettingsPage({
         | "service_pick"
         | "warmup"
         | "cta"
-        | "after_trial_registration"
+        | "after_trial_registration",
+      warmupOfferKind?: OfferKind
     ) => {
-      runBusy(`sales:${section}`, () => regenerateSalesFlowSection(section));
+      const busyKey =
+        section === "warmup" && warmupOfferKind ? `sales:warmup:${warmupOfferKind}` : `sales:${section}`;
+      runBusy(busyKey, () => regenerateSalesFlowSection(section, warmupOfferKind ?? "trial"));
     },
     [regenerateSalesFlowSection, runBusy]
   );
