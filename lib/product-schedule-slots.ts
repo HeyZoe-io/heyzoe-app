@@ -219,9 +219,9 @@ export function buildCourseScheduleInfoMessage(serviceName: string, cycles: Cour
 
   if (!cycleLines.length) return "";
 
-  const body = hasDateRange
-    ? [`${name} מתקיים בתאריכים:`, ...cycleLines].join("\n")
-    : [`${name} מתקיים`, ...cycleLines].join("\n");
+  const header = hasDateRange ? `${name} מתקיים בתאריכים:` : `${name} מתקיים`;
+  const lineBreak = cycleLines.length >= 2 ? "\n\n" : "\n";
+  const body = [header, ...cycleLines].join(lineBreak);
   return body.endsWith(".") ? body : `${body}.`;
 }
 
