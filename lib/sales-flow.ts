@@ -106,6 +106,12 @@ export type SalesFlowConfig = {
   cta_body_after_schedule: string;
   /** תבנית הודעה ללקוח אחרי הרשמה — כשאין הרשמה ישירה (כולל {requested_date} / {requested_time}) */
   after_trial_registration_body_after_schedule: string;
+  /** הודעה אחרי הרשמה — סדנה */
+  after_workshop_registration_body: string;
+  after_workshop_registration_body_after_schedule: string;
+  /** הודעה אחרי הרשמה — קורס */
+  after_course_registration_body: string;
+  after_course_registration_body_after_schedule: string;
   /** מיגרציה ממסלול ישן — דורס את הברכה המורכבת */
   greeting_body_override?: string;
   /** @deprecated נגזר מ־memberships_cta_delivery בכפתור המנויים; נשמר לתאימות לקוחות ישנים */
@@ -375,6 +381,54 @@ const FRIENDLY: SalesFlowConfig = {
 {business_directions}
 
 מומלץ להגיע לאימון לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
+סופר מחכים לראותך. נתראה בקרוב!
+
+{instagram_cta}`,
+  after_workshop_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
+
+מתרגשים לראותך בקרוב בסדנת {serviceName} בתאריך {requested_date} בשעה {requested_time}
+זה קורה בכתובת: {business_address}
+
+ככה מגיעים אלינו:
+{business_directions}
+
+מומלץ להגיע לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
+סופר מחכים לראותך. נתראה בקרוב!
+
+{instagram_cta}`,
+  after_workshop_registration_body: `כל הכבוד! נרשמת בהצלחה 🎉
+
+מתרגשים לראותך בקרוב בסדנה!
+זה קורה בכתובת: {business_address}
+
+ככה מגיעים אלינו:
+{business_directions}
+
+מומלץ להגיע לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
+סופר מחכים לראותך. נתראה בקרוב!
+
+{instagram_cta}`,
+  after_course_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
+
+מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}
+זה קורה בכתובת: {business_address}
+
+ככה מגיעים אלינו:
+{business_directions}
+
+מומלץ להגיע לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
+סופר מחכים לראותך. נתראה בקרוב!
+
+{instagram_cta}`,
+  after_course_registration_body: `כל הכבוד! נרשמת בהצלחה 🎉
+
+מתרגשים לראותך בקרוב בקורס!
+זה קורה בכתובת: {business_address}
+
+ככה מגיעים אלינו:
+{business_directions}
+
+מומלץ להגיע לפחות 10 דקות לפני, עם בקבוק מים ומגבת אישית!
 סופר מחכים לראותך. נתראה בקרוב!
 
 {instagram_cta}`,
@@ -1305,6 +1359,22 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_trial_registration_body_after_schedule === "string"
         ? o.after_trial_registration_body_after_schedule
         : base.after_trial_registration_body_after_schedule,
+    after_workshop_registration_body:
+      typeof o.after_workshop_registration_body === "string"
+        ? o.after_workshop_registration_body
+        : base.after_workshop_registration_body,
+    after_workshop_registration_body_after_schedule:
+      typeof o.after_workshop_registration_body_after_schedule === "string"
+        ? o.after_workshop_registration_body_after_schedule
+        : base.after_workshop_registration_body_after_schedule,
+    after_course_registration_body:
+      typeof o.after_course_registration_body === "string"
+        ? o.after_course_registration_body
+        : base.after_course_registration_body,
+    after_course_registration_body_after_schedule:
+      typeof o.after_course_registration_body_after_schedule === "string"
+        ? o.after_course_registration_body_after_schedule
+        : base.after_course_registration_body_after_schedule,
     greeting_body_override: migrateLegacyGreetingBodyOverride(o.greeting_body_override),
     /** ברירת מחדל true — לתאימות בלבד; בשימוש אפשרי עם applyLegacyMembershipsCheckbox */
     show_memberships_button: o.show_memberships_button === false ? false : true,
@@ -1405,6 +1475,10 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     after_course_cycle_pick: c.after_course_cycle_pick,
     cta_body_after_schedule: c.cta_body_after_schedule,
     after_trial_registration_body_after_schedule: c.after_trial_registration_body_after_schedule,
+    after_workshop_registration_body: c.after_workshop_registration_body,
+    after_workshop_registration_body_after_schedule: c.after_workshop_registration_body_after_schedule,
+    after_course_registration_body: c.after_course_registration_body,
+    after_course_registration_body_after_schedule: c.after_course_registration_body_after_schedule,
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
   };
 }
@@ -2036,6 +2110,31 @@ export function resolveAfterTrialRegistrationBodyTemplate(
   cfg: SalesFlowConfig,
   afterScheduleFlow: boolean
 ): string {
+  return resolveAfterRegistrationBodyTemplate(cfg, "trial", afterScheduleFlow);
+}
+
+export function resolveAfterRegistrationBodyTemplate(
+  cfg: SalesFlowConfig,
+  offerKind: OfferKind,
+  afterScheduleFlow: boolean
+): string {
+  const trialDirect = String(cfg.after_trial_registration_body ?? "").trim();
+  const trialSchedule =
+    String(cfg.after_trial_registration_body_after_schedule ?? "").trim() || trialDirect;
+
+  const pick = (direct: string, schedule: string): string => {
+    const d = direct.trim();
+    const s = schedule.trim();
+    if (afterScheduleFlow) return s || trialSchedule || trialDirect;
+    return d || trialDirect;
+  };
+
+  if (offerKind === "workshop") {
+    return pick(cfg.after_workshop_registration_body, cfg.after_workshop_registration_body_after_schedule);
+  }
+  if (offerKind === "course") {
+    return pick(cfg.after_course_registration_body, cfg.after_course_registration_body_after_schedule);
+  }
   if (!afterScheduleFlow) return cfg.after_trial_registration_body;
   const alt = String(cfg.after_trial_registration_body_after_schedule ?? "").trim();
   return alt || cfg.after_trial_registration_body;

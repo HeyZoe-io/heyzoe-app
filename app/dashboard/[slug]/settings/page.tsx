@@ -2019,11 +2019,32 @@ export default function SlugSettingsPage({
             free_chat_invite_reply: base.free_chat_invite_reply,
           };
         }
-        return {
-          ...c,
-          after_trial_registration_body: base.after_trial_registration_body,
-          after_trial_registration_body_after_schedule: base.after_trial_registration_body_after_schedule,
-        };
+        if (section === "after_trial_registration") {
+          const kind = warmupOfferKind ?? "trial";
+          if (kind === "workshop") {
+            return {
+              ...c,
+              after_workshop_registration_body: base.after_workshop_registration_body,
+              after_workshop_registration_body_after_schedule:
+                base.after_workshop_registration_body_after_schedule,
+            };
+          }
+          if (kind === "course") {
+            return {
+              ...c,
+              after_course_registration_body: base.after_course_registration_body,
+              after_course_registration_body_after_schedule:
+                base.after_course_registration_body_after_schedule,
+            };
+          }
+          return {
+            ...c,
+            after_trial_registration_body: base.after_trial_registration_body,
+            after_trial_registration_body_after_schedule:
+              base.after_trial_registration_body_after_schedule,
+          };
+        }
+        return c;
       });
     },
     [regenerateServiceBenefitLinesFromDescriptions, vibe]
@@ -2044,7 +2065,9 @@ export default function SlugSettingsPage({
           ? `sales:warmup:${warmupOfferKind}`
           : section === "cta" && warmupOfferKind
             ? `sales:cta:${warmupOfferKind}`
-            : `sales:${section}`;
+            : section === "after_trial_registration" && warmupOfferKind
+              ? `sales:after_registration:${warmupOfferKind}`
+              : `sales:${section}`;
       runBusy(busyKey, () => regenerateSalesFlowSection(section, warmupOfferKind ?? "trial"));
     },
     [regenerateSalesFlowSection, runBusy]
