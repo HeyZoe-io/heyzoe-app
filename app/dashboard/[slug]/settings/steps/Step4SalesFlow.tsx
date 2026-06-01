@@ -1366,7 +1366,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       placeholder="מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}"
                     />
                     <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
-                      משתנים: {"{serviceName}"}, {"{requested_date}"}, {"{requested_time}"}
+                      משתנים: {"{serviceName}"}, {"{requested_date}"} (שם היום בלבד, למשל «ראשון» — בתבנית כתבו «ביום»), {"{requested_time}"}
                     </p>
                   </Field>
                 </>
@@ -1402,7 +1402,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       placeholder="מהמם! נשמנו לשבץ אותך לסדנת {serviceName} ביום {requested_date} בשעה {requested_time}."
                     />
                     <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
-                      משתנים: {"{serviceName}"}, {"{requested_date}"}, {"{requested_time}"}
+                      משתנים: {"{serviceName}"}, {"{requested_date}"} (שם היום בלבד), {"{requested_time}"}
                     </p>
                   </Field>
                 </>

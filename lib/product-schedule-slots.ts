@@ -80,9 +80,21 @@ export function normalizeProductScheduleSlotsFromMeta(raw: unknown, newId: () =>
 
 /** לתצוגה בווטסאפ / שמירה ב־sf_requested_date — למשל «יום ב׳» */
 export function formatYomForContactSlotDate(dayLetter: string): string {
-  const opt = HEBREW_DAY_OPTIONS.find((o) => o.value === dayLetter);
-  const short = opt ? opt.label.trim() : dayLetter;
+  const short = formatDayNameForScheduleDatePlaceholder(dayLetter);
   return `יום ${short}`;
+}
+
+/** שם יום בלבד ל־{requested_date} בתבנית «ביום {requested_date}» — למשל «ראשון». */
+export function formatDayNameForScheduleDatePlaceholder(dayLetter: string): string {
+  const opt = HEBREW_DAY_OPTIONS.find((o) => o.value === dayLetter);
+  return opt ? opt.label.trim() : String(dayLetter ?? "").trim();
+}
+
+/** מנרמל ערך ישן ב־DB («יום שני» → «שני») לפני מילוי תבנית. */
+export function normalizeRequestedDateForTemplate(stored: string): string {
+  const t = String(stored ?? "").trim();
+  const m = t.match(/^יום\s+(.+)$/u);
+  return m ? m[1]!.trim() : t;
 }
 
 /** תווית כפתור: «יום ב׳ ב19:00» */

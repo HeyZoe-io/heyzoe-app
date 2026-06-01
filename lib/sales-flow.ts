@@ -2,6 +2,8 @@
  * מסלול מכירה מובנה - פתיחה + הנעה לפעולה, סנכרון ל-welcome_message ולפרומפט זואי.
  */
 
+import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
+
 export type SalesFlowExtraStep = {
   id: string;
   question: string;
@@ -1002,6 +1004,21 @@ export function fillAfterCourseCyclePickTemplate(
   const name = serviceName.trim() || "הקורס";
   const date = requestedDate.trim() || "...";
   return template.replace(/\{serviceName\}/g, name).replace(/\{requested_date\}/g, date);
+}
+
+export function fillAfterScheduleSelectionTemplate(
+  template: string,
+  serviceName: string,
+  requestedDate: string,
+  requestedTime: string
+): string {
+  const date = normalizeRequestedDateForTemplate(requestedDate);
+  const time = String(requestedTime ?? "").trim();
+  const service = serviceName.trim() || "האימון";
+  return String(template ?? "")
+    .replace(/\{serviceName\}/g, service)
+    .replace(/\{requested_date\}/g, date)
+    .replace(/\{requested_time\}/g, time);
 }
 
 export function resolveAfterScheduleSelectionTemplate(
@@ -2173,7 +2190,7 @@ function fillAfterTrialServiceNamePlaceholders(body: string, serviceName: string
 function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialScheduleFillInput): string {
   const service = String(fill.serviceName ?? "").trim() || "האימון";
   let t = fillAfterTrialServiceNamePlaceholders(body, service);
-  const date = String(fill.requestedDate ?? "").trim();
+  const date = normalizeRequestedDateForTemplate(String(fill.requestedDate ?? "").trim());
   const time = String(fill.requestedTime ?? "").trim();
   const courseSched = String(fill.courseSchedulePhrase ?? "").trim();
 
