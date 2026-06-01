@@ -356,10 +356,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   } = props;
 
   const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
-  const isGen = (section: string, warmupTab?: CtaOfferTab) => {
-    if (section === "warmup" && warmupTab) return regeneratingKey === `sales:warmup:${warmupTab}`;
+  const isGen = (section: string, offerTab?: CtaOfferTab) => {
+    if (section === "warmup" && offerTab) return regeneratingKey === `sales:warmup:${offerTab}`;
+    if (section === "cta" && offerTab) return regeneratingKey === `sales:cta:${offerTab}`;
     return regeneratingKey === `sales:${section}`;
   };
+
+  const hasAnyCtaOfferTab = hasTrialOffers || hasWorkshopOffers || hasCourseOffers;
 
   const [ctaOfferTabPreferred, setCtaOfferTab] = useState<CtaOfferTab>(() => {
     if (hasTrialOffers) return "trial";
@@ -393,6 +396,34 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     [warmOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
   );
 
+  const showScheduleTrialWorkshopTab = hasTrialOffers || hasWorkshopOffers;
+  const [scheduleOfferTabPreferred, setScheduleOfferTab] = useState<CtaOfferTab>(() => {
+    if (hasCourseOffers && !hasTrialOffers && !hasWorkshopOffers) return "course";
+    return "trial";
+  });
+  const scheduleOfferTab = useMemo((): "trial" | "course" => {
+    if (scheduleOfferTabPreferred === "course" && hasCourseOffers) return "course";
+    if (showScheduleTrialWorkshopTab) return "trial";
+    return "course";
+  }, [scheduleOfferTabPreferred, hasCourseOffers, showScheduleTrialWorkshopTab]);
+
+  useEffect(() => {
+    setCtaOfferTab((prev) => resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers));
+  }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+
+  useEffect(() => {
+    setWarmOfferTab((prev) => resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers));
+  }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+
+  useEffect(() => {
+    setScheduleOfferTab((prev) => {
+      const asCta: CtaOfferTab = prev === "course" ? "course" : "trial";
+      if (asCta === "course" && hasCourseOffers) return "course";
+      if (showScheduleTrialWorkshopTab) return "trial";
+      return hasCourseOffers ? "course" : "trial";
+    });
+  }, [hasCourseOffers, showScheduleTrialWorkshopTab]);
+
   const firstTrialSvcForWarmup = useMemo(() => {
     const row = services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
     return row ?? firstNamedService;
@@ -404,6 +435,28 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   const showScheduleSelectionSession = scheduleDirectRegistration === false;
+
+  const ctaSectionFilled = useMemo(() => {
+    if (!hasAnyCtaOfferTab) return false;
+    const trialBody = showScheduleSelectionSession
+      ? salesFlowConfig.cta_body_after_schedule
+      : salesFlowConfig.cta_body;
+    const trialOk = !hasTrialOffers || Boolean(String(trialBody ?? "").trim());
+    const workshopOk = !hasWorkshopOffers || Boolean(String(salesFlowConfig.cta_workshop_body ?? "").trim());
+    const courseOk = !hasCourseOffers || Boolean(String(salesFlowConfig.cta_course_body ?? "").trim());
+    return trialOk && workshopOk && courseOk;
+  }, [
+    hasAnyCtaOfferTab,
+    hasTrialOffers,
+    hasWorkshopOffers,
+    hasCourseOffers,
+    showScheduleSelectionSession,
+    salesFlowConfig.cta_body,
+    salesFlowConfig.cta_body_after_schedule,
+    salesFlowConfig.cta_workshop_body,
+    salesFlowConfig.cta_course_body,
+  ]);
+
   const trialCtaButtonsForUi = useMemo(
     () =>
       showScheduleSelectionSession
@@ -1016,32 +1069,117 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             hint="נשלח כשאין הרשמה ישירה ממערכת השעות"
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
-            filled={Boolean(String(salesFlowConfig.after_schedule_selection ?? "").trim())}
+            filled={
+              (showScheduleTrialWorkshopTab &&
+                Boolean(String(salesFlowConfig.after_schedule_selection ?? "").trim())) ||
+              (hasCourseOffers && Boolean(String(salesFlowConfig.after_course_cycle_pick ?? "").trim()))
+            }
           >
             <div className="space-y-3">
-              <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
-                <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                  מתי נוח לך להגיע ל[שם האימון]?
-                </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                  אימון/סדנה: כפתורי מועד לפי הלוח (למשל «יום שני ב19:00»). קורס: פסקת מחזורים + כפתורי «התחלה ב…» לפי מחזורי הקורס בטאב «מוצרים».
-                </p>
+              <div
+                dir="rtl"
+                className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
+                role="tablist"
+                aria-label="סוג סשן בחירת מועד"
+              >
+                {showScheduleTrialWorkshopTab ? (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={scheduleOfferTab === "trial"}
+                    className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                      scheduleOfferTab === "trial"
+                        ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                    onClick={() => setScheduleOfferTab("trial")}
+                  >
+                    אימון וסדנה
+                  </button>
+                ) : null}
+                {hasCourseOffers ? (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={scheduleOfferTab === "course"}
+                    className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                      scheduleOfferTab === "course"
+                        ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                    onClick={() => setScheduleOfferTab("course")}
+                  >
+                    קורס
+                  </button>
+                ) : null}
               </div>
 
-              <Field label="תשובה">
-                <Textarea
-                  value={salesFlowConfig.after_schedule_selection ?? ""}
-                  onChange={(v) =>
-                    setSalesFlowConfig((c) => ({
-                      ...c,
-                      after_schedule_selection: v,
-                    }))
-                  }
-                  rows={2}
-                  placeholder="מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}"
-                />
-              </Field>
+              {scheduleOfferTab === "trial" && showScheduleTrialWorkshopTab ? (
+                <>
+                  <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                    <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
+                    <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                      מתי נוח לך להגיע ל[שם האימון]?
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                      כפתורי מועד לפי הלוח בשירות (למשל «יום שני ב-19:00»), או שאלות תאריך ושעה חופשיות.
+                    </p>
+                  </div>
+                  <Field label="תשובה אחרי בחירת מועד">
+                    <Textarea
+                      value={salesFlowConfig.after_schedule_selection ?? ""}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          after_schedule_selection: v,
+                        }))
+                      }
+                      rows={2}
+                      placeholder="מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}"
+                    />
+                    <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
+                      משתנים: {"{serviceName}"}, {"{requested_date}"}, {"{requested_time}"}
+                    </p>
+                  </Field>
+                </>
+              ) : null}
+
+              {scheduleOfferTab === "course" && hasCourseOffers ? (
+                <>
+                  <Field label="שאלה + כפתורי בחירה">
+                    <Textarea
+                      value={salesFlowConfig.course_cycle_pick_question ?? ""}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          course_cycle_pick_question: v,
+                        }))
+                      }
+                      rows={2}
+                      placeholder="מתי נוח לך להתחיל את הקורס?"
+                    />
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
+                      לפני השאלה נשלחת אוטומטית פסקת מחזורים (תאריכים וימים) מטאב «מוצרים», וכפתורי «התחלה ב…» לפי מחזור.
+                    </p>
+                  </Field>
+                  <Field label="תשובה אחרי בחירת מחזור">
+                    <Textarea
+                      value={salesFlowConfig.after_course_cycle_pick ?? ""}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          after_course_cycle_pick: v,
+                        }))
+                      }
+                      rows={2}
+                      placeholder="מעולה! רשמנו שתרצו להתחיל את {serviceName} בתאריך {requested_date}."
+                    />
+                    <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
+                      משתנים: {"{serviceName}"}, {"{requested_date}"}
+                    </p>
+                  </Field>
+                </>
+              ) : null}
             </div>
           </SalesPathSectionBlock>
         ) : null}
@@ -1052,25 +1190,33 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           title="סשן הנעה לפעולה"
           open={openSections.cta}
           onToggle={() => toggle("cta")}
-          filled={Boolean(String(salesFlowConfig.cta_body ?? "").trim())}
+          filled={ctaSectionFilled}
           headerAction={
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              disabled={isSalesGenerating}
-              onClick={() => regenerateSalesFlowSection("cta")}
-            >
-              {isGen("cta") ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isGen("cta") ? "מג׳נרט..." : "ג׳נרט מחדש"}
-            </Button>
+            hasAnyCtaOfferTab ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1 text-xs py-1.5 px-3 h-auto"
+                disabled={isSalesGenerating}
+                onClick={() => regenerateSalesFlowSection("cta", ctaOfferTab)}
+              >
+                {isGen("cta", ctaOfferTab) ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {isGen("cta", ctaOfferTab) ? "מג׳נרט..." : "ג׳נרט מחדש"}
+              </Button>
+            ) : null
           }
         >
           <div className="space-y-4">
+            {!hasAnyCtaOfferTab ? (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+                כדי לערוך הנעה לפעולה — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים» (שלב 3).
+              </p>
+            ) : (
+              <>
             <div
               dir="rtl"
               className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
@@ -1533,6 +1679,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 </div>
               </>
             ) : null}
+              </>
+            )}
           </div>
         </SalesPathSectionBlock>
 

@@ -48,6 +48,8 @@ import {
   resolveAfterTrialRegistrationBodyTemplate,
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
+  fillAfterCourseCyclePickTemplate,
+  resolveCourseCyclePickQuestion,
   buildDefaultMultiServiceQuestion,
   buildScheduleSlotPickQuestion,
   resolveScheduleBoardAssets,
@@ -143,7 +145,6 @@ import {
   logMessage,
 } from "@/lib/analytics";
 import {
-  buildCourseCycleStartPickQuestion,
   buildCourseCostAfterWarmupLine,
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCta,
@@ -831,7 +832,7 @@ async function sendCourseCycleStartPickMenu(input: {
         ? ""
         : "";
   const introParts = [scheduleLinkLine, infoText].filter(Boolean);
-  const pickQuestion = buildCourseCycleStartPickQuestion();
+  const pickQuestion = resolveCourseCyclePickQuestion(cfg);
 
   if (cyclesForButtons.length === 0) {
     const txtOnly = [...introParts, pickQuestion.replace(/\?$/, ""), "נשמח לעזור לבחור מחזור מתאים."].filter(Boolean).join("\n\n");
@@ -3284,7 +3285,10 @@ async function processIncoming(
             contactScheduleRequestedTime = "";
             contactSessionPhase = nextPhaseAfterCycle;
             const serviceLabel = selectedService?.name?.trim() || "הקורס";
-            const afterScheduleText = `מעולה! רשמנו שתרצו להתחיל את ${serviceLabel} בתאריך ${dateTxt}.`;
+            const afterTpl =
+              (knowledge.salesFlowConfig?.after_course_cycle_pick ?? "").trim() ||
+              "מעולה! רשמנו שתרצו להתחיל את {serviceName} בתאריך {requested_date}.";
+            const afterScheduleText = fillAfterCourseCyclePickTemplate(afterTpl, serviceLabel, dateTxt);
             await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send after course cycle pick failed:", e)
             );
