@@ -143,11 +143,21 @@ import {
   logMessage,
 } from "@/lib/analytics";
 import {
-  normalizeProductScheduleSlotsFromMeta,
-  formatSlotPickButtonLabel,
+  buildCourseCycleStartPickQuestion,
+  buildCourseScheduleInfoMessage,
+  courseCycleStartButtonLabelsMatch,
+  courseCyclesForStartButtons,
+  courseHasCycleSchedulePickData,
+  formatCourseCycleStartButtonLabel,
+  formatCycleDateShort,
+  formatSlotPickButtonLabelWithCycle,
   formatYomForContactSlotDate,
+  migrateLegacyCourseToCycles,
+  resolveWaSchedulePickSlotsFromMeta,
   scheduleSlotPickLabelsMatch,
-  filterConfiguredProductScheduleSlots,
+  syncCourseLegacyDatesFromCycles,
+  type CourseCycle,
+  type WaSchedulePickSlot,
 } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
@@ -384,20 +394,32 @@ function sortHeScheduleSlots<T extends { day: string; time: string }>(slots: T[]
 }
 
 function isCourseWithDefinedDates(service: SfServiceRow | null): boolean {
-  return Boolean(
-    service?.offerKind === "course" &&
-      service.courseStartDate.trim().length > 0 &&
-      service.courseEndDate.trim().length > 0
-  );
+  if (service?.offerKind !== "course") return false;
+  if ((service.scheduleSlots?.length ?? 0) > 0) return false;
+  return Boolean(service.courseStartDate.trim() && service.courseEndDate.trim());
+}
+
+function shouldCollectCourseCycleStartPick(
+  knowledge: BusinessKnowledgePack,
+  service: SfServiceRow | null
+): boolean {
+  if (knowledge.scheduleDirectRegistration !== false) return false;
+  if (service?.offerKind !== "course") return false;
+  if (isCourseWithDefinedDates(service)) return false;
+  return courseHasCycleSchedulePickData(service.courseCycles ?? []);
 }
 
 function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): boolean {
+  if (shouldCollectCourseCycleStartPick(knowledge, service)) return false;
   return knowledge.scheduleDirectRegistration === false && !isCourseWithDefinedDates(service);
 }
 
 function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): HeyzoeSessionPhase {
   if (knowledge.warmupSessionEnabled !== false) return "warmup";
-  return shouldCollectScheduleSelection(knowledge, service) ? "schedule_date" : "cta";
+  const needsSchedulePick =
+    shouldCollectScheduleSelection(knowledge, service) ||
+    shouldCollectCourseCycleStartPick(knowledge, service);
+  return needsSchedulePick ? "schedule_date" : "cta";
 }
 
 /** שלב ראשון במסלול מכירה אחרי פתיחה / «היי» — תמיד מתחיל מחדש (גם אם trial_registered=true). */
@@ -698,7 +720,9 @@ async function sendScheduleSlotPickMenu(input: {
     return;
   }
 
-  const labels = slots.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1)).map((s) => formatSlotPickButtonLabel(s));
+  const labels = slots
+    .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
+    .map((s) => formatSlotPickButtonLabelWithCycle(s, { start_date: s.cycle_start, end_date: s.cycle_end }));
   labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
   const serviceName = input.selectedService?.name?.trim() || "האימון";
   const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName));
@@ -723,6 +747,118 @@ async function sendScheduleSlotPickMenu(input: {
     role: "assistant",
     content: outboundLog,
     model_used: "sales_flow_schedule_slot_menu",
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    phase: "schedule_date",
+  });
+}
+
+async function sendCourseCycleStartPickMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  selectedService: SfServiceRow | null;
+  blockMedia?: boolean;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const service = input.selectedService;
+  const cycles = service?.courseCycles ?? [];
+  const cyclesForButtons = courseCyclesForStartButtons(cycles).slice(0, SCHEDULE_SLOT_PICK_MAX - 1);
+  const serviceName = service?.name?.trim() || "הקורס";
+  const cfg = input.knowledge.salesFlowConfig;
+  const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
+  const scheduleImgUrl =
+    String(schedBtn?.schedule_cta_image_url ?? "").trim() ||
+    String(input.knowledge.scheduleScanImageUrl ?? "").trim();
+  const scheduleLink = (input.knowledge.schedulePublicUrl?.trim() || input.knowledge.arboxLink?.trim() || "").trim();
+  const canSendScheduleImage = scheduleImgUrl.length > 0 && !input.blockMedia;
+
+  if (canSendScheduleImage) {
+    const cap = "כאן ניתן לראות את מערכת השעות שלנו";
+    await sendWhatsAppMediaMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      scheduleImgUrl,
+      input.accountSid,
+      input.authToken,
+      cap,
+      "image"
+    ).catch((e) => console.error("[WA Webhook] Send course schedule image failed:", e));
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: cap ? `[media] ${scheduleImgUrl}\n\n${cap}` : `[media] ${scheduleImgUrl}`,
+      model_used: "sales_flow_course_schedule_image",
+      session_id: input.sessionId,
+    });
+    await sleepMs(900);
+  }
+
+  const infoText = buildCourseScheduleInfoMessage(serviceName, cycles);
+  const scheduleLinkLine =
+    !canSendScheduleImage && scheduleLink
+      ? `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink}`
+      : !canSendScheduleImage && !scheduleLink
+        ? ""
+        : "";
+  const introParts = [scheduleLinkLine, infoText].filter(Boolean);
+  const pickQuestion = buildCourseCycleStartPickQuestion();
+
+  if (cyclesForButtons.length === 0) {
+    const txtOnly = [...introParts, pickQuestion.replace(/\?$/, ""), "נשמח לעזור לבחור מחזור מתאים."].filter(Boolean).join("\n\n");
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txtOnly, input.accountSid, input.authToken).catch((e) =>
+      console.error("[WA Webhook] Send course schedule info (no buttons) failed:", e)
+    );
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: txtOnly,
+      model_used: "sales_flow_course_schedule_info",
+      session_id: input.sessionId,
+    });
+    await updateContactSessionPhase({
+      supabase: input.supabase,
+      businessId: input.businessId,
+      phone: input.msg.from,
+      phase: "cta",
+    });
+    return;
+  }
+
+  const labels = cyclesForButtons.map((c) => formatCourseCycleStartButtonLabel(c.start_date));
+  labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
+  const body = stripTrailingNumberedChoiceLines(
+    [...introParts, pickQuestion].filter(Boolean).join("\n\n")
+  );
+
+  let outboundLog = body;
+  if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
+    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
+      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+    });
+    outboundLog = formatInteractiveConversationLog(body, labels);
+  } else {
+    const numbered = ["בחרו מחזור — כתבו את המספר מהרשימה:", ...labels.map((l, i) => `${i + 1}. ${l}`)].join("\n");
+    const full = `${body}\n\n${numbered}`;
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, full, input.accountSid, input.authToken).catch((e) =>
+      console.error("[WA Webhook] Send course cycle start pick (Twilio) failed:", e)
+    );
+    outboundLog = full;
+  }
+
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: outboundLog,
+    model_used: "sales_flow_course_cycle_start_menu",
     session_id: input.sessionId,
   });
   await updateContactSessionPhase({
@@ -867,8 +1003,9 @@ type SfServiceRow = {
   courseSessionsText: string;
   courseStartDate: string;
   courseEndDate: string;
-  /** מועדי לוח שבועיים (מוצר) — לשימוש בהמשך בכפתורי ווטסאפ */
-  scheduleSlots: { day: string; time: string }[];
+  /** מועדי לוח / מחזורי קורס — לבחירה בווטסאפ */
+  scheduleSlots: WaSchedulePickSlot[];
+  courseCycles: CourseCycle[];
 };
 
 /** כש-JSON ב-description שבור — משחזרים לפחות את שדות מדיית בחירת השירות */
@@ -932,6 +1069,25 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   const selectedService =
     salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
 
+  if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
+    const scheduleState = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
+    if (!scheduleState.requestedDate?.trim()) {
+      await sendCourseCycleStartPickMenu({
+        knowledge,
+        selectedService,
+        blockMedia,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+  }
+
   if (shouldCollectScheduleSelection(knowledge, selectedService)) {
     const scheduleState = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
     const slots = selectedService?.scheduleSlots ?? [];
@@ -982,71 +1138,6 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   }
 
   const activeOfferKind = selectedService?.offerKind ?? "trial";
-
-  // Courses have fixed days/times: show them once, then proceed to CTA.
-  if (knowledge.scheduleDirectRegistration === false && activeOfferKind === "course") {
-    const already = (sfConsumedKinds ?? []).includes("course_schedule_info");
-    const slots = (selectedService?.scheduleSlots ?? []).filter((s) => s && s.day && s.time);
-    if (!already && slots.length > 0) {
-      const serviceName = selectedService?.name?.trim() || "הקורס";
-      const schedBtn = cfg?.cta_buttons?.find((b) => b.kind === "schedule");
-      const scheduleImgUrl =
-        String(schedBtn?.schedule_cta_image_url ?? "").trim() || String(knowledge.scheduleScanImageUrl ?? "").trim();
-      const scheduleLink = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
-      const canSendScheduleImage =
-        scheduleImgUrl.length > 0 &&
-        !blockMedia;
-
-      if (canSendScheduleImage) {
-        const cap = "כאן ניתן לראות את מערכת השעות שלנו";
-        await sendWhatsAppMediaMessage(msg.toNumber, msg.from, scheduleImgUrl, accountSid, authToken, cap, "image").catch((e) =>
-          console.error("[WA Webhook] Send course schedule image failed:", e)
-        );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: cap ? `[media] ${scheduleImgUrl}\n\n${cap}` : `[media] ${scheduleImgUrl}`,
-          model_used: "sales_flow_course_schedule_image",
-          session_id: sessionId,
-        });
-        await sleepMs(900);
-      }
-
-      const lines = sortHeScheduleSlots(slots)
-        .map((s) => `${formatYomForContactSlotDate(s.day)} בשעה ${s.time}`)
-        .join("\n");
-      const txt = [
-        canSendScheduleImage
-          ? ""
-          : `כאן ניתן לראות את מערכת השעות שלנו: ${scheduleLink || "מערכת השעות תתעדכן בקרוב"}`,
-        `קורס ${serviceName} מתקיים ב:`,
-        lines,
-        "מה שנותר כעת הוא לשריין לך מקום בקורס!",
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-        console.error("[WA Webhook] Send course schedule info failed:", e)
-      );
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: txt,
-        model_used: "sales_flow_course_schedule_info",
-        session_id: sessionId,
-      });
-
-      await bumpSfConsumedCtaKind({
-        supabase,
-        businessId,
-        phone: msg.from,
-        kind: "course_schedule_info",
-        previous: sfConsumedKinds ?? [],
-      });
-      await sleepMs(350);
-    }
-  }
 
   const inScheduleTrialFlow =
     activeOfferKind === "trial" && shouldCollectScheduleSelection(knowledge, selectedService);
@@ -1334,7 +1425,20 @@ async function sendFlowContinuation(input: {
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-    if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
+    if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
+      await sendCourseCycleStartPickMenu({
+        knowledge,
+        selectedService,
+        blockMedia: blockTrialPickMedia,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    } else if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
       await sendScheduleSlotPickMenu({
         knowledge,
         selectedService,
@@ -1370,7 +1474,20 @@ async function sendFlowContinuation(input: {
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-    if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
+    if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
+      await sendCourseCycleStartPickMenu({
+        knowledge,
+        selectedService,
+        blockMedia: blockTrialPickMedia,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    } else if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
       await sendScheduleSlotPickMenu({
         knowledge,
         selectedService,
@@ -2288,17 +2405,38 @@ async function processIncoming(
                     : meta.trial_pick_media_type === "image"
                       ? ("image" as const)
                       : ("" as const),
-                offerKind: offerKindFromServiceMeta(meta),
+                offerKind: (() => {
+                  const k = offerKindFromServiceMeta(meta);
+                  return k;
+                })(),
                 courseSessionsText: String(meta.course_sessions_count ?? "").trim(),
-                courseStartDate: String(meta.course_start_date ?? "").trim(),
-                courseEndDate: String(meta.course_end_date ?? "").trim(),
+                courseStartDate: (() => {
+                  const k = offerKindFromServiceMeta(meta);
+                  if (k === "course") {
+                    let c = 0;
+                    return syncCourseLegacyDatesFromCycles(
+                      migrateLegacyCourseToCycles(meta, () => `s${c++}`)
+                    ).course_start_date;
+                  }
+                  return String(meta.course_start_date ?? "").trim();
+                })(),
+                courseEndDate: (() => {
+                  const k = offerKindFromServiceMeta(meta);
+                  if (k === "course") {
+                    let c = 0;
+                    return syncCourseLegacyDatesFromCycles(
+                      migrateLegacyCourseToCycles(meta, () => `s${c++}`)
+                    ).course_end_date;
+                  }
+                  return String(meta.course_end_date ?? "").trim();
+                })(),
                 scheduleSlots: (() => {
                   let c = 0;
-                  return filterConfiguredProductScheduleSlots(
-                    normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${c++}`).map(
-                      ({ day, time }) => ({ day, time })
-                    )
-                  );
+                  return resolveWaSchedulePickSlotsFromMeta(meta, offerKindFromServiceMeta(meta), () => `s${c++}`);
+                })(),
+                courseCycles: (() => {
+                  let c = 0;
+                  return migrateLegacyCourseToCycles(meta, () => `s${c++}`);
                 })(),
               };
             } catch {
@@ -2318,6 +2456,7 @@ async function processIncoming(
                 courseStartDate: "",
                 courseEndDate: "",
                 scheduleSlots: [],
+                courseCycles: [],
               };
             }
           })(),
@@ -3037,7 +3176,120 @@ async function processIncoming(
       const inSchedulePhase =
         contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time";
 
-      if (!shouldCollectScheduleSelection(knowledge, selectedService)) {
+      if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
+        const cyclesForButtons = courseCyclesForStartButtons(selectedService?.courseCycles ?? []).slice(
+          0,
+          SCHEDULE_SLOT_PICK_MAX - 1
+        );
+        if (cyclesForButtons.length > 0) {
+          const labels = cyclesForButtons.map((c) => formatCourseCycleStartButtonLabel(c.start_date));
+          labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
+          const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
+          const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+          const inCoursePickContext =
+            !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
+            (inSchedulePhase || lastAssistForSchedule === "sales_flow_course_cycle_start_menu");
+
+          if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
+            const phoneVariants = contactPhoneLookupVariants(msg.from);
+            await supabase
+              .from("contacts")
+              .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+              .eq("business_id", businessId)
+              .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+            contactScheduleRequestedDate = "";
+            contactScheduleRequestedTime = "";
+            contactSessionPhase = "opening";
+            contactFlowStep = 0;
+            await sendOpeningServicePickMenu({
+              knowledge,
+              salesFlowServices,
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+              blockMedia: starterBlocksMedia,
+            });
+            return;
+          }
+
+          const idx = labels.findIndex((l) => courseCycleStartButtonLabelsMatch(l, resolved));
+          if (idx >= 0) {
+            const cycle = cyclesForButtons[idx]!;
+            const dateTxt = formatCycleDateShort(cycle.start_date);
+            const phoneVariants = contactPhoneLookupVariants(msg.from);
+            const { error } = await supabase
+              .from("contacts")
+              .update({
+                sf_requested_date: dateTxt,
+                sf_requested_time: "",
+                session_phase: "cta",
+                flow_step: 0,
+              })
+              .eq("business_id", businessId)
+              .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+            if (error) console.warn("[WA Webhook] course cycle start pick update failed:", error.message);
+            contactScheduleRequestedDate = dateTxt;
+            contactScheduleRequestedTime = "";
+            contactSessionPhase = "cta";
+            const serviceLabel = selectedService?.name?.trim() || "הקורס";
+            const afterScheduleText = `מעולה! רשמנו שתרצו להתחיל את ${serviceLabel} בתאריך ${dateTxt}.`;
+            await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send after course cycle pick failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: afterScheduleText,
+              model_used: "sales_flow_after_course_cycle_pick",
+              session_id: sessionId,
+            });
+            await sleepMs(900);
+            await sendSalesFlowCtaMenuWithPhaseUpdate({
+              knowledge,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              salesFlowServices,
+              trialRegistered: contactTrialRegistered,
+              allowTrialCta: allowTrialCtaThisSession,
+              sfConsumedKinds: sfClickedCtaKinds,
+              modelUsed: "sales_flow_cta",
+            });
+            return;
+          }
+
+          if (inCoursePickContext) {
+            const txt = "לא זיהיתי את המחזור. בחרו מהאפשרויות למטה (או כתבו את המספר).";
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_course_cycle_start_invalid",
+              session_id: sessionId,
+            });
+            await sendCourseCycleStartPickMenu({
+              knowledge,
+              selectedService,
+              blockMedia: starterBlocksMedia,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+            });
+            return;
+          }
+        }
+      } else if (!shouldCollectScheduleSelection(knowledge, selectedService)) {
         if (inSchedulePhase) {
           await sendSalesFlowCtaMenuWithPhaseUpdate({
             knowledge,
@@ -3061,7 +3313,9 @@ async function processIncoming(
         if (slotsForPick.length > 0) {
           const labels = slotsForPick
             .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
-            .map((s) => formatSlotPickButtonLabel(s));
+            .map((s) =>
+              formatSlotPickButtonLabelWithCycle(s, { start_date: s.cycle_start, end_date: s.cycle_end })
+            );
           labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
           const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
           const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });

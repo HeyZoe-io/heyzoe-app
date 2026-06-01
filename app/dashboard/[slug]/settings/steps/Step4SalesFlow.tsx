@@ -53,6 +53,7 @@ type ServiceItem = {
   trial_pick_media_url: string;
   trial_pick_media_type: "image" | "video" | "";
   schedule_slots: { id: string; day: string; time: string }[];
+  course_cycles: { id: string; start_date: string; end_date: string; schedule_slots: { id: string; day: string; time: string }[] }[];
 };
 
 type CtaOfferTab = "trial" | "workshop" | "course";
@@ -1013,7 +1014,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   מתי נוח לך להגיע ל[שם האימון]?
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                  המועדים נשלחים ככפתורים לפי מה שהוזן בטאב «מוצרים» (למשל: «יום שני ב19:00»).
+                  אימון/סדנה: כפתורי מועד לפי הלוח (למשל «יום שני ב19:00»). קורס: פסקת מחזורים + כפתורי «התחלה ב…» לפי מחזורי הקורס בטאב «מוצרים».
                 </p>
               </div>
 

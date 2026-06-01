@@ -15,7 +15,12 @@ import {
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
 } from "@/lib/sales-flow";
-import { formatScheduleSlotsForKnowledge, normalizeProductScheduleSlotsFromMeta } from "@/lib/product-schedule-slots";
+import {
+  formatCourseCyclesForKnowledge,
+  formatScheduleSlotsForKnowledge,
+  migrateLegacyCourseToCycles,
+  normalizeProductScheduleSlotsFromMeta,
+} from "@/lib/product-schedule-slots";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -175,9 +180,17 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
             const levelsText =
               meta.levels_enabled === true && levels.length > 0 ? ` | רמות: ${levels.join(", ")}` : "";
             let slotId = 0;
-            const slotRows = normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${slotId++}`);
-            const slotsFormatted = formatScheduleSlotsForKnowledge(slotRows);
-            const slotsText = slotsFormatted ? ` | מועדי לוח (שבועי): ${slotsFormatted}` : "";
+            const offerKind = offerKindFromServiceMeta(meta);
+            let slotsText = "";
+            if (offerKind === "course") {
+              const cycles = migrateLegacyCourseToCycles(meta, () => `s${slotId++}`);
+              const cyclesFormatted = formatCourseCyclesForKnowledge(cycles);
+              slotsText = cyclesFormatted ? ` | מחזורי קורס: ${cyclesFormatted}` : "";
+            } else {
+              const slotRows = normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${slotId++}`);
+              const slotsFormatted = formatScheduleSlotsForKnowledge(slotRows);
+              slotsText = slotsFormatted ? ` | מועדי לוח (שבועי): ${slotsFormatted}` : "";
+            }
             return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText}${slotsText} | תיאור: ${truncateText(descriptionText, 140)}`;
           })
           .join("\n")
