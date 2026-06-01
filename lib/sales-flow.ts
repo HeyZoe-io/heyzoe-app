@@ -94,8 +94,10 @@ export type SalesFlowConfig = {
   free_chat_invite_reply: string;
   /** הודעה/הנחיה לזואי אחרי שהלקוח השלים הרשמה לאימון ניסיון */
   after_trial_registration_body: string;
-  /** תשובה אחרי שהליד בחר תאריך ושעה (כשאין הרשמה ישירה ממערכת השעות) */
+  /** תשובה אחרי שהליד בחר תאריך ושעה (כשאין הרשמה ישירה ממערכת השעות) — שיעור ניסיון */
   after_schedule_selection: string;
+  /** תשובה אחרי בחירת מועד — סדנה */
+  after_schedule_selection_workshop: string;
   /** שאלת בחירת מחזור קורס (כפתורי «התחלה ב…») */
   course_cycle_pick_question: string;
   /** תשובה אחרי בחירת מחזור התחלה לקורס */
@@ -346,6 +348,8 @@ const FRIENDLY: SalesFlowConfig = {
   ],
   free_chat_invite_reply: "אין בעיה! כתבו בטקסט חופשי ואענה 🙂",
   after_schedule_selection: "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}",
+  after_schedule_selection_workshop:
+    "מהמם! נשמנו לשבץ אותך לסדנת {serviceName} ביום {requested_date} בשעה {requested_time}.",
   course_cycle_pick_question: "מתי נוח לך להתחיל את הקורס?",
   after_course_cycle_pick: "מעולה! רשמנו שתרצו להתחיל את {serviceName} בתאריך {requested_date}.",
   cta_body_after_schedule:
@@ -925,6 +929,19 @@ export function fillAfterCourseCyclePickTemplate(
   return template.replace(/\{serviceName\}/g, name).replace(/\{requested_date\}/g, date);
 }
 
+export function resolveAfterScheduleSelectionTemplate(
+  cfg: SalesFlowConfig | null | undefined,
+  offerKind: OfferKind
+): string {
+  const fallback =
+    "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}";
+  if (offerKind === "workshop") {
+    const w = String(cfg?.after_schedule_selection_workshop ?? "").trim();
+    return w || fallback;
+  }
+  return String(cfg?.after_schedule_selection ?? "").trim() || fallback;
+}
+
 export function resolveCourseCyclePickQuestion(cfg: SalesFlowConfig | null | undefined): string {
   const q = String(cfg?.course_cycle_pick_question ?? "").trim();
   return q || "מתי נוח לך להתחיל את הקורס?";
@@ -1268,6 +1285,10 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_schedule_selection === "string"
         ? o.after_schedule_selection
         : base.after_schedule_selection,
+    after_schedule_selection_workshop:
+      typeof o.after_schedule_selection_workshop === "string"
+        ? o.after_schedule_selection_workshop
+        : base.after_schedule_selection_workshop,
     course_cycle_pick_question:
       typeof o.course_cycle_pick_question === "string"
         ? o.course_cycle_pick_question
@@ -1379,6 +1400,7 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     free_chat_invite_reply: c.free_chat_invite_reply,
     after_trial_registration_body: c.after_trial_registration_body,
     after_schedule_selection: c.after_schedule_selection,
+    after_schedule_selection_workshop: c.after_schedule_selection_workshop,
     course_cycle_pick_question: c.course_cycle_pick_question,
     after_course_cycle_pick: c.after_course_cycle_pick,
     cta_body_after_schedule: c.cta_body_after_schedule,

@@ -10,6 +10,8 @@ When you finish implementing or fixing something in this repository (`heyzoe-app
 1. Run `git status` and commit any meaningful changes with a clear message.
 2. Run `git push origin main` unless the user explicitly asked to push another branch.
 
+**Do not ask** whether to push — commit and push automatically when work is done.
+
 **Do not** push to `redesign` unless the user **explicitly** asked to update that branch.
 
 If there is nothing to commit, still run `git push origin main` when the user expects `main` to be up to date.

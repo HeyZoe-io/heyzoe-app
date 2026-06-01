@@ -49,6 +49,7 @@ import {
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
   fillAfterCourseCyclePickTemplate,
+  resolveAfterScheduleSelectionTemplate,
   resolveCourseCyclePickQuestion,
   buildDefaultMultiServiceQuestion,
   buildScheduleSlotPickQuestion,
@@ -3432,11 +3433,12 @@ async function processIncoming(
         contactScheduleRequestedDate = dateTxt;
         contactScheduleRequestedTime = timeTxt;
         contactSessionPhase = "cta";
-        const rawTpl =
-          (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
-          "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}";
+        const schedOfferKind = selectedService?.offerKind ?? "trial";
+        const schedServiceFallback =
+          schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
+        const rawTpl = resolveAfterScheduleSelectionTemplate(knowledge.salesFlowConfig, schedOfferKind);
         const afterScheduleText = rawTpl
-          .replace(/\{serviceName\}/g, selectedService?.name?.trim() || "האימון")
+          .replace(/\{serviceName\}/g, selectedService?.name?.trim() || schedServiceFallback)
           .replace(/\{requested_date\}/g, dateTxt)
           .replace(/\{requested_time\}/g, timeTxt);
         await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
@@ -3559,11 +3561,19 @@ async function processIncoming(
       if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
       contactScheduleRequestedTime = parsedTime;
       contactSessionPhase = "cta";
-      const rawTplLegacy =
-        (knowledge.salesFlowConfig?.after_schedule_selection ?? "").trim() ||
-        "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}";
+      const schedOfferKindLegacy = selectedService?.offerKind ?? "trial";
+      const schedServiceFallbackLegacy =
+        schedOfferKindLegacy === "workshop"
+          ? "הסדנה"
+          : schedOfferKindLegacy === "course"
+            ? "הקורס"
+            : "האימון";
+      const rawTplLegacy = resolveAfterScheduleSelectionTemplate(
+        knowledge.salesFlowConfig,
+        schedOfferKindLegacy
+      );
       const afterScheduleTextLegacy = rawTplLegacy
-        .replace(/\{serviceName\}/g, selectedService?.name?.trim() || "האימון")
+        .replace(/\{serviceName\}/g, selectedService?.name?.trim() || schedServiceFallbackLegacy)
         .replace(/\{requested_date\}/g, String(contactScheduleRequestedDate || "").trim() || "המועד שבחרת")
         .replace(/\{requested_time\}/g, parsedTime);
       await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleTextLegacy, accountSid, authToken).catch((e) =>
