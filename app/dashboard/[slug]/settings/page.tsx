@@ -2009,11 +2009,22 @@ export default function SlugSettingsPage({
               cta_course_buttons: structuredClone(base.cta_course_buttons),
             };
           }
+          const prevMembershipsBtn = c.cta_buttons.find((b) => b.kind === "memberships");
           return {
             ...c,
             cta_body: base.cta_body,
             cta_body_after_schedule: base.cta_body_after_schedule,
-            cta_buttons: structuredClone(base.cta_buttons),
+            cta_buttons: structuredClone(base.cta_buttons).map((btn) => {
+              if (btn.kind !== "memberships" || !prevMembershipsBtn) return btn;
+              return {
+                ...btn,
+                label: prevMembershipsBtn.label?.trim() || btn.label,
+                memberships_cta_delivery:
+                  prevMembershipsBtn.memberships_cta_delivery ?? btn.memberships_cta_delivery,
+                memberships_price_range_min: prevMembershipsBtn.memberships_price_range_min ?? "",
+                memberships_price_range_max: prevMembershipsBtn.memberships_price_range_max ?? "",
+              };
+            }),
             followup_after_next_class_body: base.followup_after_next_class_body,
             followup_after_next_class_options: structuredClone(base.followup_after_next_class_options),
             free_chat_invite_reply: base.free_chat_invite_reply,
