@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
-import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
+import { waSessionIdLookupVariants } from "@/lib/phone-normalize";
+import {
+  fetchLastUserMessageAt,
+  isIdleAfterLastUserMessage,
+  WA_NO_RESPONSE_AFTER_MS,
+  waNoResponseEligible,
+} from "@/lib/wa-no-response";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BATCH = 200;
-const NO_RESPONSE_AFTER_MS = 26 * 60 * 60 * 1000;
 
 type ChannelRow = {
   phone_number_id: string | null;
@@ -39,10 +44,11 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
-  const cutoffIso = new Date(now - NO_RESPONSE_AFTER_MS).toISOString();
+  const cutoffIso = new Date(now - WA_NO_RESPONSE_AFTER_MS).toISOString();
   const channelByBusinessId = new Map<number, ChannelRow | null>();
 
-  const statusSelect = "id, phone, business_id, session_phase, wa_no_response_due_at";
+  const statusSelect =
+    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at";
 
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
@@ -66,7 +72,7 @@ export async function GET(req: NextRequest) {
     if (/wa_no_response_due_at|column/i.test(msg)) {
       const { data: legacy, error: legacyErr } = await admin
         .from("contacts")
-        .select("id, phone, business_id, session_phase")
+        .select("id, phone, business_id, session_phase, trial_registered, opted_out, last_contact_at")
         .eq("source", "whatsapp")
         .or("opted_out.eq.false,opted_out.is.null")
         .or("trial_registered.eq.false,trial_registered.is.null")
@@ -128,6 +134,9 @@ export async function GET(req: NextRequest) {
       phone?: string | null;
       business_id?: number | null;
       session_phase?: string | null;
+      trial_registered?: boolean | null;
+      opted_out?: boolean | null;
+      last_contact_at?: string | null;
     };
     const contactId = contact.id;
     const phone = String(contact.phone ?? "").trim();
@@ -137,8 +146,14 @@ export async function GET(req: NextRequest) {
       bumpSkip("invalid_contact");
       continue;
     }
-    if (String(contact.session_phase ?? "").trim() === "registered") {
-      bumpSkip("registered");
+    if (!waNoResponseEligible(contact)) {
+      bumpSkip(
+        contact.opted_out === true
+          ? "opted_out"
+          : contact.trial_registered === true
+            ? "trial_registered"
+            : "registered"
+      );
       continue;
     }
 
@@ -163,29 +178,20 @@ export async function GET(req: NextRequest) {
       }
 
       const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
-      const { data: lastMsgRows, error: msgErr } = await admin
-        .from("messages")
-        .select("role, created_at")
-        .eq("business_slug", businessSlug)
-        .in("session_id", sessionIds)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      const lastMsg = lastMsgRows?.[0] ?? null;
+      const fromMessages = await fetchLastUserMessageAt({
+        admin,
+        business_slug: businessSlug,
+        session_ids: sessionIds,
+      });
+      const lastUserAtIso =
+        fromMessages || String(contact.last_contact_at ?? "").trim() || null;
 
-      if (msgErr || !lastMsg) {
-        bumpSkip("no_message");
+      if (!lastUserAtIso) {
+        bumpSkip("no_user_message");
         continue;
       }
 
-      const role = String((lastMsg as { role?: string }).role ?? "");
-      const createdAt = String((lastMsg as { created_at?: string }).created_at ?? "");
-      if (role !== "assistant") {
-        bumpSkip("last_message_not_bot");
-        continue;
-      }
-
-      const lastBotAtMs = new Date(createdAt).getTime();
-      if (!Number.isFinite(lastBotAtMs) || now - lastBotAtMs < NO_RESPONSE_AFTER_MS) {
+      if (!isIdleAfterLastUserMessage(lastUserAtIso, now)) {
         bumpSkip("not_due_yet");
         continue;
       }
