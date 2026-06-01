@@ -177,7 +177,16 @@ export const DEFAULT_MULTI_SERVICE_QUESTION_TAIL =
   "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?";
 
 export function buildDefaultMultiServiceQuestion(): string {
-  return `${SCHEDULE_BOARD_CAPTION}: ${SCHEDULE_BOARD_PREVIEW_IMAGE}\n${DEFAULT_MULTI_SERVICE_QUESTION_TAIL}`;
+  return DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
+}
+
+/** מסיר שורות מערכת שעות משאלת בחירת מוצר (נשלחת בסשן נפרד אחרי הפתיחה). */
+export function stripScheduleLineFromMultiServiceQuestion(question: string): string {
+  const q = String(question ?? "").trim();
+  if (!q) return DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
+  const lines = q.replace(/\r\n/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
+  const rest = lines.filter((l) => !l.includes("מערכת השעות"));
+  return rest.join("\n").trim() || DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
 }
 
 export function formatMultiServiceQuestionForPreview(
@@ -220,36 +229,14 @@ export type MultiServiceWhatsAppSplit = {
 /** מפרק שאלת בחירת מוצר לתמונה (אם יש) + גוף תפריט כפתורים. */
 export function splitMultiServiceQuestionForWhatsApp(
   question: string,
-  assets: Pick<ScheduleBoardAssets, "canSendScheduleImage" | "link">
+  _assets: Pick<ScheduleBoardAssets, "canSendScheduleImage" | "link">
 ): MultiServiceWhatsAppSplit {
-  const q = String(question ?? "").trim() || buildDefaultMultiServiceQuestion();
-  const lines = q.replace(/\r\n/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
-  const scheduleIdx = lines.findIndex((l) => l.includes("מערכת השעות"));
-  const scheduleLine = scheduleIdx >= 0 ? lines[scheduleIdx]! : "";
-  const restLines = scheduleIdx >= 0 ? lines.filter((_, i) => i !== scheduleIdx) : lines;
-  const rest = restLines.join("\n").trim() || DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
-
-  if (assets.canSendScheduleImage) {
-    const cap =
-      scheduleLine.replace(/\s*:?\s*\(תמונה\)\s*$/u, "").trim() || SCHEDULE_BOARD_CAPTION;
-    return {
-      sendScheduleMedia: true,
-      mediaCaption: cap,
-      menuBody: rest,
-      logBody: [cap, rest].filter(Boolean).join("\n\n"),
-    };
-  }
-
-  const link = assets.link.trim() || "מערכת השעות תתעדכן בקרוב";
-  const scheduleWithLink = scheduleLine
-    ? scheduleLine.replace(/\(תמונה\)/g, link)
-    : `${SCHEDULE_BOARD_CAPTION}: ${link}`;
-  const full = scheduleIdx >= 0 ? [scheduleWithLink, ...restLines].join("\n") : q.replace(/\(תמונה\)/g, link);
+  const menuBody = stripScheduleLineFromMultiServiceQuestion(question);
   return {
     sendScheduleMedia: false,
     mediaCaption: "",
-    menuBody: full,
-    logBody: full,
+    menuBody,
+    logBody: menuBody,
   };
 }
 
@@ -485,8 +472,7 @@ const FORMAL: SalesFlowConfig = {
 const DIRECT: SalesFlowConfig = {
   ...FRIENDLY,
   greeting_opener: "היי,",
-  multi_service_question:
-    "כאן ניתן לראות את מערכת השעות שלנו: (תמונה)\nאיזה אימון מעניין אותך?",
+  multi_service_question: "איזה אימון מעניין אותך?",
   after_service_pick:
     "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   cta_body:
@@ -1263,10 +1249,8 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
         "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?";
       const legacyDirect = "איזה אימון מעניין אותך?";
       if (raw.trim() === legacyFriendly) return buildDefaultMultiServiceQuestion();
-      if (raw.trim() === legacyDirect) {
-        return `${SCHEDULE_BOARD_CAPTION}: ${SCHEDULE_BOARD_PREVIEW_IMAGE}\n${legacyDirect}`;
-      }
-      return raw;
+      if (raw.trim() === legacyDirect) return legacyDirect;
+      return stripScheduleLineFromMultiServiceQuestion(raw);
     })(),
     after_service_pick: (() => {
       const raw =
@@ -2266,7 +2250,7 @@ export function formatSalesFlowForPrompt(
       const hint =
         b.kind === "schedule"
           ? (b.schedule_cta_delivery ?? "link") === "image" && String(b.schedule_cta_image_url ?? "").trim()
-            ? "כשמשתמש בוחר: אינסרט תמונת מערכת שעות שהועלתה במסלול המכירה (לפני תפריט המשך); אופציונלי: כיתוב עם לינק מערכת שעות מטאב לינקים אם הוגדר"
+            ? "כשמשתמש בוחר: תמונת מערכת שעות מהגדרות (או מטאב לינקים); אופציונלי: כיתוב עם לינק מערכת שעות"
             : "כשמשתמש בוחר: לינק מערכת שעות מטאב לינקים בדשבורד"
           : b.kind === "trial"
             ? "כשמשתמש בוחר: לינק הרשמה/תשלום משדה הקישור באימון הניסיון שנבחר (טאב אימון ניסיון)"
@@ -2339,7 +2323,7 @@ ${workshopPromptBlock}${coursePromptBlock}
 סשן פתיחה (אחרי הודעת המערכת הראשונה):
 - טקסט הפתיחה כפי שהוגדר. אחריו - אם מופיעות שאלות נוספות מיד אחרי הפתיחה, שלבי אותן לפי הסדר עם כפתורי בחירה.
 ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני בחירת אימון)", c.greeting_extra_steps)}
-- אם יש יותר מאימון אחד: קודם שאלת בחירת האימון ממסלול המכירה (כולל שורת מערכת השעות — בווטסאפ נשלחת תמונת/קישור מערכת השעות לפני שאלת הבחירה), ואז אחרי שבחרו אימון - מענה קצר וחי כמו בשיח אמיתי (משפט עד שניים). לא להעתיק את תיאור האימון ממסלול המכירה במלואו ולא לנסח כמו "לקחת את מה שמעניין אותך מהאימון - במיוחד [פסקה ארוכה]".
+- אם יש יותר מאימון אחד: אחרי הפתיחה נשלחת אוטומטית מערכת השעות (תמונה/קישור), ואז שאלת בחירת האימון ממסלול המכירה (בלי שורת מערכת שעות בתוך השאלה). אחרי שבחרו אימון — מענה קצר וחי כמו בשיח אמיתי (משפט עד שניים). לא להעתיק את תיאור האימון ממסלול המכירה במלואו ולא לנסח כמו "לקחת את מה שמעניין אותך מהאימון - במיוחד [פסקה ארוכה]".
 - התאימי את הרוח לסוג האימון שנבחר: אקרו/דינמי - אנרגיה, קהילה, אתגר חיובי; פילאטיס/מכשירים - חיטוב, התחזקות, השקעה בעצמך; יוגה/מיינדפולנס - חיבור פנימי, איזון, גוף־נפש. אפשר לפתוח ב"אוקיי מדהים!" או "איזה כיף :)" לפי הטון.
 - אחרי שהלקוח בחר סוג אימון — נשלח המשפט מהשדה במסלול: פתיחה (מה מילות הפתיחה של המערכת) ואז הנושא. אם ב־3–4 המילים הראשונות של התיאור נשמרה כפילות מול הנושא/השם, המערכת מנסחת ״פתיחה! ב[נושא] [משך התיאור בלי מקטע הכפילות]״; אחרת ״פתיחה! [נושא] הם/היא [כל התיאור כפי שמוזן במסלול, בלי פרפרזה])״. עם נתונים ישנים אולי יורכב רק זנב — אל תחליפי מה שנשלח ואל תשחזרי «שיעורי ה[שם] שלנו מתמקדים ב…».
 - כללי נושא (ידני בתשובה באותו שלב): אם השם כבר מכיל «שיעור» או «אימון» — אין להוסיף קידומת חדשה. אחרת: יוגה/פילאטיס/ספינינג/בוקס/זומבה/בלט וכדומה → «שיעורי» + שם; כוח/TRX/קרוספיט/HIIT/ריצה/פונקציונלי וכדומה → «אימוני» + שם; ברירת מחדל — «אימוני» + שם.
