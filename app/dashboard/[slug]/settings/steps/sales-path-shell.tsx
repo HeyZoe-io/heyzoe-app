@@ -46,6 +46,7 @@ export function SalesPathSectionBlock({
   filled,
   children,
   headerAction,
+  titleAction,
 }: {
   stepPrefix: string;
   id: string;
@@ -56,6 +57,8 @@ export function SalesPathSectionBlock({
   filled?: boolean;
   children: ReactNode;
   headerAction?: ReactNode;
+  /** מוצג משמאל לכותרת (RTL) בשורת הכותרת */
+  titleAction?: ReactNode;
 }) {
   const sectionDomId = `${stepPrefix}-section-${id}`;
   return (
@@ -68,12 +71,17 @@ export function SalesPathSectionBlock({
           aria-expanded={open}
         >
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span
                 className={cn("h-1.5 w-1.5 shrink-0 rounded-full", filled ? "bg-[#7133da]" : "bg-zinc-200")}
                 aria-hidden
               />
               <h3 className="text-sm font-semibold tracking-[-0.01em] text-zinc-900">{title}</h3>
+              {titleAction ? (
+                <span className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+                  {titleAction}
+                </span>
+              ) : null}
             </div>
             {hint ? <p className="mt-0.5 pr-3.5 text-xs text-zinc-500">{hint}</p> : null}
           </div>
