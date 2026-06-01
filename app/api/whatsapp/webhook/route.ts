@@ -49,6 +49,7 @@ import {
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
   fillAfterCourseCyclePickTemplate,
+  fillAfterScheduleSelectionTemplate,
   resolveAfterScheduleSelectionTemplate,
   resolveCourseCyclePickQuestion,
   buildDefaultMultiServiceQuestion,
@@ -162,6 +163,7 @@ import {
   formatCourseCycleStartButtonLabel,
   formatCycleDateShort,
   formatSlotPickButtonLabelWithCycle,
+  formatDayNameForScheduleDatePlaceholder,
   formatYomForContactSlotDate,
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,
@@ -3447,7 +3449,7 @@ async function processIncoming(
           const idx = labels.findIndex((l) => scheduleSlotPickLabelsMatch(l, resolved));
           if (idx >= 0) {
             const slot = slotsForPick[idx]!;
-        const dateTxt = formatYomForContactSlotDate(slot.day);
+        const dateTxt = formatDayNameForScheduleDatePlaceholder(slot.day);
         const timeTxt = slot.time;
         const phoneVariants = contactPhoneLookupVariants(msg.from);
         const { error } = await supabase
@@ -3463,10 +3465,12 @@ async function processIncoming(
         const schedServiceFallback =
           schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
         const rawTpl = resolveAfterScheduleSelectionTemplate(knowledge.salesFlowConfig, schedOfferKind);
-        const afterScheduleText = rawTpl
-          .replace(/\{serviceName\}/g, selectedService?.name?.trim() || schedServiceFallback)
-          .replace(/\{requested_date\}/g, dateTxt)
-          .replace(/\{requested_time\}/g, timeTxt);
+        const afterScheduleText = fillAfterScheduleSelectionTemplate(
+          rawTpl,
+          selectedService?.name?.trim() || schedServiceFallback,
+          dateTxt,
+          timeTxt
+        );
         await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
           console.error("[WA Webhook] Send after schedule selection failed:", e)
         );
@@ -3598,10 +3602,12 @@ async function processIncoming(
         knowledge.salesFlowConfig,
         schedOfferKindLegacy
       );
-      const afterScheduleTextLegacy = rawTplLegacy
-        .replace(/\{serviceName\}/g, selectedService?.name?.trim() || schedServiceFallbackLegacy)
-        .replace(/\{requested_date\}/g, String(contactScheduleRequestedDate || "").trim() || "המועד שבחרת")
-        .replace(/\{requested_time\}/g, parsedTime);
+      const afterScheduleTextLegacy = fillAfterScheduleSelectionTemplate(
+        rawTplLegacy,
+        selectedService?.name?.trim() || schedServiceFallbackLegacy,
+        String(contactScheduleRequestedDate || "").trim() || "המועד שבחרת",
+        parsedTime
+      );
       await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleTextLegacy, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send after schedule selection failed:", e)
       );
