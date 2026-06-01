@@ -1994,18 +1994,26 @@ export default function SlugSettingsPage({
           };
         }
         if (section === "cta") {
+          const kind = warmupOfferKind ?? "trial";
+          if (kind === "workshop") {
+            return {
+              ...c,
+              cta_workshop_body: base.cta_workshop_body,
+              cta_workshop_buttons: structuredClone(base.cta_workshop_buttons),
+            };
+          }
+          if (kind === "course") {
+            return {
+              ...c,
+              cta_course_body: base.cta_course_body,
+              cta_course_buttons: structuredClone(base.cta_course_buttons),
+            };
+          }
           return {
             ...c,
             cta_body: base.cta_body,
             cta_body_after_schedule: base.cta_body_after_schedule,
-            after_schedule_selection: base.after_schedule_selection,
-            after_trial_registration_body_after_schedule: base.after_trial_registration_body_after_schedule,
             cta_buttons: structuredClone(base.cta_buttons),
-            cta_workshop_body: base.cta_workshop_body,
-            cta_workshop_buttons: structuredClone(base.cta_workshop_buttons),
-            cta_course_body: base.cta_course_body,
-            cta_course_buttons: structuredClone(base.cta_course_buttons),
-            cta_extra_steps: structuredClone(base.cta_extra_steps),
             followup_after_next_class_body: base.followup_after_next_class_body,
             followup_after_next_class_options: structuredClone(base.followup_after_next_class_options),
             free_chat_invite_reply: base.free_chat_invite_reply,
@@ -2032,7 +2040,11 @@ export default function SlugSettingsPage({
       warmupOfferKind?: OfferKind
     ) => {
       const busyKey =
-        section === "warmup" && warmupOfferKind ? `sales:warmup:${warmupOfferKind}` : `sales:${section}`;
+        section === "warmup" && warmupOfferKind
+          ? `sales:warmup:${warmupOfferKind}`
+          : section === "cta" && warmupOfferKind
+            ? `sales:cta:${warmupOfferKind}`
+            : `sales:${section}`;
       runBusy(busyKey, () => regenerateSalesFlowSection(section, warmupOfferKind ?? "trial"));
     },
     [regenerateSalesFlowSection, runBusy]

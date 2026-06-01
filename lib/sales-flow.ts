@@ -96,6 +96,10 @@ export type SalesFlowConfig = {
   after_trial_registration_body: string;
   /** תשובה אחרי שהליד בחר תאריך ושעה (כשאין הרשמה ישירה ממערכת השעות) */
   after_schedule_selection: string;
+  /** שאלת בחירת מחזור קורס (כפתורי «התחלה ב…») */
+  course_cycle_pick_question: string;
+  /** תשובה אחרי בחירת מחזור התחלה לקורס */
+  after_course_cycle_pick: string;
   /** גוף CTA לאימון ניסיון אחרי סשן בחירת יום ושעה */
   cta_body_after_schedule: string;
   /** תבנית הודעה ללקוח אחרי הרשמה — כשאין הרשמה ישירה (כולל {requested_date} / {requested_time}) */
@@ -342,6 +346,8 @@ const FRIENDLY: SalesFlowConfig = {
   ],
   free_chat_invite_reply: "אין בעיה! כתבו בטקסט חופשי ואענה 🙂",
   after_schedule_selection: "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}",
+  course_cycle_pick_question: "מתי נוח לך להתחיל את הקורס?",
+  after_course_cycle_pick: "מעולה! רשמנו שתרצו להתחיל את {serviceName} בתאריך {requested_date}.",
   cta_body_after_schedule:
     "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף. שנתקדם?",
   after_trial_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
@@ -909,6 +915,21 @@ function applyCourseCtaLiteralFallbacks(
   return s;
 }
 
+export function fillAfterCourseCyclePickTemplate(
+  template: string,
+  serviceName: string,
+  requestedDate: string
+): string {
+  const name = serviceName.trim() || "הקורס";
+  const date = requestedDate.trim() || "...";
+  return template.replace(/\{serviceName\}/g, name).replace(/\{requested_date\}/g, date);
+}
+
+export function resolveCourseCyclePickQuestion(cfg: SalesFlowConfig | null | undefined): string {
+  const q = String(cfg?.course_cycle_pick_question ?? "").trim();
+  return q || "מתי נוח לך להתחיל את הקורס?";
+}
+
 export function fillCourseCtaBodyTemplate(
   template: string,
   priceText: string,
@@ -1247,6 +1268,14 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_schedule_selection === "string"
         ? o.after_schedule_selection
         : base.after_schedule_selection,
+    course_cycle_pick_question:
+      typeof o.course_cycle_pick_question === "string"
+        ? o.course_cycle_pick_question
+        : base.course_cycle_pick_question,
+    after_course_cycle_pick:
+      typeof o.after_course_cycle_pick === "string"
+        ? o.after_course_cycle_pick
+        : base.after_course_cycle_pick,
     cta_body_after_schedule:
       typeof o.cta_body_after_schedule === "string"
         ? o.cta_body_after_schedule
@@ -1350,6 +1379,8 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     free_chat_invite_reply: c.free_chat_invite_reply,
     after_trial_registration_body: c.after_trial_registration_body,
     after_schedule_selection: c.after_schedule_selection,
+    course_cycle_pick_question: c.course_cycle_pick_question,
+    after_course_cycle_pick: c.after_course_cycle_pick,
     cta_body_after_schedule: c.cta_body_after_schedule,
     after_trial_registration_body_after_schedule: c.after_trial_registration_body_after_schedule,
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
