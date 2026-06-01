@@ -424,7 +424,6 @@ function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, servic
 
 function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): HeyzoeSessionPhase {
   if (knowledge.warmupSessionEnabled !== false) {
-    if (shouldCollectCourseCycleStartPick(knowledge, service)) return "schedule_date";
     return "warmup";
   }
   const needsSchedulePick =
@@ -3124,52 +3123,6 @@ async function processIncoming(
           business_slug,
           sessionId,
         });
-
-        if (shouldCollectCourseCycleStartPick(knowledge, picked)) {
-          if (afterPick.trim()) {
-            await sendWhatsAppMessage(msg.toNumber, msg.from, afterPick.trim(), accountSid, authToken).catch((e) =>
-              console.error("[WA Webhook] Send sales-flow pick reply failed:", e)
-            );
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: afterPick.trim(),
-              model_used: "sales_flow",
-              session_id: sessionId,
-            });
-            await sleepMs(700);
-          }
-          await logMessage({
-            business_slug,
-            role: "event",
-            content: `${HEYZOE_SF_SERVICE_PREFIX}${picked.name}`,
-            model_used: "sf_service_pick",
-            session_id: sessionId,
-          });
-          if (businessId) {
-            const phoneVariantsCycle = contactPhoneLookupVariants(msg.from);
-            await supabase
-              .from("contacts")
-              .update({ session_phase: "schedule_date", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
-              .eq("business_id", businessId)
-              .in("phone", phoneVariantsCycle.length ? phoneVariantsCycle : [msg.from]);
-            contactSessionPhase = "schedule_date";
-            contactFlowStep = 0;
-          }
-          await sendCourseCycleStartPickMenu({
-            knowledge,
-            selectedService: picked,
-            blockMedia: starterBlocksMedia,
-            msg,
-            accountSid,
-            authToken,
-            supabase,
-            businessId,
-            business_slug,
-            sessionId,
-          });
-          return;
-        }
 
         const wbPick = resolveWarmupExperienceConfig(cfg, picked.offerKind ?? "trial");
         const q = String(wbPick.question ?? "").replace(/\{serviceName\}/g, picked.name);
