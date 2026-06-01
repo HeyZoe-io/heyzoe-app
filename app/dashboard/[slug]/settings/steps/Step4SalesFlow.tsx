@@ -28,12 +28,14 @@ import {
   type SalesFlowConfig,
   type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
-  type SalesFlowExtraStep,
   WARMUP_MAX_BUTTONS,
   WARMUP_MIN_BUTTONS,
   createDefaultWarmupExtraStep,
+  duplicateWarmupExtraStepAsQuestion2,
   SCHEDULE_BOARD_CAPTION,
   stripScheduleLineFromMultiServiceQuestion,
+  targetWarmupExtraStepsHasStepLike,
+  type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
 
 type ServiceItem = {
@@ -230,6 +232,8 @@ function WarmupButtonPairsEditor({
   );
 }
 
+type WarmupDuplicateAction = { label: string; onClick: () => void };
+
 function SalesFlowExtraStepsEditor({
   steps,
   onChange,
@@ -240,6 +244,7 @@ function SalesFlowExtraStepsEditor({
   afterExperienceForDisplay,
   afterExperienceToStore,
   serviceForReply,
+  duplicateActionsForQuestion,
 }: {
   steps: SalesFlowExtraStep[];
   onChange: (next: SalesFlowExtraStep[]) => void;
@@ -250,6 +255,7 @@ function SalesFlowExtraStepsEditor({
   afterExperienceForDisplay: (stored: string, service: ServiceItem | null) => string;
   afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
   serviceForReply: ServiceItem | null;
+  duplicateActionsForQuestion?: (step: SalesFlowExtraStep, questionNumber: number) => WarmupDuplicateAction[];
 }) {
   return (
     <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
@@ -258,15 +264,27 @@ function SalesFlowExtraStepsEditor({
           key={st.id}
           className="border border-dashed border-zinc-200 rounded-xl p-3 space-y-3 bg-zinc-50/60"
         >
-          <div className="flex justify-between items-center gap-2">
-            <span
-              className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
-            >
-              שאלה {si + startAt}
-            </span>
+          <div className="flex justify-between items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+              <span
+                className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
+              >
+                שאלה {si + startAt}
+              </span>
+              {(duplicateActionsForQuestion?.(st, si + startAt) ?? []).map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  className="text-[11px] font-medium text-[#7133da] underline underline-offset-2 hover:text-[#4b2a86] shrink-0"
+                  onClick={action.onClick}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
-              className="p-1 text-zinc-400 hover:text-red-500"
+              className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
               onClick={() => onChange(steps.filter((x) => x.id !== st.id))}
               aria-label="הסר שאלה"
             >
@@ -574,6 +592,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     () => services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "course") ?? null,
     [services]
   );
+
+  const warmupExtraStepHasContent = (step: SalesFlowExtraStep) =>
+    Boolean(step.question.trim()) ||
+    step.options.some((o) => String(o ?? "").trim()) ||
+    step.replies.some((r) => String(r ?? "").trim());
 
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
@@ -1072,6 +1095,45 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       afterExperienceForDisplay={afterExperienceForDisplay}
                       afterExperienceToStore={afterExperienceToStore}
                       serviceForReply={firstTrialSvcForWarmup}
+                      duplicateActionsForQuestion={(step, questionNumber) => {
+                        if (questionNumber !== 2 || !warmupExtraStepHasContent(step)) return [];
+                        const actions: WarmupDuplicateAction[] = [];
+                        if (hasWorkshopOffers) {
+                          const ws = salesFlowConfig.opening_extra_steps_workshop ?? [];
+                          if (!targetWarmupExtraStepsHasStepLike(step, ws)) {
+                            actions.push({
+                              label: "שכפל לסדנה",
+                              onClick: () =>
+                                setSalesFlowConfig((c) => ({
+                                  ...c,
+                                  opening_extra_steps_workshop: duplicateWarmupExtraStepAsQuestion2(
+                                    step,
+                                    c.opening_extra_steps_workshop ?? [],
+                                    uid()
+                                  ),
+                                })),
+                            });
+                          }
+                        }
+                        if (hasCourseOffers) {
+                          const cs = salesFlowConfig.opening_extra_steps_course ?? [];
+                          if (!targetWarmupExtraStepsHasStepLike(step, cs)) {
+                            actions.push({
+                              label: "שכפל לקורס",
+                              onClick: () =>
+                                setSalesFlowConfig((c) => ({
+                                  ...c,
+                                  opening_extra_steps_course: duplicateWarmupExtraStepAsQuestion2(
+                                    step,
+                                    c.opening_extra_steps_course ?? [],
+                                    uid()
+                                  ),
+                                })),
+                            });
+                          }
+                        }
+                        return actions;
+                      }}
                     />
                   </>
                 ) : null}
@@ -1120,6 +1182,27 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       afterExperienceForDisplay={afterExperienceForDisplay}
                       afterExperienceToStore={afterExperienceToStore}
                       serviceForReply={firstWorkshopSvcForWarmup}
+                      duplicateActionsForQuestion={(step, questionNumber) => {
+                        if (questionNumber !== 2 || !warmupExtraStepHasContent(step) || !hasCourseOffers) {
+                          return [];
+                        }
+                        const cs = salesFlowConfig.opening_extra_steps_course ?? [];
+                        if (targetWarmupExtraStepsHasStepLike(step, cs)) return [];
+                        return [
+                          {
+                            label: "שכפל לקורס",
+                            onClick: () =>
+                              setSalesFlowConfig((c) => ({
+                                ...c,
+                                opening_extra_steps_course: duplicateWarmupExtraStepAsQuestion2(
+                                  step,
+                                  c.opening_extra_steps_course ?? [],
+                                  uid()
+                                ),
+                              })),
+                          },
+                        ];
+                      }}
                     />
                   </>
                 ) : null}

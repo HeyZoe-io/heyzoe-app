@@ -161,6 +161,41 @@ export function createDefaultWarmupExtraStep(id: string): SalesFlowExtraStep {
   return { id, question: "", options, replies };
 }
 
+export function warmupExtraStepContentMatches(a: SalesFlowExtraStep, b: SalesFlowExtraStep): boolean {
+  if (a.question.trim() !== b.question.trim()) return false;
+  const norm = (xs: string[]) => xs.map((x) => x.trim());
+  return (
+    JSON.stringify(norm(a.options)) === JSON.stringify(norm(b.options)) &&
+    JSON.stringify(norm(a.replies)) === JSON.stringify(norm(b.replies))
+  );
+}
+
+export function targetWarmupExtraStepsHasStepLike(
+  source: SalesFlowExtraStep,
+  targetSteps: readonly SalesFlowExtraStep[]
+): boolean {
+  return targetSteps.some((t) => warmupExtraStepContentMatches(source, t));
+}
+
+export function cloneWarmupExtraStep(source: SalesFlowExtraStep, newId: string): SalesFlowExtraStep {
+  return {
+    id: newId,
+    question: source.question,
+    options: [...source.options],
+    replies: [...source.replies],
+  };
+}
+
+/** מוסיף עותק של שאלה 2 בתחילת מערך השאלות הנוספות (אם עדיין לא קיים שם). */
+export function duplicateWarmupExtraStepAsQuestion2(
+  source: SalesFlowExtraStep,
+  targetSteps: SalesFlowExtraStep[],
+  newId: string
+): SalesFlowExtraStep[] {
+  if (targetWarmupExtraStepsHasStepLike(source, targetSteps)) return targetSteps;
+  return [cloneWarmupExtraStep(source, newId), ...targetSteps];
+}
+
 export function resolveWarmupExperienceReply(
   replies: string[],
   optionIndex: number,
