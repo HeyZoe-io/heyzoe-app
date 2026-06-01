@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSupabaseStorageBucket } from "@/lib/server-env";
+import {
+  DASHBOARD_IMAGE_UPLOAD_MAX_BYTES,
+  WHATSAPP_VIDEO_MAX_BYTES,
+} from "@/lib/whatsapp-media-limits";
 
 export const runtime = "nodejs";
 
-const MAX_BYTES = 16 * 1024 * 1024;
+const MAX_VIDEO_BYTES = WHATSAPP_VIDEO_MAX_BYTES;
+const MAX_IMAGE_BYTES = DASHBOARD_IMAGE_UPLOAD_MAX_BYTES;
 
 function isBucketMissingError(message: string): boolean {
   const m = message.toLowerCase();
@@ -18,7 +23,7 @@ async function ensurePublicBucket(
 ): Promise<{ ok: boolean; error?: string }> {
   const { error } = await admin.storage.createBucket(bucketId, {
     public: true,
-    fileSizeLimit: MAX_BYTES,
+    fileSizeLimit: MAX_IMAGE_BYTES,
   });
   if (!error) return { ok: true };
   const msg = error.message ?? "";
@@ -45,11 +50,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing_filename" }, { status: 400 });
   }
 
+  const contentType =
+    typeof body.contentType === "string" ? body.contentType.trim().toLowerCase() : "";
+  const isVideo =
+    contentType.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(filename);
+  const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+
   const fileSize = typeof body.fileSize === "number" ? body.fileSize : null;
-  if (fileSize !== null && (fileSize <= 0 || fileSize > MAX_BYTES)) {
+  if (fileSize !== null && (fileSize <= 0 || fileSize > maxBytes)) {
+    const maxMb = maxBytes / (1024 * 1024);
+    const kind = isVideo ? "סרטון" : "תמונה";
     return NextResponse.json(
       {
-        error: `הקובץ גדול מדי (מקסימום ${MAX_BYTES / (1024 * 1024)}MB).`,
+        error: isVideo
+          ? `הקובץ גדול מדי (${kind}: מקסימום ${maxMb}MB).`
+          : `הקובץ גדול מדי (תמונה: מקסימום ${maxMb}MB להעלאה).`,
       },
       { status: 413 }
     );
