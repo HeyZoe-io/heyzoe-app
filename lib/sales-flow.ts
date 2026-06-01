@@ -287,13 +287,13 @@ const FRIENDLY: SalesFlowConfig = {
   ],
   opening_extra_steps_workshop: [],
   experience_question_course: "יש לך ניסיון קודם בתחום?",
-  experience_options_course: ["כן, יש לי בסיס", "קצת", "בכלל לא"],
+  experience_options_course: ["יש לי ניסיון", "ממש קצת", "בכלל לא"],
   after_experience_course:
-    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+    "נהדר, {serviceName} יאפשר לך לחזק את היסודות ולרכוש מיומנויות נוספות.",
   experience_replies_course: [
-    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
-    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
-    "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+    "נהדר, {serviceName} יאפשר לך לחזק את היסודות ולרכוש מיומנויות נוספות.",
+    "בסדר גמור, {serviceName} יאפשר לך לחזק את היסודות ולרכוש מיומנויות נוספות.",
+    "נהדר, {serviceName} יאפשר לבנות יסודות חזקים ומיומנויות חדשות.",
   ],
   opening_extra_steps_course: [],
   cta_body:
@@ -381,7 +381,7 @@ const FORMAL: SalesFlowConfig = {
   after_experience_workshop:
     "נעים לשמוע. סדנת {serviceName} היא המקום הנכון לכך.",
   after_experience_course:
-    "מצוין. קורס {serviceName} יאפשר לכם לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
+    "מצוין. {serviceName} יאפשר לכם לחזק את היסודות ולרכוש מיומנויות נוספות.",
   cta_body:
     "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
   show_memberships_button: true,

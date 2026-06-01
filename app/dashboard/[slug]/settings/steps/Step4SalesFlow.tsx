@@ -75,7 +75,8 @@ type Step4SalesFlowProps = {
   setMediaUploadError: (v: string) => void;
   mediaUploadError: string;
   regenerateSalesFlowSection: (
-    section: "opening" | "service_pick" | "warmup" | "cta" | "after_trial_registration"
+    section: "opening" | "service_pick" | "warmup" | "cta" | "after_trial_registration",
+    warmupOfferKind?: "trial" | "workshop" | "course"
   ) => void;
   regeneratingKey: string | null;
   salesFlowConfig: SalesFlowConfig;
@@ -348,7 +349,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   } = props;
 
   const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
-  const isGen = (section: string) => regeneratingKey === `sales:${section}`;
+  const isGen = (section: string, warmupTab?: CtaOfferTab) => {
+    if (section === "warmup" && warmupTab) return regeneratingKey === `sales:warmup:${warmupTab}`;
+    return regeneratingKey === `sales:${section}`;
+  };
 
   const [ctaOfferTabPreferred, setCtaOfferTab] = useState<CtaOfferTab>(() => {
     if (hasTrialOffers) return "trial";
@@ -757,14 +761,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   variant="outline"
                   className="gap-1 text-xs py-1.5 px-3 h-auto"
                   disabled={isSalesGenerating}
-                  onClick={() => regenerateSalesFlowSection("warmup")}
+                  onClick={() => regenerateSalesFlowSection("warmup", warmOfferTab)}
                 >
-                  {isGen("warmup") ? (
+                  {isGen("warmup", warmOfferTab) ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <Sparkles className="h-3.5 w-3.5" />
                   )}
-                  {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+                  {isGen("warmup", warmOfferTab) ? "מג׳נרט..." : "ג׳נרט מחדש"}
                 </Button>
               </div>
             ) : null
