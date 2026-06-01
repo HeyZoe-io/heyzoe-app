@@ -437,6 +437,11 @@ function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, se
   return needsSchedulePick ? "schedule_date" : "cta";
 }
 
+/** אחרי בחירת מועד/מחזור — תמיד CTA (חימום כבר עבר לפניו). */
+function phaseAfterSchedulePickComplete(): HeyzoeSessionPhase {
+  return "cta";
+}
+
 function courseCtaFillFromService(service: SfServiceRow | null, pickedCycleStartDisplay?: string) {
   const cycles = service?.courseCycles ?? [];
   const picked = pickedCycleStartDisplay?.trim()
@@ -3297,14 +3302,13 @@ async function processIncoming(
             const cycle = cyclesForButtons[idx]!;
             const dateTxt = formatCycleDateShort(cycle.start_date);
             const phoneVariants = contactPhoneLookupVariants(msg.from);
-            const nextPhaseAfterCycle: HeyzoeSessionPhase =
-              knowledge.warmupSessionEnabled !== false ? "warmup" : "cta";
+            const nextPhase = phaseAfterSchedulePickComplete();
             const { error } = await supabase
               .from("contacts")
               .update({
                 sf_requested_date: dateTxt,
                 sf_requested_time: "",
-                session_phase: nextPhaseAfterCycle,
+                session_phase: nextPhase,
                 flow_step: 0,
               })
               .eq("business_id", businessId)
@@ -3312,7 +3316,7 @@ async function processIncoming(
             if (error) console.warn("[WA Webhook] course cycle start pick update failed:", error.message);
             contactScheduleRequestedDate = dateTxt;
             contactScheduleRequestedTime = "";
-            contactSessionPhase = nextPhaseAfterCycle;
+            contactSessionPhase = nextPhase;
             const serviceLabel = selectedService?.name?.trim() || "הקורס";
             const afterTpl =
               (knowledge.salesFlowConfig?.after_course_cycle_pick ?? "").trim() ||
@@ -3329,22 +3333,6 @@ async function processIncoming(
               session_id: sessionId,
             });
             await sleepMs(900);
-            if (nextPhaseAfterCycle === "warmup" && knowledge.salesFlowConfig) {
-              await sendWarmupExperienceQuestionMenu({
-                cfg: knowledge.salesFlowConfig,
-                salesFlowServices,
-                business_slug,
-                sessionId,
-                msg,
-                accountSid,
-                authToken,
-                supabase,
-                businessId,
-                blockTrialPickMedia: starterBlocksMedia,
-                bumpFlowStep: true,
-              });
-              return;
-            }
             await sendSalesFlowCtaMenuWithPhaseUpdate({
               knowledge,
               msg,
@@ -3452,15 +3440,21 @@ async function processIncoming(
         const dateTxt = formatDayNameForScheduleDatePlaceholder(slot.day);
         const timeTxt = slot.time;
         const phoneVariants = contactPhoneLookupVariants(msg.from);
+        const nextPhase = phaseAfterSchedulePickComplete();
         const { error } = await supabase
           .from("contacts")
-          .update({ sf_requested_date: dateTxt, sf_requested_time: timeTxt, session_phase: "cta", flow_step: 0 })
+          .update({
+            sf_requested_date: dateTxt,
+            sf_requested_time: timeTxt,
+            session_phase: nextPhase,
+            flow_step: 0,
+          })
           .eq("business_id", businessId)
           .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
         if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
         contactScheduleRequestedDate = dateTxt;
         contactScheduleRequestedTime = timeTxt;
-        contactSessionPhase = "cta";
+        contactSessionPhase = nextPhase;
         const schedOfferKind = selectedService?.offerKind ?? "trial";
         const schedServiceFallback =
           schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
@@ -3583,14 +3577,15 @@ async function processIncoming(
         return;
       }
 
+      const nextPhaseLegacy = phaseAfterSchedulePickComplete();
       const { error: timeUpErr } = await supabase
         .from("contacts")
-        .update({ sf_requested_time: parsedTime, session_phase: "cta", flow_step: 0 })
+        .update({ sf_requested_time: parsedTime, session_phase: nextPhaseLegacy, flow_step: 0 })
         .eq("business_id", businessId)
         .in("phone", contactPhoneLookupVariants(msg.from));
       if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
       contactScheduleRequestedTime = parsedTime;
-      contactSessionPhase = "cta";
+      contactSessionPhase = nextPhaseLegacy;
       const schedOfferKindLegacy = selectedService?.offerKind ?? "trial";
       const schedServiceFallbackLegacy =
         schedOfferKindLegacy === "workshop"
