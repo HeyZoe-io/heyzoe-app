@@ -3,6 +3,7 @@ import {
   probePublicMediaBytes,
   whatsappMediaMaxBytes,
 } from "@/lib/whatsapp-media-limits";
+import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 
 // ─── Env resolvers ────────────────────────────────────────────────────────────
@@ -515,7 +516,7 @@ export function buildMetaInteractivePayload(
   optionLabels: string[],
   footerText?: string
 ): { type: "interactive"; interactive: Record<string, unknown> } | null {
-  const labels = optionLabels.map((l) => l.trim()).filter(Boolean);
+  const labels = truncateWaButtonLabels(optionLabels);
   if (labels.length < 1) return null;
 
   const capped = labels.slice(0, META_LIST_ROWS_MAX);
@@ -537,7 +538,7 @@ export function buildMetaInteractivePayload(
             type: "reply",
             reply: {
               id: metaReplyIdFromLabel(label),
-              title: truncateMetaByCodePoints(label, META_BTN_TITLE_MAX),
+              title: truncateMetaByCodePoints(truncateWaButtonLabel(label), META_BTN_TITLE_MAX),
             },
           })),
         },
@@ -558,7 +559,7 @@ export function buildMetaInteractivePayload(
             title: truncateMetaByCodePoints("אפשרויות", META_LIST_SECTION_TITLE_MAX),
             rows: capped.map((label) => ({
               id: metaReplyIdFromLabel(label),
-              title: truncateMetaByCodePoints(label, META_LIST_ROW_TITLE_MAX),
+              title: truncateMetaByCodePoints(truncateWaButtonLabel(label), META_LIST_ROW_TITLE_MAX),
             })),
           },
         ],
@@ -584,7 +585,10 @@ export function buildMetaCtaUrlOutgoing(
   footerText?: string
 ): MetaWhatsAppOutgoing {
   const href = url.trim();
-  const label = truncateMetaByCodePoints(buttonLabel.trim() || "לחצו כאן", META_CTA_URL_DISPLAY_MAX);
+  const label = truncateMetaByCodePoints(
+    truncateWaButtonLabel(buttonLabel || "לחצו כאן"),
+    META_CTA_URL_DISPLAY_MAX
+  );
   return {
     type: "interactive",
     interactive: {
@@ -705,7 +709,7 @@ export async function sendWhatsAppTextOrMenu(
   authToken: string,
   opts?: { footerHint?: string }
 ): Promise<void> {
-  const labels = menuOptionLabels.map((l) => l.trim()).filter(Boolean);
+  const labels = truncateWaButtonLabels(menuOptionLabels);
   const footer = (opts?.footerHint ?? "").trim();
   const withFooterPlain = (base: string) => {
     const b = base.trim();

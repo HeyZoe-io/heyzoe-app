@@ -1,8 +1,4 @@
-/** מקסימום תווים לשם שירות/אימון ניסיון — כפתורי WhatsApp קצרים */
-export const TRIAL_SERVICE_NAME_MAX_CHARS = 23;
-
-export function truncateTrialServiceName(name: string): string {
-  const t = name.trim();
-  if (!t) return "";
-  return [...t].slice(0, TRIAL_SERVICE_NAME_MAX_CHARS).join("");
-}
+export {
+  WA_BUTTON_LABEL_MAX_CHARS as TRIAL_SERVICE_NAME_MAX_CHARS,
+  truncateWaButtonLabel as truncateTrialServiceName,
+} from "@/lib/wa-button-label";

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { WaButtonLabelInput, WA_BUTTON_LABEL_MAX_CHARS } from "@/components/settings/WaButtonLabelInput";
 import { Field, StepPanel, Textarea } from "../settings-ui";
 import {
   SalesPathSectionBlock,
@@ -199,11 +200,12 @@ function WarmupButtonPairsEditor({
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3" dir="rtl">
             <div className="min-w-0 flex-1 space-y-1">
-              <span className="text-[11px] font-medium text-zinc-500">תוכן הכפתור</span>
-              <Input
-                dir="rtl"
+              <span className="text-[11px] font-medium text-zinc-500">
+                תוכן הכפתור <span className="text-zinc-400">(עד {WA_BUTTON_LABEL_MAX_CHARS} תווים)</span>
+              </span>
+              <WaButtonLabelInput
                 value={label}
-                onChange={(e) => updatePair(i, { label: e.target.value })}
+                onValueChange={(v) => updatePair(i, { label: v })}
                 placeholder={`כפתור ${i + 1}`}
               />
             </div>
@@ -1585,12 +1587,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 const slotSub = salesFlowSubChoiceForSlot(b, locked);
                 return (
                   <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                    <Field label={`כפתור ${bi + 1}`}>
-                      <Input
-                        dir="rtl"
+                    <Field label={`כפתור ${bi + 1}`} description={`עד ${WA_BUTTON_LABEL_MAX_CHARS} תווים`}>
+                      <WaButtonLabelInput
                         value={b.label}
-                        onChange={(e) => {
-                          const v = e.target.value;
+                        onValueChange={(v) => {
                           setSalesFlowConfig((c) => ({
                             ...c,
                             cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) => (x.id === b.id ? { ...x, label: v } : x)),
@@ -1812,12 +1812,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       b.secondary_purchase_delivery === "phone" ? "phone" : "link";
                     return (
                       <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <Field label={`כפתור ${bi + 1}`}>
-                          <Input
-                            dir="rtl"
+                        <Field label={`כפתור ${bi + 1}`} description={`עד ${WA_BUTTON_LABEL_MAX_CHARS} תווים`}>
+                          <WaButtonLabelInput
                             value={b.label}
-                            onChange={(e) => {
-                              const v = e.target.value;
+                            onValueChange={(v) => {
                               setSalesFlowConfig((c) => ({
                                 ...c,
                                 cta_workshop_buttons: (c.cta_workshop_buttons ?? []).map((x: SalesFlowCtaButton) =>
@@ -1895,12 +1893,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       b.secondary_purchase_delivery === "phone" ? "phone" : "link";
                     return (
                       <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <Field label={`כפתור ${bi + 1}`}>
-                          <Input
-                            dir="rtl"
+                        <Field label={`כפתור ${bi + 1}`} description={`עד ${WA_BUTTON_LABEL_MAX_CHARS} תווים`}>
+                          <WaButtonLabelInput
                             value={b.label}
-                            onChange={(e) => {
-                              const v = e.target.value;
+                            onValueChange={(v) => {
                               setSalesFlowConfig((c) => ({
                                 ...c,
                                 cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
