@@ -223,6 +223,30 @@ function clearTrialServicesStash(slug: string) {
   }
 }
 
+/** מפתח יציב לשורת מוצר — שומר פתיחת כרטיס גם אחרי ריענון SWR */
+function servicePersistenceKey(s: { service_slug?: string; name: string; ui_id: string }): string {
+  const slug = serviceSlugForPersistence(String(s.service_slug ?? ""), s.name, s.ui_id);
+  const name = truncateTrialServiceName(s.name).trim().toLowerCase();
+  return slug || name || s.ui_id;
+}
+
+/** מיזוג תשובת שרת — שומר ui_id מקומי כדי שלא ייסגר כרטיס מוצר פתוח */
+function mergeServerServicesIntoLocal(
+  incomingRows: Record<string, unknown>[],
+  current: ServiceItem[]
+): ServiceItem[] {
+  const fresh = dashboardApiRowsToServiceItems(incomingRows);
+  if (!current.length) return fresh;
+  const byKey = new Map<string, ServiceItem>();
+  for (const row of current) {
+    byKey.set(servicePersistenceKey(row), row);
+  }
+  return fresh.map((item) => {
+    const prev = byKey.get(servicePersistenceKey(item));
+    return prev ? { ...item, ui_id: prev.ui_id } : item;
+  });
+}
+
 /** מפת שורות services מהשרת למצב טופס ההגדרות */
 function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): ServiceItem[] {
   return rows.map((s) => {
@@ -1311,7 +1335,9 @@ export default function SlugSettingsPage({
     data: swrSettings,
     error: swrSettingsError,
   } = useSWR(settingsKey, dashboardSettingsFetcher, {
-    revalidateOnFocus: true,
+    /** ריענון בפוקוס דרס מוצרים עם ui_id חדש וסגר כרטיסים באמצע עריכה */
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
     dedupingInterval: 5000,
     keepPreviousData: true,
     shouldRetryOnError: false,
@@ -1325,6 +1351,14 @@ export default function SlugSettingsPage({
   const swrLastAppliedPayloadJsonRef = useRef<string | null>(null);
   /** מפתח מתעדכן אחרי משיכת טמפ ארעי מתוך sessionStorage בעת תשובת שרת ריקה (קריאה חוזית אחת) */
   const trialServicesStashConsumedRef = useRef(false);
+  /** עריכות מוצרים מקומיות מאז טעינה אחרונה מהשרת — מונע דריסה בריענון SWR */
+  const servicesUserEditCountRef = useRef(0);
+  const servicesHydrationBaselineRef = useRef(0);
+
+  const setServicesFromUser = useCallback<typeof setServices>((action) => {
+    servicesUserEditCountRef.current += 1;
+    setServices(action);
+  }, []);
 
   useEffect(() => {
     setSettingsLoadError("");
@@ -1344,6 +1378,8 @@ export default function SlugSettingsPage({
       swrHydrationSlugRef.current = slug;
       swrLastAppliedPayloadJsonRef.current = null;
       trialServicesStashConsumedRef.current = false;
+      servicesUserEditCountRef.current = 0;
+      servicesHydrationBaselineRef.current = 0;
     }
 
     let serialized = "";
@@ -1527,10 +1563,17 @@ export default function SlugSettingsPage({
           if (!incomingHasNamed && localHasNamed) {
             setServicesHydrated(true);
           } else if (incomingHasNamed || rowsRaw.length > 0) {
-            const mapped = dashboardApiRowsToServiceItems(rowsRaw);
-            setServices(mapped);
+            const userEditedSinceHydrate =
+              servicesUserEditCountRef.current > servicesHydrationBaselineRef.current;
+            const mapped = userEditedSinceHydrate
+              ? mergeServerServicesIntoLocal(rowsRaw, servicesRef.current)
+              : mergeServerServicesIntoLocal(rowsRaw, []);
+            if (!userEditedSinceHydrate) {
+              setServices(mapped);
+              servicesHydrationBaselineRef.current = servicesUserEditCountRef.current;
+            }
             setServicesHydrated(true);
-            if (incomingHasNamed) writeTrialServicesStash(slug, mapped);
+            if (incomingHasNamed) writeTrialServicesStash(slug, servicesRef.current);
           } else if (!trialServicesStashConsumedRef.current) {
             const restored = readTrialServicesStash(slug);
             if (restored?.length) {
@@ -1767,7 +1810,7 @@ export default function SlugSettingsPage({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [canAutosave, postSettings, settingsPresenceLocked, slug]);
+  }, [canAutosave, postSettings, settingsPresenceLocked, slug, services]);
 
   useEffect(() => {
     if (!settingsPresenceLocked) return;
@@ -2328,7 +2371,9 @@ export default function SlugSettingsPage({
       const addrFallback =
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
       if (Array.isArray(j.products) && j.products.length > 0) {
-        setServices((prev) => mergeTrialServicesWithScannedProducts(prev, j.products as unknown[], addrFallback));
+        setServicesFromUser((prev) =>
+          mergeTrialServicesWithScannedProducts(prev, j.products as unknown[], addrFallback)
+        );
         setServicesHydrated(true);
       }
       setStep(nextStepAfterScan);
@@ -2347,7 +2392,7 @@ export default function SlugSettingsPage({
     const [item] = arr.splice(dragIdx.current, 1);
     arr.splice(i, 0, item);
     dragIdx.current = i;
-    setServices(arr);
+    setServicesFromUser(arr);
   }
   function onDragEnd() { dragIdx.current = null; }
 
@@ -2541,7 +2586,7 @@ export default function SlugSettingsPage({
             address={address}
             fetchingUrl={fetchingUrl}
             services={services}
-            setServices={setServices}
+            setServices={setServicesFromUser}
             fetchSite={fetchSite}
             onDragOver={onDragOver}
             onDragStart={onDragStart}

@@ -350,8 +350,22 @@ export default function Step3Trial(props: {
   const namedServices = useMemo(() => services.filter((s) => s.name.trim()), [services]);
   const [openProducts, setOpenProducts] = useState<Record<string, boolean>>({});
 
-  const toggleProductOpen = (uiId: string) => {
-    setOpenProducts((prev) => ({ ...prev, [uiId]: !prev[uiId] }));
+  const productStableKey = (s: ServiceItem) => {
+    const fromSlug = toSlug(s.service_slug || s.name);
+    return fromSlug || s.ui_id;
+  };
+
+  const isProductOpen = (s: ServiceItem) => {
+    const stable = productStableKey(s);
+    return Boolean(openProducts[s.ui_id] ?? openProducts[stable]);
+  };
+
+  const toggleProductOpen = (s: ServiceItem) => {
+    const stable = productStableKey(s);
+    setOpenProducts((prev) => {
+      const next = !(prev[s.ui_id] ?? prev[stable]);
+      return { ...prev, [s.ui_id]: next, [stable]: next };
+    });
   };
 
   const runScheduleSlotsExtract = async () => {
@@ -541,7 +555,7 @@ export default function Step3Trial(props: {
           <div className="space-y-3 border-t border-zinc-100 px-4 pb-4 pt-3">
             <div className="space-y-2">
         {services.map((s, i) => {
-          const productOpen = Boolean(openProducts[s.ui_id]);
+          const productOpen = isProductOpen(s);
           return (
           <article
             key={s.ui_id}
@@ -555,7 +569,7 @@ export default function Step3Trial(props: {
               <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
                 <button
                   type="button"
-                  onClick={() => toggleProductOpen(s.ui_id)}
+                  onClick={() => toggleProductOpen(s)}
                   className="inline-flex shrink-0 items-center justify-center rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                   aria-expanded={productOpen}
                   aria-label={productOpen ? "סגור פרטי מוצר" : "פתח פרטי מוצר"}
@@ -585,7 +599,7 @@ export default function Step3Trial(props: {
                 </span>
                 <button
                   type="button"
-                  onClick={() => toggleProductOpen(s.ui_id)}
+                  onClick={() => toggleProductOpen(s)}
                   className="min-w-0 flex-1 truncate text-right text-sm font-semibold text-zinc-900 hover:text-[#2d1a6e]"
                 >
                   {productCardTitle(i, s.name)}
@@ -620,7 +634,9 @@ export default function Step3Trial(props: {
                   onClick={() => {
                     setOpenProducts((prev) => {
                       const next = { ...prev };
+                      const stable = productStableKey(s);
                       delete next[s.ui_id];
+                      delete next[stable];
                       return next;
                     });
                     setServices((sv) => sv.filter((_, j) => j !== i));
