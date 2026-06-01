@@ -100,7 +100,13 @@ type Step4SalesFlowProps = {
   hasWorkshopOffers: boolean;
   hasCourseOffers: boolean;
   workshopCtaSample: { priceText: string; durationText: string };
-  courseCtaSample: { priceText: string; sessionsText: string; startDate: string; endDate: string };
+  courseCtaSample: {
+    priceText: string;
+    sessionsText: string;
+    startDate: string;
+    endDate: string;
+    schedulePhrase: string;
+  };
   workshopCtaBodyForDisplayUi: (stored: string) => string;
   workshopCtaBodyToStore: (typed: string, priceText: string, durationText: string) => string;
   courseCtaBodyForDisplayUi: (stored: string) => string;
@@ -109,7 +115,8 @@ type Step4SalesFlowProps = {
     priceText: string,
     sessionsText: string,
     startDate: string,
-    endDate: string
+    endDate: string,
+    schedulePhrase: string
   ) => string;
   uid: () => string;
 };
@@ -1457,15 +1464,16 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                           courseCtaSample.priceText,
                           courseCtaSample.sessionsText,
                           courseCtaSample.startDate,
-                          courseCtaSample.endDate
+                          courseCtaSample.endDate,
+                          courseCtaSample.schedulePhrase
                         ),
                       }))
                     }
                     rows={4}
-                    placeholder="מה דעתך להצטרף לקורס שלנו? המחיר הוא x שקלים, הוא נמשך כ־x מפגשים, ובאמת שהולך להיות כיף! התאריכים: x עד x"
+                    placeholder="מה שנשאר כעת הוא להצטרף לקורס! המחיר הוא x שקלים, הוא נמשך כ-x מפגשים, כל יום x בשעה x"
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                    מחיר, מספר מפגשים ותאריכי הקורס יימשכו אוטומטית מהשירותים שמסוג «קורס» בטאב «מוצרים»
+                    מחיר, מספר מפגשים ומועדים (ימים ושעות) יימשכו אוטומטית ממוצרי «קורס» בטאב «מוצרים». אחרי סשן החימום נשלחת שורת עלות בלי לחזור על מחזורי הקורס.
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

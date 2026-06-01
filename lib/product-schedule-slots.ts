@@ -190,34 +190,67 @@ export function buildCourseScheduleInfoMessage(serviceName: string, cycles: Cour
   );
   if (!sorted.length) return "";
 
-  const parts: string[] = [];
+  const cycleLines: string[] = [];
+  let hasDateRange = false;
+
   for (let ci = 0; ci < sorted.length; ci++) {
     const cycle = sorted[ci]!;
     const slotsPhrase = formatCycleSlotsPhrase(cycle.schedule_slots);
     const start = formatCycleDateShort(cycle.start_date);
     const end = formatCycleDateShort(cycle.end_date);
 
-    if (ci === 0) {
-      if (start && end) {
-        let line = `${name} מתקיים בתאריכים ${start} עד ה${end}`;
-        if (slotsPhrase) line += `, ${slotsPhrase}`;
-        parts.push(line);
-      } else if (slotsPhrase) {
-        parts.push(`${name} מתקיים ${slotsPhrase}`);
-      } else if (start && end) {
-        parts.push(`${name} מתקיים בתאריכים ${start} עד ה${end}`);
-      }
-    } else if (start && end && slotsPhrase) {
-      parts.push(`או בתאריכים ${start} עד ה${end}, ${slotsPhrase}`);
-    } else if (slotsPhrase) {
-      parts.push(`או ${slotsPhrase}`);
-    } else if (start && end) {
-      parts.push(`או בתאריכים ${start} עד ה${end}`);
+    let segment = "";
+    if (start && end) {
+      hasDateRange = true;
+      segment = `${start} עד ה${end}`;
+    } else if (start) {
+      hasDateRange = true;
+      segment = `מתאריך ${start}`;
+    } else if (end) {
+      segment = `עד ה${end}`;
     }
+    if (slotsPhrase) {
+      segment = segment ? `${segment}, ${slotsPhrase}` : slotsPhrase;
+    }
+    if (!segment) continue;
+
+    cycleLines.push(ci === 0 ? segment : `או ב: ${segment}`);
   }
 
-  const body = parts.join(", ");
+  if (!cycleLines.length) return "";
+
+  const body = hasDateRange
+    ? [`${name} מתקיים בתאריכים:`, ...cycleLines].join("\n")
+    : [`${name} מתקיים`, ...cycleLines].join("\n");
   return body.endsWith(".") ? body : `${body}.`;
+}
+
+/** לתבנית CTA קורס: «כל יום ראשון בשעה 08:30» (מכל המחזורים) */
+export function buildCourseSchedulePhraseForCta(cycles: CourseCycle[]): string {
+  const sorted = sortCourseCyclesByStartDate(
+    cycles.filter(
+      (c) =>
+        c.start_date.trim() ||
+        c.end_date.trim() ||
+        filterConfiguredProductScheduleSlots(c.schedule_slots).length > 0
+    )
+  );
+  const lines: string[] = [];
+  for (const cycle of sorted) {
+    for (const slot of sortProductScheduleSlots(filterConfiguredProductScheduleSlots(cycle.schedule_slots))) {
+      const dayLabel = hebrewDayLabelForPhrase(slot.day);
+      lines.push(`כל יום ${dayLabel} בשעה ${slot.time}`);
+    }
+  }
+  if (!lines.length) return "";
+  if (lines.length === 1) return lines[0]!;
+  return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join(", ");
+}
+
+export function buildCourseCostAfterWarmupLine(priceText: string, sessionsText: string): string {
+  const p = priceText.trim() || "...";
+  const s = sessionsText.trim() || "...";
+  return `עלות הקורס היא ${p} ₪ לכל ${s} המפגשים.`;
 }
 
 export function buildCourseCycleStartPickQuestion(): string {

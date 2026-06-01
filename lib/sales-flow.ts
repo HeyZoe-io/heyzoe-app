@@ -323,7 +323,7 @@ const FRIENDLY: SalesFlowConfig = {
     { id: "cta-workshop-contact", label: "יצירת קשר", kind: "workshop_contact" },
   ],
   cta_course_body:
-    "מה דעתך להצטרף לקורס שלנו? המחיר הוא {price} שקלים, הוא נמשך כ-{sessions} מפגשים, ובאמת שהולך להיות כיף! התאריכים: {start_date} עד {end_date}",
+    "מה שנשאר כעת הוא להצטרף לקורס! המחיר הוא {price} שקלים, הוא נמשך כ-{sessions} מפגשים, {schedule_phrase}",
   cta_course_buttons: [
     {
       id: "cta-course-enroll",
@@ -890,23 +890,47 @@ export function fillWorkshopCtaBodyTemplate(template: string, priceText: string,
     .replace(/\{duration\}/g, d);
 }
 
+function applyCourseCtaLiteralFallbacks(
+  text: string,
+  priceText: string,
+  sessionsText: string,
+  schedulePhrase: string
+): string {
+  let s = text;
+  const p = priceText.trim();
+  const sess = sessionsText.trim();
+  const sched = schedulePhrase.trim();
+  if (p) s = s.replace(/\bx\s+שקלים\b/gu, `${p} שקלים`);
+  if (sess) {
+    s = s.replace(/\bכ־x\s+מפגשים\b/gu, `כ-${sess} מפגשים`);
+    s = s.replace(/\bx\s+מפגשים\b/gu, `${sess} מפגשים`);
+  }
+  if (sched) s = s.replace(/כל יום x בשעה x/gu, sched);
+  return s;
+}
+
 export function fillCourseCtaBodyTemplate(
   template: string,
   priceText: string,
   sessionsText: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  schedulePhrase = ""
 ): string {
   const p = priceText.trim() || "...";
   const s = sessionsText.trim() || "...";
   const a = startDate.trim() || "...";
   const b = endDate.trim() || "...";
-  return template
+  const sched = schedulePhrase.trim() || "...";
+  const filled = template
     .replace(/\{priceText\}/g, p)
     .replace(/\{price\}/g, p)
     .replace(/\{sessions\}/g, s)
     .replace(/\{start_date\}/g, a)
-    .replace(/\{end_date\}/g, b);
+    .replace(/\{end_date\}/g, b)
+    .replace(/\{schedule_phrase\}/g, sched)
+    .replace(/\{schedulePhrase\}/g, sched);
+  return applyCourseCtaLiteralFallbacks(filled, priceText, sessionsText, schedulePhrase);
 }
 
 export function fillOfferKindCtaBody(
@@ -918,6 +942,7 @@ export function fillOfferKindCtaBody(
     sessionsText: string;
     startDate: string;
     endDate: string;
+    schedulePhrase?: string;
   }
 ): string {
   if (kind === "workshop") {
@@ -929,7 +954,8 @@ export function fillOfferKindCtaBody(
       row.priceText,
       row.sessionsText,
       row.startDate,
-      row.endDate
+      row.endDate,
+      row.schedulePhrase ?? ""
     );
   }
   return fillCtaBodyTemplate(cfg.cta_body, row.priceText, row.durationText);
@@ -2138,7 +2164,7 @@ export function formatSalesFlowForPrompt(
     c.cta_workshop_buttons ?? []
   );
   const coursePromptBlock = formatSecondaryOfferPrompt(
-    "הנעה לפעולה — כשנבחר שירות מסוג «קורס»",
+    "הנעה לפעולה — כשנבחר שירות מסוג «קורס» (גוף: מחיר, מפגשים, ימים ושעות מהמוצר; אחרי חימום — שורת עלות בלי חזרה על מחזורים)",
     c.cta_course_body,
     c.cta_course_buttons ?? []
   );
@@ -2147,7 +2173,7 @@ export function formatSalesFlowForPrompt(
 מסלול מכירה מובנה (חובה לעקוב אחרי הסדר הלוגי; התאימי ניסוח לסגנון הדיבור):
 
 כללים כלליים:
-- שמות אימוני הניסיון ממסלול המכירה חייבים להישאר קצרים (עד ~20 תווים, 2–3 מילים) - מתאים לכפתורי WhatsApp. רע: "שיעורי אקרו יוגה שבועיים". טוב: "אקרו יוגה" או "שיעורי אקרו".
+- שמות אימוני הניסיון ממסלול המכירה חייבים להישאר קצרים (עד ~25 תווים, 2–3 מילים) - מתאים לכפתורי WhatsApp. רע: "שיעורי אקרו יוגה שבועיים". טוב: "אקרו יוגה" או "שיעורי אקרו".
 - בכל הודעה: מענה קצר לשלב הנוכחי + השאלה הבאה בפלואו + אפשרויות בחירה.
 - אם יש עד 3 אימוני ניסיון - הציגי כל אימון בשורה נפרדת בלי מספרים, בנוסח כפתורי תשובה מהירה (רק הטקסט, בלי "1.").
 - אם יש יותר מ־3 אימוני ניסיון - בשלב בחירת האימון השתמשי ברשימה ממוספרת ובקשי מהלקוח לכתוב מספר (ספרה) בלבד.

@@ -43,6 +43,9 @@ import {
   type CourseCycle,
 } from "@/lib/product-schedule-slots";
 import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
+import { compressImageForWhatsAppIfNeeded } from "@/lib/compress-image-for-whatsapp";
+import { buildCourseSchedulePhraseForCta } from "@/lib/product-schedule-slots";
+import { dashboardMaxUploadBytesForFile } from "@/lib/whatsapp-media-limits";
 import { buildFactQuestions } from "@/lib/fact-questions";
 import {
   DASHBOARD_CENTERED_CONTENT,
@@ -104,7 +107,33 @@ async function readSaveErrorFromResponse(res: Response): Promise<string> {
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
-const MAX_MEDIA_UPLOAD_BYTES = 16 * 1024 * 1024;
+function dashboardMediaUploadSizeError(file: File): string | null {
+  const max = dashboardMaxUploadBytesForFile(file);
+  if (file.size <= max) return null;
+  const maxMb = max / (1024 * 1024);
+  const isVideo =
+    file.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(file.name);
+  if (isVideo) {
+    return `הקובץ גדול מדי (סרטון: מקסימום ${maxMb}MB). נסו לכווץ את הקובץ.`;
+  }
+  return `הקובץ גדול מדי (תמונה: מקסימום ${maxMb}MB להעלאה).`;
+}
+
+async function prepareDashboardMediaUpload(
+  file: File
+): Promise<{ ok: true; file: File } | { ok: false; error: string }> {
+  const sizeErr = dashboardMediaUploadSizeError(file);
+  if (sizeErr) return { ok: false, error: sizeErr };
+  try {
+    const prepared = await compressImageForWhatsAppIfNeeded(file);
+    return { ok: true, file: prepared };
+  } catch {
+    return {
+      ok: false,
+      error: "לא הצלחנו לכווץ את התמונה. נסו JPG/PNG קטן יותר.",
+    };
+  }
+}
 
 function videoUrlForPreview(url: string) {
   if (!url) return url;
@@ -309,6 +338,7 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
 
 function serviceDescriptionMetaForSave(s: ServiceItem): Record<string, unknown> {
   const base = {
+    price_text: (s.price_text ?? "").trim(),
     duration: s.duration,
     payment_link: s.payment_link,
     benefit_line: benefitLineFromProductDescription(s.description),
@@ -914,7 +944,7 @@ function workshopCtaBodyToStore(
 }
 
 function courseCtaBodyForDisplayUi(stored: string): string {
-  return fillCourseCtaBodyTemplate(stored, "x", "x", "x", "x");
+  return fillCourseCtaBodyTemplate(stored, "x", "x", "x", "x", "כל יום x בשעה x");
 }
 
 function courseCtaBodyToStore(
@@ -922,18 +952,22 @@ function courseCtaBodyToStore(
   priceText: string,
   sessionsText: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  schedulePhrase: string
 ): string {
   let s = typed;
   s = s.replace(/\bx\s+שקלים\b/gu, "{price} שקלים");
   s = s.replace(/\bכ־x\s+מפגשים\b/gu, "כ-{sessions} מפגשים").replace(/\bx\s+מפגשים\b/gu, "{sessions} מפגשים");
+  s = s.replace(/כל יום x בשעה x/gu, "{schedule_phrase}");
   s = s.replace(/\bx\s+עד\s+x\b/gu, "{start_date} עד {end_date}");
   const p = priceText.trim();
   const sess = sessionsText.trim();
   const a = startDate.trim();
   const b = endDate.trim();
+  const sched = schedulePhrase.trim();
   if (p && s.includes(p)) s = s.split(p).join("{price}");
   if (sess && s.includes(sess)) s = s.split(sess).join("{sessions}");
+  if (sched && s.includes(sched)) s = s.split(sched).join("{schedule_phrase}");
   if (a && s.includes(a)) s = s.split(a).join("{start_date}");
   if (b && s.includes(b)) s = s.split(b).join("{end_date}");
   return s;
@@ -1189,7 +1223,7 @@ export default function SlugSettingsPage({
   const courseCtaSample = useMemo(() => {
     const row = services.find((s) => s.name.trim() && s.offer_kind === "course");
     if (!row) {
-      return { priceText: "", sessionsText: "", startDate: "", endDate: "" };
+      return { priceText: "", sessionsText: "", startDate: "", endDate: "", schedulePhrase: "" };
     }
     const fromCycles = syncCourseLegacyDatesFromCycles(row.course_cycles ?? []);
     return {
@@ -1197,6 +1231,7 @@ export default function SlugSettingsPage({
       sessionsText: row.course_sessions_count.trim(),
       startDate: fromCycles.course_start_date || row.course_start_date.trim(),
       endDate: fromCycles.course_end_date || row.course_end_date.trim(),
+      schedulePhrase: buildCourseSchedulePhraseForCta(row.course_cycles ?? []),
     };
   }, [services]);
 
@@ -2016,19 +2051,21 @@ export default function SlugSettingsPage({
         setScheduleCtaMediaUploadError("למערכת שעות יש להעלות תמונה בלבד (JPG/PNG).");
         return;
       }
-      if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
-        setScheduleCtaMediaUploadError("הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ או להעלות קובץ קטן יותר.");
-        return;
-      }
       setUploadingScheduleCtaMedia(true);
       try {
+        const prepared = await prepareDashboardMediaUpload(file);
+        if (!prepared.ok) {
+          setScheduleCtaMediaUploadError(prepared.error);
+          return;
+        }
+        const uploadFile = prepared.file;
         const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            filename: file.name,
-            contentType: file.type || "application/octet-stream",
-            fileSize: file.size,
+            filename: uploadFile.name,
+            contentType: uploadFile.type || "application/octet-stream",
+            fileSize: uploadFile.size,
           }),
         });
         let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
@@ -2052,9 +2089,9 @@ export default function SlugSettingsPage({
           method: "PUT",
           headers: {
             "x-upsert": "true",
-            "Content-Type": file.type || "application/octet-stream",
+            "Content-Type": uploadFile.type || "application/octet-stream",
           },
-          body: file,
+          body: uploadFile,
         });
         if (!putRes.ok) {
           setScheduleCtaMediaUploadError(`העלאה ל-Storage נכשלה (${putRes.status}).`);
@@ -2090,19 +2127,21 @@ export default function SlugSettingsPage({
         setScheduleScanMediaUploadError("יש להעלות תמונה בלבד (JPG/PNG).");
         return;
       }
-      if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
-        setScheduleScanMediaUploadError("הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ או להעלות קובץ קטן יותר.");
-        return;
-      }
       setUploadingScheduleScanMedia(true);
       try {
+        const prepared = await prepareDashboardMediaUpload(file);
+        if (!prepared.ok) {
+          setScheduleScanMediaUploadError(prepared.error);
+          return;
+        }
+        const uploadFile = prepared.file;
         const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            filename: file.name,
-            contentType: file.type || "application/octet-stream",
-            fileSize: file.size,
+            filename: uploadFile.name,
+            contentType: uploadFile.type || "application/octet-stream",
+            fileSize: uploadFile.size,
           }),
         });
         let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
@@ -2126,9 +2165,9 @@ export default function SlugSettingsPage({
           method: "PUT",
           headers: {
             "x-upsert": "true",
-            "Content-Type": file.type || "application/octet-stream",
+            "Content-Type": uploadFile.type || "application/octet-stream",
           },
-          body: file,
+          body: uploadFile,
         });
         if (!putRes.ok) {
           setScheduleScanMediaUploadError(`העלאה ל-Storage נכשלה (${putRes.status}).`);
@@ -2152,21 +2191,21 @@ export default function SlugSettingsPage({
       setError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
       return;
     }
-    if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
-      setError(
-        "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
-      );
-      return;
-    }
     setUploading(true);
     try {
+      const prepared = await prepareDashboardMediaUpload(file);
+      if (!prepared.ok) {
+        setError(prepared.error);
+        return;
+      }
+      const uploadFile = prepared.file;
       const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "application/octet-stream",
-          fileSize: file.size,
+          filename: uploadFile.name,
+          contentType: uploadFile.type || "application/octet-stream",
+          fileSize: uploadFile.size,
         }),
       });
       let signJson: {
@@ -2195,9 +2234,9 @@ export default function SlugSettingsPage({
         method: "PUT",
         headers: {
           "x-upsert": "true",
-          "Content-Type": file.type || "application/octet-stream",
+          "Content-Type": uploadFile.type || "application/octet-stream",
         },
-        body: file,
+        body: uploadFile,
       });
 
       if (!putRes.ok) {
@@ -2213,7 +2252,7 @@ export default function SlugSettingsPage({
       }
 
       setUrl(publicUrl);
-      setType(file.type.startsWith("video") ? "video" : "image");
+      setType(uploadFile.type.startsWith("video") ? "video" : "image");
     } catch {
       setError("בעיית רשת בהעלאה.");
     } finally {
@@ -2229,22 +2268,22 @@ export default function SlugSettingsPage({
       setTrialPickFailedUiId(serviceUiId);
       return;
     }
-    if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
-      setTrialPickMediaUploadError(
-        "הקובץ גדול מדי (מקסימום 16MB). נסו לכווץ את הסרטון או קובץ קטן יותר."
-      );
-      setTrialPickFailedUiId(serviceUiId);
-      return;
-    }
     setUploadingTrialPickUiId(serviceUiId);
     try {
+      const prepared = await prepareDashboardMediaUpload(file);
+      if (!prepared.ok) {
+        setTrialPickMediaUploadError(prepared.error);
+        setTrialPickFailedUiId(serviceUiId);
+        return;
+      }
+      const uploadFile = prepared.file;
       const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "application/octet-stream",
-          fileSize: file.size,
+          filename: uploadFile.name,
+          contentType: uploadFile.type || "application/octet-stream",
+          fileSize: uploadFile.size,
         }),
       });
       let signJson: { signedUrl?: string; publicUrl?: string; error?: string } = {};
@@ -2271,9 +2310,9 @@ export default function SlugSettingsPage({
         method: "PUT",
         headers: {
           "x-upsert": "true",
-          "Content-Type": file.type || "application/octet-stream",
+          "Content-Type": uploadFile.type || "application/octet-stream",
         },
-        body: file,
+        body: uploadFile,
       });
       if (!putRes.ok) {
         let errText = "";
@@ -2287,7 +2326,7 @@ export default function SlugSettingsPage({
         setTrialPickFailedUiId(serviceUiId);
         return;
       }
-      const mt: "image" | "video" = file.type.startsWith("video") ? "video" : "image";
+      const mt: "image" | "video" = uploadFile.type.startsWith("video") ? "video" : "image";
       setTrialPickFailedUiId(null);
       setServices((prev) =>
         prev.map((svc) =>

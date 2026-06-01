@@ -144,7 +144,9 @@ import {
 } from "@/lib/analytics";
 import {
   buildCourseCycleStartPickQuestion,
+  buildCourseCostAfterWarmupLine,
   buildCourseScheduleInfoMessage,
+  buildCourseSchedulePhraseForCta,
   courseCycleStartButtonLabelsMatch,
   courseCyclesForStartButtons,
   courseHasCycleSchedulePickData,
@@ -415,11 +417,30 @@ function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, servic
 }
 
 function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): HeyzoeSessionPhase {
-  if (knowledge.warmupSessionEnabled !== false) return "warmup";
+  if (knowledge.warmupSessionEnabled !== false) {
+    if (shouldCollectCourseCycleStartPick(knowledge, service)) return "schedule_date";
+    return "warmup";
+  }
   const needsSchedulePick =
     shouldCollectScheduleSelection(knowledge, service) ||
     shouldCollectCourseCycleStartPick(knowledge, service);
   return needsSchedulePick ? "schedule_date" : "cta";
+}
+
+function courseCtaFillFromService(service: SfServiceRow | null) {
+  return {
+    priceText: service?.priceText ?? "",
+    sessionsText: service?.courseSessionsText ?? "",
+    startDate: service?.courseStartDate ?? "",
+    endDate: service?.courseEndDate ?? "",
+    schedulePhrase: buildCourseSchedulePhraseForCta(service?.courseCycles ?? []),
+  };
+}
+
+function courseWarmupCostExtraLines(service: SfServiceRow | null): string[] {
+  if (service?.offerKind !== "course") return [];
+  const line = buildCourseCostAfterWarmupLine(service.priceText, service.courseSessionsText);
+  return line.trim() ? [line] : [];
 }
 
 /** שלב ראשון במסלול מכירה אחרי פתיחה / «היי» — תמיד מתחיל מחדש (גם אם trial_registered=true). */
@@ -969,22 +990,12 @@ async function sendTrialPickMediaIfAllowed(input: {
     await sleepMs(flipped === "video" ? 2200 : 1300);
     return;
   } catch (e3) {
-    console.error("[WA Webhook] trial_pick_media send failed (retry flipped kind):", e3);
+    console.error("[WA Webhook] trial_pick_media send failed (retry flipped kind):", {
+      url,
+      preferredKind,
+      e: e3,
+    });
   }
-
-  const fallback = `לא הצלחתי להציג את המדיה כרגע, אבל אפשר לצפות כאן:\n${url}`;
-  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, fallback, input.accountSid, input.authToken).catch(
-    (e) => console.error("[WA Webhook] trial_pick_media fallback link send failed:", e)
-  );
-  await logMessage({
-    business_slug: input.business_slug,
-    role: "assistant",
-    content: fallback,
-    model_used: "trial_pick_media_fallback_link",
-    session_id: input.sessionId,
-    error_code: "trial_pick_media_failed",
-  });
-  await sleepMs(900);
 }
 
 type SfOfferKind = "trial" | "workshop" | "course";
@@ -1158,11 +1169,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
         selectedService?.durationText ?? ""
       )
     : fillOfferKindCtaBody(activeOfferKind, cfg, {
-        priceText: selectedService?.priceText ?? "",
         durationText: selectedService?.durationText ?? "",
-        sessionsText: selectedService?.courseSessionsText ?? "",
-        startDate: selectedService?.courseStartDate ?? "",
-        endDate: selectedService?.courseEndDate ?? "",
+        ...courseCtaFillFromService(selectedService),
       }).trim();
 
   const lastAssistModelForPromo = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
@@ -1174,12 +1182,16 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     promoIsTrial &&
     lastAssistModelForPromo !== "sales_flow_cta";
 
+  const courseCostLines =
+    activeOfferKind === "course" ? courseWarmupCostExtraLines(selectedService) : [];
+
   const ctaBody = [
+    ...courseCostLines,
     shouldAttachTrialPromo ? appendTrialPromotionToCtaBody(baseCtaBody, promo) : baseCtaBody,
     ...(extraBodyLines ?? []).map((x) => String(x ?? "").trim()).filter(Boolean),
   ]
     .filter(Boolean)
-    .join("\n")
+    .join("\n\n")
     .trim();
 
   if (!ctaBody) return;
@@ -2827,17 +2839,6 @@ async function processIncoming(
         return true;
       } catch (e2) {
         console.error("[WA Webhook] sending opening media failed (giving up):", { mediaUrl, mediaKind, e: e2 });
-        // Fallback: send a link so the user still gets the media.
-        const fallback = `לא הצלחתי להציג את המדיה כרגע, אבל אפשר לצפות כאן:\n${mediaUrl}`;
-        await sendWhatsAppMessage(msg.toNumber, msg.from, fallback, accountSid, authToken).catch(() => {});
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: fallback,
-          model_used: "opening_media_fallback_link",
-          session_id: sessionId,
-          error_code: "opening_media_failed",
-        });
         return false;
       }
     }
@@ -3070,15 +3071,6 @@ async function processIncoming(
           });
           return;
         }
-        const wbPick = resolveWarmupExperienceConfig(cfg, picked.offerKind ?? "trial");
-        const q = String(wbPick.question ?? "").replace(/\{serviceName\}/g, picked.name);
-        const opts = [...wbPick.options];
-
-        const bodyOnly = [afterPick, "", q]
-          .filter((x) => String(x ?? "").trim().length > 0)
-          .join("\n\n")
-          .trim();
-
         if (!starterBlocksMedia && !picked.trialPickMediaUrl?.trim()) {
           console.warn(
             `[WA Webhook] sf_service_pick: מדיה למסלול שיעור הניסיון חסרה ב-DB בשירות "${picked.name}" (בודקים ש-description כולל trial_pick_media_url בשמירת ההגדרות).`
@@ -3095,6 +3087,62 @@ async function processIncoming(
           business_slug,
           sessionId,
         });
+
+        if (shouldCollectCourseCycleStartPick(knowledge, picked)) {
+          if (afterPick.trim()) {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, afterPick.trim(), accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send sales-flow pick reply failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: afterPick.trim(),
+              model_used: "sales_flow",
+              session_id: sessionId,
+            });
+            await sleepMs(700);
+          }
+          await logMessage({
+            business_slug,
+            role: "event",
+            content: `${HEYZOE_SF_SERVICE_PREFIX}${picked.name}`,
+            model_used: "sf_service_pick",
+            session_id: sessionId,
+          });
+          if (businessId) {
+            const phoneVariantsCycle = contactPhoneLookupVariants(msg.from);
+            await supabase
+              .from("contacts")
+              .update({ session_phase: "schedule_date", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+              .eq("business_id", businessId)
+              .in("phone", phoneVariantsCycle.length ? phoneVariantsCycle : [msg.from]);
+            contactSessionPhase = "schedule_date";
+            contactFlowStep = 0;
+          }
+          await sendCourseCycleStartPickMenu({
+            knowledge,
+            selectedService: picked,
+            blockMedia: starterBlocksMedia,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+          });
+          return;
+        }
+
+        const wbPick = resolveWarmupExperienceConfig(cfg, picked.offerKind ?? "trial");
+        const q = String(wbPick.question ?? "").replace(/\{serviceName\}/g, picked.name);
+        const opts = [...wbPick.options];
+
+        const bodyOnly = [afterPick, "", q]
+          .filter((x) => String(x ?? "").trim().length > 0)
+          .join("\n\n")
+          .trim();
+
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyOnly, opts, accountSid, authToken, {
           footerHint: ZOE_WHATSAPP_MENU_FOOTER,
         }).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
@@ -3219,12 +3267,14 @@ async function processIncoming(
             const cycle = cyclesForButtons[idx]!;
             const dateTxt = formatCycleDateShort(cycle.start_date);
             const phoneVariants = contactPhoneLookupVariants(msg.from);
+            const nextPhaseAfterCycle: HeyzoeSessionPhase =
+              knowledge.warmupSessionEnabled !== false ? "warmup" : "cta";
             const { error } = await supabase
               .from("contacts")
               .update({
                 sf_requested_date: dateTxt,
                 sf_requested_time: "",
-                session_phase: "cta",
+                session_phase: nextPhaseAfterCycle,
                 flow_step: 0,
               })
               .eq("business_id", businessId)
@@ -3232,7 +3282,7 @@ async function processIncoming(
             if (error) console.warn("[WA Webhook] course cycle start pick update failed:", error.message);
             contactScheduleRequestedDate = dateTxt;
             contactScheduleRequestedTime = "";
-            contactSessionPhase = "cta";
+            contactSessionPhase = nextPhaseAfterCycle;
             const serviceLabel = selectedService?.name?.trim() || "הקורס";
             const afterScheduleText = `מעולה! רשמנו שתרצו להתחיל את ${serviceLabel} בתאריך ${dateTxt}.`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
@@ -3246,6 +3296,22 @@ async function processIncoming(
               session_id: sessionId,
             });
             await sleepMs(900);
+            if (nextPhaseAfterCycle === "warmup" && knowledge.salesFlowConfig) {
+              await sendWarmupExperienceQuestionMenu({
+                cfg: knowledge.salesFlowConfig,
+                salesFlowServices,
+                business_slug,
+                sessionId,
+                msg,
+                accountSid,
+                authToken,
+                supabase,
+                businessId,
+                blockTrialPickMedia: starterBlocksMedia,
+                bumpFlowStep: true,
+              });
+              return;
+            }
             await sendSalesFlowCtaMenuWithPhaseUpdate({
               knowledge,
               msg,
