@@ -396,16 +396,22 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     [warmOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
   );
 
-  const showScheduleTrialWorkshopTab = hasTrialOffers || hasWorkshopOffers;
+  const hasAnyScheduleOfferTab = hasTrialOffers || hasWorkshopOffers || hasCourseOffers;
   const [scheduleOfferTabPreferred, setScheduleOfferTab] = useState<CtaOfferTab>(() => {
-    if (hasCourseOffers && !hasTrialOffers && !hasWorkshopOffers) return "course";
-    return "trial";
-  });
-  const scheduleOfferTab = useMemo((): "trial" | "course" => {
-    if (scheduleOfferTabPreferred === "course" && hasCourseOffers) return "course";
-    if (showScheduleTrialWorkshopTab) return "trial";
+    if (hasTrialOffers) return "trial";
+    if (hasWorkshopOffers) return "workshop";
     return "course";
-  }, [scheduleOfferTabPreferred, hasCourseOffers, showScheduleTrialWorkshopTab]);
+  });
+  const scheduleOfferTab = useMemo(
+    () =>
+      resolveOfferTab(
+        scheduleOfferTabPreferred,
+        hasTrialOffers,
+        hasWorkshopOffers,
+        hasCourseOffers
+      ),
+    [scheduleOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
+  );
 
   useEffect(() => {
     setCtaOfferTab((prev) => resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers));
@@ -416,13 +422,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
   useEffect(() => {
-    setScheduleOfferTab((prev) => {
-      const asCta: CtaOfferTab = prev === "course" ? "course" : "trial";
-      if (asCta === "course" && hasCourseOffers) return "course";
-      if (showScheduleTrialWorkshopTab) return "trial";
-      return hasCourseOffers ? "course" : "trial";
-    });
-  }, [hasCourseOffers, showScheduleTrialWorkshopTab]);
+    setScheduleOfferTab((prev) =>
+      resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers)
+    );
+  }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
   const firstTrialSvcForWarmup = useMemo(() => {
     const row = services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
@@ -1070,19 +1073,29 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
             filled={
-              (showScheduleTrialWorkshopTab &&
-                Boolean(String(salesFlowConfig.after_schedule_selection ?? "").trim())) ||
-              (hasCourseOffers && Boolean(String(salesFlowConfig.after_course_cycle_pick ?? "").trim()))
+              (!hasTrialOffers ||
+                Boolean(String(salesFlowConfig.after_schedule_selection ?? "").trim())) &&
+              (!hasWorkshopOffers ||
+                Boolean(String(salesFlowConfig.after_schedule_selection_workshop ?? "").trim())) &&
+              (!hasCourseOffers ||
+                Boolean(String(salesFlowConfig.after_course_cycle_pick ?? "").trim())) &&
+              hasAnyScheduleOfferTab
             }
           >
             <div className="space-y-3">
+              {!hasAnyScheduleOfferTab ? (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+                  כדי לערוך בחירת מועד — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים».
+                </p>
+              ) : (
+                <>
               <div
                 dir="rtl"
                 className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
                 role="tablist"
                 aria-label="סוג סשן בחירת מועד"
               >
-                {showScheduleTrialWorkshopTab ? (
+                {hasTrialOffers ? (
                   <button
                     type="button"
                     role="tab"
@@ -1094,7 +1107,22 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     }`}
                     onClick={() => setScheduleOfferTab("trial")}
                   >
-                    אימון וסדנה
+                    שיעור ניסיון
+                  </button>
+                ) : null}
+                {hasWorkshopOffers ? (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={scheduleOfferTab === "workshop"}
+                    className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                      scheduleOfferTab === "workshop"
+                        ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                    onClick={() => setScheduleOfferTab("workshop")}
+                  >
+                    סדנה
                   </button>
                 ) : null}
                 {hasCourseOffers ? (
@@ -1114,15 +1142,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
               </div>
 
-              {scheduleOfferTab === "trial" && showScheduleTrialWorkshopTab ? (
+              {scheduleOfferTab === "trial" && hasTrialOffers ? (
                 <>
                   <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
                     <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
                     <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                      מתי נוח לך להגיע ל[שם האימון]?
+                      {firstTrialForTemplates.name.trim()
+                        ? `מתי נוח לך להגיע ל${firstTrialForTemplates.name}?`
+                        : "מתי נוח לך להגיע ל[שם שיעור הניסיון]?"}
                     </div>
-                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-                      כפתורי מועד לפי הלוח בשירות (למשל «יום שני ב-19:00»), או שאלות תאריך ושעה חופשיות.
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
+                      כפתורי מועד לפי הלוח במוצר «שיעור ניסיון» (למשל «יום שני ב-19:00»), או שאלות תאריך ושעה חופשיות.
                     </p>
                   </div>
                   <Field label="תשובה אחרי בחירת מועד">
@@ -1136,6 +1166,42 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }
                       rows={2}
                       placeholder="מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}"
+                    />
+                    <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
+                      משתנים: {"{serviceName}"}, {"{requested_date}"}, {"{requested_time}"}
+                    </p>
+                  </Field>
+                </>
+              ) : null}
+
+              {scheduleOfferTab === "workshop" && hasWorkshopOffers ? (
+                <>
+                  <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
+                    <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
+                    <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
+                      {firstWorkshopSvcForWarmup?.name?.trim()
+                        ? `מתי נוח לך להגיע לסדנת ${firstWorkshopSvcForWarmup.name}?`
+                        : "מתי נוח לך להגיע ל[שם הסדנה]?"}
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
+                      כפתורי מועד לפי המועדים שהוגדרו במוצר «סדנה» בטאב «מוצרים»
+                      {workshopCtaSample.priceText.trim() || workshopCtaSample.durationText.trim()
+                        ? ` (מחיר ${workshopCtaSample.priceText.trim() || "—"}, משך ${workshopCtaSample.durationText.trim() || "—"} דק׳)`
+                        : ""}
+                      . אם אין מועדים בלוח — שאלות תאריך ושעה חופשיות.
+                    </p>
+                  </div>
+                  <Field label="תשובה אחרי בחירת מועד">
+                    <Textarea
+                      value={salesFlowConfig.after_schedule_selection_workshop ?? ""}
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          after_schedule_selection_workshop: v,
+                        }))
+                      }
+                      rows={2}
+                      placeholder="מהמם! נשמנו לשבץ אותך לסדנת {serviceName} ביום {requested_date} בשעה {requested_time}."
                     />
                     <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
                       משתנים: {"{serviceName}"}, {"{requested_date}"}, {"{requested_time}"}
@@ -1180,6 +1246,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   </Field>
                 </>
               ) : null}
+                </>
+              )}
             </div>
           </SalesPathSectionBlock>
         ) : null}
