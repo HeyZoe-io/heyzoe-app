@@ -668,16 +668,16 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     | "after_trial";
   const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = useMemo(
     () => [
-      { id: "media", label: "מדיה", hint: "פתיחה" },
-      { id: "opening", label: "פתיחה", hint: "סשן" },
-      { id: "warmup", label: "חימום" },
-      { id: "schedule_board", label: "מערכת שעות" },
-      { id: "service_pick", label: "מוצר" },
+      { id: "media", label: "מדיה", hint: "תמונה/סרטון" },
+      { id: "opening", label: "פתיחה", hint: "הודעה ראשונה" },
+      { id: "warmup", label: "חימום", hint: "שאלת היכרות" },
+      { id: "schedule_board", label: "מערכת שעות", hint: "תמונה/לינק" },
+      { id: "service_pick", label: "מוצר", hint: "בחירת אימון" },
       ...(showScheduleSelectionSession
-        ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "סשן" }] as const)
+        ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "בחירת מועד" }] as const)
         : []),
-      { id: "cta", label: "הנעה", hint: "לפעולה" },
-      { id: "after_trial", label: "אחרי הרשמה", hint: "סוג מוצר" },
+      { id: "cta", label: "הנעה", hint: "לינק לתשלום" },
+      { id: "after_trial", label: "אחרי הרשמה", hint: "פרטי הגעה" },
     ],
     [showScheduleSelectionSession]
   );
