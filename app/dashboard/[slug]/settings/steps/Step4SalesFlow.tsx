@@ -1348,7 +1348,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         : "מתי נוח לך להגיע ל[שם שיעור הניסיון]?"}
                     </div>
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
-                      כפתורי מועד לפי הלוח במוצר «שיעור ניסיון» (למשל «יום שני ב-19:00»), או שאלות תאריך ושעה חופשיות.
+                      התאריכים מוצעים בהתאם למועדי השיעורים שהוגדרו בטאב מוצרים)
                     </p>
                   </div>
                   <Field label="תשובה אחרי בחירת מועד">
