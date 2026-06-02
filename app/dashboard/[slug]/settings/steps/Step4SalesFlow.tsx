@@ -563,9 +563,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     () => [
       { id: "media", label: "מדיה", hint: "פתיחה" },
       { id: "opening", label: "פתיחה", hint: "סשן" },
-      { id: "schedule_board", label: "מערכת שעות", hint: "אוטומטי" },
-      { id: "service_pick", label: "מוצר", hint: "שירות" },
-      { id: "warmup", label: "חימום", hint: "סשן" },
+      { id: "warmup", label: "חימום", hint: "אחרי פתיחה" },
+      { id: "schedule_board", label: "מערכת שעות", hint: "אחרי חימום" },
+      { id: "service_pick", label: "מוצר", hint: "אחרי מערכת שעות" },
       ...(showScheduleSelectionSession
         ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "סשן" }] as const)
         : []),
@@ -788,158 +788,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
         <SalesPathSectionBlock
           stepPrefix="sales"
-          id="schedule_board"
-          title="מערכת שעות"
-          hint="אחרי חימום"
-          open={openSections.schedule_board}
-          onToggle={() => toggle("schedule_board")}
-          filled={scheduleBoardConfigured}
-        >
-          <div className="space-y-3 text-right" dir="rtl">
-            <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
-              <p className="text-sm text-zinc-800">כאן ניתן לראות את מערכת השעות שלנו</p>
-            </div>
-            {String(scheduleScanImageUrl ?? "").trim() ? (
-              <div className="rounded-xl border border-zinc-100 bg-white p-3">
-                <p className="text-xs font-semibold text-zinc-700 text-center mb-2">תמונה שתישלח</p>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={scheduleScanImageUrl.trim()}
-                  alt=""
-                  className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
-                />
-              </div>
-            ) : String(scheduleBoardLink ?? "").trim() ? (
-              <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
-                ללא תמונה — יישלח קישור:{" "}
-                <span dir="ltr" className="font-mono text-[10px] break-all">
-                  {scheduleBoardLink.trim()}
-                </span>
-              </p>
-            ) : (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                הוסיפו תמונה או לינק למערכת שעות בטאב «לינקים» → קישורי מערכת.
-              </p>
-            )}
-          </div>
-        </SalesPathSectionBlock>
-
-        <SalesPathSectionBlock
-          stepPrefix="sales"
-          id="service_pick"
-          title="בחירת מוצר"
-          open={openSections.service_pick}
-          onToggle={() => toggle("service_pick")}
-          filled={trialServiceNames.length > 0}
-          headerAction={
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              disabled={isSalesGenerating}
-              onClick={() => regenerateSalesFlowSection("service_pick")}
-            >
-              {isGen("service_pick") ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isGen("service_pick") ? "מג׳נרט..." : "ג׳נרט מחדש"}
-            </Button>
-          }
-        >
-          <div className="space-y-3">
-            {trialServiceNames.length > 1 ? (
-              <>
-                <Field label="שאלה + כפתורי בחירה" className="space-y-1">
-                  <Textarea
-                    value={stripScheduleLineFromMultiServiceQuestion(
-                      salesFlowConfig.multi_service_question ?? ""
-                    )}
-                    onChange={(v) =>
-                      setSalesFlowConfig((c) => ({
-                        ...c,
-                        multi_service_question: stripScheduleLineFromMultiServiceQuestion(v),
-                      }))
-                    }
-                    rows={4}
-                    placeholder="למשל: כדי שאוכל להתאים עבורך בול את מה שמעניין אותך, איזה אימון הכי קורץ לך?"
-                  />
-                  <p className="text-[11px] leading-relaxed text-zinc-500 text-right">
-                    מערכת השעות נשלחת בסשן נפרד מעל — רק שאלת הבחירה כאן.
-                  </p>
-                </Field>
-                <div className="space-y-3">
-                  {services.map((s: ServiceItem) =>
-                    !s.name.trim() ? null : (
-                      <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
-                          {s.name.trim()}
-                        </div>
-                        <Field label="תשובה">
-                          <div
-                            dir="rtl"
-                            className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
-                          >
-                            {s.description.trim() ? (
-                              s.description
-                            ) : (
-                              <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] leading-relaxed text-zinc-500">
-                            נערך בטאב «מוצרים» (שדה תיאור).
-                          </p>
-                        </Field>
-                      </div>
-                    )
-                  )}
-                </div>
-              </>
-            ) : trialServiceNames.length === 1 ? (
-              <>
-                <p className="text-xs text-zinc-600 text-center leading-relaxed">
-                  מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים הבאים מופיעים ב«סשן חימום» למטה.
-                </p>
-                {(() => {
-                  const firstNamedIndex = services.findIndex((s: ServiceItem) => s.name.trim());
-                  if (firstNamedIndex < 0) return null;
-                  const s = services[firstNamedIndex]!;
-                  return (
-                    <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                      <p className="text-xs font-medium text-zinc-700 text-center">תשובה לאימון: {s.name.trim()}</p>
-                      <Field label="תשובה">
-                        <div
-                          dir="rtl"
-                          className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
-                        >
-                          {s.description.trim() ? (
-                            s.description
-                          ) : (
-                            <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] leading-relaxed text-zinc-500">
-                          נערך בטאב «מוצרים» (שדה תיאור).
-                        </p>
-                      </Field>
-                    </div>
-                  );
-                })()}
-              </>
-            ) : (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                הוסיפו לפחות שירות אחד בטאב «מוצרים» כדי להגדיר את מסלול הבחירה.
-              </p>
-            )}
-          </div>
-        </SalesPathSectionBlock>
-
-        <SalesPathSectionBlock
-          stepPrefix="sales"
           id="warmup"
           title="סשן חימום"
-          hint="פשוט שאלות שעושות חשק לבוא. אל תעמיסו 🙂"
+          hint="אחרי פתיחה"
           open={openSections.warmup}
           onToggle={() => toggle("warmup")}
           filled={warmupSessionEnabled && Boolean(salesFlowConfig.experience_question?.trim())}
@@ -1256,6 +1107,156 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   </>
                 ) : null}
               </>
+            )}
+          </div>
+        </SalesPathSectionBlock>
+
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="schedule_board"
+          title="מערכת שעות"
+          hint="אחרי חימום"
+          open={openSections.schedule_board}
+          onToggle={() => toggle("schedule_board")}
+          filled={scheduleBoardConfigured}
+        >
+          <div className="space-y-3 text-right" dir="rtl">
+            <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
+              <p className="text-sm text-zinc-800">כאן ניתן לראות את מערכת השעות שלנו</p>
+            </div>
+            {String(scheduleScanImageUrl ?? "").trim() ? (
+              <div className="rounded-xl border border-zinc-100 bg-white p-3">
+                <p className="text-xs font-semibold text-zinc-700 text-center mb-2">תמונה שתישלח</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={scheduleScanImageUrl.trim()}
+                  alt=""
+                  className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
+                />
+              </div>
+            ) : String(scheduleBoardLink ?? "").trim() ? (
+              <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
+                ללא תמונה — יישלח קישור:{" "}
+                <span dir="ltr" className="font-mono text-[10px] break-all">
+                  {scheduleBoardLink.trim()}
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+                הוסיפו תמונה או לינק למערכת שעות בטאב «לינקים» → קישורי מערכת.
+              </p>
+            )}
+          </div>
+        </SalesPathSectionBlock>
+
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="service_pick"
+          title="בחירת מוצר"
+          hint="אחרי מערכת שעות"
+          open={openSections.service_pick}
+          onToggle={() => toggle("service_pick")}
+          filled={trialServiceNames.length > 0}
+          headerAction={
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1 text-xs py-1.5 px-3 h-auto"
+              disabled={isSalesGenerating}
+              onClick={() => regenerateSalesFlowSection("service_pick")}
+            >
+              {isGen("service_pick") ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {isGen("service_pick") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+            </Button>
+          }
+        >
+          <div className="space-y-3">
+            {trialServiceNames.length > 1 ? (
+              <>
+                <Field label="שאלה + כפתורי בחירה" className="space-y-1">
+                  <Textarea
+                    value={stripScheduleLineFromMultiServiceQuestion(
+                      salesFlowConfig.multi_service_question ?? ""
+                    )}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({
+                        ...c,
+                        multi_service_question: stripScheduleLineFromMultiServiceQuestion(v),
+                      }))
+                    }
+                    rows={4}
+                    placeholder="למשל: כדי שאוכל להתאים עבורך בול את מה שמעניין אותך, איזה אימון הכי קורץ לך?"
+                  />
+                  <p className="text-[11px] leading-relaxed text-zinc-500 text-right">
+                    מערכת השעות נשלחת בסשן קודם — כאן רק שאלת הבחירה בין המוצרים.
+                  </p>
+                </Field>
+                <div className="space-y-3">
+                  {services.map((s: ServiceItem) =>
+                    !s.name.trim() ? null : (
+                      <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                        <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
+                          {s.name.trim()}
+                        </div>
+                        <Field label="תשובה">
+                          <div
+                            dir="rtl"
+                            className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
+                          >
+                            {s.description.trim() ? (
+                              s.description
+                            ) : (
+                              <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
+                            )}
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-zinc-500">
+                            נערך בטאב «מוצרים» (שדה תיאור).
+                          </p>
+                        </Field>
+                      </div>
+                    )
+                  )}
+                </div>
+              </>
+            ) : trialServiceNames.length === 1 ? (
+              <>
+                <p className="text-xs text-zinc-600 text-center leading-relaxed">
+                  מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים מופיעים ב«סשן חימום» למעלה.
+                </p>
+                {(() => {
+                  const firstNamedIndex = services.findIndex((s: ServiceItem) => s.name.trim());
+                  if (firstNamedIndex < 0) return null;
+                  const s = services[firstNamedIndex]!;
+                  return (
+                    <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                      <p className="text-xs font-medium text-zinc-700 text-center">תשובה לאימון: {s.name.trim()}</p>
+                      <Field label="תשובה">
+                        <div
+                          dir="rtl"
+                          className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
+                        >
+                          {s.description.trim() ? (
+                            s.description
+                          ) : (
+                            <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-zinc-500">
+                          נערך בטאב «מוצרים» (שדה תיאור).
+                        </p>
+                      </Field>
+                    </div>
+                  );
+                })()}
+              </>
+            ) : (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+                הוסיפו לפחות שירות אחד בטאב «מוצרים» כדי להגדיר את מסלול הבחירה.
+              </p>
             )}
           </div>
         </SalesPathSectionBlock>
