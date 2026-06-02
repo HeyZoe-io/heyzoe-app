@@ -1,5 +1,10 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { resolveWarmupExperienceConfig, type OfferKind, type SalesFlowConfig } from "@/lib/sales-flow";
+import {
+  isWarmupExperienceQuestion1Configured,
+  resolveWarmupExperienceConfig,
+  type OfferKind,
+  type SalesFlowConfig,
+} from "@/lib/sales-flow";
 import { normalizeLineForMenuEcho } from "@/lib/wa-split-answer";
 
 /** נשלחה שאלת «ניסיון קודם» עם כפתורי וואטסאפ */
@@ -45,7 +50,7 @@ export async function buildWarmupExperienceMenu(input: {
     .replace(/\{serviceName\}/g, named.trim())
     .trim();
   const opts = [...wb.options].map((o) => String(o ?? "").trim()).filter(Boolean);
-  if (!q || opts.length < 2) return null;
+  if (!isWarmupExperienceQuestion1Configured({ question: q, options: opts })) return null;
   return { question: q, options: opts };
 }
 

@@ -46,6 +46,7 @@ import {
   offerKindFromServiceMeta,
   resolveTrialCtaBodyTemplate,
   resolveAfterRegistrationBodyTemplate,
+  isWarmupExperienceQuestion1Configured,
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
   fillAfterCourseCyclePickTemplate,
@@ -1917,43 +1918,6 @@ async function sendFlowContinuation(input: {
     return;
   }
 
-  // warmup — שאלת חימום (פעם ראשונה בלבד)
-  if (phase === "warmup" && step === 0) {
-    if (knowledge.warmupSessionEnabled === false) {
-      await advanceAfterWarmupSessionComplete({
-        knowledge,
-        salesFlowServices,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-        blockTrialPickMedia,
-        trialRegistered,
-        allowTrialCta,
-        sfConsumedKinds,
-        instagramFollowPromptSent,
-      });
-      return;
-    }
-    const sent = await sendWarmupExperienceQuestionMenu({
-      cfg,
-      salesFlowServices,
-      business_slug,
-      sessionId,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      blockTrialPickMedia,
-      bumpFlowStep: true,
-    });
-    if (sent) return;
-  }
-
   if (phase === "warmup") {
     if (knowledge.warmupSessionEnabled === false) {
       await advanceAfterWarmupSessionComplete({
@@ -1983,17 +1947,36 @@ async function sendFlowContinuation(input: {
         ? salesFlowServices[0] ?? null
         : salesFlowServices.find((s) => s.name === namedForWarmExtras) ?? null;
     const warmKindForExtras = svcRowForWarmExtras?.offerKind ?? "trial";
-    const warmExtras = resolveWarmupExperienceConfig(cfg, warmKindForExtras).extras;
-    const cleanWarm = warmExtras
+    const wbWarm = resolveWarmupExperienceConfig(cfg, warmKindForExtras);
+    const hasWarmupQ1 = isWarmupExperienceQuestion1Configured(wbWarm);
+    const cleanWarm = wbWarm.extras
       .map((s) => ({
-        question: String((s as any)?.question ?? "").trim(),
-        options: Array.isArray((s as any)?.options)
-          ? (s as any).options.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+        question: String((s as { question?: unknown }).question ?? "").trim(),
+        options: Array.isArray((s as { options?: unknown }).options)
+          ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim()).filter(Boolean)
           : [],
       }))
       .filter((s) => s.question && s.options.length >= 2);
-    const idx = step - 1;
-    const st = cleanWarm[idx];
+
+    if (step === 0 && hasWarmupQ1) {
+      const sent = await sendWarmupExperienceQuestionMenu({
+        cfg,
+        salesFlowServices,
+        business_slug,
+        sessionId,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        blockTrialPickMedia,
+        bumpFlowStep: true,
+      });
+      if (sent) return;
+    }
+
+    const extraIdx = hasWarmupQ1 ? step - 1 : step;
+    const st = extraIdx >= 0 ? cleanWarm[extraIdx] : undefined;
     if (st) {
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
         footerHint: ZOE_WHATSAPP_MENU_FOOTER,
@@ -2005,6 +1988,15 @@ async function sendFlowContinuation(input: {
         model_used: "flow_continuation_warmup_extra",
         session_id: sessionId,
       });
+      if (!hasWarmupQ1 && extraIdx === 0) {
+        await logMessage({
+          business_slug,
+          role: "event",
+          content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}0`,
+          model_used: "sf_warmup_extra",
+          session_id: sessionId,
+        });
+      }
       await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: step + 1 });
       return;
     }
@@ -4422,7 +4414,11 @@ async function processIncoming(
       if (cleanSteps.length > 0) {
         const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
         const lastIdx = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
-        if (lastAssistModel === "sales_flow_warmup_extra" && lastIdx != null) {
+        if (
+          (lastAssistModel === "sales_flow_warmup_extra" ||
+            lastAssistModel === "flow_continuation_warmup_extra") &&
+          lastIdx != null
+        ) {
           const current = cleanSteps[lastIdx];
           const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, current?.options ?? []);
           const pickedIdx = (current?.options ?? []).findIndex((o: string) =>
@@ -4516,8 +4512,7 @@ async function processIncoming(
         ? (salesFlowServices.find((service) => service.name === selectedServiceName) ?? null)
         : null;
       const wb = resolveWarmupExperienceConfig(cfg, selectedService?.offerKind ?? "trial");
-      const opts = wb.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-      if (opts.length >= 2) {
+      if (isWarmupExperienceQuestion1Configured(wb)) {
         const incomingResolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, wb.options);
         const pickedIdx = wb.options.findIndex((o) => waLabelMatches(incomingResolved, o));
         const pickedExp = pickedIdx >= 0 ? wb.options[pickedIdx] : undefined;

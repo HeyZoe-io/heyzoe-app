@@ -1594,6 +1594,30 @@ export type ServiceLike = {
 };
 
 /** שאלת חימום + אפשרויות + תוספות + תבנית «אחרי הניסיון» לפי סוג השירות שנבחר בפועל */
+/** שאלה 1 בסשן חימום פעילה (שאלה + לפחות שני כפתורים) */
+export function isWarmupExperienceQuestion1Configured(input: {
+  question?: string;
+  options?: string[];
+}): boolean {
+  const q = String(input.question ?? "").trim();
+  const opts = (input.options ?? []).map((o) => String(o ?? "").trim()).filter(Boolean);
+  return Boolean(q) && opts.length >= 2;
+}
+
+/** ברירת מחדל לשחזור שאלה 1 אחרי מחיקה */
+export function defaultWarmupExperienceQuestion1(kind: OfferKind): {
+  question: string;
+  options: string[];
+  replies: string[];
+} {
+  const wb = resolveWarmupExperienceConfig(defaultSalesFlowConfig([]), kind);
+  return {
+    question: wb.question,
+    options: [...wb.options],
+    replies: [...wb.replies],
+  };
+}
+
 export function resolveWarmupExperienceConfig(
   cfg: SalesFlowConfig,
   kind: OfferKind
