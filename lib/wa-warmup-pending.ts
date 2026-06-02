@@ -11,7 +11,8 @@ import { normalizeLineForMenuEcho } from "@/lib/wa-split-answer";
 export const WA_WARMUP_EXPERIENCE_SENT_MODEL = "flow_continuation_warmup_experience";
 
 const EXPERIENCE_ANSWERED_MODELS = ["sales_flow_after_experience", "sales_flow_warmup_extra"] as const;
-const EXPERIENCE_SENT_MODELS = [WA_WARMUP_EXPERIENCE_SENT_MODEL, "sales_flow"] as const;
+/** רק הודעת תפריט שאלה 1 — לא `sales_flow` (מענה אחרי בחירת שירות). */
+const EXPERIENCE_SENT_MODELS = [WA_WARMUP_EXPERIENCE_SENT_MODEL] as const;
 
 export type WarmupExperienceMenu = {
   question: string;

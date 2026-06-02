@@ -1830,7 +1830,7 @@ async function sendFlowContinuation(input: {
       session_id: sessionId,
     });
     if (pendingExp) {
-      await sendWarmupExperienceQuestionMenu({
+      const resent = await sendWarmupExperienceQuestionMenu({
         cfg,
         salesFlowServices,
         business_slug,
@@ -1843,7 +1843,7 @@ async function sendFlowContinuation(input: {
         blockTrialPickMedia,
         bumpFlowStep: false,
       });
-      return;
+      if (resent) return;
     }
   }
 
