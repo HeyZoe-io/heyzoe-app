@@ -208,7 +208,6 @@ function WarmupButtonPairsEditor({
   return (
     <div className="space-y-3">
       <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
-      <p className="text-[11px] text-zinc-500 text-center leading-relaxed">גררו מהאייקון ⋮⋮ לשינוי סדר — המספור מתעדכן לפי המיקום.</p>
       {options.map((label, i) => (
         <div
           key={`warmup-btn-${i}`}
@@ -671,9 +670,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     () => [
       { id: "media", label: "מדיה", hint: "פתיחה" },
       { id: "opening", label: "פתיחה", hint: "סשן" },
-      { id: "warmup", label: "חימום", hint: "אחרי פתיחה" },
-      { id: "schedule_board", label: "מערכת שעות", hint: "אחרי חימום" },
-      { id: "service_pick", label: "מוצר", hint: "אחרי מערכת שעות" },
+      { id: "warmup", label: "חימום" },
+      { id: "schedule_board", label: "מערכת שעות" },
+      { id: "service_pick", label: "מוצר" },
       ...(showScheduleSelectionSession
         ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "סשן" }] as const)
         : []),
@@ -935,7 +934,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           stepPrefix="sales"
           id="warmup"
           title="סשן חימום"
-          hint="אחרי פתיחה"
           open={openSections.warmup}
           onToggle={() => toggle("warmup")}
           filled={warmupSectionFilled}
@@ -1274,7 +1272,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           stepPrefix="sales"
           id="schedule_board"
           title="מערכת שעות"
-          hint="אחרי חימום"
           open={openSections.schedule_board}
           onToggle={() => toggle("schedule_board")}
           filled={scheduleBoardConfigured}
@@ -1312,7 +1309,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           stepPrefix="sales"
           id="service_pick"
           title="בחירת מוצר"
-          hint="אחרי מערכת שעות"
           open={openSections.service_pick}
           onToggle={() => toggle("service_pick")}
           filled={trialServiceNames.length > 0}
