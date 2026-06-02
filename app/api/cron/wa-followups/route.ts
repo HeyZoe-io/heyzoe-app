@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage } from "@/lib/analytics";
-import { sendWhatsAppMessage, resolveTwilioAccountSid, resolveTwilioAuthToken } from "@/lib/whatsapp";
+import {
+  sendWhatsAppIdleFollowupMessage,
+  resolveTwilioAccountSid,
+  resolveTwilioAuthToken,
+} from "@/lib/whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
+import { resolveWaFollowupRegistrationCta } from "@/lib/wa-followup-registration-cta";
 import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
@@ -574,14 +579,32 @@ export async function GET(req: NextRequest) {
           : nextStage === 2
             ? fillTemplate(t2, vars)
             : fillTemplate(t3, vars);
-      const body = `${raw}${FOLLOWUP_FOOTER}`;
+      const bodyCore = raw.trim();
+      const cta = await resolveWaFollowupRegistrationCta({
+        admin,
+        businessId: Number(businessId),
+        business_slug,
+        session_ids: sessionIds,
+        social_links: (biz as { social_links?: unknown }).social_links,
+      });
 
-      await sendWhatsAppMessage(phoneNumberId, phone, body, accountSid, authToken);
+      await sendWhatsAppIdleFollowupMessage(
+        phoneNumberId,
+        phone,
+        bodyCore,
+        FOLLOWUP_FOOTER,
+        cta ? { label: cta.label, url: cta.url } : null,
+        accountSid,
+        authToken
+      );
+
+      let logContent = `${bodyCore}${FOLLOWUP_FOOTER}`;
+      if (cta) logContent += `\n\n[כפתור: ${cta.label} → ${cta.url}]`;
 
       await logMessage({
         business_slug,
         role: "assistant",
-        content: body,
+        content: logContent,
         model_used: `wa_followup_${nextStage}`,
         session_id: sessionId,
       });
