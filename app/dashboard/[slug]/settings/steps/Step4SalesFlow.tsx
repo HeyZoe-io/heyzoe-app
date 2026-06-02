@@ -790,7 +790,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           stepPrefix="sales"
           id="schedule_board"
           title="מערכת שעות"
-          hint="אחרי הפתיחה"
+          hint="אחרי חימום"
           open={openSections.schedule_board}
           onToggle={() => toggle("schedule_board")}
           filled={scheduleBoardConfigured}

@@ -32,15 +32,18 @@ export async function buildWarmupExperienceMenu(input: {
           business_slug: input.business_slug,
           session_id: input.session_id,
         })) ?? "";
-  if (!named.trim()) return null;
 
   const svcRow =
     input.salesFlowServices.length === 1
       ? input.salesFlowServices[0] ?? null
-      : input.salesFlowServices.find((s) => s.name === named) ?? null;
+      : named.trim()
+        ? (input.salesFlowServices.find((s) => s.name === named) ?? null)
+        : null;
   const warmKind = (svcRow?.offerKind ?? "trial") as OfferKind;
   const wb = resolveWarmupExperienceConfig(input.cfg, warmKind);
-  const q = String(wb.question ?? "").replace(/\{serviceName\}/g, named).trim();
+  const q = String(wb.question ?? "")
+    .replace(/\{serviceName\}/g, named.trim())
+    .trim();
   const opts = [...wb.options].map((o) => String(o ?? "").trim()).filter(Boolean);
   if (!q || opts.length < 2) return null;
   return { question: q, options: opts };
