@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import {
   Loader2,
   Sparkles,
@@ -9,6 +9,7 @@ import {
   Trash2,
   Plus,
   ArrowLeft,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -160,6 +161,8 @@ function WarmupButtonPairsEditor({
   afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
   serviceForReply: ServiceItem | null;
 }) {
+  const dragIdx = useRef<number | null>(null);
+
   const updatePair = (index: number, patch: { label?: string; reply?: string }) => {
     const nextOptions = [...options];
     const nextReplies = [...replies];
@@ -181,17 +184,61 @@ function WarmupButtonPairsEditor({
     onChange([...options, ""], [...replies, ""]);
   };
 
+  const onDragStart = (index: number) => {
+    dragIdx.current = index;
+  };
+
+  const onDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIdx.current === null || dragIdx.current === index) return;
+    const nextOptions = [...options];
+    const nextReplies = [...replies];
+    const [opt] = nextOptions.splice(dragIdx.current, 1);
+    const [rep] = nextReplies.splice(dragIdx.current, 1);
+    nextOptions.splice(index, 0, opt ?? "");
+    nextReplies.splice(index, 0, rep ?? "");
+    dragIdx.current = index;
+    onChange(nextOptions, nextReplies);
+  };
+
+  const onDragEnd = () => {
+    dragIdx.current = null;
+  };
+
   return (
     <div className="space-y-3">
       <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
+      <p className="text-[11px] text-zinc-500 text-center leading-relaxed">גררו מהאייקון ⋮⋮ לשינוי סדר — המספור מתעדכן לפי המיקום.</p>
       {options.map((label, i) => (
-        <div key={i} className="rounded-xl border border-zinc-100 bg-white/80 p-3 space-y-2">
+        <div
+          key={`warmup-btn-${i}`}
+          className="rounded-xl border border-zinc-100 bg-white/80 p-3 space-y-2"
+          onDragOver={(e) => onDragOver(e, i)}
+        >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-zinc-700">כפתור {i + 1}</span>
+            <div className="flex items-center gap-1 min-w-0">
+              <span
+                draggable
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  onDragStart(i);
+                }}
+                onDragEnd={(e) => {
+                  e.stopPropagation();
+                  onDragEnd();
+                }}
+                className="inline-flex cursor-grab touch-none items-center justify-center rounded p-1 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing shrink-0"
+                aria-label={`גרירה לשינוי מיקום כפתור ${i + 1}`}
+                title="גררו לשינוי סדר"
+              >
+                <GripVertical className="h-4 w-4 pointer-events-none" />
+              </span>
+              <span className="text-xs font-semibold text-zinc-700">כפתור {i + 1}</span>
+            </div>
             {options.length > WARMUP_MIN_BUTTONS ? (
               <button
                 type="button"
-                className="p-1 text-zinc-400 hover:text-red-500"
+                className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
                 onClick={() => removePair(i)}
                 aria-label={`הסר כפתור ${i + 1}`}
               >
