@@ -283,6 +283,72 @@ function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
   return "opening";
 }
 
+/** שלבי פלואו דטרמיניסטי — שאלות פתוחות במהלכם ממשיכות מאותו שלב (לא קופצות ל-CTA). */
+const SALES_FLOW_DETERMINISTIC_PHASES = new Set<HeyzoeSessionPhase>([
+  "opening",
+  "warmup",
+  "schedule_date",
+  "schedule_time",
+]);
+
+const CTA_MENU_SENT_MODELS = new Set([
+  "sales_flow_cta",
+  "sf_cta_reached",
+  "sf_recover_to_cta",
+  "flow_continuation_cta",
+]);
+
+function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
+  const m = String(model ?? "").trim();
+  return m === CLAUDE_WHATSAPP_MODEL || m === GEMINI_WHATSAPP_MODEL;
+}
+
+/** «איך נרשמים/מצטרפים» — לא שאלות כלליות על «הרשמה» באמצע חימום וכו׳ */
+function isJoinSignupIntentText(normalized: string): boolean {
+  const t = normalized.trim();
+  if (!t) return false;
+  if (/^(איך|איפה)\s+/u.test(t) && /(נרשמים|נרשם|נרשמת|להירשם|מצטרפים|מצטרף|להצטרף|הצטרפות)/u.test(t)) {
+    return true;
+  }
+  if (/רוצה\s+(להירשם|להצטרף)/u.test(t)) return true;
+  if (/איך\s+מתחילים/u.test(t)) return true;
+  if (/איך\s+(קונים|רוכשים|מזמינים|משריינים|שומרים\s+מקום)/u.test(t)) return true;
+  return false;
+}
+
+type JoinSignupRecoveryAction = "none" | "service_pick" | "cta_menu";
+
+async function resolveJoinSignupRecoveryAction(input: {
+  business_slug: string;
+  session_id: string;
+  phase: HeyzoeSessionPhase;
+  isJoinSignupIntent: boolean;
+  isFreeTextSalesFlowAi: boolean;
+  multiService: boolean;
+  lastPickedServiceName: string | null;
+}): Promise<JoinSignupRecoveryAction> {
+  if (!input.isJoinSignupIntent || !input.isFreeTextSalesFlowAi) return "none";
+  if (input.phase === "registered") return "none";
+  if (SALES_FLOW_DETERMINISTIC_PHASES.has(input.phase)) return "none";
+
+  const lastModel = await fetchLastAssistantModelUsed({
+    business_slug: input.business_slug,
+    session_id: input.session_id,
+  });
+  const driftedToAi = isAiFreeTextAssistantModel(lastModel);
+
+  if (!driftedToAi && input.phase !== "cta") return "none";
+
+  if (input.multiService && !input.lastPickedServiceName?.trim()) {
+    return "service_pick";
+  }
+
+  if (input.phase !== "cta") return "none";
+  if (lastModel && CTA_MENU_SENT_MODELS.has(lastModel)) return "none";
+
+  return "cta_menu";
+}
+
 async function updateContactSessionPhase(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
@@ -4603,22 +4669,20 @@ async function processIncoming(
     !matched?.reply &&
     !matchedPredefinedClosedLabel;
 
-  const isJoinSignupIntent =
-    msg.type === "text" &&
-    (() => {
-      const t = incomingNorm;
-      // מילות "איך נרשמים/מצטרפים" + וריאציות נפוצות (כולל ללא רווחים)
-      if (!t) return false;
-      if (/איך\s*(נרשמים|נרשמת|נרשם|נרשמים\??)/u.test(t)) return true;
-      if (/איך\s*(מצטרפים|מצטרפת|מצטרף|מצטרפים\??)/u.test(t)) return true;
-      if (/(איך\s*)?(נרשמים|להירשם|הרשמה|רישום)\b/u.test(t)) return true;
-      if (/(איך\s*)?(מצטרפים|להצטרף|הצטרפות)\b/u.test(t)) return true;
-      if (/(איך\s*)?(קונים|רוכשים|רכישה)\b/u.test(t)) return true;
-      if (/איך\s*(מזמינים|מזמינים מקום|משריינים|שומרים מקום)/u.test(t)) return true;
-      if (/איך מתחילים/u.test(t)) return true;
-      if (/(איך|איפה)\s*(נרשמים|מצטרפים)/u.test(t)) return true;
-      return false;
-    })();
+  const isJoinSignupIntent = msg.type === "text" && isJoinSignupIntentText(incomingNorm);
+
+  const joinSignupRecovery: JoinSignupRecoveryAction =
+    matched || matchedPredefinedClosedLabel
+      ? "none"
+      : await resolveJoinSignupRecoveryAction({
+          business_slug,
+          session_id: sessionId,
+          phase: contactSessionPhase,
+          isJoinSignupIntent,
+          isFreeTextSalesFlowAi,
+          multiService: salesFlowServices.length > 1,
+          lastPickedServiceName,
+        });
 
   let replyCore: string;
   let replyErrorCode: string | null = null;
@@ -4644,41 +4708,28 @@ async function processIncoming(
       session_id: sessionId,
     });
     return;
-  } else if (isFreeTextSalesFlowAi && isJoinSignupIntent && knowledge?.salesFlowConfig && businessId) {
-    // Recovery: user asks "how to join/register" after we drifted into free-text chat.
-    // Route back to deterministic CTA for the last picked offer; if unknown, re-ask service selection.
-    if (salesFlowServices.length > 1 && !lastPickedServiceName?.trim()) {
-      const phoneVariants = contactPhoneLookupVariants(msg.from);
-      await supabase
-        .from("contacts")
-        .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
-        .eq("business_id", businessId)
-        .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
-      contactSessionPhase = "opening";
-      contactFlowStep = 0;
-      await sendOpeningServicePickMenu({
-        knowledge,
-        salesFlowServices,
-        msg,
-        accountSid,
-        authToken,
-        business_slug,
-        sessionId,
-        blockMedia: starterBlocksMedia,
-      });
-      return;
-    }
-
-    const intro = "בטח — הנה אפשרויות ההרשמה:";
-    await sendWhatsAppMessage(msg.toNumber, msg.from, intro, accountSid, authToken).catch(() => {});
-    await logMessage({
+  } else if (joinSignupRecovery === "service_pick" && knowledge?.salesFlowConfig && businessId) {
+    const phoneVariants = contactPhoneLookupVariants(msg.from);
+    await supabase
+      .from("contacts")
+      .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+      .eq("business_id", businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+    contactSessionPhase = "opening";
+    contactFlowStep = 0;
+    await sendOpeningServicePickMenu({
+      knowledge,
+      salesFlowServices,
+      msg,
+      accountSid,
+      authToken,
       business_slug,
-      role: "assistant",
-      content: intro,
-      model_used: "sf_recover_to_cta",
-      session_id: sessionId,
+      sessionId,
+      blockMedia: starterBlocksMedia,
     });
-    await sleepMs(450);
+    return;
+  } else if (joinSignupRecovery === "cta_menu" && knowledge?.salesFlowConfig && businessId) {
+    // רק אחרי נפילה ל-AI חופשי בסשן CTA, ובלי תפריט CTA שכבר נשלח בהודעה הקודמת.
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
       msg,
@@ -4692,7 +4743,7 @@ async function processIncoming(
       trialRegistered: contactTrialRegistered,
       allowTrialCta: allowTrialCtaThisSession,
       sfConsumedKinds: sfClickedCtaKinds,
-      modelUsed: "sales_flow_cta",
+      modelUsed: "sf_recover_to_cta",
     });
     contactSessionPhase = "cta";
     contactFlowStep = 0;
