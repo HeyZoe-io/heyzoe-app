@@ -805,6 +805,60 @@ async function sendScheduleBoardAfterOpening(input: {
   return false;
 }
 
+const SCHEDULE_BOARD_SENT_MODELS = new Set([
+  "sales_flow_schedule_board_after_opening",
+  "sales_flow_schedule_board_after_opening_single",
+  "sales_flow_schedule_board_after_opening_multi",
+]);
+
+async function ensureScheduleBoardSentOnce(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  assets: ScheduleBoardAssets;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  modelUsed?: string;
+}): Promise<void> {
+  const { supabase, business_slug, sessionId } = input;
+  try {
+    const { data: markers } = await supabase
+      .from("messages")
+      .select("model_used, created_at")
+      .eq("business_slug", business_slug)
+      .eq("session_id", sessionId)
+      .eq("role", "assistant")
+      .in("model_used", [
+        ...Array.from(SCHEDULE_BOARD_SENT_MODELS),
+        "greeting",
+        "default_opening",
+      ])
+      .order("created_at", { ascending: false })
+      .limit(60);
+    const lastResetAt =
+      (markers ?? []).find((m: any) => m?.model_used === "greeting" || m?.model_used === "default_opening")
+        ?.created_at ?? null;
+    const lastScheduleAt =
+      (markers ?? []).find((m: any) => SCHEDULE_BOARD_SENT_MODELS.has(String(m?.model_used ?? "")))?.created_at ??
+      null;
+    const alreadySent = Boolean(lastScheduleAt && (!lastResetAt || String(lastScheduleAt) > String(lastResetAt)));
+    if (alreadySent) return;
+  } catch (e) {
+    console.warn("[WA Webhook] schedule board marker check failed (continuing):", e);
+  }
+
+  await sendScheduleBoardAfterOpening({
+    assets: input.assets,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    modelUsed: input.modelUsed,
+  });
+}
+
 async function sendOpeningServicePickMenu(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -1750,17 +1804,10 @@ async function sendFlowContinuation(input: {
     }
 
     const singleService = salesFlowServices[0] ?? null;
-    await sendScheduleBoardAfterOpening({
-      assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia),
-      msg,
-      accountSid,
-      authToken,
-      business_slug,
-      sessionId,
-      modelUsed: "sales_flow_schedule_board_after_opening_single",
-    });
+    // New order: opening → warmup first → schedule board (after warmup) → continue.
+    await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "warmup" });
     await sendFlowContinuation({
-      phase: scheduleSelectionPhaseAfterService(knowledge, singleService),
+      phase: "warmup",
       contact: { flow_step: 0 },
       knowledge,
       msg,
@@ -1772,7 +1819,7 @@ async function sendFlowContinuation(input: {
       sessionId,
       salesFlowServices,
       trialRegistered,
-        allowTrialCta,
+      allowTrialCta,
       blockTrialPickMedia,
       sfConsumedKinds,
       instagramFollowPromptSent,
@@ -4378,6 +4425,18 @@ async function processIncoming(
             }
             // Finished warmup extras → send CTA deterministically (no AI).
             if (businessId) {
+              if (salesFlowServices.length === 1) {
+                await ensureScheduleBoardSentOnce({
+                  supabase,
+                  assets: scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia),
+                  msg,
+                  accountSid,
+                  authToken,
+                  business_slug,
+                  sessionId,
+                  modelUsed: "sales_flow_schedule_board_after_opening_single",
+                });
+              }
               await sendSalesFlowCtaMenuWithPhaseUpdate({
                 knowledge,
                 msg,
@@ -4498,6 +4557,20 @@ async function processIncoming(
           await sleepMs(700);
 
           if (businessId) {
+            // Warmup is now before schedule board (single-service path). Ensure schedule board is sent once
+            // before proceeding to the next deterministic stage (schedule pick / CTA).
+            if (salesFlowServices.length === 1) {
+              await ensureScheduleBoardSentOnce({
+                supabase,
+                assets: scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia),
+                msg,
+                accountSid,
+                authToken,
+                business_slug,
+                sessionId,
+                modelUsed: "sales_flow_schedule_board_after_opening_single",
+              });
+            }
             await sendSalesFlowCtaMenuWithPhaseUpdate({
               knowledge,
               msg,
