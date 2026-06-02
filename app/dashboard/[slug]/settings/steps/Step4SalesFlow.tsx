@@ -796,12 +796,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           filled={scheduleBoardConfigured}
         >
           <div className="space-y-3 text-right" dir="rtl">
-            <p className="text-sm text-zinc-700 leading-relaxed text-center">
-              מיד אחרי סשן הפתיחה זואי שולחת אוטומטית את מערכת השעות — לפני «בחירת מוצר» והמשך המסלול.
-            </p>
             <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
-              <p className="text-xs font-semibold text-[#4b2a86]">כיתוב בווטסאפ</p>
-              <p className="mt-1 text-sm text-zinc-800">{SCHEDULE_BOARD_CAPTION}</p>
+              <p className="text-sm text-zinc-800">כאן ניתן לראות את מערכת השעות שלנו</p>
             </div>
             {String(scheduleScanImageUrl ?? "").trim() ? (
               <div className="rounded-xl border border-zinc-100 bg-white p-3">
