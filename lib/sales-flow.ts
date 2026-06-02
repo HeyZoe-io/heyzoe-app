@@ -295,42 +295,34 @@ const FRIENDLY: SalesFlowConfig = {
   /** נשמר לתאימות; בפועל המשפט אחרי בחירת אימון נובע מהכלל ב־composeAfterServicePickReplyFromTrialDescription ותאימות למילוי composeAfterServicePickReply. */
   after_service_pick:
     "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
-  experience_question: "האם יצא לך לנסות {serviceName} בעבר?",
-  experience_options: [
-    "כן, לא מעט פעמים!",
-    "יצא לי פעם פעמיים…",
-    "עדיין לא :)",
-  ],
-  after_experience:
-    "נהדר, אנחנו שמחים לקבל מתרגלים מנוסים לסטודיו שלנו, יש לנו מורים מהשורה הראשונה.",
+  experience_question: "מה בא לך להשיג באימונים אצלנו?",
+  experience_options: ["כוח וחיטוב", "הפחתת כאבים", "הפגת מתחים", "פאן וגיוון באימונים"],
+  after_experience: "מושלם. הגעת למקום הנכון.",
   experience_replies: [
-    "נהדר, אנחנו שמחים לקבל מתרגלים מנוסים לסטודיו שלנו, יש לנו מורים מהשורה הראשונה.",
-    "נהדר שיצא לך לנסות בעבר! אנחנו מתרגשים לקחת את התרגול שלך לרמה הבאה :)",
-    "תענוג, אין כמו להכיר אהבה חדשה! אנחנו מתרגשים ללוות אותך בצעד הראשון במסע החדש שלך.",
+    "מושלם. הגעת למקום הנכון. יש לנו אימונים שמתמקדים בחיזוק וחיטוב הגוף כך שתרגישו ותיראו וואו.",
+    "מעולה, יש לנו אימונים שמתמקדים בהפחתת הכאב תוך חיזוק והגמשת הגוף.",
+    "נהדר. האימונים שלנו יאפשרו לך לקחת פסק זמן מהכל, לצאת מהמירוץ ולהתמסר לגוף ולנפש.",
+    "איזה כיף! הגעת למקום הנכון. האימונים שלנו מלאים במלא פאן ואדרנלין כך שתמיד תהיה לכם סיבה טובה להגיע.",
   ],
   opening_extra_steps: [],
-  experience_question_workshop: "איזו ציפייה יש לך מהסדנה?",
-  experience_options_workshop: [
-    "להעשיר את הידע שלי",
-    "לחוות חוויה מעוררת",
-    "להכיר קהילה חדשה",
-  ],
-  after_experience_workshop:
-    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
+  experience_question_workshop: "מה בא לך להשיג באימונים אצלנו?",
+  experience_options_workshop: ["כוח וחיטוב", "הפחתת כאבים", "הפגת מתחים", "פאן וגיוון באימונים"],
+  after_experience_workshop: "מושלם. הגעת למקום הנכון.",
   experience_replies_workshop: [
-    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
-    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
-    "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
+    "מושלם. הגעת למקום הנכון. יש לנו אימונים שמתמקדים בחיזוק וחיטוב הגוף כך שתרגישו ותיראו וואו.",
+    "מעולה, יש לנו אימונים שמתמקדים בהפחתת הכאב תוך חיזוק והגמשת הגוף.",
+    "נהדר. האימונים שלנו יאפשרו לך לקחת פסק זמן מהכל, לצאת מהמירוץ ולהתמסר לגוף ולנפש.",
+    "איזה כיף! הגעת למקום הנכון. האימונים שלנו מלאים במלא פאן ואדרנלין כך שתמיד תהיה לכם סיבה טובה להגיע.",
   ],
   opening_extra_steps_workshop: [],
-  experience_question_course: "יש לך ניסיון קודם בתחום?",
-  experience_options_course: ["יש לי ניסיון", "ממש קצת", "בכלל לא"],
-  after_experience_course:
-    "נהדר, {serviceName} יאפשר לך לחזק את היסודות ולרכוש מיומנויות נוספות.",
+  experience_question_course: "מה בא לך להשיג באימונים אצלנו?",
+  experience_options_course: ["כוח וחיטוב", "הפחתת כאבים", "הפגת מתחים", "פאן וגיוון באימונים"],
+  after_experience_course: "מושלם. הגעת למקום הנכון.",
   experience_replies_course: [
-    "נהדר, {serviceName} יאפשר לך לחזק את היסודות ולרכוש מיומנויות נוספות.",
-    "בסדר גמור, {serviceName} יאפשר לך לחזק את היסודות ולרכוש מיומנויות נוספות.",
-    "נהדר, {serviceName} יאפשר לבנות יסודות חזקים ומיומנויות חדשות.",
+    "מושלם. הגעת למקום הנכון. יש לנו אימונים שמתמקדים בחיזוק וחיטוב הגוף כך שתרגישו ותיראו וואו.",
+    "מעולה, יש לנו אימונים שמתמקדים בהפחתת הכאב תוך חיזוק והגמשת הגוף.",
+    "נהדר. האימונים שלנו יאפשרו לך לקחת פסק זמן מהכל, לצאת מהמירוץ ולהתמסר לגוף ולנפש.",
+    "איזה כיף! הגעת למקום הנכון. האימונים שלנו מלאים במלא פאן ואדרנלין כך שתמיד תהיה לכם סיבה טובה להגיע.",
   ],
   opening_extra_steps_course: [],
   cta_body:
@@ -1292,6 +1284,28 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     o.experience_replies_course,
     courseAfter
   );
+
+  const shouldMigrateLegacyWarmupQuestion = (q: string, options: string[]): boolean => {
+    const qt = q.trim();
+    const opts = options.map((x) => String(x ?? "").trim()).filter(Boolean);
+    if (qt === "האם יצא לך לנסות {serviceName} בעבר?") return true;
+    if (qt === "איזו ציפייה יש לך מהסדנה?") return true;
+    if (qt === "יש לך ניסיון קודם בתחום?") return true;
+    // Old defaults sometimes had exactly 3 options; we don't want to override custom configs.
+    if (opts.length === 3 && (qt.includes("יצא לך") || qt.includes("ניסיון קודם") || qt.includes("ציפייה"))) return true;
+    return false;
+  };
+
+  const migratedWarmup = {
+    question: "מה בא לך להשיג באימונים אצלנו?",
+    options: ["כוח וחיטוב", "הפחתת כאבים", "הפגת מתחים", "פאן וגיוון באימונים"],
+    replies: [
+      "מושלם. הגעת למקום הנכון. יש לנו אימונים שמתמקדים בחיזוק וחיטוב הגוף כך שתרגישו ותיראו וואו.",
+      "מעולה, יש לנו אימונים שמתמקדים בהפחתת הכאב תוך חיזוק והגמשת הגוף.",
+      "נהדר. האימונים שלנו יאפשרו לך לקחת פסק זמן מהכל, לצאת מהמירוץ ולהתמסר לגוף ולנפש.",
+      "איזה כיף! הגעת למקום הנכון. האימונים שלנו מלאים במלא פאן ואדרנלין כך שתמיד תהיה לכם סיבה טובה להגיע.",
+    ],
+  };
   const cfg: SalesFlowConfig = {
     opening_note: typeof o.opening_note === "string" ? o.opening_note : base.opening_note,
     greeting_opener: typeof o.greeting_opener === "string" ? o.greeting_opener : base.greeting_opener,
@@ -1428,6 +1442,24 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     /** ברירת מחדל true — לתאימות בלבד; בשימוש אפשרי עם applyLegacyMembershipsCheckbox */
     show_memberships_button: o.show_memberships_button === false ? false : true,
   };
+
+  // Migration: older defaults asked about "experience before"; replace with the new goals question,
+  // but only when the config still looks like the legacy default (avoid overriding custom edits).
+  if (shouldMigrateLegacyWarmupQuestion(cfg.experience_question, cfg.experience_options)) {
+    cfg.experience_question = migratedWarmup.question;
+    cfg.experience_options = [...migratedWarmup.options];
+    cfg.experience_replies = [...migratedWarmup.replies];
+  }
+  if (shouldMigrateLegacyWarmupQuestion(cfg.experience_question_workshop ?? "", cfg.experience_options_workshop ?? [])) {
+    cfg.experience_question_workshop = migratedWarmup.question;
+    cfg.experience_options_workshop = [...migratedWarmup.options];
+    cfg.experience_replies_workshop = [...migratedWarmup.replies];
+  }
+  if (shouldMigrateLegacyWarmupQuestion(cfg.experience_question_course ?? "", cfg.experience_options_course ?? [])) {
+    cfg.experience_question_course = migratedWarmup.question;
+    cfg.experience_options_course = [...migratedWarmup.options];
+    cfg.experience_replies_course = [...migratedWarmup.replies];
+  }
   return applyLegacyMembershipsCheckbox(cfg);
 }
 
