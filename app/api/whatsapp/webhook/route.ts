@@ -228,6 +228,23 @@ function normalizeGreetingToken(s: string): string {
     .replace(/\s+/g, " ");
 }
 
+/** איפוס והפעלת פלואו מכירה — הודעות קצרות שמטופלות כמו «היי» (לא נשלחות ל-Claude). */
+const SALES_FLOW_GREETING_TRIGGERS = new Set([
+  "שלום",
+  "היי",
+  "הי",
+  "אהלן",
+  "hello",
+  "hi",
+  "אשמח לשמוע פרטים",
+  "היי אשמח לשמוע פרטים",
+  "הי אשמח לשמוע פרטים",
+]);
+
+function isSalesFlowGreetingTrigger(text: string): boolean {
+  return SALES_FLOW_GREETING_TRIGGERS.has(normalizeGreetingToken(text));
+}
+
 function resolveWaMenuChoice(
   raw: string,
   metaInteractiveReplyId: string | undefined,
@@ -3203,10 +3220,8 @@ async function processIncoming(
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
-    const greet = normalizeGreetingToken(msg.text);
-    const GREETINGS = new Set(["שלום", "היי", "הי", "אהלן", "hello", "hi"]);
-    if (GREETINGS.has(greet)) {
-      // «היי» מאפס את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
+    if (isSalesFlowGreetingTrigger(msg.text)) {
+      // «היי» / «אשמח לשמוע פרטים» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const didSendOpeningMedia = await sendOpeningMediaIfConfigured();
       if (didSendOpeningMedia) {
         // WhatsApp clients can render media later than subsequent texts; delay so the media appears first.

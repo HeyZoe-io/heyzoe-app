@@ -136,7 +136,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             stepPrefix="about"
             id="contact"
             title="מספרי טלפון"
-            hint="מספרים שזואי משתמשת בהם בשיחה"
+            hint="להפעלת פלואו המכירה שלחו: היי, הי, או אשמח לשמוע פרטים"
             open={openSections.contact}
             onToggle={() => toggle("contact")}
             filled={sectionFilled.contact}
