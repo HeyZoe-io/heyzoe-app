@@ -45,6 +45,7 @@ import {
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
   resolveTrialCtaBodyTemplate,
+  resolveSfServicePriceDuration,
   resolveAfterRegistrationBodyTemplate,
   isWarmupExperienceQuestion1Configured,
   resolveWarmupExperienceConfig,
@@ -1424,15 +1425,16 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     pickedCycleStartForCta = st.requestedDate?.trim() ?? "";
   }
 
+  const { priceText: ctaPriceText, durationText: ctaDurationText } = resolveSfServicePriceDuration(
+    selectedService,
+    salesFlowServices
+  );
   const baseCtaBody = inScheduleTrialFlow
-    ? fillCtaBodyTemplate(
-        resolveTrialCtaBodyTemplate(cfg, true),
-        selectedService?.priceText ?? "",
-        selectedService?.durationText ?? ""
-      )
+    ? fillCtaBodyTemplate(resolveTrialCtaBodyTemplate(cfg, true), ctaPriceText, ctaDurationText)
     : fillOfferKindCtaBody(activeOfferKind, cfg, {
-        durationText: selectedService?.durationText ?? "",
         ...courseCtaFillFromService(selectedService, pickedCycleStartForCta || undefined),
+        priceText: ctaPriceText,
+        durationText: ctaDurationText,
       }).trim();
 
   const lastAssistModelForPromo = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });

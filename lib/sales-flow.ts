@@ -968,14 +968,54 @@ export function ctaButtonsForOfferKind(cfg: SalesFlowConfig, kind: OfferKind): S
   return cfg.cta_buttons ?? [];
 }
 
+/** ממיר x מהתצוגה בדשבורד לתוויות תבנית (לשמירה/טעינה). */
+export function migrateCtaBodyDisplayPlaceholders(text: string): string {
+  return String(text ?? "")
+    .replace(/\bx\s+שקלים\b/gu, "{priceText} שקלים")
+    .replace(/\bx\s+דקות\b/gu, "{durationText} דקות");
+}
+
+function applyTrialCtaLiteralFallbacks(text: string, priceText: string, durationText: string): string {
+  let s = text;
+  const p = priceText.trim();
+  const d = durationText.trim();
+  if (p) s = s.replace(/\bx\s+שקלים\b/gu, `${p} שקלים`);
+  else s = s.replace(/\bx\s+שקלים\b/gu, "... שקלים");
+  if (d) s = s.replace(/\bx\s+דקות\b/gu, `${d} דקות`);
+  else s = s.replace(/\bx\s+דקות\b/gu, "... דקות");
+  return s;
+}
+
+export function resolveSfServicePriceDuration(
+  selected: { priceText?: string; durationText?: string } | null | undefined,
+  all: Array<{ priceText?: string; durationText?: string }>
+): { priceText: string; durationText: string } {
+  const from = (s: { priceText?: string; durationText?: string } | null | undefined) => ({
+    priceText: String(s?.priceText ?? "").trim(),
+    durationText: String(s?.durationText ?? "").trim(),
+  });
+  let { priceText, durationText } = from(selected);
+  if (priceText && durationText) return { priceText, durationText };
+  const candidates = [...(selected ? [selected] : []), ...all];
+  for (const row of candidates) {
+    const p = String(row.priceText ?? "").trim();
+    const d = String(row.durationText ?? "").trim();
+    if (!priceText && p) priceText = p;
+    if (!durationText && d) durationText = d;
+    if (priceText && durationText) break;
+  }
+  return { priceText, durationText };
+}
+
 export function fillWorkshopCtaBodyTemplate(template: string, priceText: string, durationText: string): string {
   const p = priceText.trim() || "...";
   const d = durationText.trim() || "...";
-  return template
+  const filled = template
     .replace(/\{priceText\}/g, p)
     .replace(/\{price\}/g, p)
     .replace(/\{durationText\}/g, d)
     .replace(/\{duration\}/g, d);
+  return applyTrialCtaLiteralFallbacks(filled, priceText, durationText);
 }
 
 function applyCourseCtaLiteralFallbacks(
@@ -1377,7 +1417,9 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     opening_extra_steps_course: parseExtraSteps(o.opening_extra_steps_course ?? base.opening_extra_steps_course),
     greeting_extra_steps: parseExtraSteps(o.greeting_extra_steps),
     opening_extra_steps: parseExtraSteps(o.opening_extra_steps),
-    cta_body: migrateLegacyCtaBody(typeof o.cta_body === "string" ? o.cta_body : base.cta_body, base.cta_body),
+    cta_body: migrateCtaBodyDisplayPlaceholders(
+      migrateLegacyCtaBody(typeof o.cta_body === "string" ? o.cta_body : base.cta_body, base.cta_body)
+    ),
     cta_buttons: migrateLegacyCtaButtons(parseCtaButtons(o.cta_buttons), base.cta_buttons).map((btn, i) =>
       normalizeCtaButtonForSlot(btn, i)
     ),
@@ -1414,10 +1456,11 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_course_cycle_pick === "string"
         ? o.after_course_cycle_pick
         : base.after_course_cycle_pick,
-    cta_body_after_schedule:
+    cta_body_after_schedule: migrateCtaBodyDisplayPlaceholders(
       typeof o.cta_body_after_schedule === "string"
         ? o.cta_body_after_schedule
-        : base.cta_body_after_schedule,
+        : base.cta_body_after_schedule
+    ),
     after_trial_registration_body_after_schedule:
       typeof o.after_trial_registration_body_after_schedule === "string"
         ? o.after_trial_registration_body_after_schedule
@@ -2164,9 +2207,10 @@ export function fillCtaBodyTemplate(
   priceText: string,
   durationText: string
 ): string {
-  return template
-    .replace(/\{priceText\}/g, priceText.trim() || "...")
-    .replace(/\{durationText\}/g, durationText.trim() || "...");
+  const p = priceText.trim() || "...";
+  const d = durationText.trim() || "...";
+  const filled = template.replace(/\{priceText\}/g, p).replace(/\{durationText\}/g, d);
+  return applyTrialCtaLiteralFallbacks(filled, priceText, durationText);
 }
 
 export function getWhatsAppOpeningPreviewSections(
