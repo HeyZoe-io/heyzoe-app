@@ -379,7 +379,7 @@ const FRIENDLY: SalesFlowConfig = {
     "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף. שנתקדם?",
   after_trial_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
 
-מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}
+מתרגשים לראותך בקרוב ב{serviceName} ביום {requested_date} בשעה {requested_time}
 זה קורה בכתובת: {business_address}
 
 ככה מגיעים אלינו:

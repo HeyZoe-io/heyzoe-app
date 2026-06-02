@@ -2187,7 +2187,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 </div>
 
                 {afterRegOfferTab === "trial" && hasTrialOffers ? (
-                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
+                  <Field label="הפרטים ימולאו אוטומטית על פי בחירת הלקוח">
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -2205,7 +2205,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       rows={12}
                       placeholder={
                         showScheduleSelectionSession
-                          ? "מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}…"
+                          ? "מתרגשים לראותך בקרוב ב{serviceName} ביום {requested_date} בשעה {requested_time}…"
                           : undefined
                       }
                     />
@@ -2213,7 +2213,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
 
                 {afterRegOfferTab === "workshop" && hasWorkshopOffers ? (
-                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
+                  <Field label="הפרטים ימולאו אוטומטית על פי בחירת הלקוח">
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -2239,7 +2239,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
 
                 {afterRegOfferTab === "course" && hasCourseOffers ? (
-                  <Field label="תבנית להודעה ללקוח (זואי ממלאת פרטים)">
+                  <Field label="הפרטים ימולאו אוטומטית על פי בחירת הלקוח">
                     <Textarea
                       value={
                         showScheduleSelectionSession
