@@ -4603,6 +4603,23 @@ async function processIncoming(
     !matched?.reply &&
     !matchedPredefinedClosedLabel;
 
+  const isJoinSignupIntent =
+    msg.type === "text" &&
+    (() => {
+      const t = incomingNorm;
+      // מילות "איך נרשמים/מצטרפים" + וריאציות נפוצות (כולל ללא רווחים)
+      if (!t) return false;
+      if (/איך\s*(נרשמים|נרשמת|נרשם|נרשמים\??)/u.test(t)) return true;
+      if (/איך\s*(מצטרפים|מצטרפת|מצטרף|מצטרפים\??)/u.test(t)) return true;
+      if (/(איך\s*)?(נרשמים|להירשם|הרשמה|רישום)\b/u.test(t)) return true;
+      if (/(איך\s*)?(מצטרפים|להצטרף|הצטרפות)\b/u.test(t)) return true;
+      if (/(איך\s*)?(קונים|רוכשים|רכישה)\b/u.test(t)) return true;
+      if (/איך\s*(מזמינים|מזמינים מקום|משריינים|שומרים מקום)/u.test(t)) return true;
+      if (/איך מתחילים/u.test(t)) return true;
+      if (/(איך|איפה)\s*(נרשמים|מצטרפים)/u.test(t)) return true;
+      return false;
+    })();
+
   let replyCore: string;
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
@@ -4626,6 +4643,59 @@ async function processIncoming(
       model_used: "predefined_choice_guard",
       session_id: sessionId,
     });
+    return;
+  } else if (isFreeTextSalesFlowAi && isJoinSignupIntent && knowledge?.salesFlowConfig && businessId) {
+    // Recovery: user asks "how to join/register" after we drifted into free-text chat.
+    // Route back to deterministic CTA for the last picked offer; if unknown, re-ask service selection.
+    if (salesFlowServices.length > 1 && !lastPickedServiceName?.trim()) {
+      const phoneVariants = contactPhoneLookupVariants(msg.from);
+      await supabase
+        .from("contacts")
+        .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+        .eq("business_id", businessId)
+        .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+      contactSessionPhase = "opening";
+      contactFlowStep = 0;
+      await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+      });
+      return;
+    }
+
+    const intro = "בטח — הנה אפשרויות ההרשמה:";
+    await sendWhatsAppMessage(msg.toNumber, msg.from, intro, accountSid, authToken).catch(() => {});
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: intro,
+      model_used: "sf_recover_to_cta",
+      session_id: sessionId,
+    });
+    await sleepMs(450);
+    await sendSalesFlowCtaMenuWithPhaseUpdate({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      salesFlowServices,
+      trialRegistered: contactTrialRegistered,
+      allowTrialCta: allowTrialCtaThisSession,
+      sfConsumedKinds: sfClickedCtaKinds,
+      modelUsed: "sales_flow_cta",
+    });
+    contactSessionPhase = "cta";
+    contactFlowStep = 0;
     return;
   } else {
     // Rate-limit: 20 AI answers in a rolling 24h window (prevents token abuse without blocking forever).
