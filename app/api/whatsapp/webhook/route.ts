@@ -74,6 +74,10 @@ import {
   stripPendingWarmupMenuFromAnswer,
   WA_WARMUP_EXPERIENCE_SENT_MODEL,
 } from "@/lib/wa-warmup-pending";
+import {
+  replyRefersToCustomerService,
+  sendCustomerServiceRedirectWithServicePickFollowUp,
+} from "@/lib/wa-cs-redirect-service-pick";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
@@ -4029,10 +4033,19 @@ async function processIncoming(
             return;
           }
           if (del === "phone" && csPhone) {
-            const txt = `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`;
-            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-              console.error("[WA Webhook] Send workshop phone purchase failed:", e)
-            );
+            await sendCustomerServiceRedirectWithServicePickFollowUp({
+              csMessage: `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`,
+              modelUsed: "sales_flow_workshop_phone",
+              knowledge,
+              salesFlowServices,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+            });
             sfClickedCtaKinds = await bumpSfConsumedCtaKind({
               supabase,
               businessId,
@@ -4040,13 +4053,8 @@ async function processIncoming(
               kind: "workshop_purchase",
               previous: sfClickedCtaKinds,
             });
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: txt,
-              model_used: "sales_flow_workshop_phone",
-              session_id: sessionId,
-            });
+            contactSessionPhase = "opening";
+            contactFlowStep = 0;
             return;
           }
           const txt = "כרגע אין כאן קישור או מספר לרכישה — כתבו לנו ונשמח לעזור.";
@@ -4070,9 +4078,19 @@ async function processIncoming(
           const txt = csPhone
             ? `מוזמנים ליצור קשר:\n${csPhone}`
             : "מוזמנים לכתוב כאן ונחזור אליכם.";
-          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-            console.error("[WA Webhook] Send workshop contact failed:", e)
-          );
+          await sendCustomerServiceRedirectWithServicePickFollowUp({
+            csMessage: txt,
+            modelUsed: "sales_flow_workshop_contact",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+          });
           sfClickedCtaKinds = await bumpSfConsumedCtaKind({
             supabase,
             businessId,
@@ -4080,13 +4098,8 @@ async function processIncoming(
             kind: "workshop_contact",
             previous: sfClickedCtaKinds,
           });
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: txt,
-            model_used: "sales_flow_workshop_contact",
-            session_id: sessionId,
-          });
+          contactSessionPhase = "opening";
+          contactFlowStep = 0;
           return;
         }
 
@@ -4126,10 +4139,19 @@ async function processIncoming(
             return;
           }
           if (del === "phone" && csPhone) {
-            const txt = `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`;
-            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-              console.error("[WA Webhook] Send course phone enroll failed:", e)
-            );
+            await sendCustomerServiceRedirectWithServicePickFollowUp({
+              csMessage: `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`,
+              modelUsed: "sales_flow_course_phone",
+              knowledge,
+              salesFlowServices,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+            });
             sfClickedCtaKinds = await bumpSfConsumedCtaKind({
               supabase,
               businessId,
@@ -4137,13 +4159,8 @@ async function processIncoming(
               kind: "course_enroll",
               previous: sfClickedCtaKinds,
             });
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: txt,
-              model_used: "sales_flow_course_phone",
-              session_id: sessionId,
-            });
+            contactSessionPhase = "opening";
+            contactFlowStep = 0;
             return;
           }
           const txt = "כרגע אין כאן קישור או מספר להצטרפות — כתבו לנו ונשמח לעזור.";
@@ -4167,9 +4184,19 @@ async function processIncoming(
           const txt = csPhone
             ? `מוזמנים ליצור קשר:\n${csPhone}`
             : "מוזמנים לכתוב כאן ונחזור אליכם.";
-          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-            console.error("[WA Webhook] Send course contact failed:", e)
-          );
+          await sendCustomerServiceRedirectWithServicePickFollowUp({
+            csMessage: txt,
+            modelUsed: "sales_flow_course_contact",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+          });
           sfClickedCtaKinds = await bumpSfConsumedCtaKind({
             supabase,
             businessId,
@@ -4177,13 +4204,8 @@ async function processIncoming(
             kind: "course_contact",
             previous: sfClickedCtaKinds,
           });
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: txt,
-            model_used: "sales_flow_course_contact",
-            session_id: sessionId,
-          });
+          contactSessionPhase = "opening";
+          contactFlowStep = 0;
           return;
         }
 
@@ -4865,17 +4887,33 @@ async function processIncoming(
               "כדי לשמור על איכות המענה, הגענו למגבלת תשובות אוטומטיות ב־24 שעות האחרונות.",
               "מומלץ לדבר ישירות עם הצוות שלנו. נשמח לחזור אליך בהקדם!",
             ].join("\n");
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send AI-24h-limit reply failed:", e)
-        );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: txt,
-          model_used: "claude_limit_24h",
-          session_id: sessionId,
-          error_code: "claude_limit_24h",
-        });
+        if (knowledge && businessId && phone) {
+          await sendCustomerServiceRedirectWithServicePickFollowUp({
+            csMessage: txt,
+            modelUsed: "claude_limit_24h",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+          });
+        } else {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send AI-24h-limit reply failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "claude_limit_24h",
+            session_id: sessionId,
+            error_code: "claude_limit_24h",
+          });
+        }
         return;
       }
     } catch (e) {
@@ -5196,7 +5234,33 @@ async function processIncoming(
         contactSessionPhase !== "cta" &&
         contactSessionPhase !== "registered";
 
-      if (shouldSplitCtaAnswerAndMenu) {
+      const csPhoneForRedirect = knowledge?.customerServicePhone?.trim() ?? "";
+      const shouldOfferServicePickAfterCs =
+        Boolean(businessId) &&
+        Boolean(knowledge?.salesFlowConfig) &&
+        salesFlowServices.length > 1 &&
+        replyRefersToCustomerService(replyCoreClean, csPhoneForRedirect);
+
+      if (shouldOfferServicePickAfterCs && knowledge && businessId) {
+        await sendCustomerServiceRedirectWithServicePickFollowUp({
+          csMessage: stripTrailingFollowUpQuestion(
+            softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean))
+          ),
+          modelUsed: replyModelUsed,
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+        });
+        assistantReplyLogged = true;
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+      } else if (shouldSplitCtaAnswerAndMenu) {
         // CTA phase + free-text question:
         // 1) answer only (no CTA, no buttons, no footer)
         // 2) send the CTA menu in a separate message
@@ -5273,7 +5337,7 @@ async function processIncoming(
         });
         assistantReplyLogged = true;
         await sleepMs(1500);
-        if (knowledge && businessId) {
+        if (knowledge && businessId && !shouldOfferServicePickAfterCs) {
           await sendFlowContinuation({
             phase: contactSessionPhase,
             contact: { flow_step: contactFlowStep },
@@ -5321,7 +5385,8 @@ async function processIncoming(
         knowledge &&
         businessId &&
         !shouldSplitCtaAnswerAndMenu &&
-        !shouldSplitOpeningWarmupAnswerAndFlow
+        !shouldSplitOpeningWarmupAnswerAndFlow &&
+        !shouldOfferServicePickAfterCs
       ) {
         scheduleFlowContinuation({
           delayMs: 1500,
