@@ -32,7 +32,6 @@ import {
   WARMUP_MAX_BUTTONS,
   WARMUP_MIN_BUTTONS,
   createDefaultWarmupExtraStep,
-  defaultWarmupExperienceQuestion1,
   duplicateWarmupExtraStepAsQuestion2,
   isWarmupExperienceQuestion1Configured,
   SCHEDULE_BOARD_CAPTION,
@@ -249,7 +248,6 @@ function WarmupSessionQuestion1Block({
   afterExperienceToStore,
   serviceForReply,
   onClear,
-  onRestore,
 }: {
   question: string;
   options: string[];
@@ -261,21 +259,10 @@ function WarmupSessionQuestion1Block({
   afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
   serviceForReply: ServiceItem | null;
   onClear: () => void;
-  onRestore: () => void;
 }) {
   const active = isWarmupExperienceQuestion1Configured({ question, options });
 
-  if (!active) {
-    return (
-      <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-4 py-4 text-center space-y-3">
-        <p className="text-sm text-zinc-600">שאלה 1 הוסרה מהפלואו. נשארות רק שאלות נוספות (למשל שאלה 2).</p>
-        <Button type="button" variant="outline" className="gap-1" onClick={onRestore}>
-          <Plus className="h-4 w-4" />
-          הוסף שאלה 1
-        </Button>
-      </div>
-    );
-  }
+  if (!active) return null;
 
   return (
     <div className="space-y-3 rounded-xl border border-zinc-100 bg-white/60 p-3">
@@ -317,6 +304,7 @@ function SalesFlowExtraStepsEditor({
   afterExperienceToStore,
   serviceForReply,
   duplicateActionsForQuestion,
+  showTopDivider = true,
 }: {
   steps: SalesFlowExtraStep[];
   onChange: (next: SalesFlowExtraStep[]) => void;
@@ -328,9 +316,12 @@ function SalesFlowExtraStepsEditor({
   afterExperienceToStore: (typed: string, service: ServiceItem | null) => string;
   serviceForReply: ServiceItem | null;
   duplicateActionsForQuestion?: (step: SalesFlowExtraStep, questionNumber: number) => WarmupDuplicateAction[];
+  showTopDivider?: boolean;
 }) {
   return (
-    <div className="space-y-3 pt-3 border-t border-dashed border-zinc-200/90">
+    <div
+      className={`space-y-3 ${showTopDivider ? "pt-3 border-t border-dashed border-zinc-200/90" : ""}`.trim()}
+    >
       {steps.map((st, si) => (
         <div
           key={st.id}
@@ -694,6 +685,19 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     );
   }, [warmupSessionEnabled, salesFlowConfig, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
+  const trialWarmupQ1Active = isWarmupExperienceQuestion1Configured({
+    question: salesFlowConfig.experience_question,
+    options: salesFlowConfig.experience_options,
+  });
+  const workshopWarmupQ1Active = isWarmupExperienceQuestion1Configured({
+    question: salesFlowConfig.experience_question_workshop,
+    options: salesFlowConfig.experience_options_workshop ?? [],
+  });
+  const courseWarmupQ1Active = isWarmupExperienceQuestion1Configured({
+    question: salesFlowConfig.experience_question_course,
+    options: salesFlowConfig.experience_options_course ?? [],
+  });
+
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
   const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
@@ -1031,27 +1035,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                           experience_replies: [],
                         }))
                       }
-                      onRestore={() => {
-                        const d = defaultWarmupExperienceQuestion1("trial");
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question: d.question,
-                          experience_options: d.options,
-                          experience_replies: d.replies,
-                        }));
-                      }}
                     />
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps}
                       onChange={(next) => setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))}
                       addButtonLabel="הוסף שאלה בסשן חימום"
-                      startAt={2}
+                      startAt={trialWarmupQ1Active ? 2 : 1}
+                      showTopDivider={trialWarmupQ1Active}
                       uid={uid}
                       afterExperienceForDisplay={afterExperienceForDisplay}
                       afterExperienceToStore={afterExperienceToStore}
                       serviceForReply={firstTrialSvcForWarmup}
                       duplicateActionsForQuestion={(step, questionNumber) => {
-                        if (questionNumber !== 2 || !warmupExtraStepHasContent(step)) return [];
+                        const templateQ = trialWarmupQ1Active ? 2 : 1;
+                        if (questionNumber !== templateQ || !warmupExtraStepHasContent(step)) return [];
                         const actions: WarmupDuplicateAction[] = [];
                         if (hasWorkshopOffers) {
                           const ws = salesFlowConfig.opening_extra_steps_workshop ?? [];
@@ -1128,15 +1125,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                           experience_replies_workshop: [],
                         }))
                       }
-                      onRestore={() => {
-                        const d = defaultWarmupExperienceQuestion1("workshop");
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question_workshop: d.question,
-                          experience_options_workshop: d.options,
-                          experience_replies_workshop: d.replies,
-                        }));
-                      }}
                     />
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps_workshop ?? []}
@@ -1144,13 +1132,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         setSalesFlowConfig((c) => ({ ...c, opening_extra_steps_workshop: next }))
                       }
                       addButtonLabel="הוסף שאלה בסשן חימום (סדנה)"
-                      startAt={2}
+                      startAt={workshopWarmupQ1Active ? 2 : 1}
+                      showTopDivider={workshopWarmupQ1Active}
                       uid={uid}
                       afterExperienceForDisplay={afterExperienceForDisplay}
                       afterExperienceToStore={afterExperienceToStore}
                       serviceForReply={firstWorkshopSvcForWarmup}
                       duplicateActionsForQuestion={(step, questionNumber) => {
-                        if (questionNumber !== 2 || !warmupExtraStepHasContent(step) || !hasCourseOffers) {
+                        const templateQ = workshopWarmupQ1Active ? 2 : 1;
+                        if (questionNumber !== templateQ || !warmupExtraStepHasContent(step) || !hasCourseOffers) {
                           return [];
                         }
                         const cs = salesFlowConfig.opening_extra_steps_course ?? [];
@@ -1209,15 +1199,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                           experience_replies_course: [],
                         }))
                       }
-                      onRestore={() => {
-                        const d = defaultWarmupExperienceQuestion1("course");
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question_course: d.question,
-                          experience_options_course: d.options,
-                          experience_replies_course: d.replies,
-                        }));
-                      }}
                     />
                     <SalesFlowExtraStepsEditor
                       steps={salesFlowConfig.opening_extra_steps_course ?? []}
@@ -1228,7 +1209,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         }))
                       }
                       addButtonLabel="הוסף שאלה בסשן חימום (קורס)"
-                      startAt={2}
+                      startAt={courseWarmupQ1Active ? 2 : 1}
+                      showTopDivider={courseWarmupQ1Active}
                       uid={uid}
                       afterExperienceForDisplay={afterExperienceForDisplay}
                       afterExperienceToStore={afterExperienceToStore}

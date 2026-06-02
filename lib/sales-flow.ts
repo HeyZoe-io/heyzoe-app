@@ -1618,6 +1618,94 @@ export function defaultWarmupExperienceQuestion1(kind: OfferKind): {
   };
 }
 
+function warmupExtraStepFromQuestion1Defaults(
+  id: string,
+  defaults: { question: string; options: string[]; replies: string[] }
+): SalesFlowExtraStep {
+  return {
+    id,
+    question: defaults.question,
+    options: [...defaults.options],
+    replies: [...defaults.replies],
+  };
+}
+
+/** ג׳נרט מחדש לסשן חימום — מכבד אם שאלה 1 הוסרה (אז ממלא את השאלה הראשונה ב־extras) */
+export function patchWarmupRegenerationForOfferKind(
+  current: SalesFlowConfig,
+  base: SalesFlowConfig,
+  kind: OfferKind,
+  newStepId: () => string
+): Partial<SalesFlowConfig> {
+  const wbCurrent = resolveWarmupExperienceConfig(current, kind);
+  const wbBase = resolveWarmupExperienceConfig(base, kind);
+  const defaults = defaultWarmupExperienceQuestion1(kind);
+
+  if (isWarmupExperienceQuestion1Configured(wbCurrent)) {
+    if (kind === "workshop") {
+      return {
+        experience_question_workshop: wbBase.question,
+        experience_options_workshop: structuredClone(wbBase.options),
+        experience_replies_workshop: structuredClone(wbBase.replies),
+        after_experience_workshop: wbBase.afterExperienceRaw,
+        opening_extra_steps_workshop: structuredClone(wbBase.extras),
+      };
+    }
+    if (kind === "course") {
+      return {
+        experience_question_course: wbBase.question,
+        experience_options_course: structuredClone(wbBase.options),
+        experience_replies_course: structuredClone(wbBase.replies),
+        after_experience_course: wbBase.afterExperienceRaw,
+        opening_extra_steps_course: structuredClone(wbBase.extras),
+      };
+    }
+    return {
+      experience_question: wbBase.question,
+      experience_options: structuredClone(wbBase.options),
+      experience_replies: structuredClone(wbBase.replies),
+      after_experience: wbBase.afterExperienceRaw,
+      opening_extra_steps: structuredClone(wbBase.extras),
+    };
+  }
+
+  const step1 = warmupExtraStepFromQuestion1Defaults(newStepId(), defaults);
+  if (kind === "workshop") {
+    const extras = [...(current.opening_extra_steps_workshop ?? [])];
+    const nextExtras = extras.length
+      ? [warmupExtraStepFromQuestion1Defaults(extras[0]!.id, defaults), ...extras.slice(1)]
+      : [step1];
+    return {
+      experience_question_workshop: "",
+      experience_options_workshop: [],
+      experience_replies_workshop: [],
+      opening_extra_steps_workshop: nextExtras,
+    };
+  }
+  if (kind === "course") {
+    const extras = [...(current.opening_extra_steps_course ?? [])];
+    const nextExtras = extras.length
+      ? [warmupExtraStepFromQuestion1Defaults(extras[0]!.id, defaults), ...extras.slice(1)]
+      : [step1];
+    return {
+      experience_question_course: "",
+      experience_options_course: [],
+      experience_replies_course: [],
+      opening_extra_steps_course: nextExtras,
+    };
+  }
+  const extras = [...(current.opening_extra_steps ?? [])];
+  const nextExtras = extras.length
+    ? [warmupExtraStepFromQuestion1Defaults(extras[0]!.id, defaults), ...extras.slice(1)]
+    : [step1];
+  return {
+    experience_question: "",
+    experience_options: [],
+    experience_replies: [],
+    opening_extra_steps: nextExtras,
+  };
+}
+
 export function resolveWarmupExperienceConfig(
   cfg: SalesFlowConfig,
   kind: OfferKind
