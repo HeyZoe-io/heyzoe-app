@@ -1337,17 +1337,53 @@ async function buildWarmupExtraCleanSteps(input: {
   salesFlowServices: SfServiceRow[];
   business_slug: string;
   session_id: string;
+  /** כשיש list_reply — מעדיף את ה-offerKind שבו מופיעה האופציה (לא קורס עם Q1 בלבד). */
+  incomingMsg?: Pick<WaIncomingText, "text" | "metaInteractiveReplyId">;
 }): Promise<{
   cleanSteps: WarmupExtraCleanStep[];
   hasWarmupQ1: boolean;
   warmupServiceName: string;
   warmupOfferKind: string;
+  resolvedVia: "incoming_label" | "sf_event" | "pick_heuristic" | "single_service";
 }> {
   const selectedName =
     input.salesFlowServices.length === 1
       ? input.salesFlowServices[0]?.name ?? ""
       : ((await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.session_id })) ??
         "");
+
+  if (input.incomingMsg && input.salesFlowServices.length > 1) {
+    for (const s of input.salesFlowServices) {
+      const kind = (s.offerKind ?? "trial") as import("@/lib/sales-flow").OfferKind;
+      const wb = resolveWarmupExperienceConfig(input.cfg, kind);
+      const { cleanSteps, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wb);
+      if (findWarmupExtraPickAcrossSteps(cleanSteps, input.incomingMsg)) {
+        console.info("[WA warmup buildCleanSteps]", {
+          business_slug: input.business_slug,
+          session_id: input.session_id,
+          resolvedVia: "incoming_label",
+          resolvedService: s.name,
+          offerKind: kind,
+          rawExtrasCount: wb.extras.length,
+          cleanStepsCount: cleanSteps.length,
+        });
+        return {
+          cleanSteps,
+          hasWarmupQ1,
+          warmupServiceName: s.name,
+          warmupOfferKind: kind,
+          resolvedVia: "incoming_label",
+        };
+      }
+    }
+  }
+
+  const resolvedVia: "incoming_label" | "sf_event" | "pick_heuristic" | "single_service" =
+    input.salesFlowServices.length === 1
+      ? "single_service"
+      : selectedName.trim()
+        ? "sf_event"
+        : "pick_heuristic";
   const pick = pickServiceRowForWarmupConfig(input.salesFlowServices, input.cfg, selectedName);
   const svc =
     pick != null
@@ -1365,12 +1401,14 @@ async function buildWarmupExtraCleanSteps(input: {
     rawExtrasCount: wb.extras.length,
     cleanStepsCount: cleanSteps.length,
     multiService: input.salesFlowServices.length > 1,
+    resolvedVia,
   });
   return {
     cleanSteps,
     hasWarmupQ1,
     warmupServiceName: svc?.name ?? "",
     warmupOfferKind: offerKind,
+    resolvedVia,
   };
 }
 
@@ -1678,6 +1716,7 @@ async function attemptWarmupExtraMenuPick(input: {
     salesFlowServices: input.salesFlowServices,
     business_slug: input.business_slug,
     session_id: input.sessionId,
+    incomingMsg: input.msg,
   });
   if (cleanSteps.length === 0) {
     console.warn("[WA warmup §2.5] no warmup extra steps in config", {
