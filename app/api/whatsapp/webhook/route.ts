@@ -83,7 +83,9 @@ import {
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
-const SECONDARY_PURCHASE_POST_HINT = "כשמסיימים, אפשר לכתוב כאן אם צריך עזרה 🙂";
+/** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
+const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
+  "לאחר התשלום כתבו «נרשמתי» ואשלח לכם את כל הפרטים!";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 
 function formatInteractiveConversationLog(
@@ -3359,10 +3361,21 @@ async function processIncoming(
           ).trim();
         }
 
+        const hasCourseCycleDate =
+          regOfferKind === "course" && Boolean(String(requestedDate ?? "").trim());
+        const hasWorkshopSchedulePick =
+          regOfferKind === "workshop" &&
+          (Boolean(String(requestedDate ?? "").trim()) || Boolean(String(requestedTime ?? "").trim()));
+        const templateWantsScheduleFields =
+          bodyTemplate.includes("{requested_date}") ||
+          bodyTemplate.includes("{requested_time}") ||
+          bodyTemplate.includes("{course_schedule}");
         if (
-          !useScheduleRegistrationTemplate &&
-          hasScheduleSelection &&
-          (bodyTemplate.includes("{requested_date}") || bodyTemplate.includes("{requested_time}"))
+          hasCourseCycleDate ||
+          hasWorkshopSchedulePick ||
+          (!useScheduleRegistrationTemplate &&
+            hasScheduleSelection &&
+            templateWantsScheduleFields)
         ) {
           const scheduleBody = resolveAfterRegistrationBodyTemplate(sfCfg, regOfferKind, true).trim();
           if (scheduleBody) bodyTemplate = scheduleBody;
@@ -3373,8 +3386,11 @@ async function processIncoming(
         const shouldFillSchedule =
           useScheduleRegistrationTemplate ||
           hasScheduleSelection ||
+          hasCourseCycleDate ||
+          hasWorkshopSchedulePick ||
           bodyTemplate.includes("{requested_date}") ||
           bodyTemplate.includes("{requested_time}") ||
+          bodyTemplate.includes("{course_schedule}") ||
           bodyTemplate.includes("{serviceName}") ||
           bodyTemplate.includes("(שם האימון)");
         const courseSchedForReg =
@@ -4346,9 +4362,13 @@ async function processIncoming(
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send workshop link failed:", e)
             );
-            await sendWhatsAppMessage(msg.toNumber, msg.from, SECONDARY_PURCHASE_POST_HINT, accountSid, authToken).catch(
-              (e) => console.error("[WA Webhook] Send workshop post-hint failed:", e)
-            );
+            await sendWhatsAppMessage(
+              msg.toNumber,
+              msg.from,
+              SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE,
+              accountSid,
+              authToken
+            ).catch((e) => console.error("[WA Webhook] Send workshop post-hint failed:", e));
             sfClickedCtaKinds = await bumpSfConsumedCtaKind({
               supabase,
               businessId,
@@ -4359,7 +4379,7 @@ async function processIncoming(
             await logMessage({
               business_slug,
               role: "assistant",
-              content: `${txt}\n\n${SECONDARY_PURCHASE_POST_HINT}`,
+              content: `${txt}\n\n${SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE}`,
               model_used: "sales_flow_workshop_link",
               session_id: sessionId,
             });
@@ -4452,9 +4472,13 @@ async function processIncoming(
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send course link failed:", e)
             );
-            await sendWhatsAppMessage(msg.toNumber, msg.from, SECONDARY_PURCHASE_POST_HINT, accountSid, authToken).catch(
-              (e) => console.error("[WA Webhook] Send course post-hint failed:", e)
-            );
+            await sendWhatsAppMessage(
+              msg.toNumber,
+              msg.from,
+              SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE,
+              accountSid,
+              authToken
+            ).catch((e) => console.error("[WA Webhook] Send course post-hint failed:", e));
             sfClickedCtaKinds = await bumpSfConsumedCtaKind({
               supabase,
               businessId,
@@ -4465,7 +4489,7 @@ async function processIncoming(
             await logMessage({
               business_slug,
               role: "assistant",
-              content: `${txt}\n\n${SECONDARY_PURCHASE_POST_HINT}`,
+              content: `${txt}\n\n${SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE}`,
               model_used: "sales_flow_course_link",
               session_id: sessionId,
             });
