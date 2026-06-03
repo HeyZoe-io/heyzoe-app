@@ -360,6 +360,35 @@ function isAddressOrDirectionsIntent(text: string): boolean {
 
 type HeyzoeSessionPhase = "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
 
+const WARMUP_EXTRA_MENU_MODELS = new Set([
+  "sales_flow_warmup_extra",
+  "flow_continuation_warmup_extra",
+]);
+
+function isWarmupExtraMenuModel(model: string | null | undefined): boolean {
+  return WARMUP_EXTRA_MENU_MODELS.has(String(model ?? "").trim());
+}
+
+/** בחירת שירות מרובה — רק בשלב opening (לא בתוך חימום / לוח / CTA). */
+function isSalesFlowMultiServicePickPhase(phase: HeyzoeSessionPhase): boolean {
+  return phase === "opening";
+}
+
+function inferWarmupExtraStepIndex(input: {
+  flowStep: number;
+  hasWarmupQ1: boolean;
+  cleanStepsCount: number;
+  lastIdxFromEvent: number | null;
+  lastAssistModel: string | null;
+}): number | null {
+  if (input.lastIdxFromEvent != null) return input.lastIdxFromEvent;
+  if (!isWarmupExtraMenuModel(input.lastAssistModel) || input.cleanStepsCount < 1) return null;
+  const base = input.hasWarmupQ1 ? 1 : 0;
+  const idx = input.flowStep - base - 1;
+  if (idx >= 0 && idx < input.cleanStepsCount) return idx;
+  return input.cleanStepsCount === 1 ? 0 : null;
+}
+
 function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
   const s = String(raw ?? "").trim();
   if (
@@ -2286,7 +2315,14 @@ async function isWarmupFlowCompleteForRecovery(input: {
     business_slug: input.business_slug,
     session_id: input.sessionId,
   });
-  if (lastIdx != null) return lastIdx >= cleanWarm.length - 1;
+  // אירוע sf_warmup_extra מסמן איזו שאלה נשלחה — סיום רק אחרי שענו על כולן (index >= מספר השאלות).
+  if (lastIdx != null) return lastIdx >= cleanWarm.length;
+
+  const lastAssist = await fetchLastAssistantModelUsed({
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+  });
+  if (isWarmupExtraMenuModel(lastAssist)) return false;
 
   const minStep = (hasWarmupQ1 ? 1 : 0) + cleanWarm.length;
   return input.flowStep >= minStep;
@@ -3619,8 +3655,14 @@ async function processIncoming(
     }
   }
 
-  // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
+  // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון (לא בשלב חימום — «1» לא ייבחר בטעות כשירות ראשון)
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    salesFlowServices.length > 1 &&
+    isSalesFlowMultiServicePickPhase(contactSessionPhase)
+  ) {
     try {
       const named = salesFlowServices;
       const serviceLabels = named.map((s) => s.name.trim()).filter(Boolean);
@@ -4778,6 +4820,7 @@ async function processIncoming(
       const selectedForWarmExtras =
         salesFlowServices.find((s) => s.name === selectedForWarmExtrasName) ?? salesFlowServices[0] ?? null;
       const wbExtras = resolveWarmupExperienceConfig(cfg, selectedForWarmExtras?.offerKind ?? "trial");
+      const hasWarmupQ1Extras = isWarmupExperienceQuestion1Configured(wbExtras);
       const steps = wbExtras.extras;
       const cleanSteps = steps
         .map((s) => ({
@@ -4792,13 +4835,18 @@ async function processIncoming(
         .filter((s) => s.question && s.options.filter(Boolean).length >= 2);
       if (cleanSteps.length > 0) {
         const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-        let lastIdx = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
-        const isWarmupExtraMenu =
-          lastAssistModel === "sales_flow_warmup_extra" ||
-          lastAssistModel === "flow_continuation_warmup_extra";
-        if (isWarmupExtraMenu && lastIdx == null && cleanSteps.length === 1) {
-          lastIdx = 0;
-        }
+        const lastIdxFromEvent = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
+        const isWarmupExtraMenu = isWarmupExtraMenuModel(lastAssistModel);
+        const lastIdx =
+          contactSessionPhase === "warmup" || isWarmupExtraMenu
+            ? inferWarmupExtraStepIndex({
+                flowStep: contactFlowStep,
+                hasWarmupQ1: hasWarmupQ1Extras,
+                cleanStepsCount: cleanSteps.length,
+                lastIdxFromEvent,
+                lastAssistModel,
+              })
+            : lastIdxFromEvent;
         if (isWarmupExtraMenu && lastIdx != null) {
           const current = cleanSteps[lastIdx];
           const opts = (current?.options ?? []).map((o) => String(o ?? "").trim()).filter(Boolean);
@@ -4858,8 +4906,15 @@ async function processIncoming(
                 model_used: "sales_flow_warmup_extra",
                 session_id: sessionId,
               });
+            } else {
+              console.warn("[WA Webhook] Warmup extra pick without reply text", {
+                business_slug,
+                session_id: sessionId,
+                lastIdx,
+                picked,
+              });
             }
-            if (businessId) {
+            if (businessId && replyRaw) {
               try {
                 await advanceAfterWarmupSessionComplete({
                   knowledge,
@@ -5117,6 +5172,15 @@ async function processIncoming(
   const predefinedClosedLabels = [
     ...quickLabels,
     ...(knowledge?.salesFlowConfig?.greeting_extra_steps ?? []).flatMap((step) => step.options.map((option) => option.trim())),
+    ...(knowledge?.salesFlowConfig?.opening_extra_steps ?? []).flatMap((step) =>
+      step.options.map((option) => String(option ?? "").trim())
+    ),
+    ...(knowledge?.salesFlowConfig?.opening_extra_steps_workshop ?? []).flatMap((step) =>
+      step.options.map((option) => String(option ?? "").trim())
+    ),
+    ...(knowledge?.salesFlowConfig?.opening_extra_steps_course ?? []).flatMap((step) =>
+      step.options.map((option) => String(option ?? "").trim())
+    ),
     ...salesFlowServices.map((service) => service.name.trim()),
     ...((knowledge?.salesFlowConfig?.experience_options ?? []).map((option) => String(option ?? "").trim())),
     ...((knowledge?.salesFlowConfig?.experience_options_workshop ?? []).map((option) =>
