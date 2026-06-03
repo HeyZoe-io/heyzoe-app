@@ -968,21 +968,28 @@ export function ctaButtonsForOfferKind(cfg: SalesFlowConfig, kind: OfferKind): S
   return cfg.cta_buttons ?? [];
 }
 
+/** x כמשתנה תצוגה — בלי \\b אחרי עברית (JS לא מזהה גבול מילה לפני פיסוק). */
+const CTA_LITERAL_X_PRICE_RE = /x\s+שקלים/gu;
+const CTA_LITERAL_X_DURATION_RE = /x\s+דקות/gu;
+const CTA_LITERAL_X_SESSIONS_RE = /x\s+מפגשים/gu;
+const CTA_LITERAL_X_SESSIONS_KE_RE = /כ-?x\s+מפגשים/gu;
+const CTA_LITERAL_X_DATE_RANGE_RE = /x\s+עד\s+x/gu;
+
 /** ממיר x מהתצוגה בדשבורד לתוויות תבנית (לשמירה/טעינה). */
 export function migrateCtaBodyDisplayPlaceholders(text: string): string {
   return String(text ?? "")
-    .replace(/\bx\s+שקלים\b/gu, "{priceText} שקלים")
-    .replace(/\bx\s+דקות\b/gu, "{durationText} דקות");
+    .replace(CTA_LITERAL_X_PRICE_RE, "{priceText} שקלים")
+    .replace(CTA_LITERAL_X_DURATION_RE, "{durationText} דקות");
 }
 
 function applyTrialCtaLiteralFallbacks(text: string, priceText: string, durationText: string): string {
   let s = text;
   const p = priceText.trim();
   const d = durationText.trim();
-  if (p) s = s.replace(/\bx\s+שקלים\b/gu, `${p} שקלים`);
-  else s = s.replace(/\bx\s+שקלים\b/gu, "... שקלים");
-  if (d) s = s.replace(/\bx\s+דקות\b/gu, `${d} דקות`);
-  else s = s.replace(/\bx\s+דקות\b/gu, "... דקות");
+  if (p) s = s.replace(CTA_LITERAL_X_PRICE_RE, `${p} שקלים`);
+  else s = s.replace(CTA_LITERAL_X_PRICE_RE, "... שקלים");
+  if (d) s = s.replace(CTA_LITERAL_X_DURATION_RE, `${d} דקות`);
+  else s = s.replace(CTA_LITERAL_X_DURATION_RE, "... דקות");
   return s;
 }
 
@@ -1010,7 +1017,8 @@ export function resolveSfServicePriceDuration(
 export function fillWorkshopCtaBodyTemplate(template: string, priceText: string, durationText: string): string {
   const p = priceText.trim() || "...";
   const d = durationText.trim() || "...";
-  const filled = template
+  const normalized = migrateCtaBodyDisplayPlaceholders(template);
+  const filled = normalized
     .replace(/\{priceText\}/g, p)
     .replace(/\{price\}/g, p)
     .replace(/\{durationText\}/g, d)
@@ -1028,10 +1036,10 @@ function applyCourseCtaLiteralFallbacks(
   const p = priceText.trim();
   const sess = sessionsText.trim();
   const sched = schedulePhrase.trim();
-  if (p) s = s.replace(/\bx\s+שקלים\b/gu, `${p} שקלים`);
+  if (p) s = s.replace(CTA_LITERAL_X_PRICE_RE, `${p} שקלים`);
   if (sess) {
-    s = s.replace(/\bכ־x\s+מפגשים\b/gu, `כ-${sess} מפגשים`);
-    s = s.replace(/\bx\s+מפגשים\b/gu, `${sess} מפגשים`);
+    s = s.replace(CTA_LITERAL_X_SESSIONS_KE_RE, `כ-${sess} מפגשים`);
+    s = s.replace(CTA_LITERAL_X_SESSIONS_RE, `${sess} מפגשים`);
   }
   if (sched) s = s.replace(/כל יום x בשעה x/gu, sched);
   return s;
@@ -1093,7 +1101,8 @@ export function fillCourseCtaBodyTemplate(
   const a = startDate.trim() || "...";
   const b = endDate.trim() || "...";
   const sched = schedulePhrase.trim() || "...";
-  const filled = template
+  const normalized = migrateCtaBodyDisplayPlaceholders(template);
+  const filled = normalized
     .replace(/\{priceText\}/g, p)
     .replace(/\{price\}/g, p)
     .replace(/\{sessions\}/g, s)
@@ -2209,7 +2218,8 @@ export function fillCtaBodyTemplate(
 ): string {
   const p = priceText.trim() || "...";
   const d = durationText.trim() || "...";
-  const filled = template.replace(/\{priceText\}/g, p).replace(/\{durationText\}/g, d);
+  const normalized = migrateCtaBodyDisplayPlaceholders(template);
+  const filled = normalized.replace(/\{priceText\}/g, p).replace(/\{durationText\}/g, d);
   return applyTrialCtaLiteralFallbacks(filled, priceText, durationText);
 }
 
