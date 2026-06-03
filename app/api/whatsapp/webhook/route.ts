@@ -111,8 +111,16 @@ function stripAssistantInteractiveButtonsLog(text: string): string {
     .trim();
 }
 
+function isWaInboundTextMessage(msg: WaIncomingMessage): msg is WaIncomingText {
+  return msg.type === "text";
+}
+
+/**
+ * Meta `list_reply` / `button_reply` מגיעים כ־type:"text" + metaInteractiveReplyKind (ראו parseOneMetaMessage).
+ * אין type:"interactive" ב־WaIncomingMessage.
+ */
 function isMetaInteractiveMenuReply(msg: WaIncomingMessage): boolean {
-  if (msg.type !== "text") return false;
+  if (!isWaInboundTextMessage(msg)) return false;
   if (msg.metaInteractiveReplyKind === "button_reply" || msg.metaInteractiveReplyKind === "list_reply") {
     return true;
   }
@@ -380,12 +388,17 @@ function inferWarmupExtraStepIndex(input: {
   cleanStepsCount: number;
   lastIdxFromEvent: number | null;
   lastAssistModel: string | null;
+  sessionPhase?: HeyzoeSessionPhase;
 }): number | null {
   if (input.lastIdxFromEvent != null) return input.lastIdxFromEvent;
-  if (!isWarmupExtraMenuModel(input.lastAssistModel) || input.cleanStepsCount < 1) return null;
+  const canInferFromFlowStep =
+    isWarmupExtraMenuModel(input.lastAssistModel) || input.sessionPhase === "warmup";
+  if (!canInferFromFlowStep || input.cleanStepsCount < 1) return null;
   const base = input.hasWarmupQ1 ? 1 : 0;
-  const idx = input.flowStep - base - 1;
-  if (idx >= 0 && idx < input.cleanStepsCount) return idx;
+  const bumpedIdx = input.flowStep - base - 1;
+  if (bumpedIdx >= 0 && bumpedIdx < input.cleanStepsCount) return bumpedIdx;
+  const unbumpedIdx = input.flowStep - base;
+  if (unbumpedIdx >= 0 && unbumpedIdx < input.cleanStepsCount) return unbumpedIdx;
   return input.cleanStepsCount === 1 ? 0 : null;
 }
 
@@ -664,7 +677,7 @@ function buildShortCustomerServiceOfferLine(customerServicePhone: string): strin
 async function recoverUnrecognizedMenuPick(input: {
   knowledge: BusinessKnowledgePack | null;
   salesFlowServices: SfServiceRow[];
-  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  msg: WaIncomingText;
   accountSid: string;
   authToken: string;
   supabase: ReturnType<typeof createSupabaseAdminClient>;
@@ -681,6 +694,40 @@ async function recoverUnrecognizedMenuPick(input: {
   sendOpeningMediaIfConfigured: () => Promise<boolean>;
   logModelUsed: string;
 }): Promise<void> {
+  if (input.knowledge?.salesFlowConfig && input.businessId && input.knowledge.warmupSessionEnabled !== false) {
+    try {
+      const warmPick = await attemptWarmupExtraMenuPick({
+        knowledge: input.knowledge,
+        salesFlowServices: input.salesFlowServices,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId: input.businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        contactSessionPhase: input.contactSessionPhase,
+        contactFlowStep: input.contactFlowStep,
+        contactTrialRegistered: input.contactTrialRegistered,
+        allowTrialCtaThisSession: input.allowTrialCtaThisSession,
+        sfClickedCtaKinds: input.sfClickedCtaKinds,
+        contactInstagramFollowPromptSent: input.contactInstagramFollowPromptSent,
+        blockTrialPickMedia: input.blockTrialPickMedia,
+        debugTag: `menu-recovery:${input.logModelUsed}`,
+      });
+      if (warmPick.handled) {
+        console.info("[WA Webhook] menu pick recovery handled via warmup §2.5", {
+          business_slug: input.business_slug,
+          session_id: input.sessionId,
+          logModelUsed: input.logModelUsed,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("[WA Webhook] menu pick recovery warmup attempt failed:", e);
+    }
+  }
+
   const hint = "נראה שהבחירה לא הותאמה לתפריט — אפשר לנסות שוב מההודעה הבאה.";
   const txt = `${hint}\n\n${buildShortCustomerServiceOfferLine(input.knowledge?.customerServicePhone ?? "")}`;
   await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken).catch((e) =>
@@ -1274,6 +1321,274 @@ async function advanceAfterWarmupSessionComplete(input: {
     console.error("[WA Webhook] advanceAfterWarmupSessionComplete failed:", e);
     throw e;
   }
+}
+
+type WarmupExtraCleanStep = {
+  question: string;
+  options: string[];
+  replies: string[];
+};
+
+async function buildWarmupExtraCleanSteps(input: {
+  cfg: import("@/lib/sales-flow").SalesFlowConfig;
+  salesFlowServices: SfServiceRow[];
+  business_slug: string;
+  session_id: string;
+}): Promise<{ cleanSteps: WarmupExtraCleanStep[]; hasWarmupQ1: boolean }> {
+  const selectedName =
+    input.salesFlowServices.length === 1
+      ? input.salesFlowServices[0]?.name ?? ""
+      : ((await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.session_id })) ??
+        "");
+  const svc =
+    input.salesFlowServices.find((s) => s.name === selectedName) ?? input.salesFlowServices[0] ?? null;
+  const wb = resolveWarmupExperienceConfig(input.cfg, svc?.offerKind ?? "trial");
+  const hasWarmupQ1 = isWarmupExperienceQuestion1Configured(wb);
+  const cleanSteps = wb.extras
+    .map((s) => ({
+      question: String((s as { question?: unknown }).question ?? "").trim(),
+      options: Array.isArray((s as { options?: unknown }).options)
+        ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim())
+        : [],
+      replies: Array.isArray((s as { replies?: unknown }).replies)
+        ? (s as { replies: unknown[] }).replies.map((x) => String(x ?? "").trim())
+        : [],
+    }))
+    .filter((s) => s.question && s.options.filter(Boolean).length >= 2);
+  return { cleanSteps, hasWarmupQ1 };
+}
+
+function resolveActiveWarmupExtraMenuIndex(input: {
+  contactSessionPhase: HeyzoeSessionPhase;
+  contactFlowStep: number;
+  hasWarmupQ1: boolean;
+  cleanSteps: WarmupExtraCleanStep[];
+  lastAssistModel: string | null;
+  lastIdxFromEvent: number | null;
+  incomingText: string;
+  metaInteractiveReplyId?: string;
+}): number | null {
+  const isWarmupExtraMenu = isWarmupExtraMenuModel(input.lastAssistModel);
+  if (input.contactSessionPhase !== "warmup" && !isWarmupExtraMenu) return null;
+
+  let lastIdx =
+    input.contactSessionPhase === "warmup" || isWarmupExtraMenu
+      ? inferWarmupExtraStepIndex({
+          flowStep: input.contactFlowStep,
+          hasWarmupQ1: input.hasWarmupQ1,
+          cleanStepsCount: input.cleanSteps.length,
+          lastIdxFromEvent: input.lastIdxFromEvent,
+          lastAssistModel: input.lastAssistModel,
+          sessionPhase: input.contactSessionPhase,
+        })
+      : input.lastIdxFromEvent;
+
+  if (lastIdx == null && input.contactSessionPhase === "warmup") {
+    for (let si = 0; si < input.cleanSteps.length; si++) {
+      const opts = input.cleanSteps[si]!.options.map((o) => String(o ?? "").trim()).filter(Boolean);
+      if (findWaMenuOptionIndex(input.incomingText.trim(), input.metaInteractiveReplyId, opts) >= 0) {
+        lastIdx = si;
+        console.info("[WA warmup §2.5] lastIdx from label scan", { stepIdx: si });
+        break;
+      }
+    }
+  }
+
+  return lastIdx;
+}
+
+type WarmupExtraPickResult =
+  | { handled: false }
+  | { handled: true; contactSessionPhase?: HeyzoeSessionPhase; contactFlowStep?: number };
+
+/** §2.5 + recovery: טיפול בבחירה מתפריט שאלות נוספות בחימום (כולל replyRaw). */
+async function attemptWarmupExtraMenuPick(input: {
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  msg: WaIncomingText;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  contactSessionPhase: HeyzoeSessionPhase;
+  contactFlowStep: number;
+  contactTrialRegistered: boolean | null;
+  allowTrialCtaThisSession: boolean;
+  sfClickedCtaKinds: string[];
+  contactInstagramFollowPromptSent: boolean;
+  blockTrialPickMedia: boolean;
+  debugTag: string;
+}): Promise<WarmupExtraPickResult> {
+  const cfg = input.knowledge.salesFlowConfig;
+  if (!cfg || input.knowledge.warmupSessionEnabled === false) return { handled: false };
+
+  const { cleanSteps, hasWarmupQ1 } = await buildWarmupExtraCleanSteps({
+    cfg,
+    salesFlowServices: input.salesFlowServices,
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+  });
+  if (cleanSteps.length === 0) return { handled: false };
+
+  const lastAssistModel = await fetchLastAssistantModelUsed({
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+  });
+  const lastIdxFromEvent = await fetchLastSfWarmupExtraIndex({
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+  });
+  const isWarmupExtraMenu = isWarmupExtraMenuModel(lastAssistModel);
+  const lastIdx = resolveActiveWarmupExtraMenuIndex({
+    contactSessionPhase: input.contactSessionPhase,
+    contactFlowStep: input.contactFlowStep,
+    hasWarmupQ1,
+    cleanSteps,
+    lastAssistModel,
+    lastIdxFromEvent,
+    incomingText: input.msg.text,
+    metaInteractiveReplyId: input.msg.metaInteractiveReplyId,
+  });
+
+  console.info("[WA warmup §2.5] pick attempt", {
+    debugTag: input.debugTag,
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+    contactSessionPhase: input.contactSessionPhase,
+    contactFlowStep: input.contactFlowStep,
+    lastAssistModel,
+    isWarmupExtraMenu,
+    lastIdxFromEvent,
+    lastIdx,
+    cleanStepsCount: cleanSteps.length,
+    hasWarmupQ1,
+    incomingPreview: String(input.msg.text ?? "").trim().slice(0, 80),
+    metaInteractiveReplyId: input.msg.metaInteractiveReplyId ?? "",
+    metaInteractiveReplyKind: input.msg.metaInteractiveReplyKind ?? null,
+    isMetaInteractiveMenuReply: isMetaInteractiveMenuReply(input.msg),
+  });
+
+  if (!(input.contactSessionPhase === "warmup" || isWarmupExtraMenu) || lastIdx == null) {
+    console.info("[WA warmup §2.5] skip — gate not met", {
+      debugTag: input.debugTag,
+      contactSessionPhase: input.contactSessionPhase,
+      isWarmupExtraMenu,
+      lastIdx,
+    });
+    return { handled: false };
+  }
+
+  const current = cleanSteps[lastIdx];
+  const opts = (current?.options ?? []).map((o) => String(o ?? "").trim()).filter(Boolean);
+  const pickedIdx = findWaMenuOptionIndex(input.msg.text.trim(), input.msg.metaInteractiveReplyId, opts);
+
+  console.info("[WA warmup §2.5] option match", {
+    debugTag: input.debugTag,
+    lastIdx,
+    pickedIdx,
+    optsCount: opts.length,
+  });
+
+  if (pickedIdx < 0 && current?.question && opts.length >= 2) {
+    await sendWhatsAppTextOrMenu(
+      input.msg.toNumber,
+      input.msg.from,
+      current.question,
+      opts,
+      input.accountSid,
+      input.authToken,
+      { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+    ).catch((e) => console.error("[WA Webhook] Resend warmup-extra menu failed:", e));
+    return { handled: true };
+  }
+
+  const picked = pickedIdx >= 0 ? opts[pickedIdx] : undefined;
+  if (!picked) return { handled: false };
+
+  const replyRaw = pickedIdx >= 0 ? String(current?.replies?.[pickedIdx] ?? "").trim() : "";
+  const nextIdx = lastIdx + 1;
+  if (nextIdx < cleanSteps.length) {
+    const next = cleanSteps[nextIdx]!;
+    const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
+    const combined = [replyRaw, next.question].filter(Boolean).join("\n\n").trim();
+    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, combined, nextOpts, input.accountSid, input.authToken, {
+      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+    }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: formatInteractiveConversationLog(combined, nextOpts),
+      model_used: "sales_flow_warmup_extra",
+      session_id: input.sessionId,
+    });
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "event",
+      content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${nextIdx}`,
+      model_used: "sf_warmup_extra",
+      session_id: input.sessionId,
+    });
+    return { handled: true };
+  }
+
+  if (replyRaw) {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, replyRaw, input.accountSid, input.authToken).catch((e) =>
+      console.error("[WA Webhook] Send warmup-extra final reply failed:", e)
+    );
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: replyRaw,
+      model_used: "sales_flow_warmup_extra",
+      session_id: input.sessionId,
+    });
+  } else {
+    console.warn("[WA Webhook] Warmup extra pick without reply text", {
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+      lastIdx,
+      picked,
+      debugTag: input.debugTag,
+    });
+  }
+
+  let nextPhase: HeyzoeSessionPhase | undefined;
+  let nextFlowStep: number | undefined;
+  if (replyRaw) {
+    try {
+      await advanceAfterWarmupSessionComplete({
+        knowledge: input.knowledge,
+        salesFlowServices: input.salesFlowServices,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId: input.businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        blockTrialPickMedia: input.blockTrialPickMedia,
+        trialRegistered: input.contactTrialRegistered,
+        allowTrialCta: input.allowTrialCtaThisSession,
+        sfConsumedKinds: input.sfClickedCtaKinds,
+        instagramFollowPromptSent: input.contactInstagramFollowPromptSent,
+      });
+      nextPhase =
+        input.salesFlowServices.length > 1
+          ? "opening"
+          : scheduleSelectionPhaseAfterService(input.knowledge, input.salesFlowServices[0] ?? null);
+      nextFlowStep = 0;
+    } catch (e) {
+      console.error("[WA Webhook] Warmup complete → advance failed:", e);
+    }
+  }
+
+  return {
+    handled: true,
+    ...(nextPhase ? { contactSessionPhase: nextPhase } : {}),
+    ...(nextFlowStep != null ? { contactFlowStep: nextFlowStep } : {}),
+  };
 }
 
 async function sendOpeningServicePickMenu(input: {
@@ -3761,6 +4076,44 @@ async function processIncoming(
     }
   }
 
+  // 0.5) חימום — בחירות תפריט (כולל list_reply / button_reply; inbound תמיד type:"text")
+  if (
+    isWaInboundTextMessage(msg) &&
+    knowledge?.salesFlowConfig &&
+    knowledge.warmupSessionEnabled !== false &&
+    businessId &&
+    contactSessionPhase === "warmup"
+  ) {
+    try {
+      const warmPickEarly = await attemptWarmupExtraMenuPick({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        contactSessionPhase,
+        contactFlowStep,
+        contactTrialRegistered,
+        allowTrialCtaThisSession,
+        sfClickedCtaKinds,
+        contactInstagramFollowPromptSent,
+        blockTrialPickMedia: starterBlocksMedia,
+        debugTag: "priority-warmup-phase",
+      });
+      if (warmPickEarly.handled) {
+        if (warmPickEarly.contactSessionPhase) contactSessionPhase = warmPickEarly.contactSessionPhase;
+        if (warmPickEarly.contactFlowStep != null) contactFlowStep = warmPickEarly.contactFlowStep;
+        return;
+      }
+    } catch (e) {
+      console.error("[WA Webhook] Priority warmup pick failed:", e);
+    }
+  }
+
   // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון (לא בשלב חימום — «1» לא ייבחר בטעות כשירות ראשון)
   if (
     msg.type === "text" &&
@@ -4289,7 +4642,7 @@ async function processIncoming(
   }
 
   // 2) Sales flow: כפתורי CTA / תפריט המשך (לפני זיהוי שאלת ניסיון — כדי ש־1/2/3 יתאימו לתפריט הנוכחי)
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && contactSessionPhase !== "warmup") {
     const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
     const digitOnlyForCta = /^[1-9]$/.test(msg.text.trim());
     const skipCtaBlockForDigit =
@@ -4918,138 +5271,29 @@ async function processIncoming(
   // 2.5) Sales flow: שאלות נוספות בסשן חימום (אחרי שאלת ניסיון קודם, לפני CTA)
   if (msg.type === "text" && knowledge?.salesFlowConfig && knowledge.warmupSessionEnabled !== false && businessId) {
     try {
-      const cfg = knowledge.salesFlowConfig!;
-      const selectedForWarmExtrasName =
-        salesFlowServices.length === 1
-          ? salesFlowServices[0]?.name ?? ""
-          : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
-      const selectedForWarmExtras =
-        salesFlowServices.find((s) => s.name === selectedForWarmExtrasName) ?? salesFlowServices[0] ?? null;
-      const wbExtras = resolveWarmupExperienceConfig(cfg, selectedForWarmExtras?.offerKind ?? "trial");
-      const hasWarmupQ1Extras = isWarmupExperienceQuestion1Configured(wbExtras);
-      const steps = wbExtras.extras;
-      const cleanSteps = steps
-        .map((s) => ({
-          question: String((s as { question?: unknown }).question ?? "").trim(),
-          options: Array.isArray((s as { options?: unknown }).options)
-            ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim())
-            : [],
-          replies: Array.isArray((s as { replies?: unknown }).replies)
-            ? (s as { replies: unknown[] }).replies.map((x) => String(x ?? "").trim())
-            : [],
-        }))
-        .filter((s) => s.question && s.options.filter(Boolean).length >= 2);
-      if (cleanSteps.length > 0) {
-        const lastAssistModel = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-        const lastIdxFromEvent = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
-        const isWarmupExtraMenu = isWarmupExtraMenuModel(lastAssistModel);
-        const lastIdx =
-          contactSessionPhase === "warmup" || isWarmupExtraMenu
-            ? inferWarmupExtraStepIndex({
-                flowStep: contactFlowStep,
-                hasWarmupQ1: hasWarmupQ1Extras,
-                cleanStepsCount: cleanSteps.length,
-                lastIdxFromEvent,
-                lastAssistModel,
-              })
-            : lastIdxFromEvent;
-        if ((contactSessionPhase === "warmup" || isWarmupExtraMenu) && lastIdx != null) {
-          const current = cleanSteps[lastIdx];
-          const opts = (current?.options ?? []).map((o) => String(o ?? "").trim()).filter(Boolean);
-          const pickedIdx = findWaMenuOptionIndex(
-            msg.text.trim(),
-            msg.metaInteractiveReplyId,
-            opts
-          );
-          if (pickedIdx < 0 && current?.question && opts.length >= 2) {
-            await sendWhatsAppTextOrMenu(
-              msg.toNumber,
-              msg.from,
-              current.question,
-              opts,
-              accountSid,
-              authToken,
-              { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
-            ).catch((e) => console.error("[WA Webhook] Resend warmup-extra menu failed:", e));
-            return;
-          }
-          const picked = pickedIdx >= 0 ? opts[pickedIdx] : undefined;
-          if (picked) {
-            const replyRaw =
-              pickedIdx >= 0 ? String(current?.replies?.[pickedIdx] ?? "").trim() : "";
-            const nextIdx = lastIdx + 1;
-            if (nextIdx < cleanSteps.length) {
-              const next = cleanSteps[nextIdx]!;
-              const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-              const combined = [replyRaw, next.question].filter(Boolean).join("\n\n").trim();
-              await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, nextOpts, accountSid, authToken, {
-                footerHint: ZOE_WHATSAPP_MENU_FOOTER,
-              }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
-              await logMessage({
-                business_slug,
-                role: "assistant",
-                content: formatInteractiveConversationLog(combined, nextOpts),
-                model_used: "sales_flow_warmup_extra",
-                session_id: sessionId,
-              });
-              await logMessage({
-                business_slug,
-                role: "event",
-                content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${nextIdx}`,
-                model_used: "sf_warmup_extra",
-                session_id: sessionId,
-              });
-              return;
-            }
-            if (replyRaw) {
-              await sendWhatsAppMessage(msg.toNumber, msg.from, replyRaw, accountSid, authToken).catch((e) =>
-                console.error("[WA Webhook] Send warmup-extra final reply failed:", e)
-              );
-              await logMessage({
-                business_slug,
-                role: "assistant",
-                content: replyRaw,
-                model_used: "sales_flow_warmup_extra",
-                session_id: sessionId,
-              });
-            } else {
-              console.warn("[WA Webhook] Warmup extra pick without reply text", {
-                business_slug,
-                session_id: sessionId,
-                lastIdx,
-                picked,
-              });
-            }
-            if (businessId && replyRaw) {
-              try {
-                await advanceAfterWarmupSessionComplete({
-                  knowledge,
-                  salesFlowServices,
-                  msg,
-                  accountSid,
-                  authToken,
-                  supabase,
-                  businessId,
-                  business_slug,
-                  sessionId,
-                  blockTrialPickMedia: starterBlocksMedia,
-                  trialRegistered: contactTrialRegistered,
-                  allowTrialCta: allowTrialCtaThisSession,
-                  sfConsumedKinds: sfClickedCtaKinds,
-                  instagramFollowPromptSent: contactInstagramFollowPromptSent,
-                });
-                contactSessionPhase =
-                  salesFlowServices.length > 1
-                    ? "opening"
-                    : scheduleSelectionPhaseAfterService(knowledge, salesFlowServices[0] ?? null);
-                contactFlowStep = 0;
-              } catch (e) {
-                console.error("[WA Webhook] Warmup complete → advance failed:", e);
-              }
-            }
-            return;
-          }
-        }
+      const warmPick = await attemptWarmupExtraMenuPick({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        contactSessionPhase,
+        contactFlowStep,
+        contactTrialRegistered,
+        allowTrialCtaThisSession,
+        sfClickedCtaKinds,
+        contactInstagramFollowPromptSent,
+        blockTrialPickMedia: starterBlocksMedia,
+        debugTag: "section-2.5",
+      });
+      if (warmPick.handled) {
+        if (warmPick.contactSessionPhase) contactSessionPhase = warmPick.contactSessionPhase;
+        if (warmPick.contactFlowStep != null) contactFlowStep = warmPick.contactFlowStep;
+        return;
       }
     } catch (e) {
       console.error("[WA Webhook] Warmup extra steps handling failed:", e);
@@ -5289,8 +5533,13 @@ async function processIncoming(
     ...filteredCtaForAi.map((b) => b.label.trim()),
     ...effectiveFollowLabelsForPred.map((option) => String(option ?? "").trim()),
   ].filter(Boolean);
+  const skipPredefinedForWarmupMenuReply =
+    isMetaInteractiveMenuReply(msg) &&
+    (contactSessionPhase === "warmup" || isWarmupExtraMenuModel(await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })));
   const matchedPredefinedClosedLabel =
-    !matched?.reply && predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label));
+    !skipPredefinedForWarmupMenuReply &&
+    !matched?.reply &&
+    predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label));
   const lastPickedServiceName =
     msg.type === "text" && knowledge?.salesFlowConfig && salesFlowServices.length > 1
       ? await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })
@@ -5501,6 +5750,39 @@ async function processIncoming(
     }
 
     if (msg.type === "text" && isMetaInteractiveMenuReply(msg)) {
+      if (
+        knowledge?.salesFlowConfig &&
+        knowledge.warmupSessionEnabled !== false &&
+        businessId &&
+        contactSessionPhase === "warmup"
+      ) {
+        const warmPickLeak = await attemptWarmupExtraMenuPick({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          contactSessionPhase,
+          contactFlowStep,
+          contactTrialRegistered,
+          allowTrialCtaThisSession,
+          sfClickedCtaKinds,
+          contactInstagramFollowPromptSent,
+          blockTrialPickMedia: starterBlocksMedia,
+          debugTag: "leak-guard-warmup-retry",
+        });
+        if (warmPickLeak.handled) {
+          console.info("[WA Webhook] interactive leak guard avoided — warmup pick handled", {
+            business_slug,
+            session_id: sessionId,
+          });
+          return;
+        }
+      }
       warnInteractiveReplyRoutedToClaude({
         business_slug,
         sessionId,
