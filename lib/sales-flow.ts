@@ -2318,15 +2318,56 @@ export function expandAfterTrialRegistrationForPrompt(
   return t;
 }
 
-const TRIAL_REGISTERED_PHRASES = ["נרשמתי", "נרשמת", "נרשמנו", "registered", "signed up"] as const;
+const TRIAL_REGISTERED_PHRASES = [
+  "נרשמתי",
+  "נירשמתי",
+  "נרשמת",
+  "נירשמת",
+  "נרשמנו",
+  "נירשמנו",
+  "registered",
+  "signed up",
+] as const;
+
+/** י׳ מיותרת אחרי «נ» (נירשמתי → נרשמתי) וכפילויות נפוצות. */
+function collapseRegisteredSpellingVariants(t: string): string {
+  return t
+    .replace(/נירשמ/gu, "נרשמ")
+    .replace(/נרישמ/gu, "נרשמ")
+    .replace(/נרשמתיי+/gu, "נרשמתי");
+}
 
 function normalizeTrialRegisteredText(raw: string): string {
-  return String(raw ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[!?….,;:"'׳״()[\]{}]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return collapseRegisteredSpellingVariants(
+    String(raw ?? "")
+      .trim()
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .toLowerCase()
+      .replace(/[!?….,;:"'׳״()[\]{}]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+const REGISTERED_LEADING_FILLER_RE =
+  /^(?:היי|הי|שלום|אהלן|כן|סבבה|מעולה|תודה|אוקי|אוקיי|סיימתי)(?:\s+|$)+/u;
+
+function stripRegisteredLeadingFiller(t: string): string {
+  let s = t;
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(REGISTERED_LEADING_FILLER_RE, "").trim();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+function matchesRegisteredPhraseCore(t: string): boolean {
+  if (!t) return false;
+  for (const p of TRIAL_REGISTERED_PHRASES) {
+    if (t === p.toLowerCase()) return true;
+  }
+  return /^נרשמ(?:תי|ת|נו)?$/u.test(t);
 }
 
 export function matchesTrialAlreadyRegisteredMessage(raw: string): boolean {
@@ -2342,13 +2383,13 @@ export function matchesTrialAlreadyRegisteredMessage(raw: string): boolean {
   );
 }
 
-/** זיהוי הודעת «סיימתי להירשם» לווטסאפ (התאמה מלאה אחרי trim, case-insensitive לאנגלית). */
+/** זיהוי הודעת «סיימתי להירשם» לווטסאפ (ביטוי קצר / וריאציות כתיב, לא «כבר נרשמתי»). */
 export function matchesTrialRegisteredMessage(raw: string): boolean {
+  if (matchesTrialAlreadyRegisteredMessage(raw)) return true;
   const t = normalizeTrialRegisteredText(raw);
-  for (const p of TRIAL_REGISTERED_PHRASES) {
-    if (t === p.toLowerCase()) return true;
-  }
-  return matchesTrialAlreadyRegisteredMessage(raw);
+  if (matchesRegisteredPhraseCore(t)) return true;
+  const stripped = stripRegisteredLeadingFiller(t);
+  return stripped !== t && matchesRegisteredPhraseCore(stripped);
 }
 
 export function resolveAfterTrialRegistrationBodyTemplate(

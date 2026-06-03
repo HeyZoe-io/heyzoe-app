@@ -53,7 +53,14 @@ export function matchesMarketingRegisteredClick(raw: string): boolean {
     .replace(/[!?….,]+$/gu, "")
     .trim()
     .toLowerCase();
-  return t === "נרשמתי" || t === "נרשמת" || t === "נרשמנו" || t === "registered" || t === "signed up";
+  const collapsed = t.replace(/נירשמ/gu, "נרשמ").replace(/נרישמ/gu, "נרשמ");
+  return (
+    collapsed === "נרשמתי" ||
+    collapsed === "נרשמת" ||
+    collapsed === "נרשמנו" ||
+    collapsed === "registered" ||
+    collapsed === "signed up"
+  );
 }
 
 export async function loadWhatsappAnalyticsSnapshot(sinceIso: string): Promise<WhatsappAnalyticsSnapshot> {
