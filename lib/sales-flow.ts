@@ -2446,6 +2446,8 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
     requestedDate: scheduleSelection?.requestedDate,
     requestedTime: scheduleSelection?.requestedTime,
     serviceName: scheduleSelection?.serviceName,
+    offerKind: scheduleSelection?.offerKind,
+    courseSchedulePhrase: scheduleSelection?.courseSchedulePhrase,
   });
   s = s
     .split("\n")
