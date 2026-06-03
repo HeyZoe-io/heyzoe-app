@@ -49,6 +49,8 @@ import {
   resolveSfServicePriceDuration,
   resolveAfterRegistrationBodyTemplate,
   isWarmupExperienceQuestion1Configured,
+  pickServiceRowForWarmupConfig,
+  buildWarmupExtraCleanStepsFromWb,
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
   fillAfterCourseCyclePickTemplate,
@@ -1335,28 +1337,41 @@ async function buildWarmupExtraCleanSteps(input: {
   salesFlowServices: SfServiceRow[];
   business_slug: string;
   session_id: string;
-}): Promise<{ cleanSteps: WarmupExtraCleanStep[]; hasWarmupQ1: boolean }> {
+}): Promise<{
+  cleanSteps: WarmupExtraCleanStep[];
+  hasWarmupQ1: boolean;
+  warmupServiceName: string;
+  warmupOfferKind: string;
+}> {
   const selectedName =
     input.salesFlowServices.length === 1
       ? input.salesFlowServices[0]?.name ?? ""
       : ((await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.session_id })) ??
         "");
+  const pick = pickServiceRowForWarmupConfig(input.salesFlowServices, input.cfg, selectedName);
   const svc =
-    input.salesFlowServices.find((s) => s.name === selectedName) ?? input.salesFlowServices[0] ?? null;
-  const wb = resolveWarmupExperienceConfig(input.cfg, svc?.offerKind ?? "trial");
-  const hasWarmupQ1 = isWarmupExperienceQuestion1Configured(wb);
-  const cleanSteps = wb.extras
-    .map((s) => ({
-      question: String((s as { question?: unknown }).question ?? "").trim(),
-      options: Array.isArray((s as { options?: unknown }).options)
-        ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim())
-        : [],
-      replies: Array.isArray((s as { replies?: unknown }).replies)
-        ? (s as { replies: unknown[] }).replies.map((x) => String(x ?? "").trim())
-        : [],
-    }))
-    .filter((s) => s.question && s.options.filter(Boolean).length >= 2);
-  return { cleanSteps, hasWarmupQ1 };
+    pick != null
+      ? (input.salesFlowServices.find((s) => s.name === pick.name) ?? null)
+      : (input.salesFlowServices[0] ?? null);
+  const offerKind = pick?.offerKind ?? svc?.offerKind ?? "trial";
+  const wb = resolveWarmupExperienceConfig(input.cfg, offerKind);
+  const { cleanSteps, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wb);
+  console.info("[WA warmup buildCleanSteps]", {
+    business_slug: input.business_slug,
+    session_id: input.session_id,
+    selectedSfServiceEvent: selectedName || null,
+    resolvedService: svc?.name ?? null,
+    offerKind,
+    rawExtrasCount: wb.extras.length,
+    cleanStepsCount: cleanSteps.length,
+    multiService: input.salesFlowServices.length > 1,
+  });
+  return {
+    cleanSteps,
+    hasWarmupQ1,
+    warmupServiceName: svc?.name ?? "",
+    warmupOfferKind: offerKind,
+  };
 }
 
 /** מיפוי בחירת תפריט (במיוחד list_reply) לשלב+אופציה — בלי תלות ב-lastIdx/event. */
@@ -1658,7 +1673,7 @@ async function attemptWarmupExtraMenuPick(input: {
   const cfg = input.knowledge.salesFlowConfig;
   if (!cfg || input.knowledge.warmupSessionEnabled === false) return { handled: false };
 
-  const { cleanSteps, hasWarmupQ1 } = await buildWarmupExtraCleanSteps({
+  const { cleanSteps, hasWarmupQ1, warmupServiceName, warmupOfferKind } = await buildWarmupExtraCleanSteps({
     cfg,
     salesFlowServices: input.salesFlowServices,
     business_slug: input.business_slug,
@@ -1670,6 +1685,9 @@ async function attemptWarmupExtraMenuPick(input: {
       business_slug: input.business_slug,
       session_id: input.sessionId,
       contactSessionPhase: input.contactSessionPhase,
+      warmupServiceName,
+      warmupOfferKind,
+      multiService: input.salesFlowServices.length > 1,
     });
     return { handled: false };
   }
@@ -2858,21 +2876,14 @@ async function sendFlowContinuation(input: {
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+    const warmPick = pickServiceRowForWarmupConfig(salesFlowServices, cfg, namedForWarmExtras);
     const svcRowForWarmExtras =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0] ?? null
-        : salesFlowServices.find((s) => s.name === namedForWarmExtras) ?? null;
-    const warmKindForExtras = svcRowForWarmExtras?.offerKind ?? "trial";
+      warmPick != null
+        ? (salesFlowServices.find((s) => s.name === warmPick.name) ?? null)
+        : (salesFlowServices[0] ?? null);
+    const warmKindForExtras = warmPick?.offerKind ?? svcRowForWarmExtras?.offerKind ?? "trial";
     const wbWarm = resolveWarmupExperienceConfig(cfg, warmKindForExtras);
-    const hasWarmupQ1 = isWarmupExperienceQuestion1Configured(wbWarm);
-    const cleanWarm = wbWarm.extras
-      .map((s) => ({
-        question: String((s as { question?: unknown }).question ?? "").trim(),
-        options: Array.isArray((s as { options?: unknown }).options)
-          ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim()).filter(Boolean)
-          : [],
-      }))
-      .filter((s) => s.question && s.options.length >= 2);
+    const { cleanSteps: cleanWarm, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wbWarm);
 
     if (step === 0 && hasWarmupQ1) {
       const sent = await sendWarmupExperienceQuestionMenu({
