@@ -1803,6 +1803,61 @@ export function resolveWarmupExperienceConfig(
   };
 }
 
+export type WarmupServicePick = { name: string; offerKind: OfferKind };
+
+/**
+ * מסלול מרובה־שירותים: בלי אירוע בחירת שירות אל תיפול ל־services[0] (סדר DB) —
+ * בחר שירות שיש לו תוכן חימום (extras או שאלת ניסיון).
+ */
+export function pickServiceRowForWarmupConfig(
+  services: { name: string; offerKind?: OfferKind | string | null }[],
+  cfg: SalesFlowConfig,
+  selectedServiceName: string | null | undefined
+): WarmupServicePick | null {
+  const named = String(selectedServiceName ?? "").trim();
+  if (named) {
+    const hit = services.find((s) => s.name.trim() === named);
+    if (hit) return { name: hit.name, offerKind: (hit.offerKind ?? "trial") as OfferKind };
+  }
+  if (services.length === 1) {
+    const s = services[0]!;
+    return { name: s.name, offerKind: (s.offerKind ?? "trial") as OfferKind };
+  }
+  for (const s of services) {
+    const kind = (s.offerKind ?? "trial") as OfferKind;
+    const wb = resolveWarmupExperienceConfig(cfg, kind);
+    const hasExtras = wb.extras.some((st) => {
+      const opts = (st.options ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
+      return opts.length >= 2;
+    });
+    if (hasExtras) return { name: s.name, offerKind: kind };
+    if (isWarmupExperienceQuestion1Configured({ question: wb.question, options: wb.options })) {
+      return { name: s.name, offerKind: kind };
+    }
+  }
+  const fallback = services[0];
+  return fallback ? { name: fallback.name, offerKind: (fallback.offerKind ?? "trial") as OfferKind } : null;
+}
+
+export function buildWarmupExtraCleanStepsFromWb(
+  wb: ReturnType<typeof resolveWarmupExperienceConfig>,
+  fallbackQuestion = "מה מביא אותך אלינו?"
+): {
+  cleanSteps: { question: string; options: string[]; replies: string[] }[];
+  hasWarmupQ1: boolean;
+} {
+  const hasWarmupQ1 = isWarmupExperienceQuestion1Configured(wb);
+  const defaultQ = String(wb.question ?? "").trim() || fallbackQuestion;
+  const cleanSteps = wb.extras
+    .map((s) => ({
+      question: String(s.question ?? "").trim() || defaultQ,
+      options: (s.options ?? []).map((x) => String(x ?? "").trim()).filter(Boolean),
+      replies: (s.replies ?? []).map((x) => String(x ?? "").trim()),
+    }))
+    .filter((s) => s.options.length >= 2);
+  return { cleanSteps, hasWarmupQ1 };
+}
+
 export function formatServiceLevelsText(levelsEnabled: boolean, levels: string[]): string {
   const cleanLevels = levels.map((level) => String(level ?? "").trim()).filter(Boolean);
   if (!levelsEnabled || cleanLevels.length === 0) {
