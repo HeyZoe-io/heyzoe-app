@@ -644,6 +644,112 @@ async function restartSalesFlowFromGreeting(input: {
   };
 }
 
+const SALES_FLOW_CONTINUATION_PHASES = new Set<HeyzoeSessionPhase>([
+  "opening",
+  "warmup",
+  "schedule_date",
+  "schedule_time",
+  "cta",
+  "registered",
+]);
+
+function buildShortCustomerServiceOfferLine(customerServicePhone: string): string {
+  const csPhone = customerServicePhone.trim();
+  return csPhone
+    ? `מוזמנים להתקשר לשירות הלקוחות שלנו:\n${csPhone}`
+    : "מוזמנים לכתוב כאן ונחזור אליכם.";
+}
+
+/** בחירת תפריט שלא זוהתה: רמז CS + שליחה מחדש של שלב הפלואו, או איפוס «היי». */
+async function recoverUnrecognizedMenuPick(input: {
+  knowledge: BusinessKnowledgePack | null;
+  salesFlowServices: SfServiceRow[];
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | null;
+  business_slug: string;
+  sessionId: string;
+  contactSessionPhase: HeyzoeSessionPhase;
+  contactFlowStep: number;
+  contactTrialRegistered: boolean | null;
+  allowTrialCtaThisSession: boolean;
+  sfClickedCtaKinds: string[];
+  contactInstagramFollowPromptSent: boolean;
+  blockTrialPickMedia: boolean;
+  sendOpeningMediaIfConfigured: () => Promise<boolean>;
+  logModelUsed: string;
+}): Promise<void> {
+  const hint = "נראה שהבחירה לא הותאמה לתפריט — אפשר לנסות שוב מההודעה הבאה.";
+  const txt = `${hint}\n\n${buildShortCustomerServiceOfferLine(input.knowledge?.customerServicePhone ?? "")}`;
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken).catch((e) =>
+    console.error("[WA Webhook] menu pick recovery CS hint failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: txt,
+    model_used: input.logModelUsed,
+    session_id: input.sessionId,
+  });
+
+  await sleepMs(800);
+
+  const phase = input.contactSessionPhase;
+  const canContinue =
+    Boolean(input.businessId) &&
+    Boolean(input.knowledge?.salesFlowConfig) &&
+    SALES_FLOW_CONTINUATION_PHASES.has(phase);
+
+  if (canContinue) {
+    try {
+      await sendFlowContinuation({
+        phase,
+        contact: { flow_step: input.contactFlowStep },
+        knowledge: input.knowledge!,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId: input.businessId!,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        salesFlowServices: input.salesFlowServices,
+        trialRegistered: input.contactTrialRegistered,
+        allowTrialCta: input.allowTrialCtaThisSession,
+        blockTrialPickMedia: input.blockTrialPickMedia,
+        sfConsumedKinds: input.sfClickedCtaKinds,
+        instagramFollowPromptSent: input.contactInstagramFollowPromptSent,
+      });
+      return;
+    } catch (e) {
+      console.error("[WA Webhook] menu pick recovery sendFlowContinuation failed:", e);
+    }
+  } else {
+    console.warn("[WA Webhook] menu pick recovery: unclear phase or missing sales flow — restarting greeting", {
+      phase,
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+    });
+  }
+
+  await restartSalesFlowFromGreeting({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    blockTrialPickMedia: input.blockTrialPickMedia,
+    sendOpeningMediaIfConfigured: input.sendOpeningMediaIfConfigured,
+    logModelUsed: "greeting",
+  });
+}
+
 async function bumpContactFlowStep(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
@@ -4847,7 +4953,7 @@ async function processIncoming(
                 lastAssistModel,
               })
             : lastIdxFromEvent;
-        if (isWarmupExtraMenu && lastIdx != null) {
+        if ((contactSessionPhase === "warmup" || isWarmupExtraMenu) && lastIdx != null) {
           const current = cleanSteps[lastIdx];
           const opts = (current?.options ?? []).map((o) => String(o ?? "").trim()).filter(Boolean);
           const pickedIdx = findWaMenuOptionIndex(
@@ -5172,15 +5278,6 @@ async function processIncoming(
   const predefinedClosedLabels = [
     ...quickLabels,
     ...(knowledge?.salesFlowConfig?.greeting_extra_steps ?? []).flatMap((step) => step.options.map((option) => option.trim())),
-    ...(knowledge?.salesFlowConfig?.opening_extra_steps ?? []).flatMap((step) =>
-      step.options.map((option) => String(option ?? "").trim())
-    ),
-    ...(knowledge?.salesFlowConfig?.opening_extra_steps_workshop ?? []).flatMap((step) =>
-      step.options.map((option) => String(option ?? "").trim())
-    ),
-    ...(knowledge?.salesFlowConfig?.opening_extra_steps_course ?? []).flatMap((step) =>
-      step.options.map((option) => String(option ?? "").trim())
-    ),
     ...salesFlowServices.map((service) => service.name.trim()),
     ...((knowledge?.salesFlowConfig?.experience_options ?? []).map((option) => String(option ?? "").trim())),
     ...((knowledge?.salesFlowConfig?.experience_options_workshop ?? []).map((option) =>
@@ -5249,17 +5346,25 @@ async function processIncoming(
     replyCore = matched.reply;
     console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
   } else if (matchedPredefinedClosedLabel) {
-    const txt =
-      "קיבלתי את הבחירה שלך 👍 אם רצית להמשיך דרך התפריט, אפשר לבחור שוב מהאפשרויות שמופיעות בהודעה האחרונה. לשאלה פתוחה אפשר פשוט לכתוב לי כאן.";
-    await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-      console.error("[WA Webhook] Send predefined-choice guard reply failed:", e)
-    );
-    await logMessage({
+    await recoverUnrecognizedMenuPick({
+      knowledge,
+      salesFlowServices,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
       business_slug,
-      role: "assistant",
-      content: txt,
-      model_used: "predefined_choice_guard",
-      session_id: sessionId,
+      sessionId,
+      contactSessionPhase,
+      contactFlowStep,
+      contactTrialRegistered,
+      allowTrialCtaThisSession,
+      sfClickedCtaKinds,
+      contactInstagramFollowPromptSent,
+      blockTrialPickMedia: starterBlocksMedia,
+      sendOpeningMediaIfConfigured,
+      logModelUsed: "predefined_choice_guard",
     });
     return;
   } else if (joinSignupRecovery === "service_pick" && knowledge?.salesFlowConfig && businessId) {
@@ -5403,18 +5508,25 @@ async function processIncoming(
         sessionPhase: contactSessionPhase,
         isFreeTextSalesFlowAi,
       });
-      const txt =
-        "קיבלתי את הבחירה שלך 👍 אם רצית להמשיך דרך התפריט, אפשר לבחור שוב מהאפשרויות שמופיעות בהודעה האחרונה. לשאלה פתוחה אפשר פשוט לכתוב לי כאן.";
-      await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-        console.error("[WA Webhook] Send interactive-leak guard reply failed:", e)
-      );
-      await logMessage({
+      await recoverUnrecognizedMenuPick({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
         business_slug,
-        role: "assistant",
-        content: txt,
-        model_used: "interactive_reply_claude_leak_guard",
-        session_id: sessionId,
-        error_code: "interactive_reply_claude_leak",
+        sessionId,
+        contactSessionPhase,
+        contactFlowStep,
+        contactTrialRegistered,
+        allowTrialCtaThisSession,
+        sfClickedCtaKinds,
+        contactInstagramFollowPromptSent,
+        blockTrialPickMedia: starterBlocksMedia,
+        sendOpeningMediaIfConfigured,
+        logModelUsed: "interactive_reply_claude_leak_guard",
       });
       return;
     }
