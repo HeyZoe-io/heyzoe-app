@@ -1823,6 +1823,7 @@ export function pickServiceRowForWarmupConfig(
     const s = services[0]!;
     return { name: s.name, offerKind: (s.offerKind ?? "trial") as OfferKind };
   }
+  // מעבר 1: שאלות נוספות (opening_extra_steps*) — לפני Q1, כדי שלא ייבחר קורס עם Q1 בלבד לפני trial עם 8 כפתורים.
   for (const s of services) {
     const kind = (s.offerKind ?? "trial") as OfferKind;
     const wb = resolveWarmupExperienceConfig(cfg, kind);
@@ -1831,6 +1832,10 @@ export function pickServiceRowForWarmupConfig(
       return opts.length >= 2;
     });
     if (hasExtras) return { name: s.name, offerKind: kind };
+  }
+  for (const s of services) {
+    const kind = (s.offerKind ?? "trial") as OfferKind;
+    const wb = resolveWarmupExperienceConfig(cfg, kind);
     if (isWarmupExperienceQuestion1Configured({ question: wb.question, options: wb.options })) {
       return { name: s.name, offerKind: kind };
     }
