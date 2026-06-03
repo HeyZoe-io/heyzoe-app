@@ -1,3 +1,4 @@
+import { fetchLastSalesFlowGreetingResetAt } from "@/lib/analytics";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   isWarmupExperienceQuestion1Configured,
@@ -61,7 +62,12 @@ export async function isWarmupExperienceQuestionPending(input: {
   business_slug: string;
   session_id: string;
 }): Promise<boolean> {
-  const { data: expSent, error } = await input.admin
+  const resetAt = await fetchLastSalesFlowGreetingResetAt({
+    business_slug: input.business_slug,
+    session_id: input.session_id,
+  });
+
+  let expSentQ = input.admin
     .from("messages")
     .select("created_at")
     .eq("business_slug", input.business_slug)
@@ -69,8 +75,11 @@ export async function isWarmupExperienceQuestionPending(input: {
     .eq("role", "assistant")
     .in("model_used", [...EXPERIENCE_SENT_MODELS])
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (resetAt) {
+    expSentQ = expSentQ.gt("created_at", resetAt);
+  }
+  const { data: expSent, error } = await expSentQ.maybeSingle();
 
   if (error || !expSent?.created_at) return false;
 

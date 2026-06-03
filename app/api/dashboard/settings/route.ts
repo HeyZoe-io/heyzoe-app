@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
 import { truncateTrialServiceName } from "@/lib/trial-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -220,6 +221,8 @@ export async function POST(req: NextRequest) {
     .select("id, slug")
     .single();
   if (bizErr || !savedBiz) return NextResponse.json({ error: bizErr?.message ?? "business_save_failed" }, { status: 400 });
+
+  invalidateBusinessKnowledgePackCache(String(savedBiz.slug ?? canonicalSlug));
 
   if (existingForUser && Number(savedBiz.id) !== Number(existingForUser.id)) {
     return NextResponse.json({ error: "business_save_failed" }, { status: 400 });

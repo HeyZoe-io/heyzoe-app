@@ -20,6 +20,32 @@ export const HEYZOE_SF_CTA_REACHED = "[heyzoe:sf_cta_reached]";
 /** הלקוח סימן שנרשם לאימון ניסיון (נרשמתי). */
 export const HEYZOE_SF_REGISTERED = "[heyzoe:sf_registered]";
 
+/** איפוס מסלול מכירה — «היי» / ליד חדש; אירועים לפני זה לא סופרים לבחירת שירות/חימום. */
+export const SALES_FLOW_GREETING_RESET_MODELS = ["greeting", "default_opening"] as const;
+
+export async function fetchLastSalesFlowGreetingResetAt(input: {
+  business_slug: string;
+  session_id: string;
+}): Promise<string | null> {
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .select("created_at")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", input.session_id)
+      .eq("role", "assistant")
+      .in("model_used", [...SALES_FLOW_GREETING_RESET_MODELS])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data?.created_at) return null;
+    return String(data.created_at);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchLastAssistantModelUsed(input: {
   business_slug: string;
   session_id: string;
@@ -46,17 +72,31 @@ export async function fetchLastAssistantModelUsed(input: {
 export async function fetchLastSfServiceEventName(input: {
   business_slug: string;
   session_id: string;
+  /** ברירת מחדל: true — מתעלם מבחירות שירות לפני «היי» / פתיחה מחדש. */
+  respectGreetingReset?: boolean;
 }): Promise<string | null> {
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase
+    const respectGreetingReset = input.respectGreetingReset !== false;
+    const resetAt = respectGreetingReset
+      ? await fetchLastSalesFlowGreetingResetAt({
+          business_slug: input.business_slug,
+          session_id: input.session_id,
+        })
+      : null;
+
+    let q = supabase
       .from("messages")
-      .select("content")
+      .select("content, created_at")
       .eq("business_slug", input.business_slug)
       .eq("session_id", input.session_id)
       .eq("role", "event")
       .order("created_at", { ascending: false })
       .limit(16);
+    if (resetAt) {
+      q = q.gt("created_at", resetAt);
+    }
+    const { data, error } = await q;
     if (error || !data?.length) return null;
     for (const row of data) {
       const c = String(row.content ?? "").trim();
@@ -73,17 +113,30 @@ export async function fetchLastSfServiceEventName(input: {
 export async function fetchLastSfWarmupExtraIndex(input: {
   business_slug: string;
   session_id: string;
+  respectGreetingReset?: boolean;
 }): Promise<number | null> {
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase
+    const respectGreetingReset = input.respectGreetingReset !== false;
+    const resetAt = respectGreetingReset
+      ? await fetchLastSalesFlowGreetingResetAt({
+          business_slug: input.business_slug,
+          session_id: input.session_id,
+        })
+      : null;
+
+    let q = supabase
       .from("messages")
-      .select("content")
+      .select("content, created_at")
       .eq("business_slug", input.business_slug)
       .eq("session_id", input.session_id)
       .eq("role", "event")
       .order("created_at", { ascending: false })
       .limit(24);
+    if (resetAt) {
+      q = q.gt("created_at", resetAt);
+    }
+    const { data, error } = await q;
     if (error || !data?.length) return null;
     for (const row of data) {
       const c = String(row.content ?? "").trim();
