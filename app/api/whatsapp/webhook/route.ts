@@ -1364,30 +1364,122 @@ function findWarmupExtraPickAcrossSteps(
   cleanSteps: WarmupExtraCleanStep[],
   msg: Pick<WaIncomingText, "text" | "metaInteractiveReplyId">
 ): { stepIdx: number; optionIdx: number } | null {
-  const decoded = msg.metaInteractiveReplyId?.trim()
-    ? metaInteractiveDecodeReplyId(msg.metaInteractiveReplyId)
-    : null;
-  const labelCandidates = [decoded, msg.text.trim()].filter((x): x is string => Boolean(x?.length));
+  const incomingText = msg.text.trim();
+  const metaId = msg.metaInteractiveReplyId?.trim() ?? "";
+  const decoded = metaId ? metaInteractiveDecodeReplyId(metaId) : null;
+  const labelCandidates = [decoded, incomingText].filter((x): x is string => Boolean(x?.length));
+
+  console.info("[WA warmup findWarmupExtraPickAcrossSteps] start", {
+    cleanStepsCount: cleanSteps.length,
+    cleanSteps: cleanSteps.map((s, stepIdx) => ({
+      stepIdx,
+      question: s.question,
+      options: s.options.map((o) => String(o ?? "").trim()).filter(Boolean),
+      replies: s.replies.map((r) => String(r ?? "").trim()),
+    })),
+    incomingText,
+    metaInteractiveReplyId: metaId || null,
+    decodedFromMetaId: decoded,
+    initialLabelCandidates: [...labelCandidates],
+  });
 
   for (let si = 0; si < cleanSteps.length; si++) {
     const opts = cleanSteps[si]!.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-    if (opts.length < 2) continue;
-    if (msg.metaInteractiveReplyId?.trim()) {
-      const resolved = resolveMetaInteractiveLabel(msg.metaInteractiveReplyId, msg.text.trim(), opts);
-      if (resolved.trim()) labelCandidates.unshift(resolved.trim());
+    if (opts.length < 2) {
+      console.info("[WA warmup findWarmupExtraPickAcrossSteps] skip step (<2 options)", {
+        stepIdx: si,
+        optsCount: opts.length,
+      });
+      continue;
     }
-    for (const label of labelCandidates) {
+
+    const resolvedMetaLabel = metaId
+      ? resolveMetaInteractiveLabel(metaId, incomingText, opts)
+      : null;
+    const stepLabelCandidates = [...labelCandidates];
+    if (resolvedMetaLabel?.trim()) {
+      stepLabelCandidates.unshift(resolvedMetaLabel.trim());
+    }
+
+    console.info("[WA warmup findWarmupExtraPickAcrossSteps] step", {
+      stepIdx: si,
+      question: cleanSteps[si]!.question,
+      options: opts,
+      resolvedMetaLabel,
+      labelCandidatesForStep: stepLabelCandidates,
+    });
+
+    const comparisons: {
+      optionIdx: number;
+      option: string;
+      optionTruncated: string;
+      candidateLabel: string;
+      candidateVariant: string;
+      matchDirect: boolean;
+      matchTruncatedOption: boolean;
+      matched: boolean;
+    }[] = [];
+
+    for (const label of stepLabelCandidates) {
       const variants = [label, truncateWaButtonLabel(label)].filter((x, i, arr) => x && arr.indexOf(x) === i);
       for (const variant of variants) {
-        const byLabel = opts.findIndex(
-          (o) => waLabelMatches(o, variant) || waLabelMatches(truncateWaButtonLabel(o), variant)
-        );
-        if (byLabel >= 0) return { stepIdx: si, optionIdx: byLabel };
+        for (let oi = 0; oi < opts.length; oi++) {
+          const option = opts[oi]!;
+          const optionTruncated = truncateWaButtonLabel(option);
+          const matchDirect = waLabelMatches(option, variant);
+          const matchTruncatedOption = waLabelMatches(optionTruncated, variant);
+          const matched = matchDirect || matchTruncatedOption;
+          comparisons.push({
+            optionIdx: oi,
+            option,
+            optionTruncated,
+            candidateLabel: label,
+            candidateVariant: variant,
+            matchDirect,
+            matchTruncatedOption,
+            matched,
+          });
+          if (matched) {
+            console.info("[WA warmup findWarmupExtraPickAcrossSteps] MATCH (label compare)", {
+              stepIdx: si,
+              optionIdx: oi,
+              option,
+              optionTruncated,
+              candidateLabel: label,
+              candidateVariant: variant,
+              matchDirect,
+              matchTruncatedOption,
+            });
+            return { stepIdx: si, optionIdx: oi };
+          }
+        }
       }
     }
-    const byMenu = findWaMenuOptionIndex(msg.text.trim(), msg.metaInteractiveReplyId, opts);
-    if (byMenu >= 0) return { stepIdx: si, optionIdx: byMenu };
+
+    const byMenu = findWaMenuOptionIndex(incomingText, msg.metaInteractiveReplyId, opts);
+    const resolvedChoice = resolveWaMenuChoice(incomingText, msg.metaInteractiveReplyId, opts);
+    console.info("[WA warmup findWarmupExtraPickAcrossSteps] step compare summary", {
+      stepIdx: si,
+      comparisons,
+      findWaMenuOptionIndexResult: byMenu,
+      resolveWaMenuChoiceResult: resolvedChoice,
+    });
+    if (byMenu >= 0) {
+      console.info("[WA warmup findWarmupExtraPickAcrossSteps] MATCH (findWaMenuOptionIndex)", {
+        stepIdx: si,
+        optionIdx: byMenu,
+        matchedOption: opts[byMenu],
+      });
+      return { stepIdx: si, optionIdx: byMenu };
+    }
   }
+
+  console.info("[WA warmup findWarmupExtraPickAcrossSteps] no match", {
+    incomingText,
+    metaInteractiveReplyId: metaId || null,
+    decodedFromMetaId: decoded,
+    labelCandidates,
+  });
   return null;
 }
 
