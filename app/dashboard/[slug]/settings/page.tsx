@@ -27,6 +27,7 @@ import {
   fillCtaBodyTemplate,
   fillCourseCtaBodyTemplate,
   fillWorkshopCtaBodyTemplate,
+  migrateCtaBodyDisplayPlaceholders,
   formatServiceLevelsText,
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
@@ -916,10 +917,8 @@ function ctaBodyForDisplay(stored: string): string {
 }
 
 function ctaBodyToStore(typed: string, priceText: string, durationText: string): string {
-  let s = typed;
+  let s = migrateCtaBodyDisplayPlaceholders(typed);
   // אם המשתמש השאיר x כפי שמוצג ב־UI, נשמור חזרה את התבנית.
-  s = s.replace(/\bx\s+שקלים\b/gu, "{priceText} שקלים");
-  s = s.replace(/\bx\s+דקות\b/gu, "{durationText} דקות");
   const p = priceText.trim();
   const d = durationText.trim();
   if (p && s.includes(p)) s = s.split(p).join("{priceText}");
@@ -936,7 +935,9 @@ function workshopCtaBodyToStore(
   priceText: string,
   durationText: string
 ): string {
-  let s = typed.replace(/\bx\s+שקלים\b/gu, "{price} שקלים").replace(/\bx\s+דקות\b/gu, "{duration} דקות");
+  let s = migrateCtaBodyDisplayPlaceholders(typed)
+    .replace(/\{priceText\}/g, "{price}")
+    .replace(/\{durationText\}/g, "{duration}");
   const p = priceText.trim();
   const d = durationText.trim();
   if (p && s.includes(p)) s = s.split(p).join("{price}");
@@ -957,10 +958,10 @@ function courseCtaBodyToStore(
   schedulePhrase: string
 ): string {
   let s = typed;
-  s = s.replace(/\bx\s+שקלים\b/gu, "{price} שקלים");
-  s = s.replace(/\bכ־x\s+מפגשים\b/gu, "כ-{sessions} מפגשים").replace(/\bx\s+מפגשים\b/gu, "{sessions} מפגשים");
+  s = migrateCtaBodyDisplayPlaceholders(s).replace(/\{priceText\}/g, "{price}");
+  s = s.replace(/כ-?x\s+מפגשים/gu, "כ-{sessions} מפגשים").replace(/x\s+מפגשים/gu, "{sessions} מפגשים");
   s = s.replace(/כל יום x בשעה x/gu, "{schedule_phrase}");
-  s = s.replace(/\bx\s+עד\s+x\b/gu, "{start_date} עד {end_date}");
+  s = s.replace(/x\s+עד\s+x/gu, "{start_date} עד {end_date}");
   const p = priceText.trim();
   const sess = sessionsText.trim();
   const a = startDate.trim();
