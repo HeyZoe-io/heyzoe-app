@@ -571,6 +571,8 @@ export type WhatsAppPromptContext = {
   ctaMultiServiceRepick?: boolean;
   /** schedule_date/time + אימון שנבחר — ניסוח «יש עניין ב… זמנים» */
   scheduleInterestServiceName?: string;
+  /** מועדי לוח/מחזור לאימון שנבחר — לקסיקון מדויק בפרומפט */
+  pickedServiceScheduleLexicon?: string;
 };
 
 function formatCommittedScheduleLabel(date: string, time: string): string {
@@ -655,6 +657,7 @@ export function buildSystemPrompt(
       ? buildWaSpellingAndPhrasingPromptRule(knowledge, {
           suppressFollowUpQuestion: true,
           scheduleInterestServiceName: waCtx.scheduleInterestServiceName,
+          pickedServiceScheduleLexicon: waCtx.pickedServiceScheduleLexicon,
         })
       : "";
 

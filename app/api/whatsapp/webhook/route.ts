@@ -102,7 +102,11 @@ import {
   buildSalesFlowHumanAgentHandoffReply,
   userRequestedHumanAgent,
 } from "@/lib/notifications/detect-human-request";
-import { applyKnownAssistantReplyFixes } from "@/lib/wa-assistant-reply-fixes";
+import {
+  applyKnownAssistantReplyFixes,
+  buildPickedServiceScheduleLexiconForPrompt,
+  getScheduleDayLabelsFromSlots,
+} from "@/lib/wa-assistant-reply-fixes";
 import {
   isMetaInteractiveMenuReply,
   isSalesFlowFreeTextInbound,
@@ -6271,6 +6275,33 @@ async function processIncoming(
   let isFallbackErrorReply = false;
   let didCallClaude = false;
   let replyModelUsed: string = CLAUDE_WHATSAPP_MODEL;
+  let pickedServiceScheduleLexicon: string | undefined;
+  let pickedServiceScheduleDayLabels: string[] | undefined;
+  if (isSalesFlowOpenQuestionAi) {
+    const pickedNameForLexicon =
+      (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }))?.trim() ?? "";
+    if (pickedNameForLexicon) {
+      const pickedRow =
+        salesFlowServices.find((s) => s.name === pickedNameForLexicon) ?? null;
+      if (pickedRow) {
+        pickedServiceScheduleLexicon = buildPickedServiceScheduleLexiconForPrompt({
+          serviceName: pickedRow.name,
+          scheduleSlots: pickedRow.scheduleSlots,
+          courseCycles: pickedRow.courseCycles,
+        });
+        if (pickedServiceScheduleLexicon) {
+          pickedServiceScheduleDayLabels = getScheduleDayLabelsFromSlots(pickedRow.scheduleSlots);
+          for (const cycle of pickedRow.courseCycles ?? []) {
+            for (const label of getScheduleDayLabelsFromSlots(cycle.schedule_slots ?? [])) {
+              if (!pickedServiceScheduleDayLabels.includes(label)) {
+                pickedServiceScheduleDayLabels.push(label);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
   if (matched && matched.reply) {
     // Static answer for a predefined quick-reply button
@@ -6636,6 +6667,7 @@ async function processIncoming(
         committedScheduleTime: contactScheduleRequestedTime || undefined,
         ctaMultiServiceRepick: salesFlowServices.length > 1,
         scheduleInterestServiceName,
+        pickedServiceScheduleLexicon,
       },
       platformGuidelines
     );
@@ -7035,6 +7067,7 @@ async function processIncoming(
             (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time") &&
             Boolean((lastPickedServiceName ?? "").trim()),
           selectedServiceName: lastPickedServiceName ?? "",
+          scheduleDayLabels: pickedServiceScheduleDayLabels,
         });
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await logMessage({
