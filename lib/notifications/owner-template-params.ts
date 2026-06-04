@@ -18,11 +18,23 @@ import {
   normalizeRequestedDateForTemplate,
 } from "@/lib/product-schedule-slots";
 
+/** Meta template params: no newlines/tabs, max 4 consecutive spaces (error #132018). */
+export function sanitizeMetaOwnerTemplateParam(text: string): string {
+  return String(text ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {5,}/g, " ")
+    .trim()
+    .slice(0, 900);
+}
+
 export function waBodyParams(...texts: string[]): OwnerTemplateComponent[] {
   return [
     {
       type: "body",
-      parameters: texts.map((text) => ({ type: "text", text: String(text ?? "").slice(0, 900) })),
+      parameters: texts.map((text) => ({
+        type: "text",
+        text: sanitizeMetaOwnerTemplateParam(text),
+      })),
     },
   ];
 }
@@ -34,13 +46,13 @@ export function waHeaderAndBodyParams(
   return [
     {
       type: "header",
-      parameters: [{ type: "text", text: String(headerText ?? "").slice(0, 900) }],
+      parameters: [{ type: "text", text: sanitizeMetaOwnerTemplateParam(headerText) }],
     },
     {
       type: "body",
       parameters: bodyTexts.map((text) => ({
         type: "text",
-        text: String(text ?? "").slice(0, 900),
+        text: sanitizeMetaOwnerTemplateParam(text),
       })),
     },
   ];
@@ -104,7 +116,7 @@ export function buildLeadRegisteredWithTimeWaParams(input: {
     input.serviceName.trim() || "—",
     input.schedule.trim() || "—",
     input.registeredAtHe,
-    input.warmupSummary.trim() || "—"
+    input.warmupSummary.trim() || "—",
   );
 }
 

@@ -6,6 +6,7 @@ import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveWarmupMenuPickLabel } from "@/lib/wa-menu-choice";
 import { WA_WARMUP_EXPERIENCE_SENT_MODEL } from "@/lib/wa-warmup-pending";
+import { sanitizeMetaOwnerTemplateParam } from "@/lib/notifications/owner-template-params";
 import {
   buildWarmupExtraCleanStepsFromWb,
   isWarmupExperienceQuestion1Configured,
@@ -25,25 +26,50 @@ const WARMUP_ASSISTANT_SENT_MODELS = [
 
 export type WarmupSummaryStep = { question: string; options: string[] };
 
-export function formatWarmupSummaryBlock(stepIndex: number, question: string, answer: string): string {
+export function formatWarmupSummaryBlock(
+  stepIndex: number,
+  question: string,
+  answer: string,
+  channel: "email" | "wa_template" = "email"
+): string {
   const q = String(question ?? "").trim();
   const a = String(answer ?? "").trim();
   if (!q || !a) return "";
+  if (channel === "wa_template") {
+    return `שאלה ${stepIndex} (${q}): ${a}`;
+  }
   return `שאלה ${stepIndex} מתוך סשן חימום (${q})\n\n${a}`;
 }
 
 export function formatWarmupSummaryFromSteps(
-  steps: Array<{ question: string; answer: string }>
+  steps: Array<{ question: string; answer: string }>,
+  channel: "email" | "wa_template" = "email"
 ): string {
   const blocks: string[] = [];
   for (let i = 0; i < steps.length; i++) {
-    const block = formatWarmupSummaryBlock(i + 1, steps[i]!.question, steps[i]!.answer);
+    const block = formatWarmupSummaryBlock(i + 1, steps[i]!.question, steps[i]!.answer, channel);
     if (block) blocks.push(block);
   }
-  const joined = blocks.join("\n\n").trim();
+  const joined =
+    channel === "wa_template" ? blocks.join(" | ").trim() : blocks.join("\n\n").trim();
+  if (channel === "wa_template") {
+    return sanitizeMetaOwnerTemplateParam(joined) || "";
+  }
   return joined.length > WARMUP_SUMMARY_MAX_CHARS
     ? joined.slice(0, WARMUP_SUMMARY_MAX_CHARS - 1) + "…"
     : joined;
+}
+
+/** המרת סיכום רב-שורתי (מייל / precompute) לפרמטר תבנית Meta — שורה אחת. */
+export function formatWarmupSummaryForWaTemplate(multilineSummary: string): string {
+  const raw = String(multilineSummary ?? "").trim();
+  if (!raw || raw === "—") return "—";
+  const blocks = raw
+    .split(/\n\n+/)
+    .map((block) => block.replace(/[\r\n\t]+/g, " ").trim())
+    .filter(Boolean);
+  const oneLine = blocks.length > 0 ? blocks.join(" | ") : raw.replace(/[\r\n\t]+/g, " ");
+  return sanitizeMetaOwnerTemplateParam(oneLine) || "—";
 }
 
 function fillServiceNameInWarmupQuestion(template: string, serviceName: string): string {
@@ -199,26 +225,37 @@ export async function buildWarmupSummaryFromSession(input: {
   return formatWarmupSummaryFromSteps(matched);
 }
 
+export type LeadRegisteredWarmupSummaries = {
+  /** מייל — שורות חדשות מותרות */
+  email: string;
+  /** תבנית Meta — שורה אחת בלבד */
+  wa: string;
+};
+
 /** לשימוש בהתראות: precomputed מה-webhook, אחרת fallback. */
 export async function resolveWarmupSummaryForLeadRegistered(input: {
   businessSlug: string;
   sessionId: string;
   warmupSummaryPrecomputed?: string | null;
-}): Promise<string> {
+}): Promise<LeadRegisteredWarmupSummaries> {
+  const empty: LeadRegisteredWarmupSummaries = { email: "—", wa: "—" };
   const pre = String(input.warmupSummaryPrecomputed ?? "").trim();
   if (pre) {
-    return pre.length > WARMUP_SUMMARY_MAX_CHARS
-      ? pre.slice(0, WARMUP_SUMMARY_MAX_CHARS - 1) + "…"
-      : pre;
+    const email =
+      pre.length > WARMUP_SUMMARY_MAX_CHARS
+        ? pre.slice(0, WARMUP_SUMMARY_MAX_CHARS - 1) + "…"
+        : pre;
+    return { email, wa: formatWarmupSummaryForWaTemplate(email) };
   }
   try {
     const built = await buildWarmupSummaryFromSession({
       businessSlug: input.businessSlug,
       sessionId: input.sessionId,
     });
-    return String(built ?? "").trim() || "—";
+    const email = String(built ?? "").trim() || "—";
+    return { email, wa: formatWarmupSummaryForWaTemplate(email) };
   } catch (e) {
     console.warn("[warmup-summary] resolve failed:", e);
-    return "—";
+    return empty;
   }
 }
