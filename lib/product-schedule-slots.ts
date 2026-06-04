@@ -298,12 +298,6 @@ export function buildCourseSchedulePhraseForCta(cycles: CourseCycle[]): string {
   return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join(", ");
 }
 
-export function buildCourseCostAfterWarmupLine(priceText: string, sessionsText: string): string {
-  const p = priceText.trim() || "...";
-  const s = sessionsText.trim() || "...";
-  return `עלות הקורס היא ${p} ₪ לכל ${s} המפגשים.`;
-}
-
 export function buildCourseCycleStartPickQuestion(): string {
   return "מתי נוח לך להתחיל את הקורס?";
 }

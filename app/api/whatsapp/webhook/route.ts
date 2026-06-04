@@ -49,7 +49,6 @@ import {
   resolveSfServicePriceDuration,
   resolveAfterRegistrationBodyTemplate,
   isWarmupExperienceQuestion1Configured,
-  pickServiceRowForWarmupConfig,
   buildWarmupExtraCleanStepsFromWb,
   resolveWarmupExperienceConfig,
   resolveWarmupExperienceReply,
@@ -88,7 +87,7 @@ const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
 const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
-  "לאחר התשלום כתבו «נרשמתי» ואשלח לכם את כל הפרטים!";
+  "לאחר התשלום כתבו *נרשמתי* ואשלח לכם את כל הפרטים!";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 
 function formatInteractiveConversationLog(
@@ -171,7 +170,6 @@ import {
   logMessage,
 } from "@/lib/analytics";
 import {
-  buildCourseCostAfterWarmupLine,
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
   findCourseCycleByDisplayStartDate,
@@ -927,12 +925,6 @@ function courseSchedulePhraseForRegistration(
   return buildCourseSchedulePhraseForCtaFromPick(cycles, pickedDisplayStartDate);
 }
 
-function courseWarmupCostExtraLines(service: SfServiceRow | null): string[] {
-  if (service?.offerKind !== "course") return [];
-  const line = buildCourseCostAfterWarmupLine(service.priceText, service.courseSessionsText);
-  return line.trim() ? [line] : [];
-}
-
 function parseScheduleDateInput(text: string): string | null {
   const cleaned = text
     .trim()
@@ -1337,77 +1329,32 @@ async function buildWarmupExtraCleanSteps(input: {
   salesFlowServices: SfServiceRow[];
   business_slug: string;
   session_id: string;
-  /** כשיש list_reply — מעדיף את ה-offerKind שבו מופיעה האופציה (לא קורס עם Q1 בלבד). */
   incomingMsg?: Pick<WaIncomingText, "text" | "metaInteractiveReplyId">;
 }): Promise<{
   cleanSteps: WarmupExtraCleanStep[];
   hasWarmupQ1: boolean;
   warmupServiceName: string;
   warmupOfferKind: string;
-  resolvedVia: "incoming_label" | "sf_event" | "pick_heuristic" | "single_service";
+  resolvedVia: "unified_warmup";
 }> {
-  const selectedName =
-    input.salesFlowServices.length === 1
-      ? input.salesFlowServices[0]?.name ?? ""
-      : ((await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.session_id })) ??
-        "");
-
-  if (input.incomingMsg && input.salesFlowServices.length > 1) {
-    for (const s of input.salesFlowServices) {
-      const kind = (s.offerKind ?? "trial") as import("@/lib/sales-flow").OfferKind;
-      const wb = resolveWarmupExperienceConfig(input.cfg, kind);
-      const { cleanSteps, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wb);
-      if (findWarmupExtraPickAcrossSteps(cleanSteps, input.incomingMsg)) {
-        console.info("[WA warmup buildCleanSteps]", {
-          business_slug: input.business_slug,
-          session_id: input.session_id,
-          resolvedVia: "incoming_label",
-          resolvedService: s.name,
-          offerKind: kind,
-          rawExtrasCount: wb.extras.length,
-          cleanStepsCount: cleanSteps.length,
-        });
-        return {
-          cleanSteps,
-          hasWarmupQ1,
-          warmupServiceName: s.name,
-          warmupOfferKind: kind,
-          resolvedVia: "incoming_label",
-        };
-      }
-    }
-  }
-
-  const resolvedVia: "incoming_label" | "sf_event" | "pick_heuristic" | "single_service" =
-    input.salesFlowServices.length === 1
-      ? "single_service"
-      : selectedName.trim()
-        ? "sf_event"
-        : "pick_heuristic";
-  const pick = pickServiceRowForWarmupConfig(input.salesFlowServices, input.cfg, selectedName);
-  const svc =
-    pick != null
-      ? (input.salesFlowServices.find((s) => s.name === pick.name) ?? null)
-      : (input.salesFlowServices[0] ?? null);
-  const offerKind = pick?.offerKind ?? svc?.offerKind ?? "trial";
-  const wb = resolveWarmupExperienceConfig(input.cfg, offerKind);
+  const wb = resolveWarmupExperienceConfig(input.cfg);
   const { cleanSteps, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wb);
+  const resolvedVia = "unified_warmup" as const;
   console.info("[WA warmup buildCleanSteps]", {
     business_slug: input.business_slug,
     session_id: input.session_id,
-    selectedSfServiceEvent: selectedName || null,
-    resolvedService: svc?.name ?? null,
-    offerKind,
+    resolvedVia,
     rawExtrasCount: wb.extras.length,
     cleanStepsCount: cleanSteps.length,
-    multiService: input.salesFlowServices.length > 1,
-    resolvedVia,
+    hasIncomingPick: Boolean(
+      input.incomingMsg && findWarmupExtraPickAcrossSteps(cleanSteps, input.incomingMsg)
+    ),
   });
   return {
     cleanSteps,
     hasWarmupQ1,
-    warmupServiceName: svc?.name ?? "",
-    warmupOfferKind: offerKind,
+    warmupServiceName: "",
+    warmupOfferKind: "trial",
     resolvedVia,
   };
 }
@@ -2413,11 +2360,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     promoIsTrial &&
     lastAssistModelForPromo !== "sales_flow_cta";
 
-  const courseCostLines =
-    activeOfferKind === "course" ? courseWarmupCostExtraLines(selectedService) : [];
-
   const ctaBody = [
-    ...courseCostLines,
     shouldAttachTrialPromo ? appendTrialPromotionToCtaBody(baseCtaBody, promo) : baseCtaBody,
     ...(extraBodyLines ?? []).map((x) => String(x ?? "").trim()).filter(Boolean),
   ]
@@ -2911,17 +2854,7 @@ async function sendFlowContinuation(input: {
       });
       return;
     }
-    const namedForWarmExtras =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0]!.name
-        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-    const warmPick = pickServiceRowForWarmupConfig(salesFlowServices, cfg, namedForWarmExtras);
-    const svcRowForWarmExtras =
-      warmPick != null
-        ? (salesFlowServices.find((s) => s.name === warmPick.name) ?? null)
-        : (salesFlowServices[0] ?? null);
-    const warmKindForExtras = warmPick?.offerKind ?? svcRowForWarmExtras?.offerKind ?? "trial";
-    const wbWarm = resolveWarmupExperienceConfig(cfg, warmKindForExtras);
+    const wbWarm = resolveWarmupExperienceConfig(cfg);
     const { cleanSteps: cleanWarm, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wbWarm);
 
     if (step === 0 && hasWarmupQ1) {
@@ -3025,7 +2958,7 @@ async function isWarmupFlowCompleteForRecovery(input: {
     input.salesFlowServices.length === 1
       ? input.salesFlowServices[0] ?? null
       : input.salesFlowServices.find((s) => s.name === named) ?? null;
-  const wb = resolveWarmupExperienceConfig(input.cfg, svcRow?.offerKind ?? "trial");
+  const wb = resolveWarmupExperienceConfig(input.cfg);
   const hasWarmupQ1 = isWarmupExperienceQuestion1Configured(wb);
   const cleanWarm = wb.extras
     .map((s) => ({
@@ -5635,7 +5568,7 @@ async function processIncoming(
       const selectedService = selectedServiceName.trim()
         ? (salesFlowServices.find((service) => service.name === selectedServiceName) ?? null)
         : null;
-      const wb = resolveWarmupExperienceConfig(cfg, selectedService?.offerKind ?? "trial");
+      const wb = resolveWarmupExperienceConfig(cfg);
       if (isWarmupExperienceQuestion1Configured(wb)) {
         const pickedIdx = findWaMenuOptionIndex(msg.text.trim(), msg.metaInteractiveReplyId, wb.options);
         const pickedExp = pickedIdx >= 0 ? wb.options[pickedIdx] : undefined;

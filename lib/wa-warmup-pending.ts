@@ -2,9 +2,7 @@ import { fetchLastSalesFlowGreetingResetAt } from "@/lib/analytics";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   isWarmupExperienceQuestion1Configured,
-  pickServiceRowForWarmupConfig,
   resolveWarmupExperienceConfig,
-  type OfferKind,
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
 import { normalizeLineForMenuEcho } from "@/lib/wa-split-answer";
@@ -21,7 +19,7 @@ export type WarmupExperienceMenu = {
   options: string[];
 };
 
-type SfServicePick = { name: string; offerKind?: OfferKind | string | null };
+type SfServicePick = { name: string; offerKind?: string | null };
 
 export async function buildWarmupExperienceMenu(input: {
   cfg: SalesFlowConfig;
@@ -41,15 +39,7 @@ export async function buildWarmupExperienceMenu(input: {
           session_id: input.session_id,
         })) ?? "";
 
-  const warmPick = pickServiceRowForWarmupConfig(input.salesFlowServices, input.cfg, named);
-  const svcRow =
-    warmPick != null
-      ? (input.salesFlowServices.find((s) => s.name === warmPick.name) ?? null)
-      : input.salesFlowServices.length === 1
-        ? (input.salesFlowServices[0] ?? null)
-        : null;
-  const warmKind = (warmPick?.offerKind ?? svcRow?.offerKind ?? "trial") as OfferKind;
-  const wb = resolveWarmupExperienceConfig(input.cfg, warmKind);
+  const wb = resolveWarmupExperienceConfig(input.cfg);
   const q = String(wb.question ?? "")
     .replace(/\{serviceName\}/g, named.trim())
     .trim();
