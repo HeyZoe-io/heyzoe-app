@@ -1,6 +1,7 @@
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { formatDateDdMmYyyy } from "@/lib/email";
 import { fetchLastSfServiceEventName } from "@/lib/analytics";
+import { formatScheduleForOwnerNotification } from "@/lib/notifications/owner-template-params";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
 
@@ -52,11 +53,11 @@ export function formatScheduleLine(input: {
   requestedTime?: string | null;
   scheduleDirectRegistration?: boolean;
 }): string {
-  const date = String(input.requestedDate ?? "").trim();
-  const time = String(input.requestedTime ?? "").trim();
-  if (date && time) return `${date} בשעה ${time}`;
-  if (date) return date;
-  if (time) return time;
+  const line = formatScheduleForOwnerNotification({
+    requestedDate: input.requestedDate,
+    requestedTime: input.requestedTime,
+  });
+  if (line) return line;
   if (input.scheduleDirectRegistration === false) return "";
   return "";
 }

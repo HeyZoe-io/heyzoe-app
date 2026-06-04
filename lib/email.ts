@@ -339,7 +339,7 @@ export function cancellationEmail(business_name: string, access_until: string, d
 
 export type LeadRegisteredOwnerEmailInput = {
   business_name: string;
-  lead_identity: string;
+  lead_phone: string;
   service_name?: string;
   schedule?: string;
   registered_at: string;
@@ -357,8 +357,10 @@ function optionalBodyLines(entries: Array<[string, string | undefined]>): string
 
 export function leadRegisteredOwnerEmail(input: LeadRegisteredOwnerEmailInput): EmailTemplateResult {
   const bn = String(input.business_name ?? "").trim() || "העסק שלך";
-  const identity = String(input.lead_identity ?? "").trim() || "—";
+  const phone = String(input.lead_phone ?? "").trim() || "—";
   const registeredAt = String(input.registered_at ?? "").trim();
+  const schedule = String(input.schedule ?? "").trim();
+  const withSchedule = Boolean(schedule);
   return {
     subject: `ליד נרשם — ${bn}`,
     htmlContent: [
@@ -366,13 +368,17 @@ export function leadRegisteredOwnerEmail(input: LeadRegisteredOwnerEmailInput): 
       `<p>${p([
         "היי " + bn + ",",
         "",
-        identity + " ביצע הרשמה.",
+        withSchedule
+          ? `הליד ${phone} נרשם לשיעור ניסיון.`
+          : `הליד ${phone} ביצע הרשמה בשיחה עם זואי.`,
         ...optionalBodyLines([
           ["אימון", input.service_name],
-          ["מועד", input.schedule],
+          ["מועד", schedule],
           ["תאריך הרשמה", registeredAt],
           ["סשן חימום", input.warmup_summary],
         ]),
+        "",
+        "מזל טוב!",
         "",
         "ניתן לצפות בשיחה בדשבורד.",
         "",
@@ -385,11 +391,11 @@ export function leadRegisteredOwnerEmail(input: LeadRegisteredOwnerEmailInput): 
 
 export function humanRequestedOwnerEmail(input: {
   business_name: string;
-  lead_identity: string;
+  lead_phone: string;
   requested_at: string;
 }): EmailTemplateResult {
   const bn = String(input.business_name ?? "").trim() || "העסק שלך";
-  const identity = String(input.lead_identity ?? "").trim() || "—";
+  const phone = String(input.lead_phone ?? "").trim() || "—";
   const at = String(input.requested_at ?? "").trim();
   return {
     subject: `נדרש מענה אנושי — ${bn}`,
@@ -398,8 +404,8 @@ export function humanRequestedOwnerEmail(input: {
       `<p>${p([
         "היי " + bn + ",",
         "",
-        identity + " ביקש לדבר עם נציג אנושי.",
-        ...(at ? ["תאריך: " + at] : []),
+        `הליד ${phone} ביקש לדבר עם נציג.`,
+        ...(at ? ["בתאריך: " + at] : []),
         "",
         "ניתן לנהל את השיחה בדשבורד.",
         "",
@@ -428,16 +434,27 @@ export function dailySummaryOwnerEmail(input: {
   business_name: string;
   business_slug: string;
   date_label: string;
+  new_leads: number;
+  registered: number;
   idle_count: number;
   idle_leads: DailySummaryIdleLead[];
 }): EmailTemplateResult {
   const bn = String(input.business_name ?? "").trim() || "העסק שלך";
   const slug = String(input.business_slug ?? "").trim().toLowerCase();
   const dl = String(input.date_label ?? "").trim();
+  const newLeads = Math.max(0, Number(input.new_leads) || 0);
+  const registered = Math.max(0, Number(input.registered) || 0);
   const idleCount = Math.max(0, Number(input.idle_count) || 0);
   const listUrl = slug
     ? `https://heyzoe.io/${encodeURIComponent(slug)}/contacts?status=no_response`
     : "https://heyzoe.io";
+
+  const statsBlock = [
+    dl ? `סיכום יומי — ${dl}` : "סיכום יומי",
+    `לידים חדשים אתמול: ${newLeads}`,
+    `נרשמו אתמול: ${registered}`,
+    `ממתינים לטיפול טלפוני: ${idleCount}`,
+  ];
 
   if (idleCount > 0) {
     const rows = (input.idle_leads ?? [])
@@ -455,6 +472,7 @@ export function dailySummaryOwnerEmail(input: {
       htmlContent: [
         `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
         `<p>היי ${esc(bn)},</p>`,
+        `<p>${p(statsBlock)}</p>`,
         `<p>ביממה האחרונה יש ${idleCount} לידים שסיימו את כל 3 הפולואפים של זואי<br/>ועדיין לא ענו. הם לא אבודים, רק צריכים טאץ׳ אנושי 📞</p>`,
         `<p>הלידים שממתינים לשיחה:</p>`,
         `<table dir="rtl" style="border-collapse:collapse;width:100%;max-width:620px;margin:12px 0;text-align:right">`,
@@ -475,7 +493,9 @@ export function dailySummaryOwnerEmail(input: {
       `<p>${p([
         "היי " + bn + ",",
         "",
-        "רק רצינו לעדכן שאין לידים שממתינים לשיחה מ-24 השעות האחרונות.",
+        ...statsBlock,
+        "",
+        "אין כרגע לידים שממתינים לטיפול טלפוני מ-24 השעות האחרונות.",
         "זואי דיברה עם מי שצריך, שלחה פולואפים, ואין כרגע מה לטפל בו.",
         "",
         "המשיכו כך 🙂",

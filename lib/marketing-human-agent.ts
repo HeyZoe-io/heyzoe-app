@@ -6,6 +6,7 @@ import {
   normalizeMarketingInboundText,
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
+import { buildSinglePhoneWaParams } from "@/lib/notifications/owner-template-params";
 import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
 
@@ -99,12 +100,7 @@ export async function sendMarketingHumanAgentOwnerNotification(phoneRaw: string)
     ownerPhone: MARKETING_HUMAN_AGENT_NOTIFY_PHONE,
     templateName: MARKETING_HUMAN_AGENT_TEMPLATE,
     languageCode: "he",
-    components: [
-      {
-        type: "body",
-        parameters: [{ type: "text", text: display }],
-      },
-    ],
+    components: buildSinglePhoneWaParams(display),
   });
   if (!result.ok) {
     console.warn("[marketing-human-agent] owner template failed:", result.error);

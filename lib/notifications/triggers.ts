@@ -8,7 +8,6 @@ import { gateOwnerNotification } from "@/lib/notifications/owner-notification-ga
 import {
   buildWarmupSummaryFromSession,
   fetchIdleLeadsLast24h,
-  formatLeadIdentityLine,
   formatLeadPhoneDisplay,
   formatRegisteredAtHe,
   formatScheduleLine,
@@ -16,38 +15,15 @@ import {
   resolveServiceNameForSession,
 } from "@/lib/notifications/owner-email-context";
 import { sendOwnerEmailIfEnabled } from "@/lib/notifications/sendOwnerEmailIfEnabled";
+import {
+  buildDailySummaryWaParams,
+  buildHumanAgentRequestWaParams,
+  buildLeadRegisteredWaParams,
+  buildLeadRegisteredWithTimeWaParams,
+  buildNewLeadNotificationWaParams,
+  buildSinglePhoneWaParams,
+} from "@/lib/notifications/owner-template-params";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
-
-function bodyParams(...texts: string[]): OwnerTemplateComponent[] {
-  return [
-    {
-      type: "body",
-      parameters: texts.map((text) => ({ type: "text", text: String(text ?? "").slice(0, 900) })),
-    },
-  ];
-}
-
-function headerAndBodyParams(headerText: string, ...bodyTexts: string[]): OwnerTemplateComponent[] {
-  return [
-    {
-      type: "header",
-      parameters: [{ type: "text", text: String(headerText ?? "").slice(0, 900) }],
-    },
-    {
-      type: "body",
-      parameters: bodyTexts.map((text) => ({
-        type: "text",
-        text: String(text ?? "").slice(0, 900),
-      })),
-    },
-  ];
-}
-
-async function loadBusinessDisplayName(businessId: number): Promise<string> {
-  const admin = createSupabaseAdminClient();
-  const { data } = await admin.from("businesses").select("name").eq("id", businessId).maybeSingle();
-  return String((data as { name?: string } | null)?.name ?? "").trim() || "העסק שלך";
-}
 
 function formatTimeHe(iso: string): string {
   try {
@@ -120,11 +96,11 @@ export async function triggerNewLeadNotification(input: {
   const result = await sendOwnerNotification({
     ownerPhone: gate.ownerPhone,
     templateName,
-    components: bodyParams(
-      input.businessName.trim() || "העסק שלך",
-      formatLeadPhoneDisplay(input.leadPhone),
-      formatTimeHe(input.atIso ?? new Date().toISOString())
-    ),
+    components: buildNewLeadNotificationWaParams({
+      businessName: input.businessName,
+      leadPhoneDisplay: formatLeadPhoneDisplay(input.leadPhone),
+      atHe: formatTimeHe(input.atIso ?? new Date().toISOString()),
+    }),
   });
   if (result.ok) {
     console.info("[new_lead_notification] send ok", {
@@ -151,11 +127,12 @@ export async function triggerHumanRequestedNotification(input: {
     businessId: input.businessId,
     key: "human_requested",
     templateName: "human_agent_request",
-    components: bodyParams(phoneDisplay, requestedAtWa),
+    components: buildHumanAgentRequestWaParams({
+      leadPhoneDisplay: phoneDisplay,
+      requestedAtHe: requestedAtWa,
+    }),
   });
 
-  const fullName = await loadContactFullName(input.businessId, input.leadPhone);
-  const identity = formatLeadIdentityLine(fullName, input.leadPhone);
   const requestedAt = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
 
   await sendOwnerEmailIfEnabled({
@@ -164,7 +141,7 @@ export async function triggerHumanRequestedNotification(input: {
     build: ({ businessName }) =>
       humanRequestedOwnerEmail({
         business_name: businessName,
-        lead_identity: identity,
+        lead_phone: phoneDisplay,
         requested_at: requestedAt,
       }),
   });
@@ -184,8 +161,7 @@ export async function triggerLeadRegisteredNotification(input: {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const sessionId = String(input.sessionId ?? "").trim();
-  const [fullName, serviceName, warmupSummary] = await Promise.all([
-    loadContactFullName(input.businessId, input.leadPhone),
+  const [serviceName, warmupSummary] = await Promise.all([
     slug && sessionId
       ? resolveServiceNameForSession({
           businessSlug: slug,
@@ -212,17 +188,15 @@ export async function triggerLeadRegisteredNotification(input: {
     key: "lead_registered",
     templateName: directRegistration ? "lead_registered" : "lead_registered_with_time",
     components: directRegistration
-      ? bodyParams(phoneDisplay)
-      : bodyParams(
-          phoneDisplay,
-          serviceLabel,
-          schedule.trim() || "—",
-          registeredAt,
-          warmupForWa
-        ),
+      ? buildLeadRegisteredWaParams(phoneDisplay)
+      : buildLeadRegisteredWithTimeWaParams({
+          leadPhoneDisplay: phoneDisplay,
+          serviceName: serviceLabel,
+          schedule,
+          registeredAtHe: registeredAt,
+          warmupSummary: warmupForWa,
+        }),
   });
-
-  const identity = formatLeadIdentityLine(fullName, input.leadPhone);
 
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,
@@ -230,11 +204,11 @@ export async function triggerLeadRegisteredNotification(input: {
     build: ({ businessName }) =>
       leadRegisteredOwnerEmail({
         business_name: businessName,
-        lead_identity: identity,
-        service_name: serviceName,
+        lead_phone: phoneDisplay,
+        service_name: serviceLabel,
         schedule,
         registered_at: registeredAt,
-        warmup_summary: warmupSummary,
+        warmup_summary: warmupForWa,
       }),
   });
 }
@@ -250,7 +224,7 @@ export async function triggerBotPausedWaitingNotification(input: {
   const result = await sendOwnerNotification({
     ownerPhone: gate.ownerPhone,
     templateName: "bot_paused_waiting",
-    components: bodyParams(formatLeadPhoneDisplay(input.leadPhone)),
+    components: buildSinglePhoneWaParams(formatLeadPhoneDisplay(input.leadPhone)),
   });
 
   if (result.ok) {
@@ -273,7 +247,7 @@ export async function triggerCtaNoSignupNotification(input: {
   const result = await sendOwnerNotification({
     ownerPhone: gate.ownerPhone,
     templateName: "lead_cta_no_signup",
-    components: bodyParams(formatLeadPhoneDisplay(input.leadPhone)),
+    components: buildSinglePhoneWaParams(formatLeadPhoneDisplay(input.leadPhone)),
   });
 
   if (result.ok) {
@@ -295,21 +269,20 @@ export async function triggerDailySummaryNotification(input: {
   ctaReached: number;
   registered: number;
 }): Promise<void> {
-  const businessName = await loadBusinessDisplayName(input.businessId);
+  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
+  const idleLeads = await fetchIdleLeadsLast24h(input.businessId);
+
   await sendIfEnabled({
     businessId: input.businessId,
     key: "daily_summary",
     templateName: "daily_summary",
-    components: headerAndBodyParams(
-      businessName,
-      input.dateLabel,
-      String(input.newLeads),
-      String(input.registered)
-    ),
+    components: buildDailySummaryWaParams({
+      dateLabel: input.dateLabel,
+      newLeads: input.newLeads,
+      registered: input.registered,
+      idleWaitingCount: idleLeads.length,
+    }),
   });
-
-  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
-  const idleLeads = await fetchIdleLeadsLast24h(input.businessId);
 
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,
@@ -319,6 +292,8 @@ export async function triggerDailySummaryNotification(input: {
         business_name: businessName,
         business_slug: slug,
         date_label: input.dateLabel,
+        new_leads: input.newLeads,
+        registered: input.registered,
         idle_count: idleLeads.length,
         idle_leads: idleLeads,
       }),
