@@ -70,7 +70,11 @@ import {
   shouldResetWaFollowupCycleOnInbound,
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
-import { stripMenuEchoFromAnswer, stripTrailingFollowUpQuestion } from "@/lib/wa-split-answer";
+import {
+  ensureRegisteredOpenQuestionClosing,
+  stripMenuEchoFromAnswer,
+  stripTrailingFollowUpQuestion,
+} from "@/lib/wa-split-answer";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import {
   buildWarmupExperienceMenu,
@@ -5812,13 +5816,18 @@ async function processIncoming(
   // We send CTA menus deterministically; avoid appending a CTA prompt to free-text answers.
   const ctaPromptQuestion = "";
 
-  const isFreeTextSalesFlowAi =
+  const isSalesFlowOpenQuestionAi =
     msg.type === "text" &&
     Boolean(knowledge?.salesFlowConfig) &&
     Boolean(businessId) &&
-    contactTrialRegistered !== true &&
     !matched?.reply &&
     !matchedPredefinedClosedLabel;
+
+  const registeredInCurrentFlow =
+    contactTrialRegistered === true || contactSessionPhase === "registered";
+
+  const isFreeTextSalesFlowAi =
+    isSalesFlowOpenQuestionAi && !registeredInCurrentFlow;
 
   const isJoinSignupIntent = msg.type === "text" && isJoinSignupIntentText(incomingNorm);
 
@@ -6124,7 +6133,8 @@ async function processIncoming(
       {
         sessionPhase: contactSessionPhase,
         trialRegistered: contactTrialRegistered === true,
-        suppressFollowUpQuestion: isFreeTextSalesFlowAi,
+        suppressFollowUpQuestion: isSalesFlowOpenQuestionAi && !registeredInCurrentFlow,
+        registeredOpenQuestionHelpClosing: isSalesFlowOpenQuestionAi && registeredInCurrentFlow,
         pendingWarmupExperienceResume,
       },
       platformGuidelines
@@ -6522,6 +6532,11 @@ async function processIncoming(
         }
       } else {
         let body = softenWebsiteAttribution(replyCoreClean);
+        if (isSalesFlowOpenQuestionAi && !registeredInCurrentFlow) {
+          body = stripTrailingFollowUpQuestion(body);
+        } else if (registeredInCurrentFlow) {
+          body = ensureRegisteredOpenQuestionClosing(body);
+        }
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
           body += `\n\n${menuQuestion}`;
         }
@@ -6545,6 +6560,7 @@ async function processIncoming(
       // so don't also schedule a flow continuation.
       if (
         isFreeTextSalesFlowContinuation &&
+        !registeredInCurrentFlow &&
         knowledge &&
         businessId &&
         !shouldSplitCtaAnswerAndMenu &&
