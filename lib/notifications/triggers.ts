@@ -27,6 +27,28 @@ function bodyParams(...texts: string[]): OwnerTemplateComponent[] {
   ];
 }
 
+function headerAndBodyParams(headerText: string, ...bodyTexts: string[]): OwnerTemplateComponent[] {
+  return [
+    {
+      type: "header",
+      parameters: [{ type: "text", text: String(headerText ?? "").slice(0, 900) }],
+    },
+    {
+      type: "body",
+      parameters: bodyTexts.map((text) => ({
+        type: "text",
+        text: String(text ?? "").slice(0, 900),
+      })),
+    },
+  ];
+}
+
+async function loadBusinessDisplayName(businessId: number): Promise<string> {
+  const admin = createSupabaseAdminClient();
+  const { data } = await admin.from("businesses").select("name").eq("id", businessId).maybeSingle();
+  return String((data as { name?: string } | null)?.name ?? "").trim() || "העסק שלך";
+}
+
 function formatTimeHe(iso: string): string {
   try {
     return new Intl.DateTimeFormat("he-IL", {
@@ -124,11 +146,12 @@ export async function triggerHumanRequestedNotification(input: {
   requestedAtIso?: string;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
+  const businessName = await loadBusinessDisplayName(input.businessId);
   await sendIfEnabled({
     businessId: input.businessId,
     key: "human_requested",
     templateName: "human_agent_request",
-    components: bodyParams(phoneDisplay),
+    components: bodyParams(businessName, phoneDisplay),
   });
 
   const fullName = await loadContactFullName(input.businessId, input.leadPhone);
@@ -159,19 +182,6 @@ export async function triggerLeadRegisteredNotification(input: {
 }): Promise<void> {
   const directRegistration = input.scheduleDirectRegistration !== false;
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
-  await sendIfEnabled({
-    businessId: input.businessId,
-    key: "lead_registered",
-    templateName: directRegistration ? "lead_registered" : "lead_registered_with_time",
-    components: directRegistration
-      ? bodyParams(phoneDisplay)
-      : bodyParams(
-          phoneDisplay,
-          String(input.requestedDate ?? "").trim(),
-          String(input.requestedTime ?? "").trim()
-        ),
-  });
-
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const sessionId = String(input.sessionId ?? "").trim();
   const [fullName, serviceName, warmupSummary] = await Promise.all([
@@ -187,6 +197,23 @@ export async function triggerLeadRegisteredNotification(input: {
       ? buildWarmupSummaryFromSession({ business_slug: slug, session_id: sessionId })
       : Promise.resolve(""),
   ]);
+
+  const leadName = String(fullName ?? "").trim() || "ליד";
+  const serviceLabel = String(serviceName ?? "").trim() || "—";
+  await sendIfEnabled({
+    businessId: input.businessId,
+    key: "lead_registered",
+    templateName: directRegistration ? "lead_registered" : "lead_registered_with_time",
+    components: directRegistration
+      ? bodyParams(phoneDisplay)
+      : bodyParams(
+          phoneDisplay,
+          leadName,
+          serviceLabel,
+          String(input.requestedDate ?? "").trim(),
+          String(input.requestedTime ?? "").trim()
+        ),
+  });
 
   const identity = formatLeadIdentityLine(fullName, input.leadPhone);
   const schedule = formatScheduleLine({
@@ -267,15 +294,15 @@ export async function triggerDailySummaryNotification(input: {
   ctaReached: number;
   registered: number;
 }): Promise<void> {
+  const businessName = await loadBusinessDisplayName(input.businessId);
   await sendIfEnabled({
     businessId: input.businessId,
     key: "daily_summary",
     templateName: "daily_summary",
-    components: bodyParams(
+    components: headerAndBodyParams(
+      businessName,
       input.dateLabel,
       String(input.newLeads),
-      String(input.openConversations),
-      String(input.ctaReached),
       String(input.registered)
     ),
   });

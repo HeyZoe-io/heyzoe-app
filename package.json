@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "wa:find-phone-id": "node --env-file=.env.local scripts/find_id.js",
-    "wa:send-test": "node --env-file=.env.local scripts/send_test.js"
+    "wa:send-test": "node --env-file=.env.local scripts/send_test.js",
+    "notifications:send-samples": "npx tsx --env-file=.env.local scripts/send-notification-samples.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

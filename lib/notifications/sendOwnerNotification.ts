@@ -2,7 +2,7 @@ import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 
 export type OwnerTemplateComponent = {
-  type: "body";
+  type: "body" | "header";
   parameters: Array<{ type: "text"; text: string }>;
 };
 
