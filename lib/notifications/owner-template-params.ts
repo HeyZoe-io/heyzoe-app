@@ -6,7 +6,7 @@
  * | new_lead_notification | body: שם עסק, טלפון, שעה |
  * | human_agent_request | body: טלפון, תאריך+שעה |
  * | lead_registered | body: טלפון |
- * | lead_registered_with_time | body: טלפון, אימון, מועד, תאריך הרשמה, חימום (placeholder) |
+ * | lead_registered_with_time | body: טלפון, אימון, מועד, תאריך הרשמה, חימום |
  * | daily_summary | header: תאריך; body: לידים חדשים, נרשמו, ממתינים לטיפול |
  * | bot_paused_waiting / lead_cta_no_signup / marketing_human_agent_request | body: טלפון |
  * | quota_warning_* | ללא פרמטרים |
@@ -91,21 +91,20 @@ export function buildLeadRegisteredWaParams(leadPhoneDisplay: string): OwnerTemp
   return waBodyParams(leadPhoneDisplay);
 }
 
-/** lead_registered_with_time — BODY: טלפון, אימון, מועד, תאריך הרשמה, חימום (זמני: פירוט בדשבורד) */
-export const LEAD_REGISTERED_WARMUP_WA_PLACEHOLDER = "פירוט בדשבורד";
-
+/** lead_registered_with_time — BODY: טלפון, אימון, מועד, תאריך הרשמה, חימום */
 export function buildLeadRegisteredWithTimeWaParams(input: {
   leadPhoneDisplay: string;
   serviceName: string;
   schedule: string;
   registeredAtHe: string;
+  warmupSummary: string;
 }): OwnerTemplateComponent[] {
   return waBodyParams(
     input.leadPhoneDisplay,
     input.serviceName.trim() || "—",
     input.schedule.trim() || "—",
     input.registeredAtHe,
-    LEAD_REGISTERED_WARMUP_WA_PLACEHOLDER
+    input.warmupSummary.trim() || "—"
   );
 }
 

@@ -174,6 +174,8 @@ async function main() {
         service_name: "יוגה לנשים",
         schedule: "רביעי בשעה 18:00",
         registered_at: SAMPLE.nowLabel,
+        warmup_session:
+          "שאלה 1 מתוך סשן חימום (מה מביא אותך אלינו?)\n\nרוצה להתחזק",
       }),
     ],
     [
@@ -248,6 +250,8 @@ async function main() {
         serviceName: "יוגה לנשים",
         schedule: "רביעי בשעה 18:00",
         registeredAtHe: SAMPLE.nowLabel,
+        warmupSummary:
+          "שאלה 1 מתוך סשן חימום (מה מביא אותך אלינו?)\n\nרוצה להתחזק",
       }),
     ],
     ["bot_paused_waiting", "bot_paused_waiting", buildSinglePhoneWaParams(SAMPLE.leadPhone)],
