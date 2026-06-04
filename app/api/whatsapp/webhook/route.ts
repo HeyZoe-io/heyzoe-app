@@ -5469,6 +5469,34 @@ async function processIncoming(
           return;
         }
 
+        const humanContactBtn = effectiveCtas.find((b) => b.kind === "human_contact");
+        const wantsHumanContact =
+          Boolean(humanContactBtn && waLabelMatches(incomingResolved, humanContactBtn.label));
+        if (wantsHumanContact) {
+          const txt = csPhone
+            ? `אין בעיה, ניתן ליצור קשר עם נציג אנושי במספר: ${csPhone}`
+            : "אין בעיה, ניתן ליצור קשר עם נציג אנושי. כתבו לנו ונחזור אליכם בהקדם.";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send human-contact CTA reply failed:", e)
+          );
+          sfClickedCtaKinds = await bumpSfConsumedCtaKind({
+            supabase,
+            businessId,
+            phone: msg.from,
+            kind: "human_contact",
+            previous: sfClickedCtaKinds,
+          });
+          await sendPostLinkMenu();
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: csPhone ? "sales_flow_human_contact" : "sales_flow_human_contact_no_phone",
+            session_id: sessionId,
+          });
+          return;
+        }
+
         if (wantsAddress) {
           const address = knowledge?.addressText?.trim() ?? "";
           const directions = knowledge?.directionsText?.trim() ?? "";
