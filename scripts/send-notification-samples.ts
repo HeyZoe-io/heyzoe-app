@@ -29,6 +29,14 @@ import {
   type EmailTemplateResult,
 } from "../lib/email";
 import {
+  buildDailySummaryWaParams,
+  buildHumanAgentRequestWaParams,
+  buildLeadRegisteredWaParams,
+  buildLeadRegisteredWithTimeWaParams,
+  buildNewLeadNotificationWaParams,
+  buildSinglePhoneWaParams,
+} from "../lib/notifications/owner-template-params";
+import {
   sendOwnerNotification,
   type OwnerTemplateComponent,
 } from "../lib/notifications/sendOwnerNotification";
@@ -104,31 +112,6 @@ async function sendOneWa(
   return true;
 }
 
-function bodyParams(...texts: string[]) {
-  return [
-    {
-      type: "body" as const,
-      parameters: texts.map((text) => ({ type: "text" as const, text: String(text ?? "").slice(0, 900) })),
-    },
-  ];
-}
-
-function headerAndBodyParams(headerText: string, ...bodyTexts: string[]) {
-  return [
-    {
-      type: "header" as const,
-      parameters: [{ type: "text" as const, text: String(headerText ?? "").slice(0, 900) }],
-    },
-    {
-      type: "body" as const,
-      parameters: bodyTexts.map((text) => ({
-        type: "text" as const,
-        text: String(text ?? "").slice(0, 900),
-      })),
-    },
-  ];
-}
-
 async function main() {
   console.log("=== HeyZoe notification samples ===");
   console.log("Email:", TEST_EMAIL);
@@ -187,9 +170,9 @@ async function main() {
       "lead_registered_owner",
       leadRegisteredOwnerEmail({
         business_name: SAMPLE.businessName,
-        lead_identity: `${SAMPLE.leadName} (${SAMPLE.leadPhone})`,
+        lead_phone: SAMPLE.leadPhone,
         service_name: "יוגה לנשים",
-        schedule: "יום רביעי 18:00",
+        schedule: "רביעי בשעה 18:00",
         registered_at: SAMPLE.nowLabel,
         warmup_summary: "ניסיון — כן, פעם ראשונה",
       }),
@@ -198,7 +181,7 @@ async function main() {
       "human_requested_owner",
       humanRequestedOwnerEmail({
         business_name: SAMPLE.businessName,
-        lead_identity: `${SAMPLE.leadName} (${SAMPLE.leadPhone})`,
+        lead_phone: SAMPLE.leadPhone,
         requested_at: SAMPLE.nowLabel,
       }),
     ],
@@ -208,6 +191,8 @@ async function main() {
         business_name: SAMPLE.businessName,
         business_slug: SAMPLE.businessSlug,
         date_label: SAMPLE.dateLabel,
+        new_leads: 5,
+        registered: 2,
         idle_count: 2,
         idle_leads: [
           { full_name: "דנה", phone: "0501111111" },
@@ -221,6 +206,8 @@ async function main() {
         business_name: SAMPLE.businessName,
         business_slug: SAMPLE.businessSlug,
         date_label: SAMPLE.dateLabel,
+        new_leads: 5,
+        registered: 2,
         idle_count: 0,
         idle_leads: [],
       }),
@@ -239,34 +226,43 @@ async function main() {
     [
       "new_lead",
       "new_lead_notification",
-      bodyParams(SAMPLE.businessName, SAMPLE.leadPhone, SAMPLE.nowLabel),
+      buildNewLeadNotificationWaParams({
+        businessName: SAMPLE.businessName,
+        leadPhoneDisplay: SAMPLE.leadPhone,
+        atHe: "14:32",
+      }),
     ],
-    // Meta: {{1}} טלפון, {{2}} תאריך+שעה
     [
       "human_agent",
       "human_agent_request",
-      bodyParams(SAMPLE.leadPhone, SAMPLE.nowLabel),
+      buildHumanAgentRequestWaParams({
+        leadPhoneDisplay: SAMPLE.leadPhone,
+        requestedAtHe: SAMPLE.nowLabel,
+      }),
     ],
-    ["lead_registered", "lead_registered", bodyParams(SAMPLE.leadPhone)],
-    // Meta: {{1}} טלפון, {{2}} אימון, {{3}} מועד, {{4}} תאריך הרשמה, {{5}} חימום
+    ["lead_registered", "lead_registered", buildLeadRegisteredWaParams(SAMPLE.leadPhone)],
     [
       "lead_registered_with_time",
       "lead_registered_with_time",
-      bodyParams(
-        SAMPLE.leadPhone,
-        "יוגה לנשים",
-        "יום רביעי בשעה 18:00",
-        SAMPLE.nowLabel,
-        "ניסיון — כן, פעם ראשונה"
-      ),
+      buildLeadRegisteredWithTimeWaParams({
+        leadPhoneDisplay: SAMPLE.leadPhone,
+        serviceName: "יוגה לנשים",
+        schedule: "רביעי בשעה 18:00",
+        registeredAtHe: SAMPLE.nowLabel,
+        warmupSummary: "ניסיון — כן, פעם ראשונה",
+      }),
     ],
-    ["bot_paused_waiting", "bot_paused_waiting", bodyParams(SAMPLE.leadPhone)],
-    ["lead_cta_no_signup", "lead_cta_no_signup", bodyParams(SAMPLE.leadPhone)],
-    // Meta: header (שם עסק) + 3 body params
+    ["bot_paused_waiting", "bot_paused_waiting", buildSinglePhoneWaParams(SAMPLE.leadPhone)],
+    ["lead_cta_no_signup", "lead_cta_no_signup", buildSinglePhoneWaParams(SAMPLE.leadPhone)],
     [
       "daily_summary",
       "daily_summary",
-      headerAndBodyParams(SAMPLE.businessName, SAMPLE.dateLabel, "5", "2"),
+      buildDailySummaryWaParams({
+        dateLabel: SAMPLE.dateLabel,
+        newLeads: 5,
+        registered: 2,
+        idleWaitingCount: 3,
+      }),
     ],
     ["quota_warning_80", "quota_warning_80", undefined],
     ["quota_warning_95", "quota_warning_95", undefined],
@@ -274,7 +270,7 @@ async function main() {
     [
       "marketing_human_agent",
       "marketing_human_agent_request",
-      bodyParams(SAMPLE.leadPhone),
+      buildSinglePhoneWaParams(SAMPLE.leadPhone),
     ],
   ];
 
