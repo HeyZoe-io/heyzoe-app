@@ -4,17 +4,13 @@ import { HEYZOE_SF_REGISTERED } from "@/lib/analytics";
 import { resolveCronSecret } from "@/lib/server-env";
 import { getIsraelYesterdayRange } from "@/lib/israel-time";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
-import {
-  triggerBotPausedWaitingNotification,
-  triggerCtaNoSignupNotification,
-  triggerDailySummaryNotification,
-} from "@/lib/notifications/triggers";
+import { triggerCtaNoSignupNotification, triggerDailySummaryNotification } from "@/lib/notifications/triggers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PAUSED_WAIT_MS = 30 * 60 * 1000;
 const CTA_NO_SIGNUP_MS = 20 * 60 * 1000;
+const AUTO_UNPAUSE_MS = 15 * 60 * 1000;
 
 function israelNowParts() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -42,45 +38,28 @@ export async function GET(req: NextRequest) {
 
   const admin = createSupabaseAdminClient();
   const now = Date.now();
-  let pausedSent = 0;
+  let autoUnpaused = 0;
   let ctaSent = 0;
   let summariesSent = 0;
 
-  // ── bot_paused_waiting (30 min) ─────────────────────────────────────────────
-  const pausedCutoff = new Date(now - PAUSED_WAIT_MS).toISOString();
-  const { data: pausedRows } = await admin
+  // ── auto-unpause bot after 15 min (no owner WA notification) ─────────────
+  const unpauseCutoff = new Date(now - AUTO_UNPAUSE_MS).toISOString();
+  const { data: unpauseRows, error: unpauseErr } = await admin
     .from("conversations")
-    .select("id, business_id, phone, session_id")
+    .update({
+      bot_paused: false,
+      paused_at: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("bot_paused", true)
-    .eq("paused_notification_sent", false)
-    .limit(200);
+    .not("paused_at", "is", null)
+    .lte("paused_at", unpauseCutoff)
+    .select("id");
 
-  for (const row of pausedRows ?? []) {
-    const businessId = Number((row as { business_id?: number }).business_id);
-    const sessionId = String((row as { session_id?: string }).session_id ?? "").trim();
-    const phone = String((row as { phone?: string }).phone ?? "").trim();
-    const id = String((row as { id?: string }).id ?? "");
-    if (!businessId || !sessionId || !id) continue;
-
-    const { data: biz } = await admin.from("businesses").select("slug").eq("id", businessId).maybeSingle();
-    const slug = String((biz as { slug?: string } | null)?.slug ?? "").trim().toLowerCase();
-    if (!slug) continue;
-
-    const { data: lastMsg } = await admin
-      .from("messages")
-      .select("role, created_at")
-      .eq("business_slug", slug)
-      .eq("session_id", sessionId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const role = String((lastMsg as { role?: string } | null)?.role ?? "");
-    const createdAt = String((lastMsg as { created_at?: string } | null)?.created_at ?? "");
-    if (role !== "user" || !createdAt || createdAt > pausedCutoff) continue;
-
-    await triggerBotPausedWaitingNotification({ businessId, conversationId: id, leadPhone: phone });
-    pausedSent += 1;
+  if (unpauseErr) {
+    console.warn("[cron/owner-notifications] auto-unpause failed:", unpauseErr.message);
+  } else {
+    autoUnpaused = unpauseRows?.length ?? 0;
   }
 
   // ── cta_no_signup (20 min, no "נרשמתי") ───────────────────────────────────
@@ -126,27 +105,27 @@ export async function GET(req: NextRequest) {
     ctaSent += 1;
   }
 
-  // ── daily_summary (08:00 Israel) ──────────────────────────────────────────
+  // ── daily_summary (08:00 Israel) — WA + email per settings ────────────────
   const { hour } = israelNowParts();
   if (hour === 8) {
     const { start, end, label } = getIsraelYesterdayRange();
     const { data: businesses } = await admin
       .from("businesses")
-      .select("id, slug, name, is_active, owner_whatsapp_opted_in, owner_whatsapp_phone")
-      .eq("is_active", true)
-      .eq("owner_whatsapp_opted_in", true)
-      .not("owner_whatsapp_phone", "is", null);
+      .select("id, slug, name, is_active, owner_whatsapp_opted_in, owner_whatsapp_phone, email")
+      .eq("is_active", true);
 
     for (const biz of businesses ?? []) {
       const businessId = Number((biz as { id?: number }).id);
       const slug = String((biz as { slug?: string }).slug ?? "").trim().toLowerCase();
       if (!businessId || !slug) continue;
 
-      const phone = String((biz as { owner_whatsapp_phone?: string }).owner_whatsapp_phone ?? "").trim();
-      if (!phone) continue;
-
       const settings = await getNotificationSettings(businessId);
-      if (!settings.daily_summary) continue;
+      const wantsWa =
+        settings.daily_summary &&
+        (biz as { owner_whatsapp_opted_in?: boolean }).owner_whatsapp_opted_in === true &&
+        Boolean(String((biz as { owner_whatsapp_phone?: string }).owner_whatsapp_phone ?? "").trim());
+      const wantsEmail = settings.daily_summary_email;
+      if (!wantsWa && !wantsEmail) continue;
 
       const lastAt = await admin
         .from("notification_settings")
@@ -207,7 +186,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    pausedSent,
+    autoUnpaused,
     ctaSent,
     summariesSent,
     israelHour: hour,

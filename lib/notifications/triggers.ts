@@ -1,5 +1,11 @@
+import {
+  dailySummaryOwnerEmail,
+  humanRequestedOwnerEmail,
+  leadRegisteredOwnerEmail,
+} from "@/lib/email";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { gateOwnerNotification } from "@/lib/notifications/owner-notification-gate";
+import { sendOwnerEmailIfEnabled } from "@/lib/notifications/sendOwnerEmailIfEnabled";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
 
@@ -115,11 +121,17 @@ export async function triggerHumanRequestedNotification(input: {
   businessId: number;
   leadPhone: string;
 }): Promise<void> {
+  const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   await sendIfEnabled({
     businessId: input.businessId,
     key: "human_requested",
     templateName: "human_agent_request",
-    components: bodyParams(formatLeadPhoneDisplay(input.leadPhone)),
+    components: bodyParams(phoneDisplay),
+  });
+  await sendOwnerEmailIfEnabled({
+    businessId: input.businessId,
+    settingKey: "human_requested_email",
+    build: ({ businessName }) => humanRequestedOwnerEmail(businessName, phoneDisplay),
   });
 }
 
@@ -131,17 +143,23 @@ export async function triggerLeadRegisteredNotification(input: {
   requestedTime?: string | null;
 }): Promise<void> {
   const directRegistration = input.scheduleDirectRegistration !== false;
+  const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   await sendIfEnabled({
     businessId: input.businessId,
     key: "lead_registered",
     templateName: directRegistration ? "lead_registered" : "lead_registered_with_time",
     components: directRegistration
-      ? bodyParams(formatLeadPhoneDisplay(input.leadPhone))
+      ? bodyParams(phoneDisplay)
       : bodyParams(
-          formatLeadPhoneDisplay(input.leadPhone),
+          phoneDisplay,
           String(input.requestedDate ?? "").trim(),
           String(input.requestedTime ?? "").trim()
         ),
+  });
+  await sendOwnerEmailIfEnabled({
+    businessId: input.businessId,
+    settingKey: "lead_registered_email",
+    build: ({ businessName }) => leadRegisteredOwnerEmail(businessName, phoneDisplay),
   });
 }
 
@@ -211,6 +229,20 @@ export async function triggerDailySummaryNotification(input: {
       String(input.ctaReached),
       String(input.registered)
     ),
+  });
+
+  await sendOwnerEmailIfEnabled({
+    businessId: input.businessId,
+    settingKey: "daily_summary_email",
+    build: ({ businessName }) =>
+      dailySummaryOwnerEmail(
+        businessName,
+        input.dateLabel,
+        input.newLeads,
+        input.openConversations,
+        input.ctaReached,
+        input.registered
+      ),
   });
 
   const { touchNotificationSettingsDailySummaryAt } = await import(

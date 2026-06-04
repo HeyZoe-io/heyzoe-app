@@ -337,3 +337,62 @@ export function cancellationEmail(business_name: string, access_until: string, d
   };
 }
 
+/** Stub — נוסח סופי יוגדר בנפרד */
+export function leadRegisteredOwnerEmail(business_name: string, lead_phone: string): EmailTemplateResult {
+  const bn = String(business_name ?? "").trim() || "העסק שלך";
+  const phone = String(lead_phone ?? "").trim() || "—";
+  return {
+    subject: `ליד נרשם — ${bn}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p(["שלום " + bn + ",", "", "ליד ביצע הרשמה בשיחה עם זואי.", "טלפון: " + phone, "", "צוות HeyZoe"])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+/** Stub — נוסח סופי יוגדר בנפרד */
+export function humanRequestedOwnerEmail(business_name: string, lead_phone: string): EmailTemplateResult {
+  const bn = String(business_name ?? "").trim() || "העסק שלך";
+  const phone = String(lead_phone ?? "").trim() || "—";
+  return {
+    subject: `ליד ביקש נציג — ${bn}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p(["שלום " + bn + ",", "", "ליד ביקש לדבר עם נציג אנושי.", "טלפון: " + phone, "", "צוות HeyZoe"])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+/** Stub — נוסח סופי יוגדר בנפרד */
+export function dailySummaryOwnerEmail(
+  business_name: string,
+  date_label: string,
+  new_leads: number,
+  open_conversations: number,
+  cta_reached: number,
+  registered: number
+): EmailTemplateResult {
+  const bn = String(business_name ?? "").trim() || "העסק שלך";
+  const dl = String(date_label ?? "").trim();
+  return {
+    subject: `סיכום יומי${dl ? ` — ${dl}` : ""} — ${bn}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        "שלום " + bn + ",",
+        "",
+        dl ? "תאריך: " + dl : "",
+        "לידים חדשים: " + String(new_leads),
+        "שיחות פתוחות: " + String(open_conversations),
+        "הגיעו ל-CTA: " + String(cta_reached),
+        "נרשמו: " + String(registered),
+        "",
+        "צוות HeyZoe",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+

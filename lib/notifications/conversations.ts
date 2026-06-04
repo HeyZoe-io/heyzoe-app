@@ -7,6 +7,7 @@ export type ConversationRow = {
   phone: string;
   session_id: string | null;
   bot_paused: boolean;
+  paused_at: string | null;
   paused_notification_sent: boolean;
   cta_clicked_at: string | null;
   cta_notification_sent: boolean;
@@ -29,7 +30,9 @@ export async function ensureConversation(input: {
 
   const { data: existing } = await admin
     .from("conversations")
-    .select("id, business_id, phone, session_id, bot_paused, paused_notification_sent, cta_clicked_at, cta_notification_sent")
+    .select(
+      "id, business_id, phone, session_id, bot_paused, paused_at, paused_notification_sent, cta_clicked_at, cta_notification_sent"
+    )
     .eq("business_id", business_id)
     .eq("phone", phone)
     .maybeSingle();
@@ -47,6 +50,7 @@ export async function ensureConversation(input: {
     phone,
     session_id,
     bot_paused: false,
+    paused_at: null,
     paused_notification_sent: false,
     cta_notification_sent: false,
     updated_at: new Date().toISOString(),
@@ -55,7 +59,9 @@ export async function ensureConversation(input: {
   const { data: inserted, error } = await admin
     .from("conversations")
     .insert(insertPayload)
-    .select("id, business_id, phone, session_id, bot_paused, paused_notification_sent, cta_clicked_at, cta_notification_sent")
+    .select(
+      "id, business_id, phone, session_id, bot_paused, paused_at, paused_notification_sent, cta_clicked_at, cta_notification_sent"
+    )
     .single();
 
   if (error) {
@@ -80,10 +86,12 @@ export async function setConversationBotPaused(input: {
 
   const admin = createSupabaseAdminClient();
   const phone = normalizeLeadPhone(input.phone);
+  const now = new Date().toISOString();
   const patch: Record<string, unknown> = {
     bot_paused: input.paused,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
     paused_notification_sent: false,
+    paused_at: input.paused ? now : null,
   };
 
   const { error } = await admin
