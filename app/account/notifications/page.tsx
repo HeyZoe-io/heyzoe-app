@@ -5,60 +5,60 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buildOwnerWhatsappConnectUrl } from "@/lib/notifications/owner-opt-in";
 import { normalizePhone } from "@/lib/phone-normalize";
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  NOTIFICATION_UI_SETTING_KEYS,
+  type NotificationSettings,
+  type NotificationUiSettingKey,
+} from "@/lib/notifications/types";
 
 function formatOwnerPhoneDisplay(phone: string): string {
   const d = normalizePhone(phone) ?? phone.replace(/\D/g, "");
   if (d.startsWith("972") && d.length >= 12) return `0${d.slice(3)}`;
   return phone.trim() || "—";
 }
-import {
-  DEFAULT_NOTIFICATION_SETTINGS,
-  type NotificationSettingKey,
-  type NotificationSettings,
-} from "@/lib/notifications/types";
 
-const ROWS: Array<{
-  key: NotificationSettingKey;
+type NotificationRow = {
   label: string;
   description: string;
-}> = [
+  whatsappKey: NotificationUiSettingKey;
+  emailKey: NotificationUiSettingKey;
+};
+
+const ROWS: NotificationRow[] = [
   {
-    key: "new_lead",
-    label: "🔔 ליד חדש נכנס",
-    description: "כשמספר חדש פונה לבוט בפעם הראשונה",
-  },
-  {
-    key: "human_requested",
-    label: "✋ ליד ביקש נציג אנושי",
-    description: "כשהליד מבקש לדבר עם נציג",
-  },
-  {
-    key: "bot_paused_waiting",
-    label: "⏸️ שיחה ממתינה",
-    description: "30 דקות לאחר השהיית הבוט ללא מענה",
-  },
-  {
-    key: "cta_no_signup",
-    label: "🎯 ליד הגיע ל-CTA ולא נרשם",
-    description: '20 דקות לאחר לחיצה על כפתור הרשמה ללא אישור "נרשמתי"',
-  },
-  {
-    key: "lead_registered",
     label: "✅ ליד נרשם",
     description: 'כשהליד כותב "נרשמתי"',
+    whatsappKey: "lead_registered",
+    emailKey: "lead_registered_email",
   },
   {
-    key: "daily_summary",
+    label: "✋ ליד ביקש נציג אנושי",
+    description: "כשהליד מבקש לדבר עם נציג",
+    whatsappKey: "human_requested",
+    emailKey: "human_requested_email",
+  },
+  {
     label: "📋 סיכום יומי",
     description: "סיכום יומי בשעה 08:00",
+    whatsappKey: "daily_summary",
+    emailKey: "daily_summary_email",
   },
 ];
+
+function uiSettingsFromFull(full: NotificationSettings): Pick<NotificationSettings, NotificationUiSettingKey> {
+  const out = {} as Pick<NotificationSettings, NotificationUiSettingKey>;
+  for (const key of NOTIFICATION_UI_SETTING_KEYS) {
+    out[key] = full[key];
+  }
+  return out;
+}
 
 export default function AccountNotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
-  const [settings, setSettings] = useState<NotificationSettings>({ ...DEFAULT_NOTIFICATION_SETTINGS });
+  const [settings, setSettings] = useState(() => uiSettingsFromFull({ ...DEFAULT_NOTIFICATION_SETTINGS }));
   const [ownerWhatsappOptedIn, setOwnerWhatsappOptedIn] = useState(false);
   const [ownerWhatsappPhone, setOwnerWhatsappPhone] = useState("");
   const [businessSlug, setBusinessSlug] = useState("");
@@ -69,7 +69,10 @@ export default function AccountNotificationsPage() {
       const res = await fetch("/api/account/notifications", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        if (data.settings) setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, ...data.settings });
+        if (data.settings) {
+          const merged = { ...DEFAULT_NOTIFICATION_SETTINGS, ...data.settings } as NotificationSettings;
+          setSettings(uiSettingsFromFull(merged));
+        }
         setOwnerWhatsappOptedIn(data.owner_whatsapp_opted_in === true);
         setOwnerWhatsappPhone(
           typeof data.owner_whatsapp_phone === "string" ? data.owner_whatsapp_phone : ""
@@ -85,16 +88,17 @@ export default function AccountNotificationsPage() {
     void load();
   }, [load]);
 
-  const locked = !ownerWhatsappOptedIn;
+  const waLocked = !ownerWhatsappOptedIn;
   const connectUrl = businessSlug ? buildOwnerWhatsappConnectUrl(businessSlug) : "#";
 
-  function toggle(key: NotificationSettingKey) {
-    if (locked) return;
+  function toggle(key: NotificationUiSettingKey) {
+    if (waLocked && (key === "lead_registered" || key === "human_requested" || key === "daily_summary")) {
+      return;
+    }
     setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   async function save() {
-    if (locked) return;
     setSaving(true);
     setToast("");
     try {
@@ -108,7 +112,10 @@ export default function AccountNotificationsPage() {
         setToast(typeof data.error === "string" ? data.error : "שמירה נכשלה");
         return;
       }
-      if (data.settings) setSettings({ ...DEFAULT_NOTIFICATION_SETTINGS, ...data.settings });
+      if (data.settings) {
+        const merged = { ...DEFAULT_NOTIFICATION_SETTINGS, ...data.settings } as NotificationSettings;
+        setSettings(uiSettingsFromFull(merged));
+      }
       setToast("ההגדרות נשמרו בהצלחה");
     } finally {
       setSaving(false);
@@ -118,9 +125,9 @@ export default function AccountNotificationsPage() {
   return (
     <div className="space-y-4" dir="rtl">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">התראות WhatsApp</h1>
+        <h1 className="text-2xl font-semibold text-zinc-900">התראות</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          בחר אילו התראות לקבל לווטסאפ שלך לגבי פעילות הבוט
+          בחרו אילו התראות לקבל בווטסאפ ובמייל לגבי פעילות הבוט
           {businessSlug ? (
             <>
               {" "}
@@ -130,20 +137,22 @@ export default function AccountNotificationsPage() {
           .
         </p>
         <p className="mt-2 text-xs text-zinc-500">
-          ההתראות נשלחות ממספר זואי הראשי (
+          התראות WhatsApp נשלחות ממספר זואי הראשי (
           <span dir="ltr" className="inline-block whitespace-nowrap">
             +972 3-382-4981
           </span>
-          ) ומתייחסות לפעילות על מספר העסק שלך.
+          ). התראות מייל נשלחות לכתובת העסק ב-HeyZoe.
         </p>
       </div>
 
-      {locked && !loading ? (
+      {waLocked && !loading ? (
         <div
           className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-right flex flex-wrap items-center justify-between gap-3"
           role="status"
         >
-          <p className="text-sm text-amber-900 font-medium">כדי לקבל התראות, חבר את הווטסאפ שלך תחילה</p>
+          <p className="text-sm text-amber-900 font-medium">
+            כדי לקבל התראות בווטסאפ, חברו את המספר שלכם תחילה. התראות מייל זמינות גם בלי חיבור.
+          </p>
           {businessSlug ? (
             <a
               href={connectUrl}
@@ -157,13 +166,13 @@ export default function AccountNotificationsPage() {
         </div>
       ) : null}
 
-      {!locked && !loading && ownerWhatsappPhone ? (
+      {!waLocked && !loading && ownerWhatsappPhone ? (
         <div
           className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 px-4 py-3 text-right flex flex-wrap items-center gap-x-2 gap-y-1"
           role="status"
         >
           <p className="text-sm text-zinc-800">
-            התראות נשלחות אל:{" "}
+            התראות WhatsApp נשלחות אל:{" "}
             <span className="font-medium text-zinc-900" dir="ltr">
               {formatOwnerPhoneDisplay(ownerWhatsappPhone)}
             </span>
@@ -181,12 +190,10 @@ export default function AccountNotificationsPage() {
         </div>
       ) : null}
 
-      <Card className={locked ? "opacity-50 pointer-events-none select-none" : undefined}>
+      <Card>
         <CardHeader className="text-right">
           <CardTitle>סוגי התראות</CardTitle>
-          <CardDescription>
-            {locked ? "חברו ווטסאפ כדי לערוך את ההגדרות" : "ניתן לכבות כל סוג בנפרד"}
-          </CardDescription>
+          <CardDescription>ניתן להפעיל כל ערוץ בנפרד</CardDescription>
         </CardHeader>
         <CardContent className="space-y-1">
           {loading ? (
@@ -194,22 +201,36 @@ export default function AccountNotificationsPage() {
           ) : (
             <ul className="divide-y divide-zinc-100">
               {ROWS.map((row) => (
-                <li key={row.key} className="flex items-start gap-3 py-4">
-                  <input
-                    id={`notif-${row.key}`}
-                    type="checkbox"
-                    checked={settings[row.key]}
-                    onChange={() => toggle(row.key)}
-                    disabled={locked}
-                    className="mt-1 h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-500 cursor-pointer disabled:cursor-not-allowed"
-                  />
-                  <label
-                    htmlFor={`notif-${row.key}`}
-                    className={`flex-1 text-right ${locked ? "cursor-not-allowed" : "cursor-pointer"}`}
-                  >
+                <li key={row.whatsappKey} className="py-4">
+                  <div className="text-right mb-3">
                     <span className="block text-sm font-medium text-zinc-900">{row.label}</span>
                     <span className="block text-xs text-zinc-500 mt-0.5">{row.description}</span>
-                  </label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-6 justify-start">
+                    <label
+                      className={`inline-flex items-center gap-2 text-sm ${
+                        waLocked ? "text-zinc-400 cursor-not-allowed" : "text-zinc-800 cursor-pointer"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={settings[row.whatsappKey]}
+                        onChange={() => toggle(row.whatsappKey)}
+                        disabled={waLocked}
+                        className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-500 disabled:cursor-not-allowed"
+                      />
+                      <span>WhatsApp</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm text-zinc-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings[row.emailKey]}
+                        onChange={() => toggle(row.emailKey)}
+                        className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-500"
+                      />
+                      <span>מייל</span>
+                    </label>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -217,21 +238,19 @@ export default function AccountNotificationsPage() {
         </CardContent>
       </Card>
 
-      {!locked ? (
-        <div className="flex flex-wrap items-center gap-3 justify-start">
-          <Button type="button" onClick={() => void save()} disabled={saving || loading}>
-            {saving ? "שומר…" : "שמירה"}
-          </Button>
-          {toast ? (
-            <p
-              className={`text-sm ${toast.includes("נכשל") ? "text-red-600" : "text-emerald-700"}`}
-              role="status"
-            >
-              {toast}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-3 justify-start">
+        <Button type="button" onClick={() => void save()} disabled={saving || loading}>
+          {saving ? "שומר…" : "שמירה"}
+        </Button>
+        {toast ? (
+          <p
+            className={`text-sm ${toast.includes("נכשל") ? "text-red-600" : "text-emerald-700"}`}
+            role="status"
+          >
+            {toast}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
