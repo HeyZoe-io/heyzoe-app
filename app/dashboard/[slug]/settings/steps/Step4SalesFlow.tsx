@@ -33,11 +33,9 @@ import {
   WARMUP_MAX_BUTTONS,
   WARMUP_MIN_BUTTONS,
   createDefaultWarmupExtraStep,
-  duplicateWarmupExtraStepAsQuestion2,
   isWarmupExperienceQuestion1Configured,
   SCHEDULE_BOARD_CAPTION,
   stripScheduleLineFromMultiServiceQuestion,
-  targetWarmupExtraStepsHasStepLike,
   type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
 
@@ -515,22 +513,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     [ctaOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
   );
 
-  const [warmOfferTabPreferred, setWarmOfferTab] = useState<CtaOfferTab>(() => {
-    if (hasTrialOffers) return "trial";
-    if (hasWorkshopOffers) return "workshop";
-    return "course";
-  });
-  const warmOfferTab = useMemo(
-    () =>
-      resolveOfferTab(
-        warmOfferTabPreferred,
-        hasTrialOffers,
-        hasWorkshopOffers,
-        hasCourseOffers
-      ),
-    [warmOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
-  );
-
   const hasAnyScheduleOfferTab = hasTrialOffers || hasWorkshopOffers || hasCourseOffers;
   const [scheduleOfferTabPreferred, setScheduleOfferTab] = useState<CtaOfferTab>(() => {
     if (hasTrialOffers) return "trial";
@@ -550,10 +532,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
   useEffect(() => {
     setCtaOfferTab((prev) => resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers));
-  }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
-
-  useEffect(() => {
-    setWarmOfferTab((prev) => resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers));
   }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
   useEffect(() => {
@@ -584,10 +562,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     );
   }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
-  const firstTrialSvcForWarmup = useMemo(() => {
-    const row = services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "trial");
-    return row ?? firstNamedService;
-  }, [services, firstNamedService]);
+  const firstSvcForWarmup = firstNamedService;
 
   const firstWorkshopSvcForWarmup = useMemo(
     () => services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "workshop") ?? null,
@@ -697,11 +672,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     setStepPrefix("sales");
   }, [setStepPrefix]);
 
-  const firstCourseSvcForWarmup = useMemo(
-    () => services.find((s) => String(s?.name ?? "").trim() && s?.offer_kind === "course") ?? null,
-    [services]
-  );
-
   const warmupExtraStepHasContent = (step: SalesFlowExtraStep) =>
     Boolean(step.question.trim()) ||
     step.options.some((o) => String(o ?? "").trim()) ||
@@ -709,39 +679,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
   const warmupSectionFilled = useMemo(() => {
     if (!warmupSessionEnabled) return false;
-    const trialOk =
+    return (
       isWarmupExperienceQuestion1Configured({
         question: salesFlowConfig.experience_question,
         options: salesFlowConfig.experience_options,
-      }) || (salesFlowConfig.opening_extra_steps ?? []).some(warmupExtraStepHasContent);
-    const workshopOk =
-      isWarmupExperienceQuestion1Configured({
-        question: salesFlowConfig.experience_question_workshop,
-        options: salesFlowConfig.experience_options_workshop ?? [],
-      }) || (salesFlowConfig.opening_extra_steps_workshop ?? []).some(warmupExtraStepHasContent);
-    const courseOk =
-      isWarmupExperienceQuestion1Configured({
-        question: salesFlowConfig.experience_question_course,
-        options: salesFlowConfig.experience_options_course ?? [],
-      }) || (salesFlowConfig.opening_extra_steps_course ?? []).some(warmupExtraStepHasContent);
-    return (
-      (hasTrialOffers && trialOk) ||
-      (hasWorkshopOffers && workshopOk) ||
-      (hasCourseOffers && courseOk)
+      }) || (salesFlowConfig.opening_extra_steps ?? []).some(warmupExtraStepHasContent)
     );
-  }, [warmupSessionEnabled, salesFlowConfig, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+  }, [warmupSessionEnabled, salesFlowConfig]);
 
-  const trialWarmupQ1Active = isWarmupExperienceQuestion1Configured({
+  const warmupQ1Active = isWarmupExperienceQuestion1Configured({
     question: salesFlowConfig.experience_question,
     options: salesFlowConfig.experience_options,
-  });
-  const workshopWarmupQ1Active = isWarmupExperienceQuestion1Configured({
-    question: salesFlowConfig.experience_question_workshop,
-    options: salesFlowConfig.experience_options_workshop ?? [],
-  });
-  const courseWarmupQ1Active = isWarmupExperienceQuestion1Configured({
-    question: salesFlowConfig.experience_question_course,
-    options: salesFlowConfig.experience_options_course ?? [],
   });
 
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
@@ -954,14 +902,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   variant="outline"
                   className="gap-1 text-xs py-1.5 px-3 h-auto"
                   disabled={isSalesGenerating}
-                  onClick={() => regenerateSalesFlowSection("warmup", warmOfferTab)}
+                  onClick={() => regenerateSalesFlowSection("warmup")}
                 >
-                  {isGen("warmup", warmOfferTab) ? (
+                  {isGen("warmup") ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <Sparkles className="h-3.5 w-3.5" />
                   )}
-                  {isGen("warmup", warmOfferTab) ? "מג׳נרט..." : "ג׳נרט מחדש"}
+                  {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
                 </Button>
               </div>
             ) : null
@@ -981,288 +929,60 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   הוסף סשן חימום
                 </Button>
               </div>
-            ) : trialServiceNames.length === 0 ? (
+            ) : !firstNamedService ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                 כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «מוצרים» (שלב 3).
               </p>
             ) : (
               <>
-                <div
-                  dir="rtl"
-                  className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
-                  role="tablist"
-                  aria-label="סוג סשן חימום לעריכה"
-                >
-                  {hasTrialOffers ? (
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={warmOfferTab === "trial"}
-                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
-                        warmOfferTab === "trial"
-                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
-                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                      }`}
-                      onClick={() => setWarmOfferTab("trial")}
-                    >
-                      שיעור ניסיון
-                    </button>
-                  ) : null}
-                  {hasWorkshopOffers ? (
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={warmOfferTab === "workshop"}
-                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
-                        warmOfferTab === "workshop"
-                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
-                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                      }`}
-                      onClick={() => setWarmOfferTab("workshop")}
-                    >
-                      סדנה
-                    </button>
-                  ) : null}
-                  {hasCourseOffers ? (
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={warmOfferTab === "course"}
-                      className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
-                        warmOfferTab === "course"
-                          ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
-                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                      }`}
-                      onClick={() => setWarmOfferTab("course")}
-                    >
-                      קורס
-                    </button>
-                  ) : null}
-                </div>
-
-                {warmOfferTab === "trial" && hasTrialOffers ? (
-                  <>
-                    <WarmupSessionQuestion1Block
-                      question={experienceQuestionForDisplay(
-                        salesFlowConfig.experience_question,
-                        trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? ""
-                      )}
-                      options={salesFlowConfig.experience_options}
-                      replies={salesFlowConfig.experience_replies}
-                      onQuestionChange={(v) => {
-                        const sn =
-                          trialServiceNames.length > 1 ? firstTrialForTemplates.name : trialServiceNames[0] ?? "";
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question: experienceQuestionToStore(v, sn),
-                        }));
-                      }}
-                      onPairsChange={(nextOptions, nextReplies) =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_options: nextOptions,
-                          experience_replies: nextReplies,
-                        }))
-                      }
-                      questionPlaceholder={
-                        trialServiceNames.length > 1
-                          ? "למשל: יצא לך לנסות בעבר?"
-                          : "למשל: יש לך כבר ניסיון בפילאטיס?"
-                      }
-                      afterExperienceForDisplay={afterExperienceForDisplay}
-                      afterExperienceToStore={afterExperienceToStore}
-                      serviceForReply={firstTrialSvcForWarmup}
-                      onClear={() =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question: "",
-                          experience_options: [],
-                          experience_replies: [],
-                        }))
-                      }
-                    />
-                    <SalesFlowExtraStepsEditor
-                      steps={salesFlowConfig.opening_extra_steps}
-                      onChange={(next) => setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))}
-                      addButtonLabel="הוסף שאלה בסשן חימום"
-                      startAt={trialWarmupQ1Active ? 2 : 1}
-                      showTopDivider={trialWarmupQ1Active}
-                      uid={uid}
-                      afterExperienceForDisplay={afterExperienceForDisplay}
-                      afterExperienceToStore={afterExperienceToStore}
-                      serviceForReply={firstTrialSvcForWarmup}
-                      duplicateActionsForQuestion={(step, questionNumber) => {
-                        const templateQ = trialWarmupQ1Active ? 2 : 1;
-                        if (questionNumber !== templateQ || !warmupExtraStepHasContent(step)) return [];
-                        const actions: WarmupDuplicateAction[] = [];
-                        if (hasWorkshopOffers) {
-                          const ws = salesFlowConfig.opening_extra_steps_workshop ?? [];
-                          if (!targetWarmupExtraStepsHasStepLike(step, ws)) {
-                            actions.push({
-                              label: "שכפל לסדנה",
-                              onClick: () =>
-                                setSalesFlowConfig((c) => ({
-                                  ...c,
-                                  opening_extra_steps_workshop: duplicateWarmupExtraStepAsQuestion2(
-                                    step,
-                                    c.opening_extra_steps_workshop ?? [],
-                                    uid()
-                                  ),
-                                })),
-                            });
-                          }
-                        }
-                        if (hasCourseOffers) {
-                          const cs = salesFlowConfig.opening_extra_steps_course ?? [];
-                          if (!targetWarmupExtraStepsHasStepLike(step, cs)) {
-                            actions.push({
-                              label: "שכפל לקורס",
-                              onClick: () =>
-                                setSalesFlowConfig((c) => ({
-                                  ...c,
-                                  opening_extra_steps_course: duplicateWarmupExtraStepAsQuestion2(
-                                    step,
-                                    c.opening_extra_steps_course ?? [],
-                                    uid()
-                                  ),
-                                })),
-                            });
-                          }
-                        }
-                        return actions;
-                      }}
-                    />
-                  </>
-                ) : null}
-
-                {warmOfferTab === "workshop" && hasWorkshopOffers ? (
-                  <>
-                    <WarmupSessionQuestion1Block
-                      question={experienceQuestionForDisplay(
-                        salesFlowConfig.experience_question_workshop ?? "",
-                        firstWorkshopSvcForWarmup?.name?.trim() ?? ""
-                      )}
-                      options={salesFlowConfig.experience_options_workshop ?? []}
-                      replies={salesFlowConfig.experience_replies_workshop ?? []}
-                      onQuestionChange={(v) => {
-                        const sn = firstWorkshopSvcForWarmup?.name?.trim() ?? "";
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question_workshop: experienceQuestionToStore(v, sn),
-                        }));
-                      }}
-                      onPairsChange={(nextOptions, nextReplies) =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_options_workshop: nextOptions,
-                          experience_replies_workshop: nextReplies,
-                        }))
-                      }
-                      questionPlaceholder="למשל: איזו ציפייה יש לך מהסדנה?"
-                      afterExperienceForDisplay={afterExperienceForDisplay}
-                      afterExperienceToStore={afterExperienceToStore}
-                      serviceForReply={firstWorkshopSvcForWarmup}
-                      onClear={() =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question_workshop: "",
-                          experience_options_workshop: [],
-                          experience_replies_workshop: [],
-                        }))
-                      }
-                    />
-                    <SalesFlowExtraStepsEditor
-                      steps={salesFlowConfig.opening_extra_steps_workshop ?? []}
-                      onChange={(next) =>
-                        setSalesFlowConfig((c) => ({ ...c, opening_extra_steps_workshop: next }))
-                      }
-                      addButtonLabel="הוסף שאלה בסשן חימום (סדנה)"
-                      startAt={workshopWarmupQ1Active ? 2 : 1}
-                      showTopDivider={workshopWarmupQ1Active}
-                      uid={uid}
-                      afterExperienceForDisplay={afterExperienceForDisplay}
-                      afterExperienceToStore={afterExperienceToStore}
-                      serviceForReply={firstWorkshopSvcForWarmup}
-                      duplicateActionsForQuestion={(step, questionNumber) => {
-                        const templateQ = workshopWarmupQ1Active ? 2 : 1;
-                        if (questionNumber !== templateQ || !warmupExtraStepHasContent(step) || !hasCourseOffers) {
-                          return [];
-                        }
-                        const cs = salesFlowConfig.opening_extra_steps_course ?? [];
-                        if (targetWarmupExtraStepsHasStepLike(step, cs)) return [];
-                        return [
-                          {
-                            label: "שכפל לקורס",
-                            onClick: () =>
-                              setSalesFlowConfig((c) => ({
-                                ...c,
-                                opening_extra_steps_course: duplicateWarmupExtraStepAsQuestion2(
-                                  step,
-                                  c.opening_extra_steps_course ?? [],
-                                  uid()
-                                ),
-                              })),
-                          },
-                        ];
-                      }}
-                    />
-                  </>
-                ) : null}
-
-                {warmOfferTab === "course" && hasCourseOffers ? (
-                  <>
-                    <WarmupSessionQuestion1Block
-                      question={experienceQuestionForDisplay(
-                        salesFlowConfig.experience_question_course ?? "",
-                        firstCourseSvcForWarmup?.name?.trim() ?? ""
-                      )}
-                      options={salesFlowConfig.experience_options_course ?? []}
-                      replies={salesFlowConfig.experience_replies_course ?? []}
-                      onQuestionChange={(v) => {
-                        const sn = firstCourseSvcForWarmup?.name?.trim() ?? "";
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question_course: experienceQuestionToStore(v, sn),
-                        }));
-                      }}
-                      onPairsChange={(nextOptions, nextReplies) =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_options_course: nextOptions,
-                          experience_replies_course: nextReplies,
-                        }))
-                      }
-                      questionPlaceholder="למשל: יש לך ניסיון קודם בתחום?"
-                      afterExperienceForDisplay={afterExperienceForDisplay}
-                      afterExperienceToStore={afterExperienceToStore}
-                      serviceForReply={firstCourseSvcForWarmup}
-                      onClear={() =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          experience_question_course: "",
-                          experience_options_course: [],
-                          experience_replies_course: [],
-                        }))
-                      }
-                    />
-                    <SalesFlowExtraStepsEditor
-                      steps={salesFlowConfig.opening_extra_steps_course ?? []}
-                      onChange={(next) =>
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          opening_extra_steps_course: next,
-                        }))
-                      }
-                      addButtonLabel="הוסף שאלה בסשן חימום (קורס)"
-                      startAt={courseWarmupQ1Active ? 2 : 1}
-                      showTopDivider={courseWarmupQ1Active}
-                      uid={uid}
-                      afterExperienceForDisplay={afterExperienceForDisplay}
-                      afterExperienceToStore={afterExperienceToStore}
-                      serviceForReply={firstCourseSvcForWarmup}
-                    />
-                  </>
-                ) : null}
+                <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
+                  סשן חימום אחיד לכל המוצרים — נשלח לפני בחירת סוג האימון.
+                </p>
+                <WarmupSessionQuestion1Block
+                  question={experienceQuestionForDisplay(
+                    salesFlowConfig.experience_question,
+                    firstSvcForWarmup?.name?.trim() ?? ""
+                  )}
+                  options={salesFlowConfig.experience_options}
+                  replies={salesFlowConfig.experience_replies}
+                  onQuestionChange={(v) => {
+                    const sn = firstSvcForWarmup?.name?.trim() ?? "";
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      experience_question: experienceQuestionToStore(v, sn),
+                    }));
+                  }}
+                  onPairsChange={(nextOptions, nextReplies) =>
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      experience_options: nextOptions,
+                      experience_replies: nextReplies,
+                    }))
+                  }
+                  questionPlaceholder="למשל: מה מביא אותך אלינו?"
+                  afterExperienceForDisplay={afterExperienceForDisplay}
+                  afterExperienceToStore={afterExperienceToStore}
+                  serviceForReply={firstSvcForWarmup}
+                  onClear={() =>
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      experience_question: "",
+                      experience_options: [],
+                      experience_replies: [],
+                    }))
+                  }
+                />
+                <SalesFlowExtraStepsEditor
+                  steps={salesFlowConfig.opening_extra_steps}
+                  onChange={(next) => setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))}
+                  addButtonLabel="הוסף שאלה בסשן חימום"
+                  startAt={warmupQ1Active ? 2 : 1}
+                  showTopDivider={warmupQ1Active}
+                  uid={uid}
+                  afterExperienceForDisplay={afterExperienceForDisplay}
+                  afterExperienceToStore={afterExperienceToStore}
+                  serviceForReply={firstSvcForWarmup}
+                />
               </>
             )}
           </div>
@@ -2035,7 +1755,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     placeholder="מה שנשאר כעת הוא להצטרף לקורס! המחיר הוא x שקלים, הוא נמשך כ-x מפגשים, כל יום x בשעה x"
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                    מחיר, מספר מפגשים ומועדים (ימים ושעות) יימשכו אוטומטית ממוצרי «קורס» בטאב «מוצרים». אחרי סשן החימום נשלחת שורת עלות בלי לחזור על מחזורי הקורס.
+                    מחיר, מספר מפגשים ומועדים (ימים ושעות) יימשכו אוטומטית ממוצרי «קורס» בטאב «מוצרים» לתוך הנעה לפעולה.
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

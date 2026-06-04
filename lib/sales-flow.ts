@@ -1512,7 +1512,53 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     cfg.experience_options_course = [...migratedWarmup.options];
     cfg.experience_replies_course = [...migratedWarmup.replies];
   }
-  return applyLegacyMembershipsCheckbox(cfg);
+  return applyLegacyMembershipsCheckbox(unifyPerKindWarmupIntoGeneral(cfg));
+}
+
+function warmupConfigHasUsableContent(cfg: {
+  question: string;
+  options: string[];
+  extras: SalesFlowExtraStep[];
+}): boolean {
+  if (isWarmupExperienceQuestion1Configured({ question: cfg.question, options: cfg.options })) return true;
+  return cfg.extras.some((st) => {
+    const opts = (st.options ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
+    return opts.length >= 2;
+  });
+}
+
+/** אם החימום הכללי ריק — מעתיק פעם אחת מסדנה/קורס (לפני איחוד המסלול). */
+function unifyPerKindWarmupIntoGeneral(cfg: SalesFlowConfig): SalesFlowConfig {
+  const general = resolveWarmupExperienceConfig(cfg);
+  if (warmupConfigHasUsableContent(general)) return cfg;
+
+  for (const legacy of [
+    {
+      question: cfg.experience_question_workshop ?? "",
+      options: cfg.experience_options_workshop ?? [],
+      replies: cfg.experience_replies_workshop ?? [],
+      after: cfg.after_experience_workshop ?? cfg.after_experience,
+      extras: cfg.opening_extra_steps_workshop ?? [],
+    },
+    {
+      question: cfg.experience_question_course ?? "",
+      options: cfg.experience_options_course ?? [],
+      replies: cfg.experience_replies_course ?? [],
+      after: cfg.after_experience_course ?? cfg.after_experience,
+      extras: cfg.opening_extra_steps_course ?? [],
+    },
+  ]) {
+    if (!warmupConfigHasUsableContent(legacy)) continue;
+    return {
+      ...cfg,
+      experience_question: legacy.question,
+      experience_options: [...legacy.options],
+      experience_replies: [...legacy.replies],
+      after_experience: legacy.after,
+      opening_extra_steps: structuredClone(legacy.extras),
+    };
+  }
+  return cfg;
 }
 
 export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unknown> {
@@ -1686,32 +1732,15 @@ function warmupExtraStepFromQuestion1Defaults(
 export function patchWarmupRegenerationForOfferKind(
   current: SalesFlowConfig,
   base: SalesFlowConfig,
-  kind: OfferKind,
+  _kind: OfferKind,
   newStepId: () => string
 ): Partial<SalesFlowConfig> {
-  const wbCurrent = resolveWarmupExperienceConfig(current, kind);
-  const wbBase = resolveWarmupExperienceConfig(base, kind);
-  const defaults = defaultWarmupExperienceQuestion1(kind);
+  void _kind;
+  const wbCurrent = resolveWarmupExperienceConfig(current);
+  const wbBase = resolveWarmupExperienceConfig(base);
+  const defaults = defaultWarmupExperienceQuestion1("trial");
 
   if (isWarmupExperienceQuestion1Configured(wbCurrent)) {
-    if (kind === "workshop") {
-      return {
-        experience_question_workshop: wbBase.question,
-        experience_options_workshop: structuredClone(wbBase.options),
-        experience_replies_workshop: structuredClone(wbBase.replies),
-        after_experience_workshop: wbBase.afterExperienceRaw,
-        opening_extra_steps_workshop: structuredClone(wbBase.extras),
-      };
-    }
-    if (kind === "course") {
-      return {
-        experience_question_course: wbBase.question,
-        experience_options_course: structuredClone(wbBase.options),
-        experience_replies_course: structuredClone(wbBase.replies),
-        after_experience_course: wbBase.afterExperienceRaw,
-        opening_extra_steps_course: structuredClone(wbBase.extras),
-      };
-    }
     return {
       experience_question: wbBase.question,
       experience_options: structuredClone(wbBase.options),
@@ -1722,30 +1751,6 @@ export function patchWarmupRegenerationForOfferKind(
   }
 
   const step1 = warmupExtraStepFromQuestion1Defaults(newStepId(), defaults);
-  if (kind === "workshop") {
-    const extras = [...(current.opening_extra_steps_workshop ?? [])];
-    const nextExtras = extras.length
-      ? [warmupExtraStepFromQuestion1Defaults(extras[0]!.id, defaults), ...extras.slice(1)]
-      : [step1];
-    return {
-      experience_question_workshop: "",
-      experience_options_workshop: [],
-      experience_replies_workshop: [],
-      opening_extra_steps_workshop: nextExtras,
-    };
-  }
-  if (kind === "course") {
-    const extras = [...(current.opening_extra_steps_course ?? [])];
-    const nextExtras = extras.length
-      ? [warmupExtraStepFromQuestion1Defaults(extras[0]!.id, defaults), ...extras.slice(1)]
-      : [step1];
-    return {
-      experience_question_course: "",
-      experience_options_course: [],
-      experience_replies_course: [],
-      opening_extra_steps_course: nextExtras,
-    };
-  }
   const extras = [...(current.opening_extra_steps ?? [])];
   const nextExtras = extras.length
     ? [warmupExtraStepFromQuestion1Defaults(extras[0]!.id, defaults), ...extras.slice(1)]
@@ -1758,9 +1763,10 @@ export function patchWarmupRegenerationForOfferKind(
   };
 }
 
+/** סשן חימום אחיד לכל המוצרים — לפני בחירת שירות (שדות workshop/course ב-config נשמרים לתאימות בלבד). */
 export function resolveWarmupExperienceConfig(
   cfg: SalesFlowConfig,
-  kind: OfferKind
+  _kind?: OfferKind
 ): {
   question: string;
   options: string[];
@@ -1768,32 +1774,7 @@ export function resolveWarmupExperienceConfig(
   extras: SalesFlowExtraStep[];
   afterExperienceRaw: string;
 } {
-  if (kind === "workshop") {
-    return {
-      question: cfg.experience_question_workshop ?? FRIENDLY.experience_question_workshop,
-      options: [...(cfg.experience_options_workshop ?? FRIENDLY.experience_options_workshop)],
-      replies: [...(cfg.experience_replies_workshop ?? FRIENDLY.experience_replies_workshop)],
-      extras: structuredClone(cfg.opening_extra_steps_workshop ?? []),
-      afterExperienceRaw:
-        cfg.after_experience_workshop ??
-        cfg.after_experience ??
-        FRIENDLY.after_experience_workshop ??
-        FRIENDLY.after_experience,
-    };
-  }
-  if (kind === "course") {
-    return {
-      question: cfg.experience_question_course ?? FRIENDLY.experience_question_course,
-      options: [...(cfg.experience_options_course ?? FRIENDLY.experience_options_course)],
-      replies: [...(cfg.experience_replies_course ?? FRIENDLY.experience_replies_course)],
-      extras: structuredClone(cfg.opening_extra_steps_course ?? []),
-      afterExperienceRaw:
-        cfg.after_experience_course ??
-        cfg.after_experience ??
-        FRIENDLY.after_experience_course ??
-        FRIENDLY.after_experience,
-    };
-  }
+  void _kind;
   return {
     question: cfg.experience_question,
     options: [...cfg.experience_options],
@@ -1809,36 +1790,17 @@ export type WarmupServicePick = { name: string; offerKind: OfferKind };
  * מסלול מרובה־שירותים: בלי אירוע בחירת שירות אל תיפול ל־services[0] (סדר DB) —
  * בחר שירות שיש לו תוכן חימום (extras או שאלת ניסיון).
  */
+/** @deprecated חימום אחיד — נשמר לתאימות; תמיד מחזיר שירות לפי שם/ראשון בלבד (לא לפי offer_kind). */
 export function pickServiceRowForWarmupConfig(
   services: { name: string; offerKind?: OfferKind | string | null }[],
-  cfg: SalesFlowConfig,
+  _cfg: SalesFlowConfig,
   selectedServiceName: string | null | undefined
 ): WarmupServicePick | null {
+  void _cfg;
   const named = String(selectedServiceName ?? "").trim();
   if (named) {
     const hit = services.find((s) => s.name.trim() === named);
     if (hit) return { name: hit.name, offerKind: (hit.offerKind ?? "trial") as OfferKind };
-  }
-  if (services.length === 1) {
-    const s = services[0]!;
-    return { name: s.name, offerKind: (s.offerKind ?? "trial") as OfferKind };
-  }
-  // מעבר 1: שאלות נוספות (opening_extra_steps*) — לפני Q1, כדי שלא ייבחר קורס עם Q1 בלבד לפני trial עם 8 כפתורים.
-  for (const s of services) {
-    const kind = (s.offerKind ?? "trial") as OfferKind;
-    const wb = resolveWarmupExperienceConfig(cfg, kind);
-    const hasExtras = wb.extras.some((st) => {
-      const opts = (st.options ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
-      return opts.length >= 2;
-    });
-    if (hasExtras) return { name: s.name, offerKind: kind };
-  }
-  for (const s of services) {
-    const kind = (s.offerKind ?? "trial") as OfferKind;
-    const wb = resolveWarmupExperienceConfig(cfg, kind);
-    if (isWarmupExperienceQuestion1Configured({ question: wb.question, options: wb.options })) {
-      return { name: s.name, offerKind: kind };
-    }
   }
   const fallback = services[0];
   return fallback ? { name: fallback.name, offerKind: (fallback.offerKind ?? "trial") as OfferKind } : null;
@@ -1913,8 +1875,7 @@ export function syncWelcomeFromSalesFlow(
   if (named.length === 1) {
     const sn = named[0]!;
     const row = services.find((s) => s.name.trim() === sn);
-    const kind = row?.offer_kind ?? "trial";
-    const wb = resolveWarmupExperienceConfig(c, kind);
+    const wb = resolveWarmupExperienceConfig(c);
     return {
       intro,
       question: wb.question.replace(/\{serviceName\}/g, sn),
@@ -1953,8 +1914,7 @@ export function buildWhatsAppOpeningBody(
     }
   } else if (named.length === 1) {
     const sn = named[0]!;
-    const row = services.find((s) => s.name.trim() === sn);
-    const wb = resolveWarmupExperienceConfig(c, row?.offer_kind ?? "trial");
+    const wb = resolveWarmupExperienceConfig(c);
     lines.push("", wb.question.replace(/\{serviceName\}/g, sn));
     wb.options.forEach((o) => lines.push(o));
   }
@@ -2314,8 +2274,7 @@ export function getWhatsAppOpeningPreviewSections(
     }
   } else if (named.length === 1) {
     const sn = named[0]!;
-    const row = services.find((s) => s.name.trim() === sn);
-    const wb = resolveWarmupExperienceConfig(c, row?.offer_kind ?? "trial");
+    const wb = resolveWarmupExperienceConfig(c);
     sections.push({
       kind: "text",
       text: wb.question.replace(/\{serviceName\}/g, sn),
@@ -2729,42 +2688,12 @@ ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיח�
 - כללי הם/היא לנושא שירות (יוגה, פילאטיס…): ברירת מחדל «הם» בשורש אחרי אימון/שיעור/תרגול; «היא» רק לשם נקבה יחיד מובהק בלי ריבוי (זומבה).
 - מציין מסלול (הנחיה בלבד, לא טקסט ללקוח): ${c.after_service_pick}
 
-תוכן סשן החימום (לפי סוג שירות — נשלח לפני מערכת השעות ובחירת מוצר):
-
-— שיעור ניסיון (גם ברירת מחדל לפני בחירת מוצר כשיש כמה מוצרים):
+תוכן סשן החימום (אחיד לכל המוצרים — נשלח לפני מערכת השעות ובחירת מוצר):
   שאלה: ${c.experience_question}
   אפשרויות: ${c.experience_options.join(" | ")}
   מענה אחרי בחירה (לכל כפתור — העתיקי במדויק):
 ${formatWarmupButtonPairsForPrompt(c.experience_options, c.experience_replies, c.after_experience)}
-${formatExtraSteps("שאלות נוספות בסשן חימום — שיעור ניסיון (לפני ההנעה לפעולה)", c.opening_extra_steps)}
-
-— כשנבחר שירות «סדנה»:
-  שאלה: ${resolveWarmupExperienceConfig(c, "workshop").question}
-  אפשרויות: ${resolveWarmupExperienceConfig(c, "workshop").options.join(" | ")}
-  מענה אחרי בחירה (לכל כפתור — העתיקי במדויק):
-${formatWarmupButtonPairsForPrompt(
-    resolveWarmupExperienceConfig(c, "workshop").options,
-    resolveWarmupExperienceConfig(c, "workshop").replies,
-    resolveWarmupExperienceConfig(c, "workshop").afterExperienceRaw
-  )}
-${formatExtraSteps(
-    "שאלות נוספות בסשן חימום — סדנה (לפני ההנעה לפעולה)",
-    resolveWarmupExperienceConfig(c, "workshop").extras
-  )}
-
-— כשנבחר שירות «קורס»:
-  שאלה: ${resolveWarmupExperienceConfig(c, "course").question}
-  אפשרויות: ${resolveWarmupExperienceConfig(c, "course").options.join(" | ")}
-  מענה אחרי בחירה (לכל כפתור — העתיקי במדויק):
-${formatWarmupButtonPairsForPrompt(
-    resolveWarmupExperienceConfig(c, "course").options,
-    resolveWarmupExperienceConfig(c, "course").replies,
-    resolveWarmupExperienceConfig(c, "course").afterExperienceRaw
-  )}
-${formatExtraSteps(
-    "שאלות נוספות בסשן חימום — קורס (לפני ההנעה לפעולה)",
-    resolveWarmupExperienceConfig(c, "course").extras
-  )}
+${formatExtraSteps("שאלות נוספות בסשן חימום (לפני ההנעה לפעולה)", c.opening_extra_steps)}
 
 שלב הנעה לפעולה — שירות «אימון ניסיון» (סוג trial בלבד):
 גוף הודעה מוצע (אחרי שאלת ניסיון קודם): ${c.cta_body}
