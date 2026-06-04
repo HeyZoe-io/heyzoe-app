@@ -65,6 +65,7 @@ import {
   stripScheduleLineFromMultiServiceQuestion,
   type ScheduleBoardAssets,
   type EffectiveSalesFlowCtaInput,
+  type SalesFlowConfig,
 } from "@/lib/sales-flow";
 import {
   shouldResetWaFollowupCycleOnInbound,
@@ -528,6 +529,18 @@ function shouldAckRepeatTrialRegistration(input: {
   return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < TRIAL_REGISTRATION_REPEAT_WINDOW_MS;
 }
 
+function countConfiguredGreetingExtraSteps(cfg: SalesFlowConfig): number {
+  const extras = Array.isArray(cfg.greeting_extra_steps) ? cfg.greeting_extra_steps : [];
+  return extras
+    .map((s) => ({
+      question: String((s as { question?: string })?.question ?? "").trim(),
+      options: Array.isArray((s as { options?: unknown[] })?.options)
+        ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim()).filter(Boolean)
+        : [],
+    }))
+    .filter((s) => s.question && s.options.length >= 2).length;
+}
+
 /** איפוס מצב פלואו/CTA ב«היי» — מאפס trial_registered לסשן חדש; היסטוריית HEYZOE_SF_REGISTERED נשמרת ב-messages. */
 async function resetContactSalesFlowStateForGreeting(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
@@ -536,20 +549,31 @@ async function resetContactSalesFlowStateForGreeting(input: {
 }): Promise<void> {
   const { supabase, businessId, phone } = input;
   const phoneVariants = contactPhoneLookupVariants(phone);
+  const basePatch = {
+    sf_clicked_cta_kinds: [],
+    sf_requested_date: null,
+    sf_requested_time: null,
+    flow_step: 0,
+    trial_registered: false,
+    trial_registered_at: null,
+  };
   try {
     const { error } = await supabase
       .from("contacts")
-      .update({
-        sf_clicked_cta_kinds: [],
-        sf_requested_date: null,
-        sf_requested_time: null,
-        instagram_follow_prompt_sent: false,
-        flow_step: 0,
-        trial_registered: false,
-        trial_registered_at: null,
-      })
+      .update({ ...basePatch, instagram_follow_prompt_sent: false })
       .eq("business_id", businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [phone]);
+    if (error?.message?.includes("instagram_follow_prompt_sent")) {
+      const { error: fallbackErr } = await supabase
+        .from("contacts")
+        .update(basePatch)
+        .eq("business_id", businessId)
+        .in("phone", phoneVariants.length ? phoneVariants : [phone]);
+      if (fallbackErr) {
+        console.warn("[WA Webhook] sales flow greeting reset failed:", fallbackErr.message);
+      }
+      return;
+    }
     if (error) console.warn("[WA Webhook] sales flow greeting reset failed:", error.message);
   } catch (e) {
     console.warn("[WA Webhook] sales flow greeting reset threw:", e);
@@ -599,32 +623,47 @@ async function restartSalesFlowFromGreeting(input: {
     await sleepMs(input.knowledge?.openingMediaType === "video" ? 2200 : 1300);
   }
 
-  const out = input.knowledge
-    ? getWhatsAppOpeningGreetingTextOnly(input.knowledge).trim()
-    : `היי! כאן ${input.business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
-
   if (input.knowledge) {
-    const greetOnly = getWhatsAppOpeningGreetingTextOnly(input.knowledge);
-    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, greetOnly, [], input.accountSid, input.authToken, {
-      footerHint: "",
-    }).catch((e) => console.error("[WA Webhook] Send greeting reply failed:", e));
+    const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(input.knowledge);
+    const logContent = menuLabels.length
+      ? formatInteractiveConversationLog(body, menuLabels)
+      : body.trim();
+    await sendWhatsAppTextOrMenu(
+      input.msg.toNumber,
+      input.msg.from,
+      body,
+      menuLabels,
+      input.accountSid,
+      input.authToken,
+      { footerHint: menuLabels.length > 0 ? ZOE_WHATSAPP_MENU_FOOTER : "" }
+    ).catch((e) => console.error("[WA Webhook] Send greeting reply failed:", e));
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: logContent,
+      model_used: input.logModelUsed,
+      session_id: input.sessionId,
+    });
   } else {
+    const out = `היי! כאן ${input.business_slug}.\nאשמח לעזור - שלחו שאלה בקצרה.`;
     await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, out, input.accountSid, input.authToken).catch((e) =>
       console.error("[WA Webhook] Send greeting reply failed:", e)
     );
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: out,
+      model_used: input.logModelUsed,
+      session_id: input.sessionId,
+    });
   }
-
-  await logMessage({
-    business_slug: input.business_slug,
-    role: "assistant",
-    content: out,
-    model_used: input.logModelUsed,
-    session_id: input.sessionId,
-  });
 
   if (!input.businessId || !input.knowledge?.salesFlowConfig) {
     return unchanged;
   }
+
+  const cfg = input.knowledge.salesFlowConfig;
+  const flowStepAfterOpening = countConfiguredGreetingExtraSteps(cfg);
 
   await updateContactSessionPhase({
     supabase: input.supabase,
@@ -637,31 +676,74 @@ async function restartSalesFlowFromGreeting(input: {
     businessId: input.businessId,
     phone: input.msg.from,
   });
+  await bumpContactFlowStep({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    nextStep: flowStepAfterOpening,
+  });
 
-  await sleepMs(1500);
-  await sendFlowContinuation({
-    phase,
-    contact: { flow_step: 0 },
-    knowledge: input.knowledge,
+  await sleepMs(650);
+  await ensureScheduleBoardSentOnce({
+    supabase: input.supabase,
+    assets: scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockTrialPickMedia),
     msg: input.msg,
     accountSid: input.accountSid,
     authToken: input.authToken,
-    supabase: input.supabase,
-    businessId: input.businessId,
     business_slug: input.business_slug,
     sessionId: input.sessionId,
-    salesFlowServices: input.salesFlowServices,
-    trialRegistered: false,
-    allowTrialCta: true,
-    blockTrialPickMedia: input.blockTrialPickMedia,
-    sfConsumedKinds: [],
-    instagramFollowPromptSent: false,
+    modelUsed:
+      input.salesFlowServices.length === 1
+        ? "sales_flow_schedule_board_after_opening_single"
+        : "sales_flow_schedule_board_after_opening_multi",
   });
+
+  if (input.salesFlowServices.length > 1) {
+    return {
+      ranContinuation: true,
+      contactSessionPhase: phase,
+      contactFlowStep: flowStepAfterOpening,
+      sfClickedCtaKinds: [],
+      contactInstagramFollowPromptSent: false,
+      contactTrialRegistered: false,
+      contactTrialRegisteredAt: null,
+      allowTrialCtaThisSession: true,
+    };
+  }
+
+  if (input.knowledge.warmupSessionEnabled === false) {
+    await advanceAfterWarmupSessionComplete({
+      knowledge: input.knowledge,
+      salesFlowServices: input.salesFlowServices,
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
+      supabase: input.supabase,
+      businessId: input.businessId,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+      blockTrialPickMedia: input.blockTrialPickMedia,
+      trialRegistered: false,
+      allowTrialCta: true,
+      sfConsumedKinds: [],
+      instagramFollowPromptSent: false,
+    });
+    return {
+      ranContinuation: true,
+      contactSessionPhase: phase,
+      contactFlowStep: flowStepAfterOpening,
+      sfClickedCtaKinds: [],
+      contactInstagramFollowPromptSent: false,
+      contactTrialRegistered: false,
+      contactTrialRegisteredAt: null,
+      allowTrialCtaThisSession: true,
+    };
+  }
 
   return {
     ranContinuation: true,
     contactSessionPhase: phase,
-    contactFlowStep: 0,
+    contactFlowStep: flowStepAfterOpening,
     sfClickedCtaKinds: [],
     contactInstagramFollowPromptSent: false,
     contactTrialRegistered: false,
