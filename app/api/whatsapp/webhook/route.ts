@@ -379,6 +379,37 @@ function isAddressOrDirectionsIntent(text: string): boolean {
   );
 }
 
+/** שאלה פתוחה בשלב בחירת מועד — לא להציג «לא זיהיתי», אלא Claude ואז המשך תפריט המועד. */
+function shouldDeferSchedulePickInvalidToOpenQuestionAi(text: string, menuLabels: string[] = []): boolean {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return false;
+
+  if (isAddressOrDirectionsIntent(text)) return true;
+
+  const norm = normalizeGreetingToken(text);
+  if (/(מחיר|כמה עולה|עלות|תשלום|נציג|שירות|טלפון|לדבר|חוזר|תחזרו)/u.test(norm)) return true;
+
+  if (/[?؟]/.test(trimmed)) return true;
+  if (/^(מה|איך|למה|מתי|האם|איפה|כמה|מי)\s/u.test(norm)) return true;
+
+  if (parseScheduleDateInput(trimmed) || parseScheduleTimeInput(trimmed)) return false;
+
+  const pickLabels = menuLabels.filter((l) => l && !waLabelMatches(l, SCHEDULE_PICK_CHANGE_SERVICE_LABEL));
+  const nOnly = trimmed.match(/^(\d{1,2})$/);
+  if (nOnly && pickLabels.length > 0) {
+    const n = Number(nOnly[1]);
+    if (n >= 1) return false;
+  }
+
+  if (pickLabels.length > 0) {
+    const resolved = resolveWaMenuChoice(trimmed, undefined, pickLabels, pickLabels);
+    if (pickLabels.some((l) => scheduleSlotPickLabelsMatch(l, resolved))) return false;
+    if (pickLabels.some((l) => courseCycleStartButtonLabelsMatch(l, resolved))) return false;
+  }
+
+  return false;
+}
+
 type HeyzoeSessionPhase = "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
 
 const WARMUP_EXTRA_MENU_MODELS = new Set([
@@ -2676,6 +2707,35 @@ async function sendFlowContinuation(input: {
       return;
     }
 
+    const warmupAlreadyComplete = await isWarmupFlowCompleteForRecovery({
+      knowledge,
+      salesFlowServices,
+      cfg,
+      flowStep: step,
+      business_slug,
+      sessionId,
+      supabase,
+    });
+    if (warmupAlreadyComplete) {
+      await advanceAfterWarmupSessionComplete({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        blockTrialPickMedia,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        instagramFollowPromptSent,
+      });
+      return;
+    }
+
     await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "warmup" });
     await sendFlowContinuation({
       phase: "warmup",
@@ -2861,6 +2921,49 @@ async function isWarmupFlowCompleteForRecovery(input: {
   return input.flowStep >= minStep;
 }
 
+/** המשך פלואו אחרי תשובת Claude לשאלה פתוחה — לא מפעיל מחדש חימום שכבר הושלם. */
+async function continueDeterministicFlowAfterFreeTextAi(
+  input: Parameters<typeof sendFlowContinuation>[0]
+): Promise<void> {
+  const cfg = input.knowledge.salesFlowConfig;
+  if (!cfg) {
+    await sendFlowContinuation(input);
+    return;
+  }
+
+  const warmupComplete = await isWarmupFlowCompleteForRecovery({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    cfg,
+    flowStep: input.contact.flow_step,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    supabase: input.supabase,
+  });
+
+  if (warmupComplete && (input.phase === "opening" || input.phase === "warmup")) {
+    await advanceAfterWarmupSessionComplete({
+      knowledge: input.knowledge,
+      salesFlowServices: input.salesFlowServices,
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
+      supabase: input.supabase,
+      businessId: input.businessId,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+      blockTrialPickMedia: input.blockTrialPickMedia,
+      trialRegistered: input.trialRegistered,
+      allowTrialCta: input.allowTrialCta,
+      sfConsumedKinds: input.sfConsumedKinds,
+      instagramFollowPromptSent: input.instagramFollowPromptSent,
+    });
+    return;
+  }
+
+  await sendFlowContinuation(input);
+}
+
 /**
  * שחזור פלואו דטרמיניסטי לפני Claude — רק כשהודעה לא עברה כ-isFreeTextSalesFlowAi
  * (כפתור/בחירה שלא זוהתה, לא שאלה פתוחה).
@@ -2903,6 +3006,19 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
       if (step < cleanGreeting.length) return false;
 
       if (input.knowledge.warmupSessionEnabled === false) {
+        await advanceAfterWarmupSessionComplete(flowBase);
+        return true;
+      }
+      const warmupAlreadyComplete = await isWarmupFlowCompleteForRecovery({
+        knowledge: input.knowledge,
+        salesFlowServices: input.salesFlowServices,
+        cfg,
+        flowStep: step,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        supabase: input.supabase,
+      });
+      if (warmupAlreadyComplete) {
         await advanceAfterWarmupSessionComplete(flowBase);
         return true;
       }
@@ -3607,6 +3723,7 @@ async function processIncoming(
         void triggerHumanRequestedNotification({
           businessId: Number(businessId),
           leadPhone: msg.from,
+          requestedAtIso: nowIso,
         });
       }
     } catch (e) {
@@ -4012,6 +4129,9 @@ async function processIncoming(
             void triggerLeadRegisteredNotification({
               businessId: Number(businessId),
               leadPhone: msg.from,
+              businessSlug: business_slug,
+              sessionId,
+              registeredAtIso: nowIso,
               scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
               requestedDate,
               requestedTime,
@@ -4519,7 +4639,7 @@ async function processIncoming(
             return;
           }
 
-          if (inCoursePickContext) {
+          if (inCoursePickContext && !shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text, labels)) {
             const txt = "לא זיהיתי את המחזור. בחרו מהאפשרויות למטה (או כתבו את המספר).";
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
             await logMessage({
@@ -4662,7 +4782,7 @@ async function processIncoming(
         });
             return;
           }
-          if (inSchedulePickContext) {
+          if (inSchedulePickContext && !shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text, labels)) {
             const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
             await logMessage({
@@ -4692,37 +4812,39 @@ async function processIncoming(
       if (contactSessionPhase === "schedule_date") {
         const parsedDate = parseScheduleDateInput(msg.text);
         if (!parsedDate) {
-          const txt = "לא הצלחתי לזהות את התאריך, נסה שוב בפורמט: 24.5";
-          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
-          await logMessage({
+          if (!shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text)) {
+            const txt = "לא הצלחתי לזהות את התאריך, נסה שוב בפורמט: 24.5";
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_schedule_date_invalid",
+              session_id: sessionId,
+            });
+            return;
+          }
+        } else {
+          const { error } = await supabase
+            .from("contacts")
+            .update({ sf_requested_date: parsedDate, session_phase: "schedule_time", flow_step: 0 })
+            .eq("business_id", businessId)
+            .in("phone", contactPhoneLookupVariants(msg.from));
+          if (error) console.warn("[WA Webhook] sf_requested_date update failed:", error.message);
+          contactScheduleRequestedDate = parsedDate;
+          contactSessionPhase = "schedule_time";
+          await sendScheduleSelectionTimeQuestion({
+            selectedService,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
             business_slug,
-            role: "assistant",
-            content: txt,
-            model_used: "sales_flow_schedule_date_invalid",
-            session_id: sessionId,
+            sessionId,
           });
           return;
         }
-
-        const { error } = await supabase
-          .from("contacts")
-          .update({ sf_requested_date: parsedDate, session_phase: "schedule_time", flow_step: 0 })
-          .eq("business_id", businessId)
-        .in("phone", contactPhoneLookupVariants(msg.from));
-        if (error) console.warn("[WA Webhook] sf_requested_date update failed:", error.message);
-        contactScheduleRequestedDate = parsedDate;
-        contactSessionPhase = "schedule_time";
-        await sendScheduleSelectionTimeQuestion({
-          selectedService,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-        });
-        return;
       }
 
       const parsedTime = parseScheduleTimeInput(msg.text);
@@ -4732,73 +4854,77 @@ async function processIncoming(
         const datePrefix =
           maybeDate && dow ? `תודה! ${maybeDate} זה ${dow}.` : maybeDate ? `תודה! ${maybeDate}.` : "";
         const sideAnswer = datePrefix || buildScheduleTimeSideAnswer(msg.text, knowledge, selectedService);
-        const txt = sideAnswer
-          ? `${sideAnswer}\n\n${buildScheduleTimeQuestion(selectedService)}`
-          : "לא הצלחתי לזהות את השעה, נסה שוב בפורמט: 19:00";
-        await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+        if (!sideAnswer && shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text)) {
+          // שאלה פתוחה — Claude + תפריט מועד בנפרד.
+        } else {
+          const txt = sideAnswer
+            ? `${sideAnswer}\n\n${buildScheduleTimeQuestion(selectedService)}`
+            : "לא הצלחתי לזהות את השעה, נסה שוב בפורמט: 19:00";
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: sideAnswer ? "sales_flow_schedule_time_reask" : "sales_flow_schedule_time_invalid",
+            session_id: sessionId,
+          });
+          return;
+        }
+      } else {
+        const nextPhaseLegacy = phaseAfterSchedulePickComplete();
+        const { error: timeUpErr } = await supabase
+          .from("contacts")
+          .update({ sf_requested_time: parsedTime, session_phase: nextPhaseLegacy, flow_step: 0 })
+          .eq("business_id", businessId)
+          .in("phone", contactPhoneLookupVariants(msg.from));
+        if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
+        contactScheduleRequestedTime = parsedTime;
+        contactSessionPhase = nextPhaseLegacy;
+        const schedOfferKindLegacy = selectedService?.offerKind ?? "trial";
+        const schedServiceFallbackLegacy =
+          schedOfferKindLegacy === "workshop"
+            ? "הסדנה"
+            : schedOfferKindLegacy === "course"
+              ? "הקורס"
+              : "האימון";
+        const rawTplLegacy = resolveAfterScheduleSelectionTemplate(
+          knowledge.salesFlowConfig,
+          schedOfferKindLegacy
+        );
+        const afterScheduleTextLegacy = fillAfterScheduleSelectionTemplate(
+          rawTplLegacy,
+          selectedService?.name?.trim() || schedServiceFallbackLegacy,
+          String(contactScheduleRequestedDate || "").trim() || "המועד שבחרת",
+          parsedTime
+        );
+        await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleTextLegacy, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] Send after schedule selection failed:", e)
+        );
         await logMessage({
           business_slug,
           role: "assistant",
-          content: txt,
-          model_used: sideAnswer ? "sales_flow_schedule_time_reask" : "sales_flow_schedule_time_invalid",
+          content: afterScheduleTextLegacy,
+          model_used: "sales_flow_after_schedule_selection",
           session_id: sessionId,
+        });
+        await sleepMs(450);
+        await sendSalesFlowCtaMenuWithPhaseUpdate({
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          sfConsumedKinds: sfClickedCtaKinds,
+          modelUsed: "sales_flow_cta",
         });
         return;
       }
-
-      const nextPhaseLegacy = phaseAfterSchedulePickComplete();
-      const { error: timeUpErr } = await supabase
-        .from("contacts")
-        .update({ sf_requested_time: parsedTime, session_phase: nextPhaseLegacy, flow_step: 0 })
-        .eq("business_id", businessId)
-        .in("phone", contactPhoneLookupVariants(msg.from));
-      if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
-      contactScheduleRequestedTime = parsedTime;
-      contactSessionPhase = nextPhaseLegacy;
-      const schedOfferKindLegacy = selectedService?.offerKind ?? "trial";
-      const schedServiceFallbackLegacy =
-        schedOfferKindLegacy === "workshop"
-          ? "הסדנה"
-          : schedOfferKindLegacy === "course"
-            ? "הקורס"
-            : "האימון";
-      const rawTplLegacy = resolveAfterScheduleSelectionTemplate(
-        knowledge.salesFlowConfig,
-        schedOfferKindLegacy
-      );
-      const afterScheduleTextLegacy = fillAfterScheduleSelectionTemplate(
-        rawTplLegacy,
-        selectedService?.name?.trim() || schedServiceFallbackLegacy,
-        String(contactScheduleRequestedDate || "").trim() || "המועד שבחרת",
-        parsedTime
-      );
-      await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleTextLegacy, accountSid, authToken).catch((e) =>
-        console.error("[WA Webhook] Send after schedule selection failed:", e)
-      );
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: afterScheduleTextLegacy,
-        model_used: "sales_flow_after_schedule_selection",
-        session_id: sessionId,
-      });
-      await sleepMs(450);
-      await sendSalesFlowCtaMenuWithPhaseUpdate({
-        knowledge,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-        salesFlowServices,
-        trialRegistered: contactTrialRegistered,
-        allowTrialCta: allowTrialCtaThisSession,
-        sfConsumedKinds: sfClickedCtaKinds,
-        modelUsed: "sales_flow_cta",
-      });
-      return;
         }
       }
     } catch (e) {
@@ -6520,7 +6646,7 @@ async function processIncoming(
         assistantReplyLogged = true;
         await sleepMs(1500);
         if (knowledge && businessId && !shouldOfferServicePickAfterCs) {
-          await sendFlowContinuation({
+          await continueDeterministicFlowAfterFreeTextAi({
             phase: contactSessionPhase,
             contact: { flow_step: contactFlowStep },
             knowledge,

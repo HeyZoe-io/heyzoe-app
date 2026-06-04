@@ -337,57 +337,148 @@ export function cancellationEmail(business_name: string, access_until: string, d
   };
 }
 
-/** Stub — נוסח סופי יוגדר בנפרד */
-export function leadRegisteredOwnerEmail(business_name: string, lead_phone: string): EmailTemplateResult {
-  const bn = String(business_name ?? "").trim() || "העסק שלך";
-  const phone = String(lead_phone ?? "").trim() || "—";
+export type LeadRegisteredOwnerEmailInput = {
+  business_name: string;
+  lead_identity: string;
+  service_name?: string;
+  schedule?: string;
+  registered_at: string;
+  warmup_summary?: string;
+};
+
+function optionalBodyLines(entries: Array<[string, string | undefined]>): string[] {
+  const out: string[] = [];
+  for (const [label, value] of entries) {
+    const v = String(value ?? "").trim();
+    if (v) out.push(`${label}: ${v}`);
+  }
+  return out;
+}
+
+export function leadRegisteredOwnerEmail(input: LeadRegisteredOwnerEmailInput): EmailTemplateResult {
+  const bn = String(input.business_name ?? "").trim() || "העסק שלך";
+  const identity = String(input.lead_identity ?? "").trim() || "—";
+  const registeredAt = String(input.registered_at ?? "").trim();
   return {
     subject: `ליד נרשם — ${bn}`,
     htmlContent: [
-      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
-      `<p>${p(["שלום " + bn + ",", "", "ליד ביצע הרשמה בשיחה עם זואי.", "טלפון: " + phone, "", "צוות HeyZoe"])}</p>`,
-      `</div>`,
-    ].join(""),
-  };
-}
-
-/** Stub — נוסח סופי יוגדר בנפרד */
-export function humanRequestedOwnerEmail(business_name: string, lead_phone: string): EmailTemplateResult {
-  const bn = String(business_name ?? "").trim() || "העסק שלך";
-  const phone = String(lead_phone ?? "").trim() || "—";
-  return {
-    subject: `ליד ביקש נציג — ${bn}`,
-    htmlContent: [
-      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
-      `<p>${p(["שלום " + bn + ",", "", "ליד ביקש לדבר עם נציג אנושי.", "טלפון: " + phone, "", "צוות HeyZoe"])}</p>`,
-      `</div>`,
-    ].join(""),
-  };
-}
-
-/** Stub — נוסח סופי יוגדר בנפרד */
-export function dailySummaryOwnerEmail(
-  business_name: string,
-  date_label: string,
-  new_leads: number,
-  open_conversations: number,
-  cta_reached: number,
-  registered: number
-): EmailTemplateResult {
-  const bn = String(business_name ?? "").trim() || "העסק שלך";
-  const dl = String(date_label ?? "").trim();
-  return {
-    subject: `סיכום יומי${dl ? ` — ${dl}` : ""} — ${bn}`,
-    htmlContent: [
-      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right">`,
       `<p>${p([
-        "שלום " + bn + ",",
+        "היי " + bn + ",",
         "",
-        dl ? "תאריך: " + dl : "",
-        "לידים חדשים: " + String(new_leads),
-        "שיחות פתוחות: " + String(open_conversations),
-        "הגיעו ל-CTA: " + String(cta_reached),
-        "נרשמו: " + String(registered),
+        identity + " ביצע הרשמה.",
+        ...optionalBodyLines([
+          ["אימון", input.service_name],
+          ["מועד", input.schedule],
+          ["תאריך הרשמה", registeredAt],
+          ["סשן חימום", input.warmup_summary],
+        ]),
+        "",
+        "ניתן לצפות בשיחה בדשבורד.",
+        "",
+        "צוות HeyZoe",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+export function humanRequestedOwnerEmail(input: {
+  business_name: string;
+  lead_identity: string;
+  requested_at: string;
+}): EmailTemplateResult {
+  const bn = String(input.business_name ?? "").trim() || "העסק שלך";
+  const identity = String(input.lead_identity ?? "").trim() || "—";
+  const at = String(input.requested_at ?? "").trim();
+  return {
+    subject: `נדרש מענה אנושי — ${bn}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right">`,
+      `<p>${p([
+        "היי " + bn + ",",
+        "",
+        identity + " ביקש לדבר עם נציג אנושי.",
+        ...(at ? ["תאריך: " + at] : []),
+        "",
+        "ניתן לנהל את השיחה בדשבורד.",
+        "",
+        "צוות HeyZoe",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
+export type DailySummaryIdleLead = { full_name: string | null; phone: string };
+
+function formatIdleLeadName(lead: DailySummaryIdleLead): string {
+  return String(lead.full_name ?? "").trim() || "ליד";
+}
+
+function formatIdleLeadPhone(lead: DailySummaryIdleLead): string {
+  const raw = String(lead.phone ?? "").trim();
+  if (!raw) return "—";
+  const d = raw.replace(/\D/g, "");
+  if (d.startsWith("972") && d.length >= 12) return `0${d.slice(3)}`;
+  return raw;
+}
+
+export function dailySummaryOwnerEmail(input: {
+  business_name: string;
+  business_slug: string;
+  date_label: string;
+  idle_count: number;
+  idle_leads: DailySummaryIdleLead[];
+}): EmailTemplateResult {
+  const bn = String(input.business_name ?? "").trim() || "העסק שלך";
+  const slug = String(input.business_slug ?? "").trim().toLowerCase();
+  const dl = String(input.date_label ?? "").trim();
+  const idleCount = Math.max(0, Number(input.idle_count) || 0);
+  const listUrl = slug
+    ? `https://heyzoe.io/${encodeURIComponent(slug)}/contacts?status=no_response`
+    : "https://heyzoe.io";
+
+  if (idleCount > 0) {
+    const rows = (input.idle_leads ?? [])
+      .map(
+        (lead) => `
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right">${esc(formatIdleLeadName(lead))}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right" dir="ltr">${esc(formatIdleLeadPhone(lead))}</td>
+        </tr>`
+      )
+      .join("");
+
+    return {
+      subject: `יש לידים שמחכים לטאץ׳ אנושי 📞 — ${dl}`,
+      htmlContent: [
+        `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
+        `<p>היי ${esc(bn)},</p>`,
+        `<p>ביממה האחרונה יש ${idleCount} לידים שסיימו את כל 3 הפולואפים של זואי<br/>ועדיין לא ענו. הם לא אבודים, רק צריכים טאץ׳ אנושי 📞</p>`,
+        `<p>הלידים שממתינים לשיחה:</p>`,
+        `<table dir="rtl" style="border-collapse:collapse;width:100%;max-width:620px;margin:12px 0;text-align:right">`,
+        `<thead><tr><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">שם</th><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">טלפון</th></tr></thead>`,
+        `<tbody>${rows}</tbody>`,
+        `</table>`,
+        `<p>לצפייה ברשימה המלאה ולייצוא:<br/>👉 <a href="${esc(listUrl)}" style="color:#7133da;font-weight:700">לחץ כאן</a> → ${esc(listUrl)}</p>`,
+        `<p>זואי עשתה את שלה, עכשיו התור שלך 🙂</p>`,
+        `</div>`,
+      ].join(""),
+    };
+  }
+
+  return {
+    subject: `סיכום יומי — ${dl} — ${bn}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right">`,
+      `<p>${p([
+        "היי " + bn + ",",
+        "",
+        "רק רצינו לעדכן שאין לידים שממתינים לשיחה מ-24 השעות האחרונות.",
+        "זואי דיברה עם מי שצריך, שלחה פולואפים, ואין כרגע מה לטפל בו.",
+        "",
+        "המשיכו כך 🙂",
         "",
         "צוות HeyZoe",
       ])}</p>`,

@@ -174,6 +174,7 @@ export async function GET(req: NextRequest) {
 
       await triggerDailySummaryNotification({
         businessId,
+        businessSlug: slug,
         dateLabel: label,
         newLeads: newLeads ?? 0,
         openConversations: conversationsOpened ?? 0,
