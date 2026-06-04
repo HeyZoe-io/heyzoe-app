@@ -5,6 +5,10 @@ import { fetchLastAssistantModelUsed } from "@/lib/analytics";
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
   "תרצו שנבחר יחד אימון אחר מהרשימה?";
 
+/** לפני שליחה מחדש של תפריט בחירת אימון (טקסט חופשי — לא כפתור). */
+export const SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE =
+  "אוקיי, אני מבינה שיש אימון אחר שמעניין אותך. אני שולחת לך שוב את הרשימה לבחור ממנה";
+
 /** תפריט repick אחרי CTA בלבד — לא תפריט בחירת אימון רגיל אחרי חימום (`flow_continuation_opening_service_pick`). */
 const SERVICE_REPICK_MENU_MODELS = new Set(["sales_flow_cta_repick_service_menu"]);
 
@@ -13,6 +17,46 @@ const NEGATIVE_REPLY =
 
 const AFFIRMATIVE_REPLY =
   /^(כן\b|כן[,.!?\s]|בטח|יאללה|אשמח|בואו|בוא\b|אוקי|אוקיי|ok\b|yes\b|מעוניין|מעוניינת|רוצה\s+לשנות|רוצה\s+אימון\s+אחר)/iu;
+
+function normalizeServiceNameKey(name: string): string {
+  return String(name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** הטקסט מזכיר שם אימון מהרשימה שאינו הבחירה האחרונה בכפתורים. */
+export function textMentionsOtherServiceFromMenu(
+  text: string,
+  lastPickedServiceName: string,
+  serviceNames: string[]
+): boolean {
+  const t = normalizeServiceNameKey(text);
+  const lastKey = normalizeServiceNameKey(lastPickedServiceName);
+  if (!t || !lastKey) return false;
+  for (const name of serviceNames) {
+    const key = normalizeServiceNameKey(name);
+    if (!key || key.length < 3 || key === lastKey) continue;
+    if (t.includes(key)) return true;
+  }
+  return false;
+}
+
+/** טקסט חופשי: מעוניין באימון אחר ממה שנבחר בכפתורים (לא שאלת התאמה לרמה בלבד). */
+export function isFreeTextDifferentServiceInterest(
+  text: string,
+  lastPickedServiceName: string | null,
+  serviceNames: string[]
+): boolean {
+  const last = String(lastPickedServiceName ?? "").trim();
+  if (!last) return false;
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
+  if (isExplicitOtherServiceRequest(t)) return true;
+  if (isCtaServiceFitQuestion(t)) return false;
+  if (textMentionsOtherServiceFromMenu(t, last, serviceNames)) return true;
+  if (/(?:אימון|שיעור)\s+אחר|משהו\s+אחר|במקום\s+(?:האימון|השיעור|זה)/iu.test(t)) {
+    return true;
+  }
+  return false;
+}
 
 /** בקשה מפורשת להחליף אימון — מפנה ישר לתפריט (בלי Claude + בלי גשר). */
 export function isExplicitOtherServiceRequest(text: string): boolean {

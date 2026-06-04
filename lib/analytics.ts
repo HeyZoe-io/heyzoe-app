@@ -98,6 +98,7 @@ export async function fetchLastSfServiceEventName(input: {
     }
     const { data, error } = await q;
     if (error || !data?.length) return null;
+    // אירועי sf_service לפי created_at יורד — הבחירה האחרונה בפלואו (כולל repick) לדיווח לבעלים.
     for (const row of data) {
       const c = String(row.content ?? "").trim();
       if (!c.startsWith(HEYZOE_SF_SERVICE_PREFIX)) continue;

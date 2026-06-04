@@ -81,8 +81,10 @@ import {
   fetchLastAssistantMessageContent,
   isCtaServiceFitQuestion,
   isExplicitOtherServiceRequest,
+  isFreeTextDifferentServiceInterest,
   isNumericServicePickReply,
   replyContainsServiceRepickBridge,
+  SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
   shouldHandleCtaServiceRepickYes,
 } from "@/lib/wa-cta-service-repick";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
@@ -102,6 +104,7 @@ import {
 } from "@/lib/notifications/detect-human-request";
 import {
   isMetaInteractiveMenuReply,
+  isSalesFlowFreeTextInbound,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 
@@ -1870,6 +1873,57 @@ async function sendOpeningServicePickMenu(input: {
     session_id: input.sessionId,
   });
   return true;
+}
+
+/** טקסט חופשי — אימון אחר ממה שנבחר בכפתורים: הודעת אישור + תפריט; איפוס מועד; בחירה חדשה מעדכנת event לדיווח. */
+async function sendSalesFlowServiceRepickAckAndMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  blockMedia?: boolean;
+  logModelUsed: string;
+}): Promise<void> {
+  await sendWhatsAppMessage(
+    input.msg.toNumber,
+    input.msg.from,
+    SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
+    input.accountSid,
+    input.authToken
+  ).catch((e) => console.error("[WA Webhook] Send service-repick ack failed:", e));
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
+    model_used: "sales_flow_service_repick_ack",
+    session_id: input.sessionId,
+  });
+
+  const phoneVariants = contactPhoneLookupVariants(input.msg.from);
+  await input.supabase
+    .from("contacts")
+    .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+    .eq("business_id", input.businessId)
+    .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
+
+  await sleepMs(650);
+  await sendOpeningServicePickMenu({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    blockMedia: input.blockMedia,
+    skipScheduleBoard: true,
+    modelUsed: input.logModelUsed,
+  });
 }
 
 async function sendScheduleSlotPickMenu(input: {
@@ -4619,28 +4673,23 @@ async function processIncoming(
 
     if (explicitRepick || numericAfterRepickMenu) {
       if (explicitRepick) {
-        const phoneVariants = contactPhoneLookupVariants(msg.from);
-        await supabase
-          .from("contacts")
-          .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
-          .eq("business_id", businessId)
-          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
-        contactSessionPhase = "opening";
-        contactFlowStep = 0;
-        contactScheduleRequestedDate = "";
-        contactScheduleRequestedTime = "";
-        await sendOpeningServicePickMenu({
+        await sendSalesFlowServiceRepickAckAndMenu({
           knowledge,
           salesFlowServices,
           msg,
           accountSid,
           authToken,
+          supabase,
+          businessId,
           business_slug,
           sessionId,
           blockMedia: starterBlocksMedia,
-          skipScheduleBoard: true,
-          modelUsed: explicitRepick ? "sales_flow_explicit_service_repick" : "sales_flow_cta_repick_service_menu",
+          logModelUsed: "sales_flow_explicit_service_repick",
         });
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
         return;
       }
       if (contactSessionPhase === "cta") {
@@ -4789,6 +4838,41 @@ async function processIncoming(
         blockMedia: starterBlocksMedia,
         skipScheduleBoard: true,
       });
+      return;
+    }
+  }
+
+  // טקסט חופשי — מעוניין באימון אחר ממה שנבחר בכפתורים (לפני Claude / מועד)
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    salesFlowServices.length > 1 &&
+    isSalesFlowFreeTextInbound(msg)
+  ) {
+    const lastPickedForRepick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
+    const serviceNames = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
+    if (
+      lastPickedForRepick?.trim() &&
+      isFreeTextDifferentServiceInterest(msg.text.trim(), lastPickedForRepick, serviceNames)
+    ) {
+      await sendSalesFlowServiceRepickAckAndMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+        logModelUsed: "sales_flow_free_text_service_repick",
+      });
+      contactSessionPhase = "opening";
+      contactFlowStep = 0;
+      contactScheduleRequestedDate = "";
+      contactScheduleRequestedTime = "";
       return;
     }
   }
