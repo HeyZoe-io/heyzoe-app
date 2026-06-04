@@ -5,10 +5,8 @@ import { fetchLastAssistantModelUsed } from "@/lib/analytics";
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
   "תרצו שנבחר יחד אימון אחר מהרשימה?";
 
-const SERVICE_REPICK_MENU_MODELS = new Set([
-  "sales_flow_cta_repick_service_menu",
-  "flow_continuation_opening_service_pick",
-]);
+/** תפריט repick אחרי CTA בלבד — לא תפריט בחירת אימון רגיל אחרי חימום (`flow_continuation_opening_service_pick`). */
+const SERVICE_REPICK_MENU_MODELS = new Set(["sales_flow_cta_repick_service_menu"]);
 
 const NEGATIVE_REPLY =
   /^(לא\b|לא[,.!?\s]|אין\s|לא\s+תודה|לא\s+כרגע|לא\s+מעוניין|לא\s+רוצ)/iu;

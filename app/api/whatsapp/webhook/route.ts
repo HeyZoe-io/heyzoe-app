@@ -78,9 +78,11 @@ import {
 import {
   assistantAwaitingServiceRepickPick,
   ensureCtaServiceRepickBridge,
+  fetchLastAssistantMessageContent,
   isCtaServiceFitQuestion,
   isExplicitOtherServiceRequest,
   isNumericServicePickReply,
+  replyContainsServiceRepickBridge,
   shouldHandleCtaServiceRepickYes,
 } from "@/lib/wa-cta-service-repick";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
@@ -94,6 +96,7 @@ import {
   replyRefersToCustomerService,
   sendCustomerServiceRedirectWithServicePickFollowUp,
 } from "@/lib/wa-cs-redirect-service-pick";
+import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 import {
   isMetaInteractiveMenuReply,
   shouldResendDeterministicMenuOnUnrecognizedPick,
@@ -2465,6 +2468,10 @@ async function sendFlowContinuation(input: {
   blockTrialPickMedia?: boolean;
   sfConsumedKinds?: string[];
   instagramFollowPromptSent?: boolean;
+  /** טקסט נכנס — לדילוג על resend תפריט אימונים ב-opening (בקשת נציג). */
+  inboundText?: string;
+  /** תשובת Claude לפני resend — לדילוג כשמפנה לשירות לקוחות. */
+  aiReplyCoreClean?: string;
 }): Promise<void> {
   const {
     phase,
@@ -2993,6 +3000,12 @@ async function resendUnansweredSalesFlowPrompt(
         ? salesFlowServices[0]!.name
         : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
     if (salesFlowServices.length > 1 && !lastService.trim()) {
+      const inbound = String(input.inboundText ?? "").trim();
+      if (inbound && userRequestedHumanAgent(inbound)) return;
+      const csPhone = knowledge.customerServicePhone?.trim() ?? "";
+      const replyForCs = String(input.aiReplyCoreClean ?? "").trim();
+      if (replyForCs && replyRefersToCustomerService(replyForCs, csPhone)) return;
+
       const skipScheduleBoard = await wasScheduleBoardSentInSession({ supabase, business_slug, sessionId });
       await sendOpeningServicePickMenu({
         knowledge,
@@ -6724,10 +6737,20 @@ async function processIncoming(
 
       const isFreeTextSalesFlowContinuation = isFreeTextSalesFlowAi && !isFallbackErrorReply;
 
-      const openingSkipFlowContinuation =
-        contactSessionPhase === "opening" &&
-        (isExplicitOtherServiceRequest(incomingRaw) ||
-          (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId })));
+      let openingSkipFlowContinuation = false;
+      if (contactSessionPhase === "opening") {
+        if (isExplicitOtherServiceRequest(incomingRaw)) {
+          openingSkipFlowContinuation = true;
+        } else {
+          const [lastModel, lastContent] = await Promise.all([
+            fetchLastAssistantModelUsed({ business_slug, session_id: sessionId }),
+            fetchLastAssistantMessageContent({ business_slug, session_id: sessionId }),
+          ]);
+          openingSkipFlowContinuation =
+            lastModel === "sales_flow_cta_repick_service_menu" ||
+            replyContainsServiceRepickBridge(lastContent);
+        }
+      }
       const shouldSplitFreeTextAnswerAndResendPrompt =
         isFreeTextSalesFlowContinuation &&
         SALES_FLOW_FREE_TEXT_SPLIT_PHASES.has(contactSessionPhase) &&
@@ -6857,6 +6880,8 @@ async function processIncoming(
             blockTrialPickMedia: starterBlocksMedia,
             sfConsumedKinds: sfClickedCtaKinds,
             instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            inboundText: incomingRaw,
+            aiReplyCoreClean: replyCoreClean,
           });
         }
       } else {
