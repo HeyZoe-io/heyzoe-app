@@ -1004,7 +1004,46 @@ function buildScheduleTimeQuestion(service: SfServiceRow | null): string {
   return `באיזו שעה הכי מתאים לך להגיע ל${serviceName}? נא לכתוב שעה בפורמט: 19:00`;
 }
 
+function shouldSkipSalesFlowPromptResend(input: {
+  inboundText?: string;
+  aiReplyCoreClean?: string;
+  knowledge: BusinessKnowledgePack;
+}): boolean {
+  const inbound = String(input.inboundText ?? "").trim();
+  if (inbound && userRequestedHumanAgent(inbound)) return true;
+  const csPhone = input.knowledge.customerServicePhone?.trim() ?? "";
+  const replyForCs = String(input.aiReplyCoreClean ?? "").trim();
+  return Boolean(replyForCs && replyRefersToCustomerService(replyForCs, csPhone));
+}
+
+async function trySendSalesFlowHumanAgentHandoff(input: {
+  inboundText: string;
+  knowledge: BusinessKnowledgePack;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<boolean> {
+  const inbound = String(input.inboundText ?? "").trim();
+  if (!inbound || !userRequestedHumanAgent(inbound)) return false;
+  const csPhone = input.knowledge.customerServicePhone?.trim() ?? "";
+  const txt = buildSalesFlowHumanAgentHandoffReply(csPhone);
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken).catch(
+    (e) => console.error("[WA Webhook] Send human-agent handoff failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: txt,
+    model_used: csPhone ? "sales_flow_human_agent_handoff" : "sales_flow_human_agent_handoff_no_phone",
+    session_id: input.sessionId,
+  });
+  return true;
+}
+
 function buildScheduleTimeSideAnswer(text: string, knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
+  if (userRequestedHumanAgent(text)) return "";
   if (isAddressOrDirectionsIntent(text)) {
     const address = knowledge.addressText?.trim() ?? "";
     const directions = knowledge.directionsText?.trim() ?? "";
@@ -1016,10 +1055,6 @@ function buildScheduleTimeSideAnswer(text: string, knowledge: BusinessKnowledgeP
   if (/(מחיר|כמה עולה|עלות|תשלום|עולה)/u.test(norm)) {
     const price = service?.priceText?.trim() ?? "";
     return price ? `המחיר הוא ${price}.` : "אין לי מחיר מדויק כאן, הצוות ישמח לעזור בזה.";
-  }
-  if (/(נציג|שירות|טלפון|לדבר|חוזר|תחזרו)/u.test(norm)) {
-    const phone = knowledge.customerServicePhone?.trim() ?? "";
-    return phone ? `אפשר לדבר עם שירות הלקוחות כאן: ${phone}` : "אפשר לכתוב כאן, והצוות יחזור אליך בהקדם.";
   }
   if (/[?؟]/.test(text)) {
     return "בשמחה, אפשר לשאול כאן ואעזור בקצרה.";
@@ -3003,11 +3038,15 @@ async function resendUnansweredSalesFlowPrompt(
         ? salesFlowServices[0]!.name
         : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
     if (salesFlowServices.length > 1 && !lastService.trim()) {
-      const inbound = String(input.inboundText ?? "").trim();
-      if (inbound && userRequestedHumanAgent(inbound)) return;
-      const csPhone = knowledge.customerServicePhone?.trim() ?? "";
-      const replyForCs = String(input.aiReplyCoreClean ?? "").trim();
-      if (replyForCs && replyRefersToCustomerService(replyForCs, csPhone)) return;
+      if (
+        shouldSkipSalesFlowPromptResend({
+          inboundText: input.inboundText,
+          aiReplyCoreClean: input.aiReplyCoreClean,
+          knowledge,
+        })
+      ) {
+        return;
+      }
 
       const skipScheduleBoard = await wasScheduleBoardSentInSession({ supabase, business_slug, sessionId });
       await sendOpeningServicePickMenu({
@@ -3103,6 +3142,16 @@ async function resendUnansweredSalesFlowPrompt(
   }
 
   if (phase === "schedule_date" || phase === "schedule_time") {
+    if (
+      shouldSkipSalesFlowPromptResend({
+        inboundText: input.inboundText,
+        aiReplyCoreClean: input.aiReplyCoreClean,
+        knowledge,
+      })
+    ) {
+      return;
+    }
+
     const selectedServiceName =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
@@ -4747,6 +4796,20 @@ async function processIncoming(
   // 1.5) Sales flow: בחירת מועד ממערכת שעות (list_reply/כפתורים) + תאריך/שעה חופשיים
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
     try {
+      if (
+        await trySendSalesFlowHumanAgentHandoff({
+          inboundText: msg.text.trim(),
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+        })
+      ) {
+        return;
+      }
+
       const selectedServiceName =
         salesFlowServices.length === 1
           ? salesFlowServices[0]!.name
@@ -6238,20 +6301,16 @@ async function processIncoming(
     businessId &&
     !matched?.reply &&
     !matchedPredefinedClosedLabel &&
-    userRequestedHumanAgent(incomingRaw)
-  ) {
-    const csPhone = knowledge.customerServicePhone?.trim() ?? "";
-    const txt = buildSalesFlowHumanAgentHandoffReply(csPhone);
-    await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
-      console.error("[WA Webhook] Send human-agent handoff failed:", e)
-    );
-    await logMessage({
+    (await trySendSalesFlowHumanAgentHandoff({
+      inboundText: incomingRaw,
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
       business_slug,
-      role: "assistant",
-      content: txt,
-      model_used: csPhone ? "sales_flow_human_agent_handoff" : "sales_flow_human_agent_handoff_no_phone",
-      session_id: sessionId,
-    });
+      sessionId,
+    }))
+  ) {
     return;
   } else {
     // Rate-limit: 20 AI answers in a rolling 24h window (prevents token abuse without blocking forever).
