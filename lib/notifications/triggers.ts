@@ -146,12 +146,12 @@ export async function triggerHumanRequestedNotification(input: {
   requestedAtIso?: string;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
-  const businessName = await loadBusinessDisplayName(input.businessId);
+  const requestedAtWa = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
   await sendIfEnabled({
     businessId: input.businessId,
     key: "human_requested",
     templateName: "human_agent_request",
-    components: bodyParams(businessName, phoneDisplay),
+    components: bodyParams(phoneDisplay, requestedAtWa),
   });
 
   const fullName = await loadContactFullName(input.businessId, input.leadPhone);
@@ -198,8 +198,15 @@ export async function triggerLeadRegisteredNotification(input: {
       : Promise.resolve(""),
   ]);
 
-  const leadName = String(fullName ?? "").trim() || "ליד";
   const serviceLabel = String(serviceName ?? "").trim() || "—";
+  const schedule = formatScheduleLine({
+    requestedDate: input.requestedDate,
+    requestedTime: input.requestedTime,
+    scheduleDirectRegistration: input.scheduleDirectRegistration,
+  });
+  const registeredAt = formatRegisteredAtHe(input.registeredAtIso ?? new Date().toISOString());
+  const warmupForWa = String(warmupSummary ?? "").trim() || "—";
+
   await sendIfEnabled({
     businessId: input.businessId,
     key: "lead_registered",
@@ -208,20 +215,14 @@ export async function triggerLeadRegisteredNotification(input: {
       ? bodyParams(phoneDisplay)
       : bodyParams(
           phoneDisplay,
-          leadName,
           serviceLabel,
-          String(input.requestedDate ?? "").trim(),
-          String(input.requestedTime ?? "").trim()
+          schedule.trim() || "—",
+          registeredAt,
+          warmupForWa
         ),
   });
 
   const identity = formatLeadIdentityLine(fullName, input.leadPhone);
-  const schedule = formatScheduleLine({
-    requestedDate: input.requestedDate,
-    requestedTime: input.requestedTime,
-    scheduleDirectRegistration: input.scheduleDirectRegistration,
-  });
-  const registeredAt = formatRegisteredAtHe(input.registeredAtIso ?? new Date().toISOString());
 
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,

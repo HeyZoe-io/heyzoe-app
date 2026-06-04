@@ -241,23 +241,23 @@ async function main() {
       "new_lead_notification",
       bodyParams(SAMPLE.businessName, SAMPLE.leadPhone, SAMPLE.nowLabel),
     ],
-    // Meta: 2 body params (שם עסק + טלפון ליד)
+    // Meta: {{1}} טלפון, {{2}} תאריך+שעה
     [
       "human_agent",
       "human_agent_request",
-      bodyParams(SAMPLE.businessName, SAMPLE.leadPhone),
+      bodyParams(SAMPLE.leadPhone, SAMPLE.nowLabel),
     ],
     ["lead_registered", "lead_registered", bodyParams(SAMPLE.leadPhone)],
-    // Meta: 5 body params — מילוי לפי סדר התבנית ב-Business Manager
+    // Meta: {{1}} טלפון, {{2}} אימון, {{3}} מועד, {{4}} תאריך הרשמה, {{5}} חימום
     [
       "lead_registered_with_time",
       "lead_registered_with_time",
       bodyParams(
         SAMPLE.leadPhone,
-        SAMPLE.leadName,
         "יוגה לנשים",
-        "יום רביעי",
-        "18:00"
+        "יום רביעי בשעה 18:00",
+        SAMPLE.nowLabel,
+        "ניסיון — כן, פעם ראשונה"
       ),
     ],
     ["bot_paused_waiting", "bot_paused_waiting", bodyParams(SAMPLE.leadPhone)],
