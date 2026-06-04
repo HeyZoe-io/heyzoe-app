@@ -76,8 +76,11 @@ import {
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
 import {
+  assistantAwaitingServiceRepickPick,
   ensureCtaServiceRepickBridge,
   isCtaServiceFitQuestion,
+  isExplicitOtherServiceRequest,
+  isNumericServicePickReply,
   shouldHandleCtaServiceRepickYes,
 } from "@/lib/wa-cta-service-repick";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
@@ -4226,6 +4229,56 @@ async function processIncoming(
     }
   }
 
+  // בקשה מפורשת «אימון אחר» / מספר אחרי תפריט — לפני Claude (מונע CTA ישן + רשימה ממוספרת מהמודל)
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
+    const explicitRepick = isExplicitOtherServiceRequest(msg.text.trim());
+    const numericAfterRepickMenu =
+      isNumericServicePickReply(msg.text.trim()) &&
+      (isSalesFlowMultiServicePickPhase(contactSessionPhase) ||
+        (contactSessionPhase === "cta" &&
+          (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId }))));
+
+    if (explicitRepick || numericAfterRepickMenu) {
+      if (explicitRepick) {
+        const phoneVariants = contactPhoneLookupVariants(msg.from);
+        await supabase
+          .from("contacts")
+          .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+          .eq("business_id", businessId)
+          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
+        await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: explicitRepick ? "sales_flow_explicit_service_repick" : "sales_flow_cta_repick_service_menu",
+        });
+        return;
+      }
+      if (contactSessionPhase === "cta") {
+        const phoneVariants = contactPhoneLookupVariants(msg.from);
+        await supabase
+          .from("contacts")
+          .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+          .eq("business_id", businessId)
+          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
+      }
+    }
+  }
+
   // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון (לא בשלב חימום — «1» לא ייבחר בטעות כשירות ראשון)
   if (
     msg.type === "text" &&
@@ -6206,7 +6259,8 @@ async function processIncoming(
     salesFlowServices.length > 1 &&
     Boolean(lastPickedServiceName?.trim()) &&
     Boolean(contactScheduleRequestedDate || contactScheduleRequestedTime) &&
-    isCtaServiceFitQuestion(incomingRaw);
+    isCtaServiceFitQuestion(incomingRaw) &&
+    !isExplicitOtherServiceRequest(incomingRaw);
 
   const stripCandidates = [
     ...serviceSelectionLabels,
@@ -6349,10 +6403,15 @@ async function processIncoming(
 
       const isFreeTextSalesFlowContinuation = isFreeTextSalesFlowAi && !isFallbackErrorReply;
 
+      const openingSkipFlowContinuation =
+        contactSessionPhase === "opening" &&
+        (isExplicitOtherServiceRequest(incomingRaw) ||
+          (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId })));
       const shouldSplitOpeningWarmupAnswerAndFlow =
         isFreeTextSalesFlowContinuation &&
         contactSessionPhase !== "cta" &&
-        contactSessionPhase !== "registered";
+        contactSessionPhase !== "registered" &&
+        !openingSkipFlowContinuation;
 
       const csPhoneForRedirect = knowledge?.customerServicePhone?.trim() ?? "";
       const shouldOfferServicePickAfterCs =

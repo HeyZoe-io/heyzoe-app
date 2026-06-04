@@ -1,8 +1,14 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { fetchLastAssistantModelUsed } from "@/lib/analytics";
 
 /** גשר קבוע — חייב להופיע בדיוק כך (גם לזיהוי «כן» בהודעה הבאה). */
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
   "תרצו שנבחר יחד אימון אחר מהרשימה?";
+
+const SERVICE_REPICK_MENU_MODELS = new Set([
+  "sales_flow_cta_repick_service_menu",
+  "flow_continuation_opening_service_pick",
+]);
 
 const NEGATIVE_REPLY =
   /^(לא\b|לא[,.!?\s]|אין\s|לא\s+תודה|לא\s+כרגע|לא\s+מעוניין|לא\s+רוצ)/iu;
@@ -10,11 +16,35 @@ const NEGATIVE_REPLY =
 const AFFIRMATIVE_REPLY =
   /^(כן\b|כן[,.!?\s]|בטח|יאללה|אשמח|בואו|בוא\b|אוקי|אוקיי|ok\b|yes\b|מעוניין|מעוניינת|רוצה\s+לשנות|רוצה\s+אימון\s+אחר)/iu;
 
-/** שאלה פתוחה על התאמה לרמה / אימון אחר — שלב א (לפני גשר). */
+/** בקשה מפורשת להחליף אימון — מפנה ישר לתפריט (בלי Claude + בלי גשר). */
+export function isExplicitOtherServiceRequest(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 120) return false;
+  if (isAffirmativeServiceRepickYes(t) || NEGATIVE_REPLY.test(t)) return false;
+  return (
+    /(?:אפשר|אפשרי|רוצה|רוצים|לעבור|להחליף).{0,40}(?:אימון|שיעור)\s+אחר/u.test(t) ||
+    /^(?:אימון|שיעור)\s+אחר/u.test(t) ||
+    /^אפשר\s+אימון\s+אחר/u.test(t)
+  );
+}
+
+/** תשובה מספרית לבחירה מתפריט שירותים (1–12). */
+export function isNumericServicePickReply(text: string): boolean {
+  const t = String(text ?? "").trim();
+  return /^[1-9]$|^1[0-2]$/.test(t);
+}
+
+/** שאלה פתוחה על התאמה לרמה (לא בקשה מפורשת להחליף אימון). */
 export function isCtaServiceFitQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t || t.length > 400) return false;
-  if (isAffirmativeServiceRepickYes(t) || NEGATIVE_REPLY.test(t)) return false;
+  if (
+    isExplicitOtherServiceRequest(t) ||
+    isAffirmativeServiceRepickYes(t) ||
+    NEGATIVE_REPLY.test(t)
+  ) {
+    return false;
+  }
   if (
     /(מתאים|מתאימה|מתאימים|מיועד|מיועדת).*(מתחיל|מתקדמ|רמה|רמת|beginner|advanced)/iu.test(
       t
@@ -29,8 +59,33 @@ export function isCtaServiceFitQuestion(text: string): boolean {
     return true;
   }
   if (/(לא\s+)?(מתאים|מתאימ).*(לי|לנו|בשבילי)/iu.test(t)) return true;
-  if (/אימון\s+אחר|שיעור\s+אחר|להחליף\s+אימון|לשנות\s+אימון/u.test(t)) return true;
+  if (/להחליף\s+אימון|לשנות\s+אימון/u.test(t)) return true;
   return false;
+}
+
+export function assistantAwaitingServiceRepickPickFromSnapshot(
+  content: string,
+  modelUsed?: string | null
+): boolean {
+  const model = String(modelUsed ?? "").trim();
+  if (model && SERVICE_REPICK_MENU_MODELS.has(model)) return true;
+  const c = String(content ?? "");
+  if (replyContainsServiceRepickBridge(c)) return true;
+  if (c.includes("[כפתורים:")) return true;
+  if (/כתבו\s+רק\s+את\s+המספר/u.test(c)) return true;
+  if (/איזה אימון.*קורץ|מהרשימה/u.test(c)) return true;
+  return false;
+}
+
+export async function assistantAwaitingServiceRepickPick(input: {
+  business_slug: string;
+  session_id: string;
+}): Promise<boolean> {
+  const [content, modelUsed] = await Promise.all([
+    fetchLastAssistantMessageContent(input),
+    fetchLastAssistantModelUsed(input),
+  ]);
+  return assistantAwaitingServiceRepickPickFromSnapshot(content, modelUsed);
 }
 
 export function replyContainsServiceRepickBridge(text: string): boolean {
@@ -53,10 +108,11 @@ export function ensureCtaServiceRepickBridge(text: string): string {
 
 export function buildCtaServiceRepickPromptAddon(): string {
   return `
-כללי אי-התאמה / שינוי אימון (רק בשאלה פתוחה על התאמה לרמה או אימון אחר):
+כללי אי-התאמה / שינוי אימון (רק בשאלה פתוחה על התאמה לרמה):
 - עני כנה על התאמה לפי הידע והשירות שנבחר בפועל למעלה
-- אם נראה שאין התאמה או שהלקוח מחפש אימון אחר — סיימי במשפט זה בלבד (מילה במילה): «${CTA_SERVICE_REPICK_BRIDGE_QUESTION}»
-- אל תשלחי רשימת אימונים בטקסט; אל תשני את השיבוץ עד שהלקוח מאשר`;
+- אם נראה שאין התאמה — סיימי במשפט זה בלבד (מילה במילה): «${CTA_SERVICE_REPICK_BRIDGE_QUESTION}»
+- אם הלקוח מבקש במפורש אימון אחר — אל תפרטי רשימה בטקסט; המערכת תשלח תפריט כפתורים
+- אל תשני את השיבוץ עד שהלקוח מאשר או בוחר מחדש מהתפריט`;
 }
 
 export async function fetchLastAssistantMessageContent(input: {
