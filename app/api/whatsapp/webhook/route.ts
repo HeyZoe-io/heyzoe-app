@@ -102,6 +102,7 @@ import {
   buildSalesFlowHumanAgentHandoffReply,
   userRequestedHumanAgent,
 } from "@/lib/notifications/detect-human-request";
+import { applyKnownAssistantReplyFixes } from "@/lib/wa-assistant-reply-fixes";
 import {
   isMetaInteractiveMenuReply,
   isSalesFlowFreeTextInbound,
@@ -6606,12 +6607,19 @@ async function processIncoming(
       });
     }
     let committedServiceName: string | undefined;
+    let scheduleInterestServiceName: string | undefined;
+    const pickedForPrompt = (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     if (
       contactSessionPhase === "cta" &&
       (contactScheduleRequestedDate || contactScheduleRequestedTime)
     ) {
-      const picked = (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-      if (picked.trim()) committedServiceName = picked.trim();
+      if (pickedForPrompt.trim()) committedServiceName = pickedForPrompt.trim();
+    }
+    if (
+      (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time") &&
+      pickedForPrompt.trim()
+    ) {
+      scheduleInterestServiceName = pickedForPrompt.trim();
     }
     const systemPrompt = buildSystemPrompt(
       knowledge,
@@ -6627,6 +6635,7 @@ async function processIncoming(
         committedScheduleDate: contactScheduleRequestedDate || undefined,
         committedScheduleTime: contactScheduleRequestedTime || undefined,
         ctaMultiServiceRepick: salesFlowServices.length > 1,
+        scheduleInterestServiceName,
       },
       platformGuidelines
     );
@@ -7014,9 +7023,19 @@ async function processIncoming(
             }
           }
         }
-        const answerOnly = stripTrailingFollowUpQuestion(
+        let answerOnly = stripTrailingFollowUpQuestion(
           stripMenuEchoFromAnswer(answerBody, menuQuestion, menuLabels)
         );
+        answerOnly = applyKnownAssistantReplyFixes(answerOnly, {
+          knowledge,
+          phase: contactSessionPhase,
+          multiServiceAwaitingPick:
+            salesFlowServices.length > 1 && !(lastPickedServiceName ?? "").trim(),
+          scheduleSlotsWithPickedService:
+            (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time") &&
+            Boolean((lastPickedServiceName ?? "").trim()),
+          selectedServiceName: lastPickedServiceName ?? "",
+        });
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await logMessage({
           business_slug,
