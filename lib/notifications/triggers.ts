@@ -5,9 +5,18 @@ import {
 } from "@/lib/email";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { gateOwnerNotification } from "@/lib/notifications/owner-notification-gate";
+import {
+  buildWarmupSummaryFromSession,
+  fetchIdleLeadsLast24h,
+  formatLeadIdentityLine,
+  formatLeadPhoneDisplay,
+  formatRegisteredAtHe,
+  formatScheduleLine,
+  loadContactFullName,
+  resolveServiceNameForSession,
+} from "@/lib/notifications/owner-email-context";
 import { sendOwnerEmailIfEnabled } from "@/lib/notifications/sendOwnerEmailIfEnabled";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
-import { normalizePhone } from "@/lib/phone-normalize";
 
 function bodyParams(...texts: string[]): OwnerTemplateComponent[] {
   return [
@@ -16,14 +25,6 @@ function bodyParams(...texts: string[]): OwnerTemplateComponent[] {
       parameters: texts.map((text) => ({ type: "text", text: String(text ?? "").slice(0, 900) })),
     },
   ];
-}
-
-function formatLeadPhoneDisplay(phone: string): string {
-  const d = normalizePhone(phone) ?? phone.replace(/\D/g, "");
-  if (d.startsWith("972") && d.length >= 12) {
-    return `0${d.slice(3)}`;
-  }
-  return d;
 }
 
 function formatTimeHe(iso: string): string {
@@ -120,6 +121,7 @@ export async function triggerNewLeadNotification(input: {
 export async function triggerHumanRequestedNotification(input: {
   businessId: number;
   leadPhone: string;
+  requestedAtIso?: string;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   await sendIfEnabled({
@@ -128,16 +130,29 @@ export async function triggerHumanRequestedNotification(input: {
     templateName: "human_agent_request",
     components: bodyParams(phoneDisplay),
   });
+
+  const fullName = await loadContactFullName(input.businessId, input.leadPhone);
+  const identity = formatLeadIdentityLine(fullName, input.leadPhone);
+  const requestedAt = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
+
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,
     settingKey: "human_requested_email",
-    build: ({ businessName }) => humanRequestedOwnerEmail(businessName, phoneDisplay),
+    build: ({ businessName }) =>
+      humanRequestedOwnerEmail({
+        business_name: businessName,
+        lead_identity: identity,
+        requested_at: requestedAt,
+      }),
   });
 }
 
 export async function triggerLeadRegisteredNotification(input: {
   businessId: number;
   leadPhone: string;
+  businessSlug: string;
+  sessionId: string;
+  registeredAtIso?: string;
   scheduleDirectRegistration?: boolean;
   requestedDate?: string | null;
   requestedTime?: string | null;
@@ -156,10 +171,43 @@ export async function triggerLeadRegisteredNotification(input: {
           String(input.requestedTime ?? "").trim()
         ),
   });
+
+  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
+  const sessionId = String(input.sessionId ?? "").trim();
+  const [fullName, serviceName, warmupSummary] = await Promise.all([
+    loadContactFullName(input.businessId, input.leadPhone),
+    slug && sessionId
+      ? resolveServiceNameForSession({
+          businessSlug: slug,
+          sessionId,
+          businessId: input.businessId,
+        })
+      : Promise.resolve(""),
+    slug && sessionId
+      ? buildWarmupSummaryFromSession({ business_slug: slug, session_id: sessionId })
+      : Promise.resolve(""),
+  ]);
+
+  const identity = formatLeadIdentityLine(fullName, input.leadPhone);
+  const schedule = formatScheduleLine({
+    requestedDate: input.requestedDate,
+    requestedTime: input.requestedTime,
+    scheduleDirectRegistration: input.scheduleDirectRegistration,
+  });
+  const registeredAt = formatRegisteredAtHe(input.registeredAtIso ?? new Date().toISOString());
+
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,
     settingKey: "lead_registered_email",
-    build: ({ businessName }) => leadRegisteredOwnerEmail(businessName, phoneDisplay),
+    build: ({ businessName }) =>
+      leadRegisteredOwnerEmail({
+        business_name: businessName,
+        lead_identity: identity,
+        service_name: serviceName,
+        schedule,
+        registered_at: registeredAt,
+        warmup_summary: warmupSummary,
+      }),
   });
 }
 
@@ -211,6 +259,7 @@ export async function triggerCtaNoSignupNotification(input: {
 
 export async function triggerDailySummaryNotification(input: {
   businessId: number;
+  businessSlug: string;
   dateLabel: string;
   newLeads: number;
   /** שיחות (conversations) שנוצרו אתמול — template {{3}} */
@@ -231,18 +280,20 @@ export async function triggerDailySummaryNotification(input: {
     ),
   });
 
+  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
+  const idleLeads = await fetchIdleLeadsLast24h(input.businessId);
+
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,
     settingKey: "daily_summary_email",
     build: ({ businessName }) =>
-      dailySummaryOwnerEmail(
-        businessName,
-        input.dateLabel,
-        input.newLeads,
-        input.openConversations,
-        input.ctaReached,
-        input.registered
-      ),
+      dailySummaryOwnerEmail({
+        business_name: businessName,
+        business_slug: slug,
+        date_label: input.dateLabel,
+        idle_count: idleLeads.length,
+        idle_leads: idleLeads,
+      }),
   });
 
   const { touchNotificationSettingsDailySummaryAt } = await import(
