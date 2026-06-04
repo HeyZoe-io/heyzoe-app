@@ -6,12 +6,10 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { gateOwnerNotification } from "@/lib/notifications/owner-notification-gate";
 import {
-  buildWarmupSummaryFromSession,
   fetchIdleLeadsLast24h,
   formatLeadPhoneDisplay,
   formatRegisteredAtHe,
   formatScheduleLine,
-  loadContactFullName,
   resolveServiceNameForSession,
 } from "@/lib/notifications/owner-email-context";
 import { sendOwnerEmailIfEnabled } from "@/lib/notifications/sendOwnerEmailIfEnabled";
@@ -161,18 +159,14 @@ export async function triggerLeadRegisteredNotification(input: {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const sessionId = String(input.sessionId ?? "").trim();
-  const [serviceName, warmupSummary] = await Promise.all([
+  const serviceName =
     slug && sessionId
-      ? resolveServiceNameForSession({
+      ? await resolveServiceNameForSession({
           businessSlug: slug,
           sessionId,
           businessId: input.businessId,
         })
-      : Promise.resolve(""),
-    slug && sessionId
-      ? buildWarmupSummaryFromSession({ business_slug: slug, session_id: sessionId })
-      : Promise.resolve(""),
-  ]);
+      : "";
 
   const serviceLabel = String(serviceName ?? "").trim() || "—";
   const schedule = formatScheduleLine({
@@ -181,7 +175,6 @@ export async function triggerLeadRegisteredNotification(input: {
     scheduleDirectRegistration: input.scheduleDirectRegistration,
   });
   const registeredAt = formatRegisteredAtHe(input.registeredAtIso ?? new Date().toISOString());
-  const warmupForWa = String(warmupSummary ?? "").trim() || "—";
 
   await sendIfEnabled({
     businessId: input.businessId,
@@ -194,7 +187,6 @@ export async function triggerLeadRegisteredNotification(input: {
           serviceName: serviceLabel,
           schedule,
           registeredAtHe: registeredAt,
-          warmupSummary: warmupForWa,
         }),
   });
 
@@ -208,7 +200,6 @@ export async function triggerLeadRegisteredNotification(input: {
         service_name: serviceLabel,
         schedule,
         registered_at: registeredAt,
-        warmup_summary: warmupForWa,
       }),
   });
 }

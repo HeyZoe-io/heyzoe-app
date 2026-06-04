@@ -343,7 +343,6 @@ export type LeadRegisteredOwnerEmailInput = {
   service_name?: string;
   schedule?: string;
   registered_at: string;
-  warmup_summary?: string;
 };
 
 function optionalBodyLines(entries: Array<[string, string | undefined]>): string[] {
@@ -375,7 +374,6 @@ export function leadRegisteredOwnerEmail(input: LeadRegisteredOwnerEmailInput): 
           ["אימון", input.service_name],
           ["מועד", schedule],
           ["תאריך הרשמה", registeredAt],
-          ["סשן חימום", input.warmup_summary],
         ]),
         "",
         "מזל טוב!",
