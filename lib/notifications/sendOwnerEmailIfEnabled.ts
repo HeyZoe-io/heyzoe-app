@@ -1,6 +1,7 @@
 import { sendEmail, type EmailTemplateResult } from "@/lib/email";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
+import { resolveOwnerNotificationEmail } from "@/lib/notifications/resolveOwnerNotificationEmail";
 import type { OwnerEmailSettingKey } from "@/lib/notifications/types";
 
 export async function sendOwnerEmailIfEnabled(input: {
@@ -17,7 +18,7 @@ export async function sendOwnerEmailIfEnabled(input: {
   const admin = createSupabaseAdminClient();
   const { data: biz, error } = await admin
     .from("businesses")
-    .select("name, email")
+    .select("name, email, owner_notification_email")
     .eq("id", businessId)
     .maybeSingle();
 
@@ -26,9 +27,15 @@ export async function sendOwnerEmailIfEnabled(input: {
     return;
   }
 
-  const email = String((biz as { email?: string }).email ?? "").trim();
+  const email = resolveOwnerNotificationEmail(
+    biz as { email?: string | null; owner_notification_email?: string | null }
+  );
   if (!email) {
-    console.warn("[sendOwnerEmailIfEnabled] missing businesses.email:", businessId, input.settingKey);
+    console.warn(
+      "[sendOwnerEmailIfEnabled] missing notification email:",
+      businessId,
+      input.settingKey
+    );
     return;
   }
 

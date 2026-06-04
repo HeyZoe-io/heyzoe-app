@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { buildOwnerWhatsappConnectUrl } from "@/lib/notifications/owner-opt-in";
 import { normalizePhone } from "@/lib/phone-normalize";
 import {
@@ -62,6 +63,9 @@ export default function AccountNotificationsPage() {
   const [ownerWhatsappOptedIn, setOwnerWhatsappOptedIn] = useState(false);
   const [ownerWhatsappPhone, setOwnerWhatsappPhone] = useState("");
   const [businessSlug, setBusinessSlug] = useState("");
+  const [notificationEmail, setNotificationEmail] = useState("");
+  const [businessEmailFallback, setBusinessEmailFallback] = useState("");
+  const [effectiveNotificationEmail, setEffectiveNotificationEmail] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,6 +82,15 @@ export default function AccountNotificationsPage() {
           typeof data.owner_whatsapp_phone === "string" ? data.owner_whatsapp_phone : ""
         );
         setBusinessSlug(typeof data.slug === "string" ? data.slug : "");
+        setNotificationEmail(
+          typeof data.owner_notification_email === "string" ? data.owner_notification_email : ""
+        );
+        setBusinessEmailFallback(
+          typeof data.business_email === "string" ? data.business_email : ""
+        );
+        setEffectiveNotificationEmail(
+          typeof data.effective_email === "string" ? data.effective_email : ""
+        );
       }
     } finally {
       setLoading(false);
@@ -105,16 +118,34 @@ export default function AccountNotificationsPage() {
       const res = await fetch("/api/account/notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          ...settings,
+          owner_notification_email: notificationEmail.trim(),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setToast(typeof data.error === "string" ? data.error : "שמירה נכשלה");
+        if (data.error === "missing_db_column_owner_notification_email") {
+          setToast("חסרה עמודה ב-Supabase — הריצו את המיגרציה businesses_owner_notification_email.sql");
+        } else if (data.error === "invalid_notification_email") {
+          setToast("כתובת המייל אינה תקינה");
+        } else {
+          setToast(typeof data.error === "string" ? data.error : "שמירה נכשלה");
+        }
         return;
       }
       if (data.settings) {
         const merged = { ...DEFAULT_NOTIFICATION_SETTINGS, ...data.settings } as NotificationSettings;
         setSettings(uiSettingsFromFull(merged));
+      }
+      if (typeof data.owner_notification_email === "string") {
+        setNotificationEmail(data.owner_notification_email);
+      }
+      if (typeof data.business_email === "string") {
+        setBusinessEmailFallback(data.business_email);
+      }
+      if (typeof data.effective_email === "string") {
+        setEffectiveNotificationEmail(data.effective_email);
       }
       setToast("ההגדרות נשמרו בהצלחה");
     } finally {
@@ -170,6 +201,51 @@ export default function AccountNotificationsPage() {
           ) : null}
         </div>
       ) : null}
+
+      <Card>
+        <CardHeader className="text-right">
+          <CardTitle>מייל להתראות</CardTitle>
+          <CardDescription>
+            מיילים על ליד שנרשם, בקשת נציג וסיכום יומי — לא תלוי במייל ההתחברות לחשבון
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-right">
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium text-zinc-800">כתובת מייל</span>
+            <Input
+              type="email"
+              dir="ltr"
+              className="text-left"
+              placeholder={
+                businessEmailFallback
+                  ? `ברירת מחדל: ${businessEmailFallback}`
+                  : "name@example.com"
+              }
+              value={notificationEmail}
+              onChange={(e) => setNotificationEmail(e.target.value)}
+              disabled={loading}
+              autoComplete="email"
+            />
+          </label>
+          {notificationEmail.trim() ? (
+            <p className="text-xs text-zinc-500">
+              שליחה לכתובת שמעל. ריקון השדה ושמירה → חזרה למייל מההרשמה לעסק
+              {businessEmailFallback ? ` (${businessEmailFallback})` : ""}.
+            </p>
+          ) : effectiveNotificationEmail ? (
+            <p className="text-xs text-emerald-800">
+              כרגע נשלח ל: <span dir="ltr">{effectiveNotificationEmail}</span>
+              {businessEmailFallback && !notificationEmail.trim()
+                ? " (מייל מההרשמה לעסק)"
+                : ""}
+            </p>
+          ) : (
+            <p className="text-xs text-amber-800">
+              לא הוגדר מייל — הפעילו מייל בהתראות רק אחרי מילוי כתובת (או מייל בהרשמת העסק).
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="text-right">
