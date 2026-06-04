@@ -13,3 +13,12 @@ export function userRequestedHumanAgent(userText: string): boolean {
     );
   return hebrew || english;
 }
+
+/** נוסח קבוע לליד בפלואו מכירה — לפני Claude, לפי טלפון שירות לקוחות מהדשבורד. */
+export function buildSalesFlowHumanAgentHandoffReply(customerServicePhone: string): string {
+  const phone = String(customerServicePhone ?? "").trim();
+  if (phone) {
+    return `אין בעיה! 😊 נציג אנושי יחזור אליכם בהקדם. לתיאום מיידי תוכלו גם להתקשר ישירות: ${phone}`;
+  }
+  return "אין בעיה! 😊 השארתם פנייה ונציג אנושי יחזור אליכם בהקדם.";
+}
