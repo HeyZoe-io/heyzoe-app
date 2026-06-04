@@ -22,6 +22,7 @@ import {
   normalizeProductScheduleSlotsFromMeta,
 } from "@/lib/product-schedule-slots";
 import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
+import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-fixes";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -523,6 +524,7 @@ const RESPONSE_SHAPE_BLOCK_WA_SPLIT_FOLLOWUP = `
 2) סיימי במשפט עובדתי — לא בשאלה. אסור «?» בסוף, אסור שאלת המשך, «מה דעתך», «רוצה ל…», או הזמנה להמשיך — ההודעה הבאה מהמערכת כבר שולחת CTA / תפריט / שלב פלואו.
 3) אל תוסיפי רשימות ממוספרות 1. 2. 3. — אין כפתורים בגוף ההודעה.
 4) כשמפרטים שירותים/אימונים/אפשרויות מהידע — פרטי ישירות; אסור לספור («יש לך X אפשרויות», «אני רואה שיש…»).
+5) אל תזמיני לבחירת אימון — התפריט נשלח בנפרד.
 בלי Markdown.`;
 
 /** שלב פתיחה/חימום — בלי רשימות ממוספרות שמחקות תפריט ההנעה לפעולה (המערכת שולחת כפתורים נפרדים). */
@@ -532,6 +534,7 @@ const RESPONSE_SHAPE_BLOCK_WA_PRE_CTA = `
 2) אל תסיימי בשאלה — המערכת שולחת את השלב הבא בנפרד.
 3) אל תוסיפי רשימות ממוספרות 1. 2. 3. שמחקות כפתורי ווטסאפ / הנעה לפעולה — המערכת תשלח תפריט נפרד כשיגיע התור.
 4) כשמפרטים שירותים/אימונים/אפשרויות מהידע — פרטי ישירות; אסור לספור («יש לך X אפשרויות», «אני רואה שיש…»).
+5) אל תזמיני לבחירת אימון — התפריט נשלח בנפרד.
 גם לשאלות פתוחות: עני מהידע; אם אין מענה מדויק — עברי ל«חוסר ידע מדויק». בלי Markdown.`;
 
 /** אחרי "נרשמתי" — בלי מכירת ניסיון / כפתור ניסיון בתשובת המודל. */
@@ -566,6 +569,8 @@ export type WhatsAppPromptContext = {
   committedScheduleTime?: string;
   /** מספר שירותים > 1 — מאפשר גשר לבחירת אימון אחר ב־CTA */
   ctaMultiServiceRepick?: boolean;
+  /** schedule_date/time + אימון שנבחר — ניסוח «יש עניין ב… זמנים» */
+  scheduleInterestServiceName?: string;
 };
 
 function formatCommittedScheduleLabel(date: string, time: string): string {
@@ -645,6 +650,14 @@ export function buildSystemPrompt(
   const optionListingNoCountRule =
     "- כשמפרטים שירותים, אימונים או אפשרויות מהידע: פרטי אותן ישירות (רשימה או משפטים) — אסור לספור או לסכם כמות («יש לך שתי/שלוש אפשרויות», «אני רואה שיש לך X אפשרויות», «יש כמה אפשרויות» עם מספר). התחילי בפרט, לא בסיכום.";
 
+  const waSpellingPhrasingRule =
+    isWhatsApp && waCtx?.suppressFollowUpQuestion
+      ? buildWaSpellingAndPhrasingPromptRule(knowledge, {
+          suppressFollowUpQuestion: true,
+          scheduleInterestServiceName: waCtx.scheduleInterestServiceName,
+        })
+      : "";
+
   const structureRule = isWhatsApp
     ? waCtx?.suppressFollowUpQuestion
       ? "- הלקוח שאל שאלה פתוחה והמערכת שולחת אחרייך הודעת המשך/כפתורים בנפרד — עני רק על השאלה, בלי שאלת המשך ובלי רשימות ממוספרות."
@@ -670,6 +683,7 @@ ${toneAnalysis ? `\n${toneAnalysis}` : ""}
 ${legalRules}
 ${structureRule}
 ${optionListingNoCountRule}
+${waSpellingPhrasingRule}
 ${warmupResumeRule}
 ${promotionsRule}
 ${registrationPaymentRule}${channelNote}
