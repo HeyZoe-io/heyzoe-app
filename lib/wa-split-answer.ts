@@ -65,5 +65,25 @@ export function stripTrailingFollowUpQuestion(text: string): string {
   while (lines.length > 1 && looksLikeFollowUpQuestion(lines[lines.length - 1]!)) {
     lines.pop();
   }
-  return lines.join("\n").trim();
+  s = lines.join("\n").trim();
+
+  if (s.includes("?")) {
+    const sentences = s.split(/(?<=[.!?…])\s+/u).map((x) => x.trim()).filter(Boolean);
+    if (sentences.length > 1 && looksLikeFollowUpQuestion(sentences[sentences.length - 1]!)) {
+      s = sentences.slice(0, -1).join(" ").trim();
+    }
+  }
+
+  return s;
+}
+
+export const REGISTERED_OPEN_QUESTION_HELP_CLOSING =
+  "יש עוד משהו שאני יכולה לעזור לך בו?";
+
+/** אחרי «נרשמתי» — מוסיף שאלת סיום אם חסרה */
+export function ensureRegisteredOpenQuestionClosing(text: string): string {
+  const t = String(text ?? "").replace(/\r\n/g, "\n").trim();
+  if (!t) return REGISTERED_OPEN_QUESTION_HELP_CLOSING;
+  if (/יש עוד משהו.*(עזור|לעזור)/iu.test(t)) return t;
+  return `${t}\n\n${REGISTERED_OPEN_QUESTION_HELP_CLOSING}`;
 }
