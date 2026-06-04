@@ -1,4 +1,11 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
+import {
+  formatCourseCyclesForKnowledge,
+  formatScheduleSlotsForKnowledge,
+  HEBREW_DAY_OPTIONS,
+  type CourseCycle,
+  type ProductScheduleSlot,
+} from "@/lib/product-schedule-slots";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -10,7 +17,46 @@ export type ApplyAssistantReplyFixesInput = {
   /** schedule_date/time + כבר נבחר אימון — ניסוח מועדים */
   scheduleSlotsWithPickedService?: boolean;
   selectedServiceName?: string;
+  /** שמות יום מהלוח (רביעי…) — לתיקון מיזוגים כמו «בחרוביעי» */
+  scheduleDayLabels?: string[];
 };
+
+export function getScheduleDayLabelsFromSlots(slots: { day: string }[]): string[] {
+  const labels = new Set<string>();
+  for (const slot of slots) {
+    const letter = String(slot.day ?? "").trim();
+    const opt = HEBREW_DAY_OPTIONS.find((o) => o.value === letter);
+    if (opt?.label) labels.add(opt.label);
+  }
+  return [...labels];
+}
+
+/** מועדים מדויקים לאימון שנבחר — לפרומפט Claude (לא לשליחה ללקוח). */
+export function buildPickedServiceScheduleLexiconForPrompt(input: {
+  serviceName: string;
+  scheduleSlots?: { day: string; time: string }[];
+  courseCycles?: CourseCycle[];
+}): string {
+  const name = String(input.serviceName ?? "").trim();
+  if (!name) return "";
+  const cycles = input.courseCycles ?? [];
+  if (cycles.length > 0) {
+    const cyclesTxt = formatCourseCyclesForKnowledge(cycles);
+    if (cyclesTxt) {
+      return `מחזורי קורס ל«${name}» (ניסוח מהמערכת — אל תשני ימים/שעות/תאריכים): ${cyclesTxt}`;
+    }
+  }
+  const slots = input.scheduleSlots ?? [];
+  if (slots.length === 0) return "";
+  const rows: ProductScheduleSlot[] = slots.map((s, i) => ({
+    id: String(i),
+    day: s.day,
+    time: s.time,
+  }));
+  const formatted = formatScheduleSlotsForKnowledge(rows);
+  if (!formatted) return "";
+  return `מועדי לוח ל«${name}» (ניסוח מהמערכת — שמות ימים כמו «יום רביעי», לא «בחרוביעי»): ${formatted}`;
+}
 
 const SERVICE_PICK_INVITATION_LINE =
   /(?:אתה|את)\s+בחופשיות\s+לבחור|בחר(?:י|ו)?\s+(?:מ)?(?:אימון|שיעור)|איזה\s+אימון\s+(?:הכי\s+)?(?:קורץ|מעניין)|תוכל(?:י)?\s+לבחור\s+(?:מ)?(?:אימון|שיעור)|אוכל(?:י|ת)?\s+לבחור\s+(?:מ)?(?:אימון|שיעור)|יש\s+לך\s+\d*\s*אימונים|יש\s+לך\s+(?:שתי|שלוש|כמה)\s+אפשרויות/iu;
@@ -83,12 +129,27 @@ function fixWrongScheduleSlotsInterest(text: string, serviceName: string, mode: 
   return String(text ?? "").replace(WRONG_SCHEDULE_SLOTS_INTEREST, canonical);
 }
 
+/** תיקון מיזוגי אותיות נפוצים סביב ימים שמופיעים במועדים הפעילים. */
+function applyScheduleDayGarbleFixes(text: string, activeDayLabels: string[]): string {
+  if (!activeDayLabels.length) return text;
+  let s = String(text ?? "");
+  for (const day of activeDayLabels) {
+    const d = day.trim();
+    if (!d) continue;
+    s = s.replace(new RegExp(`בחרו\\s*${d}`, "giu"), `ביום ${d}`);
+    s = s.replace(new RegExp(`ביום\\s*${d}`, "giu"), `ביום ${d}`);
+    s = s.replace(new RegExp(`יום\\s*${d}`, "giu"), `יום ${d}`);
+  }
+  return s;
+}
+
 /** כללים לפרומפט Claude — שאלות פתוחות ב-split. */
 export function buildWaSpellingAndPhrasingPromptRule(
   knowledge: BusinessKnowledgePack | null,
   waCtx?: {
     suppressFollowUpQuestion?: boolean;
     scheduleInterestServiceName?: string;
+    pickedServiceScheduleLexicon?: string;
   }
 ): string {
   if (!waCtx?.suppressFollowUpQuestion) return "";
@@ -96,6 +157,7 @@ export function buildWaSpellingAndPhrasingPromptRule(
   const scheduleExample = waCtx.scheduleInterestServiceName?.trim()
     ? buildScheduleSlotsInterestPhrase(waCtx.scheduleInterestServiceName.trim(), mode)
     : "";
+  const lexicon = waCtx.pickedServiceScheduleLexicon?.trim() ?? "";
   const addressingHint =
     mode === "feminine"
       ? "מותר «מצאת עניין» (קהל נשים מפורש בידע)."
@@ -103,9 +165,11 @@ export function buildWaSpellingAndPhrasingPromptRule(
 
   return `
 איות וניסוח (חובה לפני סיום התשובה):
+- לקסיקון מהדשבורד: שמות אימונים, מחירים, FAQ ומועדים — מהשדות «ידע עסקי» ומהשורות למטה; פרפרזה רק לגוון, בלי לשנות שמות שירות, ימי שבוע (רביעי, שלישי…) או שעות.
 - איות: «אימון» לא «אימן»; «אין לי» לא «לא יש לי».
 - ${addressingHint}
 - אל תזמיני לבחירת אימון/שיעור ואל תפרטי רשימת אימונים — המערכת שולחת תפריט/שאלה בנפרד מיד אחרייך.
+${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון.` : ""}
 ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכבר נבחר אימון — ניסוח כמו: «${scheduleExample}» (לא «את מעניינת ב… תוכלי לבחור מהזמנים»).` : ""}`;
 }
 
@@ -125,6 +189,10 @@ export function applyKnownAssistantReplyFixes(
     const mode = resolveWaReplyAddressingMode(input.knowledge);
     s = fixWrongScheduleSlotsInterest(s, input.selectedServiceName.trim(), mode);
     s = applyTypoFixes(s);
+  }
+
+  if ((input.scheduleDayLabels?.length ?? 0) > 0) {
+    s = applyScheduleDayGarbleFixes(s, input.scheduleDayLabels!);
   }
 
   return s.replace(/\n{3,}/g, "\n\n").trim();
