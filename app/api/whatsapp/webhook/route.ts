@@ -96,7 +96,10 @@ import {
   replyRefersToCustomerService,
   sendCustomerServiceRedirectWithServicePickFollowUp,
 } from "@/lib/wa-cs-redirect-service-pick";
-import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
+import {
+  buildSalesFlowHumanAgentHandoffReply,
+  userRequestedHumanAgent,
+} from "@/lib/notifications/detect-human-request";
 import {
   isMetaInteractiveMenuReply,
   shouldResendDeterministicMenuOnUnrecognizedPick,
@@ -3925,7 +3928,6 @@ async function processIncoming(
 
   if (msg.type === "text" && businessId) {
     try {
-      const { userRequestedHumanAgent } = await import("@/lib/notifications/detect-human-request");
       if (userRequestedHumanAgent(msg.text)) {
         const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
         void triggerHumanRequestedNotification({
@@ -6229,6 +6231,27 @@ async function processIncoming(
     });
     contactSessionPhase = "cta";
     contactFlowStep = 0;
+    return;
+  } else if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    !matched?.reply &&
+    !matchedPredefinedClosedLabel &&
+    userRequestedHumanAgent(incomingRaw)
+  ) {
+    const csPhone = knowledge.customerServicePhone?.trim() ?? "";
+    const txt = buildSalesFlowHumanAgentHandoffReply(csPhone);
+    await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+      console.error("[WA Webhook] Send human-agent handoff failed:", e)
+    );
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: txt,
+      model_used: csPhone ? "sales_flow_human_agent_handoff" : "sales_flow_human_agent_handoff_no_phone",
+      session_id: sessionId,
+    });
     return;
   } else {
     // Rate-limit: 20 AI answers in a rolling 24h window (prevents token abuse without blocking forever).
