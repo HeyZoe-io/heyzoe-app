@@ -370,38 +370,15 @@ function isAddressOrDirectionsIntent(text: string): boolean {
   );
 }
 
-/** שאלה פתוחה בשלב בחירת מועד — לא להציג «לא זיהיתי», אלא Claude ואז המשך תפריט המועד. */
-function shouldDeferSchedulePickInvalidToOpenQuestionAi(text: string, menuLabels: string[] = []): boolean {
-  const trimmed = String(text ?? "").trim();
-  if (!trimmed) return false;
-
-  if (isAddressOrDirectionsIntent(text)) return true;
-
-  const norm = normalizeGreetingToken(text);
-  if (/(מחיר|כמה עולה|עלות|תשלום|נציג|שירות|טלפון|לדבר|חוזר|תחזרו)/u.test(norm)) return true;
-
-  if (/[?؟]/.test(trimmed)) return true;
-  if (/^(מה|איך|למה|מתי|האם|איפה|כמה|מי)\s/u.test(norm)) return true;
-
-  if (parseScheduleDateInput(trimmed) || parseScheduleTimeInput(trimmed)) return false;
-
-  const pickLabels = menuLabels.filter((l) => l && !waLabelMatches(l, SCHEDULE_PICK_CHANGE_SERVICE_LABEL));
-  const nOnly = trimmed.match(/^(\d{1,2})$/);
-  if (nOnly && pickLabels.length > 0) {
-    const n = Number(nOnly[1]);
-    if (n >= 1) return false;
-  }
-
-  if (pickLabels.length > 0) {
-    const resolved = resolveWaMenuChoice(trimmed, undefined, pickLabels, pickLabels);
-    if (pickLabels.some((l) => scheduleSlotPickLabelsMatch(l, resolved))) return false;
-    if (pickLabels.some((l) => courseCycleStartButtonLabelsMatch(l, resolved))) return false;
-  }
-
-  return false;
-}
-
 type HeyzoeSessionPhase = "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
+
+/** שלבים שאחרי תשובת Claude לטקסט חופשי שולחים מחדש את השאלה/תפריט הפתוח (לא CTA/registered). */
+const SALES_FLOW_FREE_TEXT_SPLIT_PHASES = new Set<HeyzoeSessionPhase>([
+  "opening",
+  "warmup",
+  "schedule_date",
+  "schedule_time",
+]);
 
 const WARMUP_EXTRA_MENU_MODELS = new Set([
   "sales_flow_warmup_extra",
@@ -1258,6 +1235,45 @@ async function ensureScheduleBoardSentOnce(input: {
     sessionId: input.sessionId,
     modelUsed: input.modelUsed,
   });
+}
+
+async function wasScheduleBoardSentInSession(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  business_slug: string;
+  sessionId: string;
+}): Promise<boolean> {
+  try {
+    const { data: markers } = await input.supabase
+      .from("messages")
+      .select("model_used, created_at")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", input.sessionId)
+      .eq("role", "assistant")
+      .in("model_used", [
+        ...Array.from(SCHEDULE_BOARD_SENT_MODELS),
+        "greeting",
+        "default_opening",
+        "sales_flow_schedule_board_before_service_pick",
+      ])
+      .order("created_at", { ascending: false })
+      .limit(60);
+    const lastResetAt =
+      (markers ?? []).find((m: { model_used?: unknown }) => {
+        const mu = String(m?.model_used ?? "");
+        return mu === "greeting" || mu === "default_opening";
+      })?.created_at ?? null;
+    const lastScheduleAt =
+      (markers ?? []).find((m: { model_used?: unknown }) => {
+        const mu = String(m?.model_used ?? "");
+        return (
+          SCHEDULE_BOARD_SENT_MODELS.has(mu) || mu === "sales_flow_schedule_board_before_service_pick"
+        );
+      })?.created_at ?? null;
+    return Boolean(lastScheduleAt && (!lastResetAt || String(lastScheduleAt) > String(lastResetAt)));
+  } catch (e) {
+    console.warn("[WA Webhook] schedule board marker check failed (continuing):", e);
+    return false;
+  }
 }
 
 /** אחרי חימום (או כשחימום כבוי): מערכת שעות → בחירת מוצר (מרובים) / המשך מסלול (יחיד */
@@ -2923,47 +2939,224 @@ async function isWarmupFlowCompleteForRecovery(input: {
   return input.flowStep >= minStep;
 }
 
-/** המשך פלואו אחרי תשובת Claude לשאלה פתוחה — לא מפעיל מחדש חימום שכבר הושלם. */
+/** אחרי תשובת Claude לטקסט חופשי — שולח מחדש את השאלה/תפריט שעדיין ממתין (בלי advance גנרי). */
+async function resendUnansweredSalesFlowPrompt(
+  input: Parameters<typeof sendFlowContinuation>[0]
+): Promise<void> {
+  const {
+    phase,
+    contact,
+    knowledge,
+    msg,
+    accountSid,
+    authToken,
+    supabase,
+    businessId,
+    business_slug,
+    sessionId,
+    salesFlowServices,
+    blockTrialPickMedia,
+  } = input;
+  const cfg = knowledge.salesFlowConfig;
+  if (!cfg || !businessId) return;
+
+  const step = Number.isFinite(contact.flow_step) ? contact.flow_step : 0;
+
+  if (phase === "opening") {
+    const extras = Array.isArray(cfg.greeting_extra_steps) ? cfg.greeting_extra_steps : [];
+    const cleanGreeting = extras
+      .map((s) => ({
+        question: String((s as { question?: unknown }).question ?? "").trim(),
+        options: Array.isArray((s as { options?: unknown }).options)
+          ? (s as { options: unknown[] }).options.map((x) => String(x ?? "").trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((s) => s.question && s.options.length >= 2);
+
+    if (step < cleanGreeting.length) {
+      const st = cleanGreeting[step]!;
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
+        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      }).catch((e) => console.error("[WA Webhook] resend opening extra failed:", e));
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: formatInteractiveConversationLog(st.question, st.options),
+        model_used: "sales_flow_opening_extra_resend",
+        session_id: sessionId,
+      });
+      return;
+    }
+
+    const lastService =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
+    if (salesFlowServices.length > 1 && !lastService.trim()) {
+      const skipScheduleBoard = await wasScheduleBoardSentInSession({ supabase, business_slug, sessionId });
+      await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: blockTrialPickMedia,
+        skipScheduleBoard,
+        modelUsed: "sales_flow_opening_service_pick_resend",
+      });
+    }
+    return;
+  }
+
+  if (phase === "warmup") {
+    if (knowledge.warmupSessionEnabled === false) return;
+
+    const pendingExp = await isWarmupExperienceQuestionPending({
+      admin: supabase,
+      business_slug,
+      session_id: sessionId,
+    });
+    if (pendingExp) {
+      await sendWarmupExperienceQuestionMenu({
+        cfg,
+        salesFlowServices,
+        business_slug,
+        sessionId,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        blockTrialPickMedia: blockTrialPickMedia ?? false,
+        bumpFlowStep: false,
+      });
+      return;
+    }
+
+    const wbWarm = resolveWarmupExperienceConfig(cfg);
+    const { cleanSteps: cleanWarm, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wbWarm);
+    const lastIdxFromEvent = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
+    const lastAssist = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+    let extraIdx = resolveActiveWarmupExtraMenuIndex({
+      contactSessionPhase: "warmup",
+      contactFlowStep: step,
+      hasWarmupQ1,
+      cleanSteps: cleanWarm,
+      lastAssistModel: lastAssist,
+      lastIdxFromEvent,
+      incomingText: "",
+    });
+    if (extraIdx == null && cleanWarm.length > 0) {
+      const fromStep = hasWarmupQ1 ? step - 1 : step;
+      if (fromStep >= 0 && fromStep < cleanWarm.length) extraIdx = fromStep;
+    }
+    const st = extraIdx != null ? cleanWarm[extraIdx] : undefined;
+    if (st?.question && (st.options?.length ?? 0) >= 2) {
+      const opts = st.options.map((o) => String(o ?? "").trim()).filter(Boolean);
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, opts, accountSid, authToken, {
+        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      }).catch((e) => console.error("[WA Webhook] resend warmup extra failed:", e));
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: formatInteractiveConversationLog(st.question, opts),
+        model_used: "sales_flow_warmup_extra_resend",
+        session_id: sessionId,
+      });
+      return;
+    }
+
+    if (hasWarmupQ1) {
+      await sendWarmupExperienceQuestionMenu({
+        cfg,
+        salesFlowServices,
+        business_slug,
+        sessionId,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        blockTrialPickMedia: blockTrialPickMedia ?? false,
+        bumpFlowStep: false,
+      });
+    }
+    return;
+  }
+
+  if (phase === "schedule_date" || phase === "schedule_time") {
+    const selectedServiceName =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
+    const selectedService =
+      salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+    if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
+      await sendCourseCycleStartPickMenu({
+        knowledge,
+        selectedService,
+        blockMedia: blockTrialPickMedia,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+
+    if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
+      await sendScheduleSlotPickMenu({
+        knowledge,
+        selectedService,
+        blockMedia: blockTrialPickMedia,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+
+    if (phase === "schedule_date") {
+      await sendScheduleSelectionDateQuestion({
+        knowledge,
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    } else {
+      await sendScheduleSelectionTimeQuestion({
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+    }
+  }
+}
+
 async function continueDeterministicFlowAfterFreeTextAi(
   input: Parameters<typeof sendFlowContinuation>[0]
 ): Promise<void> {
-  const cfg = input.knowledge.salesFlowConfig;
-  if (!cfg) {
-    await sendFlowContinuation(input);
-    return;
-  }
-
-  const warmupComplete = await isWarmupFlowCompleteForRecovery({
-    knowledge: input.knowledge,
-    salesFlowServices: input.salesFlowServices,
-    cfg,
-    flowStep: input.contact.flow_step,
-    business_slug: input.business_slug,
-    sessionId: input.sessionId,
-    supabase: input.supabase,
-  });
-
-  if (warmupComplete && (input.phase === "opening" || input.phase === "warmup")) {
-    await advanceAfterWarmupSessionComplete({
-      knowledge: input.knowledge,
-      salesFlowServices: input.salesFlowServices,
-      msg: input.msg,
-      accountSid: input.accountSid,
-      authToken: input.authToken,
-      supabase: input.supabase,
-      businessId: input.businessId,
-      business_slug: input.business_slug,
-      sessionId: input.sessionId,
-      blockTrialPickMedia: input.blockTrialPickMedia,
-      trialRegistered: input.trialRegistered,
-      allowTrialCta: input.allowTrialCta,
-      sfConsumedKinds: input.sfConsumedKinds,
-      instagramFollowPromptSent: input.instagramFollowPromptSent,
-    });
-    return;
-  }
-
-  await sendFlowContinuation(input);
+  await resendUnansweredSalesFlowPrompt(input);
 }
 
 /**
@@ -4641,7 +4834,7 @@ async function processIncoming(
             return;
           }
 
-          if (inCoursePickContext && !shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text, labels)) {
+          if (inCoursePickContext && shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
             const txt = "לא זיהיתי את המחזור. בחרו מהאפשרויות למטה (או כתבו את המספר).";
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
             await logMessage({
@@ -4784,7 +4977,7 @@ async function processIncoming(
         });
             return;
           }
-          if (inSchedulePickContext && !shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text, labels)) {
+          if (inSchedulePickContext && shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
             const txt = "לא זיהיתי את המועד. בחרו מהאפשרויות למטה (או כתבו את המספר של המועד).";
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
             await logMessage({
@@ -4814,7 +5007,7 @@ async function processIncoming(
       if (contactSessionPhase === "schedule_date") {
         const parsedDate = parseScheduleDateInput(msg.text);
         if (!parsedDate) {
-          if (!shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text)) {
+          if (shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
             const txt = "לא הצלחתי לזהות את התאריך, נסה שוב בפורמט: 24.5";
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
             await logMessage({
@@ -4856,8 +5049,8 @@ async function processIncoming(
         const datePrefix =
           maybeDate && dow ? `תודה! ${maybeDate} זה ${dow}.` : maybeDate ? `תודה! ${maybeDate}.` : "";
         const sideAnswer = datePrefix || buildScheduleTimeSideAnswer(msg.text, knowledge, selectedService);
-        if (!sideAnswer && shouldDeferSchedulePickInvalidToOpenQuestionAi(msg.text)) {
-          // שאלה פתוחה — Claude + תפריט מועד בנפרד.
+        if (!sideAnswer && !shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
+          // טקסט חופשי — ממשיך ל-Claude; תפריט מועד אחרי התשובה.
         } else {
           const txt = sideAnswer
             ? `${sideAnswer}\n\n${buildScheduleTimeQuestion(selectedService)}`
@@ -6535,10 +6728,9 @@ async function processIncoming(
         contactSessionPhase === "opening" &&
         (isExplicitOtherServiceRequest(incomingRaw) ||
           (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId })));
-      const shouldSplitOpeningWarmupAnswerAndFlow =
+      const shouldSplitFreeTextAnswerAndResendPrompt =
         isFreeTextSalesFlowContinuation &&
-        contactSessionPhase !== "cta" &&
-        contactSessionPhase !== "registered" &&
+        SALES_FLOW_FREE_TEXT_SPLIT_PHASES.has(contactSessionPhase) &&
         !openingSkipFlowContinuation;
 
       const csPhoneForRedirect = knowledge?.customerServicePhone?.trim() ?? "";
@@ -6607,8 +6799,8 @@ async function processIncoming(
             modelUsed: "sales_flow_cta",
           });
         }
-      } else if (shouldSplitOpeningWarmupAnswerAndFlow) {
-        // Opening/Warmup phase + free-text question:
+      } else if (shouldSplitFreeTextAnswerAndResendPrompt) {
+        // opening / warmup / schedule + free-text question:
         // 1) answer only
         // 2) continue the deterministic flow in a separate message (question + WhatsApp buttons)
         const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
@@ -6704,7 +6896,7 @@ async function processIncoming(
         knowledge &&
         businessId &&
         !shouldSplitCtaAnswerAndMenu &&
-        !shouldSplitOpeningWarmupAnswerAndFlow &&
+        !shouldSplitFreeTextAnswerAndResendPrompt &&
         !shouldOfferServicePickAfterCs &&
         !needsCtaRepickBridge
       ) {
