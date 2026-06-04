@@ -31,10 +31,23 @@ export type SalesFlowCtaKind =
   | "trial"
   | "memberships"
   | "address"
+  /** מוצג אחרי לחיצה על «מחירי מנויים» באותה ריצה — לא נשמר בדשבורד */
+  | "human_contact"
   | "workshop_purchase"
   | "workshop_contact"
   | "course_enroll"
   | "course_contact";
+
+/** כפתור תחליף ל«מחירי מנויים» אחרי שנלחץ פעם אחת בריצה */
+export const HUMAN_CONTACT_CTA_LABEL = "יצירת קשר";
+
+export function membershipsHumanContactButton(source?: SalesFlowCtaButton): SalesFlowCtaButton {
+  return {
+    id: source?.id ? `${source.id}-human-contact` : "cta-human-contact",
+    label: HUMAN_CONTACT_CTA_LABEL,
+    kind: "human_contact",
+  };
+}
 
 export type SalesFlowCtaButton = {
   id: string;
@@ -926,6 +939,9 @@ export function getEffectiveSalesFlowCtaButtons(
     if (b.kind === "memberships") {
       if ((b.memberships_cta_delivery ?? "link") === "none") return false;
     }
+    if (b.kind === "human_contact") {
+      return !consumed.has("human_contact");
+    }
     if (b.kind === "schedule" || b.kind === "memberships" || b.kind === "address") {
       return !consumed.has(b.kind);
     }
@@ -938,10 +954,17 @@ export function getEffectiveSalesFlowCtaButtons(
     return true;
   });
 
+  const memBtn = buttons.find((b) => b.kind === "memberships");
+  const memEnabled = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
+  if (memEnabled && consumed.has("memberships") && !consumed.has("human_contact")) {
+    out.push(membershipsHumanContactButton(memBtn));
+  }
+
   const order: Record<SalesFlowCtaKind, number> = {
     trial: 0,
     schedule: 1,
     memberships: 2,
+    human_contact: 2,
     address: 3,
     workshop_purchase: 4,
     workshop_contact: 5,
@@ -1221,7 +1244,16 @@ export function getEffectiveFollowupMenuLabels(
     if (!ctaKindEnabledInButtons(ctaButtons, kind)) continue;
     const label = String(options[i] ?? "").trim();
     if (!label) continue;
-    if (kind !== "trial" && consumed.has(kind)) continue;
+    if (kind !== "trial" && consumed.has(kind)) {
+      if (
+        kind === "memberships" &&
+        ctaKindEnabledInButtons(ctaButtons, "memberships") &&
+        !consumed.has("human_contact")
+      ) {
+        out.push(HUMAN_CONTACT_CTA_LABEL);
+      }
+      continue;
+    }
     if (input.trialRegistered === true && !input.allowTrialCta && kind === "trial") continue;
     out.push(label);
   }
