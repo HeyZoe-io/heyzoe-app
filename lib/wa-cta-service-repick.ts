@@ -19,7 +19,38 @@ const AFFIRMATIVE_REPLY =
   /^(כן\b|כן[,.!?\s]|בטח|יאללה|אשמח|בואו|בוא\b|אוקי|אוקיי|ok\b|yes\b|מעוניין|מעוניינת|רוצה\s+לשנות|רוצה\s+אימון\s+אחר)/iu;
 
 function normalizeServiceNameKey(name: string): string {
-  return String(name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[׳״"']/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/** נרמול טקסט נכנס לזיהוי שם אימון (טעויות נפוצות). */
+function normalizeInboundForServiceMatch(text: string): string {
+  return normalizeServiceNameKey(text).replace(/הירשמ/gu, "הרשמ").replace(/נירשמ/gu, "נרשמ");
+}
+
+function serviceTokens(key: string): string[] {
+  return key
+    .split(/[\s\-–—]+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 3);
+}
+
+function serviceNameMatchesInUserText(menuName: string, userText: string): boolean {
+  const key = normalizeServiceNameKey(menuName);
+  const t = normalizeInboundForServiceMatch(userText);
+  if (!key || !t || key.length < 3) return false;
+  if (t.includes(key)) return true;
+  if (key.includes(t) && t.length >= 8) return true;
+  const tokens = serviceTokens(key);
+  if (tokens.length >= 2) {
+    const hits = tokens.filter((w) => t.includes(w)).length;
+    if (hits >= 2 && hits >= tokens.length - 1) return true;
+  }
+  if (tokens.length === 1 && tokens[0]!.length >= 6 && t.includes(tokens[0]!)) return true;
+  return false;
 }
 
 /** הטקסט מזכיר שם אימון מהרשימה שאינו הבחירה האחרונה בכפתורים. */
@@ -28,16 +59,18 @@ export function textMentionsOtherServiceFromMenu(
   lastPickedServiceName: string,
   serviceNames: string[]
 ): boolean {
-  const t = normalizeServiceNameKey(text);
   const lastKey = normalizeServiceNameKey(lastPickedServiceName);
-  if (!t || !lastKey) return false;
+  if (!normalizeInboundForServiceMatch(text) || !lastKey) return false;
   for (const name of serviceNames) {
     const key = normalizeServiceNameKey(name);
-    if (!key || key.length < 3 || key === lastKey) continue;
-    if (t.includes(key)) return true;
+    if (!key || key === lastKey) continue;
+    if (serviceNameMatchesInUserText(name, text)) return true;
   }
   return false;
 }
+
+const WANTS_REGISTRATION_FOR_SERVICE_RE =
+  /(?:רוצה|רוצים|מעוניין|מעוניינת|אשמח|מעדיף|מעדיפה).{0,35}(?:לה?רשם|הרשמה|לרשום|להרשם|להירשם|להרשמה)/iu;
 
 /** טקסט חופשי: מעוניין באימון אחר ממה שנבחר בכפתורים (לא שאלת התאמה לרמה בלבד). */
 export function isFreeTextDifferentServiceInterest(
@@ -52,6 +85,12 @@ export function isFreeTextDifferentServiceInterest(
   if (isExplicitOtherServiceRequest(t)) return true;
   if (isCtaServiceFitQuestion(t)) return false;
   if (textMentionsOtherServiceFromMenu(t, last, serviceNames)) return true;
+  if (
+    WANTS_REGISTRATION_FOR_SERVICE_RE.test(t) &&
+    textMentionsOtherServiceFromMenu(t, last, serviceNames)
+  ) {
+    return true;
+  }
   if (/(?:אימון|שיעור)\s+אחר|משהו\s+אחר|במקום\s+(?:האימון|השיעור|זה)/iu.test(t)) {
     return true;
   }
