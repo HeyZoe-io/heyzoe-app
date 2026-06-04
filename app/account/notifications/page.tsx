@@ -124,26 +124,7 @@ export default function AccountNotificationsPage() {
 
   return (
     <div className="space-y-4" dir="rtl">
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">התראות</h1>
-        <p className="mt-1 text-sm text-zinc-600">
-          בחרו אילו התראות לקבל בווטסאפ ובמייל לגבי פעילות הבוט
-          {businessSlug ? (
-            <>
-              {" "}
-              (עסק: <span className="font-medium text-zinc-800">{businessSlug}</span>)
-            </>
-          ) : null}
-          .
-        </p>
-        <p className="mt-2 text-xs text-zinc-500">
-          התראות WhatsApp נשלחות ממספר זואי הראשי (
-          <span dir="ltr" className="inline-block whitespace-nowrap">
-            +972 3-382-4981
-          </span>
-          ). התראות מייל נשלחות לכתובת העסק ב-HeyZoe.
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold text-zinc-900">התראות</h1>
 
       {waLocked && !loading ? (
         <div
