@@ -4,6 +4,8 @@ import { fetchLastSfServiceEventName } from "@/lib/analytics";
 import { formatScheduleForOwnerNotification } from "@/lib/notifications/owner-template-params";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { truncateWaButtonLabel } from "@/lib/wa-button-label";
+import { metaInteractiveDecodeReplyId } from "@/lib/whatsapp";
 
 const NO_RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -105,27 +107,57 @@ export async function resolveServiceNameForSession(input: {
   return first ?? "";
 }
 
-type SessionMsgRow = { role: string; content: string; model_used: string | null };
+type SessionMsgRow = {
+  role: string;
+  content: string;
+  model_used: string | null;
+  created_at: string;
+};
 
-async function fetchSessionMessagesChronological(input: {
+const REGISTERED_USER_REPLY_RE = /^(נרשמתי|נרשמת|נרשמנו|registered)\b/iu;
+
+async function fetchWarmupMenuAssistantRows(input: {
   business_slug: string;
   session_id: string;
-  limit?: number;
 }): Promise<SessionMsgRow[]> {
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from("messages")
-    .select("role, content, model_used")
+    .select("role, content, model_used, created_at")
     .eq("business_slug", input.business_slug)
     .eq("session_id", input.session_id)
-    .in("role", ["user", "assistant"])
+    .eq("role", "assistant")
+    .in("model_used", [...WARMUP_MENU_SENT_MODELS])
     .order("created_at", { ascending: true })
-    .limit(input.limit ?? 80);
+    .limit(40);
   if (error || !data?.length) return [];
   return data.map((row) => ({
-    role: String((row as { role?: string }).role ?? ""),
+    role: "assistant",
     content: String((row as { content?: string }).content ?? "").trim(),
     model_used: String((row as { model_used?: string }).model_used ?? "").trim() || null,
+    created_at: String((row as { created_at?: string }).created_at ?? ""),
+  }));
+}
+
+async function fetchUserMessagesChronological(input: {
+  business_slug: string;
+  session_id: string;
+}): Promise<SessionMsgRow[]> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("messages")
+    .select("role, content, model_used, created_at")
+    .eq("business_slug", input.business_slug)
+    .eq("session_id", input.session_id)
+    .eq("role", "user")
+    .order("created_at", { ascending: true })
+    .limit(300);
+  if (error || !data?.length) return [];
+  return data.map((row) => ({
+    role: "user",
+    content: String((row as { content?: string }).content ?? "").trim(),
+    model_used: null,
+    created_at: String((row as { created_at?: string }).created_at ?? ""),
   }));
 }
 
@@ -159,23 +191,60 @@ function parseWarmupMenuFromAssistantLog(content: string): { question: string; o
   return { question, options };
 }
 
-function userAnswerMatchesWarmupOptions(answer: string, options: string[]): boolean {
-  const a = normalizeWarmupPickLabel(answer);
-  if (!a || a.length > 200) return false;
-  return options.some((opt) => {
-    const o = normalizeWarmupPickLabel(opt);
-    return o === a || o.includes(a) || a.includes(o);
-  });
+function warmupLabelsMatch(a: string, b: string): boolean {
+  return normalizeWarmupPickLabel(a) === normalizeWarmupPickLabel(b);
 }
 
-function findWarmupPickAnswerAfterMenu(rows: SessionMsgRow[], menuIndex: number, options: string[]): string {
-  for (let j = menuIndex + 1; j < rows.length; j++) {
-    const row = rows[j]!;
-    if (row.role === "assistant" && WARMUP_MENU_SENT_MODELS.has(row.model_used ?? "")) break;
-    if (row.role !== "user") continue;
+/** מיפוי תשובת ליד לתווית כפתור (כולל «1», id מקודד z:, חיתוך 23 תווים). */
+function resolveWarmupUserPick(raw: string, options: string[]): string {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed || REGISTERED_USER_REPLY_RE.test(trimmed)) return "";
+
+  const decodedFromText = metaInteractiveDecodeReplyId(trimmed);
+  const candidates = [decodedFromText, trimmed].filter((x): x is string => Boolean(x?.length));
+
+  if (/^[1-9]$/.test(trimmed)) {
+    const idx = Number(trimmed) - 1;
+    if (idx >= 0 && idx < options.length) return options[idx]!.trim();
+  }
+
+  for (const c of candidates) {
+    if (/^[1-9]$/.test(c)) {
+      const idx = Number(c) - 1;
+      if (idx >= 0 && idx < options.length) return options[idx]!.trim();
+    }
+    const exact = options.find((opt) => warmupLabelsMatch(opt, c));
+    if (exact) return exact.trim();
+    const trunc = options.find(
+      (opt) =>
+        warmupLabelsMatch(truncateWaButtonLabel(opt), c) ||
+        warmupLabelsMatch(opt, truncateWaButtonLabel(c))
+    );
+    if (trunc) return trunc.trim();
+    const foldHit = options.find((opt) => {
+      const o = normalizeWarmupPickLabel(opt);
+      const a = normalizeWarmupPickLabel(c);
+      return o === a || (o.length >= 8 && a.length >= 8 && (o.includes(a) || a.includes(o)));
+    });
+    if (foldHit) return foldHit.trim();
+  }
+
+  return "";
+}
+
+function findWarmupPickInUserWindow(
+  userRows: SessionMsgRow[],
+  afterIso: string,
+  beforeIso: string | null,
+  options: string[]
+): string {
+  for (const row of userRows) {
+    if (!row.created_at || row.created_at <= afterIso) continue;
+    if (beforeIso && row.created_at >= beforeIso) continue;
     const text = String(row.content ?? "").trim();
-    if (!text) continue;
-    if (userAnswerMatchesWarmupOptions(text, options)) return text;
+    if (!text || REGISTERED_USER_REPLY_RE.test(text)) continue;
+    const resolved = resolveWarmupUserPick(text, options);
+    if (resolved) return resolved;
   }
   return "";
 }
@@ -189,23 +258,31 @@ export async function buildWarmupSummaryFromSession(input: {
   business_slug: string;
   session_id: string;
 }): Promise<string> {
-  const rows = await fetchSessionMessagesChronological({ ...input, limit: 120 });
-  if (!rows.length) return "";
+  const [menuRows, userRows] = await Promise.all([
+    fetchWarmupMenuAssistantRows(input),
+    fetchUserMessagesChronological(input),
+  ]);
+  if (!menuRows.length) return "";
 
   const blocks: string[] = [];
   let questionNumber = 0;
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]!;
-    if (row.role !== "assistant") continue;
-    const model = row.model_used ?? "";
-    if (!WARMUP_MENU_SENT_MODELS.has(model)) continue;
-
+  for (let i = 0; i < menuRows.length; i++) {
+    const row = menuRows[i]!;
     const menu = parseWarmupMenuFromAssistantLog(row.content);
-    if (!menu) continue;
+    if (!menu || !row.created_at) continue;
 
-    const answer = findWarmupPickAnswerAfterMenu(rows, i, menu.options);
-    if (!answer) continue;
+    const nextMenuAt = menuRows[i + 1]?.created_at ?? null;
+    const answer = findWarmupPickInUserWindow(userRows, row.created_at, nextMenuAt, menu.options);
+    if (!answer) {
+      console.info("[buildWarmupSummaryFromSession] no pick for menu", {
+        business_slug: input.business_slug,
+        session_id: input.session_id,
+        model: row.model_used,
+        options: menu.options.slice(0, 4),
+      });
+      continue;
+    }
 
     questionNumber += 1;
     blocks.push(formatWarmupSummaryBlock(questionNumber, menu.question, answer));
