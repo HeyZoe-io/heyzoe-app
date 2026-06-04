@@ -21,6 +21,7 @@ import {
   migrateLegacyCourseToCycles,
   normalizeProductScheduleSlotsFromMeta,
 } from "@/lib/product-schedule-slots";
+import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -555,7 +556,43 @@ export type WhatsAppPromptContext = {
   registeredOpenQuestionHelpClosing?: boolean;
   /** שאלת חימום עם כפתורים עדיין ממתינה — אל תחזרי עליה בטקסט */
   pendingWarmupExperienceResume?: boolean;
+  /** שם שירות לשיבוץ (מ־fetchLastSfServiceEventName) — בשלב CTA בלבד */
+  committedServiceName?: string;
+  /** מתוך contact.sf_requested_date */
+  committedScheduleDate?: string;
+  /** מתוך contact.sf_requested_time */
+  committedScheduleTime?: string;
+  /** מספר שירותים > 1 — מאפשר גשר לבחירת אימון אחר ב־CTA */
+  ctaMultiServiceRepick?: boolean;
 };
+
+function formatCommittedScheduleLabel(date: string, time: string): string {
+  const d = date.trim();
+  const t = time.trim();
+  if (d && t) return `${d} בשעה ${t}`;
+  if (d) return d;
+  if (t) return t;
+  return "טרם נבחר";
+}
+
+function buildBookingTruthPromptBlock(waCtx: WhatsAppPromptContext | undefined): string {
+  if (!waCtx || waCtx.sessionPhase !== "cta") return "";
+  const service = (waCtx.committedServiceName ?? "").trim();
+  if (!service) return "";
+  const date = (waCtx.committedScheduleDate ?? "").trim();
+  const time = (waCtx.committedScheduleTime ?? "").trim();
+  if (!date && !time) return "";
+  const schedule = formatCommittedScheduleLabel(date, time);
+  const repickAddon = waCtx.ctaMultiServiceRepick === true ? buildCtaServiceRepickPromptAddon() : "";
+  return `
+מקור אמת לשיבוץ הנוכחי (לא לשנות לפי ההיסטוריה):
+- שירות שנבחר לתשלום: ${service}
+- מועד שנבחר: ${schedule}
+כללים:
+- לשאלות «לאיזה שיעור נרשמתי / מה בחרתי / מתי» — רק לפי השורות למעלה
+- שאלות על שירותים אחרים — עני מהידע הכללי בלבד, בלי לשנות את השיבוץ
+- במקום «אתה/את נרשמת» — תמיד: «ההרשמה היא לשיעור ניסיון של…»${repickAddon}`;
+}
 
 export function buildSystemPrompt(
   knowledge: BusinessKnowledgePack | null,
@@ -669,11 +706,12 @@ ${saleFlowExtra}`;
   }
 
   const salesMeta = getZoePlatformCategoryBlock(platform, "sales_flow_meta");
+  const bookingTruthBlock = buildBookingTruthPromptBlock(waCtx);
   return `${base}
 
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה מהדשבורד):
 ${salesMeta || "- הודעת הפתיחה נשלחת אוטומטית מהמערכת — אל תחזירי אותה מחדש אלא אם התבקשת במפורש."}
 ${saleFlowExtra}
-- אם יש לינק מערכת שעות: ${knowledge?.schedulePublicUrl || knowledge?.arboxLink ? "הציעי את הקישור המתאים כשזה עוזר ללקוח - בלי להמציא קישורים." : "אין לינק - אל תמציאי."}
+- אם יש לינק מערכת שעות: ${knowledge?.schedulePublicUrl || knowledge?.arboxLink ? "הציעי את הקישור המתאים כשזה עוזר ללקוח - בלי להמציא קישורים." : "אין לינק - אל תמציאי."}${bookingTruthBlock}
 `;
 }

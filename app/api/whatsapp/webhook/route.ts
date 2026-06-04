@@ -75,6 +75,11 @@ import {
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
+import {
+  ensureCtaServiceRepickBridge,
+  isCtaServiceFitQuestion,
+  shouldHandleCtaServiceRepickYes,
+} from "@/lib/wa-cta-service-repick";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import {
   buildWarmupExperienceMenu,
@@ -1344,16 +1349,6 @@ async function buildWarmupExtraCleanSteps(input: {
   const wb = resolveWarmupExperienceConfig(input.cfg);
   const { cleanSteps, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wb);
   const resolvedVia = "unified_warmup" as const;
-  console.info("[WA warmup buildCleanSteps]", {
-    business_slug: input.business_slug,
-    session_id: input.session_id,
-    resolvedVia,
-    rawExtrasCount: wb.extras.length,
-    cleanStepsCount: cleanSteps.length,
-    hasIncomingPick: Boolean(
-      input.incomingMsg && findWarmupExtraPickAcrossSteps(cleanSteps, input.incomingMsg)
-    ),
-  });
   return {
     cleanSteps,
     hasWarmupQ1,
@@ -1373,29 +1368,9 @@ function findWarmupExtraPickAcrossSteps(
   const decoded = metaId ? metaInteractiveDecodeReplyId(metaId) : null;
   const labelCandidates = [decoded, incomingText].filter((x): x is string => Boolean(x?.length));
 
-  console.info("[WA warmup findWarmupExtraPickAcrossSteps] start", {
-    cleanStepsCount: cleanSteps.length,
-    cleanSteps: cleanSteps.map((s, stepIdx) => ({
-      stepIdx,
-      question: s.question,
-      options: s.options.map((o) => String(o ?? "").trim()).filter(Boolean),
-      replies: s.replies.map((r) => String(r ?? "").trim()),
-    })),
-    incomingText,
-    metaInteractiveReplyId: metaId || null,
-    decodedFromMetaId: decoded,
-    initialLabelCandidates: [...labelCandidates],
-  });
-
   for (let si = 0; si < cleanSteps.length; si++) {
     const opts = cleanSteps[si]!.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-    if (opts.length < 2) {
-      console.info("[WA warmup findWarmupExtraPickAcrossSteps] skip step (<2 options)", {
-        stepIdx: si,
-        optsCount: opts.length,
-      });
-      continue;
-    }
+    if (opts.length < 2) continue;
 
     const resolvedMetaLabel = metaId
       ? resolveMetaInteractiveLabel(metaId, incomingText, opts)
@@ -1405,55 +1380,13 @@ function findWarmupExtraPickAcrossSteps(
       stepLabelCandidates.unshift(resolvedMetaLabel.trim());
     }
 
-    console.info("[WA warmup findWarmupExtraPickAcrossSteps] step", {
-      stepIdx: si,
-      question: cleanSteps[si]!.question,
-      options: opts,
-      resolvedMetaLabel,
-      labelCandidatesForStep: stepLabelCandidates,
-    });
-
-    const comparisons: {
-      optionIdx: number;
-      option: string;
-      optionTruncated: string;
-      candidateLabel: string;
-      candidateVariant: string;
-      matchDirect: boolean;
-      matchTruncatedOption: boolean;
-      matched: boolean;
-    }[] = [];
-
     for (const label of stepLabelCandidates) {
       const variants = [label, truncateWaButtonLabel(label)].filter((x, i, arr) => x && arr.indexOf(x) === i);
       for (const variant of variants) {
         for (let oi = 0; oi < opts.length; oi++) {
           const option = opts[oi]!;
           const optionTruncated = truncateWaButtonLabel(option);
-          const matchDirect = waLabelMatches(option, variant);
-          const matchTruncatedOption = waLabelMatches(optionTruncated, variant);
-          const matched = matchDirect || matchTruncatedOption;
-          comparisons.push({
-            optionIdx: oi,
-            option,
-            optionTruncated,
-            candidateLabel: label,
-            candidateVariant: variant,
-            matchDirect,
-            matchTruncatedOption,
-            matched,
-          });
-          if (matched) {
-            console.info("[WA warmup findWarmupExtraPickAcrossSteps] MATCH (label compare)", {
-              stepIdx: si,
-              optionIdx: oi,
-              option,
-              optionTruncated,
-              candidateLabel: label,
-              candidateVariant: variant,
-              matchDirect,
-              matchTruncatedOption,
-            });
+          if (waLabelMatches(option, variant) || waLabelMatches(optionTruncated, variant)) {
             return { stepIdx: si, optionIdx: oi };
           }
         }
@@ -1461,29 +1394,11 @@ function findWarmupExtraPickAcrossSteps(
     }
 
     const byMenu = findWaMenuOptionIndex(incomingText, msg.metaInteractiveReplyId, opts);
-    const resolvedChoice = resolveWaMenuChoice(incomingText, msg.metaInteractiveReplyId, opts);
-    console.info("[WA warmup findWarmupExtraPickAcrossSteps] step compare summary", {
-      stepIdx: si,
-      comparisons,
-      findWaMenuOptionIndexResult: byMenu,
-      resolveWaMenuChoiceResult: resolvedChoice,
-    });
     if (byMenu >= 0) {
-      console.info("[WA warmup findWarmupExtraPickAcrossSteps] MATCH (findWaMenuOptionIndex)", {
-        stepIdx: si,
-        optionIdx: byMenu,
-        matchedOption: opts[byMenu],
-      });
       return { stepIdx: si, optionIdx: byMenu };
     }
   }
 
-  console.info("[WA warmup findWarmupExtraPickAcrossSteps] no match", {
-    incomingText,
-    metaInteractiveReplyId: metaId || null,
-    decodedFromMetaId: decoded,
-    labelCandidates,
-  });
   return null;
 }
 
@@ -1517,10 +1432,7 @@ function resolveActiveWarmupExtraMenuIndex(input: {
       text: input.incomingText,
       metaInteractiveReplyId: input.metaInteractiveReplyId,
     });
-    if (cross) {
-      console.info("[WA warmup §2.5] lastIdx from cross-step pick", { stepIdx: cross.stepIdx });
-      return cross.stepIdx;
-    }
+    if (cross) return cross.stepIdx;
   }
 
   return lastIdx;
@@ -1662,7 +1574,7 @@ async function attemptWarmupExtraMenuPick(input: {
   const cfg = input.knowledge.salesFlowConfig;
   if (!cfg || input.knowledge.warmupSessionEnabled === false) return { handled: false };
 
-  const { cleanSteps, hasWarmupQ1, warmupServiceName, warmupOfferKind } = await buildWarmupExtraCleanSteps({
+  const { cleanSteps, hasWarmupQ1 } = await buildWarmupExtraCleanSteps({
     cfg,
     salesFlowServices: input.salesFlowServices,
     business_slug: input.business_slug,
@@ -1670,25 +1582,11 @@ async function attemptWarmupExtraMenuPick(input: {
     incomingMsg: input.msg,
   });
   if (cleanSteps.length === 0) {
-    console.warn("[WA warmup §2.5] no warmup extra steps in config", {
-      debugTag: input.debugTag,
-      business_slug: input.business_slug,
-      session_id: input.sessionId,
-      contactSessionPhase: input.contactSessionPhase,
-      warmupServiceName,
-      warmupOfferKind,
-      multiService: input.salesFlowServices.length > 1,
-    });
     return { handled: false };
   }
 
   const directPick = findWarmupExtraPickAcrossSteps(cleanSteps, input.msg);
   if (directPick) {
-    console.info("[WA warmup §2.5] direct cross-step pick", {
-      debugTag: input.debugTag,
-      ...directPick,
-      metaInteractiveReplyId: input.msg.metaInteractiveReplyId ?? "",
-    });
     return executeWarmupExtraPickAt({
       knowledge: input.knowledge,
       salesFlowServices: input.salesFlowServices,
@@ -1731,32 +1629,9 @@ async function attemptWarmupExtraMenuPick(input: {
     metaInteractiveReplyId: input.msg.metaInteractiveReplyId,
   });
 
-  console.info("[WA warmup §2.5] pick attempt", {
-    debugTag: input.debugTag,
-    business_slug: input.business_slug,
-    session_id: input.sessionId,
-    contactSessionPhase: input.contactSessionPhase,
-    contactFlowStep: input.contactFlowStep,
-    lastAssistModel,
-    isWarmupExtraMenu,
-    lastIdxFromEvent,
-    lastIdx,
-    cleanStepsCount: cleanSteps.length,
-    hasWarmupQ1,
-    incomingPreview: String(input.msg.text ?? "").trim().slice(0, 80),
-    metaInteractiveReplyId: input.msg.metaInteractiveReplyId ?? "",
-    metaInteractiveReplyKind: input.msg.metaInteractiveReplyKind ?? null,
-    isMetaInteractiveMenuReply: isMetaInteractiveMenuReply(input.msg),
-  });
-
   if (!(input.contactSessionPhase === "warmup" || isWarmupExtraMenu) || lastIdx == null) {
     const lateCross = findWarmupExtraPickAcrossSteps(cleanSteps, input.msg);
     if (lateCross && (input.contactSessionPhase === "warmup" || isWarmupExtraMenu)) {
-      console.info("[WA warmup §2.5] late cross-step pick (gate was not met)", {
-        debugTag: input.debugTag,
-        lastIdx,
-        ...lateCross,
-      });
       return executeWarmupExtraPickAt({
         knowledge: input.knowledge,
         salesFlowServices: input.salesFlowServices,
@@ -1778,12 +1653,6 @@ async function attemptWarmupExtraMenuPick(input: {
         pickedIdx: lateCross.optionIdx,
       });
     }
-    console.info("[WA warmup §2.5] skip — gate not met", {
-      debugTag: input.debugTag,
-      contactSessionPhase: input.contactSessionPhase,
-      isWarmupExtraMenu,
-      lastIdx,
-    });
     return { handled: false };
   }
 
@@ -1791,21 +1660,9 @@ async function attemptWarmupExtraMenuPick(input: {
   const opts = (current?.options ?? []).map((o) => String(o ?? "").trim()).filter(Boolean);
   const pickedIdx = findWaMenuOptionIndex(input.msg.text.trim(), input.msg.metaInteractiveReplyId, opts);
 
-  console.info("[WA warmup §2.5] option match", {
-    debugTag: input.debugTag,
-    lastIdx,
-    pickedIdx,
-    optsCount: opts.length,
-  });
-
   if (pickedIdx < 0) {
     const retryCross = findWarmupExtraPickAcrossSteps(cleanSteps, input.msg);
     if (retryCross) {
-      console.info("[WA warmup §2.5] cross-step retry after lastIdx mismatch", {
-        debugTag: input.debugTag,
-        lastIdx,
-        ...retryCross,
-      });
       return executeWarmupExtraPickAt({
         knowledge: input.knowledge,
         salesFlowServices: input.salesFlowServices,
@@ -5925,6 +5782,47 @@ async function processIncoming(
       skipScheduleBoard: true,
     });
     return;
+  } else if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    salesFlowServices.length > 1 &&
+    !matched?.reply &&
+    !matchedPredefinedClosedLabel &&
+    (await shouldHandleCtaServiceRepickYes({
+      phase: contactSessionPhase,
+      multiService: true,
+      lastPickedServiceName,
+      scheduleDate: contactScheduleRequestedDate,
+      scheduleTime: contactScheduleRequestedTime,
+      inboundText: incomingRaw,
+      business_slug,
+      session_id: sessionId,
+    }))
+  ) {
+    const phoneVariants = contactPhoneLookupVariants(msg.from);
+    await supabase
+      .from("contacts")
+      .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+      .eq("business_id", businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+    contactSessionPhase = "opening";
+    contactFlowStep = 0;
+    contactScheduleRequestedDate = "";
+    contactScheduleRequestedTime = "";
+    await sendOpeningServicePickMenu({
+      knowledge,
+      salesFlowServices,
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+      blockMedia: starterBlocksMedia,
+      skipScheduleBoard: true,
+      modelUsed: "sales_flow_cta_repick_service_menu",
+    });
+    return;
   } else if (joinSignupRecovery === "cta_menu" && knowledge?.salesFlowConfig && businessId) {
     // רק אחרי נפילה ל-AI חופשי בסשן CTA, ובלי תפריט CTA שכבר נשלח בהודעה הקודמת.
     await sendSalesFlowCtaMenuWithPhaseUpdate({
@@ -6154,6 +6052,14 @@ async function processIncoming(
         session_id: sessionId,
       });
     }
+    let committedServiceName: string | undefined;
+    if (
+      contactSessionPhase === "cta" &&
+      (contactScheduleRequestedDate || contactScheduleRequestedTime)
+    ) {
+      const picked = (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+      if (picked.trim()) committedServiceName = picked.trim();
+    }
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -6164,6 +6070,10 @@ async function processIncoming(
         suppressFollowUpQuestion: isSalesFlowOpenQuestionAi && !registeredInCurrentFlow,
         registeredOpenQuestionHelpClosing: isSalesFlowOpenQuestionAi && registeredInCurrentFlow,
         pendingWarmupExperienceResume,
+        committedServiceName,
+        committedScheduleDate: contactScheduleRequestedDate || undefined,
+        committedScheduleTime: contactScheduleRequestedTime || undefined,
+        ctaMultiServiceRepick: salesFlowServices.length > 1,
       },
       platformGuidelines
     );
@@ -6287,6 +6197,18 @@ async function processIncoming(
       isFallbackErrorReply = true;
       replyErrorCode = replyErrorCode ?? "claude_failed";
     }
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    isFreeTextSalesFlowAi &&
+    contactSessionPhase === "cta" &&
+    salesFlowServices.length > 1 &&
+    lastPickedServiceName?.trim() &&
+    (contactScheduleRequestedDate || contactScheduleRequestedTime) &&
+    isCtaServiceFitQuestion(incomingRaw)
+  ) {
+    replyCore = ensureCtaServiceRepickBridge(replyCore);
   }
 
   const stripCandidates = [
