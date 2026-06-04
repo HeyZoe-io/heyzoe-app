@@ -4443,6 +4443,20 @@ async function processIncoming(
             session_id: sessionId,
           });
           try {
+            let warmupSummaryPrecomputed: string | undefined;
+            try {
+              const { buildWarmupSummaryFromSession } = await import(
+                "@/lib/notifications/warmup-summary"
+              );
+              const built = await buildWarmupSummaryFromSession({
+                businessSlug: business_slug,
+                sessionId,
+              });
+              const trimmed = String(built ?? "").trim();
+              if (trimmed) warmupSummaryPrecomputed = trimmed;
+            } catch (warmupErr) {
+              console.warn("[WA Webhook] warmup summary precompute failed:", warmupErr);
+            }
             const { triggerLeadRegisteredNotification } = await import("@/lib/notifications/triggers");
             void triggerLeadRegisteredNotification({
               businessId: Number(businessId),
@@ -4453,6 +4467,7 @@ async function processIncoming(
               scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
               requestedDate,
               requestedTime,
+              warmupSummaryPrecomputed,
             });
           } catch (e) {
             console.warn("[WA Webhook] lead_registered notification failed:", e);

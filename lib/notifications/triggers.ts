@@ -22,6 +22,7 @@ import {
   buildSinglePhoneWaParams,
 } from "@/lib/notifications/owner-template-params";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
+import { resolveWarmupSummaryForLeadRegistered } from "@/lib/notifications/warmup-summary";
 
 function formatTimeHe(iso: string): string {
   try {
@@ -154,6 +155,8 @@ export async function triggerLeadRegisteredNotification(input: {
   scheduleDirectRegistration?: boolean;
   requestedDate?: string | null;
   requestedTime?: string | null;
+  /** אופציה 2: סיכום חימום שנבנה ב-webhook לפני ההתראה; ריק → fallback לשחזור מ-DB */
+  warmupSummaryPrecomputed?: string | null;
 }): Promise<void> {
   const directRegistration = input.scheduleDirectRegistration !== false;
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
@@ -176,6 +179,15 @@ export async function triggerLeadRegisteredNotification(input: {
   });
   const registeredAt = formatRegisteredAtHe(input.registeredAtIso ?? new Date().toISOString());
 
+  const warmupSummary =
+    !directRegistration && slug && sessionId
+      ? await resolveWarmupSummaryForLeadRegistered({
+          businessSlug: slug,
+          sessionId,
+          warmupSummaryPrecomputed: input.warmupSummaryPrecomputed,
+        })
+      : "";
+
   await sendIfEnabled({
     businessId: input.businessId,
     key: "lead_registered",
@@ -187,6 +199,7 @@ export async function triggerLeadRegisteredNotification(input: {
           serviceName: serviceLabel,
           schedule,
           registeredAtHe: registeredAt,
+          warmupSummary,
         }),
   });
 
@@ -200,6 +213,8 @@ export async function triggerLeadRegisteredNotification(input: {
         service_name: serviceLabel,
         schedule,
         registered_at: registeredAt,
+        warmup_session:
+          warmupSummary && warmupSummary !== "—" ? warmupSummary : undefined,
       }),
   });
 }
