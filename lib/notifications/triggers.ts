@@ -179,14 +179,14 @@ export async function triggerLeadRegisteredNotification(input: {
   });
   const registeredAt = formatRegisteredAtHe(input.registeredAtIso ?? new Date().toISOString());
 
-  const warmupSummary =
+  const warmupSummaries =
     !directRegistration && slug && sessionId
       ? await resolveWarmupSummaryForLeadRegistered({
           businessSlug: slug,
           sessionId,
           warmupSummaryPrecomputed: input.warmupSummaryPrecomputed,
         })
-      : "";
+      : { email: "", wa: "" };
 
   await sendIfEnabled({
     businessId: input.businessId,
@@ -199,7 +199,7 @@ export async function triggerLeadRegisteredNotification(input: {
           serviceName: serviceLabel,
           schedule,
           registeredAtHe: registeredAt,
-          warmupSummary,
+          warmupSummary: warmupSummaries.wa,
         }),
   });
 
@@ -214,7 +214,9 @@ export async function triggerLeadRegisteredNotification(input: {
         schedule,
         registered_at: registeredAt,
         warmup_session:
-          warmupSummary && warmupSummary !== "—" ? warmupSummary : undefined,
+          warmupSummaries.email && warmupSummaries.email !== "—"
+            ? warmupSummaries.email
+            : undefined,
       }),
   });
 }
