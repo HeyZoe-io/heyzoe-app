@@ -12,6 +12,11 @@ import {
   getNotificationSettings,
   upsertNotificationSettings,
 } from "@/lib/notifications/getNotificationSettings";
+import {
+  normalizeOwnerNotificationEmailInput,
+  resolveOwnerNotificationEmail,
+} from "@/lib/notifications/resolveOwnerNotificationEmail";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 
@@ -26,6 +31,34 @@ function parseUiSettingsBody(body: unknown): Partial<NotificationSettings> | nul
   return out;
 }
 
+function parseOwnerNotificationEmailPatch(body: unknown): string | null | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  if (!Object.prototype.hasOwnProperty.call(body, "owner_notification_email")) return undefined;
+  return normalizeOwnerNotificationEmailInput(
+    (body as Record<string, unknown>).owner_notification_email
+  );
+}
+
+async function loadBusinessEmails(businessId: number) {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("businesses")
+    .select("email, owner_notification_email")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (error || !data) {
+    return { owner_notification_email: "", business_email: "", effective_email: "" };
+  }
+  const row = data as { email?: string | null; owner_notification_email?: string | null };
+  const owner_notification_email = String(row.owner_notification_email ?? "").trim();
+  const business_email = String(row.email ?? "").trim();
+  return {
+    owner_notification_email,
+    business_email,
+    effective_email: resolveOwnerNotificationEmail(row),
+  };
+}
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
@@ -38,6 +71,8 @@ export async function GET() {
     ? await ensureOwnerNotificationSettingsRow(ctx.businessId)
     : await getNotificationSettings(ctx.businessId);
 
+  const emails = await loadBusinessEmails(ctx.businessId);
+
   return NextResponse.json({
     ok: true,
     business_id: ctx.businessId,
@@ -45,6 +80,7 @@ export async function GET() {
     owner_whatsapp_opted_in: ctx.ownerWhatsappOptedIn,
     owner_whatsapp_phone: ctx.ownerWhatsappPhone,
     settings,
+    ...emails,
   });
 }
 
@@ -58,7 +94,13 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const uiPatch = parseUiSettingsBody(body);
-  if (!uiPatch) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  const emailPatch = parseOwnerNotificationEmailPatch(body);
+  if (!uiPatch && emailPatch === undefined) {
+    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  }
+  if (emailPatch === null) {
+    return NextResponse.json({ error: "invalid_notification_email" }, { status: 400 });
+  }
 
   const existing = await getNotificationSettings(ctx.businessId);
   const merged = { ...existing, ...uiPatch } as NotificationSettings;
@@ -66,14 +108,38 @@ export async function POST(req: NextRequest) {
     if (typeof merged[key] !== "boolean") merged[key] = DEFAULT_NOTIFICATION_SETTINGS[key];
   }
 
-  const result = await upsertNotificationSettings(ctx.businessId, merged);
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error ?? "save_failed" }, { status: 500 });
+  if (uiPatch) {
+    const result = await upsertNotificationSettings(ctx.businessId, merged);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error ?? "save_failed" }, { status: 500 });
+    }
   }
+
+  if (emailPatch !== undefined) {
+    const admin = createSupabaseAdminClient();
+    const { error: emailErr } = await admin
+      .from("businesses")
+      .update({ owner_notification_email: emailPatch || null })
+      .eq("id", ctx.businessId);
+    if (emailErr) {
+      const missingCol = /owner_notification_email|column/i.test(String(emailErr.message ?? ""));
+      return NextResponse.json(
+        {
+          error: missingCol
+            ? "missing_db_column_owner_notification_email"
+            : emailErr.message ?? "email_save_failed",
+        },
+        { status: 500 }
+      );
+    }
+  }
+
+  const emails = await loadBusinessEmails(ctx.businessId);
 
   return NextResponse.json({
     ok: true,
     settings: merged,
     owner_whatsapp_opted_in: ctx.ownerWhatsappOptedIn,
+    ...emails,
   });
 }
