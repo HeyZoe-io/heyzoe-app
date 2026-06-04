@@ -94,6 +94,10 @@ import {
   replyRefersToCustomerService,
   sendCustomerServiceRedirectWithServicePickFollowUp,
 } from "@/lib/wa-cs-redirect-service-pick";
+import {
+  isMetaInteractiveMenuReply,
+  shouldResendDeterministicMenuOnUnrecognizedPick,
+} from "@/lib/sales-flow-inbound";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
@@ -127,19 +131,6 @@ function stripAssistantInteractiveButtonsLog(text: string): string {
 
 function isWaInboundTextMessage(msg: WaIncomingMessage): msg is WaIncomingText {
   return msg.type === "text";
-}
-
-/**
- * Meta `list_reply` / `button_reply` מגיעים כ־type:"text" + metaInteractiveReplyKind (ראו parseOneMetaMessage).
- * אין type:"interactive" ב־WaIncomingMessage.
- */
-function isMetaInteractiveMenuReply(msg: WaIncomingMessage): boolean {
-  if (!isWaInboundTextMessage(msg)) return false;
-  if (msg.metaInteractiveReplyKind === "button_reply" || msg.metaInteractiveReplyKind === "list_reply") {
-    return true;
-  }
-  // Meta always sets reply `id` on interactive; plain text inbound never has it.
-  return Boolean(msg.metaInteractiveReplyId?.trim());
 }
 
 /** list_reply / button_reply חייבים להיפתר בנתיב דטרמיניסטי — לא ב-Claude. */
@@ -1718,7 +1709,11 @@ async function attemptWarmupExtraMenuPick(input: {
         pickedIdx: retryCross.optionIdx,
       });
     }
-    if (current?.question && opts.length >= 2) {
+    if (
+      current?.question &&
+      opts.length >= 2 &&
+      shouldResendDeterministicMenuOnUnrecognizedPick(input.msg)
+    ) {
       await sendWhatsAppTextOrMenu(
         input.msg.toNumber,
         input.msg.from,
@@ -1728,6 +1723,13 @@ async function attemptWarmupExtraMenuPick(input: {
         input.authToken,
         { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
       ).catch((e) => console.error("[WA Webhook] Resend warmup-extra menu failed:", e));
+      await logMessage({
+        business_slug: input.business_slug,
+        role: "assistant",
+        content: formatInteractiveConversationLog(current.question, opts),
+        model_used: "sales_flow_warmup_extra_resend",
+        session_id: input.sessionId,
+      });
       return { handled: true };
     }
     return { handled: false };
