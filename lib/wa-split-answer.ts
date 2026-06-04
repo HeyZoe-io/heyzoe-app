@@ -2,6 +2,8 @@
  * ניקוי תשובת AI כשהמערכת שולחת CTA / המשך פלואו / תפריט כפתורים בהודעה נפרדת.
  */
 
+import { CTA_SERVICE_REPICK_BRIDGE_QUESTION } from "@/lib/wa-cta-service-repick";
+
 export function normalizeLineForMenuEcho(s: string): string {
   return String(s ?? "")
     .trim()
@@ -43,6 +45,7 @@ export function stripMenuEchoFromAnswer(
 export function looksLikeFollowUpQuestion(chunk: string): boolean {
   const t = String(chunk ?? "").trim();
   if (!t) return false;
+  if (t.includes(CTA_SERVICE_REPICK_BRIDGE_QUESTION)) return false;
   if (t.length > 200) return false;
   if (/\?\s*$/.test(t)) return true;
   return /^(מה|איך|האם|מי|איפה|מתי|למה|רוצה|רוצים|רוצה ל|יש לך|יש לכם|ספר|ספרי|ספרו|איך ה|נשמע לך|מה דעתך|מה עוד|אפשר ל|רוצה ש)/iu.test(

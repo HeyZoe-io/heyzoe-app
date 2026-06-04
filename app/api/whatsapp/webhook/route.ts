@@ -6199,17 +6199,14 @@ async function processIncoming(
     }
   }
 
-  if (
+  const needsCtaRepickBridge =
     !isFallbackErrorReply &&
     isFreeTextSalesFlowAi &&
     contactSessionPhase === "cta" &&
     salesFlowServices.length > 1 &&
-    lastPickedServiceName?.trim() &&
-    (contactScheduleRequestedDate || contactScheduleRequestedTime) &&
-    isCtaServiceFitQuestion(incomingRaw)
-  ) {
-    replyCore = ensureCtaServiceRepickBridge(replyCore);
-  }
+    Boolean(lastPickedServiceName?.trim()) &&
+    Boolean(contactScheduleRequestedDate || contactScheduleRequestedTime) &&
+    isCtaServiceFitQuestion(incomingRaw);
 
   const stripCandidates = [
     ...serviceSelectionLabels,
@@ -6387,11 +6384,14 @@ async function processIncoming(
         // CTA phase + free-text question:
         // 1) answer only (no CTA, no buttons, no footer)
         // 2) send the CTA menu in a separate message
-        const answerOnly = stripTrailingFollowUpQuestion(
+        let answerOnly = stripTrailingFollowUpQuestion(
           stripSalesFlowCtaHookFromAnswer(
             softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean))
           )
         );
+        if (needsCtaRepickBridge) {
+          answerOnly = ensureCtaServiceRepickBridge(answerOnly);
+        }
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await logMessage({
           business_slug,
@@ -6403,7 +6403,7 @@ async function processIncoming(
         });
         assistantReplyLogged = true;
         await sleepMs(650);
-        if (businessId && knowledge?.salesFlowConfig) {
+        if (businessId && knowledge?.salesFlowConfig && !needsCtaRepickBridge) {
           await sendSalesFlowCtaMenuWithPhaseUpdate({
             knowledge,
             msg,
@@ -6484,6 +6484,9 @@ async function processIncoming(
         let body = softenWebsiteAttribution(replyCoreClean);
         if (isSalesFlowOpenQuestionAi && !registeredInCurrentFlow) {
           body = stripTrailingFollowUpQuestion(body);
+          if (needsCtaRepickBridge) {
+            body = ensureCtaServiceRepickBridge(body);
+          }
         } else if (registeredInCurrentFlow) {
           body = ensureRegisteredOpenQuestionClosing(body);
         }
@@ -6515,7 +6518,8 @@ async function processIncoming(
         businessId &&
         !shouldSplitCtaAnswerAndMenu &&
         !shouldSplitOpeningWarmupAnswerAndFlow &&
-        !shouldOfferServicePickAfterCs
+        !shouldOfferServicePickAfterCs &&
+        !needsCtaRepickBridge
       ) {
         scheduleFlowContinuation({
           delayMs: 1500,
