@@ -99,6 +99,62 @@ export function getIsraelDayStartUtc(year: number, month: number, day: number): 
   return makeUtcDateFromLocalInTz({ year, month, day, hour: 0, minute: 0 });
 }
 
+export const DAILY_SUMMARY_PERIOD_MS_24H = 24 * 60 * 60 * 1000;
+export const DAILY_SUMMARY_PERIOD_MS_48H = 48 * 60 * 60 * 1000;
+
+/** יום בשבוע בישראל: 0=ראשון … 6=שבת */
+export function getIsraelWeekday(referenceUtc: Date = new Date()): number {
+  return getLocalPartsInTz(referenceUtc, IL_TZ).weekday;
+}
+
+export type DailySummaryCronPeriod =
+  | { skip: true; reason: "shabbat" }
+  | {
+      skip: false;
+      start: string;
+      end: string;
+      label: string;
+      idleWindowMs: number;
+    };
+
+/**
+ * סיכום יומי ב־08:00 ישראל:
+ * - שבת — לא שולחים
+ * - ראשון — 48 שעות אחורה (מכסה שישי+שבת בלי סיכום בשבת)
+ * - שני–שישי — אתמול קלנדרי (24 שעות)
+ */
+export function resolveDailySummaryCronPeriod(referenceUtc: Date = new Date()): DailySummaryCronPeriod {
+  const weekday = getIsraelWeekday(referenceUtc);
+  if (weekday === 6) {
+    return { skip: true, reason: "shabbat" };
+  }
+
+  if (weekday === 0) {
+    const end = referenceUtc;
+    const start = new Date(end.getTime() - DAILY_SUMMARY_PERIOD_MS_48H);
+    const todayLabel = new Intl.DateTimeFormat("he-IL", {
+      timeZone: IL_TZ,
+      dateStyle: "medium",
+    }).format(referenceUtc);
+    return {
+      skip: false,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      label: `${todayLabel} (48 שעות)`,
+      idleWindowMs: DAILY_SUMMARY_PERIOD_MS_48H,
+    };
+  }
+
+  const { start, end, label } = getIsraelYesterdayRange(referenceUtc);
+  return {
+    skip: false,
+    start,
+    end,
+    label,
+    idleWindowMs: DAILY_SUMMARY_PERIOD_MS_24H,
+  };
+}
+
 /** טווח אתמול בישראל [start, end) כ-ISO + תווית תאריך בעברית */
 export function getIsraelYesterdayRange(referenceUtc: Date = new Date()): {
   start: string;

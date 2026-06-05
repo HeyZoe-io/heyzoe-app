@@ -88,13 +88,13 @@ export async function resolveServiceNameForSession(input: {
   return first ?? "";
 }
 
-/**
- * לידים ללא מענה — 24 שעות אחרונות (גלילה).
- * בסיכום יומי (08:00) זה מכסה בערך את מה שלא דווח מאז הסיכום הקודם.
- */
-export async function fetchIdleLeadsLast24h(businessId: number): Promise<IdleLeadRow[]> {
+/** לידים ללא מענה — חלון גלילה (ברירת מחדל 24 שעות) */
+export async function fetchIdleLeadsInWindow(
+  businessId: number,
+  windowMs: number = NO_RESPONSE_WINDOW_MS
+): Promise<IdleLeadRow[]> {
   const admin = createSupabaseAdminClient();
-  const sinceIso = new Date(Date.now() - NO_RESPONSE_WINDOW_MS).toISOString();
+  const sinceIso = new Date(Date.now() - windowMs).toISOString();
   const { data, error } = await admin
     .from("contacts")
     .select("full_name, phone")
@@ -117,4 +117,9 @@ export async function fetchIdleLeadsLast24h(businessId: number): Promise<IdleLea
     full_name: String((row as { full_name?: string }).full_name ?? "").trim() || null,
     phone: String((row as { phone?: string }).phone ?? "").trim(),
   })).filter((r) => r.phone);
+}
+
+/** @deprecated השתמשו ב-fetchIdleLeadsInWindow */
+export async function fetchIdleLeadsLast24h(businessId: number): Promise<IdleLeadRow[]> {
+  return fetchIdleLeadsInWindow(businessId, NO_RESPONSE_WINDOW_MS);
 }

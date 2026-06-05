@@ -441,6 +441,7 @@ export function dailySummaryOwnerEmail(input: {
   registered_leads: DailySummaryIdleLead[];
   no_response_leads: DailySummaryIdleLead[];
   dashboard_url: string;
+  no_response_window_hours?: number;
 }): EmailTemplateResult {
   const bn = String(input.business_name ?? "").trim() || "העסק שלך";
   const dl = String(input.date_label ?? "").trim();
@@ -461,6 +462,7 @@ export function dailySummaryOwnerEmail(input: {
   ];
 
   const hasNoResponse = noResponseLeads.length > 0;
+  const idleHours = Number(input.no_response_window_hours) === 48 ? 48 : 24;
 
   return {
     subject: hasNoResponse ? `סיכום יומי — יש לידים ללא מענה — ${dl}` : `סיכום יומי — ${dl} — ${bn}`,
@@ -469,8 +471,8 @@ export function dailySummaryOwnerEmail(input: {
       `<p>היי ${esc(bn)},</p>`,
       `<p>${p(statsBlock)}</p>`,
       hasNoResponse
-        ? `<p>לידים ללא מענה (24 שעות אחרונות) — סיימו פולואפים של זואי ועדיין לא חזרו.</p>`
-        : `<p>אין כרגע לידים ללא מענה מ-24 השעות האחרונות.</p>`,
+        ? `<p>לידים ללא מענה (${idleHours} שעות אחרונות) — סיימו פולואפים של זואי ועדיין לא חזרו.</p>`
+        : `<p>אין כרגע לידים ללא מענה מ-${idleHours} השעות האחרונות.</p>`,
       hasNoResponse
         ? `<table dir="rtl" style="border-collapse:collapse;width:100%;max-width:620px;margin:12px 0;text-align:right">` +
           `<thead><tr><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">שם</th><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">טלפון</th></tr></thead>` +

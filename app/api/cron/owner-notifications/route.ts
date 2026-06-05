@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { HEYZOE_SF_REGISTERED } from "@/lib/analytics";
 import { resolveCronSecret } from "@/lib/server-env";
-import { getIsraelYesterdayRange } from "@/lib/israel-time";
+import { resolveDailySummaryCronPeriod } from "@/lib/israel-time";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
 import { triggerCtaNoSignupNotification, triggerDailySummaryNotification } from "@/lib/notifications/triggers";
 
@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
   let autoUnpaused = 0;
   let ctaSent = 0;
   let summariesSent = 0;
+  let dailySummarySkipped: string | null = null;
 
   // ── auto-unpause bot after 15 min (no owner WA notification) ─────────────
   const unpauseCutoff = new Date(now - AUTO_UNPAUSE_MS).toISOString();
@@ -108,48 +109,55 @@ export async function GET(req: NextRequest) {
   // ── daily_summary (08:00 Israel) — WA + email per settings ────────────────
   const { hour } = israelNowParts();
   if (hour === 8) {
-    const { start, end, label } = getIsraelYesterdayRange();
-    const { data: businesses } = await admin
-      .from("businesses")
-      .select("id, slug, name, is_active, owner_whatsapp_opted_in, owner_whatsapp_phone, email")
-      .eq("is_active", true);
+    const period = resolveDailySummaryCronPeriod(new Date());
+    if (period.skip) {
+      dailySummarySkipped = period.reason;
+      console.info("[cron/owner-notifications] daily_summary skipped:", period.reason);
+    } else {
+      const { start, end, label, idleWindowMs } = period;
+      const { data: businesses } = await admin
+        .from("businesses")
+        .select("id, slug, name, is_active, owner_whatsapp_opted_in, owner_whatsapp_phone, email")
+        .eq("is_active", true);
 
-    for (const biz of businesses ?? []) {
-      const businessId = Number((biz as { id?: number }).id);
-      const slug = String((biz as { slug?: string }).slug ?? "").trim().toLowerCase();
-      if (!businessId || !slug) continue;
+      for (const biz of businesses ?? []) {
+        const businessId = Number((biz as { id?: number }).id);
+        const slug = String((biz as { slug?: string }).slug ?? "").trim().toLowerCase();
+        if (!businessId || !slug) continue;
 
-      const settings = await getNotificationSettings(businessId);
-      const wantsWa =
-        settings.daily_summary &&
-        (biz as { owner_whatsapp_opted_in?: boolean }).owner_whatsapp_opted_in === true &&
-        Boolean(String((biz as { owner_whatsapp_phone?: string }).owner_whatsapp_phone ?? "").trim());
-      const wantsEmail = settings.daily_summary_email;
-      if (!wantsWa && !wantsEmail) continue;
+        const settings = await getNotificationSettings(businessId);
+        const wantsWa =
+          settings.daily_summary &&
+          (biz as { owner_whatsapp_opted_in?: boolean }).owner_whatsapp_opted_in === true &&
+          Boolean(String((biz as { owner_whatsapp_phone?: string }).owner_whatsapp_phone ?? "").trim());
+        const wantsEmail = settings.daily_summary_email;
+        if (!wantsWa && !wantsEmail) continue;
 
-      const lastAt = await admin
-        .from("notification_settings")
-        .select("last_daily_summary_at")
-        .eq("business_id", businessId)
-        .maybeSingle();
+        const lastAt = await admin
+          .from("notification_settings")
+          .select("last_daily_summary_at")
+          .eq("business_id", businessId)
+          .maybeSingle();
 
-      const lastSummary = (lastAt.data as { last_daily_summary_at?: string } | null)?.last_daily_summary_at;
-      if (lastSummary) {
-        const lastDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(
-          new Date(lastSummary)
-        );
-        const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date());
-        if (lastDay === today) continue;
+        const lastSummary = (lastAt.data as { last_daily_summary_at?: string } | null)?.last_daily_summary_at;
+        if (lastSummary) {
+          const lastDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(
+            new Date(lastSummary)
+          );
+          const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date());
+          if (lastDay === today) continue;
+        }
+
+        await triggerDailySummaryNotification({
+          businessId,
+          businessSlug: slug,
+          dateLabel: label,
+          periodStartIso: start,
+          periodEndIso: end,
+          idleWindowMs,
+        });
+        summariesSent += 1;
       }
-
-      await triggerDailySummaryNotification({
-        businessId,
-        businessSlug: slug,
-        dateLabel: label,
-        periodStartIso: start,
-        periodEndIso: end,
-      });
-      summariesSent += 1;
     }
   }
 
@@ -158,6 +166,7 @@ export async function GET(req: NextRequest) {
     autoUnpaused,
     ctaSent,
     summariesSent,
+    dailySummarySkipped,
     israelHour: hour,
   });
 }
