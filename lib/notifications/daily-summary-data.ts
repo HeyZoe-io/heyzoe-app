@@ -5,6 +5,12 @@ import { sanitizeMetaOwnerTemplateParam } from "@/lib/notifications/owner-templa
 /** מקסימום לידים ברשימה אחת בפרמטר WA (חיתוך ~900 תווים) */
 const DAILY_SUMMARY_WA_LIST_LIMIT = 16;
 
+/** בין טלפון לשם בתוך ליד אחד — לדוגמה: 0508318162 - ליאור */
+export const DAILY_SUMMARY_PHONE_NAME_SEP = " - ";
+
+/** בין לידים ברשימה — לדוגמה: ...ליאור | 0546758590 - אופיר */
+export const DAILY_SUMMARY_LEADS_SEP = " | ";
+
 export function dailySummaryDashboardUrl(businessSlug: string): string {
   const slug = String(businessSlug ?? "").trim().toLowerCase();
   if (!slug) return "https://heyzoe.io";
@@ -63,14 +69,24 @@ export async function fetchRegisteredYesterdayLeads(input: {
     .filter((r) => r.phone);
 }
 
-export function formatDailySummaryLeadListForWa(leads: IdleLeadRow[]): string {
+export function formatDailySummaryLeadEntry(lead: IdleLeadRow): string {
+  const phone = formatLeadPhoneDisplay(lead.phone);
+  const name = String(lead.full_name ?? "").trim() || "ליד";
+  return `${phone}${DAILY_SUMMARY_PHONE_NAME_SEP}${name}`;
+}
+
+/** רשימת לידים לפרמטר WA — טלפון - שם | טלפון - שם (ה-| רק בין לידים) */
+export function formatDailySummaryLeadListLine(leads: IdleLeadRow[]): string {
   if (!leads.length) return "אין";
-  const parts = leads.slice(0, DAILY_SUMMARY_WA_LIST_LIMIT).map((lead) => {
-    const phone = formatLeadPhoneDisplay(lead.phone);
-    const name = String(lead.full_name ?? "").trim() || "ליד";
-    return `${phone} - ${name}`;
-  });
-  const line = parts.join(" | ");
+  return leads
+    .slice(0, DAILY_SUMMARY_WA_LIST_LIMIT)
+    .map(formatDailySummaryLeadEntry)
+    .join(DAILY_SUMMARY_LEADS_SEP);
+}
+
+export function formatDailySummaryLeadListForWa(leads: IdleLeadRow[]): string {
+  const line = formatDailySummaryLeadListLine(leads);
+  if (line === "אין") return line;
   const sanitized = sanitizeMetaOwnerTemplateParam(line);
   return sanitized || "אין";
 }
