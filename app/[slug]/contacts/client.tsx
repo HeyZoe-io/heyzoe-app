@@ -129,8 +129,8 @@ function escapeCsvCell(value: string): string {
 
 function exportContactsToExcel(rows: Contact[], adminMode: boolean): void {
   const headers = adminMode
-    ? ["עסק", "שם", "טלפון", "מקור", "תאריך שיחה", "סטטוס"]
-    : ["שם", "טלפון", "מקור", "תאריך שיחה", "סטטוס"];
+    ? ["עסק", "שם", "טלפון", "מקור", "שיחה אחרונה", "סטטוס"]
+    : ["שם", "טלפון", "מקור", "שיחה אחרונה", "סטטוס"];
   const lines = [
     headers.join(","),
     ...rows.map((c) => {
@@ -560,7 +560,7 @@ export default function ContactsClient({
                           {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          תאריך שיחה: {formatDateTime(conversationAt(c))}
+                          שיחה אחרונה: {formatDateTime(conversationAt(c))}
                         </p>
                       </div>
                       <div className="shrink-0">
@@ -614,7 +614,7 @@ export default function ContactsClient({
                   <th className="py-3 px-2 font-medium">טלפון</th>
                   <th className="py-3 px-2 font-medium">שם</th>
                   <th className="py-3 px-2 font-medium">מקור</th>
-                  <th className="py-3 px-2 font-medium">תאריך שיחה</th>
+                  <th className="py-3 px-2 font-medium">שיחה אחרונה</th>
                   <th className="py-3 px-2 font-medium">סטטוס</th>
                   <th className="py-3 px-2 font-medium">פעולות</th>
                 </tr>

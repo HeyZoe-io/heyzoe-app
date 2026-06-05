@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone, normalizePhoneToE164 } from "@/lib/phone-normalize";
+import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
 import type { NotificationSettingKey } from "@/lib/notifications/types";
 
@@ -17,12 +18,18 @@ export async function gateOwnerNotification(
   const admin = createSupabaseAdminClient();
   const { data: biz, error } = await admin
     .from("businesses")
-    .select("owner_whatsapp_opted_in, owner_whatsapp_phone, user_id")
+    .select(
+      "owner_whatsapp_opted_in, owner_whatsapp_phone, user_id, is_active, cancellation_effective_at"
+    )
     .eq("id", businessId)
     .maybeSingle();
 
   if (error || !biz) {
     return { allowed: false, ownerPhone: null, reason: "business_not_found" };
+  }
+
+  if (!isBusinessEligibleForOwnerNotifications(biz as Record<string, unknown>)) {
+    return { allowed: false, ownerPhone: null, reason: "subscription_inactive" };
   }
 
   if (biz.owner_whatsapp_opted_in !== true) {

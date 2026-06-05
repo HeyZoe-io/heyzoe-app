@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage } from "@/lib/analytics";
+import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import {
   sendWhatsAppIdleFollowupMessage,
   resolveTwilioAccountSid,
@@ -444,6 +445,22 @@ export async function GET(req: NextRequest) {
           contact_id: contactId,
           phone: maskPhone(phone),
           business_id: businessId,
+        });
+        bumpSkip("no_active_channel");
+        continue;
+      }
+
+      const { data: bizRow } = await admin
+        .from("businesses")
+        .select("is_active")
+        .eq("id", businessId)
+        .maybeSingle();
+      if (!isBusinessSubscriptionActive((bizRow ?? {}) as { is_active?: boolean | null })) {
+        logWaFollowupSkip("no_active_channel", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_id: businessId,
+          detail: "business_inactive",
         });
         bumpSkip("no_active_channel");
         continue;

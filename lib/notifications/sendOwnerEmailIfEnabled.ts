@@ -1,5 +1,6 @@
 import { sendEmail, type EmailTemplateResult } from "@/lib/email";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
 import { resolveOwnerNotificationEmail } from "@/lib/notifications/resolveOwnerNotificationEmail";
 import type { OwnerEmailSettingKey } from "@/lib/notifications/types";
@@ -18,12 +19,21 @@ export async function sendOwnerEmailIfEnabled(input: {
   const admin = createSupabaseAdminClient();
   const { data: biz, error } = await admin
     .from("businesses")
-    .select("name, email, owner_notification_email")
+    .select("name, email, owner_notification_email, is_active, cancellation_effective_at")
     .eq("id", businessId)
     .maybeSingle();
 
   if (error || !biz) {
     console.warn("[sendOwnerEmailIfEnabled] business lookup failed:", error?.message, businessId);
+    return;
+  }
+
+  if (!isBusinessEligibleForOwnerNotifications(biz as Record<string, unknown>)) {
+    console.info(
+      "[sendOwnerEmailIfEnabled] skip — subscription inactive:",
+      businessId,
+      input.settingKey
+    );
     return;
   }
 
