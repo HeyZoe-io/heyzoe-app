@@ -430,78 +430,66 @@ function formatIdleLeadPhone(lead: DailySummaryIdleLead): string {
   return raw;
 }
 
+function formatDailySummaryLeadListPlain(leads: DailySummaryIdleLead[]): string {
+  if (!leads.length) return "אין";
+  return leads
+    .map((lead) => `${formatIdleLeadPhone(lead)} - ${formatIdleLeadName(lead)}`)
+    .join(" | ");
+}
+
 export function dailySummaryOwnerEmail(input: {
   business_name: string;
   business_slug: string;
   date_label: string;
-  new_leads: number;
-  registered: number;
-  idle_count: number;
-  idle_leads: DailySummaryIdleLead[];
+  conversations_held: number;
+  registered_leads: DailySummaryIdleLead[];
+  no_response_leads: DailySummaryIdleLead[];
+  dashboard_url: string;
 }): EmailTemplateResult {
   const bn = String(input.business_name ?? "").trim() || "העסק שלך";
-  const slug = String(input.business_slug ?? "").trim().toLowerCase();
   const dl = String(input.date_label ?? "").trim();
-  const newLeads = Math.max(0, Number(input.new_leads) || 0);
-  const registered = Math.max(0, Number(input.registered) || 0);
-  const idleCount = Math.max(0, Number(input.idle_count) || 0);
-  const listUrl = slug
-    ? `https://heyzoe.io/${encodeURIComponent(slug)}/contacts?status=no_response`
-    : "https://heyzoe.io";
+  const conversationsHeld = Math.max(0, Number(input.conversations_held) || 0);
+  const registeredLeads = input.registered_leads ?? [];
+  const noResponseLeads = input.no_response_leads ?? [];
+  const dashboardUrl =
+    String(input.dashboard_url ?? "").trim() ||
+    (input.business_slug
+      ? `https://heyzoe.io/${encodeURIComponent(String(input.business_slug).trim().toLowerCase())}/conversations`
+      : "https://heyzoe.io");
 
   const statsBlock = [
     dl ? `סיכום יומי — ${dl}` : "סיכום יומי",
-    `לידים חדשים אתמול: ${newLeads}`,
-    `נרשמו אתמול: ${registered}`,
-    `ממתינים לטיפול טלפוני: ${idleCount}`,
+    `שיחות שהתקיימו: ${conversationsHeld}`,
+    `נרשמו: ${formatDailySummaryLeadListPlain(registeredLeads)}`,
+    `ללא מענה: ${formatDailySummaryLeadListPlain(noResponseLeads)}`,
   ];
 
-  if (idleCount > 0) {
-    const rows = (input.idle_leads ?? [])
-      .map(
-        (lead) => `
+  const hasNoResponse = noResponseLeads.length > 0;
+
+  return {
+    subject: hasNoResponse ? `סיכום יומי — יש לידים ללא מענה — ${dl}` : `סיכום יומי — ${dl} — ${bn}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
+      `<p>היי ${esc(bn)},</p>`,
+      `<p>${p(statsBlock)}</p>`,
+      hasNoResponse
+        ? `<p>לידים ללא מענה (24 שעות אחרונות) — סיימו פולואפים של זואי ועדיין לא חזרו.</p>`
+        : `<p>אין כרגע לידים ללא מענה מ-24 השעות האחרונות.</p>`,
+      hasNoResponse
+        ? `<table dir="rtl" style="border-collapse:collapse;width:100%;max-width:620px;margin:12px 0;text-align:right">` +
+          `<thead><tr><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">שם</th><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">טלפון</th></tr></thead>` +
+          `<tbody>${noResponseLeads
+            .map(
+              (lead) => `
         <tr>
           <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right">${esc(formatIdleLeadName(lead))}</td>
           <td style="padding:10px 12px;border-bottom:1px solid #eee;text-align:right" dir="ltr">${esc(formatIdleLeadPhone(lead))}</td>
         </tr>`
-      )
-      .join("");
-
-    return {
-      subject: `יש לידים שמחכים לטאץ׳ אנושי 📞 — ${dl}`,
-      htmlContent: [
-        `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
-        `<p>היי ${esc(bn)},</p>`,
-        `<p>${p(statsBlock)}</p>`,
-        `<p>ביממה האחרונה יש ${idleCount} לידים שסיימו את כל 3 הפולואפים של זואי<br/>ועדיין לא ענו. הם לא אבודים, רק צריכים טאץ׳ אנושי 📞</p>`,
-        `<p>הלידים שממתינים לשיחה:</p>`,
-        `<table dir="rtl" style="border-collapse:collapse;width:100%;max-width:620px;margin:12px 0;text-align:right">`,
-        `<thead><tr><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">שם</th><th style="padding:10px 12px;border-bottom:2px solid #ddd;text-align:right">טלפון</th></tr></thead>`,
-        `<tbody>${rows}</tbody>`,
-        `</table>`,
-        `<p>לצפייה ברשימה המלאה ולייצוא:<br/>👉 <a href="${esc(listUrl)}" style="color:#7133da;font-weight:700">לחץ כאן</a> → ${esc(listUrl)}</p>`,
-        `<p>זואי עשתה את שלה, עכשיו התור שלך 🙂</p>`,
-        `</div>`,
-      ].join(""),
-    };
-  }
-
-  return {
-    subject: `סיכום יומי — ${dl} — ${bn}`,
-    htmlContent: [
-      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right">`,
-      `<p>${p([
-        "היי " + bn + ",",
-        "",
-        ...statsBlock,
-        "",
-        "אין כרגע לידים שממתינים לטיפול טלפוני מ-24 השעות האחרונות.",
-        "זואי דיברה עם מי שצריך, שלחה פולואפים, ואין כרגע מה לטפל בו.",
-        "",
-        "המשיכו כך 🙂",
-        "",
-        "צוות HeyZoe",
-      ])}</p>`,
+            )
+            .join("")}</tbody></table>`
+        : "",
+      `<p>לצפייה בשיחות בדשבורד:<br/>👉 <a href="${esc(dashboardUrl)}" style="color:#7133da;font-weight:700">לחץ כאן</a> → ${esc(dashboardUrl)}</p>`,
+      `<p>צוות HeyZoe</p>`,
       `</div>`,
     ].join(""),
   };

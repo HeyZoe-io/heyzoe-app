@@ -28,8 +28,10 @@ import {
   whatsappReadyEmail,
   type EmailTemplateResult,
 } from "../lib/email";
+import { dailySummaryDashboardUrl } from "../lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
+  DAILY_SUMMARY_WA_TEMPLATE_NAME,
   buildHumanAgentRequestWaParams,
   buildLeadRegisteredWaParams,
   buildLeadRegisteredWithTimeWaParams,
@@ -192,13 +194,16 @@ async function main() {
         business_name: SAMPLE.businessName,
         business_slug: SAMPLE.businessSlug,
         date_label: SAMPLE.dateLabel,
-        new_leads: 5,
-        registered: 2,
-        idle_count: 2,
-        idle_leads: [
-          { full_name: "דנה", phone: "0501111111" },
-          { full_name: null, phone: "0502222222" },
+        conversations_held: 4,
+        registered_leads: [
+          { full_name: "ליאור", phone: "0508318162" },
+          { full_name: "אופיר", phone: "0546758590" },
         ],
+        no_response_leads: [
+          { full_name: "איתי", phone: "0538475849" },
+          { full_name: "שולמית", phone: "0547685940" },
+        ],
+        dashboard_url: dailySummaryDashboardUrl(SAMPLE.businessSlug),
       }),
     ],
     [
@@ -207,10 +212,12 @@ async function main() {
         business_name: SAMPLE.businessName,
         business_slug: SAMPLE.businessSlug,
         date_label: SAMPLE.dateLabel,
-        new_leads: 5,
-        registered: 2,
-        idle_count: 0,
-        idle_leads: [],
+        conversations_held: 4,
+        registered_leads: [
+          { full_name: "ליאור", phone: "0508318162" },
+        ],
+        no_response_leads: [],
+        dashboard_url: dailySummaryDashboardUrl(SAMPLE.businessSlug),
       }),
     ],
   ];
@@ -258,12 +265,13 @@ async function main() {
     ["lead_cta_no_signup", "lead_cta_no_signup", buildSinglePhoneWaParams(SAMPLE.leadPhone)],
     [
       "daily_summary",
-      "daily_summary",
+      DAILY_SUMMARY_WA_TEMPLATE_NAME,
       buildDailySummaryWaParams({
         dateLabel: SAMPLE.dateLabel,
-        newLeads: 5,
-        registered: 2,
-        idleWaitingCount: 3,
+        conversationsHeld: 4,
+        registeredLine: "0508318162 - ליאור | 0546758590 - אופיר",
+        noResponseLine: "0538475849 - איתי | 0547685940 - שולמית",
+        dashboardUrl: dailySummaryDashboardUrl(SAMPLE.businessSlug),
       }),
     ],
     ["quota_warning_80", "quota_warning_80", undefined],

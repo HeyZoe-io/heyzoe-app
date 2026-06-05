@@ -142,44 +142,12 @@ export async function GET(req: NextRequest) {
         if (lastDay === today) continue;
       }
 
-      const [{ count: newLeads }, { count: ctaReached }, { count: registered }, { count: conversationsOpened }] =
-        await Promise.all([
-          admin
-            .from("contacts")
-            .select("id", { count: "exact", head: true })
-            .eq("business_id", businessId)
-            .gte("created_at", start)
-            .lt("created_at", end),
-          admin
-            .from("messages")
-            .select("id", { count: "exact", head: true })
-            .eq("business_slug", slug)
-            .eq("model_used", "sf_cta_reached")
-            .gte("created_at", start)
-            .lt("created_at", end),
-          admin
-            .from("contacts")
-            .select("id", { count: "exact", head: true })
-            .eq("business_id", businessId)
-            .eq("trial_registered", true)
-            .gte("trial_registered_at", start)
-            .lt("trial_registered_at", end),
-          admin
-            .from("conversations")
-            .select("id", { count: "exact", head: true })
-            .eq("business_id", businessId)
-            .gte("created_at", start)
-            .lt("created_at", end),
-        ]);
-
       await triggerDailySummaryNotification({
         businessId,
         businessSlug: slug,
         dateLabel: label,
-        newLeads: newLeads ?? 0,
-        openConversations: conversationsOpened ?? 0,
-        ctaReached: ctaReached ?? 0,
-        registered: registered ?? 0,
+        periodStartIso: start,
+        periodEndIso: end,
       });
       summariesSent += 1;
     }
