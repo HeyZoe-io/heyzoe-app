@@ -88,7 +88,10 @@ export async function resolveServiceNameForSession(input: {
   return first ?? "";
 }
 
-/** לידים ללא מענה — 24 שעות (כמו daily-no-response-email) */
+/**
+ * לידים ללא מענה — 24 שעות אחרונות (גלילה).
+ * בסיכום יומי (08:00) זה מכסה בערך את מה שלא דווח מאז הסיכום הקודם.
+ */
 export async function fetchIdleLeadsLast24h(businessId: number): Promise<IdleLeadRow[]> {
   const admin = createSupabaseAdminClient();
   const sinceIso = new Date(Date.now() - NO_RESPONSE_WINDOW_MS).toISOString();
