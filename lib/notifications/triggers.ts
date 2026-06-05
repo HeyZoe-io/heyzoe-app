@@ -6,7 +6,7 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { gateOwnerNotification } from "@/lib/notifications/owner-notification-gate";
 import {
-  fetchIdleLeadsLast24h,
+  fetchIdleLeadsInWindow,
   formatLeadPhoneDisplay,
   formatRegisteredAtHe,
   formatScheduleLine,
@@ -280,6 +280,7 @@ export async function triggerDailySummaryNotification(input: {
   dateLabel: string;
   periodStartIso: string;
   periodEndIso: string;
+  idleWindowMs: number;
 }): Promise<void> {
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = input.businessId;
@@ -295,7 +296,7 @@ export async function triggerDailySummaryNotification(input: {
       periodStartIso: input.periodStartIso,
       periodEndIso: input.periodEndIso,
     }),
-    fetchIdleLeadsLast24h(businessId),
+    fetchIdleLeadsInWindow(businessId, input.idleWindowMs),
   ]);
 
   const registeredLine = formatDailySummaryLeadListForWa(registeredLeads);
@@ -327,6 +328,7 @@ export async function triggerDailySummaryNotification(input: {
         registered_leads: registeredLeads,
         no_response_leads: idleLeads,
         dashboard_url: dashboardUrl,
+        no_response_window_hours: input.idleWindowMs >= 48 * 60 * 60 * 1000 ? 48 : 24,
       }),
   });
 
