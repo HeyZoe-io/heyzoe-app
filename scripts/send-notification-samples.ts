@@ -28,7 +28,10 @@ import {
   whatsappReadyEmail,
   type EmailTemplateResult,
 } from "../lib/email";
-import { dailySummaryDashboardUrl } from "../lib/notifications/daily-summary-data";
+import {
+  dailySummaryDashboardUrl,
+  formatDailySummaryLeadListForWa,
+} from "../lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
   DAILY_SUMMARY_WA_TEMPLATE_NAME,
@@ -269,8 +272,18 @@ async function main() {
       buildDailySummaryWaParams({
         dateLabel: SAMPLE.dateLabel,
         conversationsHeld: 4,
-        registeredLine: "0508318162 - ליאור | 0546758590 - אופיר",
-        noResponseLine: "0538475849 - איתי | 0547685940 - שולמית",
+        registeredLine: formatDailySummaryLeadListForWa([
+          { full_name: "ליאור", phone: "0508318162" },
+          { full_name: "אופיר", phone: "0546758590" },
+        ]),
+        noResponseLine: formatDailySummaryLeadListForWa([
+          { full_name: "איתי", phone: "0538475849" },
+          { full_name: "שולמית", phone: "0547685940" },
+          ...Array.from({ length: 17 }, (_, i) => ({
+            full_name: `ליד ${i + 3}`,
+            phone: `0500000${String(i).padStart(3, "0")}`,
+          })),
+        ]),
         dashboardUrl: dailySummaryDashboardUrl(SAMPLE.businessSlug),
       }),
     ],
