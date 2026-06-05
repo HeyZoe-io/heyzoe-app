@@ -28,6 +28,7 @@ export async function loadLeadsForBusiness(
       "phone, full_name, source, created_at, opted_out, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at"
     )
     .eq("business_id", businessId)
+    .order("last_contact_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
   const { data: conversations } = await admin
@@ -128,7 +129,8 @@ export async function loadMarketingAdminLeads(
         followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at
       `
       )
-      .order("created_at", { ascending: false })
+      .order("last_user_message_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false })
       .limit(ADMIN_LEADS_LIMIT),
     loadMarketingRegisteredPhoneKeys(admin),
   ]);
@@ -191,6 +193,7 @@ export async function loadLeadsForAdmin(
       businesses ( slug, name )
     `
     )
+    .order("last_contact_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(ADMIN_LEADS_LIMIT);
 

@@ -29,13 +29,6 @@ type Props = {
   marketingAdminMode?: boolean;
 };
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("he-IL", { year: "numeric", month: "2-digit", day: "2-digit" });
-}
-
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -83,10 +76,15 @@ function isDefaultDateRange(from: string, to: string): boolean {
   return from === d.from && to === d.to;
 }
 
-function matchesCreatedAtRange(createdAt: string | null, from: string, to: string): boolean {
+/** תאריך שיחה אחרונה — last_contact_at, ואם חסר תאריך הצטרפות */
+function conversationAt(contact: Contact): string | null {
+  return contact.last_contact_at ?? contact.created_at ?? null;
+}
+
+function matchesConversationDateRange(contactAt: string | null, from: string, to: string): boolean {
   if (!from && !to) return true;
-  if (!createdAt) return false;
-  const t = new Date(createdAt).getTime();
+  if (!contactAt) return false;
+  const t = new Date(contactAt).getTime();
   if (Number.isNaN(t)) return false;
   const fromIso = from ? startOfDayIso(from) : null;
   const toIso = to ? endOfDayIso(to) : null;
@@ -131,8 +129,8 @@ function escapeCsvCell(value: string): string {
 
 function exportContactsToExcel(rows: Contact[], adminMode: boolean): void {
   const headers = adminMode
-    ? ["עסק", "שם", "טלפון", "מקור", "תאריך כניסה", "סטטוס", "תאריך פעילות אחרונה"]
-    : ["שם", "טלפון", "מקור", "תאריך כניסה", "סטטוס", "תאריך פעילות אחרונה"];
+    ? ["עסק", "שם", "טלפון", "מקור", "תאריך שיחה", "סטטוס"]
+    : ["שם", "טלפון", "מקור", "תאריך שיחה", "סטטוס"];
   const lines = [
     headers.join(","),
     ...rows.map((c) => {
@@ -143,17 +141,15 @@ function exportContactsToExcel(rows: Contact[], adminMode: boolean): void {
             c.full_name?.trim() || "",
             c.phone ?? "",
             c.source?.trim() || "",
-            formatDate(c.created_at),
+            formatDateTime(conversationAt(c)),
             contactStatusLabel(statusKey),
-            formatDateTime(c.last_contact_at),
           ]
         : [
             c.full_name?.trim() || "",
             c.phone ?? "",
             c.source?.trim() || "",
-            formatDate(c.created_at),
+            formatDateTime(conversationAt(c)),
             contactStatusLabel(statusKey),
-            formatDateTime(c.last_contact_at),
           ];
       return cells.map(escapeCsvCell).join(",");
     }),
@@ -270,7 +266,7 @@ export default function ContactsClient({
 
   const filteredContacts = useMemo(() => {
     return initialContacts.filter((c) => {
-      if (!matchesCreatedAtRange(c.created_at, dateFrom, dateTo)) return false;
+      if (!matchesConversationDateRange(conversationAt(c), dateFrom, dateTo)) return false;
       if (statusFilter === "all") return true;
       const status = computeContactStatus(c);
       if (statusFilter === "none") return status === null;
@@ -477,7 +473,7 @@ export default function ContactsClient({
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-right">
-                <span className="text-xs text-zinc-500">מתאריך כניסה</span>
+                <span className="text-xs text-zinc-500">מתאריך שיחה</span>
                 <input
                   type="date"
                   value={dateFrom}
@@ -487,7 +483,7 @@ export default function ContactsClient({
                 />
               </label>
               <label className="flex flex-col gap-1 text-right">
-                <span className="text-xs text-zinc-500">עד תאריך כניסה</span>
+                <span className="text-xs text-zinc-500">עד תאריך שיחה</span>
                 <input
                   type="date"
                   value={dateTo}
@@ -563,9 +559,8 @@ export default function ContactsClient({
                           ) : null}
                           {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
                         </p>
-                        <p className="mt-1 text-xs text-zinc-500">הצטרף: {formatDate(c.created_at)}</p>
-                        <p className="mt-0.5 text-xs text-zinc-500">
-                          פעילות אחרונה: {formatDateTime(c.last_contact_at)}
+                        <p className="mt-1 text-xs text-zinc-500">
+                          תאריך שיחה: {formatDateTime(conversationAt(c))}
                         </p>
                       </div>
                       <div className="shrink-0">
@@ -619,7 +614,7 @@ export default function ContactsClient({
                   <th className="py-3 px-2 font-medium">טלפון</th>
                   <th className="py-3 px-2 font-medium">שם</th>
                   <th className="py-3 px-2 font-medium">מקור</th>
-                  <th className="py-3 px-2 font-medium">תאריך הצטרפות</th>
+                  <th className="py-3 px-2 font-medium">תאריך שיחה</th>
                   <th className="py-3 px-2 font-medium">סטטוס</th>
                   <th className="py-3 px-2 font-medium">פעולות</th>
                 </tr>
@@ -655,7 +650,7 @@ export default function ContactsClient({
                         <td className="py-3 px-2 whitespace-nowrap">{c.phone ?? "—"}</td>
                         <td className="py-3 px-2">{c.full_name?.trim() || "—"}</td>
                         <td className="py-3 px-2">{c.source?.trim() || "—"}</td>
-                        <td className="py-3 px-2 whitespace-nowrap">{formatDate(c.created_at)}</td>
+                        <td className="py-3 px-2 whitespace-nowrap">{formatDateTime(conversationAt(c))}</td>
                         <td className="py-3 px-2">
                           <ContactStatusBadge contact={c} />
                         </td>
