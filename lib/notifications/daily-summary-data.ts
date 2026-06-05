@@ -54,7 +54,7 @@ export async function fetchRegisteredYesterdayLeads(input: {
     .gte("trial_registered_at", input.periodStartIso)
     .lt("trial_registered_at", input.periodEndIso)
     .order("trial_registered_at", { ascending: false })
-    .limit(DAILY_SUMMARY_WA_LIST_LIMIT);
+    .limit(500);
 
   if (error) {
     console.warn("[daily-summary] registered yesterday query failed:", error.message);
@@ -75,13 +75,17 @@ export function formatDailySummaryLeadEntry(lead: IdleLeadRow): string {
   return `${phone}${DAILY_SUMMARY_PHONE_NAME_SEP}${name}`;
 }
 
-/** רשימת לידים לפרמטר WA — טלפון - שם | טלפון - שם (ה-| רק בין לידים) */
+/** רשימת לידים — טלפון - שם | טלפון - שם; מעל 16 לידים: | ועוד X */
 export function formatDailySummaryLeadListLine(leads: IdleLeadRow[]): string {
   if (!leads.length) return "אין";
-  return leads
-    .slice(0, DAILY_SUMMARY_WA_LIST_LIMIT)
-    .map(formatDailySummaryLeadEntry)
-    .join(DAILY_SUMMARY_LEADS_SEP);
+  const total = leads.length;
+  const shown = leads.slice(0, DAILY_SUMMARY_WA_LIST_LIMIT);
+  const parts = shown.map(formatDailySummaryLeadEntry);
+  const remaining = total - shown.length;
+  if (remaining > 0) {
+    parts.push(`ועוד ${remaining}`);
+  }
+  return parts.join(DAILY_SUMMARY_LEADS_SEP);
 }
 
 export function formatDailySummaryLeadListForWa(leads: IdleLeadRow[]): string {
