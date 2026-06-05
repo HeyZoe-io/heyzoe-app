@@ -125,8 +125,9 @@ export const DAILY_SUMMARY_WA_TEMPLATE_NAME = "daily_summary";
 
 /**
  * daily_summary — HEADER: תאריך; BODY: שיחות, נרשמו, ללא מענה, קישור דשבורד
- * ערך {{2}}/{{3}} ב-body: 0508318162 - ליאור | 0546758590 - אופיר
+ * ערך {{2}}/{{3}} ב-body: 0508318162 - ליאור | 0546758590 - אופיר | ועוד 3
  * המפריד | רק בין לידים; בין טלפון לשם בתוך ליד: מקף עם רווחים ( - )
+ * מעל 16 לידים: | ועוד X בסוף הרשימה
  * כל פרמטר body בשורה אחת (ללא \\n).
  */
 export function buildDailySummaryWaParams(input: {
