@@ -124,8 +124,10 @@ export function buildLeadRegisteredWithTimeWaParams(input: {
 export const DAILY_SUMMARY_WA_TEMPLATE_NAME = "daily_summary";
 
 /**
- * daily_summary — HEADER: תאריך | BODY: שיחות שהתקיימו, נרשמו, ללא מענה, קישור דשבורד
- * כל פרמטרי body בשורה אחת (ללא \\n).
+ * daily_summary — HEADER: תאריך; BODY: שיחות, נרשמו, ללא מענה, קישור דשבורד
+ * ערך {{2}}/{{3}} ב-body: 0508318162 - ליאור | 0546758590 - אופיר
+ * המפריד | רק בין לידים; בין טלפון לשם בתוך ליד: מקף עם רווחים ( - )
+ * כל פרמטר body בשורה אחת (ללא \\n).
  */
 export function buildDailySummaryWaParams(input: {
   dateLabel: string;

@@ -1,3 +1,5 @@
+import { formatDailySummaryLeadListLine } from "@/lib/notifications/daily-summary-data";
+
 export type EmailTemplateResult = { subject: string; htmlContent: string };
 
 type SendEmailInput = {
@@ -430,12 +432,6 @@ function formatIdleLeadPhone(lead: DailySummaryIdleLead): string {
   return raw;
 }
 
-function formatDailySummaryLeadListPlain(leads: DailySummaryIdleLead[]): string {
-  if (!leads.length) return "אין";
-  return leads
-    .map((lead) => `${formatIdleLeadPhone(lead)} - ${formatIdleLeadName(lead)}`)
-    .join(" | ");
-}
 
 export function dailySummaryOwnerEmail(input: {
   business_name: string;
@@ -460,8 +456,8 @@ export function dailySummaryOwnerEmail(input: {
   const statsBlock = [
     dl ? `סיכום יומי — ${dl}` : "סיכום יומי",
     `שיחות שהתקיימו: ${conversationsHeld}`,
-    `נרשמו: ${formatDailySummaryLeadListPlain(registeredLeads)}`,
-    `ללא מענה: ${formatDailySummaryLeadListPlain(noResponseLeads)}`,
+    `נרשמו: ${formatDailySummaryLeadListLine(registeredLeads)}`,
+    `ללא מענה: ${formatDailySummaryLeadListLine(noResponseLeads)}`,
   ];
 
   const hasNoResponse = noResponseLeads.length > 0;
