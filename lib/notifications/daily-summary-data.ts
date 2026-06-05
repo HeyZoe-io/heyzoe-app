@@ -1,0 +1,76 @@
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { formatLeadPhoneDisplay, type IdleLeadRow } from "@/lib/notifications/owner-email-context";
+import { sanitizeMetaOwnerTemplateParam } from "@/lib/notifications/owner-template-params";
+
+/** מקסימום לידים ברשימה אחת בפרמטר WA (חיתוך ~900 תווים) */
+const DAILY_SUMMARY_WA_LIST_LIMIT = 16;
+
+export function dailySummaryDashboardUrl(businessSlug: string): string {
+  const slug = String(businessSlug ?? "").trim().toLowerCase();
+  if (!slug) return "https://heyzoe.io";
+  return `https://heyzoe.io/${encodeURIComponent(slug)}/conversations`;
+}
+
+/** מספרים ייחודיים עם פעילות ליד אתמול (last_contact_at בחלון אתמול). */
+export async function fetchConversationsHeldYesterday(input: {
+  businessId: number;
+  periodStartIso: string;
+  periodEndIso: string;
+}): Promise<number> {
+  const admin = createSupabaseAdminClient();
+  const { count, error } = await admin
+    .from("contacts")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", input.businessId)
+    .eq("source", "whatsapp")
+    .gte("last_contact_at", input.periodStartIso)
+    .lt("last_contact_at", input.periodEndIso);
+
+  if (error) {
+    console.warn("[daily-summary] conversationsHeld count failed:", error.message);
+    return 0;
+  }
+  return Math.max(0, count ?? 0);
+}
+
+/** לידים שנרשמו אתמול (trial_registered_at בחלון). */
+export async function fetchRegisteredYesterdayLeads(input: {
+  businessId: number;
+  periodStartIso: string;
+  periodEndIso: string;
+}): Promise<IdleLeadRow[]> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("contacts")
+    .select("full_name, phone")
+    .eq("business_id", input.businessId)
+    .eq("trial_registered", true)
+    .gte("trial_registered_at", input.periodStartIso)
+    .lt("trial_registered_at", input.periodEndIso)
+    .order("trial_registered_at", { ascending: false })
+    .limit(DAILY_SUMMARY_WA_LIST_LIMIT);
+
+  if (error) {
+    console.warn("[daily-summary] registered yesterday query failed:", error.message);
+    return [];
+  }
+
+  return (data ?? [])
+    .map((row) => ({
+      full_name: String((row as { full_name?: string }).full_name ?? "").trim() || null,
+      phone: String((row as { phone?: string }).phone ?? "").trim(),
+    }))
+    .filter((r) => r.phone);
+}
+
+export function formatDailySummaryLeadListForWa(leads: IdleLeadRow[]): string {
+  if (!leads.length) return "אין";
+  const parts = leads.slice(0, DAILY_SUMMARY_WA_LIST_LIMIT).map((lead) => {
+    const phone = formatLeadPhoneDisplay(lead.phone);
+    const name = String(lead.full_name ?? "").trim() || "ליד";
+    return `${phone} - ${name}`;
+  });
+  const line = parts.join(" | ");
+  const sanitized = sanitizeMetaOwnerTemplateParam(line);
+  return sanitized || "אין";
+}

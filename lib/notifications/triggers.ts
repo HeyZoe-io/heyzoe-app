@@ -14,7 +14,14 @@ import {
 } from "@/lib/notifications/owner-email-context";
 import { sendOwnerEmailIfEnabled } from "@/lib/notifications/sendOwnerEmailIfEnabled";
 import {
+  dailySummaryDashboardUrl,
+  fetchConversationsHeldYesterday,
+  fetchRegisteredYesterdayLeads,
+  formatDailySummaryLeadListForWa,
+} from "@/lib/notifications/daily-summary-data";
+import {
   buildDailySummaryWaParams,
+  DAILY_SUMMARY_WA_TEMPLATE_NAME,
   buildHumanAgentRequestWaParams,
   buildLeadRegisteredWaParams,
   buildLeadRegisteredWithTimeWaParams,
@@ -271,39 +278,55 @@ export async function triggerDailySummaryNotification(input: {
   businessId: number;
   businessSlug: string;
   dateLabel: string;
-  newLeads: number;
-  /** שיחות (conversations) שנוצרו אתמול — template {{3}} */
-  openConversations: number;
-  ctaReached: number;
-  registered: number;
+  periodStartIso: string;
+  periodEndIso: string;
 }): Promise<void> {
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
-  const idleLeads = await fetchIdleLeadsLast24h(input.businessId);
+  const businessId = input.businessId;
+
+  const [conversationsHeld, registeredLeads, idleLeads] = await Promise.all([
+    fetchConversationsHeldYesterday({
+      businessId,
+      periodStartIso: input.periodStartIso,
+      periodEndIso: input.periodEndIso,
+    }),
+    fetchRegisteredYesterdayLeads({
+      businessId,
+      periodStartIso: input.periodStartIso,
+      periodEndIso: input.periodEndIso,
+    }),
+    fetchIdleLeadsLast24h(businessId),
+  ]);
+
+  const registeredLine = formatDailySummaryLeadListForWa(registeredLeads);
+  const noResponseLine = formatDailySummaryLeadListForWa(idleLeads);
+  const dashboardUrl = dailySummaryDashboardUrl(slug);
 
   await sendIfEnabled({
-    businessId: input.businessId,
+    businessId,
     key: "daily_summary",
-    templateName: "daily_summary",
+    templateName: DAILY_SUMMARY_WA_TEMPLATE_NAME,
     components: buildDailySummaryWaParams({
       dateLabel: input.dateLabel,
-      newLeads: input.newLeads,
-      registered: input.registered,
-      idleWaitingCount: idleLeads.length,
+      conversationsHeld,
+      registeredLine,
+      noResponseLine,
+      dashboardUrl,
     }),
   });
 
   await sendOwnerEmailIfEnabled({
-    businessId: input.businessId,
+    businessId,
     settingKey: "daily_summary_email",
     build: ({ businessName }) =>
       dailySummaryOwnerEmail({
         business_name: businessName,
         business_slug: slug,
         date_label: input.dateLabel,
-        new_leads: input.newLeads,
-        registered: input.registered,
-        idle_count: idleLeads.length,
-        idle_leads: idleLeads,
+        conversations_held: conversationsHeld,
+        registered_leads: registeredLeads,
+        no_response_leads: idleLeads,
+        dashboard_url: dashboardUrl,
       }),
   });
 

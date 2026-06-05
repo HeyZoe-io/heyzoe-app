@@ -7,7 +7,7 @@
  * | human_agent_request | body: טלפון, תאריך+שעה |
  * | lead_registered | body: טלפון |
  * | lead_registered_with_time | body: טלפון, אימון, מועד, תאריך הרשמה, חימום |
- * | daily_summary | header: תאריך; body: לידים חדשים, נרשמו, ממתינים לטיפול |
+ * | daily_summary_v2 | header: תאריך; body: שיחות, נרשמו (רשימה), ללא מענה (רשימה), קישור דשבורד |
  * | bot_paused_waiting / lead_cta_no_signup / marketing_human_agent_request | body: טלפון |
  * | quota_warning_* | ללא פרמטרים |
  */
@@ -120,18 +120,26 @@ export function buildLeadRegisteredWithTimeWaParams(input: {
   );
 }
 
-/** daily_summary — HEADER: תאריך | BODY: לידים חדשים, נרשמו, ממתינים לטיפול */
+/** שם התבנית ב-Meta Business Manager — חייב להתאים בדיוק */
+export const DAILY_SUMMARY_WA_TEMPLATE_NAME = "daily_summary_v2";
+
+/**
+ * daily_summary_v2 — HEADER: תאריך | BODY: שיחות שהתקיימו, נרשמו, ללא מענה, קישור דשבורד
+ * כל פרמטרי body בשורה אחת (ללא \\n).
+ */
 export function buildDailySummaryWaParams(input: {
   dateLabel: string;
-  newLeads: number;
-  registered: number;
-  idleWaitingCount: number;
+  conversationsHeld: number;
+  registeredLine: string;
+  noResponseLine: string;
+  dashboardUrl: string;
 }): OwnerTemplateComponent[] {
   return waHeaderAndBodyParams(
     input.dateLabel,
-    String(Math.max(0, input.newLeads)),
-    String(Math.max(0, input.registered)),
-    String(Math.max(0, input.idleWaitingCount))
+    String(Math.max(0, input.conversationsHeld)),
+    input.registeredLine.trim() || "אין",
+    input.noResponseLine.trim() || "אין",
+    input.dashboardUrl.trim() || "https://heyzoe.io"
   );
 }
 
