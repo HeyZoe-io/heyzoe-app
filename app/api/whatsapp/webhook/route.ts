@@ -26,7 +26,12 @@ import {
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
-import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
+import {
+  BUSINESS_INACTIVE_AUTO_REPLY_MODEL,
+  buildInactiveBusinessAutoReply,
+  customerServicePhoneFromSocialLinks,
+  ZOE_WHATSAPP_MENU_FOOTER,
+} from "@/lib/whatsapp-copy";
 import { contactPhoneLookupVariants, buildWaSessionId } from "@/lib/phone-normalize";
 import {
   composeGreeting,
@@ -3669,37 +3674,67 @@ async function processIncoming(
 
   const supabase = createSupabaseAdminClient();
 
-  // Route: look up business by Twilio "To" number
+  // Route: look up business by Twilio/Meta "To" number (גם ערוץ כבוי — לתגובת מנוי לא פעיל)
   const { data: channel } = await supabase
     .from("whatsapp_channels")
-    .select("business_slug, business_id, phone_number_id")
+    .select("business_slug, business_id, phone_number_id, is_active")
     .eq("phone_number_id", msg.toNumber)
-    .eq("is_active", true)
     .maybeSingle();
 
   if (!channel) {
-    console.warn(`[WA Webhook] No active channel for number: ${msg.toNumber}`);
+    console.warn(`[WA Webhook] No channel for number: ${msg.toNumber}`);
     return;
   }
 
   const { business_slug } = channel;
+  const channelActive = (channel as { is_active?: boolean }).is_active === true;
 
   const nowIso = new Date().toISOString();
 
-  // Resolve business_id (needed for contacts upsert)
+  // Resolve business_id + subscription gate (needed for contacts upsert)
   let businessId: string | null = (channel as any).business_id ?? null;
-  if (!businessId) {
-    try {
-      const { data: biz } = await supabase
-        .from("businesses")
-        .select("id")
-        .eq("slug", business_slug)
-        .maybeSingle();
-      businessId = (biz as any)?.id ?? null;
-    } catch (e) {
-      console.warn("[WA Webhook] failed to resolve business_id (continuing):", e);
-      businessId = null;
+  try {
+    const { data: biz, error: bizErr } = await supabase
+      .from("businesses")
+      .select("id, is_active, social_links")
+      .eq("slug", business_slug)
+      .maybeSingle();
+    if (bizErr || !biz) {
+      console.warn(`[WA Webhook] Business lookup failed — skip auto-reply: ${business_slug}`, bizErr?.message);
+      return;
     }
+    if (!businessId) {
+      const resolvedId = (biz as { id?: string | number | null }).id;
+      businessId = resolvedId != null ? String(resolvedId) : null;
+    }
+    if ((biz as { is_active?: boolean }).is_active !== true) {
+      const inactiveReply = buildInactiveBusinessAutoReply(
+        customerServicePhoneFromSocialLinks((biz as { social_links?: unknown }).social_links)
+      );
+      const phoneNumberId = String((channel as { phone_number_id?: string }).phone_number_id ?? msg.toNumber).trim();
+      const sessionId = buildWaSessionId(phoneNumberId, msg.from);
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, inactiveReply, accountSid, authToken);
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: inactiveReply,
+          model_used: BUSINESS_INACTIVE_AUTO_REPLY_MODEL,
+          session_id: sessionId,
+        });
+        console.info(`[WA Webhook] Business inactive — sent auto-reply: ${business_slug}`);
+      } catch (e) {
+        console.error(`[WA Webhook] Business inactive auto-reply failed: ${business_slug}`, e);
+      }
+      return;
+    }
+    if (!channelActive) {
+      console.warn(`[WA Webhook] Channel inactive for active business — skip: ${business_slug}`);
+      return;
+    }
+  } catch (e) {
+    console.warn("[WA Webhook] failed to resolve business / is_active — skip auto-reply:", e);
+    return;
   }
 
   type BizQuotaSnapshot = {
@@ -3711,6 +3746,8 @@ async function processIncoming(
     social_links?: unknown;
     owner_whatsapp_phone?: unknown;
     owner_whatsapp_opted_in?: unknown;
+    is_active?: unknown;
+    cancellation_effective_at?: unknown;
     quota_warning_20_sent_at?: unknown;
     quota_warning_5_sent_at?: unknown;
     quota_limit_sent_at?: unknown;
@@ -3721,7 +3758,7 @@ async function processIncoming(
     const { data: bqr } = await supabase
       .from("businesses")
       .select(
-        "id, plan, email, name, slug, social_links, owner_whatsapp_phone, owner_whatsapp_opted_in, quota_warning_20_sent_at, quota_warning_5_sent_at, quota_limit_sent_at, quota_pro_warning_sent_at"
+        "id, plan, email, name, slug, social_links, owner_whatsapp_phone, owner_whatsapp_opted_in, is_active, cancellation_effective_at, quota_warning_20_sent_at, quota_warning_5_sent_at, quota_limit_sent_at, quota_pro_warning_sent_at"
       )
       .eq("slug", business_slug)
       .maybeSingle();

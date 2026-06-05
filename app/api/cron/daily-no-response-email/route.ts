@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail } from "@/lib/email";
+import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET פעם ביום ב-08:00 ישראל + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -30,6 +31,8 @@ type BusinessRow = {
   name: string | null;
   email: string | null;
   user_id: string | null;
+  is_active?: boolean | null;
+  cancellation_effective_at?: string | null;
 };
 
 function authorizeCron(req: NextRequest): boolean {
@@ -206,7 +209,7 @@ export async function GET(req: NextRequest) {
   if (businessIds.length) {
     const { data: businessesData, error: bizErr } = await admin
       .from("businesses")
-      .select("id, slug, name, email, user_id")
+      .select("id, slug, name, email, user_id, is_active, cancellation_effective_at")
       .in("id", businessIds);
 
     if (bizErr) {
@@ -243,6 +246,11 @@ export async function GET(req: NextRequest) {
       "";
 
     if (!biz || !slug || !email) {
+      skipped += 1;
+      continue;
+    }
+
+    if (!isBusinessEligibleForOwnerNotifications(biz)) {
       skipped += 1;
       continue;
     }

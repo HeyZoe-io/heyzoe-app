@@ -1,5 +1,6 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { formatIsraelYearMonth, getIsraelMonthStartUtc } from "@/lib/israel-time";
+import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
 import {
   sendEmail,
   starterQuota100Email,
@@ -54,12 +55,15 @@ type BizQuotaRow = {
   quota_warning_5_sent_at?: unknown;
   quota_limit_sent_at?: unknown;
   quota_pro_warning_sent_at?: unknown;
+  is_active?: unknown;
+  cancellation_effective_at?: unknown;
 };
 
 async function sendStarterQuotaOwnerWhatsApp(
   bizRow: BizQuotaRow,
   templateName: "quota_warning_80" | "quota_warning_95" | "quota_limit_reached"
 ): Promise<boolean> {
+  if (!isBusinessEligibleForOwnerNotifications(bizRow)) return false;
   if (bizRow.owner_whatsapp_opted_in !== true) return false;
   const ownerPhone = String(bizRow.owner_whatsapp_phone ?? "").trim();
   if (!ownerPhone) return false;
@@ -218,11 +222,13 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
     return { action: "starter_cap_message", message, markMonth: ymNow };
   }
 
+  const ownerNotificationsEligible = isBusinessEligibleForOwnerNotifications(bizRow);
+
   if (starter) {
     try {
       if (monthlyCount >= 80 && !bizRow.quota_warning_20_sent_at) {
         let sent = false;
-        if (bizEmail) {
+        if (ownerNotificationsEligible && bizEmail) {
           const tpl = starterQuota80Email(displayName, billingUrl);
           const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
           if (r.ok) {
@@ -235,7 +241,7 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
       }
       if (monthlyCount >= 95 && !bizRow.quota_warning_5_sent_at) {
         let sent = false;
-        if (bizEmail) {
+        if (ownerNotificationsEligible && bizEmail) {
           const tpl = starterQuota95Email(displayName, billingUrl);
           const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
           if (r.ok) {
@@ -248,7 +254,7 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
       }
       if (monthlyCount >= 100 && !bizRow.quota_limit_sent_at) {
         let sent = false;
-        if (bizEmail) {
+        if (ownerNotificationsEligible && bizEmail) {
           const tpl = starterQuota100Email(displayName, billingUrl);
           const r = await sendEmail({ to: bizEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
           if (r.ok) {

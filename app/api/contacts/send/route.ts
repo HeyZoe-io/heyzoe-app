@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
@@ -33,12 +34,15 @@ async function requireBusinessAccess(
 
   const { data: biz, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, user_id")
+    .select("id, slug, user_id, is_active")
     .eq("slug", slugNorm)
     .maybeSingle();
 
   if (bizErr) return { ok: false as const, error: "business_lookup_failed" as const };
   if (!biz?.id) return { ok: false as const, error: "business_not_found" as const };
+  if (!isBusinessSubscriptionActive(biz as { is_active?: boolean | null })) {
+    return { ok: false as const, error: "subscription_inactive" as const };
+  }
 
   if (isAdminAllowedEmail(String(userEmail ?? "").trim().toLowerCase())) {
     return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
@@ -115,7 +119,12 @@ export async function POST(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const access = await requireBusinessAccess(admin, user.id, businessSlug, user.email);
   if (!access.ok) {
-    const status = access.error === "forbidden" ? 403 : access.error === "business_not_found" ? 404 : 400;
+    const status =
+      access.error === "forbidden" || access.error === "subscription_inactive"
+        ? 403
+        : access.error === "business_not_found"
+          ? 404
+          : 400;
     return NextResponse.json({ error: access.error }, { status });
   }
 
