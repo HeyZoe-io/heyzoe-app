@@ -3,14 +3,13 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail } from "@/lib/email";
 import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
+import { resolveDailyNoResponseCronWindow } from "@/lib/israel-time";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET פעם ביום ב-08:00 ישראל + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BATCH = 5000;
-/** חלון 24 שעות אחורה (תואם לניסוח «ביממה האחרונה» במייל). */
-const NO_RESPONSE_EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type NoResponseLead = {
   id: string | number;
@@ -158,8 +157,13 @@ async function loadOwnerEmailsByUserId(
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  const cronWindow = resolveDailyNoResponseCronWindow(new Date());
+  if (cronWindow.skip) {
+    return NextResponse.json({ ok: true, skipped: true, reason: cronWindow.reason });
+  }
+  const sinceIso = cronWindow.sinceIso;
+
   const admin = createSupabaseAdminClient();
-  const sinceIso = new Date(Date.now() - NO_RESPONSE_EMAIL_WINDOW_MS).toISOString();
 
   const { data: channelRows, error: channelErr } = await admin
     .from("whatsapp_channels")

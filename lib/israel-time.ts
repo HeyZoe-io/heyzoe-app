@@ -155,6 +155,43 @@ export function resolveDailySummaryCronPeriod(referenceUtc: Date = new Date()): 
   };
 }
 
+export type DailyNoResponseCronWindow =
+  | { skip: true; reason: "shabbat" }
+  | { skip: false; sinceIso: string };
+
+/**
+ * חלון חיפוש למייל "ללא מענה" (cron 08:00 ישראל):
+ * - שבת  — מדלג
+ * - ראשון — מאז שישי 08:01 ישראל (אחרי שנשלח מייל שישי)
+ * - שני–שישי — 24 שעות אחורה
+ */
+export function resolveDailyNoResponseCronWindow(
+  referenceUtc: Date = new Date()
+): DailyNoResponseCronWindow {
+  const weekday = getIsraelWeekday(referenceUtc);
+
+  if (weekday === 6) {
+    return { skip: true, reason: "shabbat" };
+  }
+
+  if (weekday === 0) {
+    const { year, month, day } = getLocalPartsInTz(referenceUtc, IL_TZ);
+    // day-2 handles month/year roll-over correctly in Date.UTC
+    const approxFridayUtc = new Date(Date.UTC(year, month - 1, day - 2));
+    const fridayParts = getLocalPartsInTz(approxFridayUtc, IL_TZ);
+    const fridayAt801Utc = new Date(
+      getIsraelDayStartUtc(fridayParts.year, fridayParts.month, fridayParts.day).getTime() +
+        (8 * 60 + 1) * 60_000
+    );
+    return { skip: false, sinceIso: fridayAt801Utc.toISOString() };
+  }
+
+  return {
+    skip: false,
+    sinceIso: new Date(referenceUtc.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
 /** טווח אתמול בישראל [start, end) כ-ISO + תווית תאריך בעברית */
 export function getIsraelYesterdayRange(referenceUtc: Date = new Date()): {
   start: string;
