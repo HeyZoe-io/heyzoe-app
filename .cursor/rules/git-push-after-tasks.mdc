@@ -8,10 +8,27 @@ alwaysApply: true
 When you finish implementing or fixing something in this repository (`heyzoe-app`), unless the user explicitly asked **not** to push:
 
 1. Run `git status` and commit any meaningful changes with a clear message.
-2. Run `git push origin main` unless the user explicitly asked to push another branch.
+2. **Before push** — sync and verify (required; multiple agents may push to `main`):
+   - `git pull --rebase origin main`
+   - If rebase conflicts: resolve carefully — do **not** drop unrelated imports or lines outside the conflict hunks; re-read the full file after resolving.
+   - `npm run build` — **must pass** before pushing. Never push if build fails.
+3. Run `git push origin main` unless the user explicitly asked to push another branch.
 
 **Do not ask** whether to push — commit and push automatically when work is done.
 
 **Do not** push to `redesign` unless the user **explicitly** asked to update that branch.
 
 If there is nothing to commit, still run `git push origin main` when the user expects `main` to be up to date.
+
+## Why
+
+Another agent (e.g. Claude Code) may have pushed overlapping changes to `main`. Pushing without `pull --rebase` + `build` caused a broken Vercel deploy (missing import after conflict resolution in `daily-no-response-email/route.ts`, June 2026).
+
+## Before touching shared areas
+
+If working on cron, email templates, Shabbat/Sunday windows, or follow-ups — check what is already on `main`:
+
+```bash
+git log -5 --oneline
+git diff origin/main -- path/to/file
+```
