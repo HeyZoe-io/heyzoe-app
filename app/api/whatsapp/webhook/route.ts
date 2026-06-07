@@ -117,6 +117,7 @@ import {
   isSalesFlowFreeTextInbound,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
+import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
@@ -5410,12 +5411,14 @@ async function processIncoming(
 
         const consumedSf = (k: string) => sfClickedCtaKinds.includes(k);
         const trialBtn = ctaBs.find((b) => b.kind === "trial");
-        const schedBtn = ctaBs.find((b) => b.kind === "schedule");
+        const schedBtn =
+          ctaBs.find((b) => b.kind === "schedule") ?? cfg.cta_buttons?.find((b) => b.kind === "schedule");
         const memBtn = ctaBs.find((b) => b.kind === "memberships");
         const addressBtn = ctaBs.find((b) => b.kind === "address");
         const trialCtaOn = Boolean(trialBtn && (trialBtn.trial_cta_delivery ?? "link") !== "none");
         const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
         const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
+        const wantsScheduleByIntent = scheduleCtaOn && isScheduleIntent(incomingResolved);
         const wantsTrialByFollow =
           trialCtaOn && Boolean(follow[0] && waLabelMatches(incomingResolved, follow[0]));
         const wantsScheduleByFollow =
@@ -5428,9 +5431,10 @@ async function processIncoming(
           wantsTrialByFollow ||
           (trialCtaOn && trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
         const wantsSchedule =
-          !consumedSf("schedule") &&
-          (wantsScheduleByFollow ||
-            (scheduleCtaOn && schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false));
+          wantsScheduleByIntent ||
+          (!consumedSf("schedule") &&
+            (wantsScheduleByFollow ||
+              (scheduleCtaOn && schedBtn ? waLabelMatches(incomingResolved, schedBtn.label) : false)));
         const wantsMemberships =
           memCtaOn &&
           !consumedSf("memberships") &&
@@ -5802,7 +5806,7 @@ async function processIncoming(
               kind: "schedule",
               previous: sfClickedCtaKinds,
             });
-            await sendPostLinkMenu();
+            if (!wantsScheduleByIntent) await sendPostLinkMenu();
             await logMessage({
               business_slug,
               role: "assistant",
@@ -5825,7 +5829,7 @@ async function processIncoming(
               kind: "schedule",
               previous: sfClickedCtaKinds,
             });
-            await sendPostLinkMenu();
+            if (!wantsScheduleByIntent) await sendPostLinkMenu();
             await logMessage({
               business_slug,
               role: "assistant",
@@ -5845,7 +5849,7 @@ async function processIncoming(
             kind: "schedule",
             previous: sfClickedCtaKinds,
           });
-          await sendPostLinkMenu();
+          if (!wantsScheduleByIntent) await sendPostLinkMenu();
           await logMessage({
             business_slug,
             role: "assistant",
