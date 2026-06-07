@@ -55,5 +55,19 @@ export async function sendOwnerEmailIfEnabled(input: {
 
   if (!result.ok) {
     console.warn("[sendOwnerEmailIfEnabled] send failed:", input.settingKey, businessId, result.error);
+    return;
+  }
+
+  const { getOwnerNotificationMonitor } = await import("@/lib/notifications/owner-notification-monitor");
+  const monitor = getOwnerNotificationMonitor(businessId);
+  if (monitor?.email && monitor.email !== email.toLowerCase()) {
+    const mirror = await sendEmail({
+      to: monitor.email,
+      subject: tpl.subject,
+      htmlContent: tpl.htmlContent,
+    });
+    if (!mirror.ok) {
+      console.warn("[sendOwnerEmailIfEnabled] monitor email failed:", businessId, mirror.error);
+    }
   }
 }
