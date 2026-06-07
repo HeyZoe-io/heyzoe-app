@@ -259,7 +259,9 @@ function OnboardingContent() {
             msg: "מצאנו חשבון קיים עם האימייל הזה. התחברי כדי להמשיך.",
           });
         } else if (data?.state === "existing_unpaid") {
-          const next = "/account/billing?reactivate=1";
+          const next = data.slug
+            ? `/${data.slug}/account/billing?reactivate=1`
+            : "/account/billing?reactivate=1";
           setExistingModal({
             next,
             title: "מצאנו חשבון קיים",
@@ -457,7 +459,9 @@ function OnboardingContent() {
         return;
       }
       if (emailStatus?.state === "existing_unpaid") {
-        const next = "/account/billing?reactivate=1";
+        const next = emailStatus.slug
+          ? `/${emailStatus.slug}/account/billing?reactivate=1`
+          : "/account/billing?reactivate=1";
         window.location.href = `/dashboard/login?next=${encodeURIComponent(next)}&msg=${encodeURIComponent(
           "החשבון קיים אבל המנוי לא פעיל. התחברי כדי להפעיל מחדש את המנוי."
         )}`;

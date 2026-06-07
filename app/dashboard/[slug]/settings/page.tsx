@@ -2821,7 +2821,7 @@ export default function SlugSettingsPage({
               </div>
               <div className="mt-6 flex justify-start gap-2">
                 <NextLink
-                  href="/account/billing"
+                  href={`/${encodeURIComponent(String(slug ?? "").trim().toLowerCase())}/account/billing`}
                   onClick={() => setShowStarterMediaProModal(false)}
                   className="inline-flex h-10 items-center justify-center rounded-xl bg-[#7133da] px-5 text-sm font-medium text-white hover:bg-[#5f2bc7]"
                 >
