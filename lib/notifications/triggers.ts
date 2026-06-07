@@ -29,6 +29,10 @@ import {
   buildSinglePhoneWaParams,
 } from "@/lib/notifications/owner-template-params";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
+import {
+  getOwnerNotificationMonitor,
+  monitorWhatsappDiffersFromOwner,
+} from "@/lib/notifications/owner-notification-monitor";
 import { resolveWarmupSummaryForLeadRegistered } from "@/lib/notifications/warmup-summary";
 
 function formatTimeHe(iso: string): string {
@@ -45,6 +49,33 @@ function formatTimeHe(iso: string): string {
   }
 }
 
+async function sendOwnerWaMirrored(input: {
+  businessId: number;
+  ownerPhone: string;
+  templateName: string;
+  components: OwnerTemplateComponent[];
+}): Promise<{ ok: boolean; error?: string }> {
+  const result = await sendOwnerNotification({
+    ownerPhone: input.ownerPhone,
+    templateName: input.templateName,
+    components: input.components,
+  });
+  if (!result.ok) return result;
+
+  const monitor = getOwnerNotificationMonitor(input.businessId);
+  if (monitor?.whatsapp && monitorWhatsappDiffersFromOwner(monitor, input.ownerPhone)) {
+    const mirror = await sendOwnerNotification({
+      ownerPhone: monitor.whatsapp,
+      templateName: input.templateName,
+      components: input.components,
+    });
+    if (!mirror.ok) {
+      console.warn("[notifications] monitor WA failed:", input.templateName, mirror.error);
+    }
+  }
+  return result;
+}
+
 async function sendIfEnabled(input: {
   businessId: number;
   key: Parameters<typeof gateOwnerNotification>[1];
@@ -59,7 +90,8 @@ async function sendIfEnabled(input: {
     return;
   }
 
-  const result = await sendOwnerNotification({
+  const result = await sendOwnerWaMirrored({
+    businessId: input.businessId,
     ownerPhone: gate.ownerPhone,
     templateName: input.templateName,
     components: input.components,
@@ -99,14 +131,16 @@ export async function triggerNewLeadNotification(input: {
     leadPhone: input.leadPhone,
     templateName,
   });
-  const result = await sendOwnerNotification({
+  const components = buildNewLeadNotificationWaParams({
+    businessName: input.businessName,
+    leadPhoneDisplay: formatLeadPhoneDisplay(input.leadPhone),
+    atHe: formatTimeHe(input.atIso ?? new Date().toISOString()),
+  });
+  const result = await sendOwnerWaMirrored({
+    businessId: input.businessId,
     ownerPhone: gate.ownerPhone,
     templateName,
-    components: buildNewLeadNotificationWaParams({
-      businessName: input.businessName,
-      leadPhoneDisplay: formatLeadPhoneDisplay(input.leadPhone),
-      atHe: formatTimeHe(input.atIso ?? new Date().toISOString()),
-    }),
+    components,
   });
   if (result.ok) {
     console.info("[new_lead_notification] send ok", {
@@ -236,7 +270,8 @@ export async function triggerBotPausedWaitingNotification(input: {
   const gate = await gateOwnerNotification(input.businessId, "bot_paused_waiting");
   if (!gate.allowed || !gate.ownerPhone) return;
 
-  const result = await sendOwnerNotification({
+  const result = await sendOwnerWaMirrored({
+    businessId: input.businessId,
     ownerPhone: gate.ownerPhone,
     templateName: "bot_paused_waiting",
     components: buildSinglePhoneWaParams(formatLeadPhoneDisplay(input.leadPhone)),
@@ -259,7 +294,8 @@ export async function triggerCtaNoSignupNotification(input: {
   const gate = await gateOwnerNotification(input.businessId, "cta_no_signup");
   if (!gate.allowed || !gate.ownerPhone) return;
 
-  const result = await sendOwnerNotification({
+  const result = await sendOwnerWaMirrored({
+    businessId: input.businessId,
     ownerPhone: gate.ownerPhone,
     templateName: "lead_cta_no_signup",
     components: buildSinglePhoneWaParams(formatLeadPhoneDisplay(input.leadPhone)),
