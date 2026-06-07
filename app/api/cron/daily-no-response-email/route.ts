@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail } from "@/lib/email";
-import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
-import { resolveDailyNoResponseCronWindow } from "@/lib/israel-time";
+import { resolveDailyNoResponseCronWindow, getIsraelWeekday } from "@/lib/israel-time";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET פעם ביום ב-08:00 ישראל + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -94,11 +93,11 @@ function buildEmailHtml(input: {
   ].join("");
 }
 
-function buildAllClearEmailHtml(input: { businessName: string }): string {
+function buildAllClearEmailHtml(input: { businessName: string; windowHours: 24 | 48 }): string {
   return [
     `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7;text-align:right;color:#18181b">`,
     `<p>היי ${esc(input.businessName)},</p>`,
-    `<p>רק רצינו לעדכן שאין לידים שממתינים לשיחה מ-24 השעות האחרונות.</p>`,
+    `<p>רק רצינו לעדכן שאין לידים שממתינים לשיחה מ-${input.windowHours} השעות האחרונות.</p>`,
     `<p>זואי דיברה עם מי שצריך, שלחה פולואפים, ואין כרגע מה לטפל בו.</p>`,
     `<p>המשיכו כך 💜 צוות HeyZoe</p>`,
     `</div>`,
@@ -162,6 +161,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true, reason: cronWindow.reason });
   }
   const sinceIso = cronWindow.sinceIso;
+  const windowHours = getIsraelWeekday() === 0 ? 48 : 24;
 
   const admin = createSupabaseAdminClient();
 
@@ -268,7 +268,7 @@ export async function GET(req: NextRequest) {
       : await sendEmail({
           to: email,
           subject: "כל הלידים מטופלים - אין צורך בפעולה ✅",
-          htmlContent: buildAllClearEmailHtml({ businessName }),
+          htmlContent: buildAllClearEmailHtml({ businessName, windowHours }),
         });
 
     if (!result.ok) {

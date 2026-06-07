@@ -11,7 +11,7 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
-import { resolveWaFollowupRegistrationCta } from "@/lib/wa-followup-registration-cta";
+import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
 import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
@@ -323,7 +323,7 @@ export async function GET(req: NextRequest) {
   const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
 
   const followupSelect =
-    "id, phone, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered";
+    "id, phone, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase";
 
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
@@ -597,12 +597,14 @@ export async function GET(req: NextRequest) {
             ? fillTemplate(t2, vars)
             : fillTemplate(t3, vars);
       const bodyCore = raw.trim();
-      const cta = await resolveWaFollowupRegistrationCta({
+      const sessionPhase = String((c as { session_phase?: string | null }).session_phase ?? "").trim();
+      const cta = await resolveWaFollowupCta({
         admin,
         businessId: Number(businessId),
         business_slug,
         session_ids: sessionIds,
         social_links: (biz as { social_links?: unknown }).social_links,
+        session_phase: sessionPhase || null,
       });
 
       await sendWhatsAppIdleFollowupMessage(
@@ -610,13 +612,14 @@ export async function GET(req: NextRequest) {
         phone,
         bodyCore,
         FOLLOWUP_FOOTER,
-        cta ? { label: cta.label, url: cta.url } : null,
+        cta,
         accountSid,
         authToken
       );
 
       let logContent = `${bodyCore}${FOLLOWUP_FOOTER}`;
-      if (cta) logContent += `\n\n[כפתור: ${cta.label} → ${cta.url}]`;
+      if (cta?.mode === "url") logContent += `\n\n[כפתור: ${cta.label} → ${cta.url}]`;
+      else if (cta?.mode === "reply") logContent += `\n\n[כפתור תשובה: ${cta.label}]`;
 
       await logMessage({
         business_slug,
