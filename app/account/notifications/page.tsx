@@ -147,7 +147,15 @@ export default function AccountNotificationsPage() {
       if (typeof data.effective_email === "string") {
         setEffectiveNotificationEmail(data.effective_email);
       }
-      setToast("ההגדרות נשמרו בהצלחה");
+      const savedEmail =
+        typeof data.owner_notification_email === "string"
+          ? data.owner_notification_email.trim()
+          : notificationEmail.trim();
+      setToast(
+        savedEmail
+          ? `ההגדרות נשמרו — מייל התראות: ${savedEmail}`
+          : "ההגדרות נשמרו בהצלחה"
+      );
     } finally {
       setSaving(false);
     }
@@ -205,9 +213,6 @@ export default function AccountNotificationsPage() {
       <Card>
         <CardHeader className="text-right">
           <CardTitle>מייל להתראות</CardTitle>
-          <CardDescription>
-            מיילים על ליד שנרשם, בקשת נציג וסיכום יומי — לא תלוי במייל ההתחברות לחשבון
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-right">
           <label className="block space-y-1.5">
@@ -223,27 +228,20 @@ export default function AccountNotificationsPage() {
               }
               value={notificationEmail}
               onChange={(e) => setNotificationEmail(e.target.value)}
-              disabled={loading}
+              disabled={saving}
               autoComplete="email"
             />
           </label>
-          {notificationEmail.trim() ? (
-            <p className="text-xs text-zinc-500">
-              שליחה לכתובת שמעל. ריקון השדה ושמירה → חזרה למייל מההרשמה לעסק
-              {businessEmailFallback ? ` (${businessEmailFallback})` : ""}.
-            </p>
-          ) : effectiveNotificationEmail ? (
+          {!notificationEmail.trim() && effectiveNotificationEmail ? (
             <p className="text-xs text-emerald-800">
               כרגע נשלח ל: <span dir="ltr">{effectiveNotificationEmail}</span>
-              {businessEmailFallback && !notificationEmail.trim()
-                ? " (מייל מההרשמה לעסק)"
-                : ""}
+              {businessEmailFallback ? " (מייל מההרשמה לעסק)" : ""}
             </p>
-          ) : (
+          ) : !notificationEmail.trim() ? (
             <p className="text-xs text-amber-800">
               לא הוגדר מייל — הפעילו מייל בהתראות רק אחרי מילוי כתובת (או מייל בהרשמת העסק).
             </p>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
