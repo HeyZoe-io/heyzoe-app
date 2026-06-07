@@ -12,7 +12,7 @@ export type OwnerNotificationMonitor = {
 const MONITORS_BY_BUSINESS_ID: Record<number, OwnerNotificationMonitor> = {
   974: {
     email: (process.env.OWNER_NOTIFICATION_MONITOR_EMAIL ?? "liornativ@hotmail.com").trim().toLowerCase(),
-    whatsapp: normalizePhone(process.env.OWNER_NOTIFICATION_MONITOR_WHATSAPP ?? "972549400776"),
+    whatsapp: normalizePhone(process.env.OWNER_NOTIFICATION_MONITOR_WHATSAPP ?? "0508318162"),
   },
 };
 
