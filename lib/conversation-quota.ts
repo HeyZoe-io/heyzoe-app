@@ -24,8 +24,11 @@ export function planIsPremium(plan: unknown): boolean {
   return p === "premium" || p === "pro";
 }
 
-function resolveBillingUrl(siteBase: string): string {
-  return `${siteBase.replace(/\/$/, "")}/account/billing`;
+function resolveBillingUrl(siteBase: string, slug: string): string {
+  const cleanSlug = String(slug ?? "").trim().toLowerCase();
+  const base = siteBase.replace(/\/$/, "");
+  if (!cleanSlug) return `${base}/account/billing`;
+  return `${base}/${encodeURIComponent(cleanSlug)}/account/billing`;
 }
 
 function extractCustomerServicePhone(socialLinks: unknown): string {
@@ -180,7 +183,8 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
   }
 
   const siteBase = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://heyzoe.io";
-  const billingUrl = resolveBillingUrl(siteBase);
+  const billingSlug = String(bizRow.slug ?? businessSlug ?? "").trim().toLowerCase();
+  const billingUrl = resolveBillingUrl(siteBase, billingSlug);
   const businessName = String(bizRow.name ?? "").trim();
   const displayName = businessName || businessSlug || "שם";
   const bizEmail = String(bizRow.email ?? "").trim().toLowerCase();

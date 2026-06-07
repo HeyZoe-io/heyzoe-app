@@ -71,7 +71,7 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
               className="h-8 w-auto"
             />
           </Link>
-          <UserMenu />
+          <UserMenu slug={slug} />
           {metaStatus === "PENDING" ? (
             <Link
               href={`${base}/settings?step=1`}

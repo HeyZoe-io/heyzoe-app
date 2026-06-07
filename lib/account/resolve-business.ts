@@ -66,3 +66,53 @@ export async function resolveAccountBusinessForUser(userId: string): Promise<Acc
   if (!membership?.business_id) return null;
   return loadBiz(Number(membership.business_id));
 }
+
+/** עסק לפי slug — רק אם המשתמש בעלים או חבר business_users */
+export async function resolveAccountBusinessForUserBySlug(
+  userId: string,
+  slug: string
+): Promise<AccountBusinessContext | null> {
+  const normSlug = String(slug ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normSlug) return null;
+
+  const admin = createSupabaseAdminClient();
+  const { data: biz } = await admin
+    .from("businesses")
+    .select("id, slug, owner_whatsapp_opted_in, owner_whatsapp_phone, user_id")
+    .eq("slug", normSlug)
+    .maybeSingle();
+
+  if (!biz?.id) return null;
+  const businessId = Number(biz.id);
+  if (!Number.isFinite(businessId)) return null;
+
+  const ownerId = String(biz.user_id ?? "").trim();
+  if (ownerId && ownerId === userId) {
+    const phone = String(biz.owner_whatsapp_phone ?? "").trim();
+    return {
+      businessId,
+      slug: String(biz.slug ?? "").trim(),
+      ownerWhatsappOptedIn: biz.owner_whatsapp_opted_in === true,
+      ownerWhatsappPhone: phone || null,
+    };
+  }
+
+  const { data: membership } = await admin
+    .from("business_users")
+    .select("business_id")
+    .eq("user_id", userId)
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  if (!membership?.business_id) return null;
+
+  const phone = String(biz.owner_whatsapp_phone ?? "").trim();
+  return {
+    businessId,
+    slug: String(biz.slug ?? "").trim(),
+    ownerWhatsappOptedIn: biz.owner_whatsapp_opted_in === true,
+    ownerWhatsappPhone: phone || null,
+  };
+}

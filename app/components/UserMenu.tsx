@@ -19,9 +19,10 @@ function initialsFromNameOrEmail(fullName: string, email: string): string {
   return (e[0] ?? "U").toUpperCase();
 }
 
-export default function UserMenu() {
+export default function UserMenu({ slug }: { slug: string }) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const accountBase = `/${encodeURIComponent(String(slug ?? "").trim().toLowerCase())}/account`;
 
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -127,7 +128,7 @@ export default function UserMenu() {
               <div className="py-1">
                 <Link
                   role="menuitem"
-                  href="/account/settings"
+                  href={`${accountBase}/settings`}
                   prefetch={true}
                   onClick={() => setOpen(false)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
@@ -136,7 +137,7 @@ export default function UserMenu() {
                 </Link>
                 <Link
                   role="menuitem"
-                  href="/account/billing"
+                  href={`${accountBase}/billing`}
                   prefetch={true}
                   onClick={() => setOpen(false)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
@@ -145,7 +146,7 @@ export default function UserMenu() {
                 </Link>
                 <Link
                   role="menuitem"
-                  href="/account/notifications"
+                  href={`${accountBase}/notifications`}
                   prefetch={true}
                   onClick={() => setOpen(false)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
@@ -154,7 +155,7 @@ export default function UserMenu() {
                 </Link>
                 <Link
                   role="menuitem"
-                  href="/account/users"
+                  href={`${accountBase}/users`}
                   prefetch={true}
                   onClick={() => setOpen(false)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
@@ -163,7 +164,7 @@ export default function UserMenu() {
                 </Link>
                 <Link
                   role="menuitem"
-                  href="/account/contact"
+                  href={`${accountBase}/contact`}
                   prefetch={true}
                   onClick={() => setOpen(false)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
