@@ -608,23 +608,50 @@ export function buildMetaCtaUrlOutgoing(
   };
 }
 
+export type WaIdleFollowupCta =
+  | { mode: "url"; label: string; url: string }
+  | { mode: "reply"; label: string };
+
 /**
- * פולואפ אוטומטי: אם Meta Cloud + יש קישור — שולח cta_url; אחרת טקסט (עם קישור בשורה אם צריך).
+ * פולואפ אוטומטי: Meta Cloud — cta_url / reply button; אחרת טקסט (עם קישור או הנחיה).
  */
 export async function sendWhatsAppIdleFollowupMessage(
   fromNumber: string,
   to: string,
   bodyText: string,
   footerText: string,
-  cta: { label: string; url: string } | null,
+  cta: WaIdleFollowupCta | { label: string; url: string } | null,
   accountSid: string,
   authToken: string
 ): Promise<void> {
   const foot = footerText.trim();
-  const ctaUrl = cta?.url?.trim() ?? "";
-  const ctaLabel = cta?.label?.trim() || "לחצו כאן";
-
   const footClean = foot.replace(/^\s+/, "").trim();
+  const normalized: WaIdleFollowupCta | null =
+    cta == null
+      ? null
+      : "mode" in cta
+        ? cta
+        : { mode: "url", label: cta.label, url: cta.url };
+
+  if (
+    normalized?.mode === "reply" &&
+    isMetaCloudPhoneNumberId(fromNumber) &&
+    resolveMetaAccessToken()
+  ) {
+    const replyLabel = normalized.label.trim() || "אשמח לפרטים";
+    const interactive = buildMetaInteractivePayload(bodyText.trim(), [replyLabel], footClean || undefined);
+    if (interactive) {
+      try {
+        await sendMetaWhatsAppMessage(fromNumber, to, interactive);
+        return;
+      } catch (e) {
+        console.warn("[WhatsApp idle followup] reply button send failed, falling back to plain text:", e);
+      }
+    }
+  }
+
+  const ctaUrl = normalized?.mode === "url" ? normalized.url.trim() : "";
+  const ctaLabel = normalized?.label.trim() || "לחצו כאן";
 
   if (
     ctaUrl &&
@@ -650,8 +677,10 @@ export async function sendWhatsAppIdleFollowupMessage(
   }
 
   let text = bodyText.trim();
-  if (ctaUrl) {
+  if (normalized?.mode === "url" && ctaUrl) {
     text = `${text}\n\n${ctaLabel}: ${ctaUrl}`;
+  } else if (normalized?.mode === "reply") {
+    text = `${text}\n\n${normalized.label.trim() || "אשמח לפרטים"}`;
   }
   if (foot) text = `${text}${foot}`;
   await sendWhatsAppMessage(fromNumber, to, text, accountSid, authToken);
