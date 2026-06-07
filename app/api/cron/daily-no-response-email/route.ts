@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail } from "@/lib/email";
+import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
 import { resolveDailyNoResponseCronWindow, getIsraelWeekday } from "@/lib/israel-time";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET פעם ביום ב-08:00 ישראל + Authorization: Bearer CRON_SECRET */
