@@ -1,5 +1,10 @@
 import { submitPlanDoLeadEvent } from "@/lib/crm/adapters/plan-do";
-import { buildCrmEventNote, normalizeCrmType, type CrmEventKind } from "@/lib/crm/types";
+import {
+  buildCrmEventNote,
+  normalizeCrmType,
+  type CrmEventKind,
+  type CrmTrialRegistrationContext,
+} from "@/lib/crm/types";
 import { formatDateDdMmYyyy } from "@/lib/email";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -59,6 +64,7 @@ export async function dispatchCrmEvent(input: {
   kind: CrmEventKind;
   fullName?: string | null;
   eventAtIso?: string;
+  registration?: CrmTrialRegistrationContext | null;
 }): Promise<void> {
   const businessId = Number(input.businessId);
   const leadPhone = String(input.leadPhone ?? "").trim();
@@ -82,7 +88,11 @@ export async function dispatchCrmEvent(input: {
     if (!crmType || !apiKey) return;
 
     const eventAtIso = String(input.eventAtIso ?? new Date().toISOString()).trim();
-    const noteText = buildCrmEventNote(input.kind, formatEventDateIl(eventAtIso));
+    const noteText = buildCrmEventNote(
+      input.kind,
+      formatEventDateIl(eventAtIso),
+      input.kind === "trial_registered" ? input.registration : undefined
+    );
     const fullName = await resolveLeadFullName({
       businessId,
       leadPhone,
