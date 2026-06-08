@@ -97,6 +97,7 @@ import {
   buildWarmupExperienceMenu,
   isWarmupExperienceQuestionPending,
   stripPendingWarmupMenuFromAnswer,
+  wasWarmupExperienceQuestionSentSinceReset,
   WA_WARMUP_EXPERIENCE_SENT_MODEL,
 } from "@/lib/wa-warmup-pending";
 import {
@@ -1184,6 +1185,11 @@ function scheduleBoardAssetsFromKnowledge(knowledge: BusinessKnowledgePack, bloc
   });
 }
 
+type ScheduleBoardDelivery = "image" | "link" | "none";
+
+/** המתנה אחרי תמונת מערכת שעות — WA לעיתים מציג טקסט לפני שהמדיה מוכנה. */
+const SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS = 2200;
+
 /** סשן מערכת שעות — נשלח אוטומטית אחרי הפתיחה (תמונה או קישור), לפני בחירת מוצר / המשך הפלואו. */
 async function sendScheduleBoardAfterOpening(input: {
   assets: ScheduleBoardAssets;
@@ -1193,31 +1199,33 @@ async function sendScheduleBoardAfterOpening(input: {
   business_slug: string;
   sessionId: string;
   modelUsed?: string;
-}): Promise<boolean> {
+}): Promise<ScheduleBoardDelivery> {
   const { assets, msg, accountSid, authToken, business_slug, sessionId } = input;
   const modelUsed = input.modelUsed ?? "sales_flow_schedule_board_after_opening";
   if (assets.canSendScheduleImage && assets.scheduleImgUrl) {
-    await sendWhatsAppMediaMessage(
-      msg.toNumber,
-      msg.from,
-      assets.scheduleImgUrl,
-      accountSid,
-      authToken,
-      SCHEDULE_BOARD_CAPTION,
-      "image"
-    )
-      .then(async () => {
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: `[media] ${assets.scheduleImgUrl}\n\n${SCHEDULE_BOARD_CAPTION}`,
-          model_used: modelUsed,
-          session_id: sessionId,
-        });
-        await sleepMs(900);
-      })
-      .catch((e) => console.error("[WA Webhook] Send schedule board after opening failed:", e));
-    return true;
+    try {
+      await sendWhatsAppMediaMessage(
+        msg.toNumber,
+        msg.from,
+        assets.scheduleImgUrl,
+        accountSid,
+        authToken,
+        SCHEDULE_BOARD_CAPTION,
+        "image"
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: `[media] ${assets.scheduleImgUrl}\n\n${SCHEDULE_BOARD_CAPTION}`,
+        model_used: modelUsed,
+        session_id: sessionId,
+      });
+      await sleepMs(900);
+      return "image";
+    } catch (e) {
+      console.error("[WA Webhook] Send schedule board after opening failed:", e);
+      return "none";
+    }
   }
   const link = assets.link.trim();
   if (link) {
@@ -1233,15 +1241,16 @@ async function sendScheduleBoardAfterOpening(input: {
       session_id: sessionId,
     });
     await sleepMs(450);
-    return true;
+    return "link";
   }
-  return false;
+  return "none";
 }
 
 const SCHEDULE_BOARD_SENT_MODELS = new Set([
   "sales_flow_schedule_board_after_opening",
   "sales_flow_schedule_board_after_opening_single",
   "sales_flow_schedule_board_after_opening_multi",
+  "sales_flow_schedule_board_before_service_pick",
 ]);
 
 async function ensureScheduleBoardSentOnce(input: {
@@ -1253,7 +1262,7 @@ async function ensureScheduleBoardSentOnce(input: {
   business_slug: string;
   sessionId: string;
   modelUsed?: string;
-}): Promise<void> {
+}): Promise<ScheduleBoardDelivery> {
   const { supabase, business_slug, sessionId } = input;
   try {
     const { data: markers } = await supabase
@@ -1276,12 +1285,12 @@ async function ensureScheduleBoardSentOnce(input: {
       (markers ?? []).find((m: any) => SCHEDULE_BOARD_SENT_MODELS.has(String(m?.model_used ?? "")))?.created_at ??
       null;
     const alreadySent = Boolean(lastScheduleAt && (!lastResetAt || String(lastScheduleAt) > String(lastResetAt)));
-    if (alreadySent) return;
+    if (alreadySent) return "none";
   } catch (e) {
     console.warn("[WA Webhook] schedule board marker check failed (continuing):", e);
   }
 
-  await sendScheduleBoardAfterOpening({
+  return sendScheduleBoardAfterOpening({
     assets: input.assets,
     msg: input.msg,
     accountSid: input.accountSid,
@@ -1366,7 +1375,7 @@ async function advanceAfterWarmupSessionComplete(input: {
   } = input;
 
   try {
-    await ensureScheduleBoardSentOnce({
+    const scheduleBoardDelivery = await ensureScheduleBoardSentOnce({
       supabase,
       assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia ?? false),
       msg,
@@ -1381,6 +1390,9 @@ async function advanceAfterWarmupSessionComplete(input: {
     });
 
     if (salesFlowServices.length > 1) {
+      if (scheduleBoardDelivery === "image") {
+        await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+      }
       await sendOpeningServicePickMenu({
         knowledge,
         salesFlowServices,
@@ -1849,7 +1861,7 @@ async function sendOpeningServicePickMenu(input: {
   const qRaw = String(cfg.multi_service_question ?? "").trim() || buildDefaultMultiServiceQuestion();
   const assets = scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockMedia ?? false);
   if (!input.skipScheduleBoard) {
-    await sendScheduleBoardAfterOpening({
+    const scheduleBoardDelivery = await sendScheduleBoardAfterOpening({
       assets,
       msg: input.msg,
       accountSid: input.accountSid,
@@ -1858,6 +1870,9 @@ async function sendOpeningServicePickMenu(input: {
       sessionId: input.sessionId,
       modelUsed: "sales_flow_schedule_board_before_service_pick",
     });
+    if (scheduleBoardDelivery === "image") {
+      await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+    }
   }
   const split = splitMultiServiceQuestionForWhatsApp(qRaw, assets);
   const body =
@@ -3028,6 +3043,12 @@ async function isWarmupFlowCompleteForRecovery(input: {
       session_id: input.sessionId,
     });
     if (pending) return false;
+    const sent = await wasWarmupExperienceQuestionSentSinceReset({
+      admin: input.supabase,
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+    });
+    if (!sent) return false;
   }
 
   if (cleanWarm.length === 0) return true;
