@@ -3708,7 +3708,8 @@ async function processIncoming(
       const resolvedId = (biz as { id?: string | number | null }).id;
       businessId = resolvedId != null ? String(resolvedId) : null;
     }
-    if ((biz as { is_active?: boolean }).is_active !== true) {
+    const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
+    if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean })) {
       const inactiveReply = buildInactiveBusinessAutoReply(
         customerServicePhoneFromSocialLinks((biz as { social_links?: unknown }).social_links)
       );
