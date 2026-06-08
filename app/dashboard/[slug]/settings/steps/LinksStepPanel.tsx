@@ -48,6 +48,8 @@ export type LinksStepPanelProps = {
   setCrmType: (v: CrmType) => void;
   crmApiKey: string;
   setCrmApiKey: (v: string) => void;
+  crmBoxId: string;
+  setCrmBoxId: (v: string) => void;
 };
 
 export function LinksStepPanel(props: LinksStepPanelProps) {
@@ -77,6 +79,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setCrmType,
     crmApiKey,
     setCrmApiKey,
+    crmBoxId,
+    setCrmBoxId,
   } = props;
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
@@ -90,10 +94,14 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     () => ({
       website: Boolean(websiteUrl.trim()),
       booking: Boolean(arboxLink.trim() || membershipsUrl.trim()),
-      crm: Boolean(crmType && crmApiKey.trim()),
+      crm: Boolean(
+        crmType &&
+          crmApiKey.trim() &&
+          (crmType !== "arbox" || crmBoxId.trim())
+      ),
       social: Boolean(instagramUrl.trim()),
     }),
-    [websiteUrl, arboxLink, membershipsUrl, crmType, crmApiKey, instagramUrl]
+    [websiteUrl, arboxLink, membershipsUrl, crmType, crmApiKey, crmBoxId, instagramUrl]
   );
 
   return (
@@ -297,18 +305,37 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
           </select>
         </div>
         {crmType ? (
-          <div>
-            <SalesPathFieldLabel>מפתח API</SalesPathFieldLabel>
-            <Input
-              dir="ltr"
-              type="password"
-              autoComplete="off"
-              value={crmApiKey}
-              onChange={(e) => setCrmApiKey(e.target.value)}
-              placeholder="הדביקו כאן את מפתח ה-API"
-              className={cnInputLtr()}
-            />
-            <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
+          <div className="space-y-4">
+            <div>
+              <SalesPathFieldLabel>מפתח API</SalesPathFieldLabel>
+              <Input
+                dir="ltr"
+                type="password"
+                autoComplete="off"
+                value={crmApiKey}
+                onChange={(e) => setCrmApiKey(e.target.value)}
+                placeholder="הדביקו כאן את מפתח ה-API"
+                className={cnInputLtr()}
+              />
+            </div>
+            {crmType === "arbox" ? (
+              <div>
+                <SalesPathFieldLabel>Client ID</SalesPathFieldLabel>
+                <Input
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={crmBoxId}
+                  onChange={(e) => setCrmBoxId(e.target.value)}
+                  placeholder="9238"
+                  className={cnInputLtr()}
+                />
+                <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
+                  מזהה הסניף מ-Arbox (מופיע בהגדרות המערכת). נשלח כ-X-Box-Id.
+                </p>
+              </div>
+            ) : null}
+            <p className="text-[11px] leading-snug text-zinc-500">
               המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.
             </p>
           </div>
