@@ -17,9 +17,23 @@ export type CrmDispatchInput = {
 };
 
 /**
- * כל אדפטר CRM:
+ * אדפטר upsert (Plan Do): POST אחד — השרת מחפש לפי טלפון, יוצר ליד או מוסיף הערה.
+ * @see lib/crm/adapters/plan-do.ts
+ */
+export interface CrmUpsertLeadAdapter {
+  pushLeadEvent(input: {
+    apiKey: string;
+    phone: string;
+    fullName?: string | null;
+    noteText: string;
+    kind: CrmEventKind;
+  }): Promise<void>;
+}
+
+/**
+ * אדפטר דו-שלבי (Arbox וכו'):
  * 1) חיפוש לפי טלפון
- * 2) אם לא נמצא — יצירת ליד חדש (שם + טלפון) — endpoint יוגדר לפי דוקומנטציה
+ * 2) אם לא נמצא — יצירת ליד חדש (שם + טלפון)
  * 3) הוספת הערה / משימה / פעילות על הלקוח
  */
 export interface CrmAdapter {
