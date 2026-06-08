@@ -992,6 +992,7 @@ function normalizeTraitsState(arr: string[]): string[] {
 import { AboutBusinessStepPanel } from "./steps/AboutBusinessStepPanel";
 import { FollowupStepPanel } from "./steps/FollowupStepPanel";
 import { LinksStepPanel } from "./steps/LinksStepPanel";
+import { normalizeCrmType, type CrmType } from "@/lib/crm/types";
 
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
@@ -1116,6 +1117,8 @@ export default function SlugSettingsPage({
   const [promotions, setPromotions] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
+  const [crmType, setCrmType] = useState<CrmType>("");
+  const [crmApiKey, setCrmApiKey] = useState("");
   const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
   const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
   const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
@@ -1573,6 +1576,8 @@ export default function SlugSettingsPage({
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
+        setCrmType(normalizeCrmType((business as { crm_type?: unknown }).crm_type));
+        setCrmApiKey(String((business as { crm_api_key?: unknown }).crm_api_key ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -1683,6 +1688,8 @@ export default function SlugSettingsPage({
         conversions_api_token: conversionsApiToken,
         schedule_direct_registration: scheduleDirectRegistration,
         warmup_session_enabled: warmupSessionEnabled,
+        crm_type: crmType,
+        crm_api_key: crmApiKey.trim(),
         social_links: {
           website_url: websiteUrl,
           instagram: instagramUrl.trim(),
@@ -1766,6 +1773,8 @@ export default function SlugSettingsPage({
       segQuestions,
       quickReplies,
       arboxLink,
+      crmType,
+      crmApiKey,
       scheduleDirectRegistration,
       warmupSessionEnabled,
       objections,
@@ -2614,6 +2623,10 @@ export default function SlugSettingsPage({
               instagramUrl={instagramUrl}
               setInstagramUrl={setInstagramUrl}
               instagramIcon={<InstagramGlyph className="h-5 w-5" />}
+              crmType={crmType}
+              setCrmType={setCrmType}
+              crmApiKey={crmApiKey}
+              setCrmApiKey={setCrmApiKey}
             />
           </StepPanel>
         )}

@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CRM_TYPE_OPTIONS, type CrmType } from "@/lib/crm/types";
 import {
   SALES_PATH_INPUT,
   SalesPathFieldLabel,
@@ -12,11 +13,12 @@ import {
   useSalesPathSections,
 } from "./sales-path-shell";
 
-type SectionId = "website" | "booking" | "social";
+type SectionId = "website" | "booking" | "crm" | "social";
 
 const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
   { id: "website", label: "אתר", hint: "סריקה אוטומטית" },
   { id: "booking", label: "קישורים", hint: "שעות ומנויים" },
+  { id: "crm", label: "CRM", hint: "חיבור API" },
   { id: "social", label: "רשתות", hint: "אינסטגרם" },
 ];
 
@@ -42,6 +44,10 @@ export type LinksStepPanelProps = {
   instagramUrl: string;
   setInstagramUrl: (v: string) => void;
   instagramIcon: React.ReactNode;
+  crmType: CrmType;
+  setCrmType: (v: CrmType) => void;
+  crmApiKey: string;
+  setCrmApiKey: (v: string) => void;
 };
 
 export function LinksStepPanel(props: LinksStepPanelProps) {
@@ -67,10 +73,14 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     instagramUrl,
     setInstagramUrl,
     instagramIcon,
+    crmType,
+    setCrmType,
+    crmApiKey,
+    setCrmApiKey,
   } = props;
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
-    useSalesPathSections<SectionId>(SECTIONS, { website: true, booking: false, social: false });
+    useSalesPathSections<SectionId>(SECTIONS, { website: true, booking: false, crm: false, social: false });
 
   useEffect(() => {
     setStepPrefix("links");
@@ -80,9 +90,10 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     () => ({
       website: Boolean(websiteUrl.trim()),
       booking: Boolean(arboxLink.trim() || membershipsUrl.trim()),
+      crm: Boolean(crmType && crmApiKey.trim()),
       social: Boolean(instagramUrl.trim()),
     }),
-    [websiteUrl, arboxLink, membershipsUrl, instagramUrl]
+    [websiteUrl, arboxLink, membershipsUrl, crmType, crmApiKey, instagramUrl]
   );
 
   return (
@@ -255,6 +266,53 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             placeholder="https://..."
             className={SALES_PATH_INPUT}
           />
+        </div>
+      </SalesPathSectionBlock>
+
+      <SalesPathSectionBlock
+        stepPrefix="links"
+        id="crm"
+        title="חיבור CRM"
+        hint="זואי תעדכן אוטומטית את התוכנה כשליד נרשם, מבקש נציג או לא עונה"
+        open={openSections.crm}
+        onToggle={() => toggle("crm")}
+        filled={filled.crm}
+      >
+        <div className="space-y-4" dir="rtl">
+          <div>
+            <SalesPathFieldLabel>סוג CRM</SalesPathFieldLabel>
+            <select
+              value={crmType}
+              onChange={(e) => setCrmType(e.target.value as CrmType)}
+              className={`${SALES_PATH_INPUT} w-full text-right`}
+              dir="rtl"
+            >
+              {CRM_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value || "none"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {crmType ? (
+            <div>
+              <SalesPathFieldLabel>מפתח API</SalesPathFieldLabel>
+              <Input
+                dir="ltr"
+                type="password"
+                autoComplete="off"
+                value={crmApiKey}
+                onChange={(e) => setCrmApiKey(e.target.value)}
+                placeholder="הדביקו כאן את מפתח ה-API"
+                className={cnInputLtr()}
+              />
+              <p className="mt-2 text-[11px] text-zinc-500 leading-snug">
+                המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">בחרו תוכנת CRM כדי להזין מפתח API.</p>
+          )}
         </div>
       </SalesPathSectionBlock>
 

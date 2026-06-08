@@ -6871,8 +6871,21 @@ async function processIncoming(
   const replyCoreForMenu = shouldStripModelNumberedChoices
     ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore), stripCandidates)
     : replyCore;
-  const replyCoreClean = stripAssistantInteractiveButtonsLog(
-    replyCoreForMenu.replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "").replace(/\n{3,}/g, "\n\n")
+  const replyCoreClean = applyKnownAssistantReplyFixes(
+    stripAssistantInteractiveButtonsLog(
+      replyCoreForMenu.replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "").replace(/\n{3,}/g, "\n\n")
+    ),
+    {
+      knowledge,
+      phase: contactSessionPhase,
+      multiServiceAwaitingPick:
+        salesFlowServices.length > 1 && !(lastPickedServiceName ?? "").trim(),
+      scheduleSlotsWithPickedService:
+        (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time") &&
+        Boolean((lastPickedServiceName ?? "").trim()),
+      selectedServiceName: lastPickedServiceName ?? "",
+      scheduleDayLabels: pickedServiceScheduleDayLabels,
+    }
   );
 
   function softenWebsiteAttribution(text: string): string {
@@ -7111,20 +7124,9 @@ async function processIncoming(
             }
           }
         }
-        let answerOnly = stripTrailingFollowUpQuestion(
+        const answerOnly = stripTrailingFollowUpQuestion(
           stripMenuEchoFromAnswer(answerBody, menuQuestion, menuLabels)
         );
-        answerOnly = applyKnownAssistantReplyFixes(answerOnly, {
-          knowledge,
-          phase: contactSessionPhase,
-          multiServiceAwaitingPick:
-            salesFlowServices.length > 1 && !(lastPickedServiceName ?? "").trim(),
-          scheduleSlotsWithPickedService:
-            (contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time") &&
-            Boolean((lastPickedServiceName ?? "").trim()),
-          selectedServiceName: lastPickedServiceName ?? "",
-          scheduleDayLabels: pickedServiceScheduleDayLabels,
-        });
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await logMessage({
           business_slug,
