@@ -3,7 +3,8 @@ import { formatLeadPhoneDisplay } from "@/lib/notifications/owner-email-context"
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
-const ARBOX_API_BASE = "https://arboxserver.arboxapp.com/api/v3";
+/** OpenAPI: https://arboxserver.arboxapp.com/docs/api */
+const ARBOX_API_BASE = "https://arboxserver.arboxapp.com/api/public";
 
 type ArboxListResponse = {
   statusCode?: number;
@@ -70,7 +71,7 @@ function extractLeadId(payload: unknown): string | null {
 
 async function arboxFetch(
   path: string,
-  input: { apiKey: string; boxId: string; method?: string; body?: Record<string, unknown> }
+  input: { apiKey: string; method?: string; body?: Record<string, unknown> }
 ): Promise<{ ok: boolean; status: number; json: unknown; rawText: string }> {
   const url = `${ARBOX_API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   const res = await fetch(url, {
@@ -78,8 +79,7 @@ async function arboxFetch(
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      Authorization: `Bearer ${input.apiKey}`,
-      "X-Box-Id": input.boxId,
+      "api-key": input.apiKey,
     },
     body: input.body ? JSON.stringify(input.body) : undefined,
   });
@@ -138,16 +138,19 @@ async function cacheArboxIds(input: {
 
 async function searchArboxUserByPhone(input: {
   apiKey: string;
-  boxId: string;
+  locationId: number;
   phone: string;
 }): Promise<string | null> {
   const phoneDisplay = formatLeadPhoneDisplay(input.phone);
   if (!phoneDisplay || phoneDisplay === "—") return null;
 
-  const qs = new URLSearchParams({ type: "phone", value: phoneDisplay });
-  const res = await arboxFetch(`/users/searchUser?${qs.toString()}`, {
+  const qs = new URLSearchParams({
+    type: "phone",
+    value: phoneDisplay,
+    location_id: String(input.locationId),
+  });
+  const res = await arboxFetch(`/v3/users/searchUser?${qs.toString()}`, {
     apiKey: input.apiKey,
-    boxId: input.boxId,
   });
 
   if (!res.ok) {
@@ -164,7 +167,6 @@ async function searchArboxUserByPhone(input: {
 
 async function createArboxLead(input: {
   apiKey: string;
-  boxId: string;
   locationId: number;
   phone: string;
   fullName?: string | null;
@@ -180,9 +182,8 @@ async function createArboxLead(input: {
   };
   if (last) body.last_name = last;
 
-  const res = await arboxFetch("/leads", {
+  const res = await arboxFetch("/v3/leads", {
     apiKey: input.apiKey,
-    boxId: input.boxId,
     method: "POST",
     body,
   });
@@ -204,7 +205,6 @@ async function createArboxLead(input: {
 
 async function createArboxTask(input: {
   apiKey: string;
-  boxId: string;
   locationId: number;
   userId: string;
   kind: CrmEventKind;
@@ -213,9 +213,8 @@ async function createArboxTask(input: {
   const title = taskTitleForKind(input.kind);
   const description = `${title}\n\n${input.noteText}`.trim();
 
-  const res = await arboxFetch("/tasks", {
+  const res = await arboxFetch("/v3/tasks", {
     apiKey: input.apiKey,
-    boxId: input.boxId,
     method: "POST",
     body: {
       location_id: input.locationId,
@@ -263,13 +262,12 @@ export async function submitArboxCrmEvent(input: {
     let createdLead = false;
 
     if (!userId) {
-      userId = await searchArboxUserByPhone({ apiKey, boxId, phone: input.phone });
+      userId = await searchArboxUserByPhone({ apiKey, locationId, phone: input.phone });
     }
 
     if (!userId) {
       const created = await createArboxLead({
         apiKey,
-        boxId,
         locationId,
         phone: input.phone,
         fullName: input.fullName,
@@ -293,7 +291,6 @@ export async function submitArboxCrmEvent(input: {
 
     const taskOk = await createArboxTask({
       apiKey,
-      boxId,
       locationId,
       userId,
       kind: input.kind,
