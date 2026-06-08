@@ -10,3 +10,12 @@ export function hasComplimentaryDashboardAccess(slug: string | null | undefined)
     .toLowerCase();
   return s.length > 0 && COMPLIMENTARY_DASHBOARD_SLUGS.has(s);
 }
+
+/** זואי + דשבורד פעילים גם כש־is_active=false (חשבונות דמו). */
+export function isBusinessServiceActive(
+  slug: string | null | undefined,
+  biz: { is_active?: boolean | null | unknown }
+): boolean {
+  if (hasComplimentaryDashboardAccess(slug)) return true;
+  return biz.is_active === true;
+}
