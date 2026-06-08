@@ -11,6 +11,8 @@ type ArboxListResponse = {
   data?: Record<string, unknown>[];
 };
 
+type ArboxLocation = { id: number; name: string };
+
 function maskPhoneForLog(phone: string): string {
   const d = phone.replace(/\D/g, "");
   if (d.length < 4) return "***";
@@ -136,19 +138,71 @@ async function cacheArboxIds(input: {
   }
 }
 
+async function fetchArboxLocations(apiKey: string): Promise<ArboxLocation[]> {
+  const res = await arboxFetch("/v3/locations", { apiKey });
+  if (!res.ok) {
+    console.error("[crm/arbox] locations fetch failed", {
+      status: res.status,
+      body: res.rawText.slice(0, 500),
+    });
+    return [];
+  }
+  const data = (res.json as ArboxListResponse | null)?.data;
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((row) => {
+      const id = Number.parseInt(String(row.location_id ?? ""), 10);
+      const name = String(row.location_name ?? "").trim();
+      return Number.isFinite(id) && id > 0 ? { id, name } : null;
+    })
+    .filter((row): row is ArboxLocation => row != null);
+}
+
+async function resolveArboxLocationId(
+  apiKey: string,
+  configuredBoxId: string
+): Promise<{ ok: true; locationId: number } | { ok: false; error: string; detail?: string }> {
+  const locations = await fetchArboxLocations(apiKey);
+  if (!locations.length) {
+    return {
+      ok: false,
+      error: "no_locations_found",
+      detail: "Arbox returned no locations for this API key",
+    };
+  }
+
+  const configured = parseLocationId(configuredBoxId);
+  if (configured != null) {
+    const match = locations.find((l) => l.id === configured);
+    if (match) return { ok: true, locationId: match.id };
+    console.warn("[crm/arbox] configured location_id invalid", {
+      configured: configuredBoxId,
+      available: locations.map((l) => l.id),
+    });
+  }
+
+  if (locations.length === 1) {
+    return { ok: true, locationId: locations[0]!.id };
+  }
+
+  const ids = locations.map((l) => `${l.id}${l.name ? ` (${l.name})` : ""}`).join(", ");
+  return {
+    ok: false,
+    error: "invalid_or_ambiguous_location_id",
+    detail: `Set location id to one of: ${ids}`,
+  };
+}
+
 async function searchArboxUserByPhone(input: {
   apiKey: string;
-  locationId: number;
+  locationId?: number;
   phone: string;
 }): Promise<string | null> {
   const phoneDisplay = formatLeadPhoneDisplay(input.phone);
   if (!phoneDisplay || phoneDisplay === "—") return null;
 
-  const qs = new URLSearchParams({
-    type: "phone",
-    value: phoneDisplay,
-    location_id: String(input.locationId),
-  });
+  const qs = new URLSearchParams({ type: "phone", value: phoneDisplay });
+  if (input.locationId != null) qs.set("location_id", String(input.locationId));
   const res = await arboxFetch(`/v3/users/searchUser?${qs.toString()}`, {
     apiKey: input.apiKey,
   });
@@ -250,11 +304,15 @@ export async function submitArboxCrmEvent(input: {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const noteText = String(input.noteText ?? "").trim();
-  const locationId = parseLocationId(boxId);
 
   if (!apiKey) return { ok: false, error: "missing_api_key" };
-  if (!boxId || locationId == null) return { ok: false, error: "missing_or_invalid_box_id" };
   if (!noteText) return { ok: false, error: "missing_note" };
+
+  const locationResolved = await resolveArboxLocationId(apiKey, boxId);
+  if (!locationResolved.ok) {
+    return { ok: false, error: locationResolved.error, detail: locationResolved.detail };
+  }
+  const locationId = locationResolved.locationId;
 
   try {
     let userId = await loadCachedArboxUserId(input.businessId, input.phone);

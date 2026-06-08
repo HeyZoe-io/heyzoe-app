@@ -94,11 +94,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     () => ({
       website: Boolean(websiteUrl.trim()),
       booking: Boolean(arboxLink.trim() || membershipsUrl.trim()),
-      crm: Boolean(
-        crmType &&
-          crmApiKey.trim() &&
-          (crmType !== "arbox" || crmBoxId.trim())
-      ),
+      crm: Boolean(crmType && crmApiKey.trim()),
       social: Boolean(instagramUrl.trim()),
     }),
     [websiteUrl, arboxLink, membershipsUrl, crmType, crmApiKey, crmBoxId, instagramUrl]
@@ -320,16 +316,19 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             </div>
             {crmType === "arbox" ? (
               <div>
-                <SalesPathFieldLabel>Client ID</SalesPathFieldLabel>
+                <SalesPathFieldLabel>מזהה סניף (Location ID)</SalesPathFieldLabel>
                 <Input
                   dir="ltr"
                   inputMode="numeric"
                   autoComplete="off"
                   value={crmBoxId}
                   onChange={(e) => setCrmBoxId(e.target.value)}
-                  placeholder="0000"
+                  placeholder="אופציונלי"
                   className={cnInputLtr()}
                 />
+                <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+                  נדרש רק אם יש יותר מסניף אחד ב-Arbox. אם יש סניף יחיד — אפשר להשאיר ריק.
+                </p>
               </div>
             ) : null}
             <p className="text-[11px] leading-snug text-zinc-500">
