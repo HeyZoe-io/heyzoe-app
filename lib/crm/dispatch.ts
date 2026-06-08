@@ -88,10 +88,6 @@ export async function dispatchCrmEvent(input: {
     const apiKey = String((business as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
     const boxId = String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
     if (!crmType || !apiKey) return;
-    if (crmType === "arbox" && !boxId) {
-      console.error("[crm/dispatch] arbox missing crm_box_id", { businessId });
-      return;
-    }
 
     const eventAtIso = String(input.eventAtIso ?? new Date().toISOString()).trim();
     const noteText = buildCrmEventNote(
