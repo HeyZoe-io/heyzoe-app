@@ -115,6 +115,43 @@ export async function resolveBusinessSlugVariants(
   return [...variants];
 }
 
+/** PostgREST מגביל ~1,000 שורות לבקשה — שליפה בדפים כדי לא לפספס הודעות חדשות. */
+const MESSAGES_PAGE_SIZE = 1000;
+const MESSAGES_PAGE_SAFETY_CAP = 100_000;
+
+async function fetchAllBusinessMessagesForSessions(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  slugVariants: string[],
+  phoneNumberIds: string[]
+): Promise<{ session_id?: string | null; role?: string | null; created_at?: string | null }[]> {
+  const filtered: { session_id?: string | null; role?: string | null; created_at?: string | null }[] = [];
+
+  for (let offset = 0; offset < MESSAGES_PAGE_SAFETY_CAP; offset += MESSAGES_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("messages")
+      .select("session_id, role, created_at, business_slug")
+      .in("business_slug", slugVariants)
+      .order("created_at", { ascending: true })
+      .range(offset, offset + MESSAGES_PAGE_SIZE - 1);
+
+    if (error) {
+      console.warn("[conversations-sessions] messages page load:", error.message);
+      break;
+    }
+
+    const batch = data ?? [];
+    for (const m of batch) {
+      if (sessionIdMatchesWaPhoneNumberIds(String((m as { session_id?: string }).session_id ?? ""), phoneNumberIds)) {
+        filtered.push(m);
+      }
+    }
+
+    if (batch.length < MESSAGES_PAGE_SIZE) break;
+  }
+
+  return filtered;
+}
+
 export function aggregateSessionsFromMessages(
   messages: { session_id?: string | null; role?: string | null; created_at?: string | null }[],
   pausedSet: Set<string>
@@ -162,23 +199,14 @@ export async function loadBusinessConversationSessions(
   const phoneNumberIds = await resolveBusinessWaPhoneNumberIds(admin, slug);
   if (!phoneNumberIds.length) return [];
 
-  const [{ data: messages }, { data: pausedRows }] = await Promise.all([
-    admin
-      .from("messages")
-      .select("session_id, role, created_at, business_slug")
-      .in("business_slug", slugVariants)
-      .order("created_at", { ascending: true })
-      .limit(50_000),
+  const [{ data: pausedRows }, filteredMessages] = await Promise.all([
     admin
       .from("paused_sessions")
       .select("session_id, paused_until, business_slug")
       .in("business_slug", slugVariants)
       .gt("paused_until", new Date().toISOString()),
+    fetchAllBusinessMessagesForSessions(admin, slugVariants, phoneNumberIds),
   ]);
-
-  const filteredMessages = (messages ?? []).filter((m) =>
-    sessionIdMatchesWaPhoneNumberIds(String((m as { session_id?: string }).session_id ?? ""), phoneNumberIds)
-  );
   const pausedSet = new Set(
     (pausedRows ?? [])
       .filter((p) =>
