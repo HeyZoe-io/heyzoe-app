@@ -295,25 +295,6 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
     };
   }
 
-  // Quick-reply button on a *template* message (type:"button" — not interactive button_reply).
-  // Treat as plain inbound text so greeting triggers / sales-flow start work; do NOT set
-  // metaInteractiveReplyKind — that path is only for Zoe's own reply-button menus.
-  if (type === "button") {
-    const btn = m.button as Record<string, unknown> | undefined;
-    const payload = String(btn?.payload ?? "").trim();
-    const title = String(btn?.text ?? "").trim();
-    const text = payload || title;
-    if (!text) return null;
-    return {
-      type: "text",
-      messageId,
-      from,
-      toNumber: phoneNumberId,
-      text,
-      profileName: profileName || undefined,
-    };
-  }
-
   return {
     type: "unsupported",
     messageId,
