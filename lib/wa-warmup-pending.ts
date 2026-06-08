@@ -48,12 +48,11 @@ export async function buildWarmupExperienceMenu(input: {
   return { question: q, options: opts };
 }
 
-/** שאלת חימום נשלחה ועדיין לא נענתה בכפתור / מעבר לשלב הבא */
-export async function isWarmupExperienceQuestionPending(input: {
+async function fetchWarmupExperienceQuestionSentAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
   session_id: string;
-}): Promise<boolean> {
+}): Promise<string | null> {
   const resetAt = await fetchLastSalesFlowGreetingResetAt({
     business_slug: input.business_slug,
     session_id: input.session_id,
@@ -72,10 +71,29 @@ export async function isWarmupExperienceQuestionPending(input: {
     expSentQ = expSentQ.gt("created_at", resetAt);
   }
   const { data: expSent, error } = await expSentQ.maybeSingle();
+  if (error || !expSent?.created_at) return null;
+  return String(expSent.created_at);
+}
 
-  if (error || !expSent?.created_at) return false;
+/** האם שאלת חימום 1 נשלחה מאז איפוס הפתיחה האחרון */
+export async function wasWarmupExperienceQuestionSentSinceReset(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  business_slug: string;
+  session_id: string;
+}): Promise<boolean> {
+  return Boolean(await fetchWarmupExperienceQuestionSentAt(input));
+}
 
-  const since = String(expSent.created_at);
+/** שאלת חימום נשלחה ועדיין לא נענתה בכפתור / מעבר לשלב הבא */
+export async function isWarmupExperienceQuestionPending(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  business_slug: string;
+  session_id: string;
+}): Promise<boolean> {
+  const sentAt = await fetchWarmupExperienceQuestionSentAt(input);
+  if (!sentAt) return false;
+
+  const since = sentAt;
 
   const { data: progressed } = await input.admin
     .from("messages")
