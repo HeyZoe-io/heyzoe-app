@@ -4520,6 +4520,13 @@ async function processIncoming(
               leadPhone: msg.from,
               kind: "trial_registered",
               eventAtIso: nowIso,
+              registration: {
+                serviceName,
+                offerKind: regOfferKind,
+                requestedDate,
+                requestedTime,
+                courseSchedulePhrase: courseSchedForReg || null,
+              },
             });
           } catch (e) {
             console.warn("[WA Webhook] lead_registered notification failed:", e);
