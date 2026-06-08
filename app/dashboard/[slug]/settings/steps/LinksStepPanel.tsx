@@ -340,7 +340,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[13px] font-medium text-zinc-800">מזהה סניף</span>
-                    <CrmFieldHint title="מצאו מספר בן 4 ספרות בלינק מערכת שעות של הסטודיו בארבוקס" />
+                    <CrmFieldHint title="מזהה הסניף בארבוקס — 4 ספרות בכתובת ה-URL במערכת השעות של ארבוקס" />
                   </div>
                   <Input
                     dir="ltr"
@@ -354,23 +354,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 </div>
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-zinc-800">מקור ליד</span>
-                    <CrmFieldHint title="מספר ה-API ID ליד Source בארבוקס (Business Settings → Leads)" />
-                  </div>
-                  <Input
-                    dir="ltr"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    value={crmArboxSourceId}
-                    onChange={(e) => setCrmArboxSourceId(e.target.value)}
-                    placeholder="00000"
-                    className={cnInputLtr()}
-                  />
-                </div>
-                <div>
-                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[13px] font-medium text-zinc-800">סטטוס ליד חדש</span>
-                    <CrmFieldHint title="מספר ה-API ID ליד Status בארבוקס (Business Settings → Leads)" />
+                    <CrmFieldHint title="מצאו בהגדרות --> לידים --> יצירת מקור לידים חדש" />
                   </div>
                   <Input
                     dir="ltr"
@@ -378,6 +363,21 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                     autoComplete="off"
                     value={crmArboxStatusId}
                     onChange={(e) => setCrmArboxStatusId(e.target.value)}
+                    placeholder="00000"
+                    className={cnInputLtr()}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">מקור ליד (אופציונלי)</span>
+                    <CrmFieldHint title="צרו מקור לידים לזואי, על ידי הגדרות --> לידים --> יצירת מקור לידים חדש" />
+                  </div>
+                  <Input
+                    dir="ltr"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={crmArboxSourceId}
+                    onChange={(e) => setCrmArboxSourceId(e.target.value)}
                     placeholder="00000"
                     className={cnInputLtr()}
                   />
