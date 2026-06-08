@@ -130,6 +130,7 @@ export async function GET(req: NextRequest) {
       warmup_session_enabled: business.warmup_session_enabled !== false,
       crm_type: typeof (business as { crm_type?: unknown }).crm_type === "string" ? (business as { crm_type: string }).crm_type : "",
       crm_api_key: typeof (business as { crm_api_key?: unknown }).crm_api_key === "string" ? (business as { crm_api_key: string }).crm_api_key : "",
+      crm_box_id: typeof (business as { crm_box_id?: unknown }).crm_box_id === "string" ? (business as { crm_box_id: string }).crm_box_id : "",
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -224,6 +225,10 @@ export async function POST(req: NextRequest) {
     crm_api_key: (() => {
       const key = String(business.crm_api_key ?? "").trim();
       return key || null;
+    })(),
+    crm_box_id: (() => {
+      const boxId = String(business.crm_box_id ?? "").trim();
+      return boxId || null;
     })(),
   };
 

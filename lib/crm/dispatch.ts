@@ -1,3 +1,4 @@
+import { submitArboxCrmEvent } from "@/lib/crm/adapters/arbox";
 import { submitPlanDoLeadEvent } from "@/lib/crm/adapters/plan-do";
 import {
   buildCrmEventNote,
@@ -55,7 +56,7 @@ async function resolveLeadFullName(input: {
 }
 
 /**
- * שולח אירוע CRM לפי הגדרות העסק (crm_type + crm_api_key).
+ * שולח אירוע CRM לפי הגדרות העסק (crm_type + crm_api_key [+ crm_box_id ל-Arbox]).
  * לא זורק — רושם שגיאות ללוג.
  */
 export async function dispatchCrmEvent(input: {
@@ -74,7 +75,7 @@ export async function dispatchCrmEvent(input: {
     const admin = createSupabaseAdminClient();
     const { data: business, error } = await admin
       .from("businesses")
-      .select("crm_type, crm_api_key")
+      .select("crm_type, crm_api_key, crm_box_id")
       .eq("id", businessId)
       .maybeSingle();
 
@@ -85,7 +86,12 @@ export async function dispatchCrmEvent(input: {
 
     const crmType = normalizeCrmType((business as { crm_type?: unknown } | null)?.crm_type);
     const apiKey = String((business as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const boxId = String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
     if (!crmType || !apiKey) return;
+    if (crmType === "arbox" && !boxId) {
+      console.error("[crm/dispatch] arbox missing crm_box_id", { businessId });
+      return;
+    }
 
     const eventAtIso = String(input.eventAtIso ?? new Date().toISOString()).trim();
     const noteText = buildCrmEventNote(
@@ -108,6 +114,28 @@ export async function dispatchCrmEvent(input: {
       });
       if (!result.ok) {
         console.error("[crm/dispatch] plan_do failed", {
+          businessId,
+          kind: input.kind,
+          phone: maskPhoneForLog(leadPhone),
+          error: result.error,
+          detail: result.detail,
+        });
+      }
+      return;
+    }
+
+    if (crmType === "arbox") {
+      const result = await submitArboxCrmEvent({
+        businessId,
+        apiKey,
+        boxId,
+        phone: leadPhone,
+        fullName,
+        noteText,
+        kind: input.kind,
+      });
+      if (!result.ok) {
+        console.error("[crm/dispatch] arbox failed", {
           businessId,
           kind: input.kind,
           phone: maskPhoneForLog(leadPhone),

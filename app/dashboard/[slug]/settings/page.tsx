@@ -1119,6 +1119,7 @@ export default function SlugSettingsPage({
   const [arboxLink, setArboxLink] = useState("");
   const [crmType, setCrmType] = useState<CrmType>("");
   const [crmApiKey, setCrmApiKey] = useState("");
+  const [crmBoxId, setCrmBoxId] = useState("");
   const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
   const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
   const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
@@ -1578,6 +1579,7 @@ export default function SlugSettingsPage({
         setArboxLink(String(sl.arbox_link ?? ""));
         setCrmType(normalizeCrmType((business as { crm_type?: unknown }).crm_type));
         setCrmApiKey(String((business as { crm_api_key?: unknown }).crm_api_key ?? ""));
+        setCrmBoxId(String((business as { crm_box_id?: unknown }).crm_box_id ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -1690,6 +1692,7 @@ export default function SlugSettingsPage({
         warmup_session_enabled: warmupSessionEnabled,
         crm_type: crmType,
         crm_api_key: crmApiKey.trim(),
+        crm_box_id: crmBoxId.trim(),
         social_links: {
           website_url: websiteUrl,
           instagram: instagramUrl.trim(),
@@ -1775,6 +1778,7 @@ export default function SlugSettingsPage({
       arboxLink,
       crmType,
       crmApiKey,
+      crmBoxId,
       scheduleDirectRegistration,
       warmupSessionEnabled,
       objections,
@@ -2627,6 +2631,8 @@ export default function SlugSettingsPage({
               setCrmType={setCrmType}
               crmApiKey={crmApiKey}
               setCrmApiKey={setCrmApiKey}
+              crmBoxId={crmBoxId}
+              setCrmBoxId={setCrmBoxId}
             />
           </StepPanel>
         )}
