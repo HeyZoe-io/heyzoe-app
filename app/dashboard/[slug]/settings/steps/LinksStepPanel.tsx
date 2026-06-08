@@ -327,12 +327,9 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                   autoComplete="off"
                   value={crmBoxId}
                   onChange={(e) => setCrmBoxId(e.target.value)}
-                  placeholder="9238"
+                  placeholder="0000"
                   className={cnInputLtr()}
                 />
-                <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
-                  מזהה הסניף מ-Arbox (מופיע בהגדרות המערכת). נשלח כ-X-Box-Id.
-                </p>
               </div>
             ) : null}
             <p className="text-[11px] leading-snug text-zinc-500">
