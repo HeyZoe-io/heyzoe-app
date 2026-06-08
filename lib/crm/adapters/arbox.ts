@@ -244,6 +244,14 @@ async function createArboxLead(input: {
   if (input.sourceId != null) body.source_id = input.sourceId;
   if (input.statusId != null) body.status_id = input.statusId;
 
+  console.info("[crm/arbox] create lead", {
+    phone: maskPhoneForLog(phoneDisplay),
+    locationId: input.locationId,
+    sourceId: input.sourceId ?? null,
+    statusId: input.statusId ?? null,
+    hasComment: Boolean(input.noteText.trim()),
+  });
+
   const res = await arboxFetch("/v3/leads", {
     apiKey: input.apiKey,
     method: "POST",
@@ -271,38 +279,71 @@ async function createArboxLead(input: {
   return { userId, leadId };
 }
 
-async function appendArboxUserNote(input: {
+function buildArboxNoteDescription(kind: CrmEventKind, noteText: string): string {
+  return `${notePrefixForKind(kind)}\n\n${noteText}`.trim();
+}
+
+async function appendArboxNote(input: {
   apiKey: string;
   userId: string;
   kind: CrmEventKind;
   noteText: string;
+  statusId?: number | null;
 }): Promise<boolean> {
-  const description = `${notePrefixForKind(input.kind)}\n\n${input.noteText}`.trim();
+  const description = buildArboxNoteDescription(input.kind, input.noteText);
   const userIdNum = Number.parseInt(input.userId, 10);
   if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
     console.error("[crm/arbox] create note failed — invalid user_id", { userId: input.userId });
     return false;
   }
 
-  const res = await arboxFetch("/v3/users/createNote", {
+  const noteBody = { user_id: userIdNum, description };
+
+  // לידים — עדיף leads/createNote; users/createNote מחזיר 500 לחלק מלידים חדשים.
+  const leadNoteRes = await arboxFetch("/v3/leads/createNote", {
     apiKey: input.apiKey,
     method: "POST",
-    body: {
-      user_id: userIdNum,
-      description,
-    },
+    body: noteBody,
+  });
+  if (leadNoteRes.ok) return true;
+
+  console.warn("[crm/arbox] leads/createNote failed, trying users/createNote", {
+    status: leadNoteRes.status,
+    userId: input.userId,
+    body: leadNoteRes.rawText.slice(0, 500),
   });
 
-  if (!res.ok) {
-    console.error("[crm/arbox] create note failed", {
-      status: res.status,
-      userId: input.userId,
-      body: res.rawText.slice(0, 500),
+  const userNoteRes = await arboxFetch("/v3/users/createNote", {
+    apiKey: input.apiKey,
+    method: "POST",
+    body: noteBody,
+  });
+  if (userNoteRes.ok) return true;
+
+  if (input.statusId != null) {
+    const statusRes = await arboxFetch("/v3/leads/updateStatus", {
+      apiKey: input.apiKey,
+      method: "POST",
+      body: {
+        user_id: userIdNum,
+        status_id: input.statusId,
+        comment: description,
+      },
     });
-    return false;
+    if (statusRes.ok) return true;
+    console.error("[crm/arbox] leads/updateStatus note fallback failed", {
+      status: statusRes.status,
+      userId: input.userId,
+      body: statusRes.rawText.slice(0, 500),
+    });
   }
 
-  return true;
+  console.error("[crm/arbox] create note failed", {
+    status: userNoteRes.status,
+    userId: input.userId,
+    body: userNoteRes.rawText.slice(0, 500),
+  });
+  return false;
 }
 
 /** Arbox: חיפוש לפי טלפון → יצירת ליד אם חסר → משימה עם הערת זואי. */
@@ -372,14 +413,24 @@ export async function submitArboxCrmEvent(input: {
       createdLead,
     });
 
-    const noteOk = await appendArboxUserNote({
+    const noteOk = await appendArboxNote({
       apiKey,
       userId,
       kind: input.kind,
       noteText,
+      statusId,
     });
 
-    if (!noteOk) return { ok: false, error: "note_create_failed" };
+    if (!noteOk) {
+      if (createdLead) {
+        console.warn("[crm/arbox] note failed after lead create; lead exists without activity note", {
+          businessId: input.businessId,
+          phone: maskPhoneForLog(input.phone),
+          userId,
+        });
+      }
+      return { ok: false, error: "note_create_failed" };
+    }
     return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
