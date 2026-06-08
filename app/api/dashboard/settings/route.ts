@@ -226,25 +226,42 @@ export async function POST(req: NextRequest) {
     warmup_session_enabled: business.warmup_session_enabled !== false,
     crm_type: (() => {
       const t = String(business.crm_type ?? "").trim().toLowerCase();
-      if (!t) return null;
-      if (t === "plan do" || t === "plando") return "plan_do";
-      return t;
+      if (t) {
+        if (t === "plan do" || t === "plando") return "plan_do";
+        return t;
+      }
+      const prev = String((existingForUser as { crm_type?: unknown } | null)?.crm_type ?? "").trim().toLowerCase();
+      if (!prev) return null;
+      if (prev === "plan do" || prev === "plando") return "plan_do";
+      return prev;
     })(),
     crm_api_key: (() => {
       const key = String(business.crm_api_key ?? "").trim();
-      return key || null;
+      if (key) return key;
+      const prev = String((existingForUser as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+      return prev || null;
     })(),
     crm_box_id: (() => {
       const boxId = String(business.crm_box_id ?? "").trim();
-      return boxId || null;
+      if (boxId) return boxId;
+      const prev = String((existingForUser as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
+      return prev || null;
     })(),
     crm_arbox_source_id: (() => {
       const id = String(business.crm_arbox_source_id ?? "").trim();
-      return id || null;
+      if (id) return id;
+      const prev = String(
+        (existingForUser as { crm_arbox_source_id?: unknown } | null)?.crm_arbox_source_id ?? ""
+      ).trim();
+      return prev || null;
     })(),
     crm_arbox_status_id: (() => {
       const id = String(business.crm_arbox_status_id ?? "").trim();
-      return id || null;
+      if (id) return id;
+      const prev = String(
+        (existingForUser as { crm_arbox_status_id?: unknown } | null)?.crm_arbox_status_id ?? ""
+      ).trim();
+      return prev || null;
     })(),
   };
 

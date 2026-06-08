@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,16 +56,46 @@ export type LinksStepPanelProps = {
   setCrmArboxStatusId: (v: string) => void;
 };
 
-function CrmFieldHint({ title }: { title: string }) {
+function CrmFieldHint({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (target instanceof Node && rootRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [open]);
+
   return (
-    <button
-      type="button"
-      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200/90 text-[10px] font-bold leading-none text-zinc-600"
-      title={title}
-      aria-label={title}
-    >
-      ?
-    </button>
+    <span ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label="הסבר"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200/90 text-[10px] font-bold leading-none text-zinc-600 hover:bg-zinc-300/90"
+      >
+        ?
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          dir="rtl"
+          className="absolute right-0 top-full z-50 mt-1.5 w-[min(18rem,calc(100vw-2.5rem))] rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-right text-[11px] leading-snug text-zinc-600 shadow-md"
+        >
+          {text}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -340,7 +370,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[13px] font-medium text-zinc-800">מזהה סניף</span>
-                    <CrmFieldHint title="מזהה הסניף בארבוקס — 4 ספרות בכתובת ה-URL במערכת השעות של ארבוקס" />
+                    <CrmFieldHint text="מזהה הסניף בארבוקס — 4 ספרות בכתובת ה-URL במערכת השעות של ארבוקס" />
                   </div>
                   <Input
                     dir="ltr"
@@ -355,7 +385,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[13px] font-medium text-zinc-800">סטטוס ליד חדש</span>
-                    <CrmFieldHint title="מצאו בהגדרות --> לידים --> יצירת מקור לידים חדש" />
+                    <CrmFieldHint text="מצאו בהגדרות → לידים → יצירת סטטוס ליד חדש" />
                   </div>
                   <Input
                     dir="ltr"
@@ -370,7 +400,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                     <span className="text-[13px] font-medium text-zinc-800">מקור ליד (אופציונלי)</span>
-                    <CrmFieldHint title="צרו מקור לידים לזואי, על ידי הגדרות --> לידים --> יצירת מקור לידים חדש" />
+                    <CrmFieldHint text="צרו מקור לידים לזואי, על ידי הגדרות → לידים → יצירת מקור לידים חדש" />
                   </div>
                   <Input
                     dir="ltr"

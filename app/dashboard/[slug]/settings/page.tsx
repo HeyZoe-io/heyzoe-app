@@ -1868,7 +1868,18 @@ export default function SlugSettingsPage({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [canAutosave, postSettings, settingsPresenceLocked, slug, services]);
+  }, [
+    canAutosave,
+    postSettings,
+    settingsPresenceLocked,
+    slug,
+    services,
+    crmType,
+    crmApiKey,
+    crmBoxId,
+    crmArboxSourceId,
+    crmArboxStatusId,
+  ]);
 
   useEffect(() => {
     if (!settingsPresenceLocked) return;
