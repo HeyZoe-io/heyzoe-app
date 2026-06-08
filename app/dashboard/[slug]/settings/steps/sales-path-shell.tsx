@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const SALES_PATH_INPUT =
-  "h-10 rounded-lg border-zinc-200/90 bg-zinc-50/40 text-right shadow-none hover:bg-white focus-visible:ring-1 focus-visible:ring-[#7133da]/30 focus-visible:ring-offset-0";
+  "h-10 rounded-lg border-zinc-200/90 bg-zinc-50/40 text-right text-sm text-zinc-800 shadow-none hover:bg-white focus-visible:ring-1 focus-visible:ring-[#7133da]/30 focus-visible:ring-offset-0";
 
 export const SALES_PATH_TEXTAREA =
   "w-full resize-none rounded-lg border border-zinc-200/90 bg-zinc-50/40 px-3 py-2.5 text-right text-sm leading-relaxed text-zinc-800 shadow-none outline-none transition-colors placeholder:text-zinc-400 hover:bg-white focus:border-[#7133da]/35 focus:ring-1 focus:ring-[#7133da]/25";

@@ -273,47 +273,48 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
         stepPrefix="links"
         id="crm"
         title="חיבור CRM"
-        hint="זואי תעדכן אוטומטית את התוכנה כשליד נרשם, מבקש נציג או לא עונה"
+        hint="עדכונים אוטומטיים ל-CRM"
         open={openSections.crm}
         onToggle={() => toggle("crm")}
         filled={filled.crm}
       >
-        <div className="space-y-4" dir="rtl">
-          <div>
-            <SalesPathFieldLabel>סוג CRM</SalesPathFieldLabel>
-            <select
-              value={crmType}
-              onChange={(e) => setCrmType(e.target.value as CrmType)}
-              className={`${SALES_PATH_INPUT} w-full text-right`}
-              dir="rtl"
-            >
-              {CRM_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value || "none"} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {crmType ? (
-            <div>
-              <SalesPathFieldLabel>מפתח API</SalesPathFieldLabel>
-              <Input
-                dir="ltr"
-                type="password"
-                autoComplete="off"
-                value={crmApiKey}
-                onChange={(e) => setCrmApiKey(e.target.value)}
-                placeholder="הדביקו כאן את מפתח ה-API"
-                className={cnInputLtr()}
-              />
-              <p className="mt-2 text-[11px] text-zinc-500 leading-snug">
-                המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">בחרו תוכנת CRM כדי להזין מפתח API.</p>
-          )}
+        <p className="text-[11px] leading-snug text-zinc-500">
+          זואי תעדכן את התוכנה כשליד נרשם, מבקש נציג או לא עונה אחרי כל הפולואפים.
+        </p>
+        <div>
+          <SalesPathFieldLabel>סוג CRM</SalesPathFieldLabel>
+          <select
+            value={crmType}
+            onChange={(e) => setCrmType(e.target.value as CrmType)}
+            className={`${SALES_PATH_INPUT} w-full px-3 text-right`}
+            dir="rtl"
+          >
+            {CRM_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value || "none"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
+        {crmType ? (
+          <div>
+            <SalesPathFieldLabel>מפתח API</SalesPathFieldLabel>
+            <Input
+              dir="ltr"
+              type="password"
+              autoComplete="off"
+              value={crmApiKey}
+              onChange={(e) => setCrmApiKey(e.target.value)}
+              placeholder="הדביקו כאן את מפתח ה-API"
+              className={cnInputLtr()}
+            />
+            <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
+              המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.
+            </p>
+          </div>
+        ) : (
+          <p className="text-[11px] leading-snug text-zinc-500">בחרו תוכנת CRM כדי להזין מפתח API.</p>
+        )}
       </SalesPathSectionBlock>
 
       <SalesPathSectionBlock

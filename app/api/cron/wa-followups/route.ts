@@ -63,7 +63,7 @@ function maskPhone(phone: string): string {
 }
 
 const CONTACT_DEBUG_SELECT =
-  "id, phone, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered";
+  "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered";
 
 async function findContactByPhone(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -323,7 +323,7 @@ export async function GET(req: NextRequest) {
   const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
 
   const followupSelect =
-    "id, phone, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase";
+    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase";
 
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
@@ -636,6 +636,17 @@ export async function GET(req: NextRequest) {
       if (nextStage === 3) patch.wa_followup_3_sent_at = nowIso;
 
       await admin.from("contacts").update(patch).eq("id", contactId);
+
+      if (nextStage === 3) {
+        const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+        void dispatchCrmEvent({
+          businessId: Number(businessId),
+          leadPhone: phone,
+          kind: "no_response",
+          fullName: String((c as { full_name?: string | null }).full_name ?? "").trim() || null,
+          eventAtIso: nowIso,
+        });
+      }
 
       sent += 1;
     } catch (e) {

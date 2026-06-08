@@ -4081,6 +4081,13 @@ async function processIncoming(
           leadPhone: msg.from,
           requestedAtIso: nowIso,
         });
+        const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+        void dispatchCrmEvent({
+          businessId: Number(businessId),
+          leadPhone: msg.from,
+          kind: "human_requested",
+          eventAtIso: nowIso,
+        });
       }
     } catch (e) {
       console.warn("[WA Webhook] human_requested notification failed:", e);
@@ -4506,6 +4513,13 @@ async function processIncoming(
               requestedDate,
               requestedTime,
               warmupSummaryPrecomputed,
+            });
+            const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+            void dispatchCrmEvent({
+              businessId: Number(businessId),
+              leadPhone: msg.from,
+              kind: "trial_registered",
+              eventAtIso: nowIso,
             });
           } catch (e) {
             console.warn("[WA Webhook] lead_registered notification failed:", e);
