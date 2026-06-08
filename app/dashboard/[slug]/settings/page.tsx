@@ -1120,6 +1120,8 @@ export default function SlugSettingsPage({
   const [crmType, setCrmType] = useState<CrmType>("");
   const [crmApiKey, setCrmApiKey] = useState("");
   const [crmBoxId, setCrmBoxId] = useState("");
+  const [crmArboxSourceId, setCrmArboxSourceId] = useState("");
+  const [crmArboxStatusId, setCrmArboxStatusId] = useState("");
   const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
   const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
   const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
@@ -1580,6 +1582,8 @@ export default function SlugSettingsPage({
         setCrmType(normalizeCrmType((business as { crm_type?: unknown }).crm_type));
         setCrmApiKey(String((business as { crm_api_key?: unknown }).crm_api_key ?? ""));
         setCrmBoxId(String((business as { crm_box_id?: unknown }).crm_box_id ?? ""));
+        setCrmArboxSourceId(String((business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id ?? ""));
+        setCrmArboxStatusId(String((business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id ?? ""));
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -1693,6 +1697,8 @@ export default function SlugSettingsPage({
         crm_type: crmType,
         crm_api_key: crmApiKey.trim(),
         crm_box_id: crmBoxId.trim(),
+        crm_arbox_source_id: crmArboxSourceId.trim(),
+        crm_arbox_status_id: crmArboxStatusId.trim(),
         social_links: {
           website_url: websiteUrl,
           instagram: instagramUrl.trim(),
@@ -1779,6 +1785,8 @@ export default function SlugSettingsPage({
       crmType,
       crmApiKey,
       crmBoxId,
+      crmArboxSourceId,
+      crmArboxStatusId,
       scheduleDirectRegistration,
       warmupSessionEnabled,
       objections,
@@ -2633,6 +2641,10 @@ export default function SlugSettingsPage({
               setCrmApiKey={setCrmApiKey}
               crmBoxId={crmBoxId}
               setCrmBoxId={setCrmBoxId}
+              crmArboxSourceId={crmArboxSourceId}
+              setCrmArboxSourceId={setCrmArboxSourceId}
+              crmArboxStatusId={crmArboxStatusId}
+              setCrmArboxStatusId={setCrmArboxStatusId}
             />
           </StepPanel>
         )}

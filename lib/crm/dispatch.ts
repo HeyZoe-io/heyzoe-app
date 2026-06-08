@@ -75,7 +75,7 @@ export async function dispatchCrmEvent(input: {
     const admin = createSupabaseAdminClient();
     const { data: business, error } = await admin
       .from("businesses")
-      .select("crm_type, crm_api_key, crm_box_id")
+      .select("crm_type, crm_api_key, crm_box_id, crm_arbox_source_id, crm_arbox_status_id")
       .eq("id", businessId)
       .maybeSingle();
 
@@ -87,6 +87,12 @@ export async function dispatchCrmEvent(input: {
     const crmType = normalizeCrmType((business as { crm_type?: unknown } | null)?.crm_type);
     const apiKey = String((business as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
     const boxId = String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
+    const arboxSourceId = String(
+      (business as { crm_arbox_source_id?: unknown } | null)?.crm_arbox_source_id ?? ""
+    ).trim();
+    const arboxStatusId = String(
+      (business as { crm_arbox_status_id?: unknown } | null)?.crm_arbox_status_id ?? ""
+    ).trim();
     if (!crmType || !apiKey) return;
 
     const eventAtIso = String(input.eventAtIso ?? new Date().toISOString()).trim();
@@ -125,6 +131,8 @@ export async function dispatchCrmEvent(input: {
         businessId,
         apiKey,
         boxId,
+        sourceId: arboxSourceId || null,
+        statusId: arboxStatusId || null,
         phone: leadPhone,
         fullName,
         noteText,

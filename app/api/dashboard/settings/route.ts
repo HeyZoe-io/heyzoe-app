@@ -131,6 +131,14 @@ export async function GET(req: NextRequest) {
       crm_type: typeof (business as { crm_type?: unknown }).crm_type === "string" ? (business as { crm_type: string }).crm_type : "",
       crm_api_key: typeof (business as { crm_api_key?: unknown }).crm_api_key === "string" ? (business as { crm_api_key: string }).crm_api_key : "",
       crm_box_id: typeof (business as { crm_box_id?: unknown }).crm_box_id === "string" ? (business as { crm_box_id: string }).crm_box_id : "",
+      crm_arbox_source_id:
+        typeof (business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id === "string"
+          ? (business as { crm_arbox_source_id: string }).crm_arbox_source_id
+          : "",
+      crm_arbox_status_id:
+        typeof (business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id === "string"
+          ? (business as { crm_arbox_status_id: string }).crm_arbox_status_id
+          : "",
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -229,6 +237,14 @@ export async function POST(req: NextRequest) {
     crm_box_id: (() => {
       const boxId = String(business.crm_box_id ?? "").trim();
       return boxId || null;
+    })(),
+    crm_arbox_source_id: (() => {
+      const id = String(business.crm_arbox_source_id ?? "").trim();
+      return id || null;
+    })(),
+    crm_arbox_status_id: (() => {
+      const id = String(business.crm_arbox_status_id ?? "").trim();
+      return id || null;
     })(),
   };
 

@@ -50,7 +50,24 @@ export type LinksStepPanelProps = {
   setCrmApiKey: (v: string) => void;
   crmBoxId: string;
   setCrmBoxId: (v: string) => void;
+  crmArboxSourceId: string;
+  setCrmArboxSourceId: (v: string) => void;
+  crmArboxStatusId: string;
+  setCrmArboxStatusId: (v: string) => void;
 };
+
+function CrmFieldHint({ title }: { title: string }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200/90 text-[10px] font-bold leading-none text-zinc-600"
+      title={title}
+      aria-label={title}
+    >
+      ?
+    </button>
+  );
+}
 
 export function LinksStepPanel(props: LinksStepPanelProps) {
   const {
@@ -81,6 +98,10 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setCrmApiKey,
     crmBoxId,
     setCrmBoxId,
+    crmArboxSourceId,
+    setCrmArboxSourceId,
+    crmArboxStatusId,
+    setCrmArboxStatusId,
   } = props;
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
@@ -315,20 +336,52 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               />
             </div>
             {crmType === "arbox" ? (
-              <div>
-                <SalesPathFieldLabel>מזהה סניף (Location ID)</SalesPathFieldLabel>
-                <Input
-                  dir="ltr"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={crmBoxId}
-                  onChange={(e) => setCrmBoxId(e.target.value)}
-                  placeholder="אופציונלי"
-                  className={cnInputLtr()}
-                />
-                <p className="mt-1 text-[11px] leading-snug text-zinc-500">
-                  נדרש רק אם יש יותר מסניף אחד ב-Arbox. אם יש סניף יחיד — אפשר להשאיר ריק.
-                </p>
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">מזהה סניף</span>
+                    <CrmFieldHint title="מצאו מספר בן 4 ספרות בלינק מערכת שעות של הסטודיו בארבוקס" />
+                  </div>
+                  <Input
+                    dir="ltr"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={crmBoxId}
+                    onChange={(e) => setCrmBoxId(e.target.value)}
+                    placeholder="0000"
+                    className={cnInputLtr()}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">מקור ליד</span>
+                    <CrmFieldHint title="מספר ה-API ID ליד Source בארבוקס (Business Settings → Leads)" />
+                  </div>
+                  <Input
+                    dir="ltr"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={crmArboxSourceId}
+                    onChange={(e) => setCrmArboxSourceId(e.target.value)}
+                    placeholder="00000"
+                    className={cnInputLtr()}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">סטטוס ליד חדש</span>
+                    <CrmFieldHint title="מספר ה-API ID ליד Status בארבוקס (Business Settings → Leads)" />
+                  </div>
+                  <Input
+                    dir="ltr"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={crmArboxStatusId}
+                    onChange={(e) => setCrmArboxStatusId(e.target.value)}
+                    placeholder="00000"
+                    className={cnInputLtr()}
+                  />
+                </div>
               </div>
             ) : null}
             <p className="text-[11px] leading-snug text-zinc-500">

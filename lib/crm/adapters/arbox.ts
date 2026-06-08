@@ -19,9 +19,13 @@ function maskPhoneForLog(phone: string): string {
   return `***${d.slice(-4)}`;
 }
 
-function parseLocationId(boxId: string): number | null {
-  const n = Number.parseInt(String(boxId ?? "").trim(), 10);
+function parsePositiveIntId(value: string | null | undefined): number | null {
+  const n = Number.parseInt(String(value ?? "").trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseLocationId(boxId: string): number | null {
+  return parsePositiveIntId(boxId);
 }
 
 function splitFullName(fullName: string | null | undefined): { first: string; last: string | null } {
@@ -34,7 +38,7 @@ function splitFullName(fullName: string | null | undefined): { first: string; la
   return { first: parts[0]!, last: parts.slice(1).join(" ") };
 }
 
-function taskTitleForKind(kind: CrmEventKind): string {
+function notePrefixForKind(kind: CrmEventKind): string {
   switch (kind) {
     case "trial_registered":
       return "זואי — רישום לניסיון";
@@ -43,16 +47,6 @@ function taskTitleForKind(kind: CrmEventKind): string {
     case "no_response":
       return "זואי — לא ענה";
   }
-}
-
-function defaultTaskReminder(): { date: string; time: string } {
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  return { date, time: "09:00" };
 }
 
 function extractUserId(payload: unknown): string | null {
@@ -201,22 +195,30 @@ async function searchArboxUserByPhone(input: {
   const phoneDisplay = formatLeadPhoneDisplay(input.phone);
   if (!phoneDisplay || phoneDisplay === "—") return null;
 
-  const qs = new URLSearchParams({ type: "phone", value: phoneDisplay });
-  if (input.locationId != null) qs.set("location_id", String(input.locationId));
-  const res = await arboxFetch(`/v3/users/searchUser?${qs.toString()}`, {
-    apiKey: input.apiKey,
-  });
-
-  if (!res.ok) {
-    console.error("[crm/arbox] searchUser failed", {
-      status: res.status,
-      phone: maskPhoneForLog(phoneDisplay),
-      body: res.rawText.slice(0, 500),
+  const trySearch = async (locationId?: number): Promise<string | null> => {
+    const qs = new URLSearchParams({ type: "phone", value: phoneDisplay });
+    if (locationId != null) qs.set("location_id", String(locationId));
+    const res = await arboxFetch(`/v3/users/searchUser?${qs.toString()}`, {
+      apiKey: input.apiKey,
     });
-    return null;
-  }
 
-  return extractUserId(res.json);
+    if (!res.ok) {
+      console.error("[crm/arbox] searchUser failed", {
+        status: res.status,
+        phone: maskPhoneForLog(phoneDisplay),
+        locationId: locationId ?? null,
+        body: res.rawText.slice(0, 500),
+      });
+      return null;
+    }
+
+    return extractUserId(res.json);
+  };
+
+  const withLocation = await trySearch(input.locationId);
+  if (withLocation) return withLocation;
+  if (input.locationId != null) return trySearch(undefined);
+  return null;
 }
 
 async function createArboxLead(input: {
@@ -224,6 +226,9 @@ async function createArboxLead(input: {
   locationId: number;
   phone: string;
   fullName?: string | null;
+  sourceId?: number | null;
+  statusId?: number | null;
+  noteText: string;
 }): Promise<{ userId: string | null; leadId: string | null }> {
   const phoneDisplay = formatLeadPhoneDisplay(input.phone);
   if (!phoneDisplay || phoneDisplay === "—") return { userId: null, leadId: null };
@@ -233,8 +238,11 @@ async function createArboxLead(input: {
     first_name: first,
     phone: phoneDisplay,
     location_id: input.locationId,
+    comment: input.noteText.trim(),
   };
   if (last) body.last_name = last;
+  if (input.sourceId != null) body.source_id = input.sourceId;
+  if (input.statusId != null) body.status_id = input.statusId;
 
   const res = await arboxFetch("/v3/leads", {
     apiKey: input.apiKey,
@@ -251,36 +259,42 @@ async function createArboxLead(input: {
     return { userId: null, leadId: null };
   }
 
-  return {
-    userId: extractUserId(res.json),
-    leadId: extractLeadId(res.json),
-  };
+  const userId = extractUserId(res.json);
+  const leadId = extractLeadId(res.json);
+  if (!userId) {
+    console.warn("[crm/arbox] create lead ok but no user_id in response", {
+      phone: maskPhoneForLog(phoneDisplay),
+      body: res.rawText.slice(0, 500),
+    });
+  }
+
+  return { userId, leadId };
 }
 
-async function createArboxTask(input: {
+async function appendArboxUserNote(input: {
   apiKey: string;
-  locationId: number;
   userId: string;
   kind: CrmEventKind;
   noteText: string;
 }): Promise<boolean> {
-  const title = taskTitleForKind(input.kind);
-  const description = `${title}\n\n${input.noteText}`.trim();
+  const description = `${notePrefixForKind(input.kind)}\n\n${input.noteText}`.trim();
+  const userIdNum = Number.parseInt(input.userId, 10);
+  if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
+    console.error("[crm/arbox] create note failed — invalid user_id", { userId: input.userId });
+    return false;
+  }
 
-  const res = await arboxFetch("/v3/tasks", {
+  const res = await arboxFetch("/v3/users/createNote", {
     apiKey: input.apiKey,
     method: "POST",
     body: {
-      location_id: input.locationId,
-      task_type_id: 1,
-      user_id: Number.parseInt(input.userId, 10) || input.userId,
+      user_id: userIdNum,
       description,
-      reminder: defaultTaskReminder(),
     },
   });
 
   if (!res.ok) {
-    console.error("[crm/arbox] create task failed", {
+    console.error("[crm/arbox] create note failed", {
       status: res.status,
       userId: input.userId,
       body: res.rawText.slice(0, 500),
@@ -296,6 +310,8 @@ export async function submitArboxCrmEvent(input: {
   businessId: number;
   apiKey: string;
   boxId: string;
+  sourceId?: string | null;
+  statusId?: string | null;
   phone: string;
   fullName?: string | null;
   noteText: string;
@@ -313,6 +329,8 @@ export async function submitArboxCrmEvent(input: {
     return { ok: false, error: locationResolved.error, detail: locationResolved.detail };
   }
   const locationId = locationResolved.locationId;
+  const sourceId = parsePositiveIntId(input.sourceId);
+  const statusId = parsePositiveIntId(input.statusId);
 
   try {
     let userId = await loadCachedArboxUserId(input.businessId, input.phone);
@@ -329,10 +347,17 @@ export async function submitArboxCrmEvent(input: {
         locationId,
         phone: input.phone,
         fullName: input.fullName,
+        sourceId,
+        statusId,
+        noteText,
       });
       userId = created.userId;
       leadId = created.leadId;
       createdLead = Boolean(userId);
+    }
+
+    if (!userId) {
+      userId = await searchArboxUserByPhone({ apiKey, locationId, phone: input.phone });
     }
 
     if (!userId) {
@@ -347,15 +372,14 @@ export async function submitArboxCrmEvent(input: {
       createdLead,
     });
 
-    const taskOk = await createArboxTask({
+    const noteOk = await appendArboxUserNote({
       apiKey,
-      locationId,
       userId,
       kind: input.kind,
       noteText,
     });
 
-    if (!taskOk) return { ok: false, error: "task_create_failed" };
+    if (!noteOk) return { ok: false, error: "note_create_failed" };
     return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
