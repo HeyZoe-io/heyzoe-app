@@ -111,7 +111,27 @@ function applyTypoFixes(text: string): string {
     .replace(/לא\s+יש\s+לי\b/giu, "אין לי")
     .replace(/לא\s+יש\s+מידע/giu, "אין לי מידע")
     .replace(/נירשמ/gu, "נרשמ")
-    .replace(/נרישמ/gu, "נרשמ");
+    .replace(/נרישמ/gu, "נרשמ")
+    .replace(/מצליחה\s+בחיפוש/giu, "בהצלחה בחיפוש");
+}
+
+/** מקף ארוך/בינוני → מקף רגיל (כלל זואי בוואטסאפ). */
+function normalizeWaDashes(text: string): string {
+  return String(text ?? "").replace(/[—–]/g, "-");
+}
+
+/** סיום ארוך כשהמיקום לא מתאים → ניסוח קצר קבוע. */
+function applyLocationFarClosingFix(text: string): string {
+  let s = String(text ?? "");
+  s = s.replace(
+    /אם בא לך ללמוד עוד על זה או אם משהו משתנה בעתיד\s*[-–—]?\s*את(?:ם|הן)?\s+מוזמנ(?:ים|ות)?\s+בחזרה\.?\s*(?:מצליחה|בהצלחה)\s+בחיפוש\s+הסטודיו\s+המתאים!\s*🙂?/giu,
+    "אם משהו ישתנה בעתיד, אנחנו כאן :)"
+  );
+  s = s.replace(
+    /אם בא לך ללמוד עוד על זה או אם משהו משתנה בעתיד[^.!?\n]*[.!?]?\s*(?:מצליחה|בהצלחה)\s+בחיפוש\s+הסטודיו\s+המתאים!\s*🙂?/giu,
+    "אם משהו ישתנה בעתיד, אנחנו כאן :)"
+  );
+  return s;
 }
 
 function stripServicePickInvitationLines(text: string): string {
@@ -165,8 +185,10 @@ export function buildWaSpellingAndPhrasingPromptRule(
 
   return `
 איות וניסוח (חובה לפני סיום התשובה):
-- לקסיקון מהדשבורד: שמות אימונים, מחירים, FAQ ומועדים — מהשדות «ידע עסקי» ומהשורות למטה; פרפרזה רק לגוון, בלי לשנות שמות שירות, ימי שבוע (רביעי, שלישי…) או שעות.
-- איות: «אימון» לא «אימן»; «אין לי» לא «לא יש לי».
+- לקסיקון מהדשבורד: שמות אימונים, מחירים, FAQ ומועדים - מהשדות «ידע עסקי» ומהשורות למטה; פרפרזה רק לגוון, בלי לשנות שמות שירות, ימי שבוע (רביעי, שלישי…) או שעות.
+- איות: «אימון» לא «אימן»; «אין לי» לא «לא יש לי»; «בהצלחה» לא «מצליחה».
+- מקף: רק מקף רגיל (-). אסור מקף ארוך (—) או מקף בינוני (–).
+- כשהליד רחוק מהסטודיו והמיקום לא מתאים: הכירי בזה בקצרה, וסיימי במשפט «אם משהו ישתנה בעתיד, אנחנו כאן :)» - בלי «מוזמנים בחזרה», בלי «בהצלחה בחיפוש», ובלי משפט ארוך.
 - ${addressingHint}
 - אל תזמיני לבחירת אימון/שיעור ואל תפרטי רשימת אימונים — המערכת שולחת תפריט/שאלה בנפרד מיד אחרייך.
 ${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון.` : ""}
@@ -178,7 +200,8 @@ export function applyKnownAssistantReplyFixes(
   text: string,
   input: ApplyAssistantReplyFixesInput
 ): string {
-  let s = applyTypoFixes(String(text ?? "").trim());
+  let s = normalizeWaDashes(applyTypoFixes(String(text ?? "").trim()));
+  s = applyLocationFarClosingFix(s);
   if (!s) return s;
 
   if (input.multiServiceAwaitingPick) {

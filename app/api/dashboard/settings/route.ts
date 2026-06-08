@@ -128,6 +128,8 @@ export async function GET(req: NextRequest) {
       conversions_api_token: typeof business.conversions_api_token === "string" ? business.conversions_api_token : "",
       schedule_direct_registration: business.schedule_direct_registration !== false,
       warmup_session_enabled: business.warmup_session_enabled !== false,
+      crm_type: typeof (business as { crm_type?: unknown }).crm_type === "string" ? (business as { crm_type: string }).crm_type : "",
+      crm_api_key: typeof (business as { crm_api_key?: unknown }).crm_api_key === "string" ? (business as { crm_api_key: string }).crm_api_key : "",
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -213,6 +215,16 @@ export async function POST(req: NextRequest) {
     conversions_api_token: String(business.conversions_api_token ?? ""),
     schedule_direct_registration: business.schedule_direct_registration !== false,
     warmup_session_enabled: business.warmup_session_enabled !== false,
+    crm_type: (() => {
+      const t = String(business.crm_type ?? "").trim().toLowerCase();
+      if (!t) return null;
+      if (t === "plan do" || t === "plando") return "plan_do";
+      return t;
+    })(),
+    crm_api_key: (() => {
+      const key = String(business.crm_api_key ?? "").trim();
+      return key || null;
+    })(),
   };
 
   const { data: savedBiz, error: bizErr } = await admin
