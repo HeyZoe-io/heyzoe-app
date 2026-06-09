@@ -577,7 +577,7 @@ function parseMarketingFlowSnapshot(json: string): {
   };
 }
 
-function MarketingFlowCanvas() {
+function MarketingFlowCanvas({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
   const { getNode, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<MfNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -839,12 +839,10 @@ function MarketingFlowCanvas() {
   );
 
   const dirtyRef = useRef(false);
-  const savedOnceRef = useRef(false);
-  /** תוכן זהה לשרת — לא מפעילים שמירה אוטומטית (מונע לולאה אחרי setState ועדכוני React Flow) */
+  const [isDirty, setIsDirty] = useState(false);
+  /** תוכן זהה לשרת — לסימון שינויים שלא נשמרו */
   const lastPersistedSnapshotRef = useRef<string | null>(null);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const AUTOSAVE_MS = 2000;
-  const saveRef = useRef<(fromAuto?: boolean) => Promise<void>>(async () => {});
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -857,68 +855,68 @@ function MarketingFlowCanvas() {
 
   const [saving, setSaving] = useState(false);
 
-  const save = useCallback(
-    async (fromAuto = false) => {
-      if (!fromAuto) {
-        if (autoSaveTimerRef.current) {
-          clearTimeout(autoSaveTimerRef.current);
-          autoSaveTimerRef.current = null;
-        }
-        setSaveMsg(null);
-      }
-      setSaving(true);
-      try {
-        const cleanNodes = nodes.map((n) => ({
-          id: n.id,
-          type: n.type,
-          position: n.position,
-          data: n.data,
-        }));
-        const cleanEdges = edges.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: e.sourceHandle ?? null,
-          targetHandle: e.targetHandle ?? null,
-          label: e.label ?? "",
-        }));
-        const snapshot = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
-        const r = await fetch("/api/admin/marketing/flow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nodes: cleanNodes,
-            edges: cleanEdges,
-            is_active: flowActive,
-          }),
-        });
-        if (!r.ok) {
-          const errBody = await r.text().catch(() => "");
-          console.error("[MarketingFlowBuilder] save failed:", r.status, errBody);
-          let detail = "";
-          try {
-            detail = (JSON.parse(errBody) as { error?: string }).error ?? "";
-          } catch {
-            detail = errBody;
-          }
-          setSaveMsg(`שגיאת שמירה (${r.status}): ${detail || "unknown"}`);
-          return;
-        }
-        lastPersistedSnapshotRef.current = snapshot;
-        dirtyRef.current = false;
-        savedOnceRef.current = true;
-        setSaveMsg(fromAuto ? "נשמר אוטומטית" : "נשמר ב-Supabase");
-      } catch (err) {
-        console.error("[MarketingFlowBuilder] save exception:", err);
-        setSaveMsg(`שגיאת שמירה: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        setSaving(false);
-      }
+  const markDirty = useCallback(
+    (dirty: boolean) => {
+      dirtyRef.current = dirty;
+      setIsDirty(dirty);
+      onDirtyChange?.(dirty);
     },
-    [edges, flowActive, nodes]
+    [onDirtyChange]
   );
 
-  saveRef.current = save;
+  const save = useCallback(async () => {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    setSaveMsg(null);
+    setSaving(true);
+    try {
+      const cleanNodes = nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        data: n.data,
+      }));
+      const cleanEdges = edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+        label: e.label ?? "",
+      }));
+      const snapshot = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
+      const r = await fetch("/api/admin/marketing/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: cleanNodes,
+          edges: cleanEdges,
+          is_active: flowActive,
+        }),
+      });
+      if (!r.ok) {
+        const errBody = await r.text().catch(() => "");
+        console.error("[MarketingFlowBuilder] save failed:", r.status, errBody);
+        let detail = "";
+        try {
+          detail = (JSON.parse(errBody) as { error?: string }).error ?? "";
+        } catch {
+          detail = errBody;
+        }
+        setSaveMsg(`שגיאת שמירה (${r.status}): ${detail || "unknown"}`);
+        return;
+      }
+      lastPersistedSnapshotRef.current = snapshot;
+      markDirty(false);
+      setSaveMsg("נשמר ב-Supabase");
+    } catch (err) {
+      console.error("[MarketingFlowBuilder] save exception:", err);
+      setSaveMsg(`שגיאת שמירה: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+    }
+  }, [edges, flowActive, markDirty, nodes]);
 
   const UNDO_MAX = 45;
   const HISTORY_DEBOUNCE_MS = 420;
@@ -1023,25 +1021,17 @@ function MarketingFlowCanvas() {
   useEffect(() => {
     if (loading) {
       lastPersistedSnapshotRef.current = null;
+      markDirty(false);
       return;
     }
     const snap = serializeMarketingFlowSnapshot(nodes, edges, flowActive);
     if (lastPersistedSnapshotRef.current === null) {
       lastPersistedSnapshotRef.current = snap;
+      markDirty(false);
       return;
     }
-    if (snap === lastPersistedSnapshotRef.current) return;
-
-    dirtyRef.current = true;
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      autoSaveTimerRef.current = null;
-      void saveRef.current(true);
-    }, AUTOSAVE_MS);
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    };
-  }, [nodes, edges, flowActive, loading]);
+    markDirty(snap !== lastPersistedSnapshotRef.current);
+  }, [nodes, edges, flowActive, loading, markDirty]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
@@ -1133,7 +1123,7 @@ function MarketingFlowCanvas() {
         </button>
         <button
           type="button"
-          onClick={() => void save(false)}
+          onClick={() => void save()}
           disabled={saving}
           style={{
             height: 38,
@@ -1181,10 +1171,13 @@ function MarketingFlowCanvas() {
           {flowActive ? "השבת פלואו" : "הפעל פלואו"}
         </button>
         {saveMsg ? <span style={{ fontSize: 13, color: saveMsg.startsWith("נשמר") ? "#0b5c2e" : "#b42318" }}>{saveMsg}</span> : null}
-        {!loading ? (
-          <span style={{ fontSize: 12, color: "#a89bc4" }}>
-            שמירה אוטומטית אחרי הקלדה (~{Math.round(AUTOSAVE_MS / 1000)} שנ׳) · Ctrl+Z בטל · Ctrl+Shift+Z שחזר
+        {!loading && isDirty ? (
+          <span style={{ fontSize: 12, color: "#b45309", fontWeight: 500 }}>
+            יש שינויים שלא נשמרו — לחצו «שמור» לפני מעבר לטאב אחר
           </span>
+        ) : null}
+        {!loading ? (
+          <span style={{ fontSize: 12, color: "#a89bc4" }}>Ctrl+Z בטל · Ctrl+Shift+Z שחזר</span>
         ) : null}
         {loading ? <span style={{ fontSize: 12, color: "#6b5b9a" }}>טוען…</span> : null}
       </div>
@@ -1446,11 +1439,15 @@ function MarketingFlowCanvas() {
   );
 }
 
-export default function MarketingFlowBuilder() {
+export default function MarketingFlowBuilder({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   return (
     <ReactFlowProvider>
       <style>{`@keyframes mf-spin { to { transform: rotate(360deg); } }`}</style>
-      <MarketingFlowCanvas />
+      <MarketingFlowCanvas onDirtyChange={onDirtyChange} />
     </ReactFlowProvider>
   );
 }

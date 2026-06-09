@@ -1,8 +1,7 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useState, type CSSProperties } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import MarketingFlowBuilder from "./MarketingFlowBuilder";
 import MarketingLegalityTab from "./MarketingLegalityTab";
 import MarketingOpenQuestionsTab from "./MarketingOpenQuestionsTab";
@@ -36,6 +35,26 @@ function parseSubTab(raw: string | null): MarketingSubTab {
   return "flow";
 }
 
+function marketingSubTabHref(sub: MarketingSubTab): string {
+  return sub === "flow" ? "/admin/dashboard?tab=marketing" : `/admin/dashboard?tab=marketing&sub=${sub}`;
+}
+
+function MarketingSubTabButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} style={{ ...tabPill(active), cursor: "pointer", fontFamily: "inherit" }}>
+      {label}
+    </button>
+  );
+}
+
 export default function MarketingDashboardClient({
   businesses,
   initialAllSessions = [],
@@ -43,8 +62,22 @@ export default function MarketingDashboardClient({
   businesses: ZoeBusinessOption[];
   initialAllSessions?: ZoeAdminSessionSummary[];
 }) {
+  const router = useRouter();
   const sp = useSearchParams();
   const sub = parseSubTab(sp.get("sub"));
+  const [flowDirty, setFlowDirty] = useState(false);
+
+  const goSubTab = useCallback(
+    (target: MarketingSubTab) => {
+      if (target === sub) return;
+      if (sub === "flow" && flowDirty) {
+        window.alert("יש שינויים שלא נשמרו בפלואו. לחצו «שמור» לפני מעבר לטאב אחר.");
+        return;
+      }
+      router.push(marketingSubTabHref(target));
+    },
+    [flowDirty, router, sub]
+  );
 
   return (
     <>
@@ -58,21 +91,31 @@ export default function MarketingDashboardClient({
           justifyContent: "flex-start",
         }}
       >
-        <Link href="/admin/dashboard?tab=marketing" prefetch style={tabPill(sub === "flow")}>
-          בניית הפלואו
-        </Link>
-        <Link href="/admin/dashboard?tab=marketing&sub=conversations" prefetch style={tabPill(sub === "conversations")}>
-          שיחות
-        </Link>
-        <Link href="/admin/dashboard?tab=marketing&sub=questions" prefetch style={tabPill(sub === "questions")}>
-          שאלות שעלו
-        </Link>
-        <Link href="/admin/dashboard?tab=marketing&sub=open" prefetch style={tabPill(sub === "open")}>
-          עובדות לשאלות פתוחות
-        </Link>
-        <Link href="/admin/dashboard?tab=marketing&sub=legal" prefetch style={tabPill(sub === "legal")}>
-          חוקיות
-        </Link>
+        <MarketingSubTabButton
+          active={sub === "flow"}
+          label="בניית הפלואו"
+          onClick={() => goSubTab("flow")}
+        />
+        <MarketingSubTabButton
+          active={sub === "conversations"}
+          label="שיחות"
+          onClick={() => goSubTab("conversations")}
+        />
+        <MarketingSubTabButton
+          active={sub === "questions"}
+          label="שאלות שעלו"
+          onClick={() => goSubTab("questions")}
+        />
+        <MarketingSubTabButton
+          active={sub === "open"}
+          label="עובדות לשאלות פתוחות"
+          onClick={() => goSubTab("open")}
+        />
+        <MarketingSubTabButton
+          active={sub === "legal"}
+          label="חוקיות"
+          onClick={() => goSubTab("legal")}
+        />
       </div>
 
       <div
@@ -85,7 +128,7 @@ export default function MarketingDashboardClient({
         }}
       >
         {sub === "flow" ? (
-          <MarketingFlowBuilder />
+          <MarketingFlowBuilder onDirtyChange={setFlowDirty} />
         ) : sub === "conversations" ? (
           <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} />
         ) : sub === "questions" ? (
