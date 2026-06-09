@@ -16,6 +16,8 @@ const PAGE_TEXT_MAX_CHARS = 8000;
 /** דפים נוספים מאותו אתר — לוח שעות/שיעורים (מקור מועדף לתיאורי שירות) */
 const SCHEDULE_EXTRA_PAGE_TEXT_MAX_CHARS = 5500;
 const MAX_SCHEDULE_SUPPLEMENTARY_FETCHES = 4;
+const MAX_ABOUT_SUPPLEMENTARY_FETCHES = 3;
+const ABOUT_EXTRA_PAGE_TEXT_MAX_CHARS = 4500;
 const COMBINED_SITE_TEXT_HARD_MAX = 22_000;
 const FETCH_TIMEOUT_MS = 12_000;
 
@@ -352,6 +354,91 @@ async function fetchScheduleSupplementaryCorpus(mainUrl: string, mainHtml: strin
   return blocks.join("\n\n");
 }
 
+function extractFooterText(html: string): string {
+  const m = html.match(/<footer[\s\S]*?<\/footer>/i);
+  if (!m) return "";
+  return decodeHtmlEntities(stripHtmlToText(m[0])).slice(0, ABOUT_EXTRA_PAGE_TEXT_MAX_CHARS);
+}
+
+function isAboutLikePagePath(pathname: string, search: string): boolean {
+  let combined: string;
+  try {
+    combined = decodeURIComponent(`${pathname}${search || ""}`).toLowerCase();
+  } catch {
+    combined = `${pathname}${search || ""}`.toLowerCase();
+  }
+  if (/\babout\b|\bcontact\b|\blocation\b|\bfind-us\b|\bvisit\b/.test(combined)) return true;
+  if (/אודות|צור-קשר|צור_קשר|יצירת-קשר|הגעה|מיקום|סניפים|איך-מגיעים/.test(combined)) return true;
+  return false;
+}
+
+function extractAboutPageCandidates(html: string, pageUrl: string, limit = 10): string[] {
+  const base = new URL(pageUrl);
+  const found = new Set<string>();
+
+  const tryAdd = (raw: string) => {
+    const v = raw.trim();
+    if (!v || v.startsWith("#") || /^javascript:/i.test(v) || /^mailto:/i.test(v)) return;
+    try {
+      const abs =
+        v.startsWith("//")
+          ? new URL(`https:${v}`)
+          : v.startsWith("/")
+            ? new URL(v, base.origin)
+            : new URL(v, base.origin);
+      if (abs.protocol !== "http:" && abs.protocol !== "https:") return;
+      if (abs.hostname.replace(/^www\./i, "") !== base.hostname.replace(/^www\./i, "")) return;
+      if (!isAboutLikePagePath(abs.pathname, abs.search)) return;
+      abs.hash = "";
+      found.add(abs.toString());
+    } catch {
+      /* skip */
+    }
+  };
+
+  for (const m of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
+    tryAdd(m[1]);
+  }
+
+  return [...found].slice(0, limit);
+}
+
+async function fetchAboutFooterSupplementaryCorpus(mainUrl: string, mainHtml: string): Promise<string> {
+  const blocks: string[] = [];
+  const footerText = extractFooterText(mainHtml);
+  if (footerText.trim()) {
+    blocks.push(`\n=== מקור (פוטר האתר) ===\n${footerText}`);
+  }
+
+  const candidates = extractAboutPageCandidates(mainHtml, mainUrl);
+  const seen = new Set<string>([normalizeUrlKey(mainUrl)]);
+  let fetchCount = 0;
+
+  for (const href of candidates) {
+    if (fetchCount >= MAX_ABOUT_SUPPLEMENTARY_FETCHES) break;
+    const key = normalizeUrlKey(href);
+    if (seen.has(key)) continue;
+
+    const safe = await assertSafePublicUrl(href);
+    if (!safe.ok) continue;
+
+    try {
+      let res = await fetchWithTimeout(safe.url, { redirect: "follow", headers: BROWSER_HEADERS });
+      if (!res.ok) continue;
+      const html = await res.text();
+      const text = decodeHtmlEntities(stripHtmlToText(html)).slice(0, ABOUT_EXTRA_PAGE_TEXT_MAX_CHARS);
+      if (!text.trim()) continue;
+      seen.add(key);
+      fetchCount++;
+      blocks.push(`\n=== מקור (דף אודות / יצירת קשר): ${safe.url} ===\n${text}`);
+    } catch {
+      /* skip */
+    }
+  }
+
+  return blocks.join("\n\n");
+}
+
 function clipCombinedSiteText(main: string, extra: string): string {
   const combined = `${main}\n\n--- דפים נוספים מאותו אתר (עדיפות לתיאורי שירות ספציפיים) ---${extra}`;
   if (combined.length <= COMBINED_SITE_TEXT_HARD_MAX) return combined;
@@ -662,7 +749,11 @@ export async function scanWebsiteFromUrl(
   let combinedSiteCorpus = pageText;
   try {
     if (mainHtml.trim()) {
-      const supplementary = await fetchScheduleSupplementaryCorpus(url, mainHtml);
+      const [scheduleExtra, aboutExtra] = await Promise.all([
+        fetchScheduleSupplementaryCorpus(url, mainHtml),
+        fetchAboutFooterSupplementaryCorpus(url, mainHtml),
+      ]);
+      const supplementary = [aboutExtra, scheduleExtra].filter(Boolean).join("\n\n");
       combinedSiteCorpus = clipCombinedSiteText(pageText, supplementary);
     }
   } catch {
@@ -678,14 +769,21 @@ export async function scanWebsiteFromUrl(
 רמזי מטא (אם קיימים): ${metaHints || "אין"}
 ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבירים על בסיס הדומיין, title/meta והקשר העסק.' : ""}
 אם שדה מסוים לא נמצא, החזר מחרוזת ריקה "" או מערך ריק [] במקום להיכשל בבקשה.
-חלץ מהאתר (או נחש בצורה סבירה אם חסר):
-- business_name: שם העסק כפי שמופיע בכותרת האתר או בלוגו — קצר, בלי "| אתר רשמי" ובלי סלוגן ארוך.
-- tagline: משפט תיאור עסק אחד קצר ומזמין בעברית (כמו תת-כותרת), עד ~20 מילים.
-- address: כתובת פיזית אם מופיעה.
-- directions: הנחיות הגעה/חניה/כניסה אם מופיעות (או ריק).
-- customer_service_phone: מספר טלפון לשירות לקוחות/יצירת קשר אם מופיע (אפשר גם נייד). אם יש רשימת "טלפונים גולמיים" למטה — העתק אחד מהם בדיוק.
+
+חוק נאמנות לטקסט (קריטי — על כל שדה טקסטואלי):
+- העתק מילים וניסוחים בדיוק כפי שמופיעים באתר. אסור לשנות מילים, לתקן "שגיאות", להחליף מילים דומות, או להוסיף מילים שלא מופיעות במקור.
+- דוגמאות אסורות: "מטר מהים" → "ממטר מהים"; הוספת "מתמחים" שלא מופיעה; "גבוה" → "גמוע"; חיבור משפטים שלא היו יחד במקור.
+- אסור להמציא אימיילים, טלפונים, כתובות או עובדות שלא מופיעים בטקסט המצורף.
+- אם אין ציטוט מדויק — השאר ריק במקום לנסח מחדש.
+
+חלץ מהאתר (או נחש בצורה סבירה רק לשם/נישה אם חסר לגמרי):
+- business_name: שם העסק כפי שמופיע בכותרת האתר או בלוגו — קצר, בלי "| אתר רשמי" ובלי סלוגן ארוך. העתק מדויק.
+- tagline: משפט תיאור עסק אחד מהאתר (תת-כותרת / אודות) — העתק מילה במילה אם קיים. עד ~25 מילים.
+- address: כתובת פיזית. חובה לחפש בפוטר, בדף יצירת קשר, בדף אודות, ובקטעים שמסומנים "מקור (פוטר)" / "מקור (דף אודות)". כמעט לכל עסק יש כתובת באחד מהמקומות האלה.
+- directions: הנחיות הגעה/חניה/כניסה — העתק מדויק אם מופיע (או ריק).
+- customer_service_phone: מספר טלפון לשירות לקוחות/יצירת קשר — העתק בדיוק כפי שמופיע. אם יש רשימת "טלפונים גולמיים" למטה — העתק אחד מהם בדיוק.
 - schedule_booking_url: קישור https מלא למערכת שעות/הרשמה (Arbox, Mindbody, Acuity, Calendly וכו׳). אם יש רשימת "קישורים גולמיים" למטה — העתק אחד מהם בדיוק (עדיפות לראשון ברשימה אם זה ארבוקס/Mindbody).
-- business_traits: מערך של 3–8 משפטים קצרים בעברית, כל משפט עד 5–6 מילים — מאפיינים ששווה לציין (רמות, גודל מקום, מתאים ל…).
+- business_traits: מערך של 3–8 ציטוטים קצרים מהאתר — כל פריט חייב להיות מקטע שמופיע במקור כמעט מילה במילה (עד משפט אחד). אל תסכם, אל תפרפרז, אל תתקן דקדוק. אם אין ציטוט מתאים — השאר מערך ריק.
 
 חוקיות תיאור שירות (products[].description) — חובה:
 1) עדיפות למקור: חפש תחילה בקטעים שמסומנים "מקור (דף לו״ז / שיעורים)" ובטקסט ליד שם השירות (כותרת + פסקה). אחר כך דף הבית ושאר הגוף.
