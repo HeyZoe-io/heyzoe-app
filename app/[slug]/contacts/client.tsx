@@ -16,6 +16,7 @@ import {
 } from "@/lib/contact-status";
 import type { LeadRow } from "@/lib/leads-types";
 import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
+import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersModal";
 
 type Contact = LeadRow;
 
@@ -263,6 +264,7 @@ export default function ContactsClient({
   const [singleOpen, setSingleOpen] = useState(false);
   const [singleContact, setSingleContact] = useState<Contact | null>(null);
   const [singleMsg, setSingleMsg] = useState("");
+  const [answersContact, setAnswersContact] = useState<Contact | null>(null);
 
   const filteredContacts = useMemo(() => {
     return initialContacts.filter((c) => {
@@ -401,6 +403,11 @@ export default function ContactsClient({
     setSingleContact(c);
     setSingleMsg("");
     setSingleOpen(true);
+  }
+
+  function openAnswers(c: Contact) {
+    if (!c.phone) return;
+    setAnswersContact(c);
   }
 
   function viewConversations(phone: string, contact: Contact) {
@@ -569,6 +576,16 @@ export default function ContactsClient({
                     </div>
 
                     <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      {marketingAdminMode ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openAnswers(c)}
+                          disabled={!c.phone}
+                        >
+                          תשובות
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         variant="outline"
@@ -656,6 +673,16 @@ export default function ContactsClient({
                         </td>
                         <td className="py-3 px-2">
                           <div className="flex flex-wrap justify-end gap-2">
+                            {marketingAdminMode ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => openAnswers(c)}
+                                disabled={!c.phone}
+                              >
+                                תשובות
+                              </Button>
+                            ) : null}
                             <Button
                               type="button"
                               variant="outline"
@@ -688,6 +715,14 @@ export default function ContactsClient({
           </div>
         </CardContent>
       </Card>
+
+      {answersContact?.phone ? (
+        <MarketingLeadAnswersModal
+          phone={answersContact.phone}
+          fullName={answersContact.full_name}
+          onClose={() => setAnswersContact(null)}
+        />
+      ) : null}
 
       {singleOpen && singleContact ? (
         <ModalShell title="שליחת הודעה" onClose={() => setSingleOpen(false)} widthClass="max-w-md">

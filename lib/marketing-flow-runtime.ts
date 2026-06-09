@@ -182,6 +182,13 @@ async function tryRerouteFromLastAnsweredQuestion(input: {
   if (!lastQuestion || lastQuestion.type !== "question") return null;
   if (!matchesMarketingFlowQuestionAnswer(lastQuestion, input.edges, input.userText)) return null;
 
+  await persistMarketingFlowQuestionAnswer({
+    phone: input.phone,
+    questionNode: lastQuestion,
+    userText: input.userText,
+    edges: input.edges,
+  });
+
   const nextNode = findNextNode(lastQuestion.id, input.edges, input.nodes, input.userText);
   if (!nextNode) {
     await persistMarketingFlowPosition({
@@ -451,6 +458,24 @@ function matchesMarketingFlowQuestionAnswer(
   }
 
   return false;
+}
+
+async function persistMarketingFlowQuestionAnswer(input: {
+  phone: string;
+  questionNode: FlowNode;
+  userText: string;
+  edges: FlowEdge[];
+}): Promise<void> {
+  const { recordMarketingLeadFlowAnswer } = await import("@/lib/marketing-lead-answers");
+  const options = getMarketingQuestionAnswerOptions(input.questionNode, input.edges);
+  const questionText = String((input.questionNode.data as Record<string, unknown>)?.text ?? "").trim();
+  await recordMarketingLeadFlowAnswer({
+    phone: input.phone,
+    questionNodeId: input.questionNode.id,
+    questionText,
+    answerText: input.userText,
+    answerKind: options.length === 0 ? "free_text" : "button",
+  });
 }
 
 /**
@@ -788,6 +813,12 @@ export async function handleMarketingFlowInbound(
       return { handled: false, openQuestionInFlow: true };
     }
     answeredQuestionId = currentNode.id;
+    await persistMarketingFlowQuestionAnswer({
+      phone,
+      questionNode: currentNode,
+      userText,
+      edges,
+    });
     nextNode = findNextNode(currentNode.id, edges, nodes, userText);
   } else {
     const rerouted = await tryRerouteFromLastAnsweredQuestion({
