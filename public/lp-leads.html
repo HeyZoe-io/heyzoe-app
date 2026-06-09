@@ -320,6 +320,156 @@ nav{
   box-shadow:0 8px 24px rgba(113,51,218,0.35);
 }
 .hero-link-btn svg{flex-shrink:0;}
+.hero-link-block.is-scanning .hero-link-form-wrap{display:none;}
+.hero-scan-panel{
+  width:100%;max-width:640px;margin:0 auto;
+  min-height:400px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.16);
+  border-radius:20px;
+  padding:18px 16px 16px;
+  backdrop-filter:blur(12px);
+  box-shadow:0 16px 48px rgba(0,0,0,0.22);
+  display:none;
+  text-align:right;
+  animation:fadeUp 0.45s ease both;
+}
+.hero-scan-panel.is-active{display:block;}
+.hero-scan-heading{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(15px,2.2vw,17px);font-weight:600;
+  color:rgba(255,255,255,0.95);margin:0 0 14px;
+}
+.hero-scan-shell{
+  display:grid;grid-template-columns:minmax(0,1fr) 148px;
+  gap:12px;min-height:320px;
+}
+.hero-scan-nav{
+  display:flex;flex-direction:column;gap:6px;
+}
+.hero-scan-tab{
+  display:flex;align-items:center;gap:8px;width:100%;
+  padding:9px 10px;border-radius:12px;
+  border:1px solid rgba(255,255,255,0.12);
+  background:rgba(255,255,255,0.04);
+  color:rgba(255,255,255,0.55);
+  font-family:'Heebo',sans-serif;font-size:12px;font-weight:500;
+  cursor:default;text-align:right;
+  transition:background 0.2s,border-color 0.2s,color 0.2s;
+}
+.hero-scan-tab[hidden]{display:none;}
+.hero-scan-tab.is-scanning{
+  border-color:rgba(192,132,252,0.45);
+  color:rgba(255,255,255,0.88);
+  background:rgba(113,51,218,0.18);
+}
+.hero-scan-tab.is-done{
+  cursor:pointer;color:rgba(255,255,255,0.92);
+  background:rgba(255,255,255,0.08);
+}
+.hero-scan-tab.is-active.is-done{
+  border-color:rgba(255,255,255,0.35);
+  background:rgba(255,255,255,0.14);
+}
+.hero-scan-tab-num{
+  flex-shrink:0;width:22px;height:22px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;
+  background:rgba(255,255,255,0.1);color:inherit;
+}
+.hero-scan-tab.is-done .hero-scan-tab-num{background:rgba(53,255,112,0.22);color:#b7ffd0;}
+.hero-scan-tab-label{flex:1;line-height:1.25;}
+.hero-scan-tab-state{
+  width:14px;height:14px;flex-shrink:0;
+  border:2px solid rgba(255,255,255,0.25);
+  border-top-color:rgba(255,255,255,0.85);
+  border-radius:50%;opacity:0;
+}
+.hero-scan-tab.is-scanning .hero-scan-tab-state{opacity:1;animation:heroScanSpin 0.7s linear infinite;}
+.hero-scan-tab.is-done .hero-scan-tab-state{
+  opacity:1;border:0;background:none;
+  width:16px;height:16px;
+}
+.hero-scan-tab.is-done .hero-scan-tab-state::after{
+  content:'';display:block;width:16px;height:16px;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2335ff70' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+@keyframes heroScanSpin{to{transform:rotate(360deg);}}
+.hero-scan-body{
+  background:rgba(255,255,255,0.96);
+  border-radius:14px;
+  padding:14px 14px 12px;
+  min-height:300px;max-height:300px;
+  overflow:hidden;
+  color:var(--dark);
+  position:relative;
+}
+.hero-scan-pane{display:none;height:100%;overflow-y:auto;}
+.hero-scan-pane.is-visible{display:block;}
+.hero-scan-fields{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;}
+.hero-scan-field{
+  font-family:'Heebo',sans-serif;font-size:14px;line-height:1.45;
+  padding-bottom:8px;border-bottom:1px solid rgba(113,51,218,0.08);
+}
+.hero-scan-field:last-child{border-bottom:0;padding-bottom:0;}
+.hero-scan-field dt{font-weight:600;color:var(--text);margin-bottom:2px;}
+.hero-scan-field dd{margin:0;color:var(--muted);word-break:break-word;}
+.hero-scan-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;}
+.hero-scan-list li{
+  font-family:'Heebo',sans-serif;font-size:14px;line-height:1.4;
+  padding:8px 10px;border-radius:10px;
+  background:rgba(113,51,218,0.06);color:var(--text);
+}
+.hero-scan-more{font-size:13px;color:var(--muted);margin-top:8px;}
+.hero-scan-error{
+  font-family:'Heebo',sans-serif;font-size:14px;line-height:1.65;
+  color:#4a1548;background:#fff;border-radius:12px;padding:16px;
+}
+.hero-scan-error strong{display:block;color:var(--dark);margin-bottom:6px;}
+.lp-demo-chat{
+  display:flex;flex-direction:column;gap:7px;
+  direction:rtl;text-align:right;
+  max-height:272px;overflow-y:auto;padding:2px 0;
+}
+.lp-demo-bubble{
+  max-width:92%;padding:8px 11px;border-radius:10px;
+  font-family:'Heebo',sans-serif;font-size:12.5px;line-height:1.5;
+  color:#1a1a2e;
+  opacity:0;transform:translateY(6px);
+  transition:opacity 0.38s ease,transform 0.38s ease;
+}
+.lp-demo-bubble.show{opacity:1;transform:none;}
+.lp-demo-bubble--bot{
+  align-self:flex-end;background:#fff;
+  border:1px solid rgba(0,0,0,0.06);
+  box-shadow:0 1px 2px rgba(0,0,0,0.05);
+}
+.lp-demo-bubble--user{
+  align-self:flex-start;background:#d9fdd3;
+  border:1px solid #b2e0b8;
+}
+.lp-demo-qr-wrap{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
+.lp-demo-qr{
+  padding:5px 8px;border-radius:8px;text-align:center;
+  font-size:11.5px;font-weight:600;
+  border:1px solid #b5dec0;background:rgba(240,255,244,0.95);color:#0a3d0a;
+}
+.lp-demo-qr.is-picked{background:#c8f0d6;border-color:#0d8050;}
+.lp-demo-cta{
+  display:inline-block;margin-top:6px;padding:6px 12px;border-radius:8px;
+  background:linear-gradient(135deg,#7133da,#6366f1);
+  color:#fff;font-size:11.5px;font-weight:600;
+}
+.lp-demo-note{
+  margin-top:10px;font-size:11px;line-height:1.45;color:var(--muted);
+  padding-top:8px;border-top:1px dashed rgba(113,51,218,0.15);
+}
+@media(max-width:640px){
+  .hero-scan-shell{grid-template-columns:1fr;grid-template-rows:auto 1fr;}
+  .hero-scan-nav{flex-direction:row;flex-wrap:wrap;}
+  .hero-scan-tab{flex:1 1 calc(50% - 4px);font-size:11px;padding:8px;}
+  .hero-scan-body{min-height:260px;max-height:260px;}
+}
 .flow-phone-stage{
   display:flex;justify-content:center;align-items:center;
   animation:fadeUp 0.7s 0.12s ease both;
@@ -1049,20 +1199,29 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="stat"><div class="stat-num">5 שנ'</div><div class="stat-lbl">זמן תגובה ממוצע</div></div>
         <div class="stat"><div class="stat-num">10 דק'</div><div class="stat-lbl">זמן הקמה</div></div>
       </div>
-      <div class="hero-link-block">
-        <p class="hero-link-title">הזינו לינק לאתר שלכם וגלו כמה פשוט להתחבר לזואי!</p>
-        <form class="hero-link-form" action="#" method="get" novalidate>
-          <div class="hero-link-bar">
-            <button type="submit" class="hero-link-btn" data-hz-label="גלו עכשיו (הירו)">
-              <span>גלו עכשיו</span>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-            </button>
-            <input type="url" class="hero-link-input" name="site_url" placeholder="https://www.example.com" inputmode="url" autocomplete="url" aria-label="לינק לאתר">
-            <span class="hero-link-spark" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.4 4.6L18 8l-4.6 1.4L12 14l-1.4-4.6L6 8l4.6-1.4L12 2z" stroke="url(#heroSparkGrad)" stroke-width="1.5" stroke-linejoin="round"/><defs><linearGradient id="heroSparkGrad" x1="6" y1="2" x2="18" y2="14"><stop stop-color="#7133da"/><stop offset="1" stop-color="#60a5fa"/></linearGradient></defs></svg>
-            </span>
+      <div class="hero-link-block" id="heroLinkBlock">
+        <div class="hero-link-form-wrap" id="heroLinkFormWrap">
+          <p class="hero-link-title">הזינו לינק לאתר שלכם וגלו כמה פשוט להתחבר לזואי!</p>
+          <form class="hero-link-form" id="heroLinkForm" action="#" method="get" novalidate>
+            <div class="hero-link-bar">
+              <button type="submit" class="hero-link-btn" data-hz-label="גלו עכשיו (הירו)">
+                <span>גלו עכשיו</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+              </button>
+              <input type="url" class="hero-link-input" id="heroSiteUrlInput" name="site_url" placeholder="https://www.example.com" inputmode="url" autocomplete="url" aria-label="לינק לאתר">
+              <span class="hero-link-spark" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.4 4.6L18 8l-4.6 1.4L12 14l-1.4-4.6L6 8l4.6-1.4L12 2z" stroke="url(#heroSparkGrad)" stroke-width="1.5" stroke-linejoin="round"/><defs><linearGradient id="heroSparkGrad" x1="6" y1="2" x2="18" y2="14"><stop stop-color="#7133da"/><stop offset="1" stop-color="#60a5fa"/></linearGradient></defs></svg>
+              </span>
+            </div>
+          </form>
+        </div>
+        <div class="hero-scan-panel" id="heroScanPanel" aria-live="polite">
+          <p class="hero-scan-heading">מידע שאספתי לפלואו מכירה:</p>
+          <div class="hero-scan-shell">
+            <div class="hero-scan-body" id="heroScanBody"></div>
+            <div class="hero-scan-nav" id="heroScanNav" role="tablist" aria-label="שלבי איסוף מידע"></div>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   </div>
@@ -1701,6 +1860,278 @@ try{
   });
 }catch(e){}
 // Logo in nav - invert for dark bg not needed since transparent
+
+// Hero — סריקת אתר ותצוגת שלבים
+(function heroSiteScan(){
+  var form = document.getElementById('heroLinkForm');
+  var linkBlock = document.getElementById('heroLinkBlock');
+  var formWrap = document.getElementById('heroLinkFormWrap');
+  var panel = document.getElementById('heroScanPanel');
+  var nav = document.getElementById('heroScanNav');
+  var body = document.getElementById('heroScanBody');
+  var urlInput = document.getElementById('heroSiteUrlInput');
+  if (!form || !panel || !nav || !body) return;
+
+  var STEP_META = {
+    1: { label: 'פרטי העסק' },
+    2: { label: 'סוגי אימונים' },
+    3: { label: 'עובדות מעניינות' },
+    4: { label: 'שיחת ווטסאפ' }
+  };
+  var MOTIVATION = [
+    'רוצה להתחטב ולהתחזק',
+    'רוצה להבריא ולהתגמש',
+    'רוצה פעילות כיפית שאתמיד בה'
+  ];
+  var scanState = { data: null, steps: [], completed: [], active: 1, chatRunning: false };
+
+  function delay(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function esc(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function normalizeUrl(raw){
+    var v = String(raw || '').trim();
+    if (!v) return '';
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+    try { return new URL(v).toString(); } catch(e){ return ''; }
+  }
+  function str(v){ return typeof v === 'string' ? v.trim() : ''; }
+  function businessFields(d){
+    var tag = str(d.tagline) || str(d.business_description);
+    return [
+      { label: 'שם העסק', value: str(d.business_name) },
+      { label: 'תיאור העסק', value: tag },
+      { label: 'כתובת', value: str(d.address) },
+      { label: 'שירות לקוחות', value: str(d.customer_service_phone) }
+    ].filter(function(row){ return row.value; });
+  }
+  function productNames(d){
+    if (!Array.isArray(d.products)) return [];
+    return d.products.map(function(p){
+      return str(p && p.name);
+    }).filter(Boolean);
+  }
+  function traits(d){
+    if (!Array.isArray(d.business_traits)) return [];
+    return d.business_traits.map(function(t){ return str(t); }).filter(Boolean);
+  }
+  function hasBusiness(d){ return businessFields(d).length > 0; }
+  function hasProducts(d){ return productNames(d).length > 0; }
+  function hasTraits(d){ return traits(d).length > 0; }
+  function hasAny(d){
+    return hasBusiness(d) || hasProducts(d) || hasTraits(d);
+  }
+  function computeSteps(d){
+    var steps = [];
+    if (hasBusiness(d)) steps.push(1);
+    if (hasProducts(d)) steps.push(2);
+    if (hasTraits(d)) steps.push(3);
+    steps.push(4);
+    return steps;
+  }
+  function parsePriceText(p){
+    var t = str(p && p.price_text);
+    if (!t) return 'XX';
+    var m = t.match(/(\d[\d,]*)/);
+    return m ? m[1].replace(/,/g,'') : t;
+  }
+  function parseDuration(p){
+    var t = str(p && p.description) + ' ' + str(p && p.price_text);
+    var m = t.match(/(\d{2,3})\s*דק/);
+    return m ? m[1] : '60';
+  }
+
+  function renderTabs(){
+    nav.innerHTML = '';
+    scanState.steps.forEach(function(stepId){
+      var meta = STEP_META[stepId];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hero-scan-tab';
+      btn.setAttribute('role', 'tab');
+      btn.dataset.step = String(stepId);
+      var done = scanState.completed.indexOf(stepId) >= 0;
+      var scanning = scanState.active === stepId && !done && stepId !== scanState._errorStep;
+      if (done) btn.classList.add('is-done');
+      if (scanning) btn.classList.add('is-scanning');
+      if (done && scanState.active === stepId) btn.classList.add('is-active');
+      btn.innerHTML =
+        '<span class="hero-scan-tab-num">' + stepId + '</span>' +
+        '<span class="hero-scan-tab-label">' + esc(meta.label) + '</span>' +
+        '<span class="hero-scan-tab-state" aria-hidden="true"></span>';
+      if (done) {
+        btn.addEventListener('click', function(){
+          scanState.active = stepId;
+          renderPane(stepId);
+          renderTabs();
+        });
+      }
+      nav.appendChild(btn);
+    });
+  }
+
+  function renderPane(stepId){
+    var d = scanState.data || {};
+    var html = '';
+    if (stepId === 1) {
+      var rows = businessFields(d);
+      html = '<dl class="hero-scan-fields">' + rows.map(function(row){
+        return '<div class="hero-scan-field"><dt>' + esc(row.label) + '</dt><dd>' + esc(row.value) + '</dd></div>';
+      }).join('') + '</dl>';
+    } else if (stepId === 2) {
+      var names = productNames(d).slice(0, 5);
+      var more = productNames(d).length > 5;
+      html = '<ul class="hero-scan-list">' + names.map(function(n){
+        return '<li>' + esc(n) + '</li>';
+      }).join('') + '</ul>' + (more ? '<p class="hero-scan-more">ועוד…</p>' : '');
+    } else if (stepId === 3) {
+      var facts = traits(d).slice(0, 5);
+      html = '<ul class="hero-scan-list">' + facts.map(function(f){
+        return '<li>' + esc(f) + '</li>';
+      }).join('') + '</ul>';
+    } else if (stepId === 4) {
+      html = '<div class="lp-demo-chat" id="lpDemoChat"></div>' +
+        '<p class="lp-demo-note">זואי עונה גם על שאלות פתוחות על פי המידע שזואי שאבה מהאתר ועובדות שתזינו לה ידנית!</p>';
+    }
+    body.innerHTML = '<div class="hero-scan-pane is-visible" data-pane="' + stepId + '">' + html + '</div>';
+    if (stepId === 4 && scanState.completed.indexOf(4) >= 0 && !scanState.chatRunning) {
+      void animateDemoChat(d);
+    }
+  }
+
+  function renderError(){
+    scanState._errorStep = true;
+    body.innerHTML =
+      '<div class="hero-scan-error" role="alert">' +
+      '<strong>יש לי בעיה לקרוא את הלינק לאתר שלך</strong>' +
+      'אבל אפשר להזין ידנית את המידע על הסטודיו שלך ממש בקלות לאחר ההרשמה.' +
+      '</div>';
+    nav.innerHTML = '';
+  }
+
+  async function animateDemoChat(d){
+    if (scanState.chatRunning) return;
+    scanState.chatRunning = true;
+    var chat = document.getElementById('lpDemoChat');
+    if (!chat) { scanState.chatRunning = false; return; }
+    chat.innerHTML = '';
+    var name = str(d.business_name) || 'הסטודיו שלכם';
+    var tag = str(d.tagline) || str(d.business_description) || 'מקום מקצועי ומזמין לאימונים';
+    var addr = str(d.address);
+    var products = productNames(d);
+    var trainBtns = products.length ? products.slice(0, 3) : ['אימון לדוגמה', 'אימון לדוגמה', 'אימון לדוגמה'];
+    var pickedTrain = trainBtns[0];
+    var firstProduct = Array.isArray(d.products) && d.products[0] ? d.products[0] : {};
+    var price = parsePriceText(firstProduct);
+    var duration = parseDuration(firstProduct);
+
+    function addBubble(kind, inner){
+      var el = document.createElement('div');
+      el.className = 'lp-demo-bubble lp-demo-bubble--' + kind;
+      el.innerHTML = inner;
+      chat.appendChild(el);
+      requestAnimationFrame(function(){ el.classList.add('show'); });
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    var open =
+      'היי! איזה כיף שהגעת אלינו 🙂<br>' +
+      'שמי זואי מ־' + esc(name) + ',<br>' +
+      esc(tag) + '<br>' +
+      'נשמח מאוד לארח אותך אצלנו!' +
+      (addr ? '<br>כתובתנו היא ' + esc(addr) : '');
+
+    addBubble('bot', open);
+    await delay(1400);
+    addBubble('bot', 'מה מביא אותך אלינו?<div class="lp-demo-qr-wrap">' +
+      MOTIVATION.map(function(t, i){
+        return '<div class="lp-demo-qr' + (i === 0 ? ' is-picked' : '') + '">' + esc(t) + '</div>';
+      }).join('') + '</div>');
+    await delay(1600);
+    addBubble('user', esc(MOTIVATION[0]));
+    await delay(900);
+    addBubble('bot', 'מדהים! ב' + esc(name) + ' נדאג לקחת אותך ליעד שלך.<br>איזה אימון הכי מעניין אותך?<div class="lp-demo-qr-wrap">' +
+      trainBtns.map(function(t, i){
+        return '<div class="lp-demo-qr' + (i === 0 ? ' is-picked' : '') + '">' + esc(t) + '</div>';
+      }).join('') + '</div>');
+    await delay(1700);
+    addBubble('user', esc(pickedTrain));
+    await delay(900);
+    addBubble('bot',
+      'תענוג, עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. ' +
+      'האימון עולה ' + esc(price) + ' שקלים, והוא נמשך ' + esc(duration) + ' דקות. ' +
+      'אין לנו ספק שהולכת להיות לך חוויה נפלאה. שנתקדם?' +
+      '<span class="lp-demo-cta">הרשמה לשיעור ניסיון</span>');
+    await delay(1200);
+    addBubble('bot', 'אגב אפשר לשאול אותי כל שאלה פתוחה ואני אענה!');
+    scanState.chatRunning = false;
+  }
+
+  async function revealSteps(d){
+    scanState.data = d;
+    scanState.steps = computeSteps(d);
+    scanState.completed = [];
+    scanState.active = scanState.steps[0];
+    renderTabs();
+    renderPane(scanState.active);
+
+    for (var i = 0; i < scanState.steps.length; i++) {
+      var stepId = scanState.steps[i];
+      scanState.active = stepId;
+      renderTabs();
+      if (stepId !== 4) renderPane(stepId);
+      await delay(stepId === 4 ? 500 : 850);
+      scanState.completed.push(stepId);
+      renderTabs();
+      renderPane(stepId);
+      if (stepId === 4) await animateDemoChat(d);
+      await delay(280);
+    }
+  }
+
+  async function startScan(url){
+    try { if (window.hzTrack) hzTrack('lp_site_scan_start', url); } catch(e){}
+    linkBlock.classList.add('is-scanning');
+    panel.classList.add('is-active');
+    scanState = { data: null, steps: [1,2,3,4], completed: [], active: 1, chatRunning: false };
+    body.innerHTML = '<div class="hero-scan-pane is-visible"><p style="font-family:Heebo,sans-serif;font-size:14px;color:var(--muted);margin:0;">סורקת את האתר וממלאת את פלואו המכירה…</p></div>';
+    nav.innerHTML = '';
+
+    var data = {};
+    var ok = false;
+    try {
+      var res = await fetch('/api/lp/fetch-site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ website_url: url })
+      });
+      data = await res.json();
+      ok = res.ok || hasAny(data);
+    } catch(e) {
+      ok = false;
+    }
+
+    if (!ok || !hasAny(data)) {
+      renderError();
+      try { if (window.hzTrack) hzTrack('lp_site_scan_failed', url); } catch(e){}
+      return;
+    }
+    try { if (window.hzTrack) hzTrack('lp_site_scan_ok', url); } catch(e){}
+    await revealSteps(data);
+  }
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var url = normalizeUrl(urlInput && urlInput.value);
+    if (!url) {
+      if (urlInput) urlInput.focus();
+      return;
+    }
+    void startScan(url);
+  });
+})();
+
 // WA chat animation - triggers on scroll
 let waDone = false;
 new IntersectionObserver((entries)=>{
