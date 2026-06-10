@@ -8,6 +8,7 @@
  * | lead_registered | body: טלפון |
  * | lead_registered_with_time | body: טלפון, אימון, מועד, תאריך הרשמה, חימום |
  * | daily_summary | header: תאריך; body: שיחות, נרשמו (רשימה), ללא מענה (רשימה), קישור דשבורד |
+ * | lead_not_relevant | body: טלפון, סיבה קצרה |
  * | bot_paused_waiting / lead_cta_no_signup / marketing_human_agent_request | body: טלפון |
  * | quota_warning_* | ללא פרמטרים |
  */
@@ -144,6 +145,16 @@ export function buildDailySummaryWaParams(input: {
     input.noResponseLine.trim() || "אין",
     input.dashboardUrl.trim() || "https://heyzoe.io"
   );
+}
+
+/** lead_not_relevant — BODY: טלפון, סיבה (למשל «לא רלוונטי - מיקום») */
+export const LEAD_NOT_RELEVANT_WA_TEMPLATE_NAME = "lead_not_relevant";
+
+export function buildLeadNotRelevantWaParams(input: {
+  leadPhoneDisplay: string;
+  reasonLine: string;
+}): OwnerTemplateComponent[] {
+  return waBodyParams(input.leadPhoneDisplay, input.reasonLine.trim() || "לא רלוונטי");
 }
 
 /** bot_paused_waiting | lead_cta_no_signup | marketing_human_agent_request — BODY: טלפון */

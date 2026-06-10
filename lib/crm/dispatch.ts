@@ -66,6 +66,7 @@ export async function dispatchCrmEvent(input: {
   fullName?: string | null;
   eventAtIso?: string;
   registration?: CrmTrialRegistrationContext | null;
+  notRelevantReason?: string | null;
 }): Promise<void> {
   const businessId = Number(input.businessId);
   const leadPhone = String(input.leadPhone ?? "").trim();
@@ -99,7 +100,8 @@ export async function dispatchCrmEvent(input: {
     const noteText = buildCrmEventNote(
       input.kind,
       formatEventDateIl(eventAtIso),
-      input.kind === "trial_registered" ? input.registration : undefined
+      input.kind === "trial_registered" ? input.registration : undefined,
+      input.kind === "not_relevant" ? input.notRelevantReason : undefined
     );
     const fullName = await resolveLeadFullName({
       businessId,
