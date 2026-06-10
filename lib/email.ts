@@ -439,6 +439,7 @@ export function dailySummaryOwnerEmail(input: {
   date_label: string;
   conversations_held: number;
   registered_leads: DailySummaryIdleLead[];
+  not_relevant_leads?: DailySummaryIdleLead[];
   no_response_leads: DailySummaryIdleLead[];
   dashboard_url: string;
   no_response_window_hours?: number;
@@ -447,6 +448,7 @@ export function dailySummaryOwnerEmail(input: {
   const dl = String(input.date_label ?? "").trim();
   const conversationsHeld = Math.max(0, Number(input.conversations_held) || 0);
   const registeredLeads = input.registered_leads ?? [];
+  const notRelevantLeads = input.not_relevant_leads ?? [];
   const noResponseLeads = input.no_response_leads ?? [];
   const dashboardUrl =
     String(input.dashboard_url ?? "").trim() ||
@@ -458,6 +460,7 @@ export function dailySummaryOwnerEmail(input: {
     dl ? `סיכום יומי — ${dl}` : "סיכום יומי",
     `שיחות שהתקיימו: ${conversationsHeld}`,
     `נרשמו: ${formatDailySummaryLeadListLine(registeredLeads)}`,
+    `לא רלוונטי: ${formatDailySummaryLeadListLine(notRelevantLeads)}`,
     `ללא מענה: ${formatDailySummaryLeadListLine(noResponseLeads)}`,
   ];
 
