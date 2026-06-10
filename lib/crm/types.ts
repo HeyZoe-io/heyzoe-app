@@ -21,7 +21,7 @@ export function normalizeCrmType(raw: unknown): CrmType {
   return (CRM_TYPES as readonly string[]).includes(t) ? (t as CrmType) : "";
 }
 
-export type CrmEventKind = "trial_registered" | "human_requested" | "no_response";
+export type CrmEventKind = "trial_registered" | "human_requested" | "no_response" | "not_relevant";
 
 export type CrmTrialRegistrationContext = {
   serviceName?: string | null;
@@ -77,7 +77,8 @@ export function buildCrmTrialRegisteredNote(
 export function buildCrmEventNote(
   kind: CrmEventKind,
   eventDateIl: string,
-  registration?: CrmTrialRegistrationContext | null
+  registration?: CrmTrialRegistrationContext | null,
+  notRelevantReason?: string | null
 ): string {
   switch (kind) {
     case "trial_registered":
@@ -86,5 +87,9 @@ export function buildCrmEventNote(
       return "🙋 זואי: הליד ביקש לדבר עם נציג";
     case "no_response":
       return "⏰ זואי: הליד לא ענה לאחר כל הפולואפים, מומלץ להתקשר";
+    case "not_relevant": {
+      const r = String(notRelevantReason ?? "").trim();
+      return r ? `זואי - לא רלוונטי - ${r}` : "זואי - לא רלוונטי";
+    }
   }
 }

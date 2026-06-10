@@ -40,6 +40,61 @@ export async function fetchConversationsHeldYesterday(input: {
 }
 
 /** לידים שנרשמו אתמול (trial_registered_at בחלון). */
+export type NotRelevantLeadRow = IdleLeadRow & { not_relevant_reason?: string | null };
+
+export async function fetchNotRelevantYesterdayLeads(input: {
+  businessId: number;
+  periodStartIso: string;
+  periodEndIso: string;
+}): Promise<NotRelevantLeadRow[]> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("contacts")
+    .select("full_name, phone, not_relevant_reason")
+    .eq("business_id", input.businessId)
+    .not("not_relevant_at", "is", null)
+    .gte("not_relevant_at", input.periodStartIso)
+    .lt("not_relevant_at", input.periodEndIso)
+    .order("not_relevant_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    console.warn("[daily-summary] not relevant yesterday query failed:", error.message);
+    return [];
+  }
+
+  return (data ?? [])
+    .map((row) => ({
+      full_name: String((row as { full_name?: string }).full_name ?? "").trim() || null,
+      phone: String((row as { phone?: string }).phone ?? "").trim(),
+      not_relevant_reason: String((row as { not_relevant_reason?: string }).not_relevant_reason ?? "").trim() || null,
+    }))
+    .filter((r) => r.phone);
+}
+
+export function formatDailySummaryNotRelevantLeadEntry(lead: NotRelevantLeadRow): string {
+  const base = formatDailySummaryLeadEntry(lead);
+  const reason = String(lead.not_relevant_reason ?? "").trim();
+  return reason ? `${base} (${reason})` : base;
+}
+
+export function formatDailySummaryNotRelevantLeadListLine(leads: NotRelevantLeadRow[]): string {
+  if (!leads.length) return "אין";
+  const total = leads.length;
+  const shown = leads.slice(0, DAILY_SUMMARY_WA_LIST_LIMIT);
+  const parts = shown.map(formatDailySummaryNotRelevantLeadEntry);
+  const remaining = total - shown.length;
+  if (remaining > 0) parts.push(`ועוד ${remaining}`);
+  return parts.join(DAILY_SUMMARY_LEADS_SEP);
+}
+
+export function formatDailySummaryNotRelevantLeadListForWa(leads: NotRelevantLeadRow[]): string {
+  const line = formatDailySummaryNotRelevantLeadListLine(leads);
+  if (line === "אין") return line;
+  const sanitized = sanitizeMetaOwnerTemplateParam(line);
+  return sanitized || "אין";
+}
+
 export async function fetchRegisteredYesterdayLeads(input: {
   businessId: number;
   periodStartIso: string;

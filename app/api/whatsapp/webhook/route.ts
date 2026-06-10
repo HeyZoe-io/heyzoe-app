@@ -217,6 +217,7 @@ import {
 } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
+import { handleLeadNotRelevant, matchesNotRelevantKeyword } from "@/lib/not-relevant";
 
 export const runtime = "nodejs";
 
@@ -241,7 +242,7 @@ async function classifyOptOutWithClaude(input: { apiKey: string; text: string })
       messages: [
         {
           role: "user",
-          content: `האם המשפט הבא מביע רצון להפסיק לקבל הודעות או חוסר עניין?\nענה רק "כן" או "לא".\nמשפט: "${text}"`,
+          content: `האם המשפט הבא מביע רצון להפסיק לקבל הודעות (הסרה מרשימת דיוור) — ולא רק שאינו מעוניין בשירות?\nענה רק "כן" או "לא".\nמשפט: "${text}"`,
         },
       ],
     });
@@ -3995,6 +3996,7 @@ async function processIncoming(
   // Always try to save/update the contact on any inbound message.
   // If contact is opted out, we may early-return before reaching any automated flow.
   let contactOptedOut: boolean | null = null;
+  let contactNotRelevantAt: string | null = null;
   let contactClaudeCount: number | null = null;
   let contactTrialRegistered: boolean | null = null;
   let contactTrialRegisteredAt: string | null = null;
@@ -4083,7 +4085,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, not_relevant_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id",
@@ -4108,6 +4110,10 @@ async function processIncoming(
 
       contactOptedOut =
         typeof (contactRow as any)?.opted_out === "boolean" ? (contactRow as any).opted_out : null;
+      contactNotRelevantAt =
+        typeof (contactRow as any)?.not_relevant_at === "string"
+          ? String((contactRow as any).not_relevant_at).trim() || null
+          : null;
       const cc = (contactRow as any)?.claude_message_count;
       contactClaudeCount = typeof cc === "number" && Number.isFinite(cc) ? cc : null;
       contactTrialRegistered =
@@ -4160,7 +4166,6 @@ async function processIncoming(
     "הפסק",
     "בטל",
     "לא רוצה",
-    "לא מעוניין",
     "עצור",
     "stop",
     "unsubscribe",
@@ -4181,6 +4186,30 @@ async function processIncoming(
   ];
 
   let optedInThisMessage = false;
+  const earlySessionId = buildWaSessionId(msg.toNumber, msg.from);
+
+  // 1.5) NOT RELEVANT — עצירת פלואו ופולואפים (נפרד מ-הסר)
+  if (msg.type === "text" && businessId && !contactNotRelevantAt && matchesNotRelevantKeyword(incomingTextRaw)) {
+    const fullName =
+      typeof (msg as { profileName?: string }).profileName === "string"
+        ? (msg as { profileName?: string }).profileName!.trim()
+        : "";
+    await handleLeadNotRelevant({
+      supabase,
+      businessId: Number(businessId),
+      businessSlug: business_slug,
+      phone: msg.from,
+      text: incomingTextRaw,
+      keywordMatched: true,
+      nowIso,
+      waFromNumber: msg.toNumber,
+      accountSid,
+      authToken,
+      sessionId: earlySessionId,
+      fullName: fullName || null,
+    });
+    return;
+  }
 
   // 2) OPT-OUT DETECTION (only for text)
   if (msg.type === "text" && matchesAny(incomingText, OPT_OUT)) {
@@ -4265,7 +4294,18 @@ async function processIncoming(
     return;
   }
 
-  const sessionId = buildWaSessionId(msg.toNumber, msg.from);
+  if (contactNotRelevantAt) {
+    await sendWhatsAppMessage(
+      msg.toNumber,
+      msg.from,
+      "הבנתי שזה לא רלוונטי כרגע 🙏 אם תרצו בעתיד — כתבו *אשמח לפרטים*",
+      accountSid,
+      authToken
+    ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
+    return;
+  }
+
+  const sessionId = earlySessionId || buildWaSessionId(msg.toNumber, msg.from);
 
   if (businessId) {
     try {

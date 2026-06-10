@@ -16,18 +16,24 @@ import { sendOwnerEmailIfEnabled } from "@/lib/notifications/sendOwnerEmailIfEna
 import {
   dailySummaryDashboardUrl,
   fetchConversationsHeldYesterday,
+  fetchNotRelevantYesterdayLeads,
   fetchRegisteredYesterdayLeads,
   formatDailySummaryLeadListForWa,
+  formatDailySummaryNotRelevantLeadListForWa,
 } from "@/lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
   DAILY_SUMMARY_WA_TEMPLATE_NAME,
+  sanitizeMetaOwnerTemplateParam,
   buildHumanAgentRequestWaParams,
   buildLeadRegisteredWaParams,
+  buildLeadNotRelevantWaParams,
   buildLeadRegisteredWithTimeWaParams,
   buildNewLeadNotificationWaParams,
   buildSinglePhoneWaParams,
+  LEAD_NOT_RELEVANT_WA_TEMPLATE_NAME,
 } from "@/lib/notifications/owner-template-params";
+import { formatNotRelevantOwnerReasonLine } from "@/lib/not-relevant";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import {
   getOwnerNotificationMonitor,
@@ -187,6 +193,26 @@ export async function triggerHumanRequestedNotification(input: {
   });
 }
 
+export async function triggerLeadNotRelevantNotification(input: {
+  businessId: number;
+  leadPhone: string;
+  reason?: string | null;
+  atIso?: string;
+}): Promise<void> {
+  const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
+  const reasonLine = formatNotRelevantOwnerReasonLine(input.reason ?? null);
+
+  await sendIfEnabled({
+    businessId: input.businessId,
+    key: "human_requested",
+    templateName: LEAD_NOT_RELEVANT_WA_TEMPLATE_NAME,
+    components: buildLeadNotRelevantWaParams({
+      leadPhoneDisplay: phoneDisplay,
+      reasonLine,
+    }),
+  });
+}
+
 export async function triggerLeadRegisteredNotification(input: {
   businessId: number;
   leadPhone: string;
@@ -321,7 +347,7 @@ export async function triggerDailySummaryNotification(input: {
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = input.businessId;
 
-  const [conversationsHeld, registeredLeads, idleLeads] = await Promise.all([
+  const [conversationsHeld, registeredLeads, notRelevantLeads, idleLeads] = await Promise.all([
     fetchConversationsHeldYesterday({
       businessId,
       periodStartIso: input.periodStartIso,
@@ -332,11 +358,21 @@ export async function triggerDailySummaryNotification(input: {
       periodStartIso: input.periodStartIso,
       periodEndIso: input.periodEndIso,
     }),
+    fetchNotRelevantYesterdayLeads({
+      businessId,
+      periodStartIso: input.periodStartIso,
+      periodEndIso: input.periodEndIso,
+    }),
     fetchIdleLeadsInWindow(businessId, input.idleWindowMs),
   ]);
 
   const registeredLine = formatDailySummaryLeadListForWa(registeredLeads);
-  const noResponseLine = formatDailySummaryLeadListForWa(idleLeads);
+  const notRelevantLine = formatDailySummaryNotRelevantLeadListForWa(notRelevantLeads);
+  const idleLine = formatDailySummaryLeadListForWa(idleLeads);
+  const noResponseLine =
+    notRelevantLine !== "אין"
+      ? sanitizeMetaOwnerTemplateParam(`לא רלוונטי: ${notRelevantLine} | ללא מענה: ${idleLine}`)
+      : idleLine;
   const dashboardUrl = dailySummaryDashboardUrl(slug);
 
   await sendIfEnabled({
@@ -362,6 +398,7 @@ export async function triggerDailySummaryNotification(input: {
         date_label: input.dateLabel,
         conversations_held: conversationsHeld,
         registered_leads: registeredLeads,
+        not_relevant_leads: notRelevantLeads,
         no_response_leads: idleLeads,
         dashboard_url: dashboardUrl,
         no_response_window_hours: input.idleWindowMs >= 48 * 60 * 60 * 1000 ? 48 : 24,
