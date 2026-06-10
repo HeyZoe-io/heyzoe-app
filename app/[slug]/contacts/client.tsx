@@ -327,9 +327,11 @@ export default function ContactsClient({
   const stats = useMemo(() => {
     const total = filteredContacts.length;
     const byStatus: Record<ContactStatusKey, number> = {
+      template: 0,
       active: 0,
       followup: 0,
       no_response: 0,
+      not_relevant: 0,
       registered: 0,
       opted_out: 0,
     };

@@ -1,6 +1,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { computeContactStatus, type ContactStatusKey } from "@/lib/contact-status";
-import { normalizePhone } from "@/lib/phone-normalize";
+import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
+import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
 
 export type SessionSummary = {
   session_id: string;
@@ -24,7 +25,9 @@ async function loadContactStatusByPhoneForBusiness(
 ): Promise<Map<string, ContactStatusKey | null>> {
   const { data, error } = await admin
     .from("contacts")
-    .select("phone, opted_out, trial_registered, session_phase, wa_followup_stage")
+    .select(
+      "phone, opted_out, not_relevant_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
+    )
     .eq("business_id", businessId);
 
   if (error) {
@@ -189,6 +192,46 @@ export function aggregateSessionsFromMessages(
   return sessions;
 }
 
+function appendTemplateOnlySessions(
+  sessions: SessionSummary[],
+  contacts: Record<string, unknown>[],
+  phoneNumberIds: string[]
+): SessionSummary[] {
+  const primaryPid = String(phoneNumberIds[0] ?? "").trim();
+  if (!primaryPid) return sessions;
+
+  const existingPhones = new Set(sessions.map((s) => phoneLookupKey(s.phone)));
+  const extra: SessionSummary[] = [];
+
+  for (const row of contacts) {
+    if (!isLeadTemplateOnlyContact(row as Parameters<typeof isLeadTemplateOnlyContact>[0])) continue;
+
+    const phone = String((row as { phone?: string }).phone ?? "").trim();
+    const key = phoneLookupKey(phone);
+    if (!key || existingPhones.has(key)) continue;
+
+    const sessionId = buildWaSessionId(primaryPid, phone);
+    if (!sessionId) continue;
+
+    const createdAt = String((row as { created_at?: string }).created_at ?? new Date().toISOString());
+    extra.push({
+      session_id: sessionId,
+      lastAt: createdAt,
+      count: 1,
+      isOpen: false,
+      isPaused: false,
+      phone: extractPhoneFromSessionId(sessionId) || key,
+      contactStatus: "template",
+    });
+    existingPhones.add(key);
+  }
+
+  if (!extra.length) return sessions;
+  const merged = [...sessions, ...extra];
+  merged.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+  return merged;
+}
+
 export async function loadBusinessConversationSessions(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   slug: string
@@ -199,13 +242,26 @@ export async function loadBusinessConversationSessions(
   const phoneNumberIds = await resolveBusinessWaPhoneNumberIds(admin, slug);
   if (!phoneNumberIds.length) return [];
 
-  const [{ data: pausedRows }, filteredMessages] = await Promise.all([
+  const norm = String(slug ?? "").trim().toLowerCase();
+  const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
+  const businessId = Number((biz as { id?: number } | null)?.id ?? 0);
+
+  const [{ data: pausedRows }, filteredMessages, { data: templateContacts }] = await Promise.all([
     admin
       .from("paused_sessions")
       .select("session_id, paused_until, business_slug")
       .in("business_slug", slugVariants)
       .gt("paused_until", new Date().toISOString()),
     fetchAllBusinessMessagesForSessions(admin, slugVariants, phoneNumberIds),
+    Number.isFinite(businessId) && businessId > 0
+      ? admin
+          .from("contacts")
+          .select(
+            "phone, created_at, source, session_phase, opted_out, not_relevant_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
+          )
+          .eq("business_id", businessId)
+          .eq("source", "meta_lead_ad")
+      : Promise.resolve({ data: [] as Record<string, unknown>[] }),
   ]);
   const pausedSet = new Set(
     (pausedRows ?? [])
@@ -214,13 +270,11 @@ export async function loadBusinessConversationSessions(
       )
       .map((p) => String((p as { session_id?: string }).session_id ?? ""))
   );
-  const sessions = aggregateSessionsFromMessages(filteredMessages, pausedSet);
+  let sessions = aggregateSessionsFromMessages(filteredMessages, pausedSet);
+  sessions = appendTemplateOnlySessions(sessions, (templateContacts ?? []) as Record<string, unknown>[], phoneNumberIds);
 
-  const norm = String(slug ?? "").trim().toLowerCase();
-  const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
-  const businessId = (biz as { id?: number } | null)?.id;
-  if (!businessId) return sessions;
+  if (!Number.isFinite(businessId) || businessId <= 0) return sessions;
 
-  const statusByPhone = await loadContactStatusByPhoneForBusiness(admin, Number(businessId));
+  const statusByPhone = await loadContactStatusByPhoneForBusiness(admin, businessId);
   return enrichSessionsWithContactStatus(sessions, statusByPhone);
 }

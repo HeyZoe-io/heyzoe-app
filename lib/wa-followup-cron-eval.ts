@@ -122,6 +122,7 @@ export async function evaluateBusinessWaFollowup(input: {
     id?: string | number;
     wa_followup_stage?: number | null;
     opted_out?: boolean | null;
+    not_relevant_at?: string | null;
     trial_registered?: boolean | null;
   };
 }): Promise<WaFollowupEvalResult & { session_id: string; business_slug: string }> {
@@ -134,6 +135,14 @@ export async function evaluateBusinessWaFollowup(input: {
       session_id: "",
       business_slug,
       detail: { filtered_reason: "opted_out" },
+    };
+  }
+  if (input.contact.not_relevant_at) {
+    return {
+      skip_reason: "invalid_contact",
+      session_id: "",
+      business_slug,
+      detail: { filtered_reason: "not_relevant" },
     };
   }
   if (input.contact.trial_registered === true) {

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { normalizePhone } from "@/lib/phone-normalize";
+import { logMessage } from "@/lib/analytics";
+import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
 
@@ -130,6 +132,15 @@ export async function POST(req: NextRequest) {
     console.error("[api/leads/incoming] template send failed:", sendResult.error);
     return NextResponse.json({ error: "template_send_failed" }, { status: 502 });
   }
+
+  const sessionId = buildWaSessionId(phoneNumberId, phoneNorm);
+  await logMessage({
+    business_slug: businessSlug,
+    role: "assistant",
+    content: formatLeadTemplateMessageContent(templateName),
+    model_used: LEAD_TEMPLATE_MODEL,
+    session_id: sessionId || null,
+  });
 
   return NextResponse.json({ ok: true });
 }
