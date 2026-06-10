@@ -12,6 +12,27 @@ const NOT_RELEVANT_EXACT = new Set([
 
 const NOT_RELEVANT_CONTAINS = ["לא רלוונטי", "לא מעוניין", "לא מעוניינת"];
 
+/** סיבה מזוהה בוודאות — כרגע רק מיקום/מרחק */
+export const NOT_RELEVANT_REASON_LOCATION = "מיקום" as const;
+
+const LOCATION_HINTS = [
+  "רחוק לי",
+  "רחוק ממני",
+  "רחוק מ",
+  "רחוק מדי",
+  "לא קרוב",
+  "לא באזור",
+  "לא באיזור",
+  "מיקום",
+  "מרחק",
+  "רחוק",
+  "רחוקה",
+  "רחוקים",
+  "לא מתאים מבחינת מיקום",
+  "רחוק מהבית",
+  "רחוק מהעבודה",
+];
+
 export const NOT_RELEVANT_REPLY_MESSAGE =
   "הבנתי, תודה שעדכנת 🙏 אם תרצו בעתיד — אנחנו כאן. יום נעים!";
 
@@ -33,18 +54,14 @@ export function matchesNotRelevantKeyword(text: string): boolean {
   return NOT_RELEVANT_CONTAINS.some((phrase) => t === phrase || t.startsWith(`${phrase} `));
 }
 
-const REASON_CATEGORIES = [
-  "מיקום",
-  "מחיר",
-  "זמן",
-  "גיל",
-  "סוג אימון",
-  "מרחק",
-  "אחר",
-] as const;
+function matchesLocationHint(text: string): boolean {
+  const t = normalizeNotRelevantToken(text);
+  if (!t) return false;
+  return LOCATION_HINTS.some((hint) => t.includes(hint));
+}
 
-/** חילוץ קטגוריה קצרה (מיקום / מחיר…) — רק כשיש הקשר מעבר למילת מפתח. */
-export async function classifyNotRelevantReasonWithClaude(input: {
+/** Claude — רק כשיש רמז למיקום/מרחק; אחרת null (לא מנחשים סיבות אחרות). */
+async function classifyLocationReasonWithClaude(input: {
   apiKey: string;
   text: string;
 }): Promise<string | null> {
@@ -54,16 +71,15 @@ export async function classifyNotRelevantReasonWithClaude(input: {
 
   try {
     const anthropic = new Anthropic({ apiKey });
-    const categories = REASON_CATEGORIES.join(", ");
     const resp = await anthropic.messages.create({
       model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 24,
+      max_tokens: 12,
       temperature: 0,
       messages: [
         {
           role: "user",
-          content: `הלקוח כתב שהשירות לא רלוונטי / לא מעוניין. אם יש סיבה קצרה במשפט — החזר מילה אחת מהרשימה: ${categories}.
-אם אין סיבה ברורה — החזר בדיוק: NONE
+          content: `האם המשפט מביע שהשירות לא רלוונטי בגלל מיקום / מרחק / ריחוק גיאוגרפי?
+ענה רק "מיקום" אם כן, או "NONE" אם לא ברור / סיבה אחרת / אין סיבה.
 בלי טקסט נוסף.
 
 משפט: "${text}"`,
@@ -75,33 +91,25 @@ export async function classifyNotRelevantReasonWithClaude(input: {
       .join("\n")
       .trim();
     if (!out || out.toUpperCase() === "NONE") return null;
-    const hit = REASON_CATEGORIES.find((c) => out.includes(c));
-    return hit ?? out.slice(0, 32);
+    return out.includes(NOT_RELEVANT_REASON_LOCATION) ? NOT_RELEVANT_REASON_LOCATION : null;
   } catch (e) {
-    console.warn("[not-relevant] reason classify failed:", e);
+    console.warn("[not-relevant] location classify failed:", e);
     return null;
   }
 }
 
+/** מחזיר "מיקום" רק בזיהוי ודאי; אחרת null → «לא רלוונטי» בלבד */
 export async function resolveNotRelevantReason(input: {
   text: string;
-  keywordMatched: boolean;
 }): Promise<string | null> {
   const text = input.text.trim();
   if (!text) return null;
 
-  const tail = text
-    .replace(/^(לא רלוונטי|לא מעוניין|לא מעוניינת|לא תודה)\s*/i, "")
-    .trim();
-  if (tail && tail.length <= 40 && tail !== text) {
-    return tail.slice(0, 40);
-  }
-
-  if (!input.keywordMatched) return null;
+  if (matchesLocationHint(text)) return NOT_RELEVANT_REASON_LOCATION;
 
   const apiKey = resolveClaudeApiKey();
   if (!apiKey) return null;
-  return classifyNotRelevantReasonWithClaude({ apiKey, text });
+  return classifyLocationReasonWithClaude({ apiKey, text });
 }
 
 export function buildNotRelevantContactPatch(reason: string | null, atIso: string): Record<string, unknown> {
@@ -120,19 +128,13 @@ export function formatNotRelevantCrmNote(reason: string | null): string {
   return r ? `זואי - לא רלוונטי - ${r}` : "זואי - לא רלוונטי";
 }
 
-export function formatNotRelevantOwnerReasonLine(reason: string | null): string {
-  const r = String(reason ?? "").trim();
-  return r ? `לא רלוונטי - ${r}` : "לא רלוונטי";
-}
-
-/** עדכון DB + הודעה לליד + CRM + התראה לבעלים */
+/** עדכון DB + הודעה לליד + CRM */
 export async function handleLeadNotRelevant(input: {
   supabase: import("@supabase/supabase-js").SupabaseClient;
   businessId: number;
   businessSlug: string;
   phone: string;
   text: string;
-  keywordMatched: boolean;
   nowIso: string;
   waFromNumber: string;
   accountSid: string;
@@ -140,10 +142,7 @@ export async function handleLeadNotRelevant(input: {
   sessionId: string;
   fullName?: string | null;
 }): Promise<void> {
-  const reason = await resolveNotRelevantReason({
-    text: input.text,
-    keywordMatched: input.keywordMatched,
-  });
+  const reason = await resolveNotRelevantReason({ text: input.text });
 
   const patch = buildNotRelevantContactPatch(reason, input.nowIso);
   await input.supabase
@@ -179,13 +178,5 @@ export async function handleLeadNotRelevant(input: {
     fullName: input.fullName,
     eventAtIso: input.nowIso,
     notRelevantReason: reason,
-  });
-
-  const { triggerLeadNotRelevantNotification } = await import("@/lib/notifications/triggers");
-  void triggerLeadNotRelevantNotification({
-    businessId: input.businessId,
-    leadPhone: input.phone,
-    reason,
-    atIso: input.nowIso,
   });
 }
