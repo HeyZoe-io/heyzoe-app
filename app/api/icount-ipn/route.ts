@@ -360,12 +360,16 @@ export async function POST(req: NextRequest) {
               .maybeSingle();
             const hasActive = Boolean((existingChannel as any)?.is_active) || (existingChannel as any)?.provisioning_status === "active";
             if (!hasActive) {
+              const reactivationSlug = String(biz.slug).trim().toLowerCase();
               await admin.from("wa_provision_jobs").insert({
                 business_id: biz.id,
-                business_slug: String(biz.slug).trim().toLowerCase(),
+                business_slug: reactivationSlug,
                 business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
-                status: "queued",
+                status: "awaiting_waba",
               } as any);
+              console.info(
+                `[IPN] wa_provision_jobs created with status=awaiting_waba for slug=${reactivationSlug}`
+              );
             }
           } catch (e) {
             console.error("[api/icount-ipn] enqueue wa_provision_jobs (reactivation) failed:", e);
@@ -431,12 +435,16 @@ export async function POST(req: NextRequest) {
           }
 
           try {
+            const createdSlug = String(insertedBiz.slug).trim().toLowerCase();
             await admin.from("wa_provision_jobs").insert({
               business_id: insertedBiz.id,
-              business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+              business_slug: createdSlug,
               business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
-              status: "queued",
+              status: "awaiting_waba",
             } as any);
+            console.info(
+              `[IPN] wa_provision_jobs created with status=awaiting_waba for slug=${createdSlug}`
+            );
           } catch (e) {
             console.error("[api/icount-ipn] enqueue wa_provision_jobs failed (created biz):", e);
           }
@@ -528,12 +536,14 @@ export async function POST(req: NextRequest) {
     // Trigger async WhatsApp provisioning *only after payment success* (this webhook).
     // We enqueue a job and let /api/cron/wa-provision process it.
     try {
+      const newSlug = String(insertedBiz.slug).trim().toLowerCase();
       await admin.from("wa_provision_jobs").insert({
         business_id: insertedBiz.id,
-        business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+        business_slug: newSlug,
         business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
-        status: "queued",
+        status: "awaiting_waba",
       } as any);
+      console.info(`[IPN] wa_provision_jobs created with status=awaiting_waba for slug=${newSlug}`);
     } catch (e) {
       console.error("[api/icount-ipn] enqueue wa_provision_jobs failed:", e);
     }

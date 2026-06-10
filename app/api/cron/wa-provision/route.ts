@@ -355,6 +355,7 @@ export async function GET(req: NextRequest) {
     )
     .neq("status", "done")
     .neq("status", "failed")
+    .neq("status", "awaiting_waba")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -364,7 +365,8 @@ export async function GET(req: NextRequest) {
       .from("wa_provision_jobs")
       .select("id", { count: "exact", head: true })
       .neq("status", "done")
-      .neq("status", "failed");
+      .neq("status", "failed")
+      .neq("status", "awaiting_waba");
 
     const { data: sample } = await admin
       .from("wa_provision_jobs")

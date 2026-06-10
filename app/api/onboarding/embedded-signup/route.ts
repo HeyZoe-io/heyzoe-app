@@ -111,6 +111,34 @@ export async function POST(req: NextRequest) {
 
   console.info(`[embedded-signup] updated businesses.waba_id for slug=${businessSlug}`);
 
+  const { data: bizForRelease, error: bizReleaseErr } = await admin
+    .from("businesses")
+    .select("id")
+    .eq("slug", businessSlug)
+    .maybeSingle();
+
+  if (bizReleaseErr) {
+    console.warn("[embedded-signup] wa_provision_jobs release skipped: business lookup failed", {
+      slug: businessSlug,
+      error: bizReleaseErr.message,
+    });
+  } else if (bizForRelease?.id) {
+    const businessId = Number((bizForRelease as { id?: unknown }).id);
+    const { data: releasedJobs, error: releaseErr } = await admin
+      .from("wa_provision_jobs")
+      .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+      .eq("business_id", businessId)
+      .eq("status", "awaiting_waba")
+      .select("id");
+    if (releaseErr) {
+      console.error("[embedded-signup] release wa_provision_jobs failed:", releaseErr.message);
+    } else if (releasedJobs?.length) {
+      console.info(
+        `[embedded-signup] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+      );
+    }
+  }
+
   if (phone_number_id) {
     const { data: biz, error: bizErr } = await admin
       .from("businesses")
