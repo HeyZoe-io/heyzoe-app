@@ -4200,7 +4200,6 @@ async function processIncoming(
       businessSlug: business_slug,
       phone: msg.from,
       text: incomingTextRaw,
-      keywordMatched: true,
       nowIso,
       waFromNumber: msg.toNumber,
       accountSid,

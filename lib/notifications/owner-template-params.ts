@@ -7,8 +7,7 @@
  * | human_agent_request | body: טלפון, תאריך+שעה |
  * | lead_registered | body: טלפון |
  * | lead_registered_with_time | body: טלפון, אימון, מועד, תאריך הרשמה, חימום |
- * | daily_summary | header: תאריך; body: שיחות, נרשמו (רשימה), ללא מענה (רשימה), קישור דשבורד |
- * | lead_not_relevant | body: טלפון, סיבה קצרה |
+ * | daily_summary | header: תאריך; body: שיחות, נרשמו, לא רלוונטי (מספר), ללא מענה, קישור |
  * | bot_paused_waiting / lead_cta_no_signup / marketing_human_agent_request | body: טלפון |
  * | quota_warning_* | ללא פרמטרים |
  */
@@ -125,16 +124,15 @@ export function buildLeadRegisteredWithTimeWaParams(input: {
 export const DAILY_SUMMARY_WA_TEMPLATE_NAME = "daily_summary";
 
 /**
- * daily_summary — HEADER: תאריך; BODY: שיחות, נרשמו, ללא מענה, קישור דשבורד
- * ערך {{2}}/{{3}} ב-body: 0508318162 - ליאור | 0546758590 - אופיר | ועוד 3
- * המפריד | רק בין לידים; בין טלפון לשם בתוך ליד: מקף עם רווחים ( - )
- * מעל 16 לידים: | ועוד X בסוף הרשימה
- * כל פרמטר body בשורה אחת (ללא \\n).
+ * daily_summary — HEADER: תאריך; BODY: שיחות, נרשמו, לא רלוונטי (מספר), ללא מענה, קישור
+ * ערך רשימות: 0508318162 - ליאור | 0546758590 - אופיר | ועוד 3
+ * «לא רלוונטי»: מספר בלבד (0 / 1 / 2…) או «אין»
  */
 export function buildDailySummaryWaParams(input: {
   dateLabel: string;
   conversationsHeld: number;
   registeredLine: string;
+  notRelevantCountLine: string;
   noResponseLine: string;
   dashboardUrl: string;
 }): OwnerTemplateComponent[] {
@@ -142,19 +140,10 @@ export function buildDailySummaryWaParams(input: {
     input.dateLabel,
     String(Math.max(0, input.conversationsHeld)),
     input.registeredLine.trim() || "אין",
+    input.notRelevantCountLine.trim() || "אין",
     input.noResponseLine.trim() || "אין",
     input.dashboardUrl.trim() || "https://heyzoe.io"
   );
-}
-
-/** lead_not_relevant — BODY: טלפון, סיבה (למשל «לא רלוונטי - מיקום») */
-export const LEAD_NOT_RELEVANT_WA_TEMPLATE_NAME = "lead_not_relevant";
-
-export function buildLeadNotRelevantWaParams(input: {
-  leadPhoneDisplay: string;
-  reasonLine: string;
-}): OwnerTemplateComponent[] {
-  return waBodyParams(input.leadPhoneDisplay, input.reasonLine.trim() || "לא רלוונטי");
 }
 
 /** bot_paused_waiting | lead_cta_no_signup | marketing_human_agent_request — BODY: טלפון */
