@@ -4,8 +4,11 @@ import {
   extractLeadPhoneFromMarketingSession,
   MARKETING_CONVERSATIONS_SLUG,
 } from "@/lib/marketing-whatsapp";
+import { sortLeadsByRecentActivity } from "@/lib/lead-activity";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
+
+export { leadConversationAt } from "@/lib/lead-activity";
 
 function phoneKey(phone: string): string {
   const p = String(phone ?? "").trim();
@@ -27,9 +30,7 @@ export async function loadLeadsForBusiness(
     .select(
       "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at"
     )
-    .eq("business_id", businessId)
-    .order("last_contact_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+    .eq("business_id", businessId);
 
   const { data: conversations } = await admin
     .from("conversations")
@@ -44,7 +45,7 @@ export async function loadLeadsForBusiness(
     ctaByPhone.set(key, raw.cta_clicked_at ?? null);
   }
 
-  return (contacts ?? []).map((c) => {
+  const rows = (contacts ?? []).map((c) => {
     const row = c as Record<string, unknown>;
     const phone = String(row.phone ?? "").trim();
     const key = phoneKey(phone);
@@ -65,6 +66,7 @@ export async function loadLeadsForBusiness(
       cta_clicked_at: key ? (ctaByPhone.get(key) ?? null) : null,
     };
   });
+  return sortLeadsByRecentActivity(rows);
 }
 
 const ADMIN_LEADS_LIMIT = 10_000;
@@ -142,7 +144,7 @@ export async function loadMarketingAdminLeads(
     return [];
   }
 
-  return (sessions ?? []).map((row) => {
+  const rows = (sessions ?? []).map((row) => {
     const s = row as Record<string, unknown>;
     const phone = String(s.phone ?? "").trim();
     const key = phoneKey(phone);
@@ -182,6 +184,7 @@ export async function loadMarketingAdminLeads(
       business_name: "זואי אדמין",
     };
   });
+  return sortLeadsByRecentActivity(rows);
 }
 
 export async function loadLeadsForAdmin(
@@ -197,8 +200,6 @@ export async function loadLeadsForAdmin(
       businesses ( slug, name )
     `
     )
-    .order("last_contact_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
     .limit(ADMIN_LEADS_LIMIT);
 
   if (error) {
@@ -217,7 +218,7 @@ export async function loadLeadsForAdmin(
     ctaMap.set(`${bid}:${key}`, raw.cta_clicked_at ?? null);
   }
 
-  return (contacts ?? []).map((row) => {
+  const rows = (contacts ?? []).map((row) => {
     const c = row as Record<string, unknown> & {
       business_id?: number;
       businesses?: { slug?: string; name?: string | null } | { slug?: string; name?: string | null }[] | null;
@@ -247,4 +248,5 @@ export async function loadLeadsForAdmin(
         businessId != null && key ? (ctaMap.get(`${businessId}:${key}`) ?? null) : null,
     };
   });
+  return sortLeadsByRecentActivity(rows);
 }

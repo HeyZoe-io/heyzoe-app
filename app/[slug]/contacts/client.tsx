@@ -14,6 +14,7 @@ import {
   type ContactStatusFilterValue,
   type ContactStatusKey,
 } from "@/lib/contact-status";
+import { leadConversationAt } from "@/lib/lead-activity";
 import type { LeadRow } from "@/lib/leads-types";
 import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersModal";
@@ -77,11 +78,6 @@ function isDefaultDateRange(from: string, to: string): boolean {
   return from === d.from && to === d.to;
 }
 
-/** תאריך שיחה אחרונה — last_contact_at, ואם חסר תאריך הצטרפות */
-function conversationAt(contact: Contact): string | null {
-  return contact.last_contact_at ?? contact.created_at ?? null;
-}
-
 function matchesConversationDateRange(contactAt: string | null, from: string, to: string): boolean {
   if (!from && !to) return true;
   if (!contactAt) return false;
@@ -142,14 +138,14 @@ function exportContactsToExcel(rows: Contact[], adminMode: boolean): void {
             c.full_name?.trim() || "",
             c.phone ?? "",
             c.source?.trim() || "",
-            formatDateTime(conversationAt(c)),
+            formatDateTime(leadConversationAt(c)),
             contactStatusLabel(statusKey),
           ]
         : [
             c.full_name?.trim() || "",
             c.phone ?? "",
             c.source?.trim() || "",
-            formatDateTime(conversationAt(c)),
+            formatDateTime(leadConversationAt(c)),
             contactStatusLabel(statusKey),
           ];
       return cells.map(escapeCsvCell).join(",");
@@ -268,7 +264,7 @@ export default function ContactsClient({
 
   const filteredContacts = useMemo(() => {
     return initialContacts.filter((c) => {
-      if (!matchesConversationDateRange(conversationAt(c), dateFrom, dateTo)) return false;
+      if (!matchesConversationDateRange(leadConversationAt(c), dateFrom, dateTo)) return false;
       if (statusFilter === "all") return true;
       const status = computeContactStatus(c);
       if (statusFilter === "none") return status === null;
@@ -569,7 +565,7 @@ export default function ContactsClient({
                           {c.full_name?.trim() || "—"} · {c.source?.trim() || "—"}
                         </p>
                         <p className="mt-1 text-xs text-zinc-500">
-                          שיחה אחרונה: {formatDateTime(conversationAt(c))}
+                          שיחה אחרונה: {formatDateTime(leadConversationAt(c))}
                         </p>
                       </div>
                       <div className="shrink-0">
@@ -669,7 +665,7 @@ export default function ContactsClient({
                         <td className="py-3 px-2 whitespace-nowrap">{c.phone ?? "—"}</td>
                         <td className="py-3 px-2">{c.full_name?.trim() || "—"}</td>
                         <td className="py-3 px-2">{c.source?.trim() || "—"}</td>
-                        <td className="py-3 px-2 whitespace-nowrap">{formatDateTime(conversationAt(c))}</td>
+                        <td className="py-3 px-2 whitespace-nowrap">{formatDateTime(leadConversationAt(c))}</td>
                         <td className="py-3 px-2">
                           <ContactStatusBadge contact={c} />
                         </td>
