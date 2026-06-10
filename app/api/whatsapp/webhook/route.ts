@@ -3632,6 +3632,20 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
     console.warn("[WA Webhook] self-healing skipped: WHATSAPP_SYSTEM_TOKEN missing");
   }
 
+  const { data: releasedJobs, error: releaseErr } = await admin
+    .from("wa_provision_jobs")
+    .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+    .eq("business_id", businessId)
+    .eq("status", "awaiting_waba")
+    .select("id");
+  if (releaseErr) {
+    console.error("[WA Webhook] release wa_provision_jobs failed:", releaseErr.message);
+  } else if (releasedJobs?.length) {
+    console.info(
+      `[WA Webhook] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+    );
+  }
+
   if (systemToken) {
     try {
       await subscribeWabaToAppWebhooks(wabaId, systemToken);
