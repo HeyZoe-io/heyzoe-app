@@ -53,6 +53,7 @@ const i18n = {
     connect: "חברו ווטסאפ עסקי",
     connecting: "מתחברים…",
     success: "מחובר! מכין את החשבון...",
+    successRedirecting: "מחובר! מעבירים אותך לדשבורד...",
     error_no_waba:
       "לא התקבל מזהה WABA מהתחברות פייסבוק. נסו שוב או בדקו את ההגדרות באפליקציית מטא.",
     error_cancelled: "החיבור בוטל",
@@ -85,6 +86,7 @@ const i18n = {
     connect: "Connect WhatsApp Business",
     connecting: "Connecting…",
     success: "Connected! Setting up your account...",
+    successRedirecting: "Connected! Redirecting to your dashboard...",
     error_no_waba:
       "WABA ID not received from Facebook login. Try again or check your Meta app settings.",
     error_cancelled: "Connection cancelled",
@@ -113,6 +115,7 @@ const WHATSAPP_HELP_URL =
   "https://wa.me/972508318162?text=%D7%94%D7%99%D7%99%2C%20%D7%99%D7%A9%20%D7%9C%D7%99%20%D7%A9%D7%90%D7%9C%D7%94%20%D7%91%D7%A0%D7%95%D7%92%D7%A2%20%D7%9C%D7%96%D7%95%D7%90%D7%99%21";
 
 const STEP_REVEAL_MS = 2200;
+const EMBEDDED_SUCCESS_REDIRECT_MS = 3000;
 
 function isTrustedMetaOrigin(origin: string): boolean {
   try {
@@ -155,7 +158,7 @@ export default function OnboardingSuccessClient() {
   const [ready, setReady] = useState<null | { slug: string }>(null);
   const [timedOut, setTimedOut] = useState(false);
   const [revealedStepCount, setRevealedStepCount] = useState(0);
-  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const embeddedRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [fbSdkReady, setFbSdkReady] = useState(false);
   const [fbAppId, setFbAppId] = useState("");
@@ -175,6 +178,68 @@ export default function OnboardingSuccessClient() {
   useEffect(() => {
     emailRef.current = email;
   }, [email]);
+
+  const redirectToAnalytics = useCallback(
+    (slug: string) => {
+      const nextUrl = `/${slug}/analytics?welcome=1`;
+      const fallbackToLogin = () =>
+        router.replace(
+          `/dashboard/login?next=${encodeURIComponent(nextUrl)}&msg=${encodeURIComponent(t.loginRedirectMsg)}`
+        );
+
+      try {
+        const ssEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
+        const ssPw = String(sessionStorage.getItem("hz_onb_password") || "");
+
+        let lsEmail = "";
+        let lsPw = "";
+        let lsTs = 0;
+        try {
+          const raw = localStorage.getItem("hz_onb_creds");
+          if (raw) {
+            const parsed = JSON.parse(raw) as { email?: string; password?: string; ts?: number };
+            lsEmail = String(parsed?.email || "").trim().toLowerCase();
+            lsPw = String(parsed?.password || "");
+            lsTs = Number(parsed?.ts || 0);
+          }
+        } catch {
+          // ignore
+        }
+
+        const storedEmail = ssEmail || lsEmail;
+        const storedPw = ssPw || lsPw;
+        const isFresh = !lsTs || Date.now() - lsTs < 60 * 60 * 1000;
+
+        if (storedEmail && storedPw && storedEmail === email && isFresh) {
+          const supabase = createSupabaseBrowserClient();
+          void supabase.auth.signInWithPassword({ email: storedEmail, password: storedPw }).then(({ error }) => {
+            if (error) {
+              fallbackToLogin();
+              return;
+            }
+            try {
+              sessionStorage.removeItem("hz_onb_email");
+              sessionStorage.removeItem("hz_onb_password");
+            } catch {
+              /* ignore */
+            }
+            try {
+              localStorage.removeItem("hz_onb_creds");
+            } catch {
+              /* ignore */
+            }
+            router.replace(nextUrl);
+          });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
+      router.replace(nextUrl);
+    },
+    [router, t.loginRedirectMsg, email]
+  );
 
   const handleEmbeddedFinish = useCallback(
     async (waba_id: string, phone_number_id?: string, code?: string) => {
@@ -400,65 +465,7 @@ export default function OnboardingSuccessClient() {
             /* ignore */
           }
           setReady({ slug });
-          redirectTimerRef.current = setTimeout(() => {
-            if (cancelled) return;
-            const nextUrl = `/${slug}/analytics?welcome=1`;
-            const fallbackToLogin = () =>
-              router.replace(
-                `/dashboard/login?next=${encodeURIComponent(nextUrl)}&msg=${encodeURIComponent(t.loginRedirectMsg)}`
-              );
-
-            try {
-              const ssEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
-              const ssPw = String(sessionStorage.getItem("hz_onb_password") || "");
-
-              let lsEmail = "";
-              let lsPw = "";
-              let lsTs = 0;
-              try {
-                const raw = localStorage.getItem("hz_onb_creds");
-                if (raw) {
-                  const parsed = JSON.parse(raw) as { email?: string; password?: string; ts?: number };
-                  lsEmail = String(parsed?.email || "").trim().toLowerCase();
-                  lsPw = String(parsed?.password || "");
-                  lsTs = Number(parsed?.ts || 0);
-                }
-              } catch {
-                // ignore
-              }
-
-              const storedEmail = ssEmail || lsEmail;
-              const storedPw = ssPw || lsPw;
-              const isFresh = !lsTs || Date.now() - lsTs < 60 * 60 * 1000;
-
-              if (storedEmail && storedPw && storedEmail === email && isFresh) {
-                const supabase = createSupabaseBrowserClient();
-                void supabase.auth.signInWithPassword({ email: storedEmail, password: storedPw }).then(({ error }) => {
-                  if (error) {
-                    fallbackToLogin();
-                    return;
-                  }
-                  try {
-                    sessionStorage.removeItem("hz_onb_email");
-                    sessionStorage.removeItem("hz_onb_password");
-                  } catch {
-                    /* ignore */
-                  }
-                  try {
-                    localStorage.removeItem("hz_onb_creds");
-                  } catch {
-                    /* ignore */
-                  }
-                  router.replace(nextUrl);
-                });
-                return;
-              }
-            } catch {
-              // ignore
-            }
-
-            router.replace(nextUrl);
-          }, 10_000);
+          console.log("[onboarding/success] payment ready, awaiting Embedded Signup");
           return;
         }
       } catch {
@@ -471,9 +478,22 @@ export default function OnboardingSuccessClient() {
     void tick();
     return () => {
       cancelled = true;
-      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
     };
-  }, [email, router, t.loginRedirectMsg]);
+  }, [email]);
+
+  useEffect(() => {
+    if (embeddedState !== "success" || !ready?.slug || !embeddedHandledWabaRef.current) return;
+
+    console.log("[onboarding/success] Embedded Signup success, redirecting in 3s");
+    embeddedRedirectTimerRef.current = setTimeout(() => {
+      console.log(`[onboarding/success] redirecting to ${ready.slug}/analytics`);
+      redirectToAnalytics(ready.slug);
+    }, EMBEDDED_SUCCESS_REDIRECT_MS);
+
+    return () => {
+      if (embeddedRedirectTimerRef.current) clearTimeout(embeddedRedirectTimerRef.current);
+    };
+  }, [embeddedState, ready?.slug, redirectToAnalytics]);
 
   const prepSteps = useMemo(() => t.prepSteps, [t.prepSteps]);
 
@@ -643,7 +663,7 @@ export default function OnboardingSuccessClient() {
                 <>
                   <button
                     type="button"
-                    disabled={!fbSdkReady || embeddedState === "loading"}
+                    disabled={!fbSdkReady || embeddedState === "loading" || embeddedState === "success"}
                     onClick={() => connectEmbeddedWhatsApp()}
                     style={{
                       width: "100%",
@@ -666,7 +686,7 @@ export default function OnboardingSuccessClient() {
                   </button>
                   {embeddedState === "success" ? (
                     <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#0b5c2e", fontWeight: 600 }}>
-                      {t.success}
+                      {t.successRedirecting}
                     </p>
                   ) : null}
                   {embeddedState === "error" && embeddedErr ? (
@@ -678,9 +698,6 @@ export default function OnboardingSuccessClient() {
               )}
             </div>
 
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da", marginTop: 16 }}>
-              {t.allReadyRedirect}
-            </div>
           </div>
         ) : (
           <>
