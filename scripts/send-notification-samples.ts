@@ -276,6 +276,7 @@ async function main() {
           { full_name: "ליאור", phone: "0508318162" },
           { full_name: "אופיר", phone: "0546758590" },
         ]),
+        notRelevantCountLine: "1",
         noResponseLine: formatDailySummaryLeadListForWa([
           { full_name: "איתי", phone: "0538475849" },
           { full_name: "שולמית", phone: "0547685940" },
