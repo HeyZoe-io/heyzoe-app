@@ -347,7 +347,9 @@ function OnboardingContent() {
         const data = (await res.json()) as { ready?: boolean; slug?: string };
         if (data?.ready && data.slug) {
           setPaymentReady({ slug: data.slug });
-          window.location.href = `/${data.slug}/analytics?welcome=1`;
+          const qs = new URLSearchParams({ email, slug: data.slug });
+          if (searchParams.get("lang") === "en") qs.set("lang", "en");
+          window.location.href = `/onboarding/success?${qs.toString()}`;
           return;
         }
       } catch {
@@ -360,7 +362,7 @@ function OnboardingContent() {
     return () => {
       cancelled = true;
     };
-  }, [step, form.email]);
+  }, [step, form.email, searchParams]);
 
   function update(field: keyof FormData, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
