@@ -999,3 +999,159 @@ ${combinedSiteCorpus}`;
   }
 }
 
+export type GenerateProductDescriptionInput = {
+  website_url?: string;
+  business_name?: string;
+  niche?: string;
+  business_tagline?: string;
+  business_traits?: string[];
+  product_name: string;
+  offer_kind?: string;
+  price_text?: string;
+  duration?: string;
+  description_current?: string;
+};
+
+async function fetchSiteCorpusForProductDescription(websiteUrl: string): Promise<{
+  corpus: string;
+  metaHints: string;
+}> {
+  const normalized = normalizeWebsiteUrl(String(websiteUrl ?? ""));
+  const safe = await assertSafePublicUrl(normalized);
+  if (!safe.ok || !safe.url) return { corpus: "", metaHints: "" };
+
+  const url = safe.url;
+  let pageText = "";
+  let mainHtml = "";
+  let metaHints = "";
+  try {
+    let res = await fetchWithTimeout(url, { redirect: "follow", headers: BROWSER_HEADERS });
+    if (!res.ok) {
+      const withWww = (() => {
+        try {
+          const u = new URL(url);
+          if (u.hostname.startsWith("www.")) return "";
+          u.hostname = `www.${u.hostname}`;
+          return u.toString();
+        } catch {
+          return "";
+        }
+      })();
+      if (withWww) res = await fetchWithTimeout(withWww, { redirect: "follow", headers: BROWSER_HEADERS });
+    }
+
+    let html = "";
+    if (res.ok) {
+      html = await res.text();
+    } else {
+      const mirrorUrl = `https://r.jina.ai/http://${new URL(url).host}${new URL(url).pathname}${new URL(url).search}`;
+      const mirrorRes = await fetchWithTimeout(mirrorUrl, { headers: BROWSER_HEADERS });
+      if (mirrorRes.ok) html = await mirrorRes.text();
+    }
+    if (!html.trim()) return { corpus: "", metaHints: "" };
+
+    mainHtml = html;
+    metaHints = extractMetaHints(html);
+    pageText = decodeHtmlEntities(stripHtmlToText(html)).slice(0, PAGE_TEXT_MAX_CHARS);
+  } catch {
+    return { corpus: "", metaHints: "" };
+  }
+
+  let combinedSiteCorpus = pageText;
+  try {
+    if (mainHtml.trim()) {
+      const [scheduleExtra, aboutExtra] = await Promise.all([
+        fetchScheduleSupplementaryCorpus(url, mainHtml),
+        fetchAboutFooterSupplementaryCorpus(url, mainHtml),
+      ]);
+      const supplementary = [aboutExtra, scheduleExtra].filter(Boolean).join("\n\n");
+      combinedSiteCorpus = clipCombinedSiteText(pageText, supplementary);
+    }
+  } catch {
+    combinedSiteCorpus = pageText;
+  }
+
+  return { corpus: combinedSiteCorpus, metaHints };
+}
+
+function offerKindLabelHe(offerKind: string): string {
+  if (offerKind === "workshop") return "סדנה";
+  if (offerKind === "course") return "קורס";
+  return "שיעור ניסיון";
+}
+
+/** ג׳נרט תיאור מוצר בודד — מושך מהאתר אם אפשר, אחרת ניסוח פשוט לפי הקשר */
+export async function generateProductDescriptionFromContext(
+  input: GenerateProductDescriptionInput
+): Promise<{ status: number; body: { description?: string; error?: string; message?: string } }> {
+  const productName = String(input.product_name ?? "").trim();
+  if (!productName) {
+    return { status: 400, body: { error: "missing_product_name" } };
+  }
+
+  const apiKey = resolveClaudeApiKey();
+  if (!apiKey) return { status: 500, body: { error: "missing_anthropic_key" } };
+
+  const websiteUrl = String(input.website_url ?? "").trim();
+  const { corpus: siteCorpus, metaHints } = websiteUrl
+    ? await fetchSiteCorpusForProductDescription(websiteUrl)
+    : { corpus: "", metaHints: "" };
+
+  const businessName = String(input.business_name ?? "").trim();
+  const niche = String(input.niche ?? "").trim();
+  const tagline = String(input.business_tagline ?? "").trim();
+  const traits = (input.business_traits ?? []).map((x) => String(x ?? "").trim()).filter(Boolean);
+  const offerKind = String(input.offer_kind ?? "trial").trim() || "trial";
+  const priceText = String(input.price_text ?? "").trim();
+  const duration = String(input.duration ?? "").trim();
+  const descriptionCurrent = String(input.description_current ?? "").trim();
+  const hasSite = siteCorpus.trim().length >= 40;
+
+  const prompt = `כתוב תיאור מוצר אחד בעברית תקנית לדשבורד HeyZoe — תשובה ללקוח אחרי בחירת מוצר בווטסאפ.
+
+עסק: "${businessName || "לא צוין"}"
+נישה: "${niche || "לא צוינה"}"
+תגית עסק: "${tagline || "אין"}"
+מאפייני עסק: ${traits.length ? traits.join(" · ") : "אין"}
+שם המוצר: "${productName}"
+סוג מוצר: ${offerKindLabelHe(offerKind)}
+${priceText ? `מחיר (לעיון בלבד — לא לשלב בתיאור): ${priceText}` : ""}
+${duration ? `משך (לעיון בלבד — לא לשלב בתיאור): ${duration}` : ""}
+תיאור קיים (אם יש): "${descriptionCurrent || "ריק"}"
+${hasSite ? `רמזי מטא מהאתר: ${metaHints || "אין"}` : "אין אתר או שלא נמשך תוכן מהאתר."}
+
+חוקים (חובה):
+1) 1–3 משפטים מלאים בעברית תקנית — ניסוח ברור, לא סיסמה שיווקית קצרה מדי.
+2) ${hasSite ? "עדיפות ראשונה: טקסט האתר המצורף. אם מופיע שם המוצר (או כינוי קרוב) עם פסקה שמסבירה למי זה, מה עושים ולמה שווה — העתק כמעט מילה במילה (1–3 משפטים). אל תקצר אם יש טקסט עשיר." : "אין מקור מהאתר — נסח משפט אחד–שניים פשוטים לפי שם המוצר, הנישה ומאפייני העסק; בלי להמציא מחיר, מיקום או שעות."}
+3) שמור «שיעור/שיעורי» מול «אימון/אימוני» כמו במקור; אל תערבב בין השניים באותו משפט.
+4) הסר כותרות ניווט, כפתורים, שעות בלבד ומחירים מהתיאור.
+5) דקדוק: כשהנושא «תרגול / שיעור / אימון» + סוג — פועלים בזכר לפי שורש הפעילות (למשל «תרגול יוגה מחזק…»).
+6) אל תפתח ב«איזה כיף» או «וואו» — תיאור ענייני על המוצר.
+7) החזר JSON בלבד: {"description":"..."}
+
+${hasSite ? `טקסט מהאתר:\n${siteCorpus.slice(0, 16_000)}` : ""}`;
+
+  const client = new Anthropic({ apiKey });
+  try {
+    const response = await client.messages.create({
+      model: CLAUDE_FETCH_SITE_MODEL,
+      max_tokens: 768,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+    const parsed = tryParseSiteJson(text) as { description?: string } | null;
+    let description = String(parsed?.description ?? "").trim();
+    if (!description && text && !text.startsWith("{")) {
+      description = text.replace(/^["'`]|["'`]$/g, "").trim();
+    }
+    description = normalizeMasculinePredicatesAfterPracticeHead(description);
+    if (!description) {
+      return { status: 502, body: { error: "ai_empty_response" } };
+    }
+    return { status: 200, body: { description } };
+  } catch (e) {
+    console.error("[generate-product-description] Claude failed:", e);
+    return { status: 502, body: { error: "ai_generation_failed" } };
+  }
+}
+

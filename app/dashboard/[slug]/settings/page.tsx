@@ -855,7 +855,7 @@ function trialServiceItemFromSiteProduct(
 
 /**
  * סריקה מהאתר: לא משנה אימונים קיימים — רק מוסיף בסוף שורות לפי מוצרים שזיהה ובהם שם שלא מתאים לאף אימון בשם (אותה לוגיקת מפתח כמו בהתאמת מיזוג ישן).
- * עדכון תיאור/מחיר לשירות קיים רק באמצעות עריכה ידנית או כפתור «ג׳נרט» בטאב.
+ * עדכון תיאור/מחיר לשירות קיים רק באמצעות עריכה ידנית או כפתור «ג׳נרט תיאור» ליד כל מוצר בטאב מכירה.
  */
 function mergeTrialServicesWithScannedProducts(
   existing: ServiceItem[],
@@ -2102,6 +2102,71 @@ export default function SlugSettingsPage({
     [regenerateSalesFlowSection, runBusy]
   );
 
+  const generateProductDescriptionBusy = useCallback(
+    (uiId: string) => {
+      const service = services.find((s) => s.ui_id === uiId);
+      if (!service?.name.trim()) return;
+      runBusy(`sales:product_desc:${uiId}`, async () => {
+        const res = await fetch("/api/dashboard/generate-product-description", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            website_url: websiteUrl.trim(),
+            business_name: name.trim(),
+            niche: niche.trim(),
+            business_tagline: businessTagline.trim(),
+            business_traits: traits.map((x) => String(x ?? "").trim()).filter(Boolean),
+            product_name: service.name.trim(),
+            offer_kind: service.offer_kind,
+            price_text: service.price_text,
+            duration: service.duration,
+            description_current: service.description,
+          }),
+        });
+        let j: Record<string, unknown> = {};
+        try {
+          j = (await res.json()) as Record<string, unknown>;
+        } catch {
+          throw new Error(tp.invalidServerResponse);
+        }
+        if (!res.ok) {
+          const errStr = typeof j.error === "string" ? j.error : "";
+          const msgStr = typeof j.message === "string" ? j.message.trim() : "";
+          const friendly =
+            errStr === "missing_anthropic_key"
+              ? tp.scanNoAiKey
+              : errStr === "missing_product_name"
+                ? tp.unknown
+                : msgStr || tp.scanFailed(res.status);
+          throw new Error(friendly);
+        }
+        const description = typeof j.description === "string" ? j.description.trim() : "";
+        if (!description) throw new Error(tp.unknown);
+        setServicesFromUser((prev) =>
+          prev.map((s) =>
+            s.ui_id === uiId
+              ? { ...s, description, benefit_line: benefitLineFromProductDescription(description) }
+              : s
+          )
+        );
+      });
+    },
+    [
+      services,
+      runBusy,
+      websiteUrl,
+      name,
+      niche,
+      businessTagline,
+      traits,
+      setServicesFromUser,
+      tp.invalidServerResponse,
+      tp.scanNoAiKey,
+      tp.scanFailed,
+      tp.unknown,
+    ]
+  );
+
   // ─── Media upload ──────────────────────────────────────────────────────────
 
   async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") {
@@ -2756,6 +2821,7 @@ export default function SlugSettingsPage({
             setMediaUploadError={setMediaUploadError}
             mediaUploadError={mediaUploadError}
             regenerateSalesFlowSection={regenerateSalesFlowSectionBusy}
+            generateProductDescription={generateProductDescriptionBusy}
             regeneratingKey={busyAction}
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}
