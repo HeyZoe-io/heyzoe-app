@@ -119,6 +119,7 @@ import {
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
+import { fetchPhoneNumbersForWaba } from "@/lib/meta-waba-resolve";
 
 const TRIAL_LINK_POST_CTA_MESSAGE =
   "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
@@ -3473,6 +3474,192 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
   return false;
 }
 
+type AccountUpdateEvent = {
+  waba_id: string;
+  event: string;
+  value: Record<string, unknown>;
+};
+
+/**
+ * Parses Meta `account_update` webhook payloads.
+ * Per Meta docs: `entry.id` is the business portfolio ID; customer WABA ID is
+ * `changes[].value.waba_info.waba_id`; event name is `changes[].value.event`.
+ */
+export function parseAccountUpdate(payload: unknown): AccountUpdateEvent | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  if (root.object !== "whatsapp_business_account") return null;
+
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  for (const entry of entries) {
+    const ent = entry as Record<string, unknown>;
+    const changes = Array.isArray(ent.changes) ? ent.changes : [];
+    for (const change of changes) {
+      const ch = change as Record<string, unknown>;
+      if (String(ch.field ?? "").trim() !== "account_update") continue;
+      const value = ch.value;
+      if (!value || typeof value !== "object") continue;
+      const v = value as Record<string, unknown>;
+      const event = String(v.event ?? "").trim();
+      if (!event) continue;
+
+      const wabaInfo = v.waba_info;
+      const wabaFromInfo =
+        wabaInfo && typeof wabaInfo === "object"
+          ? String((wabaInfo as Record<string, unknown>).waba_id ?? "")
+              .trim()
+              .replace(/\s+/g, "")
+          : "";
+      const waba_id = wabaFromInfo;
+      if (!waba_id) continue;
+
+      return { waba_id, event, value: v };
+    }
+  }
+  return null;
+}
+
+async function subscribeWabaToAppWebhooks(wabaId: string, token: string): Promise<void> {
+  const waba = String(wabaId ?? "").trim();
+  const accessToken = String(token ?? "").trim();
+  if (!waba || !accessToken) {
+    throw new Error("missing_waba_or_token");
+  }
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(waba)}/subscribed_apps`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`subscribed_apps_http_${res.status}: ${bodyText || res.statusText}`);
+  }
+}
+
+async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
+  const wabaId = String(waba_id ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+  if (!wabaId) return;
+
+  const systemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
+  const admin = createSupabaseAdminClient();
+
+  const { data: business, error: bizErr } = await admin
+    .from("businesses")
+    .select("id, slug")
+    .eq("waba_id", wabaId)
+    .limit(1)
+    .maybeSingle();
+
+  if (bizErr) {
+    console.error("[WA Webhook] PARTNER_ADDED business lookup failed:", bizErr.message);
+    return;
+  }
+
+  if (!business?.id) {
+    console.warn("[WA Webhook] PARTNER_ADDED for unknown waba_id:", wabaId);
+    return;
+  }
+
+  const businessId = Number((business as { id?: unknown }).id);
+  const businessSlug = String((business as { slug?: unknown }).slug ?? "")
+    .trim()
+    .toLowerCase();
+  console.info(`[WA Webhook] business found: id=${businessId}, slug=${businessSlug}`);
+
+  const { data: channel, error: chErr } = await admin
+    .from("whatsapp_channels")
+    .select("phone_number_id, provisioning_status")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (chErr) {
+    console.error("[WA Webhook] PARTNER_ADDED channel lookup failed:", chErr.message);
+  }
+
+  if (channel?.phone_number_id) {
+    const { error: updErr } = await admin
+      .from("whatsapp_channels")
+      .update({ is_active: true, provisioning_status: "active" } as any)
+      .eq("business_id", businessId);
+    if (updErr) {
+      console.error("[WA Webhook] channel update failed:", updErr.message);
+    } else {
+      console.info("[WA Webhook] channel updated: provisioning_status=active");
+    }
+  } else if (systemToken) {
+    try {
+      const numbers = await fetchPhoneNumbersForWaba(wabaId, systemToken);
+      console.info(
+        `[WA Webhook] self-healing: fetched phone_numbers for waba_id=${wabaId} (count=${numbers.length})`
+      );
+      if (numbers.length === 0) {
+        console.warn(
+          `[WA Webhook] self-healing: no phone numbers on WABA yet waba_id=${wabaId}; skipping channel insert`
+        );
+      } else {
+        const first = numbers[0];
+        const { error: insErr } = await admin.from("whatsapp_channels").upsert(
+          {
+            business_id: businessId,
+            business_slug: businessSlug,
+            phone_number_id: first.id,
+            phone_display: first.display_phone_number ?? null,
+            is_active: true,
+            provisioning_status: "active",
+          } as any,
+          { onConflict: "phone_number_id" }
+        );
+        if (insErr) {
+          console.error("[WA Webhook] self-healing channel upsert failed:", insErr.message);
+        } else {
+          console.info(
+            `[WA Webhook] self-healing: upserted whatsapp_channels phone_number_id=${first.id}`
+          );
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[WA Webhook] self-healing fetchPhoneNumbersForWaba failed:", msg);
+    }
+  } else {
+    console.warn("[WA Webhook] self-healing skipped: WHATSAPP_SYSTEM_TOKEN missing");
+  }
+
+  const { data: releasedJobs, error: releaseErr } = await admin
+    .from("wa_provision_jobs")
+    .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+    .eq("business_id", businessId)
+    .eq("status", "awaiting_waba")
+    .select("id");
+  if (releaseErr) {
+    console.error("[WA Webhook] release wa_provision_jobs failed:", releaseErr.message);
+  } else if (releasedJobs?.length) {
+    console.info(
+      `[WA Webhook] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+    );
+  }
+
+  if (systemToken) {
+    try {
+      await subscribeWabaToAppWebhooks(wabaId, systemToken);
+      console.info("[WA Webhook] subscribed_apps: success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[WA Webhook] subscribed_apps failed:", msg);
+    }
+  } else {
+    console.warn("[WA Webhook] subscribed_apps skipped: WHATSAPP_SYSTEM_TOKEN missing");
+  }
+}
+
 // ─── GET — Meta webhook verification ─────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -3550,6 +3737,19 @@ export async function POST(req: NextRequest) {
     msg = parseMetaWebhook(metaPayload);
     if (!msg) {
       console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
+      const accountUpdate = parseAccountUpdate(metaPayload);
+      if (accountUpdate) {
+        console.info(
+          `[WA Webhook] account_update: event=${accountUpdate.event}, waba_id=${accountUpdate.waba_id}`
+        );
+        if (accountUpdate.event === "PARTNER_ADDED") {
+          await handlePartnerAddedEvent(accountUpdate.waba_id).catch((e) =>
+            console.error("[WA Webhook] handlePartnerAddedEvent error:", e)
+          );
+        } else {
+          console.info(`[WA Webhook] unhandled account_update event: ${accountUpdate.event}`);
+        }
+      }
     }
   } else {
     if (trimmedBody.startsWith("{")) {
