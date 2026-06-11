@@ -5,11 +5,17 @@ import {
   parseConversationMessageContent,
   type ParsedWaConversationMessage,
 } from "@/lib/conversation-message-display";
+import { dashboardDateLocale, type DashboardLang } from "@/lib/dashboard-lang";
 
-function formatTime(iso: string): string {
+const i18n = {
+  he: { errorCode: "קוד שגיאה" },
+  en: { errorCode: "Error code" },
+} as const;
+
+function formatTime(iso: string, lang: DashboardLang): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" }).format(d);
+  return new Intl.DateTimeFormat(dashboardDateLocale(lang), { hour: "2-digit", minute: "2-digit" }).format(d);
 }
 
 function WaReplyButton({ label, url }: { label: string; url?: string }) {
@@ -131,17 +137,20 @@ export function WaConversationMessage({
   content,
   createdAt,
   errorCode,
+  lang = "he",
 }: {
   role: string;
   content: string;
   createdAt?: string;
   errorCode?: string | null;
+  lang?: DashboardLang;
 }) {
   if (role === "event") return null;
 
+  const t = i18n[lang];
   const from = role === "user" ? "user" : "assistant";
   const parsed = parseConversationMessageContent(content);
-  const time = createdAt ? formatTime(createdAt) : undefined;
+  const time = createdAt ? formatTime(createdAt, lang) : undefined;
   const interactive = parsed.kind === "interactive" || parsed.kind === "media";
 
   return (
@@ -150,7 +159,7 @@ export function WaConversationMessage({
         <MessageBody parsed={parsed} />
       </BubbleShell>
       {from === "assistant" && errorCode ? (
-        <p className="mt-0.5 text-end text-[10px] text-red-600">קוד שגיאה: {errorCode}</p>
+        <p className="mt-0.5 text-end text-[10px] text-red-600">{t.errorCode}: {errorCode}</p>
       ) : null}
     </div>
   );

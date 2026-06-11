@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { dashboardLangFromParam } from "@/lib/dashboard-lang";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import SettingsClient from "../../dashboard/[slug]/settings/page";
 
 const SETTINGS_PRESENCE_PREFIX = "settings";
@@ -22,7 +25,7 @@ function pickEarliest(rows: PresencePayload[]): PresencePayload | null {
   })[0] ?? null;
 }
 
-function uniqueOtherEditorNames(rows: PresencePayload[]): string[] {
+function uniqueOtherEditorNames(rows: PresencePayload[], fallbackName: string): string[] {
   const seen = new Set<string>();
   const names: string[] = [];
   for (const row of rows) {
@@ -30,12 +33,15 @@ function uniqueOtherEditorNames(rows: PresencePayload[]): string[] {
     const dedupeKey = uid || String(row.client_id ?? "").trim();
     if (!dedupeKey || seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
-    names.push(String(row.name ?? "").trim() || "משתמש אחר");
+    names.push(String(row.name ?? "").trim() || fallbackName);
   }
   return names;
 }
 
 export default function SettingsPresenceClient({ slug }: { slug: string }) {
+  const searchParams = useSearchParams();
+  const lang = dashboardLangFromParam(searchParams.get("lang"));
+  const t = dashboardSettingsT(lang);
   const [settingsPresenceLocked, setSettingsPresenceLocked] = useState(false);
   const [settingsPresenceEditorName, setSettingsPresenceEditorName] = useState("");
   const [settingsPresenceConcurrentNames, setSettingsPresenceConcurrentNames] = useState<string[]>([]);
@@ -65,7 +71,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
         String(user?.user_metadata?.full_name ?? "").trim() ||
         String(user?.user_metadata?.name ?? "").trim() ||
         String(user?.email ?? "").trim() ||
-        "משתמש";
+        t.user;
 
       const channel = supabase.channel(`${SETTINGS_PRESENCE_PREFIX}-${businessSlug}`, {
         config: { presence: { key: clientId, enabled: true } },
@@ -91,7 +97,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
 
         const currentEditor = pickEarliest(currentUserPresences);
         const otherEditor = pickEarliest(otherUserPresences);
-        const concurrentNames = uniqueOtherEditorNames(otherUserPresences);
+        const concurrentNames = uniqueOtherEditorNames(otherUserPresences, t.otherUser);
         const shouldLock = Boolean(
           otherEditor &&
             (!currentEditor ||
@@ -99,7 +105,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
         );
 
         setSettingsPresenceLocked(shouldLock);
-        setSettingsPresenceEditorName(shouldLock ? String(otherEditor?.name ?? "משתמש אחר").trim() : "");
+        setSettingsPresenceEditorName(shouldLock ? String(otherEditor?.name ?? t.otherUser).trim() : "");
         setSettingsPresenceConcurrentNames(concurrentNames);
       };
 
@@ -137,7 +143,7 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
         void supabase.removeChannel(presenceChannel);
       }
     };
-  }, [slug]);
+  }, [slug, t.otherUser, t.user]);
 
   return (
     <SettingsClient

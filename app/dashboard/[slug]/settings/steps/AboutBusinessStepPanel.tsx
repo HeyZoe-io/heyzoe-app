@@ -4,6 +4,8 @@ import { useEffect, useMemo } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import { cn } from "@/lib/utils";
 import type { FactQuestion } from "@/lib/fact-questions";
 import { factFromQuestionAnswer } from "@/lib/fact-questions";
@@ -19,21 +21,16 @@ const INPUT = SALES_PATH_INPUT;
 
 type SectionId = "contact" | "identity" | "location" | "knowledge";
 
-const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
-  { id: "contact", label: "מספרים", hint: "וואטסאפ ושירות" },
-  { id: "identity", label: "זהות", hint: "שם ותיאור" },
-  { id: "location", label: "מיקום", hint: "כתובת והגעה" },
-  { id: "knowledge", label: "ידע לזואי", hint: "עובדות ומבצעים" },
-];
-
-function traitPlaceholder(index: number): string {
-  if (index === 0) return "מתאים לשיקום פציעות";
-  if (index === 1) return "מתאים לכל הרמות";
-  if (index === 2) return "הסטודיו הגדול בעיר";
-  return "מאפיין נוסף";
+function traitPlaceholder(index: number, lang: DashboardLang): string {
+  const about = dashboardSettingsT(lang).about;
+  if (index === 0) return about.traitPlaceholder0;
+  if (index === 1) return about.traitPlaceholder1;
+  if (index === 2) return about.traitPlaceholder2;
+  return about.traitPlaceholderN;
 }
 
 export type AboutBusinessStepPanelProps = {
+  lang?: DashboardLang;
   whatsAppSlot: React.ReactNode;
   customerServicePhone: string;
   setCustomerServicePhone: (v: string) => void;
@@ -66,6 +63,7 @@ export type AboutBusinessStepPanelProps = {
 
 export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
   const {
+    lang = "he",
     whatsAppSlot,
     customerServicePhone,
     setCustomerServicePhone,
@@ -95,9 +93,19 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     setFactQuestionIdx,
     addFactLine,
   } = props;
+  const t = dashboardSettingsT(lang);
+  const sections = useMemo(
+    () => [
+      { id: "contact" as const, label: t.about.sections.contact.label, hint: t.about.sections.contact.hint },
+      { id: "identity" as const, label: t.about.sections.identity.label, hint: t.about.sections.identity.hint },
+      { id: "location" as const, label: t.about.sections.location.label, hint: t.about.sections.location.hint },
+      { id: "knowledge" as const, label: t.about.sections.knowledge.label, hint: t.about.sections.knowledge.hint },
+    ],
+    [t]
+  );
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
-    useSalesPathSections<SectionId>(SECTIONS, {
+    useSalesPathSections<SectionId>(sections, {
       contact: true,
       identity: true,
       location: false,
@@ -123,27 +131,28 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
   return (
     <SalesPathStepShell
       stepNumber={2}
-      title="על העסק"
-      description="כל מה זואי צריכה לדעת על העסק."
+      title={t.about.title}
+      description={t.about.description}
       stepPrefix="about"
-      sections={SECTIONS}
+      sections={sections}
       activeNav={activeNav}
       onNavClick={scrollToSection}
       mainRef={mainRef}
-      navAriaLabel="ניווט בתוך על העסק"
+      navAriaLabel={t.about.navAria}
+      lang={lang}
     >
           <SalesPathSectionBlock
             stepPrefix="about"
             id="contact"
-            title="מספרי טלפון"
-            hint="להפעלת פלואו המכירה שלחו: היי, הי, אשמח לפרטים, או אשמח לשמוע פרטים"
+            title={t.about.phones}
+            hint={t.about.phonesHint}
             open={openSections.contact}
             onToggle={() => toggle("contact")}
             filled={sectionFilled.contact}
           >
             <div className="space-y-4">{whatsAppSlot}</div>
             <div>
-              <SalesPathFieldLabel hint="לפניות שלא דרך הבוט">טלפון שירות לקוחות</SalesPathFieldLabel>
+              <SalesPathFieldLabel hint={t.about.customerServiceHint}>{t.about.customerService}</SalesPathFieldLabel>
               <Input
                 dir="ltr"
                 className={cn(INPUT, "font-mono text-sm")}
@@ -160,15 +169,15 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           <SalesPathSectionBlock
             stepPrefix="about"
             id="identity"
-            title="זהות העסק"
-            hint="שם, בוט ותיאור קצר"
+            title={t.about.identity}
+            hint={t.about.identityHint}
             open={openSections.identity}
             onToggle={() => toggle("identity")}
             filled={sectionFilled.identity}
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <SalesPathFieldLabel>שם העסק</SalesPathFieldLabel>
+                <SalesPathFieldLabel>{t.about.businessName}</SalesPathFieldLabel>
                 {name.trim() && !businessNameEditing ? (
                   <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50/60">
                     <div className="flex-1 px-3 py-2.5 text-sm font-semibold text-zinc-900">{name}</div>
@@ -177,41 +186,41 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                       onClick={() => setBusinessNameEditing(true)}
                       className="shrink-0 border-r border-zinc-200 px-3 text-xs font-medium text-[#7133da] hover:bg-[#f0eaff]"
                     >
-                      עריכה
+                      {t.edit}
                     </button>
                   </div>
                 ) : (
                   <Input
-                    dir="rtl"
+                    dir={dashboardDir(lang)}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => {
                       if (name.trim()) setBusinessNameEditing(false);
                     }}
-                    placeholder="שם העסק"
+                    placeholder={t.about.businessName}
                     className={INPUT}
                     autoFocus={businessNameEditing}
                   />
                 )}
               </div>
               <div>
-                <SalesPathFieldLabel>שם הבוט</SalesPathFieldLabel>
+                <SalesPathFieldLabel>{t.about.botName}</SalesPathFieldLabel>
                 <Input
-                  dir="rtl"
+                  dir={dashboardDir(lang)}
                   value={botName}
                   onChange={(e) => setBotName(e.target.value)}
-                  placeholder="זואי"
+                  placeholder="Zoe"
                   className={INPUT}
                 />
               </div>
             </div>
             <div>
-              <SalesPathFieldLabel hint="משפט אחד - זואי משתמשת בו בהקדמה">תיאור העסק</SalesPathFieldLabel>
+              <SalesPathFieldLabel hint={t.about.taglineHint}>{t.about.tagline}</SalesPathFieldLabel>
               <Input
-                dir="rtl"
+                dir={dashboardDir(lang)}
                 value={businessTagline}
                 onChange={(e) => setBusinessTagline(e.target.value)}
-                placeholder="סטודיו לפילאטיס מכשירים לחיטוב ובריאות הגוף"
+                placeholder="Pilates studio for strength and wellness"
                 className={INPUT}
               />
             </div>
@@ -220,19 +229,19 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           <SalesPathSectionBlock
             stepPrefix="about"
             id="location"
-            title="מיקום והגעה"
+            title={`${t.about.sections.location.label} & ${t.about.directions}`}
             open={openSections.location}
             onToggle={() => toggle("location")}
             filled={sectionFilled.location}
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <SalesPathFieldLabel>כתובת</SalesPathFieldLabel>
+                <SalesPathFieldLabel>{t.about.address}</SalesPathFieldLabel>
                 <Input
-                  dir="rtl"
+                  dir={dashboardDir(lang)}
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="רחוב הרצל 5, תל אביב"
+                  placeholder="Herzl St 5, Tel Aviv"
                   autoComplete="street-address"
                   className={INPUT}
                 />
@@ -251,17 +260,17 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                       }}
                       className="text-[11px] font-medium text-[#027eb5] hover:text-[#02638f]"
                     >
-                      העלאת קובץ
+                      {t.about.uploadFile}
                     </button>
                   }
                 >
-                  הנחיות הגעה
+                  {t.about.directions}
                 </SalesPathFieldLabel>
                 <Input
-                  dir="rtl"
+                  dir={dashboardDir(lang)}
                   value={directions}
                   onChange={(e) => setDirections(e.target.value)}
-                  placeholder="חנייה מאחורי הבניין, כניסה מימין…"
+                  placeholder="Parking behind the building, entrance on the right…"
                   className={INPUT}
                 />
               </div>
@@ -271,14 +280,14 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           <SalesPathSectionBlock
             stepPrefix="about"
             id="knowledge"
-            title="ידע לזואי"
-            hint="עובדות, מבצעים ושאלות משלימות"
+            title={t.about.knowledge}
+            hint={t.about.knowledgeHint}
             open={openSections.knowledge}
             onToggle={() => toggle("knowledge")}
             filled={sectionFilled.knowledge}
           >
             <div>
-              <SalesPathFieldLabel hint="נקודות שכדאי שזואי תדע לציין">עובדות על העסק</SalesPathFieldLabel>
+              <SalesPathFieldLabel hint={t.about.factsHint}>{t.about.facts}</SalesPathFieldLabel>
               <ul className="space-y-2">
                 {traits.map((row, i) => (
                   <li key={i} className="flex items-center gap-2">
@@ -286,7 +295,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                       {i + 1}
                     </span>
                     <Input
-                      dir="rtl"
+                      dir={dashboardDir(lang)}
                       value={row}
                       onChange={(e) =>
                         setTraits((prev) => {
@@ -295,7 +304,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                           return next;
                         })
                       }
-                      placeholder={traitPlaceholder(i)}
+                      placeholder={traitPlaceholder(i, lang)}
                       className={cn(INPUT, "flex-1")}
                     />
                     {traits.length > 1 ? (
@@ -303,7 +312,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                         type="button"
                         onClick={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
                         className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                        aria-label="הסר שורה"
+                        aria-label={t.about.removeRow}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -320,28 +329,28 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                 onClick={() => setTraits((prev) => [...prev, ""])}
               >
                 <Plus className="h-3.5 w-3.5" />
-                הוסף עובדה
+                {t.about.addFact}
               </Button>
             </div>
 
             <div>
-              <SalesPathFieldLabel>הנחות ומבצעים</SalesPathFieldLabel>
+              <SalesPathFieldLabel>{t.about.promotions}</SalesPathFieldLabel>
               <Input
-                dir="rtl"
+                dir={dashboardDir(lang)}
                 value={promotions}
                 onChange={(e) => setPromotions(e.target.value)}
-                placeholder="20% הנחה על מנויים חדשים עד סוף החודש"
+                placeholder="20% off new memberships until end of month"
                 className={INPUT}
               />
             </div>
 
             {factQuestions.length > 0 && currentFactQ ? (
               <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50/50 p-3">
-                <p className="mb-2 text-[11px] font-medium text-zinc-500">שאלה מוצעת להשלמת הידע</p>
+                <p className="mb-2 text-[11px] font-medium text-zinc-500">{t.about.suggestedQuestion}</p>
                 <p className="mb-2 text-sm font-medium text-zinc-800">{currentFactQ.question}</p>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
-                    dir="rtl"
+                    dir={dashboardDir(lang)}
                     value={factAnswers[currentFactQ.id] ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -362,7 +371,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                           )
                         }
                       >
-                        שאלה אחרת
+                        {t.about.anotherQuestion}
                       </Button>
                     ) : null}
                     <Button
@@ -379,13 +388,13 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                       }}
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      הוסף לעובדות
+                      {t.about.addToFacts}
                     </Button>
                   </div>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-zinc-500">נראה שהעובדות כבר מכסות את רוב השאלות הנפוצות.</p>
+              <p className="text-xs text-zinc-500">{t.about.factsComplete}</p>
             )}
           </SalesPathSectionBlock>
     </SalesPathStepShell>
