@@ -322,6 +322,17 @@ const SALES_FLOW_GREETING_TRIGGERS = new Set([
   "אשמח לפרטים",
   "היי אשמח לפרטים",
   "הי אשמח לפרטים",
+  // English (normalized: apostrophes stripped → i'd → id)
+  "id like details",
+  "i would like details",
+  "id like more info",
+  "tell me more",
+  "more info",
+  "more details",
+  "info please",
+  "details please",
+  "more info please",
+  "looking for info",
 ]);
 
 function isSalesFlowGreetingTrigger(text: string): boolean {
@@ -389,7 +400,18 @@ function isAddressOrDirectionsIntent(text: string): boolean {
     normalized.includes("הנחיות הגעה") ||
     normalized.includes("דרכי הגעה") ||
     normalized.includes("איך באים") ||
-    normalized.includes("איך מגיעה")
+    normalized.includes("איך מגיעה") ||
+    normalized.includes("whats the address") ||
+    normalized.includes("what is the address") ||
+    normalized.includes("where are you located") ||
+    normalized.includes("where are you") ||
+    normalized.includes("where is the studio") ||
+    normalized.includes("your address") ||
+    normalized.includes("your location") ||
+    normalized.includes("how do i get there") ||
+    normalized.includes("directions") ||
+    normalized.includes("how to get to you") ||
+    normalized.includes("where to find you")
   );
 }
 
@@ -472,7 +494,7 @@ function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
 
 /** «איך נרשמים/מצטרפים» — לא שאלות כלליות על «הרשמה» באמצע חימום וכו׳ */
 function isJoinSignupIntentText(normalized: string): boolean {
-  const t = normalized.trim();
+  const t = normalizeGreetingToken(normalized);
   if (!t) return false;
   if (/^(איך|איפה)\s+/u.test(t) && /(נרשמים|נרשם|נרשמת|להירשם|מצטרפים|מצטרף|להצטרף|הצטרפות)/u.test(t)) {
     return true;
@@ -480,6 +502,12 @@ function isJoinSignupIntentText(normalized: string): boolean {
   if (/רוצה\s+(להירשם|להצטרף)/u.test(t)) return true;
   if (/איך\s+מתחילים/u.test(t)) return true;
   if (/איך\s+(קונים|רוכשים|מזמינים|משריינים|שומרים\s+מקום)/u.test(t)) return true;
+  if (/^how (?:do|can) i (?:sign up|register|join)/u.test(t)) return true;
+  if (/^how to (?:sign up|register|join)/u.test(t)) return true;
+  if (/^i want to (?:register|join|sign up)/u.test(t)) return true;
+  if (/^id like to (?:register|join|sign up)/u.test(t)) return true;
+  if (/^i would like to (?:register|join|sign up)/u.test(t)) return true;
+  if (/^sign me up$/u.test(t)) return true;
   return false;
 }
 
