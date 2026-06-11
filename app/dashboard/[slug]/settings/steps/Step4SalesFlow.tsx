@@ -83,6 +83,7 @@ type Step4SalesFlowProps = {
     section: "opening" | "service_pick" | "warmup" | "cta" | "after_trial_registration",
     warmupOfferKind?: "trial" | "workshop" | "course"
   ) => void;
+  generateProductDescription: (uiId: string) => void;
   regeneratingKey: string | null;
   salesFlowConfig: SalesFlowConfig;
   setSalesFlowConfig: Dispatch<SetStateAction<SalesFlowConfig>>;
@@ -454,6 +455,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     setMediaUploadError,
     mediaUploadError,
     regenerateSalesFlowSection,
+    generateProductDescription,
     regeneratingKey,
     salesFlowConfig,
     setSalesFlowConfig,
@@ -494,6 +496,41 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
       return regeneratingKey === `sales:after_registration:${offerTab}`;
     return regeneratingKey === `sales:${section}`;
   };
+  const isGenProductDesc = (uiId: string) => regeneratingKey === `sales:product_desc:${uiId}`;
+
+  const renderProductPickAnswer = (service: ServiceItem) => (
+    <Field label="תשובה">
+      <div className="flex items-start gap-2">
+        <div
+          dir="rtl"
+          className="min-h-[6rem] flex-1 whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
+        >
+          {service.description.trim() ? (
+            service.description
+          ) : (
+            <span className="text-zinc-400">אין תיאור — לחצו «ג׳נרט» או הוסיפו בטאב «מוצרים»</span>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto shrink-0 gap-1 px-3 py-1.5 text-xs"
+          disabled={isSalesGenerating}
+          onClick={() => generateProductDescription(service.ui_id)}
+        >
+          {isGenProductDesc(service.ui_id) ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
+          {isGenProductDesc(service.ui_id) ? "מג׳נרט..." : "ג׳נרט תיאור"}
+        </Button>
+      </div>
+      <p className="text-[11px] leading-relaxed text-zinc-500">
+        ניתן לערוך בטאב «מוצרים» או לג׳נרט כאן לפי מוצר.
+      </p>
+    </Field>
+  );
 
   const hasAnyCtaOfferTab = hasTrialOffers || hasWorkshopOffers || hasCourseOffers;
 
@@ -1032,22 +1069,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           open={openSections.service_pick}
           onToggle={() => toggle("service_pick")}
           filled={trialServiceNames.length > 0}
-          headerAction={
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              disabled={isSalesGenerating}
-              onClick={() => regenerateSalesFlowSection("service_pick")}
-            >
-              {isGen("service_pick") ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isGen("service_pick") ? "מג׳נרט..." : "ג׳נרט מחדש"}
-            </Button>
-          }
         >
           <div className="space-y-3">
             {trialServiceNames.length > 1 ? (
@@ -1077,21 +1098,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
                           {s.name.trim()}
                         </div>
-                        <Field label="תשובה">
-                          <div
-                            dir="rtl"
-                            className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
-                          >
-                            {s.description.trim() ? (
-                              s.description
-                            ) : (
-                              <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] leading-relaxed text-zinc-500">
-                            נערך בטאב «מוצרים» (שדה תיאור).
-                          </p>
-                        </Field>
+                        {renderProductPickAnswer(s)}
                       </div>
                     )
                   )}
@@ -1109,21 +1116,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   return (
                     <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
                       <p className="text-xs font-medium text-zinc-700 text-center">תשובה לאימון: {s.name.trim()}</p>
-                      <Field label="תשובה">
-                        <div
-                          dir="rtl"
-                          className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
-                        >
-                          {s.description.trim() ? (
-                            s.description
-                          ) : (
-                            <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] leading-relaxed text-zinc-500">
-                          נערך בטאב «מוצרים» (שדה תיאור).
-                        </p>
-                      </Field>
+                      {renderProductPickAnswer(s)}
                     </div>
                   );
                 })()}
