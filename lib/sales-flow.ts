@@ -2,6 +2,7 @@
  * מסלול מכירה מובנה - פתיחה + הנעה לפעולה, סנכרון ל-welcome_message ולפרומפט זואי.
  */
 
+import { detectMessageLanguage } from "@/lib/language-detect";
 import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 
@@ -1698,6 +1699,21 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
   };
 }
 
+function greetingContentAlreadyHasAddress(parts: string[], addressText: string): boolean {
+  const blob = parts.join("\n");
+  const addr = addressText.trim();
+  if (addr && blob.toLowerCase().includes(addr.toLowerCase())) return true;
+  return /(?:כתובתנו|we(?:'re| are) (?:located |at )|located at|our address)/i.test(blob);
+}
+
+function formatGreetingAddressLine(addressText: string, contentLangSample: string): string {
+  const addr = addressText.trim();
+  if (!addr) return "";
+  const lang = detectMessageLanguage(contentLangSample);
+  if (lang === "en") return `We're located at ${addr}`;
+  return `כתובתנו היא ${addr}`;
+}
+
 export function composeGreeting(
   c: SalesFlowConfig,
   botName: string,
@@ -1711,8 +1727,13 @@ export function composeGreeting(
   const tag = taglineText.trim() || "…";
   const lineName = c.greeting_line_name.replace(/\{botName\}/g, bot).replace(/\{businessName\}/g, biz);
   const lineTag = c.greeting_line_tagline.replace(/\{tagline\}/g, tag);
-  const addressLine = addressText.trim() ? `כתובתנו היא ${addressText.trim()}` : "";
-  return [c.greeting_opener, lineName, lineTag, c.greeting_closer, addressLine].filter(Boolean).join("\n");
+  const coreParts = [c.greeting_opener, lineName, lineTag, c.greeting_closer];
+  const langSample = coreParts.filter(Boolean).join("\n");
+  const addressLine =
+    addressText.trim() && !greetingContentAlreadyHasAddress(coreParts, addressText)
+      ? formatGreetingAddressLine(addressText, langSample)
+      : "";
+  return [...coreParts, addressLine].filter(Boolean).join("\n");
 }
 
 export type ServiceLike = {
