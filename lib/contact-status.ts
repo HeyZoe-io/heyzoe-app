@@ -108,3 +108,16 @@ export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
 ];
 
 export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";
+
+/** סטטוסים שניתן לקבוע ידנית מדשבורד הלידים */
+export const MANUAL_CONTACT_STATUSES: ContactStatusKey[] = ["not_relevant"];
+
+export function canManuallySetContactStatus(
+  target: ContactStatusKey,
+  contact: ContactStatusInput
+): boolean {
+  if (target === "not_relevant") {
+    return contact.opted_out !== true && !contact.not_relevant_at;
+  }
+  return false;
+}
