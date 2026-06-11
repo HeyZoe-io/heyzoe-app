@@ -34,7 +34,14 @@ export async function POST(req: NextRequest) {
       getBusinessKnowledgePack(String(slug)),
       loadZoePlatformGuidelines(),
     ]);
-    const systemPrompt = buildSystemPrompt(knowledge, String(slug), 'web', undefined, platform);
+    const systemPrompt = buildSystemPrompt(
+      knowledge,
+      String(slug),
+      "web",
+      undefined,
+      platform,
+      String(message)
+    );
 
     const client = new Anthropic({ apiKey });
     const encoder = new TextEncoder();
