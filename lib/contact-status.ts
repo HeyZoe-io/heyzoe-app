@@ -66,7 +66,8 @@ export const CONTACT_STATUS_META: Record<
   },
   template: {
     label: "טמפלייט",
-    tooltip: "נשלח טמפלייט פתיחה — ממתין לתגובה ראשונה",
+    tooltip:
+      "נשלח טמפלייט פתיחה — אם אין תגובה תוך 6 שעות הליד עובר ל«ללא מענה» ונשלח ל-CRM",
     badgeClass: "border-violet-200 bg-violet-50 text-violet-900",
   },
   no_response: {
