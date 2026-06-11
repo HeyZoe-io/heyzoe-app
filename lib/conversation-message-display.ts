@@ -1,5 +1,5 @@
 import { HEYZOE_MARKETING_CTA_SENT } from "@/lib/lp-analytics";
-import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
+import { getZoeWhatsAppMenuFooter } from "@/lib/whatsapp-copy";
 
 export type WaConversationButton = { label: string; url?: string };
 
@@ -57,12 +57,15 @@ function parseButtonToken(raw: string): WaConversationButton {
 
 function extractFooterHint(text: string): { text: string; footerHint?: string } {
   const t = text.trim();
-  const footer = ZOE_WHATSAPP_MENU_FOOTER.trim();
-  if (!footer || !t.includes(footer)) return { text: t };
-  const without = t
-    .replace(new RegExp(`\\n*${footer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n*`, "g"), "\n")
-    .trim();
-  return { text: without, footerHint: footer };
+  for (const lang of ["he", "en"] as const) {
+    const footer = getZoeWhatsAppMenuFooter(lang).trim();
+    if (!footer || !t.includes(footer)) continue;
+    const without = t
+      .replace(new RegExp(`\\n*${footer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n*`, "g"), "\n")
+      .trim();
+    return { text: without, footerHint: footer };
+  }
+  return { text: t };
 }
 
 function asInteractive(

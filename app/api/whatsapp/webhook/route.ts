@@ -30,7 +30,7 @@ import {
   BUSINESS_INACTIVE_AUTO_REPLY_MODEL,
   buildInactiveBusinessAutoReply,
   customerServicePhoneFromSocialLinks,
-  ZOE_WHATSAPP_MENU_FOOTER,
+  getZoeWhatsAppMenuFooter,
 } from "@/lib/whatsapp-copy";
 import { contactPhoneLookupVariants, buildWaSessionId } from "@/lib/phone-normalize";
 import {
@@ -141,10 +141,21 @@ const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
   "לאחר התשלום כתבו *נרשמתי* ואשלח לכם את כל הפרטים!";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 
+function salesFlowMenuFooter(knowledge: BusinessKnowledgePack | null | undefined): string {
+  return getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(knowledge));
+}
+
+function stripZoeMenuFooterFromText(text: string): string {
+  let t = text;
+  t = t.replaceAll(getZoeWhatsAppMenuFooter("he"), "");
+  t = t.replaceAll(getZoeWhatsAppMenuFooter("en"), "");
+  return t.replace(/\n{3,}/g, "\n\n");
+}
+
 function formatInteractiveConversationLog(
   body: string,
   labels: string[],
-  footerHint = ZOE_WHATSAPP_MENU_FOOTER
+  footerHint = getZoeWhatsAppMenuFooter()
 ): string {
   const cleanLabels = labels.map((label) => String(label ?? "").trim()).filter(Boolean);
   return [
@@ -1624,18 +1635,21 @@ async function executeWarmupExtraPickAt(input: {
   if (!picked) return { handled: false };
 
   const replyRaw = String(current?.replies?.[input.pickedIdx] ?? "").trim();
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const nextIdx = input.lastIdx + 1;
   if (nextIdx < input.cleanSteps.length) {
     const next = input.cleanSteps[nextIdx]!;
     const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
     const combined = [replyRaw, next.question].filter(Boolean).join("\n\n").trim();
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, combined, nextOpts, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
     await logMessage({
       business_slug: input.business_slug,
       role: "assistant",
-      content: formatInteractiveConversationLog(combined, nextOpts),
+      content: formatInteractiveConversationLog(combined, nextOpts, menuFooter),
       model_used: "sales_flow_warmup_extra",
       session_id: input.sessionId,
     });
@@ -1845,6 +1859,7 @@ async function attemptWarmupExtraMenuPick(input: {
       opts.length >= 2 &&
       shouldResendDeterministicMenuOnUnrecognizedPick(input.msg)
     ) {
+      const menuFooter = salesFlowMenuFooter(input.knowledge);
       await sendWhatsAppTextOrMenu(
         input.msg.toNumber,
         input.msg.from,
@@ -1852,12 +1867,15 @@ async function attemptWarmupExtraMenuPick(input: {
         opts,
         input.accountSid,
         input.authToken,
-        { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+        {
+          footerHint: menuFooter,
+          language: resolveBusinessContentLanguageFromKnowledge(input.knowledge),
+        }
       ).catch((e) => console.error("[WA Webhook] Resend warmup-extra menu failed:", e));
       await logMessage({
         business_slug: input.business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(current.question, opts),
+        content: formatInteractiveConversationLog(current.question, opts, menuFooter),
         model_used: "sales_flow_warmup_extra_resend",
         session_id: input.sessionId,
       });
@@ -1928,9 +1946,12 @@ async function sendOpeningServicePickMenu(input: {
     stripScheduleLineFromMultiServiceQuestion(qRaw) ||
     DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
   const modelUsed = input.modelUsed ?? "flow_continuation_opening_service_pick";
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     }).catch((e) => console.error("[WA Webhook] Send service pick menu (Meta) failed:", e));
   } else {
     const numbered = labels.map((l, i) => `${i + 1}. ${l}`).join("\n");
@@ -1942,7 +1963,7 @@ async function sendOpeningServicePickMenu(input: {
   await logMessage({
     business_slug: input.business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(split.logBody, labels),
+    content: formatInteractiveConversationLog(split.logBody, labels, menuFooter),
     model_used: modelUsed,
     session_id: input.sessionId,
   });
@@ -2035,12 +2056,15 @@ async function sendScheduleSlotPickMenu(input: {
   const serviceName = input.selectedService?.name?.trim() || "האימון";
   const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName));
 
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   let outboundLog = body;
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     });
-    outboundLog = formatInteractiveConversationLog(body, labels);
+    outboundLog = formatInteractiveConversationLog(body, labels, menuFooter);
   } else {
     const numbered = ["בחרו מועד — כתבו את המספר מהרשימה:", ...labels.map((l, i) => `${i + 1}. ${l}`)].join("\n");
     const full = `${body}\n\n${numbered}`;
@@ -2113,12 +2137,15 @@ async function sendCourseCycleStartPickMenu(input: {
     [...introParts, pickQuestion].filter(Boolean).join("\n\n")
   );
 
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   let outboundLog = body;
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     });
-    outboundLog = formatInteractiveConversationLog(body, labels);
+    outboundLog = formatInteractiveConversationLog(body, labels, menuFooter);
   } else {
     const numbered = ["בחרו מחזור — כתבו את המספר מהרשימה:", ...labels.map((l, i) => `${i + 1}. ${l}`)].join("\n");
     const full = `${body}\n\n${numbered}`;
@@ -2453,14 +2480,15 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   if (!ctaBody) return;
 
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+  const menuFooter = getZoeWhatsAppMenuFooter(contentLang);
 
   if (ctaLabels.length >= 1) {
     await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels, accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
       language: contentLang,
     }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu failed:", e));
   } else {
-    await sendWhatsAppMessage(msg.toNumber, msg.from, `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`, accountSid, authToken).catch((e) =>
+    await sendWhatsAppMessage(msg.toNumber, msg.from, `${ctaBody}\n\n${menuFooter}`, accountSid, authToken).catch((e) =>
       console.error("[WA Webhook] sendSalesFlowCtaMenu plain failed:", e)
     );
   }
@@ -2468,7 +2496,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   await logMessage({
     business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(ctaBody, ctaLabels),
+    content: formatInteractiveConversationLog(ctaBody, ctaLabels, menuFooter),
     model_used: modelUsed,
     session_id: sessionId,
   });
@@ -2567,6 +2595,7 @@ async function sendWarmupExperienceQuestionMenu(input: {
     });
   }
 
+  const menuFooter = getZoeWhatsAppMenuFooter(input.contentLang ?? "he");
   await sendWhatsAppTextOrMenu(
     input.msg.toNumber,
     input.msg.from,
@@ -2574,13 +2603,13 @@ async function sendWarmupExperienceQuestionMenu(input: {
     menu.options,
     input.accountSid,
     input.authToken,
-    { footerHint: ZOE_WHATSAPP_MENU_FOOTER, language: input.contentLang ?? "he" }
+    { footerHint: menuFooter, language: input.contentLang ?? "he" }
   ).catch((e) => console.error("[WA Webhook] warmup experience menu failed:", e));
 
   await logMessage({
     business_slug: input.business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(menu.question, menu.options),
+    content: formatInteractiveConversationLog(menu.question, menu.options, menuFooter),
     model_used: WA_WARMUP_EXPERIENCE_SENT_MODEL,
     session_id: input.sessionId,
   });
@@ -2663,9 +2692,10 @@ async function sendFlowContinuation(input: {
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
+  const menuFooter = salesFlowMenuFooter(knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
   if (phase === "registered") {
-    const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
     const igRaw = knowledge.instagramUrl?.trim();
     const includeIg = Boolean(igRaw?.length) && !instagramFollowPromptSent;
     const parts = [
@@ -2871,12 +2901,13 @@ async function sendFlowContinuation(input: {
     if (step < cleanGreeting.length) {
       const st = cleanGreeting[step]!;
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] flow continuation opening extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options),
+        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
         model_used: "flow_continuation_opening_extra",
         session_id: sessionId,
       });
@@ -3000,12 +3031,13 @@ async function sendFlowContinuation(input: {
     const st = extraIdx >= 0 ? cleanWarm[extraIdx] : undefined;
     if (st) {
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] flow continuation warmup extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options),
+        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
         model_used: "flow_continuation_warmup_extra",
         session_id: sessionId,
       });
@@ -3145,6 +3177,8 @@ async function resendUnansweredSalesFlowPrompt(
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
+  const menuFooter = salesFlowMenuFooter(knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
   const step = Number.isFinite(contact.flow_step) ? contact.flow_step : 0;
 
@@ -3162,12 +3196,13 @@ async function resendUnansweredSalesFlowPrompt(
     if (step < cleanGreeting.length) {
       const st = cleanGreeting[step]!;
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] resend opening extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options),
+        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
         model_used: "sales_flow_opening_extra_resend",
         session_id: sessionId,
       });
@@ -3253,12 +3288,13 @@ async function resendUnansweredSalesFlowPrompt(
     if (st?.question && (st.options?.length ?? 0) >= 2) {
       const opts = st.options.map((o) => String(o ?? "").trim()).filter(Boolean);
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, opts, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] resend warmup extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, opts),
+        content: formatInteractiveConversationLog(st.question, opts, menuFooter),
         model_used: "sales_flow_warmup_extra_resend",
         session_id: sessionId,
       });
@@ -5798,15 +5834,18 @@ async function processIncoming(
           );
           const menuLabels = menuLabelsRaw.slice(0, 12);
           if (!fuBody || menuLabels.length < 1) return;
+          const postLinkMenuFooter = salesFlowMenuFooter(knowledge);
+          const postLinkContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const logged = [
             fuBody.trim(),
             menuLabels.map((label, index) => `${index + 1}. ${label}`).join("\n"),
-            ZOE_WHATSAPP_MENU_FOOTER,
+            postLinkMenuFooter,
           ]
             .filter((x) => x.length > 0)
             .join("\n\n");
           await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody.trim(), menuLabels, accountSid, authToken, {
-            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+            footerHint: postLinkMenuFooter,
+            language: postLinkContentLang,
           }).catch((e) => console.error("[WA Webhook] Send post-link menu failed:", e));
           await logMessage({
             business_slug,
@@ -6429,13 +6468,15 @@ async function processIncoming(
             const firstOpts = first.options.map((o) => String(o ?? "").trim()).filter(Boolean);
             const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
             const combined = [bodyOnly, first.question].filter(Boolean).join("\n\n").trim();
+            const menuFooter = salesFlowMenuFooter(knowledge);
             await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, firstOpts, accountSid, authToken, {
-              footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+              footerHint: menuFooter,
+              language: resolveBusinessContentLanguageFromKnowledge(knowledge),
             }).catch((e) => console.error("[WA Webhook] Send warmup-extra first step failed:", e));
             await logMessage({
               business_slug,
               role: "assistant",
-              content: formatInteractiveConversationLog(combined, firstOpts),
+              content: formatInteractiveConversationLog(combined, firstOpts, menuFooter),
               model_used: "sales_flow_warmup_extra",
               session_id: sessionId,
             });
@@ -7200,6 +7241,8 @@ async function processIncoming(
     isCtaServiceFitQuestion(incomingRaw) &&
     !isExplicitOtherServiceRequest(incomingRaw);
 
+  const menuFooter = salesFlowMenuFooter(knowledge);
+  const aiMenuContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
   const stripCandidates = [
     ...serviceSelectionLabels,
     ...buttons,
@@ -7213,9 +7256,7 @@ async function processIncoming(
     ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore), stripCandidates)
     : replyCore;
   const replyCoreClean = applyKnownAssistantReplyFixes(
-    stripAssistantInteractiveButtonsLog(
-      replyCoreForMenu.replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "").replace(/\n{3,}/g, "\n\n")
-    ),
+    stripAssistantInteractiveButtonsLog(stripZoeMenuFooterFromText(replyCoreForMenu)),
     {
       knowledge,
       phase: contactSessionPhase,
@@ -7321,7 +7362,7 @@ async function processIncoming(
       replyText += `\n\n${ctaText}: ${ctaLink}`;
     }
 
-    if (!shouldSplitCtaAnswerAndMenu && shouldShowFooter) replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+    if (!shouldSplitCtaAnswerAndMenu && shouldShowFooter) replyText += `\n\n${menuFooter}`;
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
@@ -7526,7 +7567,8 @@ async function processIncoming(
           });
         }
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
-          footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? ZOE_WHATSAPP_MENU_FOOTER : "",
+          footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? menuFooter : "",
+          language: aiMenuContentLang,
         });
       }
 
