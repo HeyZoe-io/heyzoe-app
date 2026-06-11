@@ -3,6 +3,10 @@
  */
 
 import { detectMessageLanguage } from "@/lib/language-detect";
+import {
+  instagramVisitInMeantimeLine,
+  type BusinessContentLanguage,
+} from "@/lib/business-content-lang";
 import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 
@@ -2363,7 +2367,8 @@ export function expandAfterTrialRegistrationForPrompt(
   body: string,
   instagramUrl: string,
   address: string,
-  directions: string
+  directions: string,
+  language: BusinessContentLanguage = "he"
 ): string {
   const u = instagramUrl.trim();
   const a = address.trim();
@@ -2381,10 +2386,7 @@ export function expandAfterTrialRegistrationForPrompt(
 
   if (t.includes(INSTAGRAM_CTA_PLACEHOLDER)) {
     if (u) {
-      t = t.replace(
-        INSTAGRAM_CTA_PLACEHOLDER,
-        `מוזמנים לבקר באינסטגרם שלנו בינתיים:\n${u}`
-      );
+      t = t.replace(INSTAGRAM_CTA_PLACEHOLDER, instagramVisitInMeantimeLine(language, u));
     } else {
       t = t
         .replace(/\n*\{instagram_cta\}\n*/g, "\n")
@@ -2395,7 +2397,7 @@ export function expandAfterTrialRegistrationForPrompt(
   }
 
   if (u) {
-    return `${t}\n\nמוזמנים לבקר באינסטגרם שלנו בינתיים:\n${u}`;
+    return `${t}\n\n${instagramVisitInMeantimeLine(language, u)}`;
   }
   return t;
 }
@@ -2562,9 +2564,10 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   instagramUrl: string,
   address: string,
   directions: string,
-  scheduleSelection?: AfterTrialScheduleFillInput
+  scheduleSelection?: AfterTrialScheduleFillInput,
+  language: BusinessContentLanguage = "he"
 ): string {
-  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions);
+  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions, language);
   s = fillAfterTrialSchedulePlaceholders(s, {
     requestedDate: scheduleSelection?.requestedDate,
     requestedTime: scheduleSelection?.requestedTime,
