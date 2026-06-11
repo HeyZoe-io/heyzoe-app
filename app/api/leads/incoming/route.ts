@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logMessage } from "@/lib/analytics";
-import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
+import {
+  formatLeadTemplateMessageContent,
+  LEAD_TEMPLATE_MODEL,
+  templateNoResponseDueAtIso,
+} from "@/lib/lead-template";
+import { dispatchCrmEvent } from "@/lib/crm/dispatch";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
@@ -104,6 +109,7 @@ export async function POST(req: NextRequest) {
       full_name: fullName || null,
       source: "meta_lead_ad",
       session_phase: "opening",
+      wa_no_response_due_at: templateNoResponseDueAtIso(Date.parse(nowIso)),
       updated_at: nowIso,
     },
     { onConflict: "business_id,phone" }
@@ -140,6 +146,14 @@ export async function POST(req: NextRequest) {
     content: formatLeadTemplateMessageContent(templateName),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId || null,
+  });
+
+  void dispatchCrmEvent({
+    businessId,
+    leadPhone: phoneNorm,
+    kind: "template_sent",
+    fullName: fullName || null,
+    eventAtIso: nowIso,
   });
 
   return NextResponse.json({ ok: true });
