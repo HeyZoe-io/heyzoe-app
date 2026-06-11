@@ -4,7 +4,7 @@ import {
   extractLeadPhoneFromMarketingSession,
   MARKETING_CONVERSATIONS_SLUG,
 } from "@/lib/marketing-whatsapp";
-import { sortLeadsByRecentActivity } from "@/lib/lead-activity";
+import { leadConversationAt, sortLeadsByRecentActivity } from "@/lib/lead-activity";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
 
@@ -13,6 +13,35 @@ export { leadConversationAt } from "@/lib/lead-activity";
 function phoneKey(phone: string): string {
   const p = String(phone ?? "").trim();
   return p ? normalizePhone(p) ?? p.replace(/\D/g, "") : "";
+}
+
+/** איחוד שורות כפולות (972... מול +972...) — שומר את השורה העדכנית ביותר */
+function dedupeLeadsByPhone(
+  rows: LeadRow[],
+  keyFor: (row: LeadRow) => string = (row) => phoneKey(String(row.phone ?? ""))
+): LeadRow[] {
+  const byKey = new Map<string, LeadRow>();
+  for (const row of rows) {
+    const key = keyFor(row);
+    if (!key) continue;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, row);
+      continue;
+    }
+    const prevAt = leadConversationAt(prev);
+    const rowAt = leadConversationAt(row);
+    const pick =
+      rowAt && prevAt
+        ? new Date(rowAt).getTime() >= new Date(prevAt).getTime()
+          ? row
+          : prev
+        : row.full_name?.trim() && !prev.full_name?.trim()
+          ? row
+          : prev;
+    byKey.set(key, pick);
+  }
+  return [...byKey.values()];
 }
 
 function mapWaStage(raw: unknown): number | null {
@@ -66,7 +95,7 @@ export async function loadLeadsForBusiness(
       cta_clicked_at: key ? (ctaByPhone.get(key) ?? null) : null,
     };
   });
-  return sortLeadsByRecentActivity(rows);
+  return sortLeadsByRecentActivity(dedupeLeadsByPhone(rows));
 }
 
 const ADMIN_LEADS_LIMIT = 10_000;
@@ -248,5 +277,7 @@ export async function loadLeadsForAdmin(
         businessId != null && key ? (ctaMap.get(`${businessId}:${key}`) ?? null) : null,
     };
   });
-  return sortLeadsByRecentActivity(rows);
+  return sortLeadsByRecentActivity(
+    dedupeLeadsByPhone(rows, (row) => `${row.business_slug ?? ""}:${phoneKey(String(row.phone ?? ""))}`)
+  );
 }
