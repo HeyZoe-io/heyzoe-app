@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -200,30 +200,40 @@ function ContactStatusMenu({
   const currentKey = computeContactStatus(contact);
 
   useEffect(() => {
-    if (!open) return;
-    const rect = btnRef.current?.getBoundingClientRect();
-    if (rect) {
-      setMenuPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: MouseEvent) {
-      const t = e.target as Node;
-      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      onClose();
+    if (!open) {
+      setMenuPos(null);
+      return;
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
-    document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+
+    let removeOutsideClick: (() => void) | undefined;
+    const outsideTimer = window.setTimeout(() => {
+      function onClickOutside(e: MouseEvent) {
+        const t = e.target as Node;
+        if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+        onClose();
+      }
+      document.addEventListener("click", onClickOutside);
+      removeOutsideClick = () => document.removeEventListener("click", onClickOutside);
+    }, 0);
+
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.clearTimeout(outsideTimer);
+      removeOutsideClick?.();
     };
   }, [open, onClose]);
+
+  function openMenu() {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    }
+    onOpen(rowKey);
+  }
 
   const badgeLabel = currentKey ? CONTACT_STATUS_META[currentKey].label : "ללא סטטוס";
   const badgeClass = currentKey ? CONTACT_STATUS_META[currentKey].badgeClass : "border-zinc-200 bg-zinc-50 text-zinc-600";
@@ -248,7 +258,7 @@ function ContactStatusMenu({
         aria-expanded={open}
         aria-label={`סטטוס: ${badgeLabel}. לחצו לשינוי`}
         disabled={busy}
-        onClick={() => (open ? onClose() : onOpen(rowKey))}
+        onClick={() => (open ? onClose() : openMenu())}
       >
         <Badge className={`${badgeClass} cursor-pointer hover:opacity-90`}>
           {busy ? "מעדכן…" : badgeLabel}
@@ -257,15 +267,20 @@ function ContactStatusMenu({
           ▾
         </span>
       </button>
-      {open && menuPos
+      {open
         ? createPortal(
             <div
               ref={menuRef}
               role="listbox"
               aria-label="שינוי סטטוס ליד"
               className="fixed z-[2147483001] min-w-[11rem] rounded-xl border border-zinc-200 bg-white py-1 shadow-lg"
-              style={{ top: menuPos.top, right: menuPos.right }}
+              style={{
+                top: menuPos?.top ?? 0,
+                right: menuPos?.right ?? 0,
+                visibility: menuPos ? "visible" : "hidden",
+              }}
               dir="rtl"
+              onMouseDown={(e) => e.stopPropagation()}
             >
               {CONTACT_STATUS_FILTER_ORDER.map((statusKey) => {
                 const meta = CONTACT_STATUS_META[statusKey];
@@ -277,14 +292,16 @@ function ContactStatusMenu({
                     type="button"
                     role="option"
                     aria-selected={isCurrent}
-                    disabled={!canPick || isCurrent}
+                    aria-disabled={!canPick || isCurrent}
                     title={canPick ? meta.tooltip : "סטטוס זה נקבע אוטומטית על ידי זואי"}
                     className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-right text-sm ${
                       canPick && !isCurrent
-                        ? "text-zinc-800 hover:bg-fuchsia-50"
+                        ? "text-zinc-800 hover:bg-fuchsia-50 cursor-pointer"
                         : "text-zinc-400 cursor-default"
                     }`}
-                    onClick={() => {
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       if (!canPick || isCurrent) return;
                       onPickStatus(contact, rowKey, statusKey);
                     }}
@@ -394,6 +411,14 @@ export default function ContactsClient({
   const [contacts, setContacts] = useState(initialContacts);
   const [statusMenuKey, setStatusMenuKey] = useState<string | null>(null);
   const [statusUpdatingKey, setStatusUpdatingKey] = useState<string | null>(null);
+  const [statusPendingConfirm, setStatusPendingConfirm] = useState<{
+    contact: Contact;
+    rowKey: string;
+    status: ContactStatusKey;
+  } | null>(null);
+
+  const closeStatusMenu = useCallback(() => setStatusMenuKey(null), []);
+  const openStatusMenu = useCallback((key: string) => setStatusMenuKey(key), []);
 
   useEffect(() => {
     setContacts(initialContacts);
@@ -545,24 +570,31 @@ export default function ContactsClient({
     setAnswersContact(c);
   }
 
-  async function applyContactStatus(c: Contact, rowKey: string, status: ContactStatusKey) {
-    if (!canManuallySetContactStatus(status, c)) return;
+  function requestContactStatusChange(c: Contact, rowKey: string, status: ContactStatusKey) {
+    if (!canManuallySetContactStatus(status, c)) {
+      showToast("לא ניתן לשנות לסטטוס הזה");
+      return;
+    }
+    const slug = slugForContact(c, businessSlug, multiBusinessAdmin, marketingAdminMode);
+    if (!slug || !c.phone) {
+      showToast("חסר מזהה עסק לעדכון הסטטוס");
+      return;
+    }
+
+    setStatusMenuKey(null);
+    if (status === "not_relevant") {
+      setStatusPendingConfirm({ contact: c, rowKey, status });
+      return;
+    }
+    void commitContactStatusChange(c, rowKey, status);
+  }
+
+  async function commitContactStatusChange(c: Contact, rowKey: string, status: ContactStatusKey) {
     const slug = slugForContact(c, businessSlug, multiBusinessAdmin, marketingAdminMode);
     if (!slug || !c.phone) return;
 
-    if (status === "not_relevant") {
-      const label = c.full_name?.trim() || c.phone;
-      if (
-        !window.confirm(
-          `לסמן את ${label} כלא רלוונטי?\nזואי תפסיק לשלוח פולואפים לליד הזה.`
-        )
-      ) {
-        return;
-      }
-    }
-
     setStatusUpdatingKey(rowKey);
-    setStatusMenuKey(null);
+    setStatusPendingConfirm(null);
     try {
       const res = await fetch("/api/contacts/status", {
         method: "POST",
@@ -774,9 +806,9 @@ export default function ContactsClient({
                           editable={isContactStatusEditable(c, multiBusinessAdmin, marketingAdminMode)}
                           busy={statusUpdatingKey === rowKey}
                           open={statusMenuKey === rowKey}
-                          onOpen={setStatusMenuKey}
-                          onClose={() => setStatusMenuKey(null)}
-                          onPickStatus={applyContactStatus}
+                          onOpen={openStatusMenu}
+                          onClose={closeStatusMenu}
+                          onPickStatus={requestContactStatusChange}
                         />
                       </div>
                     </div>
@@ -881,9 +913,9 @@ export default function ContactsClient({
                             editable={isContactStatusEditable(c, multiBusinessAdmin, marketingAdminMode)}
                             busy={statusUpdatingKey === rowKey}
                             open={statusMenuKey === rowKey}
-                            onOpen={setStatusMenuKey}
-                            onClose={() => setStatusMenuKey(null)}
-                            onPickStatus={applyContactStatus}
+                            onOpen={openStatusMenu}
+                            onClose={closeStatusMenu}
+                            onPickStatus={requestContactStatusChange}
                           />
                         </td>
                         <td className="py-3 px-2">
@@ -937,6 +969,50 @@ export default function ContactsClient({
           fullName={answersContact.full_name}
           onClose={() => setAnswersContact(null)}
         />
+      ) : null}
+
+      {statusPendingConfirm ? (
+        <ModalShell
+          title="שינוי סטטוס ליד"
+          onClose={() => setStatusPendingConfirm(null)}
+          widthClass="max-w-md"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-700 text-right leading-relaxed">
+              לסמן את{" "}
+              <span className="font-medium text-zinc-900">
+                {statusPendingConfirm.contact.full_name?.trim() ||
+                  statusPendingConfirm.contact.phone}
+              </span>{" "}
+              כלא רלוונטי?
+              <br />
+              זואי תפסיק לשלוח פולואפים לליד הזה.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setStatusPendingConfirm(null)}
+                disabled={statusUpdatingKey === statusPendingConfirm.rowKey}
+              >
+                ביטול
+              </Button>
+              <Button
+                type="button"
+                onClick={() =>
+                  void commitContactStatusChange(
+                    statusPendingConfirm.contact,
+                    statusPendingConfirm.rowKey,
+                    statusPendingConfirm.status
+                  )
+                }
+                disabled={statusUpdatingKey === statusPendingConfirm.rowKey}
+              >
+                {statusUpdatingKey === statusPendingConfirm.rowKey ? "מעדכן…" : "אישור"}
+              </Button>
+            </div>
+          </div>
+        </ModalShell>
       ) : null}
 
       {singleOpen && singleContact ? (
