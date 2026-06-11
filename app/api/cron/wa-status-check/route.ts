@@ -8,6 +8,7 @@ import {
   WA_NO_RESPONSE_AFTER_MS,
   waNoResponseEligible,
 } from "@/lib/wa-no-response";
+import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest) {
   const channelByBusinessId = new Map<number, ChannelRow | null>();
 
   const statusSelect =
-    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at";
+    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at, source, wa_followup_stage, full_name";
 
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
@@ -122,6 +123,8 @@ export async function GET(req: NextRequest) {
 
   let examined = 0;
   let marked = 0;
+  let templateExamined = 0;
+  let templateMarked = 0;
   let skipped = 0;
   const skipCounts: Record<string, number> = {};
 
@@ -129,6 +132,20 @@ export async function GET(req: NextRequest) {
     skipped += 1;
     skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
   };
+
+  async function resolveChannel(businessId: number): Promise<ChannelRow | null> {
+    if (!channelByBusinessId.has(businessId)) {
+      const { data: channel } = await admin
+        .from("whatsapp_channels")
+        .select("phone_number_id, business_slug")
+        .eq("business_id", businessId)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+      channelByBusinessId.set(businessId, (channel as ChannelRow | null) ?? null);
+    }
+    return channelByBusinessId.get(businessId) ?? null;
+  }
 
   for (const row of contacts ?? []) {
     examined += 1;
@@ -161,18 +178,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      if (!channelByBusinessId.has(businessId)) {
-        const { data: channel } = await admin
-          .from("whatsapp_channels")
-          .select("phone_number_id, business_slug")
-          .eq("business_id", businessId)
-          .eq("is_active", true)
-          .limit(1)
-          .maybeSingle();
-        channelByBusinessId.set(businessId, (channel as ChannelRow | null) ?? null);
-      }
-
-      const channel = channelByBusinessId.get(businessId);
+      const channel = await resolveChannel(businessId);
       const phoneNumberId = String(channel?.phone_number_id ?? "").trim();
       const businessSlug = String(channel?.business_slug ?? "").trim().toLowerCase();
       if (!phoneNumberId || !businessSlug) {
@@ -226,5 +232,117 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, examined, marked, skipped, skip_counts: skipCounts });
+  const { data: templateDueRows, error: templateErr } = await admin
+    .from("contacts")
+    .select(statusSelect)
+    .eq("source", "meta_lead_ad")
+    .eq("session_phase", "opening")
+    .or("wa_followup_stage.eq.0,wa_followup_stage.is.null")
+    .or("opted_out.eq.false,opted_out.is.null")
+    .is("not_relevant_at", null)
+    .or("trial_registered.eq.false,trial_registered.is.null")
+    .is("wa_no_response_at", null)
+    .not("wa_no_response_due_at", "is", null)
+    .lt("wa_no_response_due_at", nowIso)
+    .limit(BATCH);
+
+  if (templateErr) {
+    console.error("[cron/wa-status-check] template contacts query:", templateErr);
+  } else {
+    for (const row of templateDueRows ?? []) {
+      templateExamined += 1;
+      const contact = row as {
+        id?: string | number;
+        phone?: string | null;
+        business_id?: number | null;
+        session_phase?: string | null;
+        trial_registered?: boolean | null;
+        opted_out?: boolean | null;
+        wa_followup_stage?: number | null;
+        source?: string | null;
+        full_name?: string | null;
+      };
+      const contactId = contact.id;
+      const phone = String(contact.phone ?? "").trim();
+      const businessId = Number(contact.business_id);
+
+      if (!contactId || !phone || !Number.isFinite(businessId) || businessId <= 0) {
+        bumpSkip("template_invalid_contact");
+        continue;
+      }
+      if (!waNoResponseEligible(contact)) {
+        bumpSkip("template_ineligible");
+        continue;
+      }
+      if (!isLeadTemplateOnlyContact(contact)) {
+        bumpSkip("template_not_template_only");
+        continue;
+      }
+
+      try {
+        const channel = await resolveChannel(businessId);
+        const phoneNumberId = String(channel?.phone_number_id ?? "").trim();
+        const businessSlug = String(channel?.business_slug ?? "").trim().toLowerCase();
+        if (!phoneNumberId || !businessSlug) {
+          bumpSkip("template_no_active_channel");
+          continue;
+        }
+
+        const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
+        const lastUserAtIso = await fetchLastUserMessageAt({
+          admin,
+          business_slug: businessSlug,
+          session_ids: sessionIds,
+        });
+        if (lastUserAtIso) {
+          bumpSkip("template_user_replied");
+          continue;
+        }
+
+        const { error: updateErr } = await admin
+          .from("contacts")
+          .update({ wa_no_response_at: nowIso })
+          .eq("id", contactId)
+          .is("wa_no_response_at", null);
+
+        if (updateErr) {
+          console.error("[cron/wa-status-check] template mark failed:", {
+            contact_id: contactId,
+            phone: maskPhone(phone),
+            error: updateErr.message,
+          });
+          bumpSkip("template_update_failed");
+          continue;
+        }
+
+        const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+        void dispatchCrmEvent({
+          businessId,
+          leadPhone: phone,
+          kind: "template_no_response",
+          fullName: String(contact.full_name ?? "").trim() || null,
+          eventAtIso: nowIso,
+        });
+
+        templateMarked += 1;
+      } catch (e) {
+        console.error("[cron/wa-status-check] template contact loop:", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          error: e instanceof Error ? e.message : String(e),
+        });
+        bumpSkip("template_exception");
+      }
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    examined,
+    marked,
+    template_examined: templateExamined,
+    template_marked: templateMarked,
+    skipped,
+    skip_counts: skipCounts,
+  });
 }

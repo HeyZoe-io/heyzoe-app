@@ -46,6 +46,10 @@ function notePrefixForKind(kind: CrmEventKind): string {
       return "זואי — בקשת נציג";
     case "no_response":
       return "זואי — לא ענה";
+    case "template_sent":
+      return "זואי — טמפלייט פתיחה";
+    case "template_no_response":
+      return "זואי — לא ענה לטמפלייט";
     case "not_relevant":
       return "זואי — לא רלוונטי";
   }

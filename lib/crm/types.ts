@@ -21,7 +21,13 @@ export function normalizeCrmType(raw: unknown): CrmType {
   return (CRM_TYPES as readonly string[]).includes(t) ? (t as CrmType) : "";
 }
 
-export type CrmEventKind = "trial_registered" | "human_requested" | "no_response" | "not_relevant";
+export type CrmEventKind =
+  | "trial_registered"
+  | "human_requested"
+  | "no_response"
+  | "not_relevant"
+  | "template_sent"
+  | "template_no_response";
 
 export type CrmTrialRegistrationContext = {
   serviceName?: string | null;
@@ -87,6 +93,10 @@ export function buildCrmEventNote(
       return "🙋 זואי: הליד ביקש לדבר עם נציג";
     case "no_response":
       return "⏰ זואי: הליד לא ענה לאחר כל הפולואפים, מומלץ להתקשר";
+    case "template_sent":
+      return "זואי - נשלח טמפלייט פתיחה לליד";
+    case "template_no_response":
+      return "עברו 6 שעות והליד לא ענה להודעת הפתיחה - יש ליצור איתו קשר טלפוני";
     case "not_relevant": {
       const r = String(notRelevantReason ?? "").trim();
       return r ? `זואי - לא רלוונטי - ${r}` : "זואי - לא רלוונטי";
