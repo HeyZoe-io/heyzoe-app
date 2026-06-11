@@ -96,13 +96,20 @@ export async function POST(req: NextRequest) {
   const businessId = access.business.id;
   const phoneVariants = contactPhoneLookupVariants(phone);
 
-  const { data: existing } = await admin
+  const { data: existingRows, error: existingErr } = await admin
     .from("contacts")
     .select("full_name, not_relevant_at, opted_out, phone")
     .eq("business_id", businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [phone])
-    .maybeSingle();
+    .order("updated_at", { ascending: false })
+    .limit(1);
 
+  if (existingErr) {
+    console.error("[api/contacts/status] contact lookup failed:", existingErr.message);
+    return NextResponse.json({ error: "contact_lookup_failed" }, { status: 500 });
+  }
+
+  const existing = existingRows?.[0];
   if (!existing) {
     return NextResponse.json({ error: "contact_not_found" }, { status: 404 });
   }

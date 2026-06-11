@@ -153,8 +153,7 @@ export async function markContactNotRelevantManually(input: {
     .update(patch)
     .eq("business_id", businessId)
     .in("phone", phoneVariants)
-    .select("id")
-    .limit(1);
+    .select("id");
 
   if (error) {
     console.error("[not-relevant] manual mark failed:", error.message);

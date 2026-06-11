@@ -17,6 +17,7 @@ import {
   type ContactStatusKey,
 } from "@/lib/contact-status";
 import { leadConversationAt } from "@/lib/lead-activity";
+import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
 import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersModal";
@@ -97,6 +98,15 @@ function resolveInitialStatusFilter(raw: string | null): ContactStatusFilterValu
   if (value === "all" || value === "none") return value;
   if (CONTACT_STATUS_FILTER_ORDER.includes(value as ContactStatusKey)) return value as ContactStatusKey;
   return "all";
+}
+
+function contactsSharePhone(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  const ka = normalizePhone(a) ?? String(a ?? "").replace(/\D/g, "");
+  const kb = normalizePhone(b) ?? String(b ?? "").replace(/\D/g, "");
+  return Boolean(ka && kb && ka === kb);
 }
 
 function contactRowKey(
@@ -615,7 +625,7 @@ export default function ContactsClient({
         const notRelevantAt = j.not_relevant_at ?? new Date().toISOString();
         setContacts((prev) =>
           prev.map((row) =>
-            row.phone === c.phone &&
+            contactsSharePhone(row.phone, c.phone) &&
             (!multiBusinessAdmin || row.business_slug === c.business_slug)
               ? {
                   ...row,
