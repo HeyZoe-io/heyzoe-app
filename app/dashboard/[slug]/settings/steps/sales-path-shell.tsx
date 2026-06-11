@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 
 export const SALES_PATH_INPUT =
   "h-10 rounded-lg border-zinc-200/90 bg-zinc-50/40 text-right text-sm text-zinc-800 shadow-none hover:bg-white focus-visible:ring-1 focus-visible:ring-[#7133da]/30 focus-visible:ring-offset-0";
@@ -167,6 +169,7 @@ export function SalesPathStepShell<T extends string>({
   mainRef,
   children,
   navAriaLabel,
+  lang = "he",
 }: {
   stepNumber: number;
   title: string;
@@ -178,11 +181,18 @@ export function SalesPathStepShell<T extends string>({
   mainRef: React.RefObject<HTMLDivElement | null>;
   children: ReactNode;
   navAriaLabel: string;
+  lang?: DashboardLang;
 }) {
+  const t = dashboardSettingsT(lang);
+  const dir = dashboardDir(lang);
+  const textAlign = lang === "en" ? "left" : "right";
+
   return (
-    <section className="mx-auto w-full max-w-3xl text-right" dir="rtl">
+    <section className="mx-auto w-full max-w-3xl" style={{ textAlign }} dir={dir}>
       <header className="mb-6 border-b border-zinc-200/60 pb-5">
-        <p className="text-[11px] font-medium uppercase tracking-widest text-[#7133da]/80">שלב {stepNumber}</p>
+        <p className="text-[11px] font-medium uppercase tracking-widest text-[#7133da]/80">
+          {t.stepLabel(stepNumber)}
+        </p>
         <h2 className="mt-1 text-xl font-bold tracking-[-0.02em] text-zinc-900 sm:text-2xl">{title}</h2>
         {description ? (
           <p className="mt-1.5 max-w-md text-sm leading-relaxed text-zinc-500">{description}</p>
@@ -217,7 +227,10 @@ export function SalesPathStepShell<T extends string>({
         </div>
       </div>
 
-      <nav className="mt-4 flex gap-1 overflow-x-auto pb-1 lg:hidden" aria-label={`${navAriaLabel} - מובייל`}>
+      <nav
+        className="mt-4 flex gap-1 overflow-x-auto pb-1 lg:hidden"
+        aria-label={`${navAriaLabel} - ${t.navMobileSuffix}`}
+      >
         {sections.map((s) => (
           <button
             key={s.id}

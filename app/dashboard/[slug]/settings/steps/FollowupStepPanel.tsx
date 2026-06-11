@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import {
   SALES_PATH_TEXTAREA,
   SalesPathFieldLabel,
@@ -13,9 +15,8 @@ import {
 
 type SectionId = "messages";
 
-const SECTIONS = [{ id: "messages" as const, label: "הודעות", hint: "3 שלבי פולואפ" }];
-
 export type FollowupStepPanelProps = {
+  lang?: DashboardLang;
   waSalesFollowup1: string;
   setWaSalesFollowup1: (v: string) => void;
   waSalesFollowup2: string;
@@ -27,17 +28,19 @@ export type FollowupStepPanelProps = {
 };
 
 function FollowupTextarea({
+  lang,
   value,
   onChange,
   rows,
 }: {
+  lang: DashboardLang;
   value: string;
   onChange: (v: string) => void;
   rows: number;
 }) {
   return (
     <textarea
-      dir="rtl"
+      dir={dashboardDir(lang)}
       rows={rows}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -48,6 +51,7 @@ function FollowupTextarea({
 
 export function FollowupStepPanel(props: FollowupStepPanelProps) {
   const {
+    lang = "he",
     waSalesFollowup1,
     setWaSalesFollowup1,
     waSalesFollowup2,
@@ -57,9 +61,11 @@ export function FollowupStepPanel(props: FollowupStepPanelProps) {
     busyAction,
     onApplyDefaults,
   } = props;
+  const t = dashboardSettingsT(lang);
+  const sections = [{ id: "messages" as const, label: t.followup.sections.messages.label, hint: t.followup.sections.messages.hint }];
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
-    useSalesPathSections<SectionId>(SECTIONS, { messages: true });
+    useSalesPathSections<SectionId>(sections, { messages: true });
 
   useEffect(() => {
     setStepPrefix("followup");
@@ -70,19 +76,20 @@ export function FollowupStepPanel(props: FollowupStepPanelProps) {
   return (
     <SalesPathStepShell
       stepNumber={5}
-      title="פולואפ"
-      description="הודעות פולואפ לליד שהפסיק לענות. השליחה לא תתבצע בלילות ובמהלך השבת, או אם עברו 24 שעות מהודעת המשתמש האחרונה (מגבלת מטא)."
+      title={t.followup.title}
+      description={t.followup.description}
       stepPrefix="followup"
-      sections={SECTIONS}
+      sections={sections}
       activeNav={activeNav}
       onNavClick={scrollToSection}
       mainRef={mainRef}
-      navAriaLabel="ניווט בתוך פולואפ"
+      navAriaLabel={t.followup.navAria}
+      lang={lang}
     >
       <SalesPathSectionBlock
         stepPrefix="followup"
         id="messages"
-        title="הודעות פולואפ"
+        title={t.followup.messages}
         open={openSections.messages}
         onToggle={() => toggle("messages")}
         filled={
@@ -103,21 +110,21 @@ export function FollowupStepPanel(props: FollowupStepPanelProps) {
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
-            איפוס לטקסטי ברירת מחדל
+            {t.followup.resetDefaults}
           </Button>
         }
       >
         <div>
-          <SalesPathFieldLabel>הודעה ראשונה (~20 דקות אחרי תשובת הבוט)</SalesPathFieldLabel>
-          <FollowupTextarea value={waSalesFollowup1} onChange={setWaSalesFollowup1} rows={5} />
+          <SalesPathFieldLabel>{t.followup.msg1}</SalesPathFieldLabel>
+          <FollowupTextarea lang={lang} value={waSalesFollowup1} onChange={setWaSalesFollowup1} rows={5} />
         </div>
         <div>
-          <SalesPathFieldLabel>הודעה שנייה (~שעתיים)</SalesPathFieldLabel>
-          <FollowupTextarea value={waSalesFollowup2} onChange={setWaSalesFollowup2} rows={5} />
+          <SalesPathFieldLabel>{t.followup.msg2}</SalesPathFieldLabel>
+          <FollowupTextarea lang={lang} value={waSalesFollowup2} onChange={setWaSalesFollowup2} rows={5} />
         </div>
         <div>
-          <SalesPathFieldLabel>הודעה שלישית (~23 שעות)</SalesPathFieldLabel>
-          <FollowupTextarea value={waSalesFollowup3} onChange={setWaSalesFollowup3} rows={6} />
+          <SalesPathFieldLabel>{t.followup.msg3}</SalesPathFieldLabel>
+          <FollowupTextarea lang={lang} value={waSalesFollowup3} onChange={setWaSalesFollowup3} rows={6} />
         </div>
       </SalesPathSectionBlock>
     </SalesPathStepShell>

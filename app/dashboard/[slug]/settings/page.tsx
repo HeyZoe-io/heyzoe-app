@@ -52,10 +52,12 @@ import { buildFactQuestions } from "@/lib/fact-questions";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
-  SALES_PATH_STEPS,
+  salesPathSteps,
   StepHeader,
   StepPanel,
 } from "./settings-ui";
+import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
+import { dashboardSettingsT, formatConcurrentEditorNames } from "@/lib/dashboard-settings-i18n";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,49 +93,49 @@ type WhatsAppChannel = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STEPS = [...SALES_PATH_STEPS];
-
-async function readSaveErrorFromResponse(res: Response): Promise<string> {
+async function readSaveErrorFromResponse(
+  res: Response,
+  t: ReturnType<typeof dashboardSettingsT>
+): Promise<string> {
   try {
     const j = (await res.json()) as { error?: string };
-    if (j.error === "unauthorized") return "נדרשת התחברות מחדש.";
-    if (j.error === "slug_required") return "חסר מזהה עסק.";
-    if (j.error === "slug_taken") return "כתובת העסק תפוסה.";
+    if (j.error === "unauthorized") return t.page.unauthorized;
+    if (j.error === "slug_required") return t.page.slugRequired;
+    if (j.error === "slug_taken") return t.page.slugTaken;
     if (typeof j.error === "string" && j.error.trim()) return j.error.trim();
   } catch {
     /* not json */
   }
-  return `שגיאת שרת (${res.status})`;
+  return t.page.serverError(res.status);
 }
 
 const AUTOSAVE_DEBOUNCE_MS = 1600;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
-function dashboardMediaUploadSizeError(file: File): string | null {
+function dashboardMediaUploadSizeError(
+  file: File,
+  t: ReturnType<typeof dashboardSettingsT>
+): string | null {
   const max = dashboardMaxUploadBytesForFile(file);
   if (file.size <= max) return null;
   const maxMb = max / (1024 * 1024);
   const isVideo =
     file.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(file.name);
-  if (isVideo) {
-    return `הקובץ גדול מדי (סרטון: מקסימום ${maxMb}MB). נסו לכווץ את הקובץ.`;
-  }
-  return `הקובץ גדול מדי (תמונה: מקסימום ${maxMb}MB להעלאה).`;
+  if (isVideo) return t.page.fileTooBigVideo(maxMb);
+  return t.page.fileTooBigImage(maxMb);
 }
 
 async function prepareDashboardMediaUpload(
-  file: File
+  file: File,
+  t: ReturnType<typeof dashboardSettingsT>
 ): Promise<{ ok: true; file: File } | { ok: false; error: string }> {
-  const sizeErr = dashboardMediaUploadSizeError(file);
+  const sizeErr = dashboardMediaUploadSizeError(file, t);
   if (sizeErr) return { ok: false, error: sizeErr };
   try {
     const prepared = await compressImageForWhatsAppIfNeeded(file);
     return { ok: true, file: prepared };
   } catch {
-    return {
-      ok: false,
-      error: "לא הצלחנו לכווץ את התמונה. נסו JPG/PNG קטן יותר.",
-    };
+    return { ok: false, error: t.page.compressFailed };
   }
 }
 
@@ -426,7 +428,17 @@ function whatsAppPrefilledMessageHref(phoneDisplay: string, text: string): strin
   return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
 }
 
-function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compact?: boolean }) {
+function WhatsAppNumberSection({
+  slug,
+  compact = false,
+  lang,
+}: {
+  slug: string;
+  compact?: boolean;
+  lang: "he" | "en";
+}) {
+  const t = dashboardSettingsT(lang);
+  const tp = t.page;
   const fetcher = useCallback(async (key: string) => {
     const res = await fetch(key, { method: "GET" });
     const j = (await res.json()) as { channel?: WhatsAppChannel; error?: string };
@@ -448,8 +460,8 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
   const status = data?.provisioning_status ?? null;
   const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
   const whatsAppSendHref = useMemo(
-    () => whatsAppPrefilledMessageHref(data?.phone_display ?? "", "היי"),
-    [data?.phone_display]
+    () => whatsAppPrefilledMessageHref(data?.phone_display ?? "", tp.waHi),
+    [data?.phone_display, tp.waHi]
   );
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
@@ -519,21 +531,21 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
     if (metaStatus === "CONNECTED") {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-          פעיל
+          {tp.statusActive}
         </span>
       );
     }
     if (metaStatus === "PENDING") {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 text-[11px] font-medium">
-          בתהליך אישור
+          {tp.statusPendingApproval}
         </span>
       );
     }
     if (metaStatus === "UNVERIFIED") {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
-          לא מאומת
+          {tp.statusUnverified}
         </span>
       );
     }
@@ -542,16 +554,16 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
 
   const metaText = useMemo(() => {
     if (metaStatus === "CONNECTED") {
-      return "זואי מחוברת ועונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!";
+      return tp.waConnected;
     }
     if (metaStatus === "PENDING") {
-      return "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות - אין צורך בפעולה מצידך.";
+      return tp.waPending;
     }
     if (metaStatus === "UNVERIFIED") {
-      return "המספר טרם אומת. אנא צור קשר עם התמיכה של HeyZoe לסיוע.";
+      return tp.waUnverified;
     }
     return "";
-  }, [metaStatus]);
+  }, [metaStatus, tp.waConnected, tp.waPending, tp.waUnverified]);
 
   const copy = useCallback(async () => {
     const value = String(data?.phone_display ?? "").trim();
@@ -588,30 +600,30 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 text-right">
           <div className="text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">
-            מספר ה‑WhatsApp שלך
+            {tp.waNumber}
           </div>
           {compact ? null : (
-            <div className="mt-0.5 text-xs text-zinc-500">המספר שעליו זואי עונה ללקוחות שלך</div>
+            <div className="mt-0.5 text-xs text-zinc-500">{tp.waNumberHint}</div>
           )}
         </div>
         {badge ? (
           badge
         ) : status === "active" ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-            פעיל
+            {tp.statusActive}
           </span>
         ) : status === "pending" ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 text-[11px] font-medium">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            בהקמה
+            {tp.statusProvisioning}
           </span>
         ) : status === "failed" ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
-            תקלה
+            {tp.statusFailed}
           </span>
         ) : (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
-            לא הוגדר
+            {tp.statusNotSet}
           </span>
         )}
       </div>
@@ -620,7 +632,7 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
         <div
           className={`${compact ? "mt-2" : "mt-3"} text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-right`}
         >
-          לא ניתן לטעון את סטטוס המספר כרגע.
+          {tp.statusLoadFailed}
         </div>
       ) : null}
 
@@ -628,7 +640,7 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
         <div
           className={`${compact ? "mt-2 p-3" : "mt-3 p-4"} rounded-xl border border-zinc-200 bg-zinc-50/60 text-right text-sm text-zinc-600 flex items-center justify-between gap-3`}
         >
-          <span>טוען…</span>
+          <span>{t.loading}</span>
           <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
         </div>
       ) : null}
@@ -648,7 +660,7 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
                 type="button"
                 variant="outline"
                 className={compact ? "h-7 w-8 px-0" : "h-8 w-9 px-0"}
-                aria-label="העתקת מספר"
+                aria-label={tp.copyNumber}
                 onClick={() => {
                   void (async () => {
                     await copy();
@@ -671,15 +683,15 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
                       : "inline-flex h-8 shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded-2xl border border-[rgba(120,92,200,0.18)] bg-white/80 px-3 text-xs font-semibold tracking-[-0.01em] text-zinc-900 shadow-[0_10px_24px_rgba(117,90,180,0.1)] backdrop-blur-sm transition-all duration-200 hover:border-[rgba(113,51,218,0.26)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white hz-lift"
                   }
                 >
-                  שלח הודעה
+                  {tp.sendWaMessage}
                 </a>
               ) : null}
             </div>
           </div>
-          {copied ? <div className="text-[11px] text-emerald-700">המספר הועתק</div> : null}
+          {copied ? <div className="text-[11px] text-emerald-700">{tp.numberCopied}</div> : null}
           {compact ? null : (
             <p className="text-sm text-zinc-700">
-              {metaText || "זואי עונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!"}
+              {metaText || tp.waDefault}
             </p>
           )}
         </div>
@@ -694,19 +706,19 @@ function WhatsAppNumberSection({ slug, compact = false }: { slug: string; compac
       ) : status === "pending" ? (
         <div className="mt-3 rounded-xl border border-violet-200/70 bg-violet-50/60 p-4 text-right">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-zinc-900">המספר שלך נוצר… זה לוקח כמה דקות</p>
+            <p className="text-sm font-medium text-zinc-900">{tp.numberCreating}</p>
             <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
           </div>
-          <p className="mt-1 text-xs text-zinc-600">הדף יעדכן אוטומטית כל 10 שניות עד שהמספר יהפוך לפעיל.</p>
+          <p className="mt-1 text-xs text-zinc-600">{tp.numberCreatingHint}</p>
         </div>
       ) : status === "failed" ? (
         <div className="mt-3 rounded-xl border border-rose-200/70 bg-rose-50/70 p-4 text-right">
-          <p className="text-sm font-medium text-rose-800">אירעה בעיה בהגדרת המספר</p>
-          <p className="mt-1 text-xs text-rose-700">צוות זואי יצור איתך קשר בקרוב</p>
+          <p className="text-sm font-medium text-rose-800">{tp.numberSetupFailed}</p>
+          <p className="mt-1 text-xs text-rose-700">{tp.supportContact}</p>
         </div>
       ) : !metaChecked && (isLoading || !data) ? (
         <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 text-right text-sm text-zinc-600 flex items-center justify-between gap-3">
-          <span>טוען…</span>
+          <span>{t.loading}</span>
           <Loader2 className="h-4 w-4 animate-spin text-[#7133da]" aria-hidden />
         </div>
       ) : null}
@@ -998,10 +1010,10 @@ const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
   loading: () => (
     <StepPanel className="space-y-4">
-      <StepHeader n={3} title="מוצרים" desc="טוען…" />
+      <StepHeader n={3} title="Products" desc="Loading..." />
       <div className="rounded-xl border border-zinc-200/80 bg-white p-6 text-center text-sm text-zinc-500">
         <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
-        טוען את הטאב…
+        Loading tab…
       </div>
     </StepPanel>
   ),
@@ -1011,10 +1023,10 @@ const Step4SalesFlow = dynamic(() => import("./steps/Step4SalesFlow"), {
   ssr: false,
   loading: () => (
     <StepPanel className="space-y-4">
-      <StepHeader n={4} title="מסלול מכירה" desc="טוען…" />
+      <StepHeader n={4} title="Sales Flow" desc="Loading..." />
       <div className="rounded-xl border border-zinc-200/80 bg-white p-6 text-center text-sm text-zinc-500">
         <Loader2 className="h-5 w-5 animate-spin mx-auto mb-3 text-[#7133da]" aria-hidden />
-        טוען את הטאב…
+        Loading tab…
       </div>
     </StepPanel>
   ),
@@ -1033,14 +1045,6 @@ function InstagramGlyph({ className }: { className?: string }) {
   );
 }
 
-function formatConcurrentEditorNames(names: string[]): string {
-  const cleaned = names.map((n) => n.trim()).filter(Boolean);
-  if (!cleaned.length) return "משתמש אחר";
-  if (cleaned.length === 1) return cleaned[0]!;
-  if (cleaned.length === 2) return `${cleaned[0]} ו${cleaned[1]}`;
-  return `${cleaned.slice(0, -1).join(", ")} ו${cleaned[cleaned.length - 1]}`;
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SlugSettingsPage({
@@ -1056,8 +1060,12 @@ export default function SlugSettingsPage({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const lang = dashboardLangFromParam(searchParams.get("lang"));
+  const t = dashboardSettingsT(lang);
+  const tp = t.page;
+  const STEPS = [...salesPathSteps(lang)];
 
-  const [step, setStep]     = useState(1);
+  const [step, setStep] = useState(1);
   /** טאב «על העסק»: נשאיר במאונט לאחר הביקור הראשון כדי שלא תאופס הנראות של מצב WhatsApp במעבר בין שלבים */
   const keepAboutBusinessStepMountedRef = useRef(false);
   const aboutStepSlugRef = useRef(slug);
@@ -1073,8 +1081,8 @@ export default function SlugSettingsPage({
   const [saving, setSaving]   = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const [saveErr, setSaveErr] = useState("");
-  const [fetchingUrl, setFetchingUrl]         = useState(false);
-  const [fetchSiteError, setFetchSiteError]   = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
+  const [fetchSiteError, setFetchSiteError] = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [busyError, setBusyError] = useState("");
@@ -1406,7 +1414,7 @@ export default function SlugSettingsPage({
   useEffect(() => {
     setSettingsLoadError("");
     if (swrSettingsError) {
-      setSettingsLoadError("לא ניתן לטעון את נתוני מסלול המכירה.");
+      setSettingsLoadError(tp.loadFailed);
       setSettingsHydrated(false);
       setServicesHydrated(false);
       return;
@@ -1442,11 +1450,11 @@ export default function SlugSettingsPage({
     const business = swrSettings.business;
     const svcs = swrSettings.services;
         if (!business) {
-          setSettingsLoadError("לא נמצא עסק עבור כתובת זו. בדקו את הכתובת או התחברו מחדש.");
+          setSettingsLoadError(tp.businessNotFound);
           return;
         }
         if (String(business.slug ?? "").toLowerCase() !== slug.toLowerCase()) {
-          setSettingsLoadError("אי-התאמה בין העסק לכתובת. רעננו את הדף.");
+          setSettingsLoadError(tp.slugMismatch);
           return;
         }
         const sl = (business.social_links && typeof business.social_links === "object"
@@ -1840,7 +1848,7 @@ export default function SlugSettingsPage({
           const res = await postSettings();
           if (cancelled) return;
           if (!res.ok) {
-            const msg = await readSaveErrorFromResponse(res);
+            const msg = await readSaveErrorFromResponse(res, t);
             if (!cancelled) {
               setAutosaveStatus("error");
               setAutoSaveErr(msg);
@@ -1859,7 +1867,7 @@ export default function SlugSettingsPage({
         } catch {
           if (!cancelled) {
             setAutosaveStatus("error");
-            setAutoSaveErr("בעיית רשת בשמירה אוטומטית.");
+            setAutoSaveErr(tp.autosaveNetwork);
           }
         }
       })();
@@ -1889,7 +1897,7 @@ export default function SlugSettingsPage({
 
   const saveAll = useCallback(async () => {
     if (settingsPresenceLocked) {
-      setSaveErr("משתמש אחר עורך כרגע את ההגדרות. נסה שוב בעוד מעט.");
+      setSaveErr(t.presenceLocked);
       return false;
     }
     setSaving(true);
@@ -1898,7 +1906,7 @@ export default function SlugSettingsPage({
     try {
       const res = await postSettings();
       if (!res.ok) {
-        setSaveErr(await readSaveErrorFromResponse(res));
+        setSaveErr(await readSaveErrorFromResponse(res, t));
         return false;
       }
       const body = getSavePayloadRef.current() as Record<string, unknown>;
@@ -1909,7 +1917,7 @@ export default function SlugSettingsPage({
       setAutoSaveErr("");
       return true;
     } catch {
-      setSaveErr("לא ניתן להתחבר לשרת.");
+      setSaveErr(tp.saveNetwork);
       return false;
     } finally {
       setSaving(false);
@@ -1934,8 +1942,8 @@ export default function SlugSettingsPage({
         const msg = String(e?.message ?? "").trim();
         const code = String(e?.code ?? "").trim();
         const kind = code || name || "unknown_error";
-        const detail = msg || String(err ?? "").trim() || "לא ידוע";
-        setBusyError(`שגיאה בג׳ינרוט (${kind}): ${detail}`);
+        const detail = msg || String(err ?? "").trim() || tp.unknown;
+        setBusyError(tp.generateError(kind, detail));
       })
       .finally(() => {
         const elapsed = Date.now() - startedAt;
@@ -2100,16 +2108,16 @@ export default function SlugSettingsPage({
     if (target === "schedule_cta") {
       setScheduleCtaMediaUploadError("");
       if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
-        setScheduleCtaMediaUploadError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+        setScheduleCtaMediaUploadError(tp.webpNotSupported);
         return;
       }
       if (!file.type.startsWith("image")) {
-        setScheduleCtaMediaUploadError("למערכת שעות יש להעלות תמונה בלבד (JPG/PNG).");
+        setScheduleCtaMediaUploadError(tp.scheduleImageOnly);
         return;
       }
       setUploadingScheduleCtaMedia(true);
       try {
-        const prepared = await prepareDashboardMediaUpload(file);
+        const prepared = await prepareDashboardMediaUpload(file, t);
         if (!prepared.ok) {
           setScheduleCtaMediaUploadError(prepared.error);
           return;
@@ -2128,17 +2136,17 @@ export default function SlugSettingsPage({
         try {
           signJson = (await signRes.json()) as typeof signJson;
         } catch {
-          setScheduleCtaMediaUploadError("תשובת שרת לא תקינה.");
+          setScheduleCtaMediaUploadError(tp.invalidServerResponse);
           return;
         }
         if (!signRes.ok) {
-          setScheduleCtaMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+          setScheduleCtaMediaUploadError(signJson.error?.trim() || tp.uploadPrepFailed(signRes.status));
           return;
         }
         const signedUrl = signJson.signedUrl?.trim();
         const publicUrl = signJson.publicUrl?.trim();
         if (!signedUrl || !publicUrl) {
-          setScheduleCtaMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+          setScheduleCtaMediaUploadError(tp.noSignedUrl);
           return;
         }
         const putRes = await fetch(signedUrl, {
@@ -2150,7 +2158,7 @@ export default function SlugSettingsPage({
           body: uploadFile,
         });
         if (!putRes.ok) {
-          setScheduleCtaMediaUploadError(`העלאה ל-Storage נכשלה (${putRes.status}).`);
+          setScheduleCtaMediaUploadError(tp.storageUploadFailed(putRes.status));
           return;
         }
         setSalesFlowConfig((c) => ({
@@ -2167,7 +2175,7 @@ export default function SlugSettingsPage({
           ),
         }));
       } catch {
-        setScheduleCtaMediaUploadError("בעיית רשת בהעלאה.");
+        setScheduleCtaMediaUploadError(tp.uploadNetwork);
       } finally {
         setUploadingScheduleCtaMedia(false);
       }
@@ -2176,16 +2184,16 @@ export default function SlugSettingsPage({
     if (target === "schedule_scan") {
       setScheduleScanMediaUploadError("");
       if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
-        setScheduleScanMediaUploadError("קובץ WebP לא נתמך. אנא העלו JPG או PNG.");
+        setScheduleScanMediaUploadError(tp.webpNotSupportedShort);
         return;
       }
       if (!file.type.startsWith("image")) {
-        setScheduleScanMediaUploadError("יש להעלות תמונה בלבד (JPG/PNG).");
+        setScheduleScanMediaUploadError(tp.imageOnly);
         return;
       }
       setUploadingScheduleScanMedia(true);
       try {
-        const prepared = await prepareDashboardMediaUpload(file);
+        const prepared = await prepareDashboardMediaUpload(file, t);
         if (!prepared.ok) {
           setScheduleScanMediaUploadError(prepared.error);
           return;
@@ -2204,17 +2212,17 @@ export default function SlugSettingsPage({
         try {
           signJson = (await signRes.json()) as typeof signJson;
         } catch {
-          setScheduleScanMediaUploadError("תשובת שרת לא תקינה.");
+          setScheduleScanMediaUploadError(tp.invalidServerResponse);
           return;
         }
         if (!signRes.ok) {
-          setScheduleScanMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+          setScheduleScanMediaUploadError(signJson.error?.trim() || tp.uploadPrepFailed(signRes.status));
           return;
         }
         const signedUrl = signJson.signedUrl?.trim();
         const publicUrl = signJson.publicUrl?.trim();
         if (!signedUrl || !publicUrl) {
-          setScheduleScanMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+          setScheduleScanMediaUploadError(tp.noSignedUrl);
           return;
         }
         const putRes = await fetch(signedUrl, {
@@ -2226,12 +2234,12 @@ export default function SlugSettingsPage({
           body: uploadFile,
         });
         if (!putRes.ok) {
-          setScheduleScanMediaUploadError(`העלאה ל-Storage נכשלה (${putRes.status}).`);
+          setScheduleScanMediaUploadError(tp.storageUploadFailed(putRes.status));
           return;
         }
         setScheduleScanImageUrl(publicUrl);
       } catch {
-        setScheduleScanMediaUploadError("בעיית רשת בהעלאה.");
+        setScheduleScanMediaUploadError(tp.uploadNetwork);
       } finally {
         setUploadingScheduleScanMedia(false);
       }
@@ -2244,12 +2252,12 @@ export default function SlugSettingsPage({
     const setType = target === "opening" ? setOpeningMediaType : setDirectionsMediaType;
     setError("");
     if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
-      setError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+      setError(tp.webpNotSupported);
       return;
     }
     setUploading(true);
     try {
-      const prepared = await prepareDashboardMediaUpload(file);
+      const prepared = await prepareDashboardMediaUpload(file, t);
       if (!prepared.ok) {
         setError(prepared.error);
         return;
@@ -2272,17 +2280,17 @@ export default function SlugSettingsPage({
       try {
         signJson = (await signRes.json()) as typeof signJson;
       } catch {
-        setError("תשובת שרת לא תקינה.");
+        setError(tp.invalidServerResponse);
         return;
       }
       if (!signRes.ok) {
-        setError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+        setError(signJson.error?.trim() || tp.uploadPrepFailed(signRes.status));
         return;
       }
       const signedUrl = signJson.signedUrl?.trim();
       const publicUrl = signJson.publicUrl?.trim();
       if (!signedUrl || !publicUrl) {
-        setError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+        setError(tp.noSignedUrl);
         return;
       }
 
@@ -2303,14 +2311,14 @@ export default function SlugSettingsPage({
         } catch {
           errText = putRes.statusText || "";
         }
-        setError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+        setError(errText || tp.storageUploadFailed(putRes.status));
         return;
       }
 
       setUrl(publicUrl);
       setType(uploadFile.type.startsWith("video") ? "video" : "image");
     } catch {
-      setError("בעיית רשת בהעלאה.");
+      setError(tp.uploadNetwork);
     } finally {
       setUploading(false);
     }
@@ -2320,13 +2328,13 @@ export default function SlugSettingsPage({
     setTrialPickMediaUploadError("");
     setTrialPickFailedUiId(null);
     if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
-      setTrialPickMediaUploadError("קובץ WebP לא נתמך ב-WhatsApp. אנא העלו JPG או PNG.");
+      setTrialPickMediaUploadError(tp.webpNotSupported);
       setTrialPickFailedUiId(serviceUiId);
       return;
     }
     setUploadingTrialPickUiId(serviceUiId);
     try {
-      const prepared = await prepareDashboardMediaUpload(file);
+      const prepared = await prepareDashboardMediaUpload(file, t);
       if (!prepared.ok) {
         setTrialPickMediaUploadError(prepared.error);
         setTrialPickFailedUiId(serviceUiId);
@@ -2346,19 +2354,19 @@ export default function SlugSettingsPage({
       try {
         signJson = (await signRes.json()) as typeof signJson;
       } catch {
-        setTrialPickMediaUploadError("תשובת שרת לא תקינה.");
+        setTrialPickMediaUploadError(tp.invalidServerResponse);
         setTrialPickFailedUiId(serviceUiId);
         return;
       }
       if (!signRes.ok) {
-        setTrialPickMediaUploadError(signJson.error?.trim() || `הכנת העלאה נכשלה (${signRes.status}).`);
+        setTrialPickMediaUploadError(signJson.error?.trim() || tp.uploadPrepFailed(signRes.status));
         setTrialPickFailedUiId(serviceUiId);
         return;
       }
       const signedUrl = signJson.signedUrl?.trim();
       const publicUrl = signJson.publicUrl?.trim();
       if (!signedUrl || !publicUrl) {
-        setTrialPickMediaUploadError("לא התקבל קישור חתום להעלאה - נסו שוב.");
+        setTrialPickMediaUploadError(tp.noSignedUrl);
         setTrialPickFailedUiId(serviceUiId);
         return;
       }
@@ -2378,7 +2386,7 @@ export default function SlugSettingsPage({
         } catch {
           errText = putRes.statusText || "";
         }
-        setTrialPickMediaUploadError(errText || `העלאה ל-Storage נכשלה (${putRes.status}).`);
+        setTrialPickMediaUploadError(errText || tp.storageUploadFailed(putRes.status));
         setTrialPickFailedUiId(serviceUiId);
         return;
       }
@@ -2390,7 +2398,7 @@ export default function SlugSettingsPage({
         )
       );
     } catch {
-      setTrialPickMediaUploadError("בעיית רשת בהעלאה.");
+      setTrialPickMediaUploadError(tp.uploadNetwork);
       setTrialPickFailedUiId(serviceUiId);
     } finally {
       setUploadingTrialPickUiId(null);
@@ -2414,7 +2422,7 @@ export default function SlugSettingsPage({
       try {
         j = (await res.json()) as Record<string, unknown>;
       } catch {
-        setFetchSiteError("תשובת שרת לא תקינה.");
+        setFetchSiteError(tp.invalidServerResponse);
         return;
       }
 
@@ -2424,17 +2432,17 @@ export default function SlugSettingsPage({
       if (!res.ok) {
         const friendly =
           errStr === "unauthorized"
-            ? "נדרשת התחברות מחדש."
+            ? tp.scanReauth
             : errStr === "missing_website_url"
-              ? "חסרה כתובת אתר."
+              ? tp.scanNoUrl
               : errStr === "missing_anthropic_key"
-                ? "חסר מפתח AI בשרת - פנו לתמיכה."
+                ? tp.scanNoAiKey
                 : errStr === "ai_parse_failed"
-                  ? "לא ניתן לעבד את תוצאת הסריקה. נסו שוב."
+                  ? tp.scanParseFailed
                   : msgStr ||
                     (errStr === "blocked_auto_scraping"
-                      ? "האתר חוסם סריקה אוטומטית - מלאו את השדות ידנית."
-                      : `הסריקה נכשלה (${res.status}).`);
+                      ? tp.scanBlocked
+                      : tp.scanFailed(res.status));
         setFetchSiteError(friendly);
         const hasPayload =
           Boolean(j.niche) ||
@@ -2532,7 +2540,7 @@ export default function SlugSettingsPage({
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
   const effectiveCanAutosave = canAutosave && !settingsPresenceLocked;
-  const concurrentEditorsLabel = formatConcurrentEditorNames(settingsPresenceConcurrentNames);
+  const concurrentEditorsLabel = formatConcurrentEditorNames(settingsPresenceConcurrentNames, t);
 
   function nextStep() {
     setStep((s) => Math.min(STEPS.length, s + 1));
@@ -2543,17 +2551,17 @@ export default function SlugSettingsPage({
   }
 
   return (
-    <div className="min-h-[50vh]" dir="rtl">
+    <div className="min-h-[50vh]" dir={dashboardDir(lang)}>
       <div className={DASHBOARD_SETTINGS_SHELL}>
         {settingsPresenceLocked ? (
           <div
             className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right text-sm font-medium text-amber-800"
             role="status"
           >
-            משתמש אחר עורך כרגע את ההגדרות. נסה שוב בעוד מעט.
+            {t.presenceLocked}
             {settingsPresenceEditorName ? (
               <span className="block pt-1 text-xs font-normal text-amber-700">
-                עורך כרגע: {settingsPresenceEditorName}
+                {t.presenceEditor(settingsPresenceEditorName)}
               </span>
             ) : null}
           </div>
@@ -2562,7 +2570,7 @@ export default function SlugSettingsPage({
             className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right text-sm font-medium text-amber-800"
             role="status"
           >
-            {concurrentEditorsLabel} עורכ/ים גם כרגע את ההגדרות. שימו לב — שינויים עלולים להידרס.
+            {t.presenceConcurrent(concurrentEditorsLabel)}
           </div>
         ) : null}
 
@@ -2575,16 +2583,16 @@ export default function SlugSettingsPage({
               {autosaveStatus === "saving" && (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
-                  <span>שומר…</span>
+                  <span>{t.saving}</span>
                 </>
               )}
-              {autosaveStatus === "saved" && <span className="text-emerald-600">נשמר אוטומטית</span>}
+              {autosaveStatus === "saved" && <span className="text-emerald-600">{t.savedAuto}</span>}
               {autosaveStatus === "error" && (
                 <span
                   className="max-w-[min(20rem,55vw)] text-right text-amber-600"
                   title={autoSaveErr || undefined}
                 >
-                  שמירה אוטומטית נכשלה{autoSaveErr ? ` - ${autoSaveErr}` : ""}
+                  {t.autosaveFailed}{autoSaveErr ? ` - ${autoSaveErr}` : ""}
                 </span>
               )}
               {autosaveStatus === "idle" ? <span aria-hidden>&nbsp;</span> : null}
@@ -2665,7 +2673,8 @@ export default function SlugSettingsPage({
           <div className={step !== 2 ? "hidden" : undefined} aria-hidden={step !== 2}>
             <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
               <AboutBusinessStepPanel
-                whatsAppSlot={<WhatsAppNumberSection slug={slug} compact />}
+                lang={lang}
+                whatsAppSlot={<WhatsAppNumberSection slug={slug} compact lang={lang} />}
                 customerServicePhone={customerServicePhone}
                 setCustomerServicePhone={setCustomerServicePhone}
                 name={name}
@@ -2701,6 +2710,7 @@ export default function SlugSettingsPage({
         {/* ════════════════════ STEP 3 — מוצרים ════════════════════ */}
         {step === 3 && (
           <Step3Trial
+            lang={lang}
             websiteUrl={websiteUrl}
             address={address}
             fetchingUrl={fetchingUrl}
@@ -2729,6 +2739,7 @@ export default function SlugSettingsPage({
         {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
         {step === 4 && (
           <Step4SalesFlow
+            lang={lang}
             planIsStarter={plan === "basic"}
             onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
             openingMediaUrl={openingMediaUrl}
@@ -2782,6 +2793,7 @@ export default function SlugSettingsPage({
         {step === 5 && (
           <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
             <FollowupStepPanel
+              lang={lang}
               waSalesFollowup1={waSalesFollowup1}
               setWaSalesFollowup1={setWaSalesFollowup1}
               waSalesFollowup2={waSalesFollowup2}
@@ -2806,7 +2818,7 @@ export default function SlugSettingsPage({
             className="gap-2"
           >
             <ArrowRight className="h-4 w-4" />
-            הקודם
+            {t.prev}
           </Button>
 
           <span className="text-sm text-zinc-400">{step} / {STEPS.length}</span>
@@ -2818,7 +2830,7 @@ export default function SlugSettingsPage({
               className="gap-2"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              {saving ? "שומר..." : "שמור הכל"}
+              {saving ? t.savingEllipsis : t.saveAll}
             </Button>
           ) : (
             <Button
@@ -2836,7 +2848,7 @@ export default function SlugSettingsPage({
               className="gap-2"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              הבא
+              {t.next}
               <ArrowLeft className="h-4 w-4" />
             </Button>
           )}
@@ -2847,16 +2859,16 @@ export default function SlugSettingsPage({
             <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-base font-semibold text-zinc-900">תכונה זו זמינה בחבילת Pro בלבד</p>
+                  <p className="text-base font-semibold text-zinc-900">{tp.proOnly}</p>
                   <p className="mt-2 text-sm text-zinc-600 leading-relaxed">
-                    שדרג כדי לאפשר העלאת תמונות ווידאו להודעות זואי
+                    {tp.proUpgradeMedia}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowStarterMediaProModal(false)}
                   className="rounded-full p-1 text-zinc-500 hover:text-zinc-800 shrink-0"
-                  aria-label="סגור"
+                  aria-label={t.close}
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -2867,10 +2879,10 @@ export default function SlugSettingsPage({
                   onClick={() => setShowStarterMediaProModal(false)}
                   className="inline-flex h-10 items-center justify-center rounded-xl bg-[#7133da] px-5 text-sm font-medium text-white hover:bg-[#5f2bc7]"
                 >
-                  שדרג ל‑Pro
+                  {tp.upgradePro}
                 </NextLink>
                 <Button type="button" variant="outline" className="rounded-xl" onClick={() => setShowStarterMediaProModal(false)}>
-                  סגור
+                  {t.close}
                 </Button>
               </div>
             </div>
@@ -2882,8 +2894,8 @@ export default function SlugSettingsPage({
             <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl">
               <div className="flex items-start justify-between gap-3 text-right">
                 <div>
-                  <p className="text-right text-base font-semibold text-zinc-900">מדיה להנחיות הגעה</p>
-                  <p className="mt-0.5 text-right text-xs text-zinc-500">תמונה או סרטון שישלחו יחד עם ההוראות הכתובות</p>
+                  <p className="text-right text-base font-semibold text-zinc-900">{tp.directionsMedia}</p>
+                  <p className="mt-0.5 text-right text-xs text-zinc-500">{tp.directionsMediaHint}</p>
                 </div>
                 <button
                   type="button"
@@ -2905,13 +2917,13 @@ export default function SlugSettingsPage({
                     {uploadingDirectionsMedia ? (
                       <>
                         <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
-                        <p className="text-sm text-zinc-500">מעלה ושומרת...</p>
+                        <p className="text-sm text-zinc-500">{tp.uploadingSaving}</p>
                       </>
                     ) : (
                       <>
                         <Upload className="h-8 w-8 text-zinc-400" />
-                        <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
-                        <p className="text-xs text-zinc-400">עד 16MB. JPG, PNG, GIF, MP4</p>
+                        <p className="text-sm text-zinc-500">{t.salesFlow.clickUpload}</p>
+                        <p className="text-xs text-zinc-400">{t.products.uploadLimits}</p>
                       </>
                     )}
                   </button>
@@ -2927,13 +2939,13 @@ export default function SlugSettingsPage({
                           preload="metadata"
                           controls
                         />
-                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">הסרטון הועלה ונשמר</p>
+                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">{tp.videoSaved}</p>
                       </div>
                     ) : (
                       <div className="relative mx-auto w-fit max-w-full">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={directionsMediaUrl} alt="מדיה להנחיות הגעה" className="mx-auto block max-h-72 max-w-full rounded-xl object-contain" />
-                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה ונשמרה</p>
+                        <img src={directionsMediaUrl} alt={tp.directionsMediaAlt} className="mx-auto block max-h-72 max-w-full rounded-xl object-contain" />
+                        <p className="text-center text-xs text-emerald-600 mt-2 font-medium">{tp.imageSaved}</p>
                       </div>
                     )}
                     <div className="flex flex-wrap justify-center gap-2">
@@ -2945,7 +2957,7 @@ export default function SlugSettingsPage({
                         onClick={() => directionsMediaInputRef.current?.click()}
                       >
                         <Upload className="h-4 w-4" />
-                        החלף קובץ
+                        {t.replaceFile}
                       </Button>
                       <Button
                         type="button"
@@ -2958,7 +2970,7 @@ export default function SlugSettingsPage({
                         }}
                       >
                         <X className="h-4 w-4" />
-                        הסר קובץ
+                        {t.removeFile}
                       </Button>
                     </div>
                   </div>
@@ -2988,7 +3000,7 @@ export default function SlugSettingsPage({
         {/* ── Saved toast ── */}
         {savedOk && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-500 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-lg flex items-center gap-2 z-50">
-            <Check className="h-4 w-4" /> נשמר בהצלחה!
+            <Check className="h-4 w-4" /> {t.savedSuccess}
           </div>
         )}
       </div>

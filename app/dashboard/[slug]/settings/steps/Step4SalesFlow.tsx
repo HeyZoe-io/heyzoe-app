@@ -38,6 +38,8 @@ import {
   stripScheduleLineFromMultiServiceQuestion,
   type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
+import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 
 type ServiceItem = {
   ui_id: string;
@@ -64,6 +66,7 @@ type ServiceItem = {
 type CtaOfferTab = "trial" | "workshop" | "course";
 
 type Step4SalesFlowProps = {
+  lang?: DashboardLang;
   planIsStarter: boolean;
   onStarterMediaBlocked: () => void;
   openingMediaUrl: string;
@@ -145,6 +148,8 @@ function resolveOfferTab(
 }
 
 function WarmupButtonPairsEditor({
+  lang,
+  t,
   options,
   replies,
   onChange,
@@ -152,6 +157,8 @@ function WarmupButtonPairsEditor({
   afterExperienceToStore,
   serviceForReply,
 }: {
+  lang: DashboardLang;
+  t: ReturnType<typeof dashboardSettingsT>;
   options: string[];
   replies: string[];
   onChange: (nextOptions: string[], nextReplies: string[]) => void;
@@ -205,7 +212,7 @@ function WarmupButtonPairsEditor({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs font-medium text-zinc-700 text-center">כפתורי תשובה</p>
+      <p className="text-xs font-medium text-zinc-700 text-center">{t.salesFlow.warmupButtons}</p>
       {options.map((label, i) => (
         <div
           key={`warmup-btn-${i}`}
@@ -225,45 +232,45 @@ function WarmupButtonPairsEditor({
                   onDragEnd();
                 }}
                 className="inline-flex cursor-grab touch-none items-center justify-center rounded p-1 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing shrink-0"
-                aria-label={`גרירה לשינוי מיקום כפתור ${i + 1}`}
-                title="גררו לשינוי סדר"
+                aria-label={t.salesFlow.dragButton(i + 1)}
+                title={t.salesFlow.dragOrder}
               >
                 <GripVertical className="h-4 w-4 pointer-events-none" />
               </span>
-              <span className="text-xs font-semibold text-zinc-700">כפתור {i + 1}</span>
+              <span className="text-xs font-semibold text-zinc-700">{t.salesFlow.button(i + 1)}</span>
             </div>
             {options.length > WARMUP_MIN_BUTTONS ? (
               <button
                 type="button"
                 className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
                 onClick={() => removePair(i)}
-                aria-label={`הסר כפתור ${i + 1}`}
+                aria-label={t.salesFlow.removeButton(i + 1)}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
             ) : null}
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3" dir="rtl">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3" dir={dashboardDir(lang)}>
             <div className="min-w-0 flex-1 space-y-1">
               <span className="text-[11px] font-medium text-zinc-500">
-                תוכן הכפתור <span className="text-zinc-400">(עד {WA_BUTTON_LABEL_MAX_CHARS} תווים)</span>
+                {t.salesFlow.buttonContent} <span className="text-zinc-400">({t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)})</span>
               </span>
               <WaButtonLabelInput
                 value={label}
                 onValueChange={(v) => updatePair(i, { label: v })}
-                placeholder={`כפתור ${i + 1}`}
+                placeholder={t.salesFlow.button(i + 1)}
               />
             </div>
             <ArrowLeft className="mx-auto h-5 w-5 shrink-0 text-zinc-400 sm:mt-8" aria-hidden />
             <div className="min-w-0 flex-1 space-y-1">
-              <span className="text-[11px] font-medium text-zinc-500">תשובה</span>
+              <span className="text-[11px] font-medium text-zinc-500">{t.salesFlow.buttonReply}</span>
               <Textarea
                 rows={2}
                 value={afterExperienceForDisplay(replies[i] ?? "", serviceForReply)}
                 onChange={(v) =>
                   updatePair(i, { reply: afterExperienceToStore(v, serviceForReply) })
                 }
-                placeholder="משפט מעודד קצר אחרי לחיצה על הכפתור…"
+                placeholder={t.salesFlow.answer}
               />
             </div>
           </div>
@@ -272,7 +279,7 @@ function WarmupButtonPairsEditor({
       {options.length < WARMUP_MAX_BUTTONS ? (
         <Button type="button" variant="outline" className="w-full gap-1 text-sm" onClick={addPair}>
           <Plus className="h-4 w-4" />
-          הוסף כפתור ותשובה
+          {t.salesFlow.addButtonPair}
         </Button>
       ) : null}
     </div>
@@ -282,6 +289,8 @@ function WarmupButtonPairsEditor({
 type WarmupDuplicateAction = { label: string; onClick: () => void };
 
 function WarmupSessionQuestion1Block({
+  lang,
+  t,
   question,
   options,
   replies,
@@ -293,6 +302,8 @@ function WarmupSessionQuestion1Block({
   serviceForReply,
   onClear,
 }: {
+  lang: DashboardLang;
+  t: ReturnType<typeof dashboardSettingsT>;
   question: string;
   options: string[];
   replies: string[];
@@ -311,21 +322,23 @@ function WarmupSessionQuestion1Block({
   return (
     <div className="space-y-3 rounded-xl border border-zinc-100 bg-white/60 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-zinc-800">שאלה 1</span>
+        <span className="text-sm font-semibold text-zinc-800">{t.salesFlow.question1}</span>
         <button
           type="button"
           className="p-1 text-zinc-400 hover:text-red-500"
           onClick={onClear}
-          aria-label="הסר שאלה 1"
-          title="הסר שאלה 1 (נשארות שאלות נוספות)"
+          aria-label={t.salesFlow.removeQuestion1}
+          title={t.salesFlow.removeQuestion1Title}
         >
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
-      <Field label="שאלה">
-        <Input dir="rtl" value={question} onChange={(e) => onQuestionChange(e.target.value)} placeholder={questionPlaceholder} />
+      <Field label={t.salesFlow.question} lang={lang}>
+        <Input dir={dashboardDir(lang)} value={question} onChange={(e) => onQuestionChange(e.target.value)} placeholder={questionPlaceholder} />
       </Field>
       <WarmupButtonPairsEditor
+        lang={lang}
+        t={t}
         options={options}
         replies={replies}
         onChange={onPairsChange}
@@ -338,6 +351,8 @@ function WarmupSessionQuestion1Block({
 }
 
 function SalesFlowExtraStepsEditor({
+  lang,
+  t,
   steps,
   onChange,
   addButtonLabel,
@@ -350,6 +365,8 @@ function SalesFlowExtraStepsEditor({
   duplicateActionsForQuestion,
   showTopDivider = true,
 }: {
+  lang: DashboardLang;
+  t: ReturnType<typeof dashboardSettingsT>;
   steps: SalesFlowExtraStep[];
   onChange: (next: SalesFlowExtraStep[]) => void;
   addButtonLabel: string;
@@ -376,7 +393,7 @@ function SalesFlowExtraStepsEditor({
               <span
                 className={`text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800 ${questionHeaderClassName}`.trim()}
               >
-                שאלה {si + startAt}
+                {t.salesFlow.questionN(si + startAt)}
               </span>
               {(duplicateActionsForQuestion?.(st, si + startAt) ?? []).map((action) => (
                 <button
@@ -393,21 +410,23 @@ function SalesFlowExtraStepsEditor({
               type="button"
               className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
               onClick={() => onChange(steps.filter((x) => x.id !== st.id))}
-              aria-label="הסר שאלה"
+              aria-label={t.salesFlow.removeQuestion}
             >
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
           <Input
-            dir="rtl"
+            dir={dashboardDir(lang)}
             value={st.question}
             onChange={(e) => {
               const v = e.target.value;
               onChange(steps.map((x) => (x.id === st.id ? { ...x, question: v } : x)));
             }}
-            placeholder="כתבו את השאלה כאן…"
+            placeholder={t.salesFlow.writeQuestion}
           />
           <WarmupButtonPairsEditor
+            lang={lang}
+            t={t}
             options={st.options}
             replies={st.replies}
             onChange={(nextOptions, nextReplies) =>
@@ -438,6 +457,7 @@ function SalesFlowExtraStepsEditor({
 
 export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const {
+    lang = "he",
     planIsStarter,
     onStarterMediaBlocked,
     openingMediaUrl,
@@ -485,6 +505,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     courseCtaBodyToStore,
     uid,
   } = props;
+  const t = dashboardSettingsT(lang);
 
   const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
   const isGen = (section: string, offerTab?: CtaOfferTab) => {
@@ -643,18 +664,18 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     | "after_trial";
   const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = useMemo(
     () => [
-      { id: "media", label: "מדיה", hint: "תמונה/סרטון" },
-      { id: "opening", label: "פתיחה", hint: "הודעה ראשונה" },
-      { id: "warmup", label: "חימום", hint: "שאלת היכרות" },
-      { id: "schedule_board", label: "מערכת שעות", hint: "תמונה/לינק" },
-      { id: "service_pick", label: "מוצר", hint: "בחירת אימון" },
+      { id: "media", label: t.salesFlow.sections.media.label, hint: t.salesFlow.sections.media.hint },
+      { id: "opening", label: t.salesFlow.openingMessage, hint: t.salesFlow.sections.opening.hint },
+      { id: "warmup", label: t.salesFlow.warmupQuestion, hint: t.salesFlow.sections.warmup.hint },
+      { id: "schedule_board", label: t.salesFlow.sections.schedule_board.label, hint: t.salesFlow.sections.schedule_board.hint },
+      { id: "service_pick", label: t.salesFlow.answerOptions, hint: t.salesFlow.sections.service_pick.hint },
       ...(showScheduleSelectionSession
-        ? ([{ id: "schedule_selection", label: "יום ושעה", hint: "בחירת מועד" }] as const)
+        ? ([{ id: "schedule_selection", label: t.salesFlow.sections.schedule_selection.label, hint: t.salesFlow.sections.schedule_selection.hint }] as const)
         : []),
-      { id: "cta", label: "הנעה", hint: "לינק לתשלום" },
-      { id: "after_trial", label: "אחרי הרשמה", hint: "פרטי הגעה" },
+      { id: "cta", label: t.salesFlow.ctaTrialOffer, hint: t.salesFlow.sections.cta.hint },
+      { id: "after_trial", label: t.salesFlow.postRegistration, hint: t.salesFlow.sections.after_trial.hint },
     ],
-    [showScheduleSelectionSession]
+    [showScheduleSelectionSession, t]
   );
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
     useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
@@ -700,29 +721,30 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
       <SalesPathStepShell
         stepNumber={4}
-        title="מסלול מכירה"
-        description="כאן נוצר תהליך המכירה של זואי. אני עונה גם על שאלות פתוחות :)"
+        title={t.salesFlow.title}
+        description={t.salesFlow.description}
         stepPrefix="sales"
         sections={SALES_SECTIONS}
         activeNav={activeNav}
         onNavClick={scrollToSection}
         mainRef={mainRef}
-        navAriaLabel="ניווט בתוך מסלול מכירה"
+        navAriaLabel={t.salesFlow.navAria}
+        lang={lang}
       >
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="media"
-          title="מדיה לפתיחה (אופציונלי)"
+          title={t.salesFlow.openingMedia}
           open={openSections.media}
           onToggle={() => toggle("media")}
           filled={showOpeningMediaPreview}
         >
         <div>
           <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-center">
-            <p className="text-sm font-medium text-zinc-700">מדיה לפתיחה (אופציונלי)</p>
+            <p className="text-sm font-medium text-zinc-700">{t.salesFlow.openingMedia}</p>
             {planIsStarter ? (
-              <span className="text-[11px] font-semibold text-amber-600 shrink-0" title="זמין בחבילת Pro">
-                ⭐ Pro
+              <span className="text-[11px] font-semibold text-amber-600 shrink-0" title={t.proAvailable}>
+                {t.proBadge}
               </span>
             ) : null}
           </div>
@@ -742,14 +764,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               {uploadingMedia ? (
                 <>
                   <Loader2 className="h-8 w-8 animate-spin text-[#7133da]/60" />
-                  <p className="text-sm text-zinc-500">מעלה…</p>
+                  <p className="text-sm text-zinc-500">{t.uploading}</p>
                 </>
               ) : (
                 <>
                   <Upload className="h-8 w-8 text-zinc-400" />
-                  <p className="text-sm text-zinc-500">לחץ להעלאת תמונה או סרטון</p>
+                  <p className="text-sm text-zinc-500">{t.salesFlow.clickUpload}</p>
                   <p className="text-xs text-zinc-400">
-                    עד 16MB. JPG, PNG, GIF, MP4 (העלאה ישירה ל-Storage)
+                    {t.salesFlow.uploadLimits}
                   </p>
                 </>
               )}
@@ -767,7 +789,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     controls
                   />
                   <p className="text-center text-xs text-emerald-600 mt-2 font-medium">
-                    הווידאו הועלה - תצוגה מקדימה (אפשר להפעיל)
+                    {t.salesFlow.videoUploaded}
                   </p>
                 </div>
               ) : (
@@ -775,10 +797,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={openingMediaUrl}
-                    alt="מדיה לפתיחה"
+                    alt={t.salesFlow.openingMediaAlt}
                     className="mx-auto block max-h-72 max-w-full rounded-xl object-contain"
                   />
-                  <p className="text-center text-xs text-emerald-600 mt-2 font-medium">התמונה הועלתה</p>
+                  <p className="text-center text-xs text-emerald-600 mt-2 font-medium">{t.salesFlow.imageUploaded}</p>
                 </div>
               )}
               <div className="flex flex-wrap justify-center gap-2">
@@ -796,7 +818,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }}
                 >
                   <Upload className="h-4 w-4" />
-                  החלף קובץ
+                  {t.replaceFile}
                 </Button>
                 <Button
                   type="button"
@@ -809,7 +831,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }}
                 >
                   <X className="h-4 w-4" />
-                  הסר מדיה
+                  {t.salesFlow.removeMedia}
                 </Button>
               </div>
             </div>
@@ -836,7 +858,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="opening"
-          title="סשן פתיחה"
+          title={t.salesFlow.openingSession}
           open={openSections.opening}
           onToggle={() => toggle("opening")}
           filled={Boolean(
@@ -858,12 +880,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              {isGen("opening") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+              {isGen("opening") ? t.generating : t.regenerate}
             </Button>
           }
         >
           <div className="space-y-3">
-            <Field label="טקסט פתיחה ללקוח">
+            <Field label={t.salesFlow.openingText} lang={lang}>
               <Textarea
                 value={
                   salesFlowConfig.greeting_body_override !== undefined
@@ -881,7 +903,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="warmup"
-          title="סשן חימום"
+          title={t.salesFlow.warmupSession}
           open={openSections.warmup}
           onToggle={() => toggle("warmup")}
           filled={warmupSectionFilled}
@@ -892,8 +914,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   type="button"
                   className="rounded-lg border border-red-100 bg-white p-1.5 text-red-500 transition-colors hover:bg-red-50"
                   onClick={() => setWarmupSessionEnabled?.(false)}
-                  aria-label="הסר סשן חימום"
-                  title="הסר סשן חימום"
+                  aria-label={t.salesFlow.removeWarmup}
+                  title={t.salesFlow.removeWarmup}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -909,7 +931,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   ) : (
                     <Sparkles className="h-3.5 w-3.5" />
                   )}
-                  {isGen("warmup") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+                  {isGen("warmup") ? t.generating : t.regenerate}
                 </Button>
               </div>
             ) : null
@@ -918,7 +940,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <div className="space-y-3">
             {!warmupSessionEnabled ? (
               <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-4 py-5 text-center">
-                <p className="text-sm text-zinc-600">סשן החימום מוסר מהפלואו.</p>
+                <p className="text-sm text-zinc-600">{t.salesFlow.warmupRemoved}</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -926,19 +948,21 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   onClick={() => setWarmupSessionEnabled?.(true)}
                 >
                   <Plus className="h-4 w-4" />
-                  הוסף סשן חימום
+                  {t.salesFlow.addWarmup}
                 </Button>
               </div>
             ) : !firstNamedService ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                כדי לערוך כאן — הוסיפו לפחות שירות אחד בטאב «מוצרים» (שלב 3).
+                {t.salesFlow.needProductsStep3}
               </p>
             ) : (
               <>
                 <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
-                  סשן חימום אחיד לכל המוצרים — נשלח לפני בחירת סוג האימון.
+                  {t.salesFlow.warmupUnified}
                 </p>
                 <WarmupSessionQuestion1Block
+                  lang={lang}
+                  t={t}
                   question={experienceQuestionForDisplay(
                     salesFlowConfig.experience_question,
                     firstSvcForWarmup?.name?.trim() ?? ""
@@ -959,7 +983,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       experience_replies: nextReplies,
                     }))
                   }
-                  questionPlaceholder="למשל: מה מביא אותך אלינו?"
+                  questionPlaceholder={t.salesFlow.writeQuestion}
                   afterExperienceForDisplay={afterExperienceForDisplay}
                   afterExperienceToStore={afterExperienceToStore}
                   serviceForReply={firstSvcForWarmup}
@@ -973,9 +997,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }
                 />
                 <SalesFlowExtraStepsEditor
+                  lang={lang}
+                  t={t}
                   steps={salesFlowConfig.opening_extra_steps}
                   onChange={(next) => setSalesFlowConfig((c) => ({ ...c, opening_extra_steps: next }))}
-                  addButtonLabel="הוסף שאלה בסשן חימום"
+                  addButtonLabel={t.salesFlow.addWarmupQuestion}
                   startAt={warmupQ1Active ? 2 : 1}
                   showTopDivider={warmupQ1Active}
                   uid={uid}
@@ -991,18 +1017,18 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="schedule_board"
-          title="מערכת שעות"
+          title={t.salesFlow.scheduleBoard}
           open={openSections.schedule_board}
           onToggle={() => toggle("schedule_board")}
           filled={scheduleBoardConfigured}
         >
-          <div className="space-y-3 text-right" dir="rtl">
+          <div className="space-y-3 text-right" dir={dashboardDir(lang)}>
             <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
-              <p className="text-sm text-zinc-800">כאן ניתן לראות את מערכת השעות שלנו</p>
+              <p className="text-sm text-zinc-800">{t.salesFlow.scheduleBoardCaption}</p>
             </div>
             {String(scheduleScanImageUrl ?? "").trim() ? (
               <div className="rounded-xl border border-zinc-100 bg-white p-3">
-                <p className="text-xs font-semibold text-zinc-700 text-center mb-2">תמונה שתישלח</p>
+                <p className="text-xs font-semibold text-zinc-700 text-center mb-2">{t.salesFlow.imageToSend}</p>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={scheduleScanImageUrl.trim()}
@@ -1012,14 +1038,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               </div>
             ) : String(scheduleBoardLink ?? "").trim() ? (
               <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
-                ללא תמונה — יישלח קישור:{" "}
+                {t.salesFlow.noImageLink}{" "}
                 <span dir="ltr" className="font-mono text-[10px] break-all">
                   {scheduleBoardLink.trim()}
                 </span>
               </p>
             ) : (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                הוסיפו תמונה או לינק למערכת שעות בטאב «לינקים» → קישורי מערכת.
+                {t.salesFlow.addScheduleInLinks}
               </p>
             )}
           </div>
@@ -1028,7 +1054,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="service_pick"
-          title="בחירת מוצר"
+          title={t.salesFlow.productPick}
           open={openSections.service_pick}
           onToggle={() => toggle("service_pick")}
           filled={trialServiceNames.length > 0}
@@ -1045,14 +1071,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              {isGen("service_pick") ? "מג׳נרט..." : "ג׳נרט מחדש"}
+              {isGen("service_pick") ? t.generating : t.regenerate}
             </Button>
           }
         >
           <div className="space-y-3">
             {trialServiceNames.length > 1 ? (
               <>
-                <Field label="שאלה + כפתורי בחירה" className="space-y-1">
+                <Field label={t.salesFlow.questionAndButtons} className="space-y-1" lang={lang}>
                   <Textarea
                     value={stripScheduleLineFromMultiServiceQuestion(
                       salesFlowConfig.multi_service_question ?? ""
@@ -1064,10 +1090,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }))
                     }
                     rows={4}
-                    placeholder="למשל: כדי שאוכל להתאים עבורך בול את מה שמעניין אותך, איזה אימון הכי קורץ לך?"
+                    placeholder={t.salesFlow.questionAndButtons}
                   />
                   <p className="text-[11px] leading-relaxed text-zinc-500 text-right">
-                    מערכת השעות נשלחת בסשן קודם — כאן רק שאלת הבחירה בין המוצרים.
+                    {t.salesFlow.scheduleSentEarlier}
                   </p>
                 </Field>
                 <div className="space-y-3">
@@ -1077,19 +1103,19 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         <div className="w-full rounded-xl border border-[#7133da]/20 bg-[#f5f3ff] px-3 py-2 text-center text-sm font-medium text-[#2d1a6e]">
                           {s.name.trim()}
                         </div>
-                        <Field label="תשובה">
+                        <Field label={t.salesFlow.answer} lang={lang}>
                           <div
-                            dir="rtl"
+                            dir={dashboardDir(lang)}
                             className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
                           >
                             {s.description.trim() ? (
                               s.description
                             ) : (
-                              <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
+                              <span className="text-zinc-400">{t.salesFlow.noDescription}</span>
                             )}
                           </div>
                           <p className="text-[11px] leading-relaxed text-zinc-500">
-                            נערך בטאב «מוצרים» (שדה תיאור).
+                            {t.salesFlow.editedInProducts}
                           </p>
                         </Field>
                       </div>
@@ -1100,7 +1126,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             ) : trialServiceNames.length === 1 ? (
               <>
                 <p className="text-xs text-zinc-600 text-center leading-relaxed">
-                  מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים מופיעים ב«סשן חימום» למעלה.
+                  {t.salesFlow.singleServiceNote}
                 </p>
                 {(() => {
                   const firstNamedIndex = services.findIndex((s: ServiceItem) => s.name.trim());
@@ -1108,20 +1134,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   const s = services[firstNamedIndex]!;
                   return (
                     <div key={s.ui_id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                      <p className="text-xs font-medium text-zinc-700 text-center">תשובה לאימון: {s.name.trim()}</p>
-                      <Field label="תשובה">
+                      <p className="text-xs font-medium text-zinc-700 text-center">{t.salesFlow.answerForService(s.name.trim())}</p>
+                      <Field label={t.salesFlow.answer} lang={lang}>
                         <div
-                          dir="rtl"
+                          dir={dashboardDir(lang)}
                           className="min-h-[6rem] whitespace-pre-wrap rounded-lg border border-zinc-200/80 bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800"
                         >
                           {s.description.trim() ? (
                             s.description
                           ) : (
-                            <span className="text-zinc-400">אין תיאור — הוסיפו בטאב «מוצרים»</span>
+                            <span className="text-zinc-400">{t.salesFlow.noDescription}</span>
                           )}
                         </div>
                         <p className="text-[11px] leading-relaxed text-zinc-500">
-                          נערך בטאב «מוצרים» (שדה תיאור).
+                          {t.salesFlow.editedInProducts}
                         </p>
                       </Field>
                     </div>
@@ -1130,7 +1156,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               </>
             ) : (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                הוסיפו לפחות שירות אחד בטאב «מוצרים» כדי להגדיר את מסלול הבחירה.
+                {t.salesFlow.needProductsForPick}
               </p>
             )}
           </div>
@@ -1140,8 +1166,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <SalesPathSectionBlock
             stepPrefix="sales"
             id="schedule_selection"
-            title="בחירת מועד"
-            hint="נשלח כשאין הרשמה ישירה ממערכת השעות"
+            title={t.salesFlow.schedulePick}
+            hint={t.salesFlow.schedulePickHint}
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
             filled={
@@ -1157,15 +1183,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             <div className="space-y-3">
               {!hasAnyScheduleOfferTab ? (
                 <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                  כדי לערוך בחירת מועד — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים».
+                  {t.salesFlow.needProductsForSchedule}
                 </p>
               ) : (
                 <>
               <div
-                dir="rtl"
+                dir={dashboardDir(lang)}
                 className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
                 role="tablist"
-                aria-label="סוג סשן בחירת מועד"
+                aria-label={t.salesFlow.schedulePickTypeAria}
               >
                 {hasTrialOffers ? (
                   <button
@@ -1179,7 +1205,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     }`}
                     onClick={() => setScheduleOfferTab("trial")}
                   >
-                    שיעור ניסיון
+                    {t.salesFlow.trialLesson}
                   </button>
                 ) : null}
                 {hasWorkshopOffers ? (
@@ -1194,7 +1220,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     }`}
                     onClick={() => setScheduleOfferTab("workshop")}
                   >
-                    סדנה
+                    {t.salesFlow.workshop}
                   </button>
                 ) : null}
                 {hasCourseOffers ? (
@@ -1209,7 +1235,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     }`}
                     onClick={() => setScheduleOfferTab("course")}
                   >
-                    קורס
+                    {t.salesFlow.course}
                   </button>
                 ) : null}
               </div>
@@ -1217,17 +1243,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               {scheduleOfferTab === "trial" && hasTrialOffers ? (
                 <>
                   <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                    <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
+                    <p className="mb-2 text-xs font-semibold text-zinc-700">{t.salesFlow.questionAndButtons}</p>
                     <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
                       {firstTrialForTemplates.name.trim()
-                        ? `מתי נוח לך להגיע ל${firstTrialForTemplates.name}?`
-                        : "מתי נוח לך להגיע ל[שם שיעור הניסיון]?"}
+                        ? t.salesFlow.trialScheduleQuestion(firstTrialForTemplates.name.trim())
+                        : t.salesFlow.trialScheduleQuestionFallback}
                     </div>
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
-                      התאריכים מוצעים בהתאם למועדי השיעורים שהוגדרו בטאב מוצרים)
+                      {t.salesFlow.schedulePickHint}
                     </p>
                   </div>
-                  <Field label="תשובה אחרי בחירת מועד">
+                  <Field label={t.salesFlow.answerAfterPick} lang={lang}>
                     <Textarea
                       value={salesFlowConfig.after_schedule_selection ?? ""}
                       onChange={(v) =>
@@ -1237,10 +1263,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         }))
                       }
                       rows={2}
-                      placeholder="מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}"
+                      placeholder="Great! We'll reserve {serviceName} for {requested_date} at {requested_time}."
                     />
                     <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
-                      משתנים: {"{serviceName}"}, {"{requested_date}"} (שם היום בלבד, למשל «ראשון» — בתבנית כתבו «ביום»), {"{requested_time}"}
+                      Variables: {"{serviceName}"}, {"{requested_date}"} (day name), {"{requested_time}"}
                     </p>
                   </Field>
                 </>
@@ -1249,21 +1275,21 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               {scheduleOfferTab === "workshop" && hasWorkshopOffers ? (
                 <>
                   <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
-                    <p className="mb-2 text-xs font-semibold text-zinc-700">שאלה + כפתורי בחירה</p>
+                    <p className="mb-2 text-xs font-semibold text-zinc-700">{t.salesFlow.questionAndButtons}</p>
                     <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
                       {firstWorkshopSvcForWarmup?.name?.trim()
-                        ? `מתי נוח לך להגיע לסדנת ${firstWorkshopSvcForWarmup.name}?`
-                        : "מתי נוח לך להגיע ל[שם הסדנה]?"}
+                        ? t.salesFlow.workshopScheduleQuestion(firstWorkshopSvcForWarmup.name.trim())
+                        : t.salesFlow.workshopScheduleQuestionFallback}
                     </div>
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
-                      כפתורי מועד לפי המועדים שהוגדרו במוצר «סדנה» בטאב «מוצרים»
+                      {t.salesFlow.workshopScheduleSlotsHint}
                       {workshopCtaSample.priceText.trim() || workshopCtaSample.durationText.trim()
-                        ? ` (מחיר ${workshopCtaSample.priceText.trim() || "—"}, משך ${workshopCtaSample.durationText.trim() || "—"} דק׳)`
+                        ? ` (${lang === "en" ? "price" : "מחיר"} ${workshopCtaSample.priceText.trim() || "—"}, ${lang === "en" ? "duration" : "משך"} ${workshopCtaSample.durationText.trim() || "—"} ${lang === "en" ? "min" : "דק׳"})`
                         : ""}
-                      . אם אין מועדים בלוח — שאלות תאריך ושעה חופשיות.
+                      {t.salesFlow.workshopScheduleSlotsHintSuffix}
                     </p>
                   </div>
-                  <Field label="תשובה אחרי בחירת מועד">
+                  <Field label={t.salesFlow.answerAfterPick} lang={lang}>
                     <Textarea
                       value={salesFlowConfig.after_schedule_selection_workshop ?? ""}
                       onChange={(v) =>
@@ -1273,10 +1299,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         }))
                       }
                       rows={2}
-                      placeholder="מהמם! נשמנו לשבץ אותך לסדנת {serviceName} ביום {requested_date} בשעה {requested_time}."
+                      placeholder="Great! We'll reserve workshop {serviceName} for {requested_date} at {requested_time}."
                     />
                     <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
-                      משתנים: {"{serviceName}"}, {"{requested_date}"} (שם היום בלבד), {"{requested_time}"}
+                      Variables: {"{serviceName}"}, {"{requested_date}"} (day name), {"{requested_time}"}
                     </p>
                   </Field>
                 </>
@@ -1284,7 +1310,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
               {scheduleOfferTab === "course" && hasCourseOffers ? (
                 <>
-                  <Field label="שאלה + כפתורי בחירה">
+                  <Field label={t.salesFlow.questionAndButtons} lang={lang}>
                     <Textarea
                       value={salesFlowConfig.course_cycle_pick_question ?? ""}
                       onChange={(v) =>
@@ -1294,13 +1320,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         }))
                       }
                       rows={2}
-                      placeholder="מתי נוח לך להתחיל את הקורס?"
+                      placeholder="When would you like to start the course?"
                     />
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
-                      לפני השאלה נשלחת אוטומטית פסקת מחזורים (תאריכים וימים) מטאב «מוצרים», וכפתורי «התחלה ב…» לפי מחזור.
+                      Cycle details (dates and days) are sent automatically before this question.
                     </p>
                   </Field>
-                  <Field label="תשובה אחרי בחירת מחזור">
+                  <Field label={t.salesFlow.answerAfterCycle} lang={lang}>
                     <Textarea
                       value={salesFlowConfig.after_course_cycle_pick ?? ""}
                       onChange={(v) =>
@@ -1310,10 +1336,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         }))
                       }
                       rows={2}
-                      placeholder="מעולה! רשמנו שתרצו להתחיל את {serviceName} בתאריך {requested_date}."
+                      placeholder="Great! We noted you'd like to start {serviceName} on {requested_date}."
                     />
                     <p className="mt-1.5 text-[11px] text-zinc-500 text-right">
-                      משתנים: {"{serviceName}"}, {"{requested_date}"}
+                      Variables: {"{serviceName}"}, {"{requested_date}"}
                     </p>
                   </Field>
                 </>
@@ -1327,7 +1353,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="cta"
-          title="סשן הנעה לפעולה"
+          title={t.salesFlow.ctaSession}
           open={openSections.cta}
           onToggle={() => toggle("cta")}
           filled={ctaSectionFilled}
@@ -1345,7 +1371,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : (
                   <Sparkles className="h-3.5 w-3.5" />
                 )}
-                {isGen("cta", ctaOfferTab) ? "מג׳נרט..." : "ג׳נרט מחדש"}
+                {isGen("cta", ctaOfferTab) ? t.generating : t.regenerate}
               </Button>
             ) : null
           }
@@ -1353,15 +1379,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <div className="space-y-4">
             {!hasAnyCtaOfferTab ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                כדי לערוך הנעה לפעולה — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים» (שלב 3).
+                {t.salesFlow.needProductsForCta}
               </p>
             ) : (
               <>
             <div
-              dir="rtl"
+              dir={dashboardDir(lang)}
               className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
               role="tablist"
-              aria-label="סוג סשן הנעה לפעולה"
+              aria-label={t.salesFlow.ctaTypeAria}
             >
               {hasTrialOffers ? (
                 <button
@@ -1375,7 +1401,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }`}
                   onClick={() => setCtaOfferTab("trial")}
                 >
-                  שיעור ניסיון
+                    {t.salesFlow.trialLesson}
                 </button>
               ) : null}
               {hasWorkshopOffers ? (
@@ -1390,7 +1416,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }`}
                   onClick={() => setCtaOfferTab("workshop")}
                 >
-                  סדנה
+                    {t.salesFlow.workshop}
                 </button>
               ) : null}
               {hasCourseOffers ? (
@@ -1405,7 +1431,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }`}
                   onClick={() => setCtaOfferTab("course")}
                 >
-                  קורס
+                    {t.salesFlow.course}
                 </button>
               ) : null}
             </div>
@@ -1442,13 +1468,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 rows={4}
                 placeholder={
                   showScheduleSelectionSession
-                    ? "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף. שנתקדם?"
-                    : "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה x שקלים, הוא נמשך x דקות ובאמת שהולך להיות כיף."
+                    ? "Next step: reserve your spot by completing payment. The class costs x and lasts x minutes."
+                    : "Would you like to join a trial class soon? The class costs x and lasts x minutes."
                 }
               />
               <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                עלות ומשך האימון ימולאו אוטומטית על בסיס סוג האימון
-                {showScheduleSelectionSession ? " · ללא כפתור מערכת שעות (נשלחה כבר בסשן קודם)" : ""}
+                Price and duration are auto-filled by selected service type
+                {showScheduleSelectionSession ? " · without schedule button (already sent earlier)" : ""}
               </p>
             </div>
             <div
@@ -1459,7 +1485,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 const slotSub = salesFlowSubChoiceForSlot(b, locked);
                 return (
                   <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                    <Field label={`כפתור ${bi + 1}`} description={`עד ${WA_BUTTON_LABEL_MAX_CHARS} תווים`}>
+                    <Field label={t.salesFlow.button(bi + 1)} description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)} lang={lang}>
                       <WaButtonLabelInput
                         value={b.label}
                         onValueChange={(v) => {
@@ -1476,12 +1502,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       </label>
                       {locked === "trial" ? (
                         <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
-                          לינק מטאב «מוצרים»
+                          {t.salesFlow.linkFromProducts}
                         </p>
                       ) : (
                         <>
                           <select
-                            dir="rtl"
+                            dir={dashboardDir(lang)}
                             className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
                             value={slotSub}
                             onChange={(e) => {
@@ -1498,31 +1524,31 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                           >
                             {locked === "schedule" ? (
                               <>
-                                <option value="link">לינק מטאב «לינקים»</option>
-                                <option value="image">תמונה</option>
-                                <option value="none">ללא</option>
+                                <option value="link">{t.salesFlow.linkFromLinks}</option>
+                                <option value="image">{t.salesFlow.image}</option>
+                                <option value="none">{t.salesFlow.none}</option>
                               </>
                             ) : (
                               <>
-                                <option value="link">לינק</option>
-                                <option value="range">טווח</option>
-                                <option value="none">ללא</option>
+                                <option value="link">{t.salesFlow.link}</option>
+                                <option value="range">{t.salesFlow.range}</option>
+                                <option value="none">{t.salesFlow.none}</option>
                               </>
                             )}
                           </select>
                           {locked === "memberships" && slotSub === "range" ? (
                             <div className="w-full space-y-2 rounded-xl border border-dashed border-zinc-200 bg-[#fafafa] p-3">
                               <p className="text-center text-[11px] font-medium text-zinc-700">
-                                טווח מחירים (יאספו להודעת ווטסאפ למנויים/כרטיסיות)
+                                {t.salesFlow.priceRange}
                               </p>
                               <div className="flex flex-row-reverse flex-wrap items-center justify-center gap-x-4 gap-y-2">
                                 <div className="flex shrink-0 flex-row-reverse items-center gap-1.5">
                                   <span className="shrink-0 text-xs text-zinc-600">₪</span>
                                   <Input
-                                    dir="rtl"
+                                    dir={dashboardDir(lang)}
                                     inputMode="decimal"
                                     className="w-24 shrink-0"
-                                    placeholder="מספר"
+                                    placeholder={t.salesFlow.number}
                                     value={String(b.memberships_price_range_min ?? "")}
                                     onChange={(e) => {
                                       const v = e.target.value;
@@ -1534,15 +1560,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                       }));
                                     }}
                                   />
-                                  <span className="shrink-0 text-xs font-medium text-zinc-700">בין:</span>
+                                  <span className="shrink-0 text-xs font-medium text-zinc-700">{t.salesFlow.between}</span>
                                 </div>
                                 <div className="flex shrink-0 flex-row-reverse items-center gap-1.5">
                                   <span className="shrink-0 text-xs text-zinc-600">₪</span>
                                   <Input
-                                    dir="rtl"
+                                    dir={dashboardDir(lang)}
                                     inputMode="decimal"
                                     className="w-24 shrink-0"
-                                    placeholder="מספר"
+                                    placeholder={t.salesFlow.number}
                                     value={String(b.memberships_price_range_max ?? "")}
                                     onChange={(e) => {
                                       const v = e.target.value;
@@ -1554,7 +1580,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                       }));
                                     }}
                                   />
-                                  <span className="shrink-0 text-xs font-medium text-zinc-700">ל־</span>
+                                  <span className="shrink-0 text-xs font-medium text-zinc-700">{t.salesFlow.to}</span>
                                 </div>
                               </div>
                             </div>
@@ -1566,12 +1592,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       <div className="w-full space-y-2 rounded-xl border border-dashed border-zinc-200 bg-[#fafafa] p-3">
                         {planIsStarter ? (
                           <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-center text-[11px] text-amber-800">
-                            ⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.
+                            {t.salesFlow.proScheduleImage}
                           </p>
                         ) : (
                           <div className="flex flex-col items-stretch space-y-2">
                             <p className="text-center text-[11px] font-medium text-zinc-700">
-                              תמונה לכפתור «צפייה במערכת השעות» ב-CTA
+                              {t.salesFlow.scheduleCtaImage}
                             </p>
                             {String(b.schedule_cta_image_url ?? "").trim() ? (
                               <div className="mx-auto max-w-[200px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -1602,7 +1628,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                 ) : (
                                   <Upload className="h-3.5 w-3.5" />
                                 )}
-                                {uploadingScheduleCtaMedia ? "מעלה…" : "העלה תמונה"}
+                                {uploadingScheduleCtaMedia ? t.uploading : t.salesFlow.uploadImage}
                               </Button>
                               {String(b.schedule_cta_image_url ?? "").trim() ? (
                                 <Button
@@ -1621,7 +1647,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                   }
                                 >
                                   <X className="h-3.5 w-3.5" />
-                                  הסר תמונה
+                                  {t.salesFlow.removeImage}
                                 </Button>
                               ) : null}
                             </div>
@@ -1671,10 +1697,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }))
                     }
                     rows={4}
-                    placeholder='מה דעתך על הסדנה שלנו? המחיר הוא x שקלים, היא נמשכת x דקות, ובאמת שהולך להיות כיף!'
+                    placeholder={
+                      lang === "en"
+                        ? "What do you think about our workshop? Price is x, duration x minutes — it's going to be fun!"
+                        : "מה דעתך על הסדנה שלנו? המחיר הוא x שקלים, היא נמשכת x דקות, ובאמת שהולך להיות כיף!"
+                    }
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                    מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»
+                    {t.salesFlow.ctaWorkshopBodyHint}
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1684,7 +1714,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       b.secondary_purchase_delivery === "phone" ? "phone" : "link";
                     return (
                       <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <Field label={`כפתור ${bi + 1}`} description={`עד ${WA_BUTTON_LABEL_MAX_CHARS} תווים`}>
+                        <Field
+                          label={t.salesFlow.button(bi + 1)}
+                          description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)}
+                          lang={lang}
+                        >
                           <WaButtonLabelInput
                             value={b.label}
                             onValueChange={(v) => {
@@ -1699,11 +1733,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         </Field>
                         <div className="space-y-1.5">
                           <label className="block text-center text-xs font-medium text-zinc-600">
-                            {purchase ? "רכישת סדנה — אפשרות מסירה" : "יצירת קשר"}
+                            {purchase ? t.salesFlow.workshopPurchase : t.salesFlow.contact}
                           </label>
                           {purchase ? (
                             <select
-                              dir="rtl"
+                              dir={dashboardDir(lang)}
                               className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
                               value={del}
                               onChange={(e) => {
@@ -1717,12 +1751,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                 }));
                               }}
                             >
-                              <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
-                              <option value="phone">מספר שירות לקוחות מהדשבורד</option>
+                              <option value="link">{t.salesFlow.linkFromProducts}</option>
+                              <option value="phone">{t.salesFlow.deliveryPhone}</option>
                             </select>
                           ) : (
                             <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
-                              מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
+                              {t.salesFlow.deliveryFixed}
                             </p>
                           )}
                         </div>
@@ -1752,10 +1786,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }))
                     }
                     rows={4}
-                    placeholder="מה שנשאר כעת הוא להצטרף לקורס! המחיר הוא x שקלים, הוא נמשך כ-x מפגשים, כל יום x בשעה x"
+                    placeholder="Final step: join the course. Price x, around x sessions, every day x at x."
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                    מחיר, מספר מפגשים ומועדים (ימים ושעות) יימשכו אוטומטית ממוצרי «קורס» בטאב «מוצרים» לתוך הנעה לפעולה.
+                    Course price, sessions, and schedule are auto-filled from Products.
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1765,7 +1799,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       b.secondary_purchase_delivery === "phone" ? "phone" : "link";
                     return (
                       <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                        <Field label={`כפתור ${bi + 1}`} description={`עד ${WA_BUTTON_LABEL_MAX_CHARS} תווים`}>
+                        <Field label={t.salesFlow.button(bi + 1)} description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)} lang={lang}>
                           <WaButtonLabelInput
                             value={b.label}
                             onValueChange={(v) => {
@@ -1780,11 +1814,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         </Field>
                         <div className="space-y-1.5">
                           <label className="block text-center text-xs font-medium text-zinc-600">
-                            {enroll ? "הצטרפות לקורס — אפשרות מסירה" : "יצירת קשר"}
+                            {enroll ? t.salesFlow.courseEnroll : t.salesFlow.contact}
                           </label>
                           {enroll ? (
                             <select
-                              dir="rtl"
+                              dir={dashboardDir(lang)}
                               className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
                               value={del}
                               onChange={(e) => {
@@ -1798,12 +1832,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                 }));
                               }}
                             >
-                              <option value="link">לינק (משדה השירות בטאב «מוצרים»)</option>
-                              <option value="phone">מספר שירות לקוחות מהדשבורד</option>
+                              <option value="link">{t.salesFlow.linkFromProducts}</option>
+                              <option value="phone">{t.salesFlow.deliveryPhone}</option>
                             </select>
                           ) : (
                             <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
-                              מסירה: מספר שירות לקוחות מהדשבורד (קבוע)
+                              {t.salesFlow.deliveryFixed}
                             </p>
                           )}
                         </div>
@@ -1821,7 +1855,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="after_trial"
-          title="אחרי הרשמה"
+          title={t.salesFlow.afterRegistration}
           open={openSections.after_trial}
           onToggle={() => toggle("after_trial")}
           filled={afterRegistrationFilled}
@@ -1841,7 +1875,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : (
                   <Sparkles className="h-3.5 w-3.5" />
                 )}
-                {isGen("after_trial_registration", afterRegOfferTab) ? "מג׳נרט..." : "ג׳נרט מחדש"}
+                {isGen("after_trial_registration", afterRegOfferTab) ? t.generating : t.regenerate}
               </Button>
             ) : null
           }
@@ -1849,15 +1883,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <div className="space-y-3">
             {!hasAnyCtaOfferTab ? (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                כדי לערוך «אחרי הרשמה» — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים».
+                {t.salesFlow.needProductsAfterReg}
               </p>
             ) : (
               <>
                 <div
-                  dir="rtl"
+                  dir={dashboardDir(lang)}
                   className="flex w-full flex-wrap gap-2 justify-start pb-1 border-b border-zinc-100 text-right"
                   role="tablist"
-                  aria-label="סוג מוצר אחרי הרשמה"
+                  aria-label={t.salesFlow.afterRegTypeAria}
                 >
                   {hasTrialOffers ? (
                     <button
@@ -1871,7 +1905,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }`}
                       onClick={() => setAfterRegOfferTab("trial")}
                     >
-                      שיעור ניסיון
+                      {t.salesFlow.trialLesson}
                     </button>
                   ) : null}
                   {hasWorkshopOffers ? (
@@ -1886,7 +1920,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }`}
                       onClick={() => setAfterRegOfferTab("workshop")}
                     >
-                      סדנה
+                      {t.salesFlow.workshop}
                     </button>
                   ) : null}
                   {hasCourseOffers ? (
@@ -1901,13 +1935,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }`}
                       onClick={() => setAfterRegOfferTab("course")}
                     >
-                      קורס
+                      {t.salesFlow.course}
                     </button>
                   ) : null}
                 </div>
 
                 {afterRegOfferTab === "trial" && hasTrialOffers ? (
-                  <Field label="הפרטים ימולאו אוטומטית על פי בחירת הלקוח">
+                  <Field label={t.salesFlow.autoFillDetails} lang={lang}>
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -1925,7 +1959,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       rows={12}
                       placeholder={
                         showScheduleSelectionSession
-                          ? "מתרגשים לראותך בקרוב ב{serviceName} ביום {requested_date} בשעה {requested_time}…"
+                          ? "Excited to see you soon for {serviceName} on {requested_date} at {requested_time}…"
                           : undefined
                       }
                     />
@@ -1933,7 +1967,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
 
                 {afterRegOfferTab === "workshop" && hasWorkshopOffers ? (
-                  <Field label="הפרטים ימולאו אוטומטית על פי בחירת הלקוח">
+                  <Field label={t.salesFlow.autoFillDetails} lang={lang}>
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -1951,15 +1985,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       rows={12}
                       placeholder={
                         showScheduleSelectionSession
-                          ? "מתרגשים לראותך בקרוב בסדנת {serviceName} בתאריך {requested_date} בשעה {requested_time}…"
-                          : "מתרגשים לראותך בקרוב בסדנה!…"
+                          ? "Excited to see you soon for workshop {serviceName} on {requested_date} at {requested_time}…"
+                          : "Excited to see you soon in the workshop!…"
                       }
                     />
                   </Field>
                 ) : null}
 
                 {afterRegOfferTab === "course" && hasCourseOffers ? (
-                  <Field label="הפרטים ימולאו אוטומטית על פי בחירת הלקוח">
+                  <Field label={t.salesFlow.autoFillDetails} lang={lang}>
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -1977,8 +2011,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       rows={12}
                       placeholder={
                         showScheduleSelectionSession
-                          ? "מתרגשים לראותך בקרוב ב{serviceName} בתאריך {requested_date} בשעה {requested_time}…"
-                          : "מתרגשים לראותך בקרוב בקורס!…"
+                          ? "Excited to see you soon for {serviceName} on {requested_date} at {requested_time}…"
+                          : "Excited to see you soon in the course!…"
                       }
                     />
                   </Field>
@@ -1986,7 +2020,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
                 {showScheduleSelectionSession ? (
                   <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
-                    בווטסאפ ימולאו אוטומטית שם המוצר, התאריך והשעה שהליד בחר בסשן «בחירת מועד»
+                    {t.salesFlow.waAutoFill}
                   </p>
                 ) : null}
               </>

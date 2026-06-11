@@ -1,5 +1,6 @@
 import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
 import { isIdleAfterLastUserMessage, waNoResponseEligible } from "@/lib/wa-no-response";
+import type { DashboardLang } from "@/lib/dashboard-lang";
 
 export type ContactStatusKey =
   | "opted_out"
@@ -32,7 +33,6 @@ export function computeContactStatus(input: ContactStatusInput): ContactStatusKe
   const stage = Number(input.wa_followup_stage ?? 0);
   if (stage === 3) return "no_response";
 
-  // last_contact_at מתעדכן בהודעת user — 26ש׳+ בלי נרשם/הסר → ללא מענה (גם אם stage פולואפ תקוע)
   if (
     waNoResponseEligible(input) &&
     isIdleAfterLastUserMessage(input.last_contact_at ? String(input.last_contact_at) : null)
@@ -50,10 +50,9 @@ export function computeContactStatus(input: ContactStatusInput): ContactStatusKe
   return null;
 }
 
-export const CONTACT_STATUS_META: Record<
-  ContactStatusKey,
-  { label: string; tooltip: string; badgeClass: string }
-> = {
+export type ContactStatusMeta = { label: string; tooltip: string; badgeClass: string };
+
+const CONTACT_STATUS_META_HE: Record<ContactStatusKey, ContactStatusMeta> = {
   active: {
     label: "פעיל",
     tooltip: "שיחה פעילה",
@@ -66,8 +65,7 @@ export const CONTACT_STATUS_META: Record<
   },
   template: {
     label: "טמפלייט",
-    tooltip:
-      "נשלח טמפלייט פתיחה — אם אין תגובה תוך 6 שעות הליד עובר ל«ללא מענה» ונשלח ל-CRM",
+    tooltip: "נשלח טמפלייט פתיחה — ממתין לתגובה ראשונה",
     badgeClass: "border-violet-200 bg-violet-50 text-violet-900",
   },
   no_response: {
@@ -92,12 +90,56 @@ export const CONTACT_STATUS_META: Record<
   },
 };
 
-export function contactStatusLabel(key: ContactStatusKey | null): string {
-  if (!key) return "";
-  return CONTACT_STATUS_META[key].label;
+const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
+  active: {
+    label: "Active",
+    tooltip: "Active conversation",
+    badgeClass: "border-blue-200 bg-blue-50 text-blue-800",
+  },
+  followup: {
+    label: "Follow-up",
+    tooltip: "3 messages within 24 hours",
+    badgeClass: "border-amber-200 bg-amber-50 text-amber-900",
+  },
+  template: {
+    label: "Template",
+    tooltip: "Opening template sent — awaiting first reply",
+    badgeClass: "border-violet-200 bg-violet-50 text-violet-900",
+  },
+  no_response: {
+    label: "No Response",
+    tooltip: "26+ hours since last lead message, without «I registered» (not registered / not opted out)",
+    badgeClass: "border-red-200 bg-red-50 text-red-800",
+  },
+  registered: {
+    label: "Registered",
+    tooltip: "Lead registered successfully",
+    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  },
+  opted_out: {
+    label: "Opted Out",
+    tooltip: "Lead asked to stop communication",
+    badgeClass: "border-zinc-300 bg-zinc-100 text-zinc-700",
+  },
+  not_relevant: {
+    label: "Not Relevant",
+    tooltip: "Lead indicated not interested / not relevant — Zoe stopped follow-ups",
+    badgeClass: "border-slate-300 bg-slate-100 text-slate-800",
+  },
+};
+
+/** Hebrew labels (backward compat for contacts page). */
+export const CONTACT_STATUS_META = CONTACT_STATUS_META_HE;
+
+export function getContactStatusMeta(lang: DashboardLang): Record<ContactStatusKey, ContactStatusMeta> {
+  return lang === "en" ? CONTACT_STATUS_META_EN : CONTACT_STATUS_META_HE;
 }
 
-/** סדר תצוגה בפילטר סטטוס בדף לידים */
+export function contactStatusLabel(key: ContactStatusKey | null, lang: DashboardLang = "he"): string {
+  if (!key) return "";
+  return getContactStatusMeta(lang)[key].label;
+}
+
 export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
   "template",
   "active",
@@ -109,3 +151,15 @@ export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
 ];
 
 export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";
+
+export const MANUAL_CONTACT_STATUSES: ContactStatusKey[] = ["not_relevant"];
+
+export function canManuallySetContactStatus(
+  target: ContactStatusKey,
+  contact: ContactStatusInput
+): boolean {
+  if (target === "not_relevant") {
+    return contact.opted_out !== true && !contact.not_relevant_at;
+  }
+  return false;
+}
