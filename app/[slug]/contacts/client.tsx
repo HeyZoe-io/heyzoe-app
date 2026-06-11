@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import {
   contactStatusLabel,
   CONTACT_STATUS_META,
   CONTACT_STATUS_FILTER_ORDER,
+  MANUAL_CONTACT_STATUSES,
+  canManuallySetContactStatus,
   type ContactStatusFilterValue,
   type ContactStatusKey,
 } from "@/lib/contact-status";
@@ -161,14 +163,142 @@ function exportContactsToExcel(rows: Contact[], adminMode: boolean): void {
   URL.revokeObjectURL(url);
 }
 
-function ContactStatusBadge({ contact }: { contact: Contact }) {
-  const key = computeContactStatus(contact);
-  if (!key) return <span className="text-zinc-400">—</span>;
-  const meta = CONTACT_STATUS_META[key];
+function isContactStatusEditable(
+  contact: Contact,
+  multiBusinessAdmin: boolean,
+  marketingAdminMode: boolean
+): boolean {
+  if (marketingAdminMode) return false;
+  if (!contact.phone?.trim()) return false;
+  if (multiBusinessAdmin && !contact.business_slug?.trim()) return false;
+  if (contact.opted_out || contact.not_relevant_at) return false;
+  return MANUAL_CONTACT_STATUSES.some((s) => canManuallySetContactStatus(s, contact));
+}
+
+function ContactStatusMenu({
+  contact,
+  rowKey,
+  editable,
+  busy,
+  open,
+  onOpen,
+  onClose,
+  onPickStatus,
+}: {
+  contact: Contact;
+  rowKey: string;
+  editable: boolean;
+  busy: boolean;
+  open: boolean;
+  onOpen: (rowKey: string) => void;
+  onClose: () => void;
+  onPickStatus: (contact: Contact, rowKey: string, status: ContactStatusKey) => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const currentKey = computeContactStatus(contact);
+
+  useEffect(() => {
+    if (!open) return;
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      onClose();
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  const badgeLabel = currentKey ? CONTACT_STATUS_META[currentKey].label : "ללא סטטוס";
+  const badgeClass = currentKey ? CONTACT_STATUS_META[currentKey].badgeClass : "border-zinc-200 bg-zinc-50 text-zinc-600";
+
+  if (!editable) {
+    if (!currentKey) return <span className="text-zinc-400">—</span>;
+    const meta = CONTACT_STATUS_META[currentKey];
+    return (
+      <Badge className={meta.badgeClass} title={meta.tooltip}>
+        {meta.label}
+      </Badge>
+    );
+  }
+
   return (
-    <Badge className={meta.badgeClass} title={meta.tooltip}>
-      {meta.label}
-    </Badge>
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="inline-flex items-center gap-1 rounded-full focus:outline-none focus:ring-2 focus:ring-fuchsia-400"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`סטטוס: ${badgeLabel}. לחצו לשינוי`}
+        disabled={busy}
+        onClick={() => (open ? onClose() : onOpen(rowKey))}
+      >
+        <Badge className={`${badgeClass} cursor-pointer hover:opacity-90`}>
+          {busy ? "מעדכן…" : badgeLabel}
+        </Badge>
+        <span className="text-[10px] text-zinc-400" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {open && menuPos
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="listbox"
+              aria-label="שינוי סטטוס ליד"
+              className="fixed z-[2147483001] min-w-[11rem] rounded-xl border border-zinc-200 bg-white py-1 shadow-lg"
+              style={{ top: menuPos.top, right: menuPos.right }}
+              dir="rtl"
+            >
+              {CONTACT_STATUS_FILTER_ORDER.map((statusKey) => {
+                const meta = CONTACT_STATUS_META[statusKey];
+                const isCurrent = currentKey === statusKey;
+                const canPick = canManuallySetContactStatus(statusKey, contact);
+                return (
+                  <button
+                    key={statusKey}
+                    type="button"
+                    role="option"
+                    aria-selected={isCurrent}
+                    disabled={!canPick || isCurrent}
+                    title={canPick ? meta.tooltip : "סטטוס זה נקבע אוטומטית על ידי זואי"}
+                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-right text-sm ${
+                      canPick && !isCurrent
+                        ? "text-zinc-800 hover:bg-fuchsia-50"
+                        : "text-zinc-400 cursor-default"
+                    }`}
+                    onClick={() => {
+                      if (!canPick || isCurrent) return;
+                      onPickStatus(contact, rowKey, statusKey);
+                    }}
+                  >
+                    <span>{meta.label}</span>
+                    {isCurrent ? <span className="text-xs text-fuchsia-600">נוכחי</span> : null}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
 
@@ -261,16 +391,23 @@ export default function ContactsClient({
   const [singleContact, setSingleContact] = useState<Contact | null>(null);
   const [singleMsg, setSingleMsg] = useState("");
   const [answersContact, setAnswersContact] = useState<Contact | null>(null);
+  const [contacts, setContacts] = useState(initialContacts);
+  const [statusMenuKey, setStatusMenuKey] = useState<string | null>(null);
+  const [statusUpdatingKey, setStatusUpdatingKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setContacts(initialContacts);
+  }, [initialContacts]);
 
   const filteredContacts = useMemo(() => {
-    return initialContacts.filter((c) => {
+    return contacts.filter((c) => {
       if (!matchesConversationDateRange(leadConversationAt(c), dateFrom, dateTo)) return false;
       if (statusFilter === "all") return true;
       const status = computeContactStatus(c);
       if (statusFilter === "none") return status === null;
       return status === statusFilter;
     });
-  }, [initialContacts, dateFrom, dateTo, statusFilter]);
+  }, [contacts, dateFrom, dateTo, statusFilter]);
 
   const filteredKeys = useMemo(
     () => new Set(filteredContacts.map((c, i) => contactRowKey(c, i, multiBusinessAdmin))),
@@ -406,6 +543,68 @@ export default function ContactsClient({
   function openAnswers(c: Contact) {
     if (!c.phone) return;
     setAnswersContact(c);
+  }
+
+  async function applyContactStatus(c: Contact, rowKey: string, status: ContactStatusKey) {
+    if (!canManuallySetContactStatus(status, c)) return;
+    const slug = slugForContact(c, businessSlug, multiBusinessAdmin, marketingAdminMode);
+    if (!slug || !c.phone) return;
+
+    if (status === "not_relevant") {
+      const label = c.full_name?.trim() || c.phone;
+      if (
+        !window.confirm(
+          `לסמן את ${label} כלא רלוונטי?\nזואי תפסיק לשלוח פולואפים לליד הזה.`
+        )
+      ) {
+        return;
+      }
+    }
+
+    setStatusUpdatingKey(rowKey);
+    setStatusMenuKey(null);
+    try {
+      const res = await fetch("/api/contacts/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          business_slug: slug,
+          phone: c.phone,
+          status,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        not_relevant_at?: string;
+      };
+      if (!res.ok) throw new Error(j?.error || "status_update_failed");
+
+      if (status === "not_relevant") {
+        const notRelevantAt = j.not_relevant_at ?? new Date().toISOString();
+        setContacts((prev) =>
+          prev.map((row) =>
+            row.phone === c.phone &&
+            (!multiBusinessAdmin || row.business_slug === c.business_slug)
+              ? {
+                  ...row,
+                  not_relevant_at: notRelevantAt,
+                  not_relevant_reason: row.not_relevant_reason ?? null,
+                  wa_next_followup_at: null,
+                  wa_no_response_due_at: null,
+                  wa_followup_stage: 3,
+                  followup_sent: true,
+                }
+              : row
+          )
+        );
+        showToast("הסטטוס עודכן — זואי תפסיק פולואפים לליד הזה");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("עדכון הסטטוס נכשל. נסו שוב.");
+    } finally {
+      setStatusUpdatingKey(null);
+    }
   }
 
   function viewConversations(phone: string, contact: Contact) {
@@ -569,7 +768,16 @@ export default function ContactsClient({
                         </p>
                       </div>
                       <div className="shrink-0">
-                        <ContactStatusBadge contact={c} />
+                        <ContactStatusMenu
+                          contact={c}
+                          rowKey={rowKey}
+                          editable={isContactStatusEditable(c, multiBusinessAdmin, marketingAdminMode)}
+                          busy={statusUpdatingKey === rowKey}
+                          open={statusMenuKey === rowKey}
+                          onOpen={setStatusMenuKey}
+                          onClose={() => setStatusMenuKey(null)}
+                          onPickStatus={applyContactStatus}
+                        />
                       </div>
                     </div>
 
@@ -667,7 +875,16 @@ export default function ContactsClient({
                         <td className="py-3 px-2">{c.source?.trim() || "—"}</td>
                         <td className="py-3 px-2 whitespace-nowrap">{formatDateTime(leadConversationAt(c))}</td>
                         <td className="py-3 px-2">
-                          <ContactStatusBadge contact={c} />
+                          <ContactStatusMenu
+                            contact={c}
+                            rowKey={rowKey}
+                            editable={isContactStatusEditable(c, multiBusinessAdmin, marketingAdminMode)}
+                            busy={statusUpdatingKey === rowKey}
+                            open={statusMenuKey === rowKey}
+                            onOpen={setStatusMenuKey}
+                            onClose={() => setStatusMenuKey(null)}
+                            onPickStatus={applyContactStatus}
+                          />
                         </td>
                         <td className="py-3 px-2">
                           <div className="flex flex-wrap justify-end gap-2">

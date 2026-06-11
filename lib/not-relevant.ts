@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CLAUDE_WHATSAPP_MODEL, resolveClaudeApiKey } from "@/lib/claude";
+import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 
 const NOT_RELEVANT_EXACT = new Set([
   "לא רלוונטי",
@@ -126,6 +127,77 @@ export function buildNotRelevantContactPatch(reason: string | null, atIso: strin
 export function formatNotRelevantCrmNote(reason: string | null): string {
   const r = String(reason ?? "").trim();
   return r ? `זואי - לא רלוונטי - ${r}` : "זואי - לא רלוונטי";
+}
+
+/** סימון ידני מדשבורד — עוצר פולואפים, ללא הודעה לליד */
+export async function markContactNotRelevantManually(input: {
+  admin: import("@supabase/supabase-js").SupabaseClient;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  reason?: string | null;
+  fullName?: string | null;
+}): Promise<{ ok: true; not_relevant_at: string } | { ok: false; error: string }> {
+  const businessId = Number(input.businessId);
+  const phoneVariants = contactPhoneLookupVariants(input.phone);
+  if (!businessId || !phoneVariants.length) {
+    return { ok: false, error: "invalid_phone" };
+  }
+
+  const nowIso = new Date().toISOString();
+  const reason = String(input.reason ?? "").trim().slice(0, 120) || null;
+  const patch = buildNotRelevantContactPatch(reason, nowIso);
+
+  const { data: updated, error } = await input.admin
+    .from("contacts")
+    .update(patch)
+    .eq("business_id", businessId)
+    .in("phone", phoneVariants)
+    .select("id")
+    .limit(1);
+
+  if (error) {
+    console.error("[not-relevant] manual mark failed:", error.message);
+    return { ok: false, error: "update_failed" };
+  }
+  if (!updated?.length) {
+    return { ok: false, error: "contact_not_found" };
+  }
+
+  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
+  const { data: channel } = await input.admin
+    .from("whatsapp_channels")
+    .select("phone_number_id")
+    .eq("business_id", businessId)
+    .eq("is_active", true)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const phoneNumberId = String((channel as { phone_number_id?: string } | null)?.phone_number_id ?? "").trim();
+  const sessionId = phoneNumberId ? buildWaSessionId(phoneNumberId, input.phone) : null;
+
+  const { logMessage } = await import("@/lib/analytics");
+  const reasonSuffix = reason ? ` — ${reason}` : "";
+  await logMessage({
+    business_slug: slug,
+    role: "event",
+    content: `[heyzoe:not_relevant:manual]${reasonSuffix}`,
+    model_used: "not_relevant_manual",
+    session_id: sessionId,
+  });
+
+  const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+  void dispatchCrmEvent({
+    businessId,
+    leadPhone: input.phone,
+    kind: "not_relevant",
+    fullName: input.fullName,
+    eventAtIso: nowIso,
+    notRelevantReason: reason,
+  });
+
+  return { ok: true, not_relevant_at: nowIso };
 }
 
 /** עדכון DB + הודעה לליד + CRM */
