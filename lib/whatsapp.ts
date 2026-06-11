@@ -4,7 +4,17 @@ import {
   whatsappMediaMaxBytes,
 } from "@/lib/whatsapp-media-limits";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
+import {
+  metaCtaClickHereLabel,
+  metaListSectionTitle,
+  metaListSelectButtonLabel,
+  metaWhatsNextBody,
+  waFollowupReplyFallbackLabel,
+  type BusinessContentLanguage,
+} from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+
+export type WaUiLanguage = BusinessContentLanguage;
 
 // ─── Env resolvers ────────────────────────────────────────────────────────────
 
@@ -514,7 +524,8 @@ function truncateInteractiveBody(text: string): string {
 export function buildMetaInteractivePayload(
   bodyText: string,
   optionLabels: string[],
-  footerText?: string
+  footerText?: string,
+  language: WaUiLanguage = "he"
 ): { type: "interactive"; interactive: Record<string, unknown> } | null {
   const labels = truncateWaButtonLabels(optionLabels);
   if (labels.length < 1) return null;
@@ -553,10 +564,10 @@ export function buildMetaInteractivePayload(
       body: { text: body },
       ...(footer ? { footer } : {}),
       action: {
-        button: truncateMetaByCodePoints("בחר אפשרות", META_LIST_ACTION_BUTTON_MAX),
+        button: truncateMetaByCodePoints(metaListSelectButtonLabel(language), META_LIST_ACTION_BUTTON_MAX),
         sections: [
           {
-            title: truncateMetaByCodePoints("אפשרויות", META_LIST_SECTION_TITLE_MAX),
+            title: truncateMetaByCodePoints(metaListSectionTitle(language), META_LIST_SECTION_TITLE_MAX),
             rows: capped.map((label) => ({
               id: metaReplyIdFromLabel(label),
               title: truncateMetaByCodePoints(truncateWaButtonLabel(label), META_LIST_ROW_TITLE_MAX),
@@ -582,11 +593,12 @@ export function buildMetaCtaUrlOutgoing(
   bodyText: string,
   buttonLabel: string,
   url: string,
-  footerText?: string
+  footerText?: string,
+  language: WaUiLanguage = "he"
 ): MetaWhatsAppOutgoing {
   const href = url.trim();
   const label = truncateMetaByCodePoints(
-    truncateWaButtonLabel(buttonLabel || "לחצו כאן"),
+    truncateWaButtonLabel(buttonLabel || metaCtaClickHereLabel(language)),
     META_CTA_URL_DISPLAY_MAX
   );
   return {
@@ -622,7 +634,8 @@ export async function sendWhatsAppIdleFollowupMessage(
   footerText: string,
   cta: WaIdleFollowupCta | { label: string; url: string } | null,
   accountSid: string,
-  authToken: string
+  authToken: string,
+  language: WaUiLanguage = "he"
 ): Promise<void> {
   const foot = footerText.trim();
   const footClean = foot.replace(/^\s+/, "").trim();
@@ -638,8 +651,8 @@ export async function sendWhatsAppIdleFollowupMessage(
     isMetaCloudPhoneNumberId(fromNumber) &&
     resolveMetaAccessToken()
   ) {
-    const replyLabel = normalized.label.trim() || "אשמח לפרטים";
-    const interactive = buildMetaInteractivePayload(bodyText.trim(), [replyLabel], footClean || undefined);
+    const replyLabel = normalized.label.trim() || waFollowupReplyFallbackLabel(language);
+    const interactive = buildMetaInteractivePayload(bodyText.trim(), [replyLabel], footClean || undefined, language);
     if (interactive) {
       try {
         await sendMetaWhatsAppMessage(fromNumber, to, interactive);
@@ -651,7 +664,7 @@ export async function sendWhatsAppIdleFollowupMessage(
   }
 
   const ctaUrl = normalized?.mode === "url" ? normalized.url.trim() : "";
-  const ctaLabel = normalized?.label.trim() || "לחצו כאן";
+  const ctaLabel = normalized?.label.trim() || metaCtaClickHereLabel(language);
 
   if (
     ctaUrl &&
@@ -667,7 +680,8 @@ export async function sendWhatsAppIdleFollowupMessage(
           bodyText.trim(),
           ctaLabel,
           ctaUrl,
-          footClean || undefined
+          footClean || undefined,
+          language
         )
       );
       return;
@@ -680,7 +694,7 @@ export async function sendWhatsAppIdleFollowupMessage(
   if (normalized?.mode === "url" && ctaUrl) {
     text = `${text}\n\n${ctaLabel}: ${ctaUrl}`;
   } else if (normalized?.mode === "reply") {
-    text = `${text}\n\n${normalized.label.trim() || "אשמח לפרטים"}`;
+    text = `${text}\n\n${normalized.label.trim() || waFollowupReplyFallbackLabel(language)}`;
   }
   if (foot) text = `${text}${foot}`;
   await sendWhatsAppMessage(fromNumber, to, text, accountSid, authToken);
@@ -736,9 +750,10 @@ export async function sendWhatsAppTextOrMenu(
   menuOptionLabels: string[],
   accountSid: string,
   authToken: string,
-  opts?: { footerHint?: string }
+  opts?: { footerHint?: string; language?: WaUiLanguage }
 ): Promise<void> {
   const labels = truncateWaButtonLabels(menuOptionLabels);
+  const language = opts?.language ?? "he";
   const footer = (opts?.footerHint ?? "").trim();
   const withFooterPlain = (base: string) => {
     const b = base.trim();
@@ -752,7 +767,7 @@ export async function sendWhatsAppTextOrMenu(
     const baseBody = bodyText.trim();
     // 1–3 reply buttons or 4–10 list rows (Meta); single-slot menus need this branch too.
     if (labels.length >= 1) {
-      const interactive = buildMetaInteractivePayload(baseBody, labels, footer || undefined);
+      const interactive = buildMetaInteractivePayload(baseBody, labels, footer || undefined, language);
       if (interactive) {
         try {
           await sendMetaWhatsAppMessage(fromNumber, to, interactive);
@@ -762,8 +777,8 @@ export async function sendWhatsAppTextOrMenu(
           // Retry once with a minimal body so the user still gets buttons.
           console.warn("[Meta WA] interactive send failed, retrying with minimal body:", e);
           try {
-            const minimalBody = "מה הצעד הבא?";
-            const interactiveRetry = buildMetaInteractivePayload(minimalBody, labels, footer || undefined);
+            const minimalBody = metaWhatsNextBody(language);
+            const interactiveRetry = buildMetaInteractivePayload(minimalBody, labels, footer || undefined, language);
             if (interactiveRetry) {
               await sendMetaWhatsAppMessage(fromNumber, to, interactiveRetry);
               return;

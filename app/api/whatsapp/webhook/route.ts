@@ -120,9 +120,22 @@ import {
 } from "@/lib/sales-flow-inbound";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import { fetchPhoneNumbersForWaba } from "@/lib/meta-waba-resolve";
+import {
+  addressDirectionsPrefix,
+  addressMissingMessage,
+  addressOurPrefix,
+  ctaOpenQuestionNote,
+  formatAddressReplyLines,
+  instagramFollowLine,
+  registeredFlowContinuationClosing,
+  resolveBusinessContentLanguageFromKnowledge,
+  trialAlreadyRegisteredSoftClosing,
+  trialAlreadyRegisteredSoftIntro,
+  trialLinkPostCtaMessage,
+  trialSignupLinkIntro,
+  trialSignupLinkMissing,
+} from "@/lib/business-content-lang";
 
-const TRIAL_LINK_POST_CTA_MESSAGE =
-  "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
 const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
   "לאחר התשלום כתבו *נרשמתי* ואשלח לכם את כל הפרטים!";
@@ -1090,11 +1103,16 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
 function buildScheduleTimeSideAnswer(text: string, knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
   if (userRequestedHumanAgent(text)) return "";
   if (isAddressOrDirectionsIntent(text)) {
+    const lang = resolveBusinessContentLanguageFromKnowledge(knowledge);
     const address = knowledge.addressText?.trim() ?? "";
     const directions = knowledge.directionsText?.trim() ?? "";
-    return address
-      ? [`הכתובת שלנו: ${address}`, directions ? `ככה מגיעים אלינו: ${directions}` : ""].filter(Boolean).join("\n")
-      : "הכתובת תתעדכן בקרוב, ונשמח לשלוח לך את כל הפרטים.";
+    if (!address) return addressMissingMessage(lang);
+    return [
+      `${addressOurPrefix(lang)} ${address}`,
+      directions ? `${addressDirectionsPrefix(lang)} ${directions}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
   const norm = normalizeGreetingToken(text);
   if (/(מחיר|כמה עולה|עלות|תשלום|עולה)/u.test(norm)) {
@@ -2434,9 +2452,12 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (!ctaBody) return;
 
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+
   if (ctaLabels.length >= 1) {
     await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels, accountSid, authToken, {
       footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      language: contentLang,
     }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu failed:", e));
   } else {
     await sendWhatsAppMessage(msg.toNumber, msg.from, `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`, accountSid, authToken).catch((e) =>
@@ -2474,7 +2495,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     if (shouldSendNote) {
       // Immediate follow-up after CTA buttons: encourage free-text questions.
       await sleepMs(450);
-      const note = "אגב, אפשר לכתוב לי גם שאלה פתוחה ואני אענה :)";
+      const note = ctaOpenQuestionNote(contentLang);
       await sendWhatsAppMessage(msg.toNumber, msg.from, note, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send CTA note failed:", e)
       );
@@ -2513,6 +2534,7 @@ async function sendWarmupExperienceQuestionMenu(input: {
   businessId: string;
   blockTrialPickMedia: boolean;
   bumpFlowStep: boolean;
+  contentLang?: import("@/lib/business-content-lang").BusinessContentLanguage;
 }): Promise<boolean> {
   const menu = await buildWarmupExperienceMenu({
     cfg: input.cfg,
@@ -2552,7 +2574,7 @@ async function sendWarmupExperienceQuestionMenu(input: {
     menu.options,
     input.accountSid,
     input.authToken,
-    { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+    { footerHint: ZOE_WHATSAPP_MENU_FOOTER, language: input.contentLang ?? "he" }
   ).catch((e) => console.error("[WA Webhook] warmup experience menu failed:", e));
 
   await logMessage({
@@ -2643,11 +2665,12 @@ async function sendFlowContinuation(input: {
   if (!cfg || !businessId) return;
 
   if (phase === "registered") {
+    const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
     const igRaw = knowledge.instagramUrl?.trim();
     const includeIg = Boolean(igRaw?.length) && !instagramFollowPromptSent;
     const parts = [
-      includeIg ? `מוזמנים לעקוב אחרינו באינסטגרם:\n${igRaw}` : "",
-      "ואם יש עוד משהו — כתבו כאן ואשמח לענות 🙂",
+      includeIg && igRaw ? instagramFollowLine(contentLang, igRaw) : "",
+      registeredFlowContinuationClosing(contentLang),
     ].filter(Boolean);
     const txt = parts.join("\n\n").trim();
     if (!txt) return;
@@ -2826,6 +2849,7 @@ async function sendFlowContinuation(input: {
         businessId,
         blockTrialPickMedia,
         bumpFlowStep: false,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
       if (resent) return;
     }
@@ -2967,6 +2991,7 @@ async function sendFlowContinuation(input: {
         businessId,
         blockTrialPickMedia,
         bumpFlowStep: true,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
       if (sent) return;
     }
@@ -3202,6 +3227,7 @@ async function resendUnansweredSalesFlowPrompt(
         businessId,
         blockTrialPickMedia: blockTrialPickMedia ?? false,
         bumpFlowStep: false,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
       return;
     }
@@ -3252,6 +3278,7 @@ async function resendUnansweredSalesFlowPrompt(
         businessId,
         blockTrialPickMedia: blockTrialPickMedia ?? false,
         bumpFlowStep: false,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
     }
     return;
@@ -4735,6 +4762,7 @@ async function processIncoming(
           regOfferKind === "course" && requestedDate
             ? courseSchedulePhraseForRegistration(selectedService, requestedDate)
             : "";
+        const regContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
         const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
           bodyTemplate,
           includeIgPrompt ? igUrlRaw : "",
@@ -4748,7 +4776,8 @@ async function processIncoming(
                 offerKind: regOfferKind,
                 courseSchedulePhrase: courseSchedForReg,
               }
-            : undefined
+            : undefined,
+          regContentLang
         );
         const outTextFallback =
           regOfferKind === "workshop"
@@ -5789,12 +5818,13 @@ async function processIncoming(
         };
 
         if (wantsTrial && contactTrialRegistered === true && !allowTrialCtaThisSession) {
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const igRaw = knowledge?.instagramUrl?.trim() ?? "";
           const includeIg = igRaw.length > 0 && !contactInstagramFollowPromptSent;
           const soft = [
-            "כבר נרשמתם לניסיון — מעולה 🎉",
-            includeIg ? `בינתיים מוזמנים לעקוב אחרינו באינסטגרם:\n${igRaw}` : "",
-            "ואם יש שאלה נוספת — פשוט כתבו כאן.",
+            trialAlreadyRegisteredSoftIntro(contentLang),
+            includeIg ? instagramFollowLine(contentLang, igRaw) : "",
+            trialAlreadyRegisteredSoftClosing(contentLang),
           ]
             .filter(Boolean)
             .join("\n\n");
@@ -5829,15 +5859,16 @@ async function processIncoming(
               console.warn("[WA Webhook] markRegistrationCtaClicked failed:", e);
             }
           }
-          const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const postCtaHint = trialLinkPostCtaMessage(contentLang);
+          const txt = `${trialSignupLinkIntro(contentLang)}\n${trialUrl}`;
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send trial link failed:", e)
           );
-          await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
-            (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
+          await sendWhatsAppMessage(msg.toNumber, msg.from, postCtaHint, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
           );
-          // After "לאחר ההרשמה…" we don't need to push another CTA/menu.
-          const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
+          const logged = `${txt}\n\n${postCtaHint}`;
           await logMessage({
             business_slug,
             role: "assistant",
@@ -5848,8 +5879,8 @@ async function processIncoming(
           return;
         }
         if (wantsTrial && !trialUrl) {
-          const txt =
-            "כרגע אין לנו כאן קישור הרשמה - כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const txt = trialSignupLinkMissing(contentLang);
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
           await logMessage({
             business_slug,
@@ -6262,11 +6293,10 @@ async function processIncoming(
         }
 
         if (wantsAddress) {
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const address = knowledge?.addressText?.trim() ?? "";
           const directions = knowledge?.directionsText?.trim() ?? "";
-          const txt = address
-            ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
-            : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
+          const txt = formatAddressReplyLines(contentLang, address, directions);
           const directionsMediaUrl = knowledge?.directionsMediaUrl?.trim() ?? "";
           sfClickedCtaKinds = await bumpSfConsumedCtaKind({
             supabase,
