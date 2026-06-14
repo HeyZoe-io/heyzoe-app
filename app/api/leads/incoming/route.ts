@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logMessage } from "@/lib/analytics";
 import {
+  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
   templateNoResponseDueAtIso,
@@ -18,12 +19,6 @@ type IncomingLeadBody = {
   email?: unknown;
   business_slug?: unknown;
 };
-
-function firstNameFromFullName(fullName: string): string {
-  const trimmed = fullName.trim();
-  if (!trimmed) return "שלום";
-  return trimmed.split(/\s+/).filter(Boolean)[0] ?? trimmed;
-}
 
 function unauthorized() {
   return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -143,7 +138,7 @@ export async function POST(req: NextRequest) {
   await logMessage({
     business_slug: businessSlug,
     role: "assistant",
-    content: formatLeadTemplateMessageContent(templateName),
+    content: formatLeadTemplateMessageContent(templateName, { firstName }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId || null,
   });

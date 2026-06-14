@@ -32,7 +32,12 @@ import {
   customerServicePhoneFromSocialLinks,
   ZOE_WHATSAPP_MENU_FOOTER,
 } from "@/lib/whatsapp-copy";
-import { contactPhoneLookupVariants, buildWaSessionId } from "@/lib/phone-normalize";
+import {
+  contactPhoneLookupVariants,
+  buildWaSessionId,
+  normalizePhone,
+  waSessionPhoneKey,
+} from "@/lib/phone-normalize";
 import {
   composeGreeting,
   defaultSalesFlowConfig,
@@ -3815,14 +3820,17 @@ async function processIncoming(
   let isFirstTimeContact = false;
   if (businessId) {
     try {
-      const phone = msg.from;
+      // אותו פורמט כמו /api/leads/incoming (972...) — msg.from מ-Meta הוא +972...
+      const contactPhone =
+        normalizePhone(msg.from) ?? (waSessionPhoneKey(msg.from) || String(msg.from ?? "").trim());
+      const phoneLookupVariants = contactPhoneLookupVariants(msg.from);
       const fullName =
         typeof (msg as any).profileName === "string" ? (msg as any).profileName.trim() : "";
 
       console.info("[new_lead_notification] checking new lead notification", {
         businessId,
         business_slug,
-        phone,
+        phone: contactPhone,
       });
       let priorContact: {
         id?: string | number;
@@ -3834,7 +3842,7 @@ async function processIncoming(
           .from("contacts")
           .select("id, wa_followup_stage, last_contact_at")
           .eq("business_id", businessId)
-          .eq("phone", phone)
+          .in("phone", phoneLookupVariants.length ? phoneLookupVariants : [contactPhone])
           .maybeSingle();
         if (!priorQ.error) priorContact = priorQ.data;
         else {
@@ -3842,7 +3850,7 @@ async function processIncoming(
             .from("contacts")
             .select("id")
             .eq("business_id", businessId)
-            .eq("phone", phone)
+            .in("phone", phoneLookupVariants.length ? phoneLookupVariants : [contactPhone])
             .maybeSingle();
           if (!fallback.error) priorContact = fallback.data;
         }
@@ -3853,12 +3861,12 @@ async function processIncoming(
       console.info("[new_lead_notification] isFirstTimeContact result", {
         businessId,
         business_slug,
-        phone,
+        phone: contactPhone,
         isFirstTimeContact,
       });
 
       const upsertPayload: Record<string, unknown> = {
-        phone,
+        phone: contactPhone,
         business_id: businessId,
         source: "whatsapp",
         last_contact_at: nowIso,
@@ -3870,7 +3878,7 @@ async function processIncoming(
         Object.assign(upsertPayload, WA_FOLLOWUP_CYCLE_RESET_PATCH);
         console.info("[WA Webhook] wa_followup cycle reset (48h+ since last_contact_at)", {
           business_slug,
-          phone,
+          phone: contactPhone,
           prior_stage: priorContact?.wa_followup_stage ?? 0,
           prior_last_contact_at: priorContact?.last_contact_at ?? null,
         });
@@ -3879,8 +3887,12 @@ async function processIncoming(
       let contactRow: any = null;
       let upsertErr: any = null;
       try {
-        const up = await supabase.from("contacts").upsert(upsertPayload, { onConflict: "business_id,phone" });
-        upsertErr = up.error;
+        const writeResult = priorContact?.id
+          ? await supabase.from("contacts").update(upsertPayload).eq("id", priorContact.id)
+          : await supabase
+              .from("contacts")
+              .upsert(upsertPayload, { onConflict: "business_id,phone" });
+        upsertErr = writeResult.error;
         if (upsertErr) {
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
@@ -3896,7 +3908,12 @@ async function processIncoming(
             "opted_out",
           ];
           for (const cols of selectVariants) {
-            const q = await supabase.from("contacts").select(cols).eq("business_id", businessId).eq("phone", phone).maybeSingle();
+            const q = await supabase
+              .from("contacts")
+              .select(cols)
+              .eq("business_id", businessId)
+              .in("phone", phoneLookupVariants.length ? phoneLookupVariants : [contactPhone])
+              .maybeSingle();
             if (!q.error) {
               contactRow = q.data;
               break;
