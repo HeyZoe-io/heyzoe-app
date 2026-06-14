@@ -3870,12 +3870,10 @@ async function processIncoming(
       const upsertPayload: Record<string, unknown> = {
         phone: contactPhone,
         business_id: businessId,
+        source: "whatsapp",
         last_contact_at: nowIso,
         followup_sent: false,
       };
-      if (isFirstTimeContact) {
-        upsertPayload.source = "whatsapp";
-      }
       if (fullName) upsertPayload.full_name = fullName;
 
       if (shouldResetWaFollowupCycleOnInbound(priorContact)) {
