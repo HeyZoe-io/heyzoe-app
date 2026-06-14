@@ -1,7 +1,20 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { computeContactStatus, type ContactStatusKey } from "@/lib/contact-status";
+import { leadConversationAt } from "@/lib/lead-activity";
 import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
+
+export function sessionRecentActivityMs(session: { lastAt?: string | null }): number {
+  const at = String(session.lastAt ?? "").trim();
+  if (!at) return 0;
+  const t = new Date(at).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** מיון לפי פעילות אחרונה (לא לפי סטטוס). */
+export function sortSessionsByRecentActivity<T extends { lastAt?: string | null }>(sessions: T[]): T[] {
+  return [...sessions].sort((a, b) => sessionRecentActivityMs(b) - sessionRecentActivityMs(a));
+}
 
 export type SessionSummary = {
   session_id: string;
@@ -24,6 +37,7 @@ function phoneLookupKey(phone: string): string {
 type ContactPhoneMeta = {
   status: ContactStatusKey | null;
   fullName: string | null;
+  lastContactAt: string | null;
 };
 
 async function loadContactMetaByPhoneForBusiness(
@@ -48,10 +62,20 @@ async function loadContactMetaByPhoneForBusiness(
     const key = phoneLookupKey(phone);
     if (!key) continue;
     const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
-    map.set(key, {
+    const lastContactAt = leadConversationAt(row as Parameters<typeof leadConversationAt>[0]);
+    const next: ContactPhoneMeta = {
       status: computeContactStatus(row as Parameters<typeof computeContactStatus>[0]),
       fullName: fullName || null,
-    });
+      lastContactAt,
+    };
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, next);
+      continue;
+    }
+    const prevAt = sessionRecentActivityMs({ lastAt: prev.lastContactAt });
+    const rowAt = sessionRecentActivityMs({ lastAt: lastContactAt });
+    map.set(key, rowAt >= prevAt ? next : prev);
   }
   return map;
 }
@@ -60,14 +84,22 @@ function enrichSessionsWithContactMeta(
   sessions: SessionSummary[],
   byPhone: Map<string, ContactPhoneMeta>
 ): SessionSummary[] {
-  return sessions.map((s) => {
+  const enriched = sessions.map((s) => {
     const meta = byPhone.get(phoneLookupKey(s.phone));
+    const contactAt = meta?.lastContactAt ?? null;
+    const messageAt = s.lastAt;
+    const lastAt =
+      contactAt && sessionRecentActivityMs({ lastAt: contactAt }) > sessionRecentActivityMs({ lastAt: messageAt })
+        ? contactAt
+        : messageAt;
     return {
       ...s,
       fullName: meta?.fullName ?? s.fullName ?? null,
       contactStatus: meta?.status ?? null,
+      lastAt,
     };
   });
+  return sortSessionsByRecentActivity(enriched);
 }
 
 export function buildWaSessionPrefix(phoneNumberId: string): string {
@@ -203,8 +235,7 @@ export function aggregateSessionsFromMessages(
     };
   });
 
-  sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-  return sessions;
+  return sortSessionsByRecentActivity(sessions);
 }
 
 function appendTemplateOnlySessions(
@@ -228,11 +259,13 @@ function appendTemplateOnlySessions(
     const sessionId = buildWaSessionId(primaryPid, phone);
     if (!sessionId) continue;
 
-    const createdAt = String((row as { created_at?: string }).created_at ?? new Date().toISOString());
+    const lastAt =
+      leadConversationAt(row as Parameters<typeof leadConversationAt>[0]) ??
+      new Date().toISOString();
     const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
     extra.push({
       session_id: sessionId,
-      lastAt: createdAt,
+      lastAt,
       count: 1,
       isOpen: false,
       isPaused: false,
@@ -244,9 +277,7 @@ function appendTemplateOnlySessions(
   }
 
   if (!extra.length) return sessions;
-  const merged = [...sessions, ...extra];
-  merged.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-  return merged;
+  return sortSessionsByRecentActivity([...sessions, ...extra]);
 }
 
 export async function loadBusinessConversationSessions(
