@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
+import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 import {
@@ -168,16 +169,17 @@ export default function ConversationsClient({
   );
 
   const visibleSessions = useMemo(() => {
-    if (!normalizedFilter) return sessions;
-    return sessions.filter((s) => {
-      const a = normalizePhoneForMatch(s.phone);
-      if (!a) return false;
-      if (a === normalizedFilter) return true;
-      // Compare last 9 digits if both have enough digits
-      const a9 = a.replace(/\D/g, "").slice(-9);
-      const f9 = normalizedFilter.replace(/\D/g, "").slice(-9);
-      return a9 && f9 && a9 === f9;
-    });
+    const list = normalizedFilter
+      ? sessions.filter((s) => {
+          const a = normalizePhoneForMatch(s.phone);
+          if (!a) return false;
+          if (a === normalizedFilter) return true;
+          const a9 = a.replace(/\D/g, "").slice(-9);
+          const f9 = normalizedFilter.replace(/\D/g, "").slice(-9);
+          return a9 && f9 && a9 === f9;
+        })
+      : sessions;
+    return sortSessionsByRecentActivity(list);
   }, [sessions, normalizedFilter]);
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
@@ -201,7 +203,7 @@ export default function ConversationsClient({
   });
 
   useEffect(() => {
-    if (sessionsQuery.data) setSessions(sessionsQuery.data);
+    if (sessionsQuery.data) setSessions(sortSessionsByRecentActivity(sessionsQuery.data));
   }, [sessionsQuery.data]);
 
   const messagesQuery = useQuery({
@@ -337,15 +339,17 @@ export default function ConversationsClient({
           created_at: nowIso,
         };
         setSessions((prev) =>
-          prev.map((s) =>
-            s.session_id === selected.session_id
-              ? {
-                  ...s,
-                  lastAt: nowIso,
-                  count: s.count + 1,
-                  isOpen: true,
-                }
-              : s
+          sortSessionsByRecentActivity(
+            prev.map((s) =>
+              s.session_id === selected.session_id
+                ? {
+                    ...s,
+                    lastAt: nowIso,
+                    count: s.count + 1,
+                    isOpen: true,
+                  }
+                : s
+            )
           )
         );
         queryClient.setQueryData<SessionMessage[]>(
@@ -353,10 +357,12 @@ export default function ConversationsClient({
           (prev) => [...(prev ?? []), msg]
         );
         queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
-          (prev ?? []).map((s) =>
-            s.session_id === selected.session_id
-              ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: true }
-              : s
+          sortSessionsByRecentActivity(
+            (prev ?? []).map((s) =>
+              s.session_id === selected.session_id
+                ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: true }
+                : s
+            )
           )
         );
         setManualText("");

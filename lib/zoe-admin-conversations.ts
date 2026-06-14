@@ -2,6 +2,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   aggregateSessionsFromMessages,
   extractPhoneFromSessionId,
+  sortSessionsByRecentActivity,
   type SessionSummary,
 } from "@/lib/conversations-sessions";
 import {
@@ -134,6 +135,5 @@ export async function loadAllZoeAdminConversationSessions(
     }
   }
 
-  out.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-  return out;
+  return sortSessionsByRecentActivity(out);
 }
