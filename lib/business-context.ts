@@ -23,6 +23,7 @@ import {
 } from "@/lib/product-schedule-slots";
 import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
 import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-fixes";
+import { detectMessageLanguage } from "@/lib/language-detect";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -607,12 +608,24 @@ function buildBookingTruthPromptBlock(waCtx: WhatsAppPromptContext | undefined):
 - במקום «אתה/את נרשמת» — תמיד: «ההרשמה היא לשיעור ניסיון של…»${repickAddon}`;
 }
 
+function buildUserLanguagePromptBlock(lastUserMessage?: string): string {
+  const detected = detectMessageLanguage(String(lastUserMessage ?? ""));
+  if (detected === "en") {
+    return "The user is writing in English. Respond in clear, natural English.";
+  }
+  if (detected === "he") {
+    return "המשתמש כותב בעברית. ענה בעברית טבעית וזורמת.";
+  }
+  return "";
+}
+
 export function buildSystemPrompt(
   knowledge: BusinessKnowledgePack | null,
   slug: string,
   channel: "web" | "whatsapp" = "web",
   waCtx?: WhatsAppPromptContext,
-  platform: ZoePlatformGuidelines = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES
+  platform: ZoePlatformGuidelines = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES,
+  lastUserMessage?: string
 ): string {
   const isWhatsApp = channel === "whatsapp";
   const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
@@ -636,6 +649,7 @@ export function buildSystemPrompt(
   const phase = waCtx?.sessionPhase;
   const waResponseShapeBlock = pickResponseShapeBlock(platform, isWhatsApp, waCtx);
   const legalRules = pickLegalRulesLines(platform);
+  const userLanguageBlock = buildUserLanguagePromptBlock(lastUserMessage);
   const platformSection = buildZoePlatformPromptSection(platform);
   const toneAnalysis = getZoePlatformCategoryBlock(platform, "tone_analysis");
   const identityBlock = getZoePlatformCategoryBlock(platform, "identity");
@@ -688,7 +702,7 @@ ${toneAnalysis ? `\n${toneAnalysis}` : ""}
 
 כללים:
 ${legalRules}
-${structureRule}
+${userLanguageBlock ? `${userLanguageBlock}\n` : ""}${structureRule}
 ${optionListingNoCountRule}
 ${waSpellingPhrasingRule}
 ${warmupResumeRule}

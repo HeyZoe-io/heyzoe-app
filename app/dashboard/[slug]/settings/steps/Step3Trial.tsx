@@ -22,6 +22,8 @@ import {
 } from "./sales-path-shell";
 import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
 import { type OfferKind } from "@/lib/sales-flow";
+import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardSettingsT, type DashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 
 const PRODUCT_INPUT = SALES_PATH_INPUT;
 
@@ -29,14 +31,13 @@ const SCHEDULE_SLOT_CONTROL =
   "h-8 rounded-lg border border-zinc-200/90 bg-white px-2 text-xs text-zinc-800 shadow-none outline-none transition-colors hover:border-zinc-300 focus:border-[#7133da]/35 focus:ring-1 focus:ring-[#7133da]/25";
 
 const OFFER_KIND_OPTIONS = [
-  { k: "trial" as const, label: "אימון ניסיון" },
-  { k: "workshop" as const, label: "סדנה" },
-  { k: "course" as const, label: "קורס" },
+  { k: "trial" as const, key: "trial" as const },
+  { k: "workshop" as const, key: "workshop" as const },
+  { k: "course" as const, key: "course" as const },
 ] as const;
 
-function productCardTitle(index: number, name: string): string {
-  const trimmed = name.trim();
-  return trimmed ? `מוצר ${index + 1} - ${trimmed}` : `מוצר ${index + 1}`;
+function productCardTitle(index: number, name: string, t: DashboardSettingsT): string {
+  return t.products.productCard(index, name);
 }
 
 function rtlCheckboxLabelRowClassName(fullWidth = true) {
@@ -111,6 +112,8 @@ function courseCyclesForOfferKindSwitch(
 
 /** צירוף מדיה: מוצג רק לאחר סימון; שומר הסרה מלאה בביטול סימון */
 function TrialPickMediaAttachmentSection(props: {
+  lang: DashboardLang;
+  t: DashboardSettingsT;
   planIsStarter?: boolean;
   onStarterMediaBlocked?: () => void;
   uploadTrialPickMedia: (file: File, uiId: string) => void | Promise<void>;
@@ -122,6 +125,8 @@ function TrialPickMediaAttachmentSection(props: {
   setServices: Dispatch<SetStateAction<ServiceItem[]>>;
 }) {
   const {
+    lang,
+    t,
     planIsStarter,
     onStarterMediaBlocked,
     uploadTrialPickMedia,
@@ -161,18 +166,18 @@ function TrialPickMediaAttachmentSection(props: {
   return (
     <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right">
       <div className="space-y-1">
-        <label dir="rtl" className={rtlCheckboxLabelRowClassName(true)}>
+        <label dir={dashboardDir(lang)} className={rtlCheckboxLabelRowClassName(true)}>
           <input
             type="checkbox"
             checked={attachMedia}
             onChange={(e) => onToggleAttach(e.target.checked)}
             className="h-4 w-4 shrink-0 rounded border-zinc-300 text-[#7133da] accent-[#7133da] focus:ring-2 focus:ring-[#7133da]/25 focus:ring-offset-2 focus:ring-offset-white"
           />
-          <span className="text-sm font-semibold text-zinc-800 tracking-tight">צירוף מדיה</span>
+          <span className="text-sm font-semibold text-zinc-800 tracking-tight">{t.products.attachMedia}</span>
         </label>
         {planIsStarter ? (
-          <p className="text-[11px] font-semibold text-amber-600 text-center" title="זמין בחבילת Pro">
-            ⭐ Pro
+          <p className="text-[11px] font-semibold text-amber-600 text-center" title={t.proAvailable}>
+            {t.proBadge}
           </p>
         ) : null}
       </div>
@@ -195,15 +200,15 @@ function TrialPickMediaAttachmentSection(props: {
               {busy ? (
                 <>
                   <Loader2 className="h-7 w-7 animate-spin text-[#7133da]/65" aria-hidden />
-                  <p className="text-xs text-zinc-500">מעלה…</p>
+                  <p className="text-xs text-zinc-500">{t.uploading}</p>
                 </>
               ) : (
                 <>
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#f3edff]/90 text-[#7133da]">
                     <Upload className="h-5 w-5 opacity-85" aria-hidden />
                   </div>
-                  <p className="text-sm font-medium text-zinc-700">העלאת תמונה או סרטון</p>
-                  <p className="text-[11px] text-zinc-500">עד 16MB · JPG, PNG, GIF, MP4</p>
+                  <p className="text-sm font-medium text-zinc-700">{t.products.uploadMedia}</p>
+                  <p className="text-[11px] text-zinc-500">{t.products.uploadLimits}</p>
                 </>
               )}
             </button>
@@ -236,7 +241,7 @@ function TrialPickMediaAttachmentSection(props: {
                     inputRef.current?.click();
                   }}
                 >
-                  <Upload className="h-3.5 w-3.5" /> החלף
+                  <Upload className="h-3.5 w-3.5" /> {t.replace}
                 </Button>
                 <Button
                   type="button"
@@ -250,7 +255,7 @@ function TrialPickMediaAttachmentSection(props: {
                     )
                   }
                 >
-                  <X className="h-3.5 w-3.5" /> הסר
+                  <X className="h-3.5 w-3.5" /> {t.remove}
                 </Button>
               </div>
             </div>
@@ -281,6 +286,7 @@ function TrialPickMediaAttachmentSection(props: {
 }
 
 export default function Step3Trial(props: {
+  lang?: DashboardLang;
   websiteUrl: string;
   address: string;
   fetchingUrl: boolean;
@@ -307,6 +313,7 @@ export default function Step3Trial(props: {
   scheduleUrl: string;
 }) {
   const {
+    lang = "he",
     websiteUrl,
     address,
     fetchingUrl,
@@ -330,14 +337,15 @@ export default function Step3Trial(props: {
     scheduleDirectRegistration,
     scheduleUrl,
   } = props;
+  const t = dashboardSettingsT(lang);
 
   const [scheduleExtractBusy, setScheduleExtractBusy] = useState(false);
   const [scheduleExtractError, setScheduleExtractError] = useState("");
 
   type ProductsSectionId = "scan" | "products";
   const PRODUCT_SECTIONS = [
-    { id: "scan" as const, label: "סריקות", hint: "מוצרים ושעות" },
-    { id: "products" as const, label: "מוצרים", hint: "ההצעות שלכם" },
+    { id: "scan" as const, label: t.products.sections.scan.label, hint: t.products.sections.scan.hint },
+    { id: "products" as const, label: t.products.sections.products.label, hint: t.products.sections.products.hint },
   ];
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
     useSalesPathSections<ProductsSectionId>(PRODUCT_SECTIONS, { scan: true, products: true });
@@ -371,11 +379,11 @@ export default function Step3Trial(props: {
   const runScheduleSlotsExtract = async () => {
     const url = scheduleUrl.trim();
     if (!url) {
-      setScheduleExtractError("חסר לינק מערכת שעות — הזינו אותו בטאב «לינקים חשובים».");
+      setScheduleExtractError(t.products.scheduleMissingLink);
       return;
     }
     if (!namedServices.length) {
-      setScheduleExtractError("הוסיפו לפחות מוצר אחד עם שם, כדי לשייך מועדים.");
+      setScheduleExtractError(t.products.scheduleNeedProduct);
       return;
     }
     setScheduleExtractError("");
@@ -398,10 +406,10 @@ export default function Step3Trial(props: {
       if (!res.ok || !j?.services) {
         setScheduleExtractError(
           j.error === "missing_anthropic_key"
-            ? "חסר מפתח Anthropic בשרת — לא ניתן לסרוק כרגע."
+            ? t.products.scheduleNoAnthropic
             : typeof j.error === "string" && j.error.trim()
               ? j.error.trim()
-              : `הסריקה נכשלה (${res.status}).`
+              : t.products.scheduleFailed(res.status)
         );
         return;
       }
@@ -412,8 +420,8 @@ export default function Step3Trial(props: {
       if (totalSlots === 0) {
         setScheduleExtractError(
           j.hint === "no_slots"
-            ? "לא זוהו מועדים אוטומטית בדף הזה (לוח בתמונה או בפורמט שלא נקרא). אפשר לנסות לינק ישיר לקובץ תמונת הלוח, או להעלות תמונה, או למלא ידנית."
-            : "לא זוהו מועדים — נסו לינק לתמונת לוח או מילוי ידני."
+            ? t.products.scheduleNoSlotsImage
+            : t.products.scheduleNoSlots
         );
         return;
       }
@@ -446,7 +454,7 @@ export default function Step3Trial(props: {
         })
       );
     } catch {
-      setScheduleExtractError("בעיית רשת — נסו שוב.");
+      setScheduleExtractError(t.products.scheduleNetwork);
     } finally {
       setScheduleExtractBusy(false);
     }
@@ -456,28 +464,29 @@ export default function Step3Trial(props: {
     <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
       <SalesPathStepShell
         stepNumber={3}
-        title="מוצרים"
-        description={"מה זואי תציע לליד? סרקו מהאתר, הגדירו אימון ניסיון\\סדנה\\קורס וערכו"}
+        title={t.products.title}
+        description={t.products.description}
         stepPrefix="products"
         sections={PRODUCT_SECTIONS}
         activeNav={activeNav}
         onNavClick={scrollToSection}
         mainRef={mainRef}
-        navAriaLabel="ניווט בתוך מוצרים"
+        navAriaLabel={t.products.navAria}
+        lang={lang}
       >
         <SalesPathSectionBlock
           stepPrefix="products"
           id="scan"
-          title="סריקות"
+          title={t.products.sections.scan.label}
           open={openSections.scan}
           onToggle={() => toggle("scan")}
           filled={Boolean(websiteUrl.trim())}
         >
-        <div dir="rtl" className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4">
+        <div dir={dashboardDir(lang)} className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-zinc-900">סריקת מוצרים</p>
+                <p className="text-sm font-semibold text-zinc-900">{t.products.scanProducts}</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -486,20 +495,20 @@ export default function Step3Trial(props: {
                   disabled={!websiteUrl.trim() || fetchingUrl}
                 >
                   {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {fetchingUrl ? "סורק..." : "סרוק מהאתר"}
+                  {fetchingUrl ? t.scanning : t.scanFromSite}
                 </Button>
               </div>
               <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
                 {!websiteUrl.trim()
-                  ? "הוסיפו כתובת אתר בטאב «לינקים» כדי לסרוק מוצרים."
-                  : "הסריקה לא תדרוס מוצרים קיימים — רק תוסיף חדשים אם זוהו."}
+                  ? t.products.scanProductsNoUrl
+                  : t.products.scanProductsNote}
               </p>
             </div>
 
             {scheduleDirectRegistration === false ? (
               <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות</p>
+                  <p className="text-sm font-semibold text-zinc-900">{t.products.scanSchedule}</p>
                   <Button
                     type="button"
                     variant="outline"
@@ -508,14 +517,14 @@ export default function Step3Trial(props: {
                     onClick={() => void runScheduleSlotsExtract()}
                   >
                     {scheduleExtractBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
-                    {scheduleExtractBusy ? "סורק…" : "סרוק"}
+                    {scheduleExtractBusy ? t.scanning : t.scan}
                   </Button>
                 </div>
                 <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
-                  מושך מועדים מהלינק/תמונה שהוגדרו בטאב «לינקים», ומשייך אותם לכל מוצר.
+                  {t.products.scanScheduleNote}
                 </p>
                 {!scheduleUrl.trim() ? (
-                  <p className="mt-2 text-[11px] font-semibold text-amber-700">חסר לינק/תמונה למערכת שעות בטאב לינקים.</p>
+                  <p className="mt-2 text-[11px] font-semibold text-amber-700">{t.products.scanScheduleMissing}</p>
                 ) : null}
                 {scheduleExtractError ? (
                   <p className="mt-2 text-sm text-red-600" role="alert">
@@ -525,9 +534,9 @@ export default function Step3Trial(props: {
               </div>
             ) : (
               <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
-                <p className="text-sm font-semibold text-zinc-900">סריקת מערכת שעות</p>
+                <p className="text-sm font-semibold text-zinc-900">{t.products.scanSchedule}</p>
                 <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
-                  כש״הרשמה ישירות מהמערכת״ מופעלת — אין צורך במועדי לוח. כבו את האפשרות בטאב «לינקים» כדי לסרוק מועדים.
+                  {t.products.scanScheduleDirect}
                 </p>
               </div>
             )}
@@ -539,7 +548,7 @@ export default function Step3Trial(props: {
           id="products-section-products"
           className="scroll-mt-24 overflow-hidden rounded-xl border border-zinc-200/70 bg-white"
         >
-          <div className="flex items-center gap-2 px-4 py-3.5 text-right" dir="rtl">
+          <div className="flex items-center gap-2 px-4 py-3.5 text-right" dir={dashboardDir(lang)}>
             <span
               className={cn(
                 "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -548,8 +557,8 @@ export default function Step3Trial(props: {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-semibold tracking-[-0.01em] text-zinc-900">רשימת מוצרים</h3>
-              <p className="mt-0.5 text-xs text-zinc-500">{services.length} פריטים</p>
+              <h3 className="text-sm font-semibold tracking-[-0.01em] text-zinc-900">{t.products.productList}</h3>
+              <p className="mt-0.5 text-xs text-zinc-500">{t.products.items(services.length)}</p>
             </div>
           </div>
           <div className="space-y-3 border-t border-zinc-100 px-4 pb-4 pt-3">
@@ -572,7 +581,7 @@ export default function Step3Trial(props: {
                   onClick={() => toggleProductOpen(s)}
                   className="inline-flex shrink-0 items-center justify-center rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                   aria-expanded={productOpen}
-                  aria-label={productOpen ? "סגור פרטי מוצר" : "פתח פרטי מוצר"}
+                  aria-label={productOpen ? t.products.closeProduct : t.products.openProduct}
                 >
                   <ChevronDown
                     className={cn(
@@ -592,8 +601,8 @@ export default function Step3Trial(props: {
                     onDragEnd();
                   }}
                   className="inline-flex cursor-grab touch-none items-center justify-center rounded p-1 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"
-                  aria-label="גרירה לשינוי סדר"
-                  title="גררו מהאייקון כדי לסדר מחדש"
+                  aria-label={t.products.dragReorder}
+                  title={t.products.dragReorderTitle}
                 >
                   <GripVertical className="h-4 w-4 pointer-events-none" />
                 </span>
@@ -602,11 +611,11 @@ export default function Step3Trial(props: {
                   onClick={() => toggleProductOpen(s)}
                   className="min-w-0 flex-1 truncate text-right text-sm font-semibold text-zinc-900 hover:text-[#2d1a6e]"
                 >
-                  {productCardTitle(i, s.name)}
+                  {productCardTitle(i, s.name, t)}
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                {OFFER_KIND_OPTIONS.map(({ k, label }) => (
+                {OFFER_KIND_OPTIONS.map(({ k, key }) => (
                   <button
                     key={k}
                     type="button"
@@ -626,7 +635,7 @@ export default function Step3Trial(props: {
                         : "border-zinc-200 bg-white text-zinc-600 hover:border-[#7133da]/30",
                     ].join(" ")}
                   >
-                    {label}
+                    {key === "trial" ? t.products.offerTrial : key === "workshop" ? t.products.offerWorkshop : t.products.offerCourse}
                   </button>
                 ))}
                 <button
@@ -642,7 +651,7 @@ export default function Step3Trial(props: {
                     setServices((sv) => sv.filter((_, j) => j !== i));
                   }}
                   className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                  aria-label="הסר אימון"
+                  aria-label={t.products.removeProduct}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -652,9 +661,9 @@ export default function Step3Trial(props: {
             {productOpen ? (
             <div className="space-y-4 border-t border-zinc-100 p-4">
               <div>
-                <SalesPathFieldLabel hint={`עד ${TRIAL_SERVICE_NAME_MAX_CHARS} תווים`}>שם האימון</SalesPathFieldLabel>
+                <SalesPathFieldLabel hint={t.products.charsMax(TRIAL_SERVICE_NAME_MAX_CHARS)}>{t.products.serviceName}</SalesPathFieldLabel>
                 <Input
-                  dir="rtl"
+                  dir={dashboardDir(lang)}
                   value={s.name}
                   maxLength={TRIAL_SERVICE_NAME_MAX_CHARS}
                   onChange={(e) => {
@@ -668,7 +677,7 @@ export default function Step3Trial(props: {
                     };
                     setServices(arr);
                   }}
-                  placeholder="למשל אימון ניסיון"
+                  placeholder={t.products.offerTrial}
                   className={PRODUCT_INPUT}
                 />
               </div>
@@ -676,9 +685,9 @@ export default function Step3Trial(props: {
             {s.offer_kind === "course" ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <SalesPathFieldLabel>מחיר</SalesPathFieldLabel>
+                  <SalesPathFieldLabel>{t.products.price}</SalesPathFieldLabel>
                   <Input
-                    dir="rtl"
+                    dir={dashboardDir(lang)}
                     value={s.price_text}
                     onChange={(e) => {
                       const arr = [...services];
@@ -690,9 +699,9 @@ export default function Step3Trial(props: {
                   />
                 </div>
                 <div>
-                  <SalesPathFieldLabel>מספר מפגשים</SalesPathFieldLabel>
+                  <SalesPathFieldLabel>{t.products.sessions}</SalesPathFieldLabel>
                   <Input
-                    dir="rtl"
+                    dir={dashboardDir(lang)}
                     inputMode="numeric"
                     value={s.course_sessions_count}
                     onChange={(e) => {
@@ -700,7 +709,7 @@ export default function Step3Trial(props: {
                       arr[i] = { ...s, course_sessions_count: e.target.value };
                       setServices(arr);
                     }}
-                    placeholder="למשל 8"
+                    placeholder="8"
                     className={PRODUCT_INPUT}
                   />
                 </div>
@@ -708,9 +717,9 @@ export default function Step3Trial(props: {
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <SalesPathFieldLabel>מחיר</SalesPathFieldLabel>
+                  <SalesPathFieldLabel>{t.products.price}</SalesPathFieldLabel>
                   <Input
-                    dir="rtl"
+                    dir={dashboardDir(lang)}
                     value={s.price_text}
                     onChange={(e) => {
                       const arr = [...services];
@@ -722,9 +731,9 @@ export default function Step3Trial(props: {
                   />
                 </div>
                 <div>
-                  <SalesPathFieldLabel>משך (דקות)</SalesPathFieldLabel>
+                  <SalesPathFieldLabel>{t.products.duration}</SalesPathFieldLabel>
                   <Input
-                    dir="rtl"
+                    dir={dashboardDir(lang)}
                     value={s.duration}
                     onChange={(e) => {
                       const arr = [...services];
@@ -740,7 +749,7 @@ export default function Step3Trial(props: {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <SalesPathFieldLabel>לינק סליקה *</SalesPathFieldLabel>
+                <SalesPathFieldLabel>{t.products.paymentLink}</SalesPathFieldLabel>
                 <div className="flex min-w-0 items-center gap-2">
                   <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
                   <Input
@@ -757,25 +766,25 @@ export default function Step3Trial(props: {
                 </div>
               </div>
               <div>
-                <SalesPathFieldLabel>מיקום</SalesPathFieldLabel>
+                <SalesPathFieldLabel>{t.products.location}</SalesPathFieldLabel>
                 <Input
-                  dir="rtl"
+                  dir={dashboardDir(lang)}
                   value={s.location_text}
                   onChange={(e) => {
                     const arr = [...services];
                     arr[i] = { ...s, location_text: e.target.value };
                     setServices(arr);
                   }}
-                  placeholder={address || "תל אביב"}
+                  placeholder={address || "Location"}
                   className={PRODUCT_INPUT}
                 />
               </div>
             </div>
 
             <div>
-              <SalesPathFieldLabel>תיאור</SalesPathFieldLabel>
+              <SalesPathFieldLabel>{t.products.details}</SalesPathFieldLabel>
               <textarea
-                dir="rtl"
+                dir={dashboardDir(lang)}
                 value={s.description}
                 onChange={(e) => {
                   const nextDesc = e.target.value;
@@ -787,7 +796,7 @@ export default function Step3Trial(props: {
                   };
                   setServices(arr);
                 }}
-                placeholder="תיאור קצר על האימון (ייסרק מהאתר אם קיים)"
+                placeholder="Short class description"
                 rows={4}
                 className={SALES_PATH_TEXTAREA}
               />
@@ -796,9 +805,9 @@ export default function Step3Trial(props: {
             {scheduleDirectRegistration === false ? (
               s.offer_kind === "course" ? (
               <div className="space-y-4 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
-                <SalesPathFieldLabel>מחזורי קורס</SalesPathFieldLabel>
+                <SalesPathFieldLabel>{t.products.courseCycles}</SalesPathFieldLabel>
                 <p className="text-[11px] text-zinc-500 leading-snug">
-                  לכל מחזור — תאריך התחלה וסיום, ובתוכו ימים ושעות שבועיים (ראשון–שבת, 24 שעות).
+                  {t.products.courseCyclesHint}
                 </p>
                 {(s.course_cycles?.length ? s.course_cycles : [createEmptyCourseCycle(uid)]).map((cycle, ci) => (
                   <div
@@ -806,12 +815,12 @@ export default function Step3Trial(props: {
                     className="space-y-3 rounded-lg border border-zinc-200/70 bg-white/80 p-3"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-zinc-700">מחזור {ci + 1}</span>
+                      <span className="text-xs font-semibold text-zinc-700">{t.products.cycle(ci + 1)}</span>
                       {(s.course_cycles ?? []).length > 1 ? (
                         <button
                           type="button"
                           className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                          aria-label="מחק מחזור"
+                          aria-label={t.products.deleteCycle}
                           onClick={() => {
                             const arr = [...services];
                             const cycles = (arr[i]!.course_cycles ?? []).filter((_, j) => j !== ci);
@@ -825,7 +834,7 @@ export default function Step3Trial(props: {
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
-                        <SalesPathFieldLabel>תאריך התחלה</SalesPathFieldLabel>
+                        <SalesPathFieldLabel>{t.products.startDate}</SalesPathFieldLabel>
                         <Input
                           dir="ltr"
                           type="date"
@@ -841,7 +850,7 @@ export default function Step3Trial(props: {
                         />
                       </div>
                       <div>
-                        <SalesPathFieldLabel>תאריך סיום</SalesPathFieldLabel>
+                        <SalesPathFieldLabel>{t.products.endDate}</SalesPathFieldLabel>
                         <Input
                           dir="ltr"
                           type="date"
@@ -874,12 +883,12 @@ export default function Step3Trial(props: {
                         <div
                           key={slot.id}
                           className="flex items-center gap-2 rounded-lg border border-zinc-200/70 bg-white/90 p-2"
-                          dir="rtl"
+                          dir={dashboardDir(lang)}
                         >
                           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                            <span className="shrink-0 text-[11px] font-medium text-zinc-500">יום</span>
+                            <span className="shrink-0 text-[11px] font-medium text-zinc-500">{t.day}</span>
                             <select
-                              dir="rtl"
+                              dir={dashboardDir(lang)}
                               className={`${SCHEDULE_SLOT_CONTROL} min-w-0 flex-1`}
                               value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : ""}
                               onChange={(e) => {
@@ -892,7 +901,7 @@ export default function Step3Trial(props: {
                                 setServices(arr);
                               }}
                             >
-                              <option value="">בחר</option>
+                              <option value="">{t.choose}</option>
                               {HEBREW_DAY_OPTIONS.map((o) => (
                                 <option key={o.value} value={o.value}>
                                   {o.label}
@@ -901,7 +910,7 @@ export default function Step3Trial(props: {
                             </select>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
-                            <span className="text-[11px] font-medium text-zinc-500">שעה</span>
+                            <span className="text-[11px] font-medium text-zinc-500">{t.time}</span>
                             <Input
                               dir="ltr"
                               className={`${SCHEDULE_SLOT_CONTROL} w-[4.25rem] font-mono text-left`}
@@ -950,7 +959,7 @@ export default function Step3Trial(props: {
                           <button
                             type="button"
                             className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                            aria-label="מחק מועד"
+                            aria-label={t.products.deleteSlot}
                             onClick={() => {
                               const arr = [...services];
                               const cycles = [...(arr[i]!.course_cycles ?? [])];
@@ -982,7 +991,7 @@ export default function Step3Trial(props: {
                       }}
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      הוסף מועד
+                      {t.products.addSlot}
                     </Button>
                   </div>
                 ))}
@@ -999,14 +1008,14 @@ export default function Step3Trial(props: {
                   }}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  הוסף מחזור
+                  {t.products.addCycle}
                 </Button>
               </div>
               ) : (
-              <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
-                <SalesPathFieldLabel>מועדי לוח (שבועי)</SalesPathFieldLabel>
+              <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir={dashboardDir(lang)}>
+                <SalesPathFieldLabel>{t.products.weeklySlots}</SalesPathFieldLabel>
                 <p className="text-[11px] text-zinc-500 leading-snug">
-                  לכל הופעה של המוצר בלוח — שורה נפרדת (ראשון–שבת + שעה בפורמט 24 שעות).
+                  {t.products.weeklySlotsHint}
                 </p>
                 <div
                   className="grid grid-cols-1 gap-2 sm:grid-cols-2"
@@ -1023,12 +1032,12 @@ export default function Step3Trial(props: {
                     <div
                       key={slot.id}
                       className="flex items-center gap-2 rounded-lg border border-zinc-200/70 bg-white/90 p-2"
-                      dir="rtl"
+                      dir={dashboardDir(lang)}
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="shrink-0 text-[11px] font-medium text-zinc-500">יום</span>
+                        <span className="shrink-0 text-[11px] font-medium text-zinc-500">{t.day}</span>
                         <select
-                          dir="rtl"
+                          dir={dashboardDir(lang)}
                           className={`${SCHEDULE_SLOT_CONTROL} min-w-0 flex-1`}
                           value={HEBREW_DAY_OPTIONS.some((o) => o.value === slot.day) ? slot.day : ""}
                           onChange={(e) => {
@@ -1039,7 +1048,7 @@ export default function Step3Trial(props: {
                             setServices(arr);
                           }}
                         >
-                          <option value="">בחר</option>
+                          <option value="">{t.choose}</option>
                           {HEBREW_DAY_OPTIONS.map((o) => (
                             <option key={o.value} value={o.value}>
                               {o.label}
@@ -1048,7 +1057,7 @@ export default function Step3Trial(props: {
                         </select>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <span className="text-[11px] font-medium text-zinc-500">שעה</span>
+                        <span className="text-[11px] font-medium text-zinc-500">{t.time}</span>
                         <Input
                           dir="ltr"
                           className={`${SCHEDULE_SLOT_CONTROL} w-[4.25rem] font-mono text-left`}
@@ -1099,7 +1108,7 @@ export default function Step3Trial(props: {
                       <button
                         type="button"
                         className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                        aria-label="מחק מועד"
+                        aria-label={t.products.deleteSlot}
                         onClick={() => {
                           const arr = [...services];
                           const slots = (arr[i]!.schedule_slots ?? []).filter((_, j) => j !== si);
@@ -1129,13 +1138,15 @@ export default function Step3Trial(props: {
                   }}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  הוסף מועד
+                  {t.products.addSlot}
                 </Button>
               </div>
               )
             ) : null}
 
             <TrialPickMediaAttachmentSection
+              lang={lang}
+              t={t}
               planIsStarter={planIsStarter}
               onStarterMediaBlocked={onStarterMediaBlocked}
               uploadTrialPickMedia={uploadTrialPickMedia}
@@ -1184,7 +1195,7 @@ export default function Step3Trial(props: {
               }}
               className="w-full gap-2"
             >
-              <Plus className="h-4 w-4" /> הוסף אימון
+              <Plus className="h-4 w-4" /> {t.products.addProduct}
             </Button>
           </div>
         </section>

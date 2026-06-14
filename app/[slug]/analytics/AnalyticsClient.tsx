@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import {
   DASHBOARD_CENTERED_CONTENT,
@@ -12,6 +13,12 @@ import {
   type AnalyticsClientPayload,
 } from "@/lib/analytics-client-cache";
 import type { PremiumAnalyticsResult } from "@/lib/analytics-pro-metrics";
+import {
+  dashboardDateLocale,
+  dashboardDir,
+  dashboardLangFromParam,
+  dashboardTextAlign,
+} from "@/lib/dashboard-lang";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -27,6 +34,77 @@ import {
 type RangeKey = "month" | "week" | "all";
 
 type AnalyticsPayload = AnalyticsClientPayload;
+
+const i18n = {
+  he: {
+    loadError: "לא הצלחנו לטעון נתונים. נסו לרענן את הדף.",
+    title: "אנליטיקס",
+    rangeWeek: "שבוע אחרון",
+    rangeMonth: "חודש",
+    rangeAll: "כל הזמן",
+    emptyState: "אין כרגע מה להציג כאן :)",
+    newLeads: "לידים חדשים",
+    conversions: "המרות (נרשמו לשיעור ניסיון)",
+    conversionRate: "שיעור המרה",
+    conversionSubline: (total: number) => `מתוך ${total} צ׳אטים (פר מספר)`,
+    analysis: "ניתוח",
+    proBadge: "לחשבון Pro",
+    leadsByDay: "לידים חדשים לפי יום",
+    leadsByDayHint: "משתמש ב-contact.created_at (אזור ישראל)",
+    loading: "טוען…",
+    noLeadsInRange: "אין נתוני לידים בטווח שנבחר",
+    chartLeads: "לידים",
+    chartDate: (label: string) => `תאריך ${label}`,
+    peakHours: "שעות שיא (הודעות נכנסות)",
+    peakHoursHint: "משתמש בשעון ישראל · תפקיד user",
+    chartMessages: "הודעות",
+    chartHour: (h: string) => `שעה ${h}`,
+    noInboundInRange: "אין הודעות נכנסות בטווח",
+    followupReturn: "חזרו אחרי פולואפ",
+    followupReturnHint:
+      "ליד שנשלח לו WA follow-up (שלבים 1–3) ולאחריו נשלחה הודעת משתמש נוספת",
+    popularTrainings: "אימונים פופולריים",
+    popularTrainingsHint:
+      "ספירת הופעות שם השירות מתוך services בטקסטי הודעות נכנסות (בטווח הזמן)",
+    training: "אימון",
+    mentions: "אזכורים",
+    noTrainingMatches: "אין עדיין התאמות לפי טקסט בטווח זה",
+  },
+  en: {
+    loadError: "Could not load data. Try refreshing the page.",
+    title: "Analytics",
+    rangeWeek: "Week",
+    rangeMonth: "Month",
+    rangeAll: "All Time",
+    emptyState: "Nothing to show here yet :)",
+    newLeads: "New Leads",
+    conversions: "Conversions (trial sign-ups)",
+    conversionRate: "Conversion Rate",
+    conversionSubline: (total: number) => `Out of ${total} chats (per number)`,
+    analysis: "Analysis",
+    proBadge: "Pro account",
+    leadsByDay: "New Leads by Day",
+    leadsByDayHint: "Uses contact.created_at (Israel timezone)",
+    loading: "Loading…",
+    noLeadsInRange: "No lead data in the selected range",
+    chartLeads: "Leads",
+    chartDate: (label: string) => `Date ${label}`,
+    peakHours: "Peak Hours (inbound messages)",
+    peakHoursHint: "Israel timezone · user role",
+    chartMessages: "Messages",
+    chartHour: (h: string) => `Hour ${h}`,
+    noInboundInRange: "No inbound messages in range",
+    followupReturn: "Returned After Follow-up",
+    followupReturnHint:
+      "Lead who received WA follow-up (stages 1–3) and then sent another user message",
+    popularTrainings: "Popular Trainings",
+    popularTrainingsHint:
+      "Service name mentions in inbound message text (within time range)",
+    training: "Training",
+    mentions: "Mentions",
+    noTrainingMatches: "No text matches in this range yet",
+  },
+} as const;
 
 function resolveRangeKey(raw: unknown): RangeKey {
   const r = String(raw ?? "").trim().toLowerCase();
@@ -44,16 +122,17 @@ function updateUrlRange(slug: string, range: RangeKey) {
   }
 }
 
-function formatDayTick(ymd: string) {
+function formatDayTick(ymd: string, locale: string) {
   const p = ymd.split("-");
   if (p.length !== 3) return ymd;
+  if (locale === "en-US") return `${p[1]}/${p[2]}`;
   return `${p[2]}/${p[1]}`;
 }
 
-function leadsChartShim(rows: PremiumAnalyticsResult["leadsByDay"]) {
+function leadsChartShim(rows: PremiumAnalyticsResult["leadsByDay"], locale: string) {
   return rows.map((r) => ({
     ...r,
-    label: formatDayTick(r.date),
+    label: formatDayTick(r.date, locale),
   }));
 }
 
@@ -70,6 +149,13 @@ export default function AnalyticsClient({
   planIsPremium: boolean;
   initialRange: RangeKey;
 }) {
+  const searchParams = useSearchParams();
+  const lang = dashboardLangFromParam(searchParams.get("lang"));
+  const t = i18n[lang];
+  const dateLocale = dashboardDateLocale(lang);
+  const textAlign = dashboardTextAlign(lang);
+  const tooltipDir = lang === "en" ? "ltr" : "rtl";
+
   const cachedOnMount = getAnalyticsClientCache(slug, initialRange);
   const [range, setRange] = useState<RangeKey>(cachedOnMount?.range ?? initialRange);
   const [data, setData] = useState<AnalyticsPayload | null>(cachedOnMount?.data ?? null);
@@ -200,8 +286,8 @@ export default function AnalyticsClient({
   }
 
   const leadsPlot = useMemo(
-    () => (premium?.leadsByDay?.length ? leadsChartShim(premium.leadsByDay) : []),
-    [premium?.leadsByDay]
+    () => (premium?.leadsByDay?.length ? leadsChartShim(premium.leadsByDay, dateLocale) : []),
+    [premium?.leadsByDay, dateLocale]
   );
   const peakPlot = useMemo(
     () => (premium?.inboundMessagesByHour?.length === 24 ? hourBuckets(premium.inboundMessagesByHour) : []),
@@ -216,6 +302,7 @@ export default function AnalyticsClient({
       <div
         className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} space-y-6 animate-pulse`}
         aria-busy="true"
+        dir={dashboardDir(lang)}
       >
         <div className="h-8 w-40 rounded bg-zinc-200 mx-auto" />
         <section className="grid gap-4 md:grid-cols-3">
@@ -232,8 +319,11 @@ export default function AnalyticsClient({
 
   if (!data) {
     return (
-      <div className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} py-12 text-center text-sm text-zinc-500`}>
-        לא הצלחנו לטעון נתונים. נסו לרענן את הדף.
+      <div
+        className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} py-12 text-center text-sm text-zinc-500`}
+        dir={dashboardDir(lang)}
+      >
+        {t.loadError}
       </div>
     );
   }
@@ -242,9 +332,10 @@ export default function AnalyticsClient({
     <div
       className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} space-y-6 relative`}
       aria-busy={loading ? "true" : "false"}
+      dir={dashboardDir(lang)}
     >
       <div className="hz-wave hz-wave-1">
-        <h1 className="text-2xl font-semibold text-zinc-900">אנליטיקס</h1>
+        <h1 className="text-2xl font-semibold text-zinc-900">{t.title}</h1>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-zinc-400" aria-hidden /> : null}
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -254,7 +345,7 @@ export default function AnalyticsClient({
               onClick={() => applyRange("week")}
               disabled={loading}
             >
-              שבוע אחרון
+              {t.rangeWeek}
             </button>
             <button
               type="button"
@@ -262,7 +353,7 @@ export default function AnalyticsClient({
               onClick={() => applyRange("month")}
               disabled={loading}
             >
-              חודש
+              {t.rangeMonth}
             </button>
             <button
               type="button"
@@ -270,7 +361,7 @@ export default function AnalyticsClient({
               onClick={() => applyRange("all")}
               disabled={loading}
             >
-              כל הזמן
+              {t.rangeAll}
             </button>
           </div>
         </div>
@@ -279,9 +370,7 @@ export default function AnalyticsClient({
       {isEmpty ? (
         <section className="hz-wave hz-wave-2">
           <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-8 text-center">
-            <p className="text-sm text-zinc-700 text-center" dir="rtl">
-              אין כרגע מה להציג כאן :)
-            </p>
+            <p className="text-sm text-zinc-700 text-center">{t.emptyState}</p>
           </div>
         </section>
       ) : (
@@ -297,17 +386,17 @@ export default function AnalyticsClient({
             ) : (
               <>
                 <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
-                  <p className="text-xs text-zinc-500">לידים חדשים</p>
+                  <p className="text-xs text-zinc-500">{t.newLeads}</p>
                   <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
                 </div>
                 <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
-                  <p className="text-xs text-zinc-500">המרות (נרשמו לשיעור ניסיון)</p>
+                  <p className="text-xs text-zinc-500">{t.conversions}</p>
                   <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.converted}</p>
                 </div>
                 <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
-                  <p className="text-xs text-zinc-500">שיעור המרה</p>
+                  <p className="text-xs text-zinc-500">{t.conversionRate}</p>
                   <p className="mt-1 text-2xl font-semibold text-emerald-600">{data.conversionRate}%</p>
-                  <p className="mt-1 text-[11px] text-zinc-500">מתוך {data.totalChats} צ׳אטים (פר מספר)</p>
+                  <p className="mt-1 text-[11px] text-zinc-500">{t.conversionSubline(data.totalChats)}</p>
                 </div>
               </>
             )}
@@ -316,22 +405,22 @@ export default function AnalyticsClient({
           {planIsPremium ? (
             <section className="space-y-4 hz-wave hz-wave-3">
           <div className="flex flex-wrap items-center justify-center gap-2 border-b border-white/70 pb-2 text-center">
-            <h2 className="text-lg font-semibold text-zinc-900">ניתוח</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">{t.analysis}</h2>
             <span className="rounded-full bg-[#f7f3ff] border border-[#7133da]/25 px-2.5 py-0.5 text-[11px] font-semibold text-[#7133da]">
-              לחשבון Pro
+              {t.proBadge}
             </span>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
-              <p className="text-sm font-semibold text-zinc-900">לידים חדשים לפי יום</p>
-              <p className="mt-1 text-[11px] text-zinc-500">משתמש ב-contact.created_at (אזור ישראל)</p>
+              <p className="text-sm font-semibold text-zinc-900">{t.leadsByDay}</p>
+              <p className="mt-1 text-[11px] text-zinc-500">{t.leadsByDayHint}</p>
               {loading && planIsPremium ? (
                 <div className="h-[260px] flex items-center justify-center text-zinc-400 text-sm gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin" /> טוען…
+                  <Loader2 className="h-5 w-5 animate-spin" /> {t.loading}
                 </div>
               ) : leadsPlot.length === 0 ? (
-                <p className="mt-8 text-center text-sm text-zinc-500 py-16">אין נתוני לידים בטווח שנבחר</p>
+                <p className="mt-8 text-center text-sm text-zinc-500 py-16">{t.noLeadsInRange}</p>
               ) : (
                 <div dir="ltr" className="mt-2 h-[260px] w-full outline-none [&_.recharts-surface]:outline-none">
                   <ResponsiveContainer width="100%" height="100%">
@@ -344,18 +433,18 @@ export default function AnalyticsClient({
                       />
                       <YAxis tick={{ fill: "#71717a", fontSize: 10 }} allowDecimals={false} />
                       <Tooltip
-                        formatter={(v) => [`${Number(v ?? 0)}`, "לידים"]}
+                        formatter={(v) => [`${Number(v ?? 0)}`, t.chartLeads]}
                         labelFormatter={(l, payload) => {
                           const list = payload as unknown as { payload?: { date?: string } }[] | undefined;
                           const d = String(list?.[0]?.payload?.date ?? "");
-                          return d ? `תאריך ${formatDayTick(d)}` : String(l ?? "");
+                          return d ? t.chartDate(formatDayTick(d, dateLocale)) : String(l ?? "");
                         }}
-                        contentStyle={{ borderRadius: 12, direction: "rtl", textAlign: "right" }}
+                        contentStyle={{ borderRadius: 12, direction: tooltipDir, textAlign }}
                       />
                       <Area
                         type="monotone"
                         dataKey="count"
-                        name="לידים"
+                        name={t.chartLeads}
                         stroke={chartPurple}
                         fill={chartPurple}
                         fillOpacity={0.14}
@@ -367,14 +456,14 @@ export default function AnalyticsClient({
             </div>
 
             <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
-              <p className="text-sm font-semibold text-zinc-900">שעות שיא (הודעות נכנסות)</p>
-              <p className="mt-1 text-[11px] text-zinc-500">משתמש בשעון ישראל · תפקיד user</p>
+              <p className="text-sm font-semibold text-zinc-900">{t.peakHours}</p>
+              <p className="mt-1 text-[11px] text-zinc-500">{t.peakHoursHint}</p>
               {loading && planIsPremium ? (
                 <div className="h-[260px] flex items-center justify-center text-zinc-400 text-sm gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin" /> טוען…
+                  <Loader2 className="h-5 w-5 animate-spin" /> {t.loading}
                 </div>
               ) : peakPlot.every((x) => x.count === 0) ? (
-                <p className="mt-8 text-center text-sm text-zinc-500 py-16">אין הודעות נכנסות בטווח</p>
+                <p className="mt-8 text-center text-sm text-zinc-500 py-16">{t.noInboundInRange}</p>
               ) : (
                 <div dir="ltr" className="mt-2 h-[260px] w-full [&_.recharts-surface]:outline-none">
                   <ResponsiveContainer width="100%" height="100%">
@@ -383,11 +472,11 @@ export default function AnalyticsClient({
                       <XAxis dataKey="hour" tick={{ fill: "#71717a", fontSize: 9 }} interval={3} />
                       <YAxis tick={{ fill: "#71717a", fontSize: 10 }} allowDecimals={false} />
                       <Tooltip
-                        formatter={(v) => [`${Number(v ?? 0)}`, "הודעות"]}
-                        labelFormatter={(h) => `שעה ${String(h ?? "")}`}
-                        contentStyle={{ borderRadius: 12, direction: "rtl", textAlign: "right" }}
+                        formatter={(v) => [`${Number(v ?? 0)}`, t.chartMessages]}
+                        labelFormatter={(h) => t.chartHour(String(h ?? ""))}
+                        contentStyle={{ borderRadius: 12, direction: tooltipDir, textAlign }}
                       />
-                      <Bar dataKey="count" name="הודעות" fill={`${chartPurple}cc`} radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="count" name={t.chartMessages} fill={`${chartPurple}cc`} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -397,10 +486,8 @@ export default function AnalyticsClient({
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center lg:col-span-1">
-              <p className="text-xs text-zinc-500">חזרו אחרי פולואפ</p>
-              <p className="mt-2 text-[11px] text-zinc-500 leading-snug">
-                ליד שנשלח לו WA follow-up (שלבים 1–3) ולאחריו נשלחה הודעת משתמש נוספת
-              </p>
+              <p className="text-xs text-zinc-500">{t.followupReturn}</p>
+              <p className="mt-2 text-[11px] text-zinc-500 leading-snug">{t.followupReturnHint}</p>
               {loading ? (
                 <Loader2 className="h-5 w-5 animate-spin text-zinc-300 mt-4" aria-hidden />
               ) : (
@@ -413,24 +500,22 @@ export default function AnalyticsClient({
 
           <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur overflow-hidden">
             <div className="p-4 border-b border-zinc-100 text-center space-y-1">
-              <p className="text-sm font-semibold text-zinc-900">אימונים פופולריים</p>
-              <p className="text-[11px] text-zinc-500 leading-relaxed">
-                ספירת הופעות שם השירות מתוך services בטקסטי הודעות נכנסות (בטווח הזמן)
-              </p>
+              <p className="text-sm font-semibold text-zinc-900">{t.popularTrainings}</p>
+              <p className="text-[11px] text-zinc-500 leading-relaxed">{t.popularTrainingsHint}</p>
             </div>
             {loading ? (
               <div className="flex items-center gap-2 justify-center py-12 text-zinc-400">
                 <Loader2 className="h-5 w-5 animate-spin" />
               </div>
             ) : !premium?.popularTrainings?.length ? (
-              <p className="py-12 text-center text-sm text-zinc-500 px-4">אין עדיין התאמות לפי טקסט בטווח זה</p>
+              <p className="py-12 text-center text-sm text-zinc-500 px-4">{t.noTrainingMatches}</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-[280px] w-full text-sm text-center border-collapse">
                   <thead>
                     <tr className="bg-zinc-50/90 text-[11px] uppercase tracking-wide text-zinc-500 border-b border-zinc-100">
-                      <th className="py-3 pr-4 font-medium text-center border-b border-zinc-100">אימון</th>
-                      <th className="py-3 pl-4 font-medium text-center border-b border-zinc-100 w-[7rem]">אזכורים</th>
+                      <th className="py-3 pr-4 font-medium text-center border-b border-zinc-100">{t.training}</th>
+                      <th className="py-3 pl-4 font-medium text-center border-b border-zinc-100 w-[7rem]">{t.mentions}</th>
                     </tr>
                   </thead>
                   <tbody>

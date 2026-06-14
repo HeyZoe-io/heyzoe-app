@@ -8,7 +8,8 @@ import {
   resolveMetaAccessToken,
   isMetaCloudPhoneNumberId,
 } from "@/lib/whatsapp";
-import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
+import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
+import { getZoeWhatsAppMenuFooter } from "@/lib/whatsapp-copy";
 
 export const CS_REDIRECT_SERVICE_PICK_BRIDGE =
   "ואם בכל זאת תרצו לשמוע על אחד מהאימונים שלנו, אני כאן בשביל זה.";
@@ -69,6 +70,7 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
   const menuBody = input.bridgeAlreadyInPriorMessage
     ? SERVICE_PICK_MENU_BODY_BUTTONS_ONLY
     : CS_REDIRECT_SERVICE_PICK_BRIDGE;
+  const menuFooter = getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(input.knowledge));
 
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(
@@ -78,7 +80,7 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
       labels,
       input.accountSid,
       input.authToken,
-      { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+      { footerHint: menuFooter, language: resolveBusinessContentLanguageFromKnowledge(input.knowledge) }
     ).catch((e) => console.error("[WA Webhook] CS redirect service pick menu failed:", e));
   } else {
     const numbered = labels.map((l, i) => `${i + 1}. ${l}`).join("\n");

@@ -5,7 +5,8 @@ import {
   getWhatsAppOpeningPreviewSections,
   type ServiceLike,
 } from "@/lib/sales-flow";
-import { ZOE_WHATSAPP_MENU_FOOTER } from "@/lib/whatsapp-copy";
+import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
+import { getZoeWhatsAppMenuFooter } from "@/lib/whatsapp-copy";
 
 /**
  * Opening message as plain body + menu labels (for Meta interactive / Twilio numbered lists).
@@ -68,6 +69,7 @@ export function getWhatsAppOpeningBodyAndMenuLabels(k: BusinessKnowledgePack): {
 
 /** טקסט הודעת פתיחה לווטסאפ — לפי מסלול המכירה בדשבורד, או טמפלייט */
 export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
+  const footer = getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(k));
   if (k.salesFlowConfig) {
     const body = buildWhatsAppOpeningBody(
       k.salesFlowConfig,
@@ -77,10 +79,10 @@ export function formatWhatsAppOpeningText(k: BusinessKnowledgePack): string {
       k.taglineText || k.businessDescription,
       k.addressText
     );
-    return `${body.trim()}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+    return `${body.trim()}\n\n${footer}`;
   }
 
   const { body, menuLabels } = getWhatsAppOpeningBodyAndMenuLabels(k);
   const core = menuLabels.length ? [body, ...menuLabels].filter(Boolean).join("\n") : body.trim();
-  return core ? `${core}\n\n${ZOE_WHATSAPP_MENU_FOOTER}` : ZOE_WHATSAPP_MENU_FOOTER;
+  return core ? `${core}\n\n${footer}` : footer;
 }

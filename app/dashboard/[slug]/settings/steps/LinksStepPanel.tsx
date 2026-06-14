@@ -5,6 +5,8 @@ import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CRM_TYPE_OPTIONS, type CrmType } from "@/lib/crm/types";
+import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import {
   SALES_PATH_INPUT,
   SalesPathFieldLabel,
@@ -15,14 +17,8 @@ import {
 
 type SectionId = "website" | "booking" | "crm" | "social";
 
-const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
-  { id: "website", label: "אתר", hint: "סריקה אוטומטית" },
-  { id: "booking", label: "קישורים", hint: "שעות ומנויים" },
-  { id: "crm", label: "CRM", hint: "חיבור API" },
-  { id: "social", label: "רשתות", hint: "אינסטגרם" },
-];
-
 export type LinksStepPanelProps = {
+  lang?: DashboardLang;
   websiteUrl: string;
   setWebsiteUrl: (v: string) => void;
   fetchSite: () => void | Promise<void>;
@@ -56,7 +52,7 @@ export type LinksStepPanelProps = {
   setCrmArboxStatusId: (v: string) => void;
 };
 
-function CrmFieldHint({ text }: { text: string }) {
+function CrmFieldHint({ text, lang, explainAria }: { text: string; lang: DashboardLang; explainAria: string }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
 
@@ -80,7 +76,7 @@ function CrmFieldHint({ text }: { text: string }) {
       <button
         type="button"
         aria-expanded={open}
-        aria-label="הסבר"
+        aria-label={explainAria}
         onClick={() => setOpen((value) => !value)}
         className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200/90 text-[10px] font-bold leading-none text-zinc-600 hover:bg-zinc-300/90"
       >
@@ -89,8 +85,8 @@ function CrmFieldHint({ text }: { text: string }) {
       {open ? (
         <span
           role="tooltip"
-          dir="rtl"
-          className="absolute right-0 top-full z-50 mt-1.5 w-[min(18rem,calc(100vw-2.5rem))] rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-right text-[11px] leading-snug text-zinc-600 shadow-md"
+          dir={dashboardDir(lang)}
+          className={`absolute right-0 top-full z-50 mt-1.5 w-[min(18rem,calc(100vw-2.5rem))] rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-[11px] leading-snug text-zinc-600 shadow-md ${lang === "en" ? "text-left" : "text-right"}`}
         >
           {text}
         </span>
@@ -101,6 +97,7 @@ function CrmFieldHint({ text }: { text: string }) {
 
 export function LinksStepPanel(props: LinksStepPanelProps) {
   const {
+    lang = "he",
     websiteUrl,
     setWebsiteUrl,
     fetchSite,
@@ -133,9 +130,19 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     crmArboxStatusId,
     setCrmArboxStatusId,
   } = props;
+  const t = dashboardSettingsT(lang);
+  const sections = useMemo(
+    () => [
+      { id: "website" as const, label: t.links.sections.website.label, hint: t.links.sections.website.hint },
+      { id: "booking" as const, label: t.links.sections.booking.label, hint: t.links.sections.booking.hint },
+      { id: "crm" as const, label: t.links.sections.crm.label, hint: t.links.sections.crm.hint },
+      { id: "social" as const, label: t.links.sections.social.label, hint: t.links.sections.social.hint },
+    ],
+    [t]
+  );
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
-    useSalesPathSections<SectionId>(SECTIONS, { website: true, booking: false, crm: false, social: false });
+    useSalesPathSections<SectionId>(sections, { website: true, booking: false, crm: false, social: false });
 
   useEffect(() => {
     setStepPrefix("links");
@@ -154,20 +161,21 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
   return (
     <SalesPathStepShell
       stepNumber={1}
-      title="לינקים"
-      description="זואי תג׳נרט מידע אוטומטית ותשלח לינקים רלוונטים ללידים."
+      title={t.links.title}
+      description={t.links.description}
       stepPrefix="links"
-      sections={SECTIONS}
+      sections={sections}
       activeNav={activeNav}
       onNavClick={scrollToSection}
       mainRef={mainRef}
-      navAriaLabel="ניווט בתוך לינקים"
+      navAriaLabel={t.links.navAria}
+      lang={lang}
     >
       <SalesPathSectionBlock
         stepPrefix="links"
         id="website"
-        title="לינק לאתר"
-        hint="סרקו והמתינו דקה ליצירת תוכן אוטומטית"
+        title={t.links.websiteLink}
+        hint={t.links.websiteHint}
         open={openSections.website}
         onToggle={() => toggle("website")}
         filled={filled.website}
@@ -187,13 +195,13 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             className="shrink-0 gap-2"
           >
             {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {fetchingUrl ? "סורק..." : "סרוק"}
+            {fetchingUrl ? t.scanning : t.scan}
           </Button>
         </div>
         {fetchingUrl ? (
           <p className="text-sm text-[#7133da] flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
-            מנתח את האתר - זה לוקח כמה שניות...
+            {t.links.analyzing}
           </p>
         ) : null}
         {fetchSiteError ? (
@@ -211,7 +219,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
       <SalesPathSectionBlock
         stepPrefix="links"
         id="booking"
-        title="קישורי מערכת"
+        title={t.links.bookingLinks}
         open={openSections.booking}
         onToggle={() => toggle("booking")}
         filled={filled.booking}
@@ -238,15 +246,15 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               ].join(" ")}
               onClick={() => scheduleScanMediaInputRef.current?.click()}
               disabled={uploadingScheduleScanMedia}
-              title="מומלץ: צילום מסך/תמונה חתוכה של טבלת המערכת"
+              title={t.links.uploadScheduleImageTitle}
             >
-              {uploadingScheduleScanMedia ? "מעלה…" : "העלאת תמונה (מומלץ)"}
+              {uploadingScheduleScanMedia ? t.uploading : t.links.uploadScheduleImage}
             </button>
           </>
         }
       >
         <div>
-          <SalesPathFieldLabel>לינק מערכת שעות</SalesPathFieldLabel>
+          <SalesPathFieldLabel>{t.links.scheduleLink}</SalesPathFieldLabel>
           <Input
             dir="ltr"
             value={arboxLink}
@@ -256,15 +264,15 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
           />
           {scheduleScanImageUrl.trim() ? (
             <div className="mt-3 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2" dir="rtl">
-                <p className="text-xs font-semibold text-zinc-800">תמונת לוח לסריקה (מועדפת)</p>
+              <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>
+                <p className="text-xs font-semibold text-zinc-800">{t.links.scheduleImagePreferred}</p>
                 <Button
                   type="button"
                   variant="outline"
                   className="h-8 gap-1.5 text-xs border-zinc-200 bg-white hover:bg-red-50/70 text-red-600"
                   onClick={() => setScheduleScanImageUrl("")}
                 >
-                  הסר
+                  {t.remove}
                 </Button>
               </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -273,8 +281,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 alt=""
                 className="mt-2 w-full max-h-52 rounded-lg object-contain bg-white"
               />
-              <p className="mt-2 text-[11px] text-zinc-500 leading-snug" dir="rtl">
-                מומלץ להעלות צילום מסך חתוך רק של הטבלה (בלי תפריטים/באנרים) כדי לשפר דיוק.
+              <p className="mt-2 text-[11px] text-zinc-500 leading-snug" dir={dashboardDir(lang)}>
+                {t.links.scheduleImageTip}
               </p>
             </div>
           ) : null}
@@ -284,7 +292,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             </p>
           ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2">
-            <span className="text-sm font-medium text-zinc-800">הרשמה ישירות מהמערכת?</span>
+            <span className="text-sm font-medium text-zinc-800">{t.links.directRegistration}</span>
             <button
               type="button"
               role="switch"
@@ -296,7 +304,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                   : "border-zinc-200 bg-white text-zinc-600"
               }`}
             >
-              <span>{scheduleDirectRegistration ? "כן" : "לא"}</span>
+              <span>{scheduleDirectRegistration ? t.yes : t.no}</span>
               <span
                 className={`h-4 w-7 rounded-full p-0.5 transition-colors ${
                   scheduleDirectRegistration ? "bg-emerald-500" : "bg-zinc-300"
@@ -313,7 +321,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
           </div>
         </div>
         <div>
-          <SalesPathFieldLabel>לינק לדף מנויים וכרטיסיות</SalesPathFieldLabel>
+          <SalesPathFieldLabel>{t.links.membershipsLink}</SalesPathFieldLabel>
           <Input
             dir="ltr"
             value={membershipsUrl}
@@ -327,22 +335,22 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
       <SalesPathSectionBlock
         stepPrefix="links"
         id="crm"
-        title="חיבור CRM"
-        hint="עדכונים אוטומטיים ל-CRM"
+        title={t.links.crmTitle}
+        hint={t.links.crmHint}
         open={openSections.crm}
         onToggle={() => toggle("crm")}
         filled={filled.crm}
       >
         <p className="text-[11px] leading-snug text-zinc-500">
-          זואי תעדכן את התוכנה כשליד נרשם, מבקש נציג או לא עונה אחרי כל הפולואפים.
+          {t.links.crmIntro}
         </p>
         <div>
-          <SalesPathFieldLabel>סוג CRM</SalesPathFieldLabel>
+          <SalesPathFieldLabel>{t.links.crmType}</SalesPathFieldLabel>
           <select
             value={crmType}
             onChange={(e) => setCrmType(e.target.value as CrmType)}
             className={`${SALES_PATH_INPUT} w-full px-3 text-right`}
-            dir="rtl"
+            dir={dashboardDir(lang)}
           >
             {CRM_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value || "none"} value={opt.value}>
@@ -354,14 +362,14 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
         {crmType ? (
           <div className="space-y-4">
             <div>
-              <SalesPathFieldLabel>מפתח API</SalesPathFieldLabel>
+              <SalesPathFieldLabel>{t.links.apiKey}</SalesPathFieldLabel>
               <Input
                 dir="ltr"
                 type="password"
                 autoComplete="off"
                 value={crmApiKey}
                 onChange={(e) => setCrmApiKey(e.target.value)}
-                placeholder="הדביקו כאן את מפתח ה-API"
+                placeholder={t.links.apiKeyPlaceholder}
                 className={cnInputLtr()}
               />
             </div>
@@ -369,8 +377,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               <div className="space-y-4">
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-zinc-800">מזהה סניף</span>
-                    <CrmFieldHint text="מזהה הסניף בארבוקס — 4 ספרות בכתובת ה-URL במערכת השעות של ארבוקס" />
+                    <span className="text-[13px] font-medium text-zinc-800">{t.links.branchId}</span>
+                    <CrmFieldHint text={t.links.branchIdHint} lang={lang} explainAria={t.explainAria} />
                   </div>
                   <Input
                     dir="ltr"
@@ -384,8 +392,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 </div>
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-zinc-800">סטטוס ליד חדש</span>
-                    <CrmFieldHint text="מצאו בהגדרות → לידים → יצירת סטטוס ליד חדש" />
+                    <span className="text-[13px] font-medium text-zinc-800">{t.links.leadStatus}</span>
+                    <CrmFieldHint text={t.links.leadStatusHint} lang={lang} explainAria={t.explainAria} />
                   </div>
                   <Input
                     dir="ltr"
@@ -399,8 +407,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 </div>
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-zinc-800">מקור ליד (אופציונלי)</span>
-                    <CrmFieldHint text="צרו מקור לידים לזואי, על ידי הגדרות → לידים → יצירת מקור לידים חדש" />
+                    <span className="text-[13px] font-medium text-zinc-800">{t.links.leadSource}</span>
+                    <CrmFieldHint text={t.links.leadSourceHint} lang={lang} explainAria={t.explainAria} />
                   </div>
                   <Input
                     dir="ltr"
@@ -415,18 +423,18 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               </div>
             ) : null}
             <p className="text-[11px] leading-snug text-zinc-500">
-              המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.
+              {t.links.apiKeySecure}
             </p>
           </div>
         ) : (
-          <p className="text-[11px] leading-snug text-zinc-500">בחרו תוכנת CRM כדי להזין מפתח API.</p>
+          <p className="text-[11px] leading-snug text-zinc-500">{t.links.selectCrm}</p>
         )}
       </SalesPathSectionBlock>
 
       <SalesPathSectionBlock
         stepPrefix="links"
         id="social"
-        title="לינק לאינסטגרם"
+        title={t.links.instagramLink}
         open={openSections.social}
         onToggle={() => toggle("social")}
         filled={filled.social}

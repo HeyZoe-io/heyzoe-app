@@ -32,7 +32,7 @@ import {
   BUSINESS_INACTIVE_AUTO_REPLY_MODEL,
   buildInactiveBusinessAutoReply,
   customerServicePhoneFromSocialLinks,
-  ZOE_WHATSAPP_MENU_FOOTER,
+  getZoeWhatsAppMenuFooter,
 } from "@/lib/whatsapp-copy";
 import {
   contactPhoneLookupVariants,
@@ -126,18 +126,43 @@ import {
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
+import { fetchPhoneNumbersForWaba } from "@/lib/meta-waba-resolve";
+import {
+  addressDirectionsPrefix,
+  addressMissingMessage,
+  addressOurPrefix,
+  ctaOpenQuestionNote,
+  formatAddressReplyLines,
+  instagramFollowLine,
+  registeredFlowContinuationClosing,
+  resolveBusinessContentLanguageFromKnowledge,
+  trialAlreadyRegisteredSoftClosing,
+  trialAlreadyRegisteredSoftIntro,
+  trialLinkPostCtaMessage,
+  trialSignupLinkIntro,
+  trialSignupLinkMissing,
+} from "@/lib/business-content-lang";
 
-const TRIAL_LINK_POST_CTA_MESSAGE =
-  "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
 const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
   "לאחר התשלום כתבו *נרשמתי* ואשלח לכם את כל הפרטים!";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 
+function salesFlowMenuFooter(knowledge: BusinessKnowledgePack | null | undefined): string {
+  return getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(knowledge));
+}
+
+function stripZoeMenuFooterFromText(text: string): string {
+  let t = text;
+  t = t.replaceAll(getZoeWhatsAppMenuFooter("he"), "");
+  t = t.replaceAll(getZoeWhatsAppMenuFooter("en"), "");
+  return t.replace(/\n{3,}/g, "\n\n");
+}
+
 function formatInteractiveConversationLog(
   body: string,
   labels: string[],
-  footerHint = ZOE_WHATSAPP_MENU_FOOTER
+  footerHint = getZoeWhatsAppMenuFooter()
 ): string {
   const cleanLabels = labels.map((label) => String(label ?? "").trim()).filter(Boolean);
   return [
@@ -328,6 +353,17 @@ const SALES_FLOW_GREETING_TRIGGERS = new Set([
   "אשמח לפרטים",
   "היי אשמח לפרטים",
   "הי אשמח לפרטים",
+  // English (normalized: apostrophes stripped → i'd → id)
+  "id like details",
+  "i would like details",
+  "id like more info",
+  "tell me more",
+  "more info",
+  "more details",
+  "info please",
+  "details please",
+  "more info please",
+  "looking for info",
 ]);
 
 function isSalesFlowGreetingTrigger(text: string): boolean {
@@ -395,7 +431,18 @@ function isAddressOrDirectionsIntent(text: string): boolean {
     normalized.includes("הנחיות הגעה") ||
     normalized.includes("דרכי הגעה") ||
     normalized.includes("איך באים") ||
-    normalized.includes("איך מגיעה")
+    normalized.includes("איך מגיעה") ||
+    normalized.includes("whats the address") ||
+    normalized.includes("what is the address") ||
+    normalized.includes("where are you located") ||
+    normalized.includes("where are you") ||
+    normalized.includes("where is the studio") ||
+    normalized.includes("your address") ||
+    normalized.includes("your location") ||
+    normalized.includes("how do i get there") ||
+    normalized.includes("directions") ||
+    normalized.includes("how to get to you") ||
+    normalized.includes("where to find you")
   );
 }
 
@@ -478,7 +525,7 @@ function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
 
 /** «איך נרשמים/מצטרפים» — לא שאלות כלליות על «הרשמה» באמצע חימום וכו׳ */
 function isJoinSignupIntentText(normalized: string): boolean {
-  const t = normalized.trim();
+  const t = normalizeGreetingToken(normalized);
   if (!t) return false;
   if (/^(איך|איפה)\s+/u.test(t) && /(נרשמים|נרשם|נרשמת|להירשם|מצטרפים|מצטרף|להצטרף|הצטרפות)/u.test(t)) {
     return true;
@@ -486,6 +533,12 @@ function isJoinSignupIntentText(normalized: string): boolean {
   if (/רוצה\s+(להירשם|להצטרף)/u.test(t)) return true;
   if (/איך\s+מתחילים/u.test(t)) return true;
   if (/איך\s+(קונים|רוכשים|מזמינים|משריינים|שומרים\s+מקום)/u.test(t)) return true;
+  if (/^how (?:do|can) i (?:sign up|register|join)/u.test(t)) return true;
+  if (/^how to (?:sign up|register|join)/u.test(t)) return true;
+  if (/^i want to (?:register|join|sign up)/u.test(t)) return true;
+  if (/^id like to (?:register|join|sign up)/u.test(t)) return true;
+  if (/^i would like to (?:register|join|sign up)/u.test(t)) return true;
+  if (/^sign me up$/u.test(t)) return true;
   return false;
 }
 
@@ -1068,11 +1121,16 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
 function buildScheduleTimeSideAnswer(text: string, knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
   if (userRequestedHumanAgent(text)) return "";
   if (isAddressOrDirectionsIntent(text)) {
+    const lang = resolveBusinessContentLanguageFromKnowledge(knowledge);
     const address = knowledge.addressText?.trim() ?? "";
     const directions = knowledge.directionsText?.trim() ?? "";
-    return address
-      ? [`הכתובת שלנו: ${address}`, directions ? `ככה מגיעים אלינו: ${directions}` : ""].filter(Boolean).join("\n")
-      : "הכתובת תתעדכן בקרוב, ונשמח לשלוח לך את כל הפרטים.";
+    if (!address) return addressMissingMessage(lang);
+    return [
+      `${addressOurPrefix(lang)} ${address}`,
+      directions ? `${addressDirectionsPrefix(lang)} ${directions}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
   const norm = normalizeGreetingToken(text);
   if (/(מחיר|כמה עולה|עלות|תשלום|עולה)/u.test(norm)) {
@@ -1584,18 +1642,21 @@ async function executeWarmupExtraPickAt(input: {
   if (!picked) return { handled: false };
 
   const replyRaw = String(current?.replies?.[input.pickedIdx] ?? "").trim();
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const nextIdx = input.lastIdx + 1;
   if (nextIdx < input.cleanSteps.length) {
     const next = input.cleanSteps[nextIdx]!;
     const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
     const combined = [replyRaw, next.question].filter(Boolean).join("\n\n").trim();
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, combined, nextOpts, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
     await logMessage({
       business_slug: input.business_slug,
       role: "assistant",
-      content: formatInteractiveConversationLog(combined, nextOpts),
+      content: formatInteractiveConversationLog(combined, nextOpts, menuFooter),
       model_used: "sales_flow_warmup_extra",
       session_id: input.sessionId,
     });
@@ -1805,6 +1866,7 @@ async function attemptWarmupExtraMenuPick(input: {
       opts.length >= 2 &&
       shouldResendDeterministicMenuOnUnrecognizedPick(input.msg)
     ) {
+      const menuFooter = salesFlowMenuFooter(input.knowledge);
       await sendWhatsAppTextOrMenu(
         input.msg.toNumber,
         input.msg.from,
@@ -1812,12 +1874,15 @@ async function attemptWarmupExtraMenuPick(input: {
         opts,
         input.accountSid,
         input.authToken,
-        { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+        {
+          footerHint: menuFooter,
+          language: resolveBusinessContentLanguageFromKnowledge(input.knowledge),
+        }
       ).catch((e) => console.error("[WA Webhook] Resend warmup-extra menu failed:", e));
       await logMessage({
         business_slug: input.business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(current.question, opts),
+        content: formatInteractiveConversationLog(current.question, opts, menuFooter),
         model_used: "sales_flow_warmup_extra_resend",
         session_id: input.sessionId,
       });
@@ -1888,9 +1953,12 @@ async function sendOpeningServicePickMenu(input: {
     stripScheduleLineFromMultiServiceQuestion(qRaw) ||
     DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
   const modelUsed = input.modelUsed ?? "flow_continuation_opening_service_pick";
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     }).catch((e) => console.error("[WA Webhook] Send service pick menu (Meta) failed:", e));
   } else {
     const numbered = labels.map((l, i) => `${i + 1}. ${l}`).join("\n");
@@ -1902,7 +1970,7 @@ async function sendOpeningServicePickMenu(input: {
   await logMessage({
     business_slug: input.business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(split.logBody, labels),
+    content: formatInteractiveConversationLog(split.logBody, labels, menuFooter),
     model_used: modelUsed,
     session_id: input.sessionId,
   });
@@ -1995,12 +2063,15 @@ async function sendScheduleSlotPickMenu(input: {
   const serviceName = input.selectedService?.name?.trim() || "האימון";
   const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName));
 
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   let outboundLog = body;
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     });
-    outboundLog = formatInteractiveConversationLog(body, labels);
+    outboundLog = formatInteractiveConversationLog(body, labels, menuFooter);
   } else {
     const numbered = ["בחרו מועד — כתבו את המספר מהרשימה:", ...labels.map((l, i) => `${i + 1}. ${l}`)].join("\n");
     const full = `${body}\n\n${numbered}`;
@@ -2073,12 +2144,15 @@ async function sendCourseCycleStartPickMenu(input: {
     [...introParts, pickQuestion].filter(Boolean).join("\n\n")
   );
 
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   let outboundLog = body;
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
     await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     });
-    outboundLog = formatInteractiveConversationLog(body, labels);
+    outboundLog = formatInteractiveConversationLog(body, labels, menuFooter);
   } else {
     const numbered = ["בחרו מחזור — כתבו את המספר מהרשימה:", ...labels.map((l, i) => `${i + 1}. ${l}`)].join("\n");
     const full = `${body}\n\n${numbered}`;
@@ -2412,12 +2486,16 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (!ctaBody) return;
 
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+  const menuFooter = getZoeWhatsAppMenuFooter(contentLang);
+
   if (ctaLabels.length >= 1) {
     await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, ctaBody, ctaLabels, accountSid, authToken, {
-      footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+      footerHint: menuFooter,
+      language: contentLang,
     }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu failed:", e));
   } else {
-    await sendWhatsAppMessage(msg.toNumber, msg.from, `${ctaBody}\n\n${ZOE_WHATSAPP_MENU_FOOTER}`, accountSid, authToken).catch((e) =>
+    await sendWhatsAppMessage(msg.toNumber, msg.from, `${ctaBody}\n\n${menuFooter}`, accountSid, authToken).catch((e) =>
       console.error("[WA Webhook] sendSalesFlowCtaMenu plain failed:", e)
     );
   }
@@ -2425,7 +2503,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   await logMessage({
     business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(ctaBody, ctaLabels),
+    content: formatInteractiveConversationLog(ctaBody, ctaLabels, menuFooter),
     model_used: modelUsed,
     session_id: sessionId,
   });
@@ -2452,7 +2530,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     if (shouldSendNote) {
       // Immediate follow-up after CTA buttons: encourage free-text questions.
       await sleepMs(450);
-      const note = "אגב, אפשר לכתוב לי גם שאלה פתוחה ואני אענה :)";
+      const note = ctaOpenQuestionNote(contentLang);
       await sendWhatsAppMessage(msg.toNumber, msg.from, note, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send CTA note failed:", e)
       );
@@ -2491,6 +2569,7 @@ async function sendWarmupExperienceQuestionMenu(input: {
   businessId: string;
   blockTrialPickMedia: boolean;
   bumpFlowStep: boolean;
+  contentLang?: import("@/lib/business-content-lang").BusinessContentLanguage;
 }): Promise<boolean> {
   const menu = await buildWarmupExperienceMenu({
     cfg: input.cfg,
@@ -2523,6 +2602,7 @@ async function sendWarmupExperienceQuestionMenu(input: {
     });
   }
 
+  const menuFooter = getZoeWhatsAppMenuFooter(input.contentLang ?? "he");
   await sendWhatsAppTextOrMenu(
     input.msg.toNumber,
     input.msg.from,
@@ -2530,13 +2610,13 @@ async function sendWarmupExperienceQuestionMenu(input: {
     menu.options,
     input.accountSid,
     input.authToken,
-    { footerHint: ZOE_WHATSAPP_MENU_FOOTER }
+    { footerHint: menuFooter, language: input.contentLang ?? "he" }
   ).catch((e) => console.error("[WA Webhook] warmup experience menu failed:", e));
 
   await logMessage({
     business_slug: input.business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(menu.question, menu.options),
+    content: formatInteractiveConversationLog(menu.question, menu.options, menuFooter),
     model_used: WA_WARMUP_EXPERIENCE_SENT_MODEL,
     session_id: input.sessionId,
   });
@@ -2619,13 +2699,15 @@ async function sendFlowContinuation(input: {
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
+  const menuFooter = salesFlowMenuFooter(knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
   if (phase === "registered") {
     const igRaw = knowledge.instagramUrl?.trim();
     const includeIg = Boolean(igRaw?.length) && !instagramFollowPromptSent;
     const parts = [
-      includeIg ? `מוזמנים לעקוב אחרינו באינסטגרם:\n${igRaw}` : "",
-      "ואם יש עוד משהו — כתבו כאן ואשמח לענות 🙂",
+      includeIg && igRaw ? instagramFollowLine(contentLang, igRaw) : "",
+      registeredFlowContinuationClosing(contentLang),
     ].filter(Boolean);
     const txt = parts.join("\n\n").trim();
     if (!txt) return;
@@ -2804,6 +2886,7 @@ async function sendFlowContinuation(input: {
         businessId,
         blockTrialPickMedia,
         bumpFlowStep: false,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
       if (resent) return;
     }
@@ -2825,12 +2908,13 @@ async function sendFlowContinuation(input: {
     if (step < cleanGreeting.length) {
       const st = cleanGreeting[step]!;
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] flow continuation opening extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options),
+        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
         model_used: "flow_continuation_opening_extra",
         session_id: sessionId,
       });
@@ -2945,6 +3029,7 @@ async function sendFlowContinuation(input: {
         businessId,
         blockTrialPickMedia,
         bumpFlowStep: true,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
       if (sent) return;
     }
@@ -2953,12 +3038,13 @@ async function sendFlowContinuation(input: {
     const st = extraIdx >= 0 ? cleanWarm[extraIdx] : undefined;
     if (st) {
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] flow continuation warmup extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options),
+        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
         model_used: "flow_continuation_warmup_extra",
         session_id: sessionId,
       });
@@ -3098,6 +3184,8 @@ async function resendUnansweredSalesFlowPrompt(
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
+  const menuFooter = salesFlowMenuFooter(knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
   const step = Number.isFinite(contact.flow_step) ? contact.flow_step : 0;
 
@@ -3115,12 +3203,13 @@ async function resendUnansweredSalesFlowPrompt(
     if (step < cleanGreeting.length) {
       const st = cleanGreeting[step]!;
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] resend opening extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options),
+        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
         model_used: "sales_flow_opening_extra_resend",
         session_id: sessionId,
       });
@@ -3180,6 +3269,7 @@ async function resendUnansweredSalesFlowPrompt(
         businessId,
         blockTrialPickMedia: blockTrialPickMedia ?? false,
         bumpFlowStep: false,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
       return;
     }
@@ -3205,12 +3295,13 @@ async function resendUnansweredSalesFlowPrompt(
     if (st?.question && (st.options?.length ?? 0) >= 2) {
       const opts = st.options.map((o) => String(o ?? "").trim()).filter(Boolean);
       await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, opts, accountSid, authToken, {
-        footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+        footerHint: menuFooter,
+        language: contentLang,
       }).catch((e) => console.error("[WA Webhook] resend warmup extra failed:", e));
       await logMessage({
         business_slug,
         role: "assistant",
-        content: formatInteractiveConversationLog(st.question, opts),
+        content: formatInteractiveConversationLog(st.question, opts, menuFooter),
         model_used: "sales_flow_warmup_extra_resend",
         session_id: sessionId,
       });
@@ -3230,6 +3321,7 @@ async function resendUnansweredSalesFlowPrompt(
         businessId,
         blockTrialPickMedia: blockTrialPickMedia ?? false,
         bumpFlowStep: false,
+        contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
       });
     }
     return;
@@ -3480,6 +3572,192 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
   return false;
 }
 
+type AccountUpdateEvent = {
+  waba_id: string;
+  event: string;
+  value: Record<string, unknown>;
+};
+
+/**
+ * Parses Meta `account_update` webhook payloads.
+ * Per Meta docs: `entry.id` is the business portfolio ID; customer WABA ID is
+ * `changes[].value.waba_info.waba_id`; event name is `changes[].value.event`.
+ */
+export function parseAccountUpdate(payload: unknown): AccountUpdateEvent | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  if (root.object !== "whatsapp_business_account") return null;
+
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  for (const entry of entries) {
+    const ent = entry as Record<string, unknown>;
+    const changes = Array.isArray(ent.changes) ? ent.changes : [];
+    for (const change of changes) {
+      const ch = change as Record<string, unknown>;
+      if (String(ch.field ?? "").trim() !== "account_update") continue;
+      const value = ch.value;
+      if (!value || typeof value !== "object") continue;
+      const v = value as Record<string, unknown>;
+      const event = String(v.event ?? "").trim();
+      if (!event) continue;
+
+      const wabaInfo = v.waba_info;
+      const wabaFromInfo =
+        wabaInfo && typeof wabaInfo === "object"
+          ? String((wabaInfo as Record<string, unknown>).waba_id ?? "")
+              .trim()
+              .replace(/\s+/g, "")
+          : "";
+      const waba_id = wabaFromInfo;
+      if (!waba_id) continue;
+
+      return { waba_id, event, value: v };
+    }
+  }
+  return null;
+}
+
+async function subscribeWabaToAppWebhooks(wabaId: string, token: string): Promise<void> {
+  const waba = String(wabaId ?? "").trim();
+  const accessToken = String(token ?? "").trim();
+  if (!waba || !accessToken) {
+    throw new Error("missing_waba_or_token");
+  }
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(waba)}/subscribed_apps`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`subscribed_apps_http_${res.status}: ${bodyText || res.statusText}`);
+  }
+}
+
+async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
+  const wabaId = String(waba_id ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+  if (!wabaId) return;
+
+  const systemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim() ?? "";
+  const admin = createSupabaseAdminClient();
+
+  const { data: business, error: bizErr } = await admin
+    .from("businesses")
+    .select("id, slug")
+    .eq("waba_id", wabaId)
+    .limit(1)
+    .maybeSingle();
+
+  if (bizErr) {
+    console.error("[WA Webhook] PARTNER_ADDED business lookup failed:", bizErr.message);
+    return;
+  }
+
+  if (!business?.id) {
+    console.warn("[WA Webhook] PARTNER_ADDED for unknown waba_id:", wabaId);
+    return;
+  }
+
+  const businessId = Number((business as { id?: unknown }).id);
+  const businessSlug = String((business as { slug?: unknown }).slug ?? "")
+    .trim()
+    .toLowerCase();
+  console.info(`[WA Webhook] business found: id=${businessId}, slug=${businessSlug}`);
+
+  const { data: channel, error: chErr } = await admin
+    .from("whatsapp_channels")
+    .select("phone_number_id, provisioning_status")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (chErr) {
+    console.error("[WA Webhook] PARTNER_ADDED channel lookup failed:", chErr.message);
+  }
+
+  if (channel?.phone_number_id) {
+    const { error: updErr } = await admin
+      .from("whatsapp_channels")
+      .update({ is_active: true, provisioning_status: "active" } as any)
+      .eq("business_id", businessId);
+    if (updErr) {
+      console.error("[WA Webhook] channel update failed:", updErr.message);
+    } else {
+      console.info("[WA Webhook] channel updated: provisioning_status=active");
+    }
+  } else if (systemToken) {
+    try {
+      const numbers = await fetchPhoneNumbersForWaba(wabaId, systemToken);
+      console.info(
+        `[WA Webhook] self-healing: fetched phone_numbers for waba_id=${wabaId} (count=${numbers.length})`
+      );
+      if (numbers.length === 0) {
+        console.warn(
+          `[WA Webhook] self-healing: no phone numbers on WABA yet waba_id=${wabaId}; skipping channel insert`
+        );
+      } else {
+        const first = numbers[0];
+        const { error: insErr } = await admin.from("whatsapp_channels").upsert(
+          {
+            business_id: businessId,
+            business_slug: businessSlug,
+            phone_number_id: first.id,
+            phone_display: first.display_phone_number ?? null,
+            is_active: true,
+            provisioning_status: "active",
+          } as any,
+          { onConflict: "phone_number_id" }
+        );
+        if (insErr) {
+          console.error("[WA Webhook] self-healing channel upsert failed:", insErr.message);
+        } else {
+          console.info(
+            `[WA Webhook] self-healing: upserted whatsapp_channels phone_number_id=${first.id}`
+          );
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[WA Webhook] self-healing fetchPhoneNumbersForWaba failed:", msg);
+    }
+  } else {
+    console.warn("[WA Webhook] self-healing skipped: WHATSAPP_SYSTEM_TOKEN missing");
+  }
+
+  const { data: releasedJobs, error: releaseErr } = await admin
+    .from("wa_provision_jobs")
+    .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+    .eq("business_id", businessId)
+    .eq("status", "awaiting_waba")
+    .select("id");
+  if (releaseErr) {
+    console.error("[WA Webhook] release wa_provision_jobs failed:", releaseErr.message);
+  } else if (releasedJobs?.length) {
+    console.info(
+      `[WA Webhook] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+    );
+  }
+
+  if (systemToken) {
+    try {
+      await subscribeWabaToAppWebhooks(wabaId, systemToken);
+      console.info("[WA Webhook] subscribed_apps: success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[WA Webhook] subscribed_apps failed:", msg);
+    }
+  } else {
+    console.warn("[WA Webhook] subscribed_apps skipped: WHATSAPP_SYSTEM_TOKEN missing");
+  }
+}
+
 // ─── GET — Meta webhook verification ─────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -3557,6 +3835,19 @@ export async function POST(req: NextRequest) {
     msg = parseMetaWebhook(metaPayload);
     if (!msg) {
       console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
+      const accountUpdate = parseAccountUpdate(metaPayload);
+      if (accountUpdate) {
+        console.info(
+          `[WA Webhook] account_update: event=${accountUpdate.event}, waba_id=${accountUpdate.waba_id}`
+        );
+        if (accountUpdate.event === "PARTNER_ADDED") {
+          await handlePartnerAddedEvent(accountUpdate.waba_id).catch((e) =>
+            console.error("[WA Webhook] handlePartnerAddedEvent error:", e)
+          );
+        } else {
+          console.info(`[WA Webhook] unhandled account_update event: ${accountUpdate.event}`);
+        }
+      }
     }
   } else {
     if (trimmedBody.startsWith("{")) {
@@ -4553,6 +4844,7 @@ async function processIncoming(
           regOfferKind === "course" && requestedDate
             ? courseSchedulePhraseForRegistration(selectedService, requestedDate)
             : "";
+        const regContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
         const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
           bodyTemplate,
           includeIgPrompt ? igUrlRaw : "",
@@ -4566,7 +4858,8 @@ async function processIncoming(
                 offerKind: regOfferKind,
                 courseSchedulePhrase: courseSchedForReg,
               }
-            : undefined
+            : undefined,
+          regContentLang
         );
         const outTextFallback =
           regOfferKind === "workshop"
@@ -5587,15 +5880,18 @@ async function processIncoming(
           );
           const menuLabels = menuLabelsRaw.slice(0, 12);
           if (!fuBody || menuLabels.length < 1) return;
+          const postLinkMenuFooter = salesFlowMenuFooter(knowledge);
+          const postLinkContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const logged = [
             fuBody.trim(),
             menuLabels.map((label, index) => `${index + 1}. ${label}`).join("\n"),
-            ZOE_WHATSAPP_MENU_FOOTER,
+            postLinkMenuFooter,
           ]
             .filter((x) => x.length > 0)
             .join("\n\n");
           await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, fuBody.trim(), menuLabels, accountSid, authToken, {
-            footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+            footerHint: postLinkMenuFooter,
+            language: postLinkContentLang,
           }).catch((e) => console.error("[WA Webhook] Send post-link menu failed:", e));
           await logMessage({
             business_slug,
@@ -5607,12 +5903,13 @@ async function processIncoming(
         };
 
         if (wantsTrial && contactTrialRegistered === true && !allowTrialCtaThisSession) {
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const igRaw = knowledge?.instagramUrl?.trim() ?? "";
           const includeIg = igRaw.length > 0 && !contactInstagramFollowPromptSent;
           const soft = [
-            "כבר נרשמתם לניסיון — מעולה 🎉",
-            includeIg ? `בינתיים מוזמנים לעקוב אחרינו באינסטגרם:\n${igRaw}` : "",
-            "ואם יש שאלה נוספת — פשוט כתבו כאן.",
+            trialAlreadyRegisteredSoftIntro(contentLang),
+            includeIg ? instagramFollowLine(contentLang, igRaw) : "",
+            trialAlreadyRegisteredSoftClosing(contentLang),
           ]
             .filter(Boolean)
             .join("\n\n");
@@ -5647,15 +5944,16 @@ async function processIncoming(
               console.warn("[WA Webhook] markRegistrationCtaClicked failed:", e);
             }
           }
-          const txt = `איזו החלטה מדהימה 🙂 נרשמים ממש כאן:\n${trialUrl}`;
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const postCtaHint = trialLinkPostCtaMessage(contentLang);
+          const txt = `${trialSignupLinkIntro(contentLang)}\n${trialUrl}`;
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send trial link failed:", e)
           );
-          await sendWhatsAppMessage(msg.toNumber, msg.from, TRIAL_LINK_POST_CTA_MESSAGE, accountSid, authToken).catch(
-            (e) => console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
+          await sendWhatsAppMessage(msg.toNumber, msg.from, postCtaHint, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send trial link post-CTA hint failed:", e)
           );
-          // After "לאחר ההרשמה…" we don't need to push another CTA/menu.
-          const logged = `${txt}\n\n${TRIAL_LINK_POST_CTA_MESSAGE}`;
+          const logged = `${txt}\n\n${postCtaHint}`;
           await logMessage({
             business_slug,
             role: "assistant",
@@ -5666,8 +5964,8 @@ async function processIncoming(
           return;
         }
         if (wantsTrial && !trialUrl) {
-          const txt =
-            "כרגע אין לנו כאן קישור הרשמה - כתבו בקצרה ונחזור אליכם, או בחרו צפייה במערכת השעות.";
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const txt = trialSignupLinkMissing(contentLang);
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
           await logMessage({
             business_slug,
@@ -6080,11 +6378,10 @@ async function processIncoming(
         }
 
         if (wantsAddress) {
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const address = knowledge?.addressText?.trim() ?? "";
           const directions = knowledge?.directionsText?.trim() ?? "";
-          const txt = address
-            ? [`הכתובת שלנו:`, address, directions ? `ככה מגיעים אלינו:\n${directions}` : ""].filter(Boolean).join("\n")
-            : "הכתובת תתעדכן בקרוב. כתבו לנו ונשלח לכם את כל הפרטים.";
+          const txt = formatAddressReplyLines(contentLang, address, directions);
           const directionsMediaUrl = knowledge?.directionsMediaUrl?.trim() ?? "";
           sfClickedCtaKinds = await bumpSfConsumedCtaKind({
             supabase,
@@ -6217,13 +6514,15 @@ async function processIncoming(
             const firstOpts = first.options.map((o) => String(o ?? "").trim()).filter(Boolean);
             const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
             const combined = [bodyOnly, first.question].filter(Boolean).join("\n\n").trim();
+            const menuFooter = salesFlowMenuFooter(knowledge);
             await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, firstOpts, accountSid, authToken, {
-              footerHint: ZOE_WHATSAPP_MENU_FOOTER,
+              footerHint: menuFooter,
+              language: resolveBusinessContentLanguageFromKnowledge(knowledge),
             }).catch((e) => console.error("[WA Webhook] Send warmup-extra first step failed:", e));
             await logMessage({
               business_slug,
               role: "assistant",
-              content: formatInteractiveConversationLog(combined, firstOpts),
+              content: formatInteractiveConversationLog(combined, firstOpts, menuFooter),
               model_used: "sales_flow_warmup_extra",
               session_id: sessionId,
             });
@@ -6836,6 +7135,7 @@ async function processIncoming(
     ) {
       scheduleInterestServiceName = pickedForPrompt.trim();
     }
+    const currentText = msg.text.trim();
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -6853,14 +7153,14 @@ async function processIncoming(
         scheduleInterestServiceName,
         pickedServiceScheduleLexicon,
       },
-      platformGuidelines
+      platformGuidelines,
+      currentText
     );
     const history = await fetchRecentSessionMessages({
       business_slug,
       session_id: sessionId,
       limit: 10,
     });
-    const currentText = msg.text.trim();
     const claudeMessages =
       history.length > 0
         ? history.map((m) => ({ role: m.role, content: m.content }))
@@ -6987,6 +7287,8 @@ async function processIncoming(
     isCtaServiceFitQuestion(incomingRaw) &&
     !isExplicitOtherServiceRequest(incomingRaw);
 
+  const menuFooter = salesFlowMenuFooter(knowledge);
+  const aiMenuContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
   const stripCandidates = [
     ...serviceSelectionLabels,
     ...buttons,
@@ -7000,9 +7302,7 @@ async function processIncoming(
     ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore), stripCandidates)
     : replyCore;
   const replyCoreClean = applyKnownAssistantReplyFixes(
-    stripAssistantInteractiveButtonsLog(
-      replyCoreForMenu.replaceAll(ZOE_WHATSAPP_MENU_FOOTER, "").replace(/\n{3,}/g, "\n\n")
-    ),
+    stripAssistantInteractiveButtonsLog(stripZoeMenuFooterFromText(replyCoreForMenu)),
     {
       knowledge,
       phase: contactSessionPhase,
@@ -7108,7 +7408,7 @@ async function processIncoming(
       replyText += `\n\n${ctaText}: ${ctaLink}`;
     }
 
-    if (!shouldSplitCtaAnswerAndMenu && shouldShowFooter) replyText += `\n\n${ZOE_WHATSAPP_MENU_FOOTER}`;
+    if (!shouldSplitCtaAnswerAndMenu && shouldShowFooter) replyText += `\n\n${menuFooter}`;
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
@@ -7313,7 +7613,8 @@ async function processIncoming(
           });
         }
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
-          footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? ZOE_WHATSAPP_MENU_FOOTER : "",
+          footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? menuFooter : "",
+          language: aiMenuContentLang,
         });
       }
 

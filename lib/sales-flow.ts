@@ -2,6 +2,11 @@
  * מסלול מכירה מובנה - פתיחה + הנעה לפעולה, סנכרון ל-welcome_message ולפרומפט זואי.
  */
 
+import { detectMessageLanguage } from "@/lib/language-detect";
+import {
+  instagramVisitInMeantimeLine,
+  type BusinessContentLanguage,
+} from "@/lib/business-content-lang";
 import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 
@@ -1698,6 +1703,21 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
   };
 }
 
+function greetingContentAlreadyHasAddress(parts: string[], addressText: string): boolean {
+  const blob = parts.join("\n");
+  const addr = addressText.trim();
+  if (addr && blob.toLowerCase().includes(addr.toLowerCase())) return true;
+  return /(?:כתובתנו|we(?:'re| are) (?:located |at )|located at|our address)/i.test(blob);
+}
+
+function formatGreetingAddressLine(addressText: string, contentLangSample: string): string {
+  const addr = addressText.trim();
+  if (!addr) return "";
+  const lang = detectMessageLanguage(contentLangSample);
+  if (lang === "en") return `We're located at ${addr}`;
+  return `כתובתנו היא ${addr}`;
+}
+
 export function composeGreeting(
   c: SalesFlowConfig,
   botName: string,
@@ -1711,8 +1731,13 @@ export function composeGreeting(
   const tag = taglineText.trim() || "…";
   const lineName = c.greeting_line_name.replace(/\{botName\}/g, bot).replace(/\{businessName\}/g, biz);
   const lineTag = c.greeting_line_tagline.replace(/\{tagline\}/g, tag);
-  const addressLine = addressText.trim() ? `כתובתנו היא ${addressText.trim()}` : "";
-  return [c.greeting_opener, lineName, lineTag, c.greeting_closer, addressLine].filter(Boolean).join("\n");
+  const coreParts = [c.greeting_opener, lineName, lineTag, c.greeting_closer];
+  const langSample = coreParts.filter(Boolean).join("\n");
+  const addressLine =
+    addressText.trim() && !greetingContentAlreadyHasAddress(coreParts, addressText)
+      ? formatGreetingAddressLine(addressText, langSample)
+      : "";
+  return [...coreParts, addressLine].filter(Boolean).join("\n");
 }
 
 export type ServiceLike = {
@@ -2342,7 +2367,8 @@ export function expandAfterTrialRegistrationForPrompt(
   body: string,
   instagramUrl: string,
   address: string,
-  directions: string
+  directions: string,
+  language: BusinessContentLanguage = "he"
 ): string {
   const u = instagramUrl.trim();
   const a = address.trim();
@@ -2360,10 +2386,7 @@ export function expandAfterTrialRegistrationForPrompt(
 
   if (t.includes(INSTAGRAM_CTA_PLACEHOLDER)) {
     if (u) {
-      t = t.replace(
-        INSTAGRAM_CTA_PLACEHOLDER,
-        `מוזמנים לבקר באינסטגרם שלנו בינתיים:\n${u}`
-      );
+      t = t.replace(INSTAGRAM_CTA_PLACEHOLDER, instagramVisitInMeantimeLine(language, u));
     } else {
       t = t
         .replace(/\n*\{instagram_cta\}\n*/g, "\n")
@@ -2374,7 +2397,7 @@ export function expandAfterTrialRegistrationForPrompt(
   }
 
   if (u) {
-    return `${t}\n\nמוזמנים לבקר באינסטגרם שלנו בינתיים:\n${u}`;
+    return `${t}\n\n${instagramVisitInMeantimeLine(language, u)}`;
   }
   return t;
 }
@@ -2541,9 +2564,10 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   instagramUrl: string,
   address: string,
   directions: string,
-  scheduleSelection?: AfterTrialScheduleFillInput
+  scheduleSelection?: AfterTrialScheduleFillInput,
+  language: BusinessContentLanguage = "he"
 ): string {
-  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions);
+  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions, language);
   s = fillAfterTrialSchedulePlaceholders(s, {
     requestedDate: scheduleSelection?.requestedDate,
     requestedTime: scheduleSelection?.requestedTime,

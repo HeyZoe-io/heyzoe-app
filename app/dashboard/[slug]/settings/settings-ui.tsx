@@ -2,36 +2,36 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import {
+  dashboardDir,
+  dashboardLangFromParam,
+  dashboardTextAlign,
+  type DashboardLang,
+} from "@/lib/dashboard-lang";
+import { dashboardSettingsT, settingsStepHref } from "@/lib/dashboard-settings-i18n";
 
-/** עמודת תוכן ממורכזת — מסלול מכירה + אנליטיקס */
-export const DASHBOARD_SETTINGS_SHELL =
-  "mx-auto w-full max-w-4xl px-4 sm:px-6";
-
-/** מירכוז כותרות, תוויות, שדות וטקסט בתוך שדות (RTL) */
+export const DASHBOARD_SETTINGS_SHELL = "mx-auto w-full max-w-4xl px-4 sm:px-6";
 export const DASHBOARD_CENTERED_CONTENT =
   "text-center [&_input]:text-center [&_textarea]:text-center";
 
-export const SALES_PATH_STEPS = [
-  "לינקים",
-  "על העסק",
-  "מוצרים",
-  "מכירה",
-  "פולואפ",
-] as const;
+export function salesPathSteps(lang: DashboardLang): readonly string[] {
+  return dashboardSettingsT(lang).salesPathSteps;
+}
 
 function salesPathStepFromSearchParams(raw: string | null): number {
   const parsed = Number(raw ?? "");
   if (!Number.isFinite(parsed)) return 1;
-  return Math.max(1, Math.min(SALES_PATH_STEPS.length, Math.trunc(parsed)));
+  return Math.max(1, Math.min(5, Math.trunc(parsed)));
 }
 
-/** תפריט שלבי מסלול מכירה — מתחת לניווט הראשי, רק בדף ההגדרות */
 export function SalesPathSubNav({ slug }: { slug: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const lang = dashboardLangFromParam(searchParams.get("lang"));
+  const t = dashboardSettingsT(lang);
+  const steps = [...t.salesPathSteps];
   const base = `/${slug}/settings`;
   if (!pathname?.endsWith("/settings")) return null;
-
   const step = salesPathStepFromSearchParams(searchParams.get("step"));
 
   return (
@@ -39,16 +39,17 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
       <div className={`${DASHBOARD_SETTINGS_SHELL} flex flex-col items-stretch gap-3`}>
         <nav
           className="flex min-w-0 justify-center overflow-x-auto pb-0.5"
-          aria-label="שלבי מסלול מכירה"
+          aria-label={t.salesPathNavAria}
+          dir={dashboardDir(lang)}
         >
           <div className="inline-flex min-w-max items-center gap-0.5 rounded-2xl bg-zinc-100/80 p-1 sm:gap-1">
-            {SALES_PATH_STEPS.map((label, i) => {
+            {steps.map((label, i) => {
               const n = i + 1;
               const active = step === n;
               return (
                 <Link
                   key={n}
-                  href={`${base}?step=${n}`}
+                  href={settingsStepHref(base, n, lang)}
                   prefetch={true}
                   className={[
                     dashboardStepTabClass(active),
@@ -82,7 +83,6 @@ const TAB_MAIN_BASE =
 const TAB_STEP_BASE =
   "shrink-0 whitespace-nowrap transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7133da]/30 focus-visible:ring-offset-2 rounded-md";
 
-/** תפריט ראשי (מסלול מכירה, שיחות…) — גדול, ממורכז, משקל קל */
 export function dashboardMainTabClass(active: boolean) {
   return [
     TAB_MAIN_BASE,
@@ -91,7 +91,6 @@ export function dashboardMainTabClass(active: boolean) {
   ].join(" ");
 }
 
-/** תפריט שלבים (לינקים, על העסק…) — קטן יותר, מתחת ל«מסלול מכירה» */
 export function dashboardStepTabClass(active: boolean) {
   return [
     TAB_STEP_BASE,
@@ -100,7 +99,6 @@ export function dashboardStepTabClass(active: boolean) {
   ].join(" ");
 }
 
-/** תוכן טאב ישירות על רקע הדף — בלי מסגרת Card חיצונית */
 export function StepPanel({
   children,
   className = "",
@@ -120,18 +118,13 @@ export function StepHeader({ n, title, desc }: { n: number; title: string; desc?
     <div className="mb-8 text-center">
       <div className="mb-2 flex items-baseline justify-center gap-3">
         <span className="text-base font-bold tabular-nums text-[#7133da]/75">{n}</span>
-        <h2 className="text-2xl font-extrabold tracking-[-0.03em] text-zinc-900 sm:text-[1.9rem]">
-          {title}
-        </h2>
+        <h2 className="text-2xl font-extrabold tracking-[-0.03em] text-zinc-900 sm:text-[1.9rem]">{title}</h2>
       </div>
-      {desc ? (
-        <p className="mx-auto max-w-2xl text-base leading-7 text-zinc-500">{desc}</p>
-      ) : null}
+      {desc ? <p className="mx-auto max-w-2xl text-base leading-7 text-zinc-500">{desc}</p> : null}
     </div>
   );
 }
 
-/** כותרות סשנים בתוך שלב מכירה (סשן פתיחה, חימום…) */
 export function SalesSessionTitle({ children }: { children: React.ReactNode }) {
   return (
     <h3 className="text-center text-lg font-bold tracking-tight text-zinc-900 sm:text-xl">{children}</h3>
@@ -145,42 +138,43 @@ export function Field({
   description,
   inline = false,
   inlineAlign = "center",
+  lang,
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
   className?: string;
-  /** שורת הסבר מתחת לכותרת (למשל לפני שדה הקלט) */
   description?: string;
-  /** כותרת באותה שורה עם השדה (RTL) */
   inline?: boolean;
-  /** יישור אנכי בשורת inline (למשל בלוק עובדות גבוה) */
   inlineAlign?: "center" | "start";
+  lang?: DashboardLang;
 }) {
+  const dir = lang ? dashboardDir(lang) : "rtl";
+  const textAlign = lang ? dashboardTextAlign(lang) : "right";
+
   if (inline) {
     const rowAlign = inlineAlign === "start" ? "sm:items-start" : "sm:items-center";
     return (
       <div className={`w-full space-y-2 ${className}`}>
-        <div
-          className={`flex w-full flex-col items-stretch gap-2 sm:flex-row ${rowAlign} sm:gap-4`}
-          dir="rtl"
-        >
-          <div className="shrink-0 text-right text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">
+        <div className={`flex w-full flex-col items-stretch gap-2 sm:flex-row ${rowAlign} sm:gap-4`} dir={dir}>
+          <div className="shrink-0 text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800" style={{ textAlign }}>
             {label}
           </div>
           <div className="min-w-0 w-full flex-1">{children}</div>
         </div>
-        {description ? (
-          <p className="text-center text-xs leading-6 text-zinc-500">{description}</p>
-        ) : null}
+        {description ? <p className="text-center text-xs leading-6 text-zinc-500">{description}</p> : null}
       </div>
     );
   }
 
   return (
     <div className={`w-full space-y-2 ${className}`}>
-      <div className="block text-right text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800">{label}</div>
+      <div className="block text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800" style={{ textAlign }}>
+        {label}
+      </div>
       {description ? (
-        <p className="text-right text-xs leading-6 text-zinc-500">{description}</p>
+        <p className="text-xs leading-6 text-zinc-500" style={{ textAlign }}>
+          {description}
+        </p>
       ) : null}
       {children}
     </div>
@@ -192,15 +186,17 @@ export function Textarea({
   onChange,
   placeholder,
   rows = 3,
+  lang,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   rows?: number;
+  lang?: DashboardLang;
 }) {
   return (
     <textarea
-      dir="rtl"
+      dir={lang ? dashboardDir(lang) : "rtl"}
       rows={rows}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -209,4 +205,3 @@ export function Textarea({
     />
   );
 }
-

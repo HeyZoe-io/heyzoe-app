@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -19,6 +19,86 @@ type FbLoginResponse = {
   authResponse?: FbAuthResponse;
 };
 
+type WaEmbeddedSignupMessage = {
+  type?: string;
+  event?: string;
+  data?: {
+    waba_id?: unknown;
+    phone_number_id?: unknown;
+    [key: string]: unknown;
+  };
+};
+
+type Lang = "he" | "en";
+
+const i18n = {
+  he: {
+    prepSteps: [
+      "קונים עבורך מספר ווטסאפ לבוט",
+      "מחברים אותו לווטסאפ",
+      "שולחים לאימות מול מטא",
+      "מכינים לך את הדשבורד",
+      "מחברים כל מה שצריך יחד…",
+    ],
+    loginRedirectMsg: "התחברי כדי להיכנס לדשבורד.",
+    missingEmail: "חסר אימייל בקישור. אם זה קרה אחרי תשלום, כתבו לנו בוואטסאפ ונעזור מיד.",
+    timedOut: "משהו תקע, פנו אלינו בוואטסאפ ונבדוק את זה איתכם.",
+    whatsappHelpAria: "פנייה לוואטסאפ",
+    doneLabel: "הצלחנו!",
+    title: "חיבור ווטסאפ עסקי (מטא)",
+    connectDescription:
+      "מחברים את חשבון ה־WhatsApp Business שלכם ל־HeyZoe דרך פייסבוק. אם אין לכם עדיין אפליקציית מטא מוכנה, אפשר לדלג — תמיד אפשר לחזור לזה מהדשבורד.",
+    missingAppId:
+      "חסר NEXT_PUBLIC_META_APP_ID (או NEXT_PUBLIC_FACEBOOK_APP_ID) בשרת — לא ניתן להציג את חלון ההתחברות.",
+    connect: "חברו ווטסאפ עסקי",
+    connecting: "מתחברים…",
+    success: "מחובר! מכין את החשבון...",
+    successRedirecting: "מחובר! מעבירים אותך לדשבורד...",
+    error_no_waba:
+      "לא התקבל מזהה WABA מהתחברות פייסבוק. נסו שוב או בדקו את ההגדרות באפליקציית מטא.",
+    error_cancelled: "החיבור בוטל",
+    error_fb_load: "טעינת פייסבוק נכשלה. רעננו את הדף.",
+    error_server: (status: number) => `שגיאת שרת (${status})`,
+    error_network: "בעיית רשת בשמירה.",
+    allReadyRedirect: "הכל מוכן! 🎉 מעבירים אותך...",
+    preparing: "מכינים את הדשבורד שלך ✨",
+    preparingHint: "זה לוקח בערך דקה, לא לסגור את הדף",
+  },
+  en: {
+    prepSteps: [
+      "Purchasing a WhatsApp number for your bot",
+      "Connecting it to WhatsApp",
+      "Sending it for Meta verification",
+      "Preparing your dashboard",
+      "Connecting everything together…",
+    ],
+    loginRedirectMsg: "Sign in to access your dashboard.",
+    missingEmail:
+      "Email is missing from the link. If this happened after payment, message us on WhatsApp and we'll help right away.",
+    timedOut: "Something got stuck. Reach out on WhatsApp and we'll check it with you.",
+    whatsappHelpAria: "Contact us on WhatsApp",
+    doneLabel: "All set!",
+    title: "Connect WhatsApp Business (Meta)",
+    connectDescription:
+      "Connect your WhatsApp Business account to HeyZoe via Facebook. If your Meta app isn't ready yet, you can skip — you can always return to this from the dashboard.",
+    missingAppId:
+      "NEXT_PUBLIC_META_APP_ID (or NEXT_PUBLIC_FACEBOOK_APP_ID) is missing on the server — the login dialog cannot be shown.",
+    connect: "Connect WhatsApp Business",
+    connecting: "Connecting…",
+    success: "Connected! Setting up your account...",
+    successRedirecting: "Connected! Redirecting to your dashboard...",
+    error_no_waba:
+      "WABA ID not received from Facebook login. Try again or check your Meta app settings.",
+    error_cancelled: "Connection cancelled",
+    error_fb_load: "Failed to load Facebook. Refresh the page.",
+    error_server: (status: number) => `Server error (${status})`,
+    error_network: "Network error while saving.",
+    allReadyRedirect: "You're all set! 🎉 Redirecting you...",
+    preparing: "Preparing your dashboard ✨",
+    preparingHint: "This takes about a minute — please keep this page open",
+  },
+} as const;
+
 declare global {
   interface Window {
     FB?: {
@@ -34,31 +114,220 @@ const TIMEOUT_MS = 120_000;
 const WHATSAPP_HELP_URL =
   "https://wa.me/972508318162?text=%D7%94%D7%99%D7%99%2C%20%D7%99%D7%A9%20%D7%9C%D7%99%20%D7%A9%D7%90%D7%9C%D7%94%20%D7%91%D7%A0%D7%95%D7%92%D7%A2%20%D7%9C%D7%96%D7%95%D7%90%D7%99%21";
 
-const DASHBOARD_PREP_STEPS = [
-  "קונים עבורך מספר ווטסאפ לבוט",
-  "מחברים אותו לווטסאפ",
-  "שולחים לאימות מול מטא",
-  "מכינים לך את הדשבורד",
-  "מחברים כל מה שצריך יחד…",
-] as const;
-
 const STEP_REVEAL_MS = 2200;
+const EMBEDDED_SUCCESS_REDIRECT_MS = 3000;
+
+function isTrustedMetaOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return (
+      host === "facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host === "meta.com" ||
+      host.endsWith(".meta.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseWaEmbeddedSignupMessage(raw: unknown): WaEmbeddedSignupMessage | null {
+  if (!raw) return null;
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const msg = parsed as WaEmbeddedSignupMessage;
+  if (msg.type !== "WA_EMBEDDED_SIGNUP") return null;
+  return msg;
+}
 
 export default function OnboardingSuccessClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = (searchParams.get("email") || "").trim().toLowerCase();
+  const lang: Lang = searchParams.get("lang") === "en" ? "en" : "he";
+  const t = i18n[lang];
+  const textAlign = lang === "en" ? "left" : "right";
 
   const [ready, setReady] = useState<null | { slug: string }>(null);
   const [timedOut, setTimedOut] = useState(false);
   const [revealedStepCount, setRevealedStepCount] = useState(0);
-  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const embeddedRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [fbSdkReady, setFbSdkReady] = useState(false);
   const [fbAppId, setFbAppId] = useState("");
   const [fbConfigId, setFbConfigId] = useState("");
   const [embeddedState, setEmbeddedState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [embeddedErr, setEmbeddedErr] = useState<string | null>(null);
+
+  const embeddedInFlightRef = useRef(false);
+  const embeddedHandledWabaRef = useRef<string | null>(null);
+  const readySlugRef = useRef<string | null>(null);
+  const emailRef = useRef(email);
+
+  useEffect(() => {
+    readySlugRef.current = ready?.slug ?? null;
+  }, [ready?.slug]);
+
+  useEffect(() => {
+    emailRef.current = email;
+  }, [email]);
+
+  const redirectToAnalytics = useCallback(
+    (slug: string) => {
+      const nextUrl = `/${slug}/analytics?welcome=1`;
+      const fallbackToLogin = () =>
+        router.replace(
+          `/dashboard/login?next=${encodeURIComponent(nextUrl)}&msg=${encodeURIComponent(t.loginRedirectMsg)}`
+        );
+
+      try {
+        const ssEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
+        const ssPw = String(sessionStorage.getItem("hz_onb_password") || "");
+
+        let lsEmail = "";
+        let lsPw = "";
+        let lsTs = 0;
+        try {
+          const raw = localStorage.getItem("hz_onb_creds");
+          if (raw) {
+            const parsed = JSON.parse(raw) as { email?: string; password?: string; ts?: number };
+            lsEmail = String(parsed?.email || "").trim().toLowerCase();
+            lsPw = String(parsed?.password || "");
+            lsTs = Number(parsed?.ts || 0);
+          }
+        } catch {
+          // ignore
+        }
+
+        const storedEmail = ssEmail || lsEmail;
+        const storedPw = ssPw || lsPw;
+        const isFresh = !lsTs || Date.now() - lsTs < 60 * 60 * 1000;
+
+        if (storedEmail && storedPw && storedEmail === email && isFresh) {
+          const supabase = createSupabaseBrowserClient();
+          void supabase.auth.signInWithPassword({ email: storedEmail, password: storedPw }).then(({ error }) => {
+            if (error) {
+              fallbackToLogin();
+              return;
+            }
+            try {
+              sessionStorage.removeItem("hz_onb_email");
+              sessionStorage.removeItem("hz_onb_password");
+            } catch {
+              /* ignore */
+            }
+            try {
+              localStorage.removeItem("hz_onb_creds");
+            } catch {
+              /* ignore */
+            }
+            router.replace(nextUrl);
+          });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
+      router.replace(nextUrl);
+    },
+    [router, t.loginRedirectMsg, email]
+  );
+
+  const handleEmbeddedFinish = useCallback(
+    async (waba_id: string, phone_number_id?: string, code?: string) => {
+      const slug = readySlugRef.current;
+      const proofEmail = emailRef.current;
+      if (!slug || !proofEmail) return;
+
+      const normalizedWaba = String(waba_id ?? "")
+        .trim()
+        .replace(/\s+/g, "");
+      if (!normalizedWaba) return;
+
+      if (embeddedInFlightRef.current) return;
+      if (embeddedHandledWabaRef.current === normalizedWaba) return;
+
+      embeddedInFlightRef.current = true;
+      setEmbeddedErr(null);
+      setEmbeddedState("loading");
+
+      try {
+        const body: Record<string, string> = {
+          waba_id: normalizedWaba,
+          businessSlug: slug,
+          email: proofEmail,
+        };
+        const phoneId = String(phone_number_id ?? "")
+          .trim()
+          .replace(/\s+/g, "");
+        if (phoneId) body.phone_number_id = phoneId;
+        const oauthCode = String(code ?? "").trim();
+        if (oauthCode) body.code = oauthCode;
+
+        const r = await fetch("/api/onboarding/embedded-signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const j = (await r.json().catch(() => ({}))) as { success?: boolean; error?: string };
+        if (!r.ok || !j.success) {
+          setEmbeddedState("error");
+          setEmbeddedErr(j.error?.trim() || t.error_server(r.status));
+          return;
+        }
+        embeddedHandledWabaRef.current = normalizedWaba;
+        setEmbeddedState("success");
+        setEmbeddedErr(null);
+      } catch {
+        setEmbeddedState("error");
+        setEmbeddedErr(t.error_network);
+      } finally {
+        embeddedInFlightRef.current = false;
+      }
+    },
+    [t]
+  );
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (!isTrustedMetaOrigin(event.origin)) return;
+
+      const msg = parseWaEmbeddedSignupMessage(event.data);
+      if (!msg) return;
+
+      const eventName = String(msg.event ?? "").trim();
+      const data = msg.data ?? {};
+
+      if (eventName === "FINISH" || eventName === "FINISH_ONLY_WABA") {
+        const waba_id = String(data.waba_id ?? "")
+          .trim()
+          .replace(/\s+/g, "");
+        const phone_number_id = String(data.phone_number_id ?? "")
+          .trim()
+          .replace(/\s+/g, "");
+        if (!waba_id) return;
+        void handleEmbeddedFinish(waba_id, phone_number_id || undefined);
+        return;
+      }
+
+      if (eventName === "CANCEL") {
+        embeddedInFlightRef.current = false;
+        setEmbeddedState("error");
+        setEmbeddedErr(t.error_cancelled);
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [handleEmbeddedFinish, t.error_cancelled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,11 +377,12 @@ export default function OnboardingSuccessClient() {
     if (!ready?.slug || !email) return;
     if (!window.FB?.login) {
       setEmbeddedState("error");
-      setEmbeddedErr("טעינת פייסבוק נכשלה. רעננו את הדף.");
+      setEmbeddedErr(t.error_fb_load);
       return;
     }
     setEmbeddedErr(null);
     setEmbeddedState("loading");
+    embeddedHandledWabaRef.current = null;
 
     const loginOpts: Record<string, unknown> = {
       scope: "whatsapp_business_management",
@@ -124,6 +394,12 @@ export default function OnboardingSuccessClient() {
 
     window.FB.login(
       (resp: FbLoginResponse & { code?: string; waba_id?: string }) => {
+        if (resp.status === "unknown") {
+          setEmbeddedState("idle");
+          setEmbeddedErr(null);
+          return;
+        }
+
         const ar = resp.authResponse;
         const code = String(ar?.code ?? (resp as { code?: string }).code ?? "").trim();
         const waba_id = String(
@@ -131,44 +407,17 @@ export default function OnboardingSuccessClient() {
         )
           .trim()
           .replace(/\s+/g, "");
-        if (!code || !waba_id) {
-          setEmbeddedState(resp.status === "unknown" ? "idle" : "error");
-          setEmbeddedErr(
-            resp.status === "unknown"
-              ? null
-              : "לא התקבלו מזהה WABA או קוד מהתחברות פייסבוק. נסו שוב או בדקו את ההגדרות באפליקציית מטא."
-          );
+
+        if (!waba_id) {
+          // postMessage (WA_EMBEDDED_SIGNUP) may still deliver waba_id.
           return;
         }
-        void (async () => {
-          try {
-            const r = await fetch("/api/onboarding/embedded-signup", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                code,
-                waba_id,
-                businessSlug: ready.slug,
-                email,
-              }),
-            });
-            const j = (await r.json().catch(() => ({}))) as { success?: boolean; error?: string };
-            if (!r.ok || !j.success) {
-              setEmbeddedState("error");
-              setEmbeddedErr(j.error?.trim() || `שגיאת שרת (${r.status})`);
-              return;
-            }
-            setEmbeddedState("success");
-            setEmbeddedErr(null);
-          } catch {
-            setEmbeddedState("error");
-            setEmbeddedErr("בעיית רשת בשמירה.");
-          }
-        })();
+
+        void handleEmbeddedFinish(waba_id, undefined, code || undefined);
       },
       loginOpts
     );
-  }, [ready?.slug, email, fbConfigId]);
+  }, [ready?.slug, email, fbConfigId, handleEmbeddedFinish, t.error_fb_load]);
 
   useEffect(() => {
     if (!email) return;
@@ -191,7 +440,6 @@ export default function OnboardingSuccessClient() {
         const data = (await res.json()) as { ready?: boolean; slug?: string };
         if (data?.ready && data.slug) {
           const slug = data.slug;
-          // LP purchase tracking (best-effort): relies on sessionStorage values set on /lp-leads.
           try {
             const sid = sessionStorage.getItem("hz_lp_session_id") || "";
             let src = sessionStorage.getItem("hz_lp_source");
@@ -217,69 +465,7 @@ export default function OnboardingSuccessClient() {
             /* ignore */
           }
           setReady({ slug });
-          redirectTimerRef.current = setTimeout(() => {
-            if (cancelled) return;
-            // If we still have onboarding creds and email matches, try to sign-in automatically.
-            // Note: payment providers sometimes cause a full-page navigation; sessionStorage may not survive.
-            const nextUrl = `/${slug}/analytics?welcome=1`;
-            const fallbackToLogin = () =>
-              router.replace(
-                `/dashboard/login?next=${encodeURIComponent(nextUrl)}&msg=${encodeURIComponent(
-                  "התחברי כדי להיכנס לדשבורד."
-                )}`
-              );
-
-            try {
-              const ssEmail = String(sessionStorage.getItem("hz_onb_email") || "").trim().toLowerCase();
-              const ssPw = String(sessionStorage.getItem("hz_onb_password") || "");
-
-              let lsEmail = "";
-              let lsPw = "";
-              let lsTs = 0;
-              try {
-                const raw = localStorage.getItem("hz_onb_creds");
-                if (raw) {
-                  const parsed = JSON.parse(raw) as { email?: string; password?: string; ts?: number };
-                  lsEmail = String(parsed?.email || "").trim().toLowerCase();
-                  lsPw = String(parsed?.password || "");
-                  lsTs = Number(parsed?.ts || 0);
-                }
-              } catch {
-                // ignore
-              }
-
-              const storedEmail = ssEmail || lsEmail;
-              const storedPw = ssPw || lsPw;
-              const isFresh = !lsTs || Date.now() - lsTs < 60 * 60 * 1000; // 1h TTL
-
-              if (storedEmail && storedPw && storedEmail === email && isFresh) {
-                const supabase = createSupabaseBrowserClient();
-                void supabase.auth.signInWithPassword({ email: storedEmail, password: storedPw }).then(({ error }) => {
-                  if (error) {
-                    fallbackToLogin();
-                    return;
-                  }
-                  try {
-                    sessionStorage.removeItem("hz_onb_email");
-                    sessionStorage.removeItem("hz_onb_password");
-                  } catch {
-                    /* ignore */
-                  }
-                  try {
-                    localStorage.removeItem("hz_onb_creds");
-                  } catch {
-                    /* ignore */
-                  }
-                  router.replace(nextUrl);
-                });
-                return;
-              }
-            } catch {
-              // ignore
-            }
-
-            router.replace(nextUrl);
-          }, 10_000);
+          console.log("[onboarding/success] payment ready, awaiting Embedded Signup");
           return;
         }
       } catch {
@@ -292,26 +478,41 @@ export default function OnboardingSuccessClient() {
     void tick();
     return () => {
       cancelled = true;
-      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
     };
-  }, [email, router]);
+  }, [email]);
+
+  useEffect(() => {
+    if (embeddedState !== "success" || !ready?.slug || !embeddedHandledWabaRef.current) return;
+
+    console.log("[onboarding/success] Embedded Signup success, redirecting in 3s");
+    embeddedRedirectTimerRef.current = setTimeout(() => {
+      console.log(`[onboarding/success] redirecting to ${ready.slug}/analytics`);
+      redirectToAnalytics(ready.slug);
+    }, EMBEDDED_SUCCESS_REDIRECT_MS);
+
+    return () => {
+      if (embeddedRedirectTimerRef.current) clearTimeout(embeddedRedirectTimerRef.current);
+    };
+  }, [embeddedState, ready?.slug, redirectToAnalytics]);
+
+  const prepSteps = useMemo(() => t.prepSteps, [t.prepSteps]);
 
   useEffect(() => {
     if (!email || ready || timedOut) return;
     let n = 0;
     const bump = () => {
-      if (n >= DASHBOARD_PREP_STEPS.length) return;
+      if (n >= prepSteps.length) return;
       n += 1;
       setRevealedStepCount(n);
     };
     bump();
     const id = window.setInterval(bump, STEP_REVEAL_MS);
     return () => window.clearInterval(id);
-  }, [email, ready, timedOut]);
+  }, [email, ready, timedOut, prepSteps.length]);
 
   return (
     <main
-      dir="rtl"
+      dir={lang === "en" ? "ltr" : "rtl"}
       style={{
         minHeight: "100vh",
         display: "flex",
@@ -358,18 +559,16 @@ export default function OnboardingSuccessClient() {
         </div>
 
         {!email ? (
-          <div style={{ color: "#6b5b9a", fontSize: "14px", lineHeight: 1.7 }}>
-            חסר אימייל בקישור. אם זה קרה אחרי תשלום, כתבו לנו בוואטסאפ ונעזור מיד.
-          </div>
+          <div style={{ color: "#6b5b9a", fontSize: "14px", lineHeight: 1.7 }}>{t.missingEmail}</div>
         ) : timedOut ? (
           <div style={{ color: "#6b5b9a", fontSize: "14px", lineHeight: 1.7 }}>
-            משהו תקע, פנו אלינו בוואטסאפ ונבדוק את זה איתכם.
+            {t.timedOut}
             <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
               <a
                 href={WHATSAPP_HELP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="פנייה לוואטסאפ"
+                aria-label={t.whatsappHelpAria}
                 style={{
                   width: 46,
                   height: 46,
@@ -395,7 +594,7 @@ export default function OnboardingSuccessClient() {
           <div>
             <div
               style={{
-                textAlign: "right",
+                textAlign,
                 marginBottom: "18px",
                 padding: "14px 16px",
                 borderRadius: "16px",
@@ -403,14 +602,14 @@ export default function OnboardingSuccessClient() {
                 border: "1px solid rgba(113,51,218,0.1)",
               }}
             >
-              {DASHBOARD_PREP_STEPS.map((line, i) => (
+              {prepSteps.map((line, i) => (
                 <div
                   key={line}
                   style={{
                     display: "flex",
                     alignItems: "flex-start",
                     gap: "10px",
-                    marginBottom: i === DASHBOARD_PREP_STEPS.length - 1 ? 0 : "10px",
+                    marginBottom: i === prepSteps.length - 1 ? 0 : "10px",
                     fontSize: "14px",
                     lineHeight: 1.55,
                     color: "#2d1a6e",
@@ -438,7 +637,7 @@ export default function OnboardingSuccessClient() {
                 <span style={{ flexShrink: 0, color: "#22c55e" }} aria-hidden>
                   ✓
                 </span>
-                <span>הצלחנו!</span>
+                <span>{t.doneLabel}</span>
               </div>
             </div>
 
@@ -449,26 +648,22 @@ export default function OnboardingSuccessClient() {
                 borderRadius: "16px",
                 background: "rgba(255,255,255,0.95)",
                 border: "1px solid rgba(113,51,218,0.15)",
-                textAlign: "right",
+                textAlign,
               }}
             >
               <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
-                חיבור ווטסאפ עסקי (מטא)
+                {t.title}
               </p>
               <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
-                מחברים את חשבון ה־WhatsApp Business שלכם ל־HeyZoe דרך פייסבוק. אם אין לכם עדיין אפליקציית מטא
-                מוכנה, אפשר לדלג — תמיד אפשר לחזור לזה מהדשבורד.
+                {t.connectDescription}
               </p>
               {!fbAppId ? (
-                <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>
-                  חסר <code dir="ltr">NEXT_PUBLIC_META_APP_ID</code> (או{" "}
-                  <code dir="ltr">NEXT_PUBLIC_FACEBOOK_APP_ID</code>) בשרת — לא ניתן להציג את חלון ההתחברות.
-                </p>
+                <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>{t.missingAppId}</p>
               ) : (
                 <>
                   <button
                     type="button"
-                    disabled={!fbSdkReady || embeddedState === "loading"}
+                    disabled={!fbSdkReady || embeddedState === "loading" || embeddedState === "success"}
                     onClick={() => connectEmbeddedWhatsApp()}
                     style={{
                       width: "100%",
@@ -487,11 +682,11 @@ export default function OnboardingSuccessClient() {
                       cursor: !fbSdkReady || embeddedState === "loading" ? "wait" : "pointer",
                     }}
                   >
-                    {embeddedState === "loading" ? "מתחברים…" : "חברו ווטסאפ עסקי"}
+                    {embeddedState === "loading" ? t.connecting : t.connect}
                   </button>
                   {embeddedState === "success" ? (
                     <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#0b5c2e", fontWeight: 600 }}>
-                      נשמר בהצלחה. ממשיכים להכין את המספר בצד השרת.
+                      {t.successRedirecting}
                     </p>
                   ) : null}
                   {embeddedState === "error" && embeddedErr ? (
@@ -503,9 +698,6 @@ export default function OnboardingSuccessClient() {
               )}
             </div>
 
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "#7133da", marginTop: 16 }}>
-              הכל מוכן! 🎉 מעבירים אותך...
-            </div>
           </div>
         ) : (
           <>
@@ -521,14 +713,14 @@ export default function OnboardingSuccessClient() {
                 color: "#7133da",
               }}
             >
-              מכינים את הדשבורד שלך ✨
+              {t.preparing}
             </h1>
             <p style={{ margin: "0 0 18px", color: "#6b5b9a", fontSize: "15px", lineHeight: 1.6 }}>
-              זה לוקח בערך דקה, לא לסגור את הדף
+              {t.preparingHint}
             </p>
             <div
               style={{
-                textAlign: "right",
+                textAlign,
                 marginBottom: "20px",
                 padding: "14px 16px",
                 borderRadius: "16px",
@@ -536,7 +728,7 @@ export default function OnboardingSuccessClient() {
                 border: "1px solid rgba(113,51,218,0.1)",
               }}
             >
-              {DASHBOARD_PREP_STEPS.map((line, i) => {
+              {prepSteps.map((line, i) => {
                 const done = i < revealedStepCount;
                 return (
                   <div
@@ -545,7 +737,7 @@ export default function OnboardingSuccessClient() {
                       display: "flex",
                       alignItems: "flex-start",
                       gap: "10px",
-                      marginBottom: i === DASHBOARD_PREP_STEPS.length - 1 ? 0 : "10px",
+                      marginBottom: i === prepSteps.length - 1 ? 0 : "10px",
                       fontSize: "14px",
                       lineHeight: 1.55,
                       color: done ? "#2d1a6e" : "#a89bc4",
@@ -583,7 +775,7 @@ export default function OnboardingSuccessClient() {
                 <span style={{ flexShrink: 0, width: "1.1em", color: "rgba(113,51,218,0.25)" }} aria-hidden>
                   ○
                 </span>
-                <span>הצלחנו!</span>
+                <span>{t.doneLabel}</span>
               </div>
             </div>
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }} aria-hidden>
