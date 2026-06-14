@@ -111,10 +111,12 @@ export async function dispatchCrmEvent(input: {
 
     if (crmType === "plan_do") {
       const result = await submitPlanDoLeadEvent({
+        businessId,
         apiKey,
         phone: leadPhone,
         fullName,
         noteText,
+        eventAtIso,
       });
       if (!result.ok) {
         console.error("[crm/dispatch] plan_do failed", {
