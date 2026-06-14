@@ -22,6 +22,8 @@ import {
   resolveMetaAccessToken,
   type WaIncomingMessage,
   type WaIncomingText,
+  WA_UNSUPPORTED_INBOUND_MODEL,
+  WA_UNSUPPORTED_INBOUND_REPLY,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
@@ -3868,10 +3870,12 @@ async function processIncoming(
       const upsertPayload: Record<string, unknown> = {
         phone: contactPhone,
         business_id: businessId,
-        source: "whatsapp",
         last_contact_at: nowIso,
         followup_sent: false,
       };
+      if (isFirstTimeContact) {
+        upsertPayload.source = "whatsapp";
+      }
       if (fullName) upsertPayload.full_name = fullName;
 
       if (shouldResetWaFollowupCycleOnInbound(priorContact)) {
@@ -4288,13 +4292,40 @@ async function processIncoming(
 
   // Handle unsupported message types
   if (msg.type === "unsupported") {
-    await sendWhatsAppMessage(
-      msg.toNumber,
-      msg.from,
-      "שלום! אני מטפלת בהודעות טקסט בלבד. שלחו לי שאלה בכתב ואשמח לעזור 😊",
-      accountSid,
-      authToken
-    ).catch((e) => console.error("[WA Webhook] Send unsupported reply failed:", e));
+    let sendFailed = false;
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        WA_UNSUPPORTED_INBOUND_REPLY,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      sendFailed = true;
+      console.error("[WA Webhook] Send unsupported reply failed:", e);
+    }
+
+    try {
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: WA_UNSUPPORTED_INBOUND_REPLY,
+        model_used: WA_UNSUPPORTED_INBOUND_MODEL,
+        session_id: sessionId,
+        error_code: sendFailed ? "unsupported_reply_send_failed" : null,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] Log unsupported reply failed:", e);
+    }
+
+    console.warn("[WA Webhook] unsupported inbound message type", {
+      business_slug,
+      sessionId,
+      from: msg.from,
+      metaInboundType: msg.metaInboundType ?? null,
+      sendFailed,
+    });
     return;
   }
 

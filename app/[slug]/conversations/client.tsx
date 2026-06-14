@@ -14,6 +14,7 @@ type SessionMessage = {
   content: string;
   created_at: string;
   error_code?: string | null;
+  model_used?: string | null;
 };
 
 type SessionSummary = {
@@ -441,6 +442,7 @@ export default function ConversationsClient({
                   content={m.content}
                   createdAt={m.created_at}
                   errorCode={m.error_code}
+                  modelUsed={m.model_used}
                 />
               ))}
             </div>

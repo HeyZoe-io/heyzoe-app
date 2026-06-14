@@ -46,6 +46,7 @@ type SessionMessage = {
   content: string;
   created_at: string;
   error_code?: string | null;
+  model_used?: string | null;
 };
 
 export default function DashboardClient({ data }: { data: DashboardPayload }) {
@@ -462,6 +463,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                           content={m.content}
                                           createdAt={m.created_at}
                                           errorCode={m.error_code}
+                                          modelUsed={m.model_used}
                                         />
                                       )
                                     )}
