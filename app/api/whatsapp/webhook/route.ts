@@ -126,7 +126,7 @@ import {
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
-import { fetchPhoneNumbersForWaba } from "@/lib/meta-waba-resolve";
+import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 import {
   addressDirectionsPrefix,
   addressMissingMessage,
@@ -3615,27 +3615,6 @@ export function parseAccountUpdate(payload: unknown): AccountUpdateEvent | null 
     }
   }
   return null;
-}
-
-async function subscribeWabaToAppWebhooks(wabaId: string, token: string): Promise<void> {
-  const waba = String(wabaId ?? "").trim();
-  const accessToken = String(token ?? "").trim();
-  if (!waba || !accessToken) {
-    throw new Error("missing_waba_or_token");
-  }
-  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(waba)}/subscribed_apps`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: "{}",
-  });
-  const bodyText = await res.text().catch(() => "");
-  if (!res.ok) {
-    throw new Error(`subscribed_apps_http_${res.status}: ${bodyText || res.statusText}`);
-  }
 }
 
 async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
