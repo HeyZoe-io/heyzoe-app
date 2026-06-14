@@ -97,3 +97,28 @@ export async function fetchPhoneNumbersForWaba(
     })
     .filter((row): row is MetaWabaPhoneNumber => row !== null);
 }
+
+/**
+ * Subscribes the HeyZoe Meta app to WABA webhooks (`subscribed_apps`).
+ * Idempotent: Meta accepts repeated POST for an already-subscribed WABA.
+ */
+export async function subscribeWabaToAppWebhooks(wabaId: string, token: string): Promise<void> {
+  const waba = String(wabaId ?? "").trim().replace(/\s+/g, "");
+  const accessToken = String(token ?? "").trim();
+  if (!waba || !accessToken) {
+    throw new Error("missing_waba_or_token");
+  }
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(waba)}/subscribed_apps`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`subscribed_apps_http_${res.status}: ${bodyText || res.statusText}`);
+  }
+}

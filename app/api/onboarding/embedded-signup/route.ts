@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,6 +138,17 @@ export async function POST(req: NextRequest) {
         `[embedded-signup] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
       );
     }
+  }
+
+  try {
+    const systemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim();
+    if (systemToken && waba_id) {
+      await subscribeWabaToAppWebhooks(waba_id, systemToken);
+      console.log(`[embedded-signup] subscribed_apps success for waba_id=${waba_id}`);
+    }
+  } catch (e) {
+    console.error("[embedded-signup] subscribed_apps failed:", e);
+    // לא לחסום את הflow - webhook הוא fallback
   }
 
   if (phone_number_id) {
