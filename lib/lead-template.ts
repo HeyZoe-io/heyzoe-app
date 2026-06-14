@@ -10,9 +10,72 @@ export function templateNoResponseDueAtIso(fromMs: number = Date.now()): string 
   return new Date(fromMs + TEMPLATE_NO_RESPONSE_AFTER_MS).toISOString();
 }
 
-export function formatLeadTemplateMessageContent(templateName: string): string {
-  const name = String(templateName ?? "").trim() || "lead_welcome";
-  return `נשלח טמפלייט פתיחה (${name})`;
+const LEAD_TEMPLATE_PLACEHOLDER_RE = /^נשלח טמפלייט פתיחה \(([^)]+)\)$/;
+
+type LeadTemplatePreview = {
+  header?: string;
+  body: string;
+  buttons?: string[];
+  footer?: string;
+};
+
+/** תצוגה בדשבורד — טקסט הטמפלייט כפי שנשלח ב-Meta (לא שליפה בזמן אמת). */
+const LEAD_TEMPLATE_REGISTRY: Record<string, LeadTemplatePreview> = {
+  sangha_lead_welcome: {
+    header: "סאנגה יוגה",
+    body: "היי {{1}}! איזה כיף להכיר.\nלחצ/י על הכפתור ואספר לך הכל על סאנגה יוגה🧘",
+    buttons: ["אשמח לפרטים"],
+    footer: "Hey Zoe",
+  },
+};
+
+export function firstNameFromFullName(fullName: string): string {
+  const trimmed = fullName.trim();
+  if (!trimmed) return "שלום";
+  return trimmed.split(/\s+/).filter(Boolean)[0] ?? trimmed;
+}
+
+export function renderLeadTemplateMessageContent(
+  templateName: string,
+  opts?: { firstName?: string }
+): string {
+  const key = String(templateName ?? "").trim() || "lead_welcome";
+  const preview = LEAD_TEMPLATE_REGISTRY[key];
+  if (!preview) {
+    return `נשלח טמפלייט פתיחה (${key})`;
+  }
+
+  const firstName = String(opts?.firstName ?? "").trim() || "שלום";
+  const lines: string[] = [];
+  if (preview.header?.trim()) lines.push(preview.header.trim());
+  lines.push(preview.body.replace(/\{\{1\}\}/g, firstName));
+  if (preview.footer?.trim()) lines.push(preview.footer.trim());
+
+  let text = lines.join("\n\n");
+  for (const btn of preview.buttons ?? []) {
+    const label = String(btn ?? "").trim();
+    if (label) text += `\n\n[כפתור: ${label}]`;
+  }
+  return text;
+}
+
+/** @deprecated Use renderLeadTemplateMessageContent — kept for call sites. */
+export function formatLeadTemplateMessageContent(
+  templateName: string,
+  opts?: { firstName?: string }
+): string {
+  return renderLeadTemplateMessageContent(templateName, opts);
+}
+
+/** משדרג רשומות ישנות «נשלח טמפלייט…» לטקסט מלא לתצוגה בדשבורד. */
+export function resolveLeadTemplateDisplayContent(
+  content: string,
+  opts?: { firstName?: string }
+): string {
+  const raw = String(content ?? "").trim();
+  const m = raw.match(LEAD_TEMPLATE_PLACEHOLDER_RE);
+  if (!m) return raw;
+  return renderLeadTemplateMessageContent(m[1]!, opts);
 }
 
 /** ליד שקיבל טמפלייט ועדיין לא התחיל שיחה (לא ענה / לא התקדם בפלואו). */
