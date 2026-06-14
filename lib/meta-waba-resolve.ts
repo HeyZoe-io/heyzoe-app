@@ -122,3 +122,83 @@ export async function subscribeWabaToAppWebhooks(wabaId: string, token: string):
     throw new Error(`subscribed_apps_http_${res.status}: ${bodyText || res.statusText}`);
   }
 }
+
+/** Vercel env: WHATSAPP_REGISTRATION_PIN (6-digit PIN for Meta /register). Defaults to 123456. */
+export function resolveWhatsAppRegistrationPin(): string {
+  const pin = String(process.env.WHATSAPP_REGISTRATION_PIN ?? "123456").trim();
+  return pin || "123456";
+}
+
+export type MetaRegisterPhoneResult = {
+  ok: boolean;
+  status: number;
+  json: unknown;
+  bodyText: string;
+  error?: string;
+};
+
+/**
+ * POST /{phone_number_id}/register — activates the number on Cloud API after verify_code.
+ * Idempotent: Meta returns `{ success: true }` when already registered.
+ */
+export async function registerMetaPhoneNumberWithPin(
+  phoneNumberId: string,
+  token: string,
+  opts?: { pin?: string; logPrefix?: string }
+): Promise<MetaRegisterPhoneResult> {
+  const id = String(phoneNumberId ?? "").trim();
+  const accessToken = String(token ?? "").trim();
+  const pin = String(opts?.pin ?? resolveWhatsAppRegistrationPin()).trim() || "123456";
+  const logPrefix = opts?.logPrefix ?? "[meta-waba-resolve]";
+
+  if (!id || !accessToken) {
+    return {
+      ok: false,
+      status: 0,
+      json: null,
+      bodyText: "",
+      error: "missing_phone_number_id_or_token",
+    };
+  }
+
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(id)}/register`;
+  const requestBody = { messaging_product: "whatsapp", pin };
+  console.info(`${logPrefix} meta request (register):`, {
+    url,
+    body: { messaging_product: requestBody.messaging_product, pin: "***" },
+  });
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+  const bodyText = await res.text().catch(() => "");
+  let json: unknown = null;
+  try {
+    json = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    json = null;
+  }
+
+  console.info(`${logPrefix} meta response (register):`, {
+    status: res.status,
+    ok: res.ok,
+    json: json ?? bodyText,
+  });
+
+  const success = res.ok && Boolean((json as { success?: boolean })?.success);
+  if (success) {
+    return { ok: true, status: res.status, json, bodyText };
+  }
+
+  const errMsg =
+    (json && typeof json === "object" && ((json as { error?: { message?: string } }).error?.message ||
+      (json as { message?: string }).message)) ||
+    bodyText ||
+    `register_http_${res.status}`;
+  return { ok: false, status: res.status, json, bodyText, error: String(errMsg) };
+}

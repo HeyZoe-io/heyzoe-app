@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail, whatsappReadyEmail } from "@/lib/email";
-import { fetchBusinessWabaId, resolveMetaWabaId } from "@/lib/meta-waba-resolve";
+import { fetchBusinessWabaId, resolveMetaWabaId, registerMetaPhoneNumberWithPin } from "@/lib/meta-waba-resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -314,6 +314,87 @@ async function shouldSuppressProvisionFailureEmail(
 
 const TRANSCRIPTION_WAIT_MS = 2 * 60_000;
 
+/** Env: WHATSAPP_REGISTRATION_PIN (6-digit Meta /register PIN; default 123456). */
+
+async function failProvisionAfterRegisterError(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  locked: { id: unknown; business_id: unknown; business_slug: unknown },
+  metaPhoneNumberId: string,
+  errMsg: string,
+  extras?: { phoneE164?: string; twilioSid?: string; recordingSid?: string }
+) {
+  if (metaPhoneNumberId) {
+    await admin
+      .from("whatsapp_channels")
+      .update({ is_active: false, provisioning_status: "failed" } as any)
+      .eq("phone_number_id", metaPhoneNumberId);
+  }
+  await admin
+    .from("wa_provision_jobs")
+    .update({
+      status: "failed",
+      updated_at: isoNow(),
+      last_error: errMsg,
+      ...(extras?.phoneE164 ? { phone_e164: extras.phoneE164 } : {}),
+      ...(metaPhoneNumberId ? { meta_phone_number_id: metaPhoneNumberId } : {}),
+      ...(extras?.twilioSid ? { twilio_sid: extras.twilioSid } : {}),
+      ...(extras?.recordingSid ? { recording_sid: extras.recordingSid } : {}),
+    } as any)
+    .eq("id", Number(locked.id));
+}
+
+async function succeedProvisionAfterRegister(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  locked: { id: unknown; business_id: unknown; business_slug: unknown; business_name?: unknown },
+  metaPhoneNumberId: string,
+  phoneE164: string,
+  twilioSid: string,
+  recordingSid: string
+) {
+  await admin
+    .from("whatsapp_channels")
+    .update({ is_active: true, provisioning_status: "active" } as any)
+    .eq("phone_number_id", metaPhoneNumberId);
+
+  await admin
+    .from("businesses")
+    .update({ whatsapp_number: phoneE164 } as any)
+    .eq("id", (locked as any).business_id);
+
+  try {
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("name,email,slug,whatsapp_number")
+      .eq("id", (locked as any).business_id)
+      .maybeSingle();
+    const to = String((biz as any)?.email ?? "").trim().toLowerCase();
+    const businessName =
+      String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() ||
+      String((locked as any).business_slug ?? "");
+    const whatsappNumber = String((biz as any)?.whatsapp_number ?? phoneE164 ?? "").trim();
+    if (to) {
+      const tpl = whatsappReadyEmail(businessName, whatsappNumber);
+      await sendEmail({ to, subject: tpl.subject, htmlContent: tpl.htmlContent });
+    }
+  } catch (e) {
+    console.error("[cron/wa-provision] customer email failed:", e);
+  }
+
+  const { error: doneErr } = await admin
+    .from("wa_provision_jobs")
+    .update({
+      status: "done",
+      updated_at: isoNow(),
+      phone_e164: phoneE164,
+      meta_phone_number_id: metaPhoneNumberId,
+      twilio_sid: twilioSid,
+      recording_sid: recordingSid,
+      last_error: null,
+    } as any)
+    .eq("id", Number(locked.id));
+  if (doneErr) throw doneErr;
+}
+
 export async function GET(req: NextRequest) {
   const build = buildTag();
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -512,6 +593,71 @@ export async function GET(req: NextRequest) {
       } else {
         // Still needs manual intervention.
         return NextResponse.json({ ok: true, processed: 1, status: "awaiting_manual_code", build });
+      }
+    }
+
+    if (status === "waiting_register") {
+      phoneE164 = String((locked as any).phone_e164 ?? "").trim();
+      metaPhoneNumberId = String((locked as any).meta_phone_number_id ?? "").trim();
+      twilioSid = String((locked as any).twilio_sid ?? "").trim();
+      recordingSid = String((locked as any).recording_sid ?? "").trim();
+
+      if (!metaPhoneNumberId || !phoneE164) {
+        try {
+          const bid = Number((locked as any).business_id);
+          const slug = String((locked as any).business_slug ?? "").trim().toLowerCase();
+          const { data: ch } = await admin
+            .from("whatsapp_channels")
+            .select("phone_display, phone_number_id, twilio_sid")
+            .or(`business_id.eq.${bid},business_slug.eq.${slug}`)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          phoneE164 = phoneE164 || String((ch as any)?.phone_display ?? "").trim();
+          metaPhoneNumberId = metaPhoneNumberId || String((ch as any)?.phone_number_id ?? "").trim();
+          twilioSid = twilioSid || String((ch as any)?.twilio_sid ?? "").trim();
+        } catch (err) {
+          console.warn("[cron/wa-provision] waiting_register hydration failed:", err);
+        }
+      }
+
+      if (!metaPhoneNumberId) {
+        throw new Error("missing_meta_phone_number_id");
+      }
+
+      try {
+        const reg = await registerMetaPhoneNumberWithPin(metaPhoneNumberId, whatsappSystemToken, {
+          logPrefix: "[cron/wa-provision]",
+        });
+        if (!reg.ok) {
+          const errMsg = reg.error ?? "register_failed";
+          console.error("[cron/wa-provision] register failed:", errMsg);
+          await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+            phoneE164,
+            twilioSid,
+            recordingSid,
+          });
+          return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+        }
+        console.info("[cron/wa-provision] register successful");
+        await succeedProvisionAfterRegister(
+          admin,
+          locked as any,
+          metaPhoneNumberId,
+          phoneE164,
+          twilioSid,
+          recordingSid
+        );
+        return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
+      } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error("[cron/wa-provision] register threw:", errMsg);
+        await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+          phoneE164,
+          twilioSid,
+          recordingSid,
+        });
+        return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
       }
     }
 
@@ -799,49 +945,40 @@ export async function GET(req: NextRequest) {
       const verifyUrl = `https://graph.facebook.com/v21.0/${metaPhoneNumberId}/verify_code`;
       await metaFetchJson(verifyUrl, whatsappSystemToken, { code }, { label: "verify_code", includeOk: true });
 
-      // Save active
-      await admin
-        .from("whatsapp_channels")
-        .update({ is_active: true, provisioning_status: "active" } as any)
-        .eq("phone_number_id", metaPhoneNumberId);
-
-      await admin
-        .from("businesses")
-        .update({ whatsapp_number: phoneE164 } as any)
-        .eq("id", (locked as any).business_id);
-
-      // Email customer (best-effort)
       try {
-        const { data: biz } = await admin
-          .from("businesses")
-          .select("name,email,slug,whatsapp_number")
-          .eq("id", (locked as any).business_id)
-          .maybeSingle();
-        const to = String((biz as any)?.email ?? "").trim().toLowerCase();
-        const businessName = String((biz as any)?.name ?? (locked as any)?.business_name ?? "").trim() || String((locked as any).business_slug ?? "");
-        const whatsappNumber = String((biz as any)?.whatsapp_number ?? phoneE164 ?? "").trim();
-        if (to) {
-          const tpl = whatsappReadyEmail(businessName, whatsappNumber);
-          await sendEmail({ to, subject: tpl.subject, htmlContent: tpl.htmlContent });
+        const reg = await registerMetaPhoneNumberWithPin(metaPhoneNumberId, whatsappSystemToken, {
+          logPrefix: "[cron/wa-provision]",
+        });
+        if (!reg.ok) {
+          const errMsg = reg.error ?? "register_failed";
+          console.error("[cron/wa-provision] register failed:", errMsg);
+          await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+            phoneE164,
+            twilioSid,
+            recordingSid,
+          });
+          return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
         }
+        console.info("[cron/wa-provision] register successful");
+        await succeedProvisionAfterRegister(
+          admin,
+          locked as any,
+          metaPhoneNumberId,
+          phoneE164,
+          twilioSid,
+          recordingSid
+        );
+        return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
       } catch (e) {
-        console.error("[cron/wa-provision] customer email failed:", e);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error("[cron/wa-provision] register threw:", errMsg);
+        await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+          phoneE164,
+          twilioSid,
+          recordingSid,
+        });
+        return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
       }
-
-      const { error: doneErr } = await admin
-        .from("wa_provision_jobs")
-        .update({
-          status: "done",
-          updated_at: isoNow(),
-          phone_e164: phoneE164,
-          meta_phone_number_id: metaPhoneNumberId,
-          twilio_sid: twilioSid,
-          recording_sid: recordingSid,
-        } as any)
-        .eq("id", Number(locked.id));
-      if (doneErr) throw doneErr;
-
-      return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
     }
 
     if (status !== "running") {
