@@ -3,6 +3,8 @@ import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const PLAN_DO_CRM_FORM_URL = "https://plando.co.il/contacts/crm_form";
+/** Required by Plan Do when creating a new activity record (no record_id). */
+const PLAN_DO_DEFAULT_RECORD_TYPE_ID = "1";
 
 type PlanDoCrmFormResponse = {
   err?: string;
@@ -134,6 +136,8 @@ export async function submitPlanDoLeadEvent(input: {
   params.set("record[description]", noteText);
   if (existingRecordId) {
     params.set("record_id", existingRecordId);
+  } else {
+    params.set("record[record_type_id]", PLAN_DO_DEFAULT_RECORD_TYPE_ID);
   }
 
   try {
