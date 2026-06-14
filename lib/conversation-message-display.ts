@@ -158,3 +158,6 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
 
   return { kind: "text", text: s };
 }
+
+/** model_used ב-messages — תשובת «סוג הודעה לא נתמך» מ-webhook. */
+export const WA_UNSUPPORTED_INBOUND_MODEL = "unsupported_inbound_type";

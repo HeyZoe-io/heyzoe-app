@@ -113,7 +113,15 @@ export type WaIncomingUnsupported = {
   toNumber: string;
   /** WhatsApp profile name (Twilio: ProfileName) if available */
   profileName?: string;
+  /** Meta message type when not mapped to text (e.g. audio, sticker). */
+  metaInboundType?: string;
 };
+
+/** תשובה אוטומטית כשסוג הודעה נכנסת לא נתמך — נרשמת ב-messages לתצוגה בדשבורד. */
+export const WA_UNSUPPORTED_INBOUND_REPLY =
+  "שלום! אני מטפלת בהודעות טקסט בלבד. שלחו לי שאלה בכתב ואשמח לעזור 😊";
+
+export const WA_UNSUPPORTED_INBOUND_MODEL = "unsupported_inbound_type";
 
 export type WaIncomingMessage = WaIncomingText | WaIncomingUnsupported;
 
@@ -295,12 +303,31 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
     };
   }
 
+  /** Quick-reply / CTA on Meta *template* messages (not interactive messages we send). */
+  if (type === "button") {
+    const btn = m.button as Record<string, unknown> | undefined;
+    const text =
+      String(btn?.text ?? "").trim() ||
+      String(btn?.payload ?? "").trim();
+    if (!text) return null;
+    return {
+      type: "text",
+      messageId,
+      from,
+      toNumber: phoneNumberId,
+      text,
+      profileName: profileName || undefined,
+      metaInteractiveReplyKind: "button_reply",
+    };
+  }
+
   return {
     type: "unsupported",
     messageId,
     from,
     toNumber: phoneNumberId,
     profileName: profileName || undefined,
+    metaInboundType: type || undefined,
   };
 }
 
@@ -376,6 +403,13 @@ export function explainMetaWebhookSkip(payload: unknown): string {
         if (typ === "text") {
           const body = String((m.text as Record<string, unknown> | undefined)?.body ?? "").trim();
           if (!body) return "text message with empty body";
+        }
+        if (typ === "button") {
+          const btn = m.button as Record<string, unknown> | undefined;
+          const label =
+            String(btn?.text ?? "").trim() ||
+            String(btn?.payload ?? "").trim();
+          if (!label) return "button message with empty text/payload";
         }
       }
     }

@@ -18,6 +18,7 @@ type SessionMessage = {
   content: string;
   created_at: string;
   error_code?: string | null;
+  model_used?: string | null;
 };
 
 async function requireUser() {
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
   const slugVariants = await resolveBusinessSlugVariants(admin, slug);
   const { data: messages } = await admin
     .from("messages")
-    .select("role, content, created_at, error_code")
+    .select("role, content, created_at, error_code, model_used")
     .in("business_slug", slugVariants.length ? slugVariants : [slug])
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest) {
     content: String((m as { content?: string }).content ?? ""),
     created_at: String((m as { created_at?: string }).created_at ?? ""),
     error_code: ((m as { error_code?: string | null }).error_code as string | null) ?? null,
+    model_used: ((m as { model_used?: string | null }).model_used as string | null) ?? null,
   }));
 
   out = await appendLeadTemplateMessageFallback({

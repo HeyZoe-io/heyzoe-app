@@ -3,6 +3,7 @@
 import { CornerUpLeft } from "lucide-react";
 import {
   parseConversationMessageContent,
+  WA_UNSUPPORTED_INBOUND_MODEL,
   type ParsedWaConversationMessage,
 } from "@/lib/conversation-message-display";
 
@@ -131,11 +132,13 @@ export function WaConversationMessage({
   content,
   createdAt,
   errorCode,
+  modelUsed,
 }: {
   role: string;
   content: string;
   createdAt?: string;
   errorCode?: string | null;
+  modelUsed?: string | null;
 }) {
   if (role === "event") return null;
 
@@ -151,6 +154,11 @@ export function WaConversationMessage({
       </BubbleShell>
       {from === "assistant" && errorCode ? (
         <p className="mt-0.5 text-end text-[10px] text-red-600">קוד שגיאה: {errorCode}</p>
+      ) : null}
+      {from === "assistant" && modelUsed === WA_UNSUPPORTED_INBOUND_MODEL ? (
+        <p className="mt-0.5 text-end text-[10px] text-amber-700">
+          תשובת מערכת — סוג הודעה נכנסת לא נתמך
+        </p>
       ) : null}
     </div>
   );
