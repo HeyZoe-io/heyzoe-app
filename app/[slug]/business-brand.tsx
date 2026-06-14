@@ -1,6 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { dashboardLangFromParam } from "@/lib/dashboard-lang";
+
+const i18n = {
+  he: { logoAlt: (name: string) => `${name} לוגו` },
+  en: { logoAlt: (name: string) => `${name} logo` },
+} as const;
 
 type BusinessBrandProps = {
   logoUrl: string | null;
@@ -8,6 +15,9 @@ type BusinessBrandProps = {
 };
 
 export default function BusinessBrand({ logoUrl, businessName }: BusinessBrandProps) {
+  const searchParams = useSearchParams();
+  const lang = dashboardLangFromParam(searchParams.get("lang"));
+  const t = i18n[lang];
   const [hideLogo, setHideLogo] = useState(false);
   const safeLogoUrl = (() => {
     if (!logoUrl) return null;
@@ -27,7 +37,7 @@ export default function BusinessBrand({ logoUrl, businessName }: BusinessBrandPr
   return (
     <img
       src={safeLogoUrl}
-      alt={`${businessName} לוגו`}
+      alt={t.logoAlt(businessName)}
       className="h-20 w-20 rounded-full object-contain border border-neutral-200 bg-white shadow-sm"
       style={{ imageRendering: "auto" }}
       onLoad={(e) => {

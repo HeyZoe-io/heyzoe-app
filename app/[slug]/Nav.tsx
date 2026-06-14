@@ -2,24 +2,52 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import UserMenu from "@/app/components/UserMenu";
 import {
   SalesPathSubNav,
   dashboardMainTabClass,
 } from "@/app/dashboard/[slug]/settings/settings-ui";
+import { dashboardDir, dashboardHref, dashboardLangFromParam } from "@/lib/dashboard-lang";
+import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
 
-export default function SlugDashboardNav({ slug }: { slug: string }) {
+const i18n = {
+  he: {
+    salesPath: "מסלול מכירה",
+    conversations: "שיחות",
+    leads: "לידים",
+    analytics: "אנליטיקס",
+    logoAria: "HeyZoe — לדשבורד",
+    navAria: "אזורי דשבורד",
+    verifyBannerAria: "המספר בתהליך אימות — מעבר למסלול מכירה",
+    verifyBannerText: "המספר בתהליך אימות, בינתיים בוא נבנה את זואי!",
+  },
+  en: {
+    salesPath: "Sales Path",
+    conversations: "Conversations",
+    leads: "Leads",
+    analytics: "Analytics",
+    logoAria: "HeyZoe — Dashboard",
+    navAria: "Dashboard sections",
+    verifyBannerAria: "Phone number verification in progress — go to Sales Path",
+    verifyBannerText: "Phone number verification in progress — let's build Zoe in the meantime!",
+  },
+} as const;
+
+function SlugDashboardNavInner({ slug }: { slug: string }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const lang = dashboardLangFromParam(searchParams.get("lang"));
+  const t = i18n[lang];
   const base = `/${slug}`;
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED" | "not_provisioned">(null);
 
   const items: { href: string; label: string }[] = [
-    { href: `${base}/settings`, label: "מסלול מכירה" },
-    { href: `${base}/conversations`, label: "שיחות" },
-    { href: `${base}/contacts`, label: "לידים" },
-    { href: `${base}/analytics`, label: "אנליטיקס" },
+    { href: dashboardHref(`${base}/settings`, lang), label: t.salesPath },
+    { href: dashboardHref(`${base}/conversations`, lang), label: t.conversations },
+    { href: dashboardHref(`${base}/contacts`, lang), label: t.leads },
+    { href: dashboardHref(`${base}/analytics`, lang), label: t.analytics },
   ];
 
   useEffect(() => {
@@ -57,10 +85,10 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
       <div className="relative flex items-center justify-between gap-3 pb-2 min-h-[48px] sm:min-h-[52px]">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3 z-[1]">
           <Link
-            href={`${base}/analytics`}
+            href={dashboardHref(`${base}/analytics`, lang)}
             prefetch={true}
             className="hidden sm:flex items-center select-none shrink-0"
-            aria-label="HeyZoe — לדשבורד"
+            aria-label={t.logoAria}
           >
             <Image
               src="/heyzoe-logo.png"
@@ -74,27 +102,27 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
           <UserMenu slug={slug} />
           {metaStatus === "PENDING" ? (
             <Link
-              href={`${base}/settings?step=1`}
+              href={settingsStepHref(`${base}/settings`, 1, lang)}
               prefetch={true}
               className="hidden lg:flex items-center gap-2 text-xs font-light text-orange-700 hover:text-orange-800 transition"
-              style={{ direction: "rtl" }}
-              aria-label="המספר בתהליך אימות — מעבר למסלול מכירה"
+              style={{ direction: dashboardDir(lang) }}
+              aria-label={t.verifyBannerAria}
             >
               <span className="relative flex h-2.5 w-2.5 shrink-0">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-orange-500" />
               </span>
-              <span>המספר בתהליך אימות, בינתיים בוא נבנה את זואי!</span>
+              <span>{t.verifyBannerText}</span>
             </Link>
           ) : null}
         </div>
 
         <nav
           className="absolute left-1/2 top-1/2 z-[2] flex w-max max-w-[calc(100vw-5rem)] sm:max-w-[min(100%,calc(100vw-14rem))] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-4 overflow-x-auto px-1 sm:gap-8"
-          aria-label="אזורי דשבורד"
+          aria-label={t.navAria}
         >
           {items.map((item) => {
-            const active = pathname === item.href;
+            const active = pathname === item.href.split("?")[0];
             return (
               <Link
                 key={item.href}
@@ -116,5 +144,13 @@ export default function SlugDashboardNav({ slug }: { slug: string }) {
         <SalesPathSubNav slug={slug} />
       </Suspense>
     </header>
+  );
+}
+
+export default function SlugDashboardNav({ slug }: { slug: string }) {
+  return (
+    <Suspense fallback={null}>
+      <SlugDashboardNavInner slug={slug} />
+    </Suspense>
   );
 }

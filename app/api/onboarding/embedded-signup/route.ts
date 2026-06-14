@@ -48,7 +48,13 @@ async function canWriteWabaForSlug(
 }
 
 export async function POST(req: NextRequest) {
-  let body: { code?: unknown; waba_id?: unknown; businessSlug?: unknown; email?: unknown };
+  let body: {
+    code?: unknown;
+    waba_id?: unknown;
+    phone_number_id?: unknown;
+    businessSlug?: unknown;
+    email?: unknown;
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -57,12 +63,20 @@ export async function POST(req: NextRequest) {
 
   const code = String(body.code ?? "").trim();
   const waba_id = String(body.waba_id ?? "").trim().replace(/\s+/g, "");
+  const phone_number_id = String(body.phone_number_id ?? "").trim().replace(/\s+/g, "");
   const businessSlug = normalizeSlug(body.businessSlug);
   const proofEmail = normalizeEmail(body.email);
 
-  if (!code || !waba_id || !businessSlug) {
+  if (!businessSlug) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
   }
+  if (!waba_id) {
+    return NextResponse.json({ error: "waba_id is required and must not be empty" }, { status: 400 });
+  }
+
+  console.info(
+    `[embedded-signup] received waba_id=${waba_id}, phone_number_id=${phone_number_id || "(none)"}`
+  );
 
   const supabase = await createSupabaseServerClient();
   const {
@@ -93,6 +107,72 @@ export async function POST(req: NextRequest) {
     }
     console.error("[embedded-signup] update failed:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  console.info(`[embedded-signup] updated businesses.waba_id for slug=${businessSlug}`);
+
+  const { data: bizForRelease, error: bizReleaseErr } = await admin
+    .from("businesses")
+    .select("id")
+    .eq("slug", businessSlug)
+    .maybeSingle();
+
+  if (bizReleaseErr) {
+    console.warn("[embedded-signup] wa_provision_jobs release skipped: business lookup failed", {
+      slug: businessSlug,
+      error: bizReleaseErr.message,
+    });
+  } else if (bizForRelease?.id) {
+    const businessId = Number((bizForRelease as { id?: unknown }).id);
+    const { data: releasedJobs, error: releaseErr } = await admin
+      .from("wa_provision_jobs")
+      .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+      .eq("business_id", businessId)
+      .eq("status", "awaiting_waba")
+      .select("id");
+    if (releaseErr) {
+      console.error("[embedded-signup] release wa_provision_jobs failed:", releaseErr.message);
+    } else if (releasedJobs?.length) {
+      console.info(
+        `[embedded-signup] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+      );
+    }
+  }
+
+  if (phone_number_id) {
+    const { data: biz, error: bizErr } = await admin
+      .from("businesses")
+      .select("id")
+      .eq("slug", businessSlug)
+      .maybeSingle();
+
+    if (bizErr || !biz?.id) {
+      console.warn("[embedded-signup] whatsapp_channels upsert skipped: business lookup failed", {
+        slug: businessSlug,
+        error: bizErr?.message ?? "business_not_found",
+      });
+    } else {
+      const { error: channelErr } = await admin.from("whatsapp_channels").upsert(
+        {
+          business_id: biz.id,
+          business_slug: businessSlug,
+          phone_number_id,
+          is_active: false,
+          provisioning_status: "pending",
+        } as any,
+        { onConflict: "phone_number_id" }
+      );
+
+      if (channelErr) {
+        console.warn("[embedded-signup] whatsapp_channels upsert failed (waba_id saved):", {
+          slug: businessSlug,
+          phone_number_id,
+          error: channelErr.message,
+        });
+      } else {
+        console.info(`[embedded-signup] upserted whatsapp_channels for phone_number_id=${phone_number_id}`);
+      }
+    }
   }
 
   // `code` reserved for a later server exchange with Meta; not persisted here.
