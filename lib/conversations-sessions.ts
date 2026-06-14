@@ -10,6 +10,8 @@ export type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
+  /** שם הליד מ-contacts.full_name */
+  fullName?: string | null;
   /** סטטוס ליד מטבלת contacts (אותה לוגיקה כמו בדף אנשי קשר) */
   contactStatus?: ContactStatusKey | null;
 };
@@ -19,40 +21,53 @@ function phoneLookupKey(phone: string): string {
   return normalizePhone(p) ?? p.replace(/\D/g, "");
 }
 
-async function loadContactStatusByPhoneForBusiness(
+type ContactPhoneMeta = {
+  status: ContactStatusKey | null;
+  fullName: string | null;
+};
+
+async function loadContactMetaByPhoneForBusiness(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
-): Promise<Map<string, ContactStatusKey | null>> {
+): Promise<Map<string, ContactPhoneMeta>> {
   const { data, error } = await admin
     .from("contacts")
     .select(
-      "phone, opted_out, not_relevant_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
+      "phone, full_name, opted_out, not_relevant_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
     )
     .eq("business_id", businessId);
 
   if (error) {
-    console.warn("[conversations-sessions] contacts status load:", error.message);
+    console.warn("[conversations-sessions] contacts meta load:", error.message);
     return new Map();
   }
 
-  const map = new Map<string, ContactStatusKey | null>();
+  const map = new Map<string, ContactPhoneMeta>();
   for (const row of data ?? []) {
     const phone = String((row as { phone?: string }).phone ?? "").trim();
     const key = phoneLookupKey(phone);
     if (!key) continue;
-    map.set(key, computeContactStatus(row as Parameters<typeof computeContactStatus>[0]));
+    const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
+    map.set(key, {
+      status: computeContactStatus(row as Parameters<typeof computeContactStatus>[0]),
+      fullName: fullName || null,
+    });
   }
   return map;
 }
 
-function enrichSessionsWithContactStatus(
+function enrichSessionsWithContactMeta(
   sessions: SessionSummary[],
-  byPhone: Map<string, ContactStatusKey | null>
+  byPhone: Map<string, ContactPhoneMeta>
 ): SessionSummary[] {
-  return sessions.map((s) => ({
-    ...s,
-    contactStatus: byPhone.get(phoneLookupKey(s.phone)) ?? null,
-  }));
+  return sessions.map((s) => {
+    const meta = byPhone.get(phoneLookupKey(s.phone));
+    return {
+      ...s,
+      fullName: meta?.fullName ?? s.fullName ?? null,
+      contactStatus: meta?.status ?? null,
+    };
+  });
 }
 
 export function buildWaSessionPrefix(phoneNumberId: string): string {
@@ -214,6 +229,7 @@ function appendTemplateOnlySessions(
     if (!sessionId) continue;
 
     const createdAt = String((row as { created_at?: string }).created_at ?? new Date().toISOString());
+    const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
     extra.push({
       session_id: sessionId,
       lastAt: createdAt,
@@ -221,6 +237,7 @@ function appendTemplateOnlySessions(
       isOpen: false,
       isPaused: false,
       phone: extractPhoneFromSessionId(sessionId) || key,
+      fullName: fullName || null,
       contactStatus: "template",
     });
     existingPhones.add(key);
@@ -257,7 +274,7 @@ export async function loadBusinessConversationSessions(
       ? admin
           .from("contacts")
           .select(
-            "phone, created_at, source, session_phase, opted_out, not_relevant_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
+            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
           )
           .eq("business_id", businessId)
           .eq("source", "meta_lead_ad")
@@ -275,6 +292,6 @@ export async function loadBusinessConversationSessions(
 
   if (!Number.isFinite(businessId) || businessId <= 0) return sessions;
 
-  const statusByPhone = await loadContactStatusByPhoneForBusiness(admin, businessId);
-  return enrichSessionsWithContactStatus(sessions, statusByPhone);
+  const metaByPhone = await loadContactMetaByPhoneForBusiness(admin, businessId);
+  return enrichSessionsWithContactMeta(sessions, metaByPhone);
 }

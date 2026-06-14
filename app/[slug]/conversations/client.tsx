@@ -23,11 +23,20 @@ type SessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
+  fullName?: string | null;
   contactStatus?: ContactStatusKey | null;
   /** טאב זואי אדמין — «כל השיחות» */
   source_slug?: string;
   source_name?: string;
 };
+
+function sessionLeadName(session: { fullName?: string | null }): string {
+  return String(session.fullName ?? "").trim();
+}
+
+function sessionPhoneDisplay(session: { phone?: string }): string {
+  return String(session.phone ?? "").trim() || "לא זמין";
+}
 
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -330,15 +339,18 @@ export default function ConversationsClient({
             }`}
           >
             <div className="text-right">
-              <p className="text-xs text-zinc-500">מספר טלפון</p>
+              <p className="text-xs text-zinc-500">{sessionLeadName(s) ? "ליד" : "מספר טלפון"}</p>
               <button
                 type="button"
                 onClick={() => setSelectedId((prev) => (prev === s.session_id ? null : s.session_id))}
                 onPointerDown={() => void prefetchMessages(s.session_id)}
                 className="text-sm font-medium text-zinc-900 truncate max-w-[220px] underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500"
               >
-                {s.phone || "לא זמין"}
+                {sessionLeadName(s) || sessionPhoneDisplay(s)}
               </button>
+              {sessionLeadName(s) ? (
+                <p className="text-[11px] text-zinc-600">{sessionPhoneDisplay(s)}</p>
+              ) : null}
               <p className="text-[11px] text-zinc-500">
                 {s.source_name ? (
                   <span className="block text-[10px] text-[#7133da]">{s.source_name}</span>
@@ -374,10 +386,18 @@ export default function ConversationsClient({
           <>
             <div className="flex items-center justify-between mb-2">
               <div className="text-right">
-                <p className="text-xs text-zinc-500">מספר טלפון</p>
-                <p className="text-sm font-medium text-zinc-900">
-                  {selected.phone || "לא זמין"}
-                </p>
+                {sessionLeadName(selected) ? (
+                  <>
+                    <p className="text-xs text-zinc-500">ליד</p>
+                    <p className="text-sm font-medium text-zinc-900">{sessionLeadName(selected)}</p>
+                    <p className="text-[11px] text-zinc-600">{sessionPhoneDisplay(selected)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-zinc-500">מספר טלפון</p>
+                    <p className="text-sm font-medium text-zinc-900">{sessionPhoneDisplay(selected)}</p>
+                  </>
+                )}
                 <p className="text-[11px] text-zinc-500">
                   {selected.count} הודעות ·{" "}
                   {formatDmy(selected.lastAt)}
