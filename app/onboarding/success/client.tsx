@@ -386,6 +386,8 @@ export default function OnboardingSuccessClient() {
 
     const loginOpts: Record<string, unknown> = {
       scope: "whatsapp_business_management",
+      response_type: "code",
+      override_default_response_type: true,
       extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
     };
     if (fbConfigId) {
