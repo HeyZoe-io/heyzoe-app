@@ -313,16 +313,44 @@ async function shouldSuppressProvisionFailureEmail(
 }
 
 const TRANSCRIPTION_WAIT_MS = 2 * 60_000;
+/** Max cron pickups before hard-failing a job stuck on /register (includes first verify+register run). */
+const MAX_REGISTER_ATTEMPTS = 5;
 
 /** Env: WHATSAPP_REGISTRATION_PIN (6-digit Meta /register PIN; default 123456). */
 
-async function failProvisionAfterRegisterError(
+async function deferToWaitingRegister(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  locked: { id: unknown },
+  errMsg: string,
+  extras: { phoneE164?: string; metaPhoneNumberId?: string; twilioSid?: string; recordingSid?: string }
+) {
+  await admin
+    .from("wa_provision_jobs")
+    .update({
+      status: "waiting_register",
+      updated_at: isoNow(),
+      last_error: errMsg,
+      ...(extras.phoneE164 ? { phone_e164: extras.phoneE164 } : {}),
+      ...(extras.metaPhoneNumberId ? { meta_phone_number_id: extras.metaPhoneNumberId } : {}),
+      ...(extras.twilioSid ? { twilio_sid: extras.twilioSid } : {}),
+      ...(extras.recordingSid ? { recording_sid: extras.recordingSid } : {}),
+    } as any)
+    .eq("id", Number(locked.id));
+}
+
+async function failProvisionMaxAttempts(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   locked: { id: unknown; business_id: unknown; business_slug: unknown },
   metaPhoneNumberId: string,
-  errMsg: string,
+  attempts: number,
   extras?: { phoneE164?: string; twilioSid?: string; recordingSid?: string }
 ) {
+  const errMsg = `register_max_attempts_${attempts}`;
+  console.error("[cron/wa-provision] max attempts reached, marking as failed", {
+    id: Number(locked.id),
+    attempts,
+    meta_phone_number_id: metaPhoneNumberId || null,
+  });
   if (metaPhoneNumberId) {
     await admin
       .from("whatsapp_channels")
@@ -597,10 +625,19 @@ export async function GET(req: NextRequest) {
     }
 
     if (status === "waiting_register") {
+      const jobId = Number((locked as any).id);
+      const attempts = Number((locked as any).attempts ?? 0);
       phoneE164 = String((locked as any).phone_e164 ?? "").trim();
       metaPhoneNumberId = String((locked as any).meta_phone_number_id ?? "").trim();
       twilioSid = String((locked as any).twilio_sid ?? "").trim();
       recordingSid = String((locked as any).recording_sid ?? "").trim();
+
+      console.info("[cron/wa-provision] picked up waiting_register job:", {
+        id: jobId,
+        attempts,
+        meta_phone_number_id: metaPhoneNumberId || null,
+        twilio_sid: twilioSid || null,
+      });
 
       if (!metaPhoneNumberId || !phoneE164) {
         try {
@@ -625,21 +662,63 @@ export async function GET(req: NextRequest) {
         throw new Error("missing_meta_phone_number_id");
       }
 
+      if (attempts >= MAX_REGISTER_ATTEMPTS) {
+        await failProvisionMaxAttempts(admin, locked as any, metaPhoneNumberId, attempts, {
+          phoneE164,
+          twilioSid,
+          recordingSid,
+        });
+        return NextResponse.json({
+          ok: true,
+          processed: 1,
+          status: "failed",
+          error: `register_max_attempts_${attempts}`,
+          build,
+        });
+      }
+
+      console.info(
+        `[cron/wa-provision] retrying /register for phone_number_id=${metaPhoneNumberId} (attempt ${attempts}/${MAX_REGISTER_ATTEMPTS})`
+      );
+
       try {
         const reg = await registerMetaPhoneNumberWithPin(metaPhoneNumberId, whatsappSystemToken, {
           logPrefix: "[cron/wa-provision]",
         });
         if (!reg.ok) {
           const errMsg = reg.error ?? "register_failed";
-          console.error("[cron/wa-provision] register failed:", errMsg);
-          await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+          console.error("[cron/wa-provision] register retry failure:", {
+            id: jobId,
+            attempts,
+            error: errMsg,
+          });
+          if (attempts >= MAX_REGISTER_ATTEMPTS) {
+            await failProvisionMaxAttempts(admin, locked as any, metaPhoneNumberId, attempts, {
+              phoneE164,
+              twilioSid,
+              recordingSid,
+            });
+            return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+          }
+          await deferToWaitingRegister(admin, locked as any, errMsg, {
             phoneE164,
+            metaPhoneNumberId,
             twilioSid,
             recordingSid,
           });
-          return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+          return NextResponse.json({
+            ok: true,
+            processed: 1,
+            status: "waiting_register",
+            error: errMsg,
+            attempts,
+            build,
+          });
         }
-        console.info("[cron/wa-provision] register successful");
+        console.info("[cron/wa-provision] register retry success:", {
+          id: jobId,
+          phone_number_id: metaPhoneNumberId,
+        });
         await succeedProvisionAfterRegister(
           admin,
           locked as any,
@@ -651,13 +730,33 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
-        console.error("[cron/wa-provision] register threw:", errMsg);
-        await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+        console.error("[cron/wa-provision] register retry failure (threw):", {
+          id: jobId,
+          attempts,
+          error: errMsg,
+        });
+        if (attempts >= MAX_REGISTER_ATTEMPTS) {
+          await failProvisionMaxAttempts(admin, locked as any, metaPhoneNumberId, attempts, {
+            phoneE164,
+            twilioSid,
+            recordingSid,
+          });
+          return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+        }
+        await deferToWaitingRegister(admin, locked as any, errMsg, {
           phoneE164,
+          metaPhoneNumberId,
           twilioSid,
           recordingSid,
         });
-        return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+        return NextResponse.json({
+          ok: true,
+          processed: 1,
+          status: "waiting_register",
+          error: errMsg,
+          attempts,
+          build,
+        });
       }
     }
 
@@ -949,15 +1048,36 @@ export async function GET(req: NextRequest) {
         const reg = await registerMetaPhoneNumberWithPin(metaPhoneNumberId, whatsappSystemToken, {
           logPrefix: "[cron/wa-provision]",
         });
+        const attempts = Number((locked as any).attempts ?? 0);
         if (!reg.ok) {
           const errMsg = reg.error ?? "register_failed";
-          console.error("[cron/wa-provision] register failed:", errMsg);
-          await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+          console.error("[cron/wa-provision] register failed after verify_code:", {
+            id: Number((locked as any).id),
+            attempts,
+            error: errMsg,
+          });
+          if (attempts >= MAX_REGISTER_ATTEMPTS) {
+            await failProvisionMaxAttempts(admin, locked as any, metaPhoneNumberId, attempts, {
+              phoneE164,
+              twilioSid,
+              recordingSid,
+            });
+            return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+          }
+          await deferToWaitingRegister(admin, locked as any, errMsg, {
             phoneE164,
+            metaPhoneNumberId,
             twilioSid,
             recordingSid,
           });
-          return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+          return NextResponse.json({
+            ok: true,
+            processed: 1,
+            status: "waiting_register",
+            error: errMsg,
+            attempts,
+            build,
+          });
         }
         console.info("[cron/wa-provision] register successful");
         await succeedProvisionAfterRegister(
@@ -971,13 +1091,34 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: true, processed: 1, status: "done", phone: phoneE164, build });
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);
-        console.error("[cron/wa-provision] register threw:", errMsg);
-        await failProvisionAfterRegisterError(admin, locked as any, metaPhoneNumberId, errMsg, {
+        const attempts = Number((locked as any).attempts ?? 0);
+        console.error("[cron/wa-provision] register threw after verify_code:", {
+          id: Number((locked as any).id),
+          attempts,
+          error: errMsg,
+        });
+        if (attempts >= MAX_REGISTER_ATTEMPTS) {
+          await failProvisionMaxAttempts(admin, locked as any, metaPhoneNumberId, attempts, {
+            phoneE164,
+            twilioSid,
+            recordingSid,
+          });
+          return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+        }
+        await deferToWaitingRegister(admin, locked as any, errMsg, {
           phoneE164,
+          metaPhoneNumberId,
           twilioSid,
           recordingSid,
         });
-        return NextResponse.json({ ok: true, processed: 1, status: "failed", error: errMsg, build });
+        return NextResponse.json({
+          ok: true,
+          processed: 1,
+          status: "waiting_register",
+          error: errMsg,
+          attempts,
+          build,
+        });
       }
     }
 
