@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { markContactNotRelevantManually } from "@/lib/not-relevant";
+import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
@@ -79,7 +80,9 @@ export async function POST(req: NextRequest) {
 
   if (!businessSlug) return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
   if (!phone) return NextResponse.json({ error: "missing_phone" }, { status: 400 });
-  if (status !== "not_relevant") return NextResponse.json({ error: "unsupported_status" }, { status: 400 });
+  if (status !== "not_relevant" && status !== "registered") {
+    return NextResponse.json({ error: "unsupported_status" }, { status: 400 });
+  }
 
   const admin = createSupabaseAdminClient();
   const access = await requireBusinessAccess(admin, user.id, businessSlug, user.email);
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   const { data: existingRows, error: existingErr } = await admin
     .from("contacts")
-    .select("full_name, not_relevant_at, opted_out, phone")
+    .select("full_name, not_relevant_at, opted_out, phone, trial_registered, session_phase")
     .eq("business_id", businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [phone])
     .order("updated_at", { ascending: false })
@@ -116,16 +119,50 @@ export async function POST(req: NextRequest) {
   if ((existing as { opted_out?: boolean }).opted_out === true) {
     return NextResponse.json({ error: "contact_opted_out" }, { status: 400 });
   }
-  if ((existing as { not_relevant_at?: string | null }).not_relevant_at) {
-    return NextResponse.json({ ok: true, already: true });
+
+  const canonicalPhone = String((existing as { phone?: string }).phone ?? phone);
+
+  if (status === "not_relevant") {
+    if ((existing as { not_relevant_at?: string | null }).not_relevant_at) {
+      return NextResponse.json({ ok: true, already: true });
+    }
+
+    const result = await markContactNotRelevantManually({
+      admin,
+      businessId,
+      businessSlug,
+      phone: canonicalPhone,
+      reason: body.reason ?? null,
+      fullName: (existing as { full_name?: string | null }).full_name ?? null,
+    });
+
+    if (!result.ok) {
+      const httpStatus = result.error === "contact_not_found" ? 404 : 500;
+      return NextResponse.json({ error: result.error }, { status: httpStatus });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status: "not_relevant",
+      not_relevant_at: result.not_relevant_at,
+    });
   }
 
-  const result = await markContactNotRelevantManually({
+  const alreadyRegistered =
+    (existing as { trial_registered?: boolean | null }).trial_registered === true ||
+    String((existing as { session_phase?: string | null }).session_phase ?? "").trim() === "registered";
+  if (alreadyRegistered) {
+    return NextResponse.json({ ok: true, already: true });
+  }
+  if ((existing as { not_relevant_at?: string | null }).not_relevant_at) {
+    return NextResponse.json({ error: "contact_not_relevant" }, { status: 400 });
+  }
+
+  const result = await markContactTrialRegisteredManually({
     admin,
     businessId,
     businessSlug,
-    phone: String((existing as { phone?: string }).phone ?? phone),
-    reason: body.reason ?? null,
+    phone: canonicalPhone,
     fullName: (existing as { full_name?: string | null }).full_name ?? null,
   });
 
@@ -136,7 +173,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    status: "not_relevant",
-    not_relevant_at: result.not_relevant_at,
+    status: "registered",
+    trial_registered_at: result.trial_registered_at,
   });
 }

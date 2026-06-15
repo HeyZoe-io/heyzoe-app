@@ -592,7 +592,7 @@ export default function ContactsClient({
     }
 
     setStatusMenuKey(null);
-    if (status === "not_relevant") {
+    if (status === "not_relevant" || status === "registered") {
       setStatusPendingConfirm({ contact: c, rowKey, status });
       return;
     }
@@ -618,6 +618,7 @@ export default function ContactsClient({
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         not_relevant_at?: string;
+        trial_registered_at?: string;
       };
       if (!res.ok) throw new Error(j?.error || "status_update_failed");
 
@@ -640,6 +641,25 @@ export default function ContactsClient({
           )
         );
         showToast("הסטטוס עודכן — זואי תפסיק פולואפים לליד הזה");
+      } else if (status === "registered") {
+        const registeredAt = j.trial_registered_at ?? new Date().toISOString();
+        setContacts((prev) =>
+          prev.map((row) =>
+            contactsSharePhone(row.phone, c.phone) &&
+            (!multiBusinessAdmin || row.business_slug === c.business_slug)
+              ? {
+                  ...row,
+                  trial_registered: true,
+                  session_phase: "registered",
+                  wa_next_followup_at: null,
+                  wa_no_response_due_at: null,
+                  wa_followup_stage: 3,
+                  followup_sent: true,
+                }
+              : row
+          )
+        );
+        showToast("הסטטוס עודכן — הליד סומן כנרשם, ייספר בהמרות ויועבר ל-CRM");
       }
     } catch (e) {
       console.error(e);
@@ -989,14 +1009,29 @@ export default function ContactsClient({
         >
           <div className="space-y-4">
             <p className="text-sm text-zinc-700 text-right leading-relaxed">
-              לסמן את{" "}
-              <span className="font-medium text-zinc-900">
-                {statusPendingConfirm.contact.full_name?.trim() ||
-                  statusPendingConfirm.contact.phone}
-              </span>{" "}
-              כלא רלוונטי?
-              <br />
-              זואי תפסיק לשלוח פולואפים לליד הזה.
+              {statusPendingConfirm.status === "registered" ? (
+                <>
+                  לסמן את{" "}
+                  <span className="font-medium text-zinc-900">
+                    {statusPendingConfirm.contact.full_name?.trim() ||
+                      statusPendingConfirm.contact.phone}
+                  </span>{" "}
+                  כנרשם?
+                  <br />
+                  זואי תפסיק פולואפים, הליד ייספר בהמרות ויועבר ל-CRM.
+                </>
+              ) : (
+                <>
+                  לסמן את{" "}
+                  <span className="font-medium text-zinc-900">
+                    {statusPendingConfirm.contact.full_name?.trim() ||
+                      statusPendingConfirm.contact.phone}
+                  </span>{" "}
+                  כלא רלוונטי?
+                  <br />
+                  זואי תפסיק לשלוח פולואפים לליד הזה.
+                </>
+              )}
             </p>
             <div className="flex justify-end gap-2">
               <Button
