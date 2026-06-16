@@ -3,6 +3,7 @@ import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const PLAN_DO_CRM_FORM_URL = "https://plando.co.il/contacts/crm_form";
+const PLAN_DO_LEAD_FORM_URL = "https://plando.co.il/contacts/lead_form1";
 /** Required by Plan Do when creating a new activity record (no record_id). */
 const PLAN_DO_DEFAULT_RECORD_TYPE_ID = "1";
 
@@ -99,9 +100,68 @@ function parsePlanDoResponse(rawText: string): PlanDoCrmFormResponse | null {
   }
 }
 
+/** lead_form1 — contact.remark = הערה על כרטיס הליד בפלאן דו. */
+async function submitPlanDoLeadRemark(input: {
+  apiKey: string;
+  phone: string;
+  fullName?: string | null;
+  noteText: string;
+}): Promise<{ ok: true } | { ok: false; error: string; detail?: string }> {
+  const accessKey = String(input.apiKey ?? "").trim();
+  if (!accessKey) return { ok: false, error: "missing_api_key" };
+
+  const phoneDisplay = formatLeadPhoneDisplay(input.phone);
+  if (!phoneDisplay || phoneDisplay === "—") return { ok: false, error: "invalid_phone" };
+
+  const noteText = String(input.noteText ?? "").trim();
+  if (!noteText) return { ok: false, error: "missing_note" };
+
+  const name = String(input.fullName ?? "").trim() || phoneDisplay;
+
+  try {
+    const res = await fetch(PLAN_DO_LEAD_FORM_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        access_key: accessKey,
+        name,
+        phone: phoneDisplay,
+        email: "",
+        no_redirect: 1,
+        contact: {
+          remark: noteText,
+          customer_cat_id: 0,
+        },
+      }),
+    });
+
+    const rawText = await res.text();
+    if (!res.ok) {
+      console.error("[crm/plan-do] lead_form1 HTTP error", {
+        status: res.status,
+        phone: maskPhoneForLog(phoneDisplay),
+        body: rawText.slice(0, 500),
+      });
+      return { ok: false, error: "http_error", detail: `status_${res.status}` };
+    }
+
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[crm/plan-do] lead_form1 request failed", {
+      phone: maskPhoneForLog(phoneDisplay),
+      error: message,
+    });
+    return { ok: false, error: "request_failed", detail: message };
+  }
+}
+
 /**
- * Plan Do crm_form — form-urlencoded.
- * record[description] = noteText מ-buildCrmEventNote (זואי: טמפלייט / ניסיון / לא ענה וכו').
+ * Plan Do: lead_form1 (הערה על הליד) + crm_form (רשומת פעילות).
+ * record[description] / contact.remark = noteText מ-buildCrmEventNote.
  * Upsert: plando_record_id קיים → record_id (עדכון); אחרת יצירה + שמירת contact_id/record_id.
  */
 export async function submitPlanDoLeadEvent(input: {
@@ -125,6 +185,13 @@ export async function submitPlanDoLeadEvent(input: {
   const noteText = String(input.noteText ?? "").trim();
   if (!noteText) return { ok: false, error: "missing_note" };
 
+  const remarkResult = await submitPlanDoLeadRemark({
+    apiKey: accessKey,
+    phone: input.phone,
+    fullName: input.fullName,
+    noteText,
+  });
+
   const existingRecordId = await loadPlandoRecordId(businessId, input.phone);
   const actualDate = formatPlandoActualDate(input.eventAtIso);
 
@@ -140,6 +207,8 @@ export async function submitPlanDoLeadEvent(input: {
     params.set("record[record_type_id]", PLAN_DO_DEFAULT_RECORD_TYPE_ID);
   }
 
+  let activityOk = false;
+
   try {
     const res = await fetch(PLAN_DO_CRM_FORM_URL, {
       method: "POST",
@@ -154,42 +223,44 @@ export async function submitPlanDoLeadEvent(input: {
     const parsed = parsePlanDoResponse(rawText);
 
     if (!res.ok) {
-      console.error("[crm/plan-do] HTTP error", {
+      console.error("[crm/plan-do] crm_form HTTP error", {
         status: res.status,
         phone: maskPhoneForLog(phoneDisplay),
         body: rawText.slice(0, 500),
       });
-      return { ok: false, error: "http_error", detail: `status_${res.status}` };
-    }
-
-    if (!parsed || String(parsed.err ?? "") !== "0") {
-      console.error("[crm/plan-do] API error", {
+    } else if (!parsed || String(parsed.err ?? "") !== "0") {
+      console.error("[crm/plan-do] crm_form API error", {
         phone: maskPhoneForLog(phoneDisplay),
         err: parsed?.err,
         errdesc: parsed?.errdesc,
         body: rawText.slice(0, 500),
       });
-      return {
-        ok: false,
-        error: "plando_api_error",
-        detail: String(parsed?.errdesc ?? parsed?.error ?? rawText).slice(0, 200),
-      };
+    } else {
+      await cachePlandoIds({
+        businessId,
+        phone: input.phone,
+        contactId: parsed.contact_id,
+        recordId: parsed.record_id,
+      });
+      activityOk = true;
     }
-
-    await cachePlandoIds({
-      businessId,
-      phone: input.phone,
-      contactId: parsed.contact_id,
-      recordId: parsed.record_id,
-    });
-
-    return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    console.error("[crm/plan-do] request failed", {
+    console.error("[crm/plan-do] crm_form request failed", {
       phone: maskPhoneForLog(phoneDisplay),
       error: message,
     });
-    return { ok: false, error: "request_failed", detail: message };
   }
+
+  if (!remarkResult.ok) {
+    console.warn("[crm/plan-do] lead_form1 remark failed", {
+      phone: maskPhoneForLog(phoneDisplay),
+      error: remarkResult.error,
+      detail: remarkResult.detail,
+    });
+  }
+
+  if (activityOk || remarkResult.ok) return { ok: true };
+
+  return remarkResult;
 }

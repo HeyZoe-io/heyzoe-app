@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logMessage } from "@/lib/analytics";
 import {
+  buildTemplateIncomingContactPatch,
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
-  templateNoResponseDueAtIso,
 } from "@/lib/lead-template";
 import { dispatchCrmEvent } from "@/lib/crm/dispatch";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
@@ -102,10 +102,7 @@ export async function POST(req: NextRequest) {
       phone: phoneNorm,
       business_id: businessId,
       full_name: fullName || null,
-      source: "meta_lead_ad",
-      session_phase: "opening",
-      wa_no_response_due_at: templateNoResponseDueAtIso(Date.parse(nowIso)),
-      updated_at: nowIso,
+      ...buildTemplateIncomingContactPatch(nowIso),
     },
     { onConflict: "business_id,phone" }
   );
