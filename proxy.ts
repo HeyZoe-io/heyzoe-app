@@ -163,18 +163,49 @@ export async function proxy(req: NextRequest) {
       return redirectToDashboardLogin(req);
     }
     if (isLoginPath) {
+      // Cookie presence alone is not enough — stale sb-* cookies (common on mobile PWA /
+      // Safari) caused /dashboard/login ↔ /dashboard redirect loops.
+      const loginRes = NextResponse.next({ request: { headers: req.headers } });
+      const { createServerClient } = await import("@supabase/ssr");
+      const supabase = createServerClient(resolveSupabaseUrl(), resolveSupabaseAnonKey(), {
+        cookies: {
+          getAll() {
+            return req.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            for (const { name, value, options } of cookiesToSet) {
+              loginRes.cookies.set(name, value, options);
+            }
+          },
+        },
+      });
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        await supabase.auth.signOut();
+        return loginRes;
+      }
       const next = req.nextUrl.searchParams.get("next");
       if (next && next.startsWith("/") && !next.startsWith("//")) {
         try {
           const target = new URL(next, req.nextUrl.origin);
           if (target.origin === req.nextUrl.origin) {
-            return NextResponse.redirect(target);
+            const redirect = NextResponse.redirect(target);
+            for (const c of loginRes.cookies.getAll()) {
+              redirect.cookies.set(c.name, c.value);
+            }
+            return redirect;
           }
         } catch {
           /* ignore */
         }
       }
-      return NextResponse.redirect(new URL("/dashboard", req.nextUrl.origin));
+      const redirect = NextResponse.redirect(new URL("/dashboard", req.nextUrl.origin));
+      for (const c of loginRes.cookies.getAll()) {
+        redirect.cookies.set(c.name, c.value);
+      }
+      return redirect;
     }
 
     // Paywall for dashboard settings (edit-heavy area)
