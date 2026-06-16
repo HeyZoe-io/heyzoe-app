@@ -722,7 +722,7 @@ function MarketingFlowCanvas({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
         addEdge(
           {
             ...c,
-            id: `e_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: `e_${crypto.randomUUID()}`,
             type: "interactive",
             markerEnd: { type: MarkerType.ArrowClosed, color: PURPLE },
             style: { stroke: PURPLE, strokeWidth: 1.5 },
@@ -736,7 +736,7 @@ function MarketingFlowCanvas({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
   );
 
   const addNode = useCallback(() => {
-    const id = `n_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const id = crypto.randomUUID();
     const pos = screenToFlowPosition({ x: typeof window !== "undefined" ? window.innerWidth * 0.42 : 400, y: 260 });
     const t = addType;
     setNodes((nds) =>
