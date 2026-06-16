@@ -1,4 +1,7 @@
-import { formatDailySummaryLeadListLine } from "@/lib/notifications/daily-summary-data";
+import {
+  formatDailySummaryLeadListLine,
+  formatDailySummaryNotRelevantLeadListLine,
+} from "@/lib/notifications/daily-summary-data";
 
 export type EmailTemplateResult = { subject: string; htmlContent: string };
 
@@ -420,6 +423,10 @@ export function humanRequestedOwnerEmail(input: {
 
 export type DailySummaryIdleLead = { full_name: string | null; phone: string };
 
+export type DailySummaryNotRelevantLead = DailySummaryIdleLead & {
+  not_relevant_reason?: string | null;
+};
+
 function formatIdleLeadName(lead: DailySummaryIdleLead): string {
   return String(lead.full_name ?? "").trim() || "ליד";
 }
@@ -439,7 +446,7 @@ export function dailySummaryOwnerEmail(input: {
   date_label: string;
   conversations_held: number;
   registered_leads: DailySummaryIdleLead[];
-  not_relevant_leads?: DailySummaryIdleLead[];
+  not_relevant_leads?: DailySummaryNotRelevantLead[];
   no_response_leads: DailySummaryIdleLead[];
   dashboard_url: string;
   no_response_window_hours?: number;
@@ -460,7 +467,7 @@ export function dailySummaryOwnerEmail(input: {
     dl ? `סיכום יומי — ${dl}` : "סיכום יומי",
     `שיחות שהתקיימו: ${conversationsHeld}`,
     `נרשמו: ${formatDailySummaryLeadListLine(registeredLeads)}`,
-    `לא רלוונטי: ${formatDailySummaryLeadListLine(notRelevantLeads)}`,
+    `לא רלוונטי: ${formatDailySummaryNotRelevantLeadListLine(notRelevantLeads)}`,
     `ללא מענה: ${formatDailySummaryLeadListLine(noResponseLeads)}`,
   ];
 

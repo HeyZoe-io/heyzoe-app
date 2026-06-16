@@ -19,7 +19,7 @@ import {
   fetchNotRelevantYesterdayLeads,
   fetchRegisteredYesterdayLeads,
   formatDailySummaryLeadListForWa,
-  formatDailySummaryNotRelevantCountForWa,
+  formatDailySummaryNotRelevantLeadListForWa,
 } from "@/lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
@@ -343,7 +343,7 @@ export async function triggerDailySummaryNotification(input: {
   ]);
 
   const registeredLine = formatDailySummaryLeadListForWa(registeredLeads);
-  const notRelevantCountLine = formatDailySummaryNotRelevantCountForWa(notRelevantLeads.length);
+  const notRelevantLine = formatDailySummaryNotRelevantLeadListForWa(notRelevantLeads);
   const noResponseLine = formatDailySummaryLeadListForWa(idleLeads);
   const dashboardUrl = dailySummaryDashboardUrl(slug);
 
@@ -355,7 +355,7 @@ export async function triggerDailySummaryNotification(input: {
       dateLabel: input.dateLabel,
       conversationsHeld,
       registeredLine,
-      notRelevantCountLine,
+      notRelevantLine,
       noResponseLine,
       dashboardUrl,
     }),

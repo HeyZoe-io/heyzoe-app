@@ -78,12 +78,6 @@ export function formatDailySummaryNotRelevantLeadEntry(lead: NotRelevantLeadRow)
   return reason ? `${base} (${reason})` : base;
 }
 
-/** לסיכום יומי ב-WA — מספר לידים לא רלוונטיים אתמול */
-export function formatDailySummaryNotRelevantCountForWa(count: number): string {
-  if (count <= 0) return "אין";
-  return String(count);
-}
-
 export function formatDailySummaryNotRelevantLeadListLine(leads: NotRelevantLeadRow[]): string {
   if (!leads.length) return "אין";
   const total = leads.length;

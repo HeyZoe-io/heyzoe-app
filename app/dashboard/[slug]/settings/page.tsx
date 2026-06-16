@@ -500,6 +500,41 @@ function WhatsAppNumberSection({
     }
 
     let cancelled = false;
+    let intervalId: number | null = null;
+    let shouldPoll = false;
+
+    const stopPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+      pollRef.current = null;
+    };
+
+    const pollOnce = async () => {
+      const next = await fetchMetaStatus();
+      if (cancelled || !next) return;
+      setMetaStatus(next);
+      if (next === "CONNECTED") {
+        shouldPoll = false;
+        stopPolling();
+      }
+    };
+
+    const startPolling = (immediate: boolean) => {
+      if (!shouldPoll || intervalId !== null || document.hidden) return;
+      if (immediate) void pollOnce();
+      intervalId = window.setInterval(() => {
+        void pollOnce();
+      }, 300_000);
+      pollRef.current = intervalId;
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) stopPolling();
+      else startPolling(true);
+    };
+
     void (async () => {
       setMetaStatus(null);
       const st = await fetchMetaStatus();
@@ -508,26 +543,17 @@ function WhatsAppNumberSection({
       if (!st) return;
       setMetaStatus(st);
       if (st === "PENDING" || st === "UNVERIFIED") {
-        pollRef.current = window.setInterval(() => {
-          void (async () => {
-            const next = await fetchMetaStatus();
-            if (!next) return;
-            setMetaStatus(next);
-            if (next === "CONNECTED" && pollRef.current) {
-              window.clearInterval(pollRef.current);
-              pollRef.current = null;
-            }
-          })();
-        }, 300_000);
+        shouldPoll = true;
+        startPolling(false);
       }
     })();
 
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       cancelled = true;
-      if (pollRef.current) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [fetchMetaStatus]);
 

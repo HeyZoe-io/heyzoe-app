@@ -54,6 +54,8 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
 
   useEffect(() => {
     let mounted = true;
+    let intervalId: number | null = null;
+
     const fetchStatus = async () => {
       try {
         const res = await fetch(`/api/dashboard/whatsapp-status?slug=${encodeURIComponent(slug)}`, { cache: "no-store" });
@@ -74,11 +76,32 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
         setMetaStatus(null);
       }
     };
-    void fetchStatus();
-    const id = window.setInterval(fetchStatus, 15_000);
+
+    const startPolling = () => {
+      if (intervalId !== null) return;
+      void fetchStatus();
+      intervalId = window.setInterval(fetchStatus, 15_000);
+    };
+
+    const stopPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) stopPolling();
+      else startPolling();
+    };
+
+    if (!document.hidden) startPolling();
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       mounted = false;
-      window.clearInterval(id);
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [slug]);
 
