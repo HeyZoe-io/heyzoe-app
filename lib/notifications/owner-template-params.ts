@@ -7,7 +7,7 @@
  * | human_agent_request | body: טלפון, תאריך+שעה |
  * | lead_registered | body: טלפון |
  * | lead_registered_with_time | body: טלפון, אימון, מועד, תאריך הרשמה, חימום |
- * | daily_summary | header: תאריך; body: שיחות, נרשמו, לא רלוונטי (מספר), ללא מענה, קישור |
+ * | daily_summary | header: תאריך; body: שיחות, נרשמו, לא רלוונטי, ללא מענה, קישור |
  * | bot_paused_waiting / lead_cta_no_signup / marketing_human_agent_request | body: טלפון |
  * | quota_warning_* | ללא פרמטרים |
  */
@@ -124,15 +124,15 @@ export function buildLeadRegisteredWithTimeWaParams(input: {
 export const DAILY_SUMMARY_WA_TEMPLATE_NAME = "daily_summary";
 
 /**
- * daily_summary — HEADER: תאריך; BODY: שיחות, נרשמו, לא רלוונטי (מספר), ללא מענה, קישור
+ * daily_summary — HEADER: תאריך; BODY: שיחות, נרשמו, לא רלוונטי, ללא מענה, קישור
  * ערך רשימות: 0508318162 - ליאור | 0546758590 - אופיר | ועוד 3
- * «לא רלוונטי»: מספר בלבד (0 / 1 / 2…) או «אין»
+ * «לא רלוונטי»: טלפון - שם (סיבה) | … או «אין»
  */
 export function buildDailySummaryWaParams(input: {
   dateLabel: string;
   conversationsHeld: number;
   registeredLine: string;
-  notRelevantCountLine: string;
+  notRelevantLine: string;
   noResponseLine: string;
   dashboardUrl: string;
 }): OwnerTemplateComponent[] {
@@ -140,7 +140,7 @@ export function buildDailySummaryWaParams(input: {
     input.dateLabel,
     String(Math.max(0, input.conversationsHeld)),
     input.registeredLine.trim() || "אין",
-    input.notRelevantCountLine.trim() || "אין",
+    input.notRelevantLine.trim() || "אין",
     input.noResponseLine.trim() || "אין",
     input.dashboardUrl.trim() || "https://heyzoe.io"
   );
