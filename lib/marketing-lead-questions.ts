@@ -1,5 +1,4 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
 
 export type MarketingQuestionTopicId =
   | "pricing"
@@ -251,38 +250,6 @@ type LeadQuestionAggregateRow = {
   created_at: string;
 };
 
-async function loadFallbackMarketingQuestionRows(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  limit: number
-): Promise<LeadQuestionAggregateRow[]> {
-  const { data, error } = await admin
-    .from("messages")
-    .select("content, created_at, role, business_slug")
-    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
-    .eq("role", "user")
-    .order("created_at", { ascending: false })
-    .limit(Math.min(limit, 5000));
-
-  if (error) return [];
-
-  const rows: LeadQuestionAggregateRow[] = [];
-  for (const r of data ?? []) {
-    const text = String((r as { content?: string }).content ?? "").trim();
-    if (shouldSkipQuestion(text)) continue;
-    const fp = questionFingerprint(text);
-    if (!fp) continue;
-    rows.push({
-      question_text: text.slice(0, 2000),
-      question_fingerprint: fp,
-      topic_id: classifyMarketingQuestionTopic(text),
-      flow_stage_key: "historical_messages",
-      flow_stage_label: "היסטורי מתוך שיחות שיווקיות",
-      created_at: String((r as { created_at?: string }).created_at ?? ""),
-    });
-  }
-  return rows;
-}
-
 export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<LeadQuestionsReport> {
   const empty: LeadQuestionsReport = {
     topics: MARKETING_QUESTION_TOPICS.map((t) => ({
@@ -297,6 +264,9 @@ export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<Lea
 
   try {
     const admin = createSupabaseAdminClient();
+    const { loadKnownClosedAnswerKeys } = await import("@/lib/marketing-lead-answers");
+    const closedAnswerKeys = await loadKnownClosedAnswerKeys();
+
     const { data, error } = await admin
       .from("marketing_lead_questions")
       .select("question_text, question_fingerprint, topic_id, flow_stage_key, flow_stage_label, created_at")
@@ -310,17 +280,22 @@ export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<Lea
       return empty;
     }
 
-    let rows: LeadQuestionAggregateRow[] = ((data ?? []) as any[]).map((r) => ({
-      question_text: String(r.question_text ?? ""),
-      question_fingerprint: String(r.question_fingerprint ?? ""),
-      topic_id: String(r.topic_id ?? "other") as MarketingQuestionTopicId,
-      flow_stage_key: String(r.flow_stage_key ?? "unknown"),
-      flow_stage_label: String(r.flow_stage_label ?? "unknown"),
-      created_at: String(r.created_at ?? ""),
-    }));
-    if (rows.length === 0) {
-      rows = await loadFallbackMarketingQuestionRows(admin, limit);
-    }
+    const rows: LeadQuestionAggregateRow[] = ((data ?? []) as any[])
+      .map((r) => ({
+        question_text: String(r.question_text ?? ""),
+        question_fingerprint: String(r.question_fingerprint ?? ""),
+        topic_id: String(r.topic_id ?? "other") as MarketingQuestionTopicId,
+        flow_stage_key: String(r.flow_stage_key ?? "unknown"),
+        flow_stage_label: String(r.flow_stage_label ?? "unknown"),
+        created_at: String(r.created_at ?? ""),
+      }))
+      .filter((r) => {
+        const key = String(r.question_text ?? "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+        return !key || !closedAnswerKeys.has(key);
+      });
     const byFp = new Map<
       string,
       { text: string; count: number; lastAt: string; topicId: MarketingQuestionTopicId; examples: string[] }

@@ -108,8 +108,8 @@ export default function ZoeLeadQuestionsTab() {
   return (
     <Box style={{ display: "flex", flexDirection: "column", gap: 20, textAlign: "right" }}>
       <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55 }}>
-        שאלות חופשיות מלידים בוואטסאפ שיווקי (זואי אדמין), אחרי סיום הפלואו או כשהפלואו מפנה ל-AI. שאלות דומות
-        מקובצות לפי ניסוח (גם אם ניסוח קרוב).
+        שאלות חופשיות (טקסט פתוח) מלידים בוואטסאפ שיווקי, אחרי סיום הפלואו או כשהפלואו מפנה ל-AI. תשובות
+        לשאלות סגורות (כפתורים) מופיעות בטאב «תשובות». שאלות דומות מקובצות לפי ניסוח.
         {totalQuestions > 0 ? ` סה״כ ${totalQuestions} פניות.` : null}
       </p>
 
