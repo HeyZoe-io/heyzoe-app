@@ -11,6 +11,24 @@ type ChatRow = {
   content: string;
 };
 
+const HELP_ERROR_MESSAGES: Record<string, string> = {
+  forbidden: "אין הרשאה לצ'אט תמיכה בעסק הזה.",
+  unauthorized: "צריך להתחבר מחדש כדי לשלוח הודעה.",
+  support_schema_missing: "צ'אט התמיכה עדיין לא מוגדר במערכת. נסו שוב מאוחר יותר או פנו לצוות.",
+};
+
+function friendlyHelpChatError(payload: unknown, status: number): string {
+  const j = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+  const message = typeof j?.message === "string" ? j.message.trim() : "";
+  if (message) return message;
+  const code = typeof j?.error === "string" ? j.error.trim() : "";
+  if (code && HELP_ERROR_MESSAGES[code]) return HELP_ERROR_MESSAGES[code];
+  if (status === 401) return HELP_ERROR_MESSAGES.unauthorized;
+  if (status === 403) return HELP_ERROR_MESSAGES.forbidden;
+  if (status >= 500) return "השרת עמוס זמנית. נסו שוב בעוד רגע.";
+  return "הייתה בעיה בשליחת ההודעה. אפשר לנסות שוב.";
+}
+
 function normalizePhone(raw: string): string {
   const digits = String(raw ?? "").replace(/\D/g, "");
   if (!digits) return "";
@@ -68,17 +86,11 @@ export default function DashboardHelpChatWidget({ slug }: { slug: string }) {
       });
       const j = (await res.json().catch(() => null)) as any;
       if (!res.ok || !j?.ok) {
-        const serverMsg =
-          typeof j?.message === "string" && j.message.trim()
-            ? j.message.trim()
-            : typeof j?.error === "string" && j.error.trim()
-              ? j.error.trim()
-              : "";
         setRows((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: serverMsg || "הייתה בעיה בשליחת ההודעה. אפשר לנסות שוב.",
+            content: friendlyHelpChatError(j, res.status),
           },
         ]);
         return;

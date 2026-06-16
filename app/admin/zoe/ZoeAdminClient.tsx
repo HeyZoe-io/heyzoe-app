@@ -6,15 +6,17 @@ import ZoeGuidelinesClient from "./ZoeGuidelinesClient";
 import ZoeConversationsTab, { type ZoeBusinessOption } from "./ZoeConversationsTab";
 import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 import ZoeLeadQuestionsTab from "./ZoeLeadQuestionsTab";
+import ZoeLeadAnswersTab from "./ZoeLeadAnswersTab";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
 
-export type ZoeAdminTab = "guidelines" | "conversations" | "questions";
+export type ZoeAdminTab = "guidelines" | "conversations" | "questions" | "answers";
 
 function parseTab(raw: string | null): ZoeAdminTab {
   if (raw === "conversations") return "conversations";
   if (raw === "questions") return "questions";
+  if (raw === "answers") return "answers";
   return "guidelines";
 }
 
@@ -64,14 +66,19 @@ export default function ZoeAdminClient({
         <button type="button" onClick={() => setTab("questions")} style={pill(tab === "questions")}>
           שאלות שעלו
         </button>
+        <button type="button" onClick={() => setTab("answers")} style={pill(tab === "answers")}>
+          תשובות
+        </button>
       </div>
 
       {tab === "guidelines" ? (
         <ZoeGuidelinesClient />
       ) : tab === "conversations" ? (
         <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} />
-      ) : (
+      ) : tab === "questions" ? (
         <ZoeLeadQuestionsTab />
+      ) : (
+        <ZoeLeadAnswersTab />
       )}
     </div>
   );

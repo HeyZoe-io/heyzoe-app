@@ -7,6 +7,7 @@ import MarketingLegalityTab from "./MarketingLegalityTab";
 import MarketingOpenQuestionsTab from "./MarketingOpenQuestionsTab";
 import ZoeConversationsTab, { type ZoeBusinessOption } from "../zoe/ZoeConversationsTab";
 import ZoeLeadQuestionsTab from "../zoe/ZoeLeadQuestionsTab";
+import ZoeLeadAnswersTab from "../zoe/ZoeLeadAnswersTab";
 import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 
 const PURPLE = "#7133da";
@@ -25,11 +26,12 @@ function tabPill(active: boolean): CSSProperties {
   };
 }
 
-type MarketingSubTab = "flow" | "conversations" | "questions" | "open" | "legal";
+type MarketingSubTab = "flow" | "conversations" | "questions" | "answers" | "open" | "legal";
 
 function parseSubTab(raw: string | null): MarketingSubTab {
   if (raw === "conversations") return "conversations";
   if (raw === "questions") return "questions";
+  if (raw === "answers") return "answers";
   if (raw === "open") return "open";
   if (raw === "legal") return "legal";
   return "flow";
@@ -107,6 +109,11 @@ export default function MarketingDashboardClient({
           onClick={() => goSubTab("questions")}
         />
         <MarketingSubTabButton
+          active={sub === "answers"}
+          label="תשובות"
+          onClick={() => goSubTab("answers")}
+        />
+        <MarketingSubTabButton
           active={sub === "open"}
           label="עובדות לשאלות פתוחות"
           onClick={() => goSubTab("open")}
@@ -133,6 +140,8 @@ export default function MarketingDashboardClient({
           <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} />
         ) : sub === "questions" ? (
           <ZoeLeadQuestionsTab />
+        ) : sub === "answers" ? (
+          <ZoeLeadAnswersTab />
         ) : sub === "open" ? (
           <MarketingOpenQuestionsTab />
         ) : (

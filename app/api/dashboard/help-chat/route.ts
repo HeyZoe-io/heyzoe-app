@@ -5,6 +5,12 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { CLAUDE_CHAT_MODEL, resolveClaudeApiKey, sleepMs } from "@/lib/claude";
 import { extractErrorCode } from "@/lib/analytics";
+import {
+  loadAccessibleBusinesses,
+  normDashboardSlug,
+  pickBusinessBySlug,
+} from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 
@@ -91,7 +97,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await req.json().catch(() => null)) as ReqBody | null;
-  const slug = String(body?.slug ?? "").trim().toLowerCase();
+  const slug = normDashboardSlug(body?.slug);
   const message = String(body?.message ?? "").trim();
   const threadId = body?.thread_id != null ? Number(body.thread_id) : null;
   if (!slug) return NextResponse.json({ error: "missing_slug" }, { status: 400 });
@@ -108,19 +114,15 @@ export async function POST(req: NextRequest) {
 
   const admin = createSupabaseAdminClient();
 
-  // Verify user has access to this business (owner or admin member).
-  const { data: biz } = await admin.from("businesses").select("id, user_id, slug").eq("slug", slug).maybeSingle();
-  if (!biz) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
-  const isOwner = String(biz.user_id) === user.id;
-  if (!isOwner) {
-    const { data: bu } = await admin
-      .from("business_users")
-      .select("role")
-      .eq("business_id", biz.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    const allowed = bu?.role === "admin";
-    if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const accessible = await loadAccessibleBusinesses(admin, user.id, {
+    adminAll: isAdminAllowedEmail(user.email ?? ""),
+  });
+  const biz = pickBusinessBySlug(accessible, slug);
+  if (!biz) {
+    return NextResponse.json(
+      { error: "forbidden", message: "אין הרשאה לצ'אט תמיכה בעסק הזה." },
+      { status: 403 }
+    );
   }
 
   // Ensure thread exists (or create one).
