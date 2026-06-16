@@ -10,6 +10,23 @@ export function templateNoResponseDueAtIso(fromMs: number = Date.now()): string 
   return new Date(fromMs + TEMPLATE_NO_RESPONSE_AFTER_MS).toISOString();
 }
 
+/** איפוס מצב ליד ל«טמפלייט» כששולחים טמפלייט פתיחה מחדש (כולל לידים שסומנו לא רלוונטי). */
+export function buildTemplateIncomingContactPatch(nowIso: string): Record<string, unknown> {
+  return {
+    source: "meta_lead_ad",
+    session_phase: "opening",
+    flow_step: 0,
+    not_relevant_at: null,
+    not_relevant_reason: null,
+    wa_followup_stage: 0,
+    wa_no_response_at: null,
+    wa_next_followup_at: null,
+    wa_no_response_due_at: templateNoResponseDueAtIso(Date.parse(nowIso)),
+    followup_sent: false,
+    updated_at: nowIso,
+  };
+}
+
 const LEAD_TEMPLATE_PLACEHOLDER_RE = /^נשלח טמפלייט פתיחה \(([^)]+)\)$/;
 
 type LeadTemplatePreview = {
