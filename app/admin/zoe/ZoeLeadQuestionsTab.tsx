@@ -111,6 +111,7 @@ export default function ZoeLeadQuestionsTab() {
         שאלות חופשיות (טקסט פתוח) מלידים בוואטסאפ שיווקי, אחרי סיום הפלואו או כשהפלואו מפנה ל-AI. תשובות
         לשאלות סגורות (כפתורים) מופיעות בטאב «תשובות». שאלות דומות מקובצות לפי ניסוח.
         {totalQuestions > 0 ? ` סה״כ ${totalQuestions} פניות.` : null}
+        {report?.includesMessageHistory ? " כולל שחזור מהיסטוריית השיחות." : null}
       </p>
 
       {report?.notice === "missing_table" ? (

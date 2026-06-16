@@ -113,7 +113,7 @@ export function classifyMarketingQuestionTopic(text: string): MarketingQuestionT
   return "other";
 }
 
-function shouldSkipQuestion(text: string): boolean {
+export function shouldSkipQuestion(text: string): boolean {
   const raw = String(text ?? "").trim();
   if (!raw || raw.length < 6) return true;
   if (GREETING_RE.test(raw)) return true;
@@ -238,6 +238,7 @@ export type LeadQuestionsReport = {
   }[];
   byFlowStage: { stageKey: string; stageLabel: string; count: number }[];
   totalRows: number;
+  includesMessageHistory?: boolean;
   notice?: string;
 };
 
@@ -264,7 +265,10 @@ export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<Lea
 
   try {
     const admin = createSupabaseAdminClient();
-    const { loadKnownClosedAnswerKeys } = await import("@/lib/marketing-lead-answers");
+    const [{ loadKnownClosedAnswerKeys }, { reconstructMarketingLeadEventsFromMessages }] = await Promise.all([
+      import("@/lib/marketing-lead-answers"),
+      import("@/lib/marketing-lead-message-history"),
+    ]);
     const closedAnswerKeys = await loadKnownClosedAnswerKeys();
 
     const { data, error } = await admin
@@ -273,10 +277,10 @@ export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<Lea
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error) {
-      if (/marketing_lead_questions|relation|column/i.test(error.message)) {
-        return { ...empty, notice: "missing_table" };
-      }
+    const tableMissing = Boolean(
+      error && /marketing_lead_questions|relation|column/i.test(error.message)
+    );
+    if (error && !tableMissing) {
       return empty;
     }
 
@@ -296,6 +300,27 @@ export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<Lea
           .replace(/\s+/g, " ");
         return !key || !closedAnswerKeys.has(key);
       });
+
+    const history = await reconstructMarketingLeadEventsFromMessages(limit);
+    const existingKeys = new Set(
+      rows.map((r) => `${r.question_fingerprint}|${r.created_at}`)
+    );
+    for (const h of history.open) {
+      const fp = questionFingerprint(h.questionText);
+      if (!fp) continue;
+      const key = `${fp}|${h.createdAt}`;
+      if (existingKeys.has(key)) continue;
+      const topicId = classifyMarketingQuestionTopic(h.questionText);
+      rows.push({
+        question_text: h.questionText,
+        question_fingerprint: fp,
+        topic_id: topicId,
+        flow_stage_key: h.flowStageKey,
+        flow_stage_label: h.flowStageLabel,
+        created_at: h.createdAt,
+      });
+      existingKeys.add(key);
+    }
     const byFp = new Map<
       string,
       { text: string; count: number; lastAt: string; topicId: MarketingQuestionTopicId; examples: string[] }
@@ -356,6 +381,8 @@ export async function aggregateMarketingLeadQuestions(limit = 5000): Promise<Lea
       topics: topics.length ? topics : empty.topics,
       byFlowStage,
       totalRows: rows.length,
+      includesMessageHistory: history.open.length > 0,
+      notice: tableMissing && rows.length === 0 ? "missing_table" : undefined,
     };
   } catch {
     return empty;
