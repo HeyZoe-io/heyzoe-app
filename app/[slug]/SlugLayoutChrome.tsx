@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import SlugDashboardNav from "./Nav";
+import { SettingsUnsavedProvider } from "./settings/settings-unsaved-context";
 import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
 import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
 import OwnerWhatsappOptInModal from "@/app/components/OwnerWhatsappOptInModal";
@@ -25,7 +26,7 @@ export default function SlugLayoutChrome({
   }
 
   return (
-    <>
+    <SettingsUnsavedProvider>
       <main className="min-h-screen bg-[#FAFAFA] px-4 py-6 sm:px-6 sm:py-8" dir="rtl">
         <div className="mx-auto max-w-6xl space-y-5">
           <div className="relative pt-1">
@@ -37,6 +38,6 @@ export default function SlugLayoutChrome({
       <DashboardHelpChatWidget slug={slug} />
       <DashboardPwaPrompt />
       {showOwnerWhatsappOptIn ? <OwnerWhatsappOptInModal slug={normSlug} /> : null}
-    </>
+    </SettingsUnsavedProvider>
   );
 }

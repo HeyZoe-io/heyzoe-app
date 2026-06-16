@@ -58,6 +58,10 @@ import {
 } from "./settings-ui";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT, formatConcurrentEditorNames } from "@/lib/dashboard-settings-i18n";
+import {
+  useRegisterSettingsUnsaved,
+  useSettingsUnsaved,
+} from "@/app/[slug]/settings/settings-unsaved-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +113,7 @@ async function readSaveErrorFromResponse(
   return t.page.serverError(res.status);
 }
 
-const AUTOSAVE_DEBOUNCE_MS = 1600;
+const AUTOSAVE_DEBOUNCE_MS = 5000;
 const AUTOSAVE_ENABLE_DELAY_MS = 500;
 /** מדיה לפתיחה: העלאה ישירה ל-Supabase (Signed URL) — לא עוברת בגוף הבקשה ל-Vercel */
 function dashboardMediaUploadSizeError(
@@ -1091,6 +1095,13 @@ export default function SlugSettingsPage({
   const [canAutosave, setCanAutosave] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [autoSaveErr, setAutoSaveErr] = useState("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const hasUnsavedChangesRef = useRef(false);
+  const { requestNavigation } = useSettingsUnsaved();
+
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
 
   /** מונע שחזור גלילה של הדפדפן שמתנגש עם ההאדר (קפיצות בטאבים / מכירה) */
   useLayoutEffect(() => {
@@ -1405,9 +1416,12 @@ export default function SlugSettingsPage({
   /** עריכות מוצרים מקומיות מאז טעינה אחרונה מהשרת — מונע דריסה בריענון SWR */
   const servicesUserEditCountRef = useRef(0);
   const servicesHydrationBaselineRef = useRef(0);
+  const markDirtyRef = useRef(() => setHasUnsavedChanges(true));
+  markDirtyRef.current = () => setHasUnsavedChanges(true);
 
   const setServicesFromUser = useCallback<typeof setServices>((action) => {
     servicesUserEditCountRef.current += 1;
+    markDirtyRef.current();
     setServices(action);
   }, []);
 
@@ -1815,12 +1829,70 @@ export default function SlugSettingsPage({
     });
   }, [getSavePayload]);
 
+  const postSettingsRef = useRef(postSettings);
+  postSettingsRef.current = postSettings;
+
   const getSavePayloadRef = useRef(getSavePayload);
   getSavePayloadRef.current = getSavePayload;
+
+  const savedPayloadSnapshotRef = useRef<string | null>(null);
+
+  const syncSavedSnapshot = useCallback(() => {
+    try {
+      savedPayloadSnapshotRef.current = JSON.stringify(getSavePayload());
+    } catch {
+      savedPayloadSnapshotRef.current = null;
+    }
+  }, [getSavePayload]);
+
+  const clearDirtyAfterSave = useCallback(() => {
+    syncSavedSnapshot();
+    setHasUnsavedChanges(false);
+  }, [syncSavedSnapshot]);
+
+  const savePayloadJson = useMemo(() => {
+    if (!settingsHydrated) return "";
+    try {
+      return JSON.stringify(getSavePayload());
+    } catch {
+      return "";
+    }
+  }, [getSavePayload, settingsHydrated]);
+
+  useEffect(() => {
+    savedPayloadSnapshotRef.current = null;
+    setHasUnsavedChanges(false);
+  }, [slug]);
+
+  useEffect(() => {
+    if (!canAutosave || !servicesHydrated) return;
+    if (savedPayloadSnapshotRef.current === null) {
+      syncSavedSnapshot();
+    }
+  }, [canAutosave, servicesHydrated, syncSavedSnapshot]);
+
+  useEffect(() => {
+    if (!canAutosave || !servicesHydrated || !savePayloadJson) return;
+    if (savedPayloadSnapshotRef.current === null) return;
+    if (savePayloadJson !== savedPayloadSnapshotRef.current) {
+      setHasUnsavedChanges(true);
+    }
+  }, [savePayloadJson, canAutosave, servicesHydrated]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChangesRef.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   useEffect(() => {
     if (!canAutosave || settingsPresenceLocked) return;
     const flush = () => {
+      if (!hasUnsavedChangesRef.current) return;
       try {
         const body = JSON.stringify(getSavePayloadRef.current());
         void fetch("/api/dashboard/settings", {
@@ -1837,15 +1909,18 @@ export default function SlugSettingsPage({
     return () => window.removeEventListener("pagehide", flush);
   }, [canAutosave, settingsPresenceLocked]);
 
+  // Autosave: מוצרים (שלב 3) בלבד — שלבים 1–4 נשמרים ידנית (כפתור «שמור»).
   useEffect(() => {
-    if (!canAutosave || settingsPresenceLocked) return;
+    if (!canAutosave || settingsPresenceLocked || step !== 3) return;
     let cancelled = false;
     const id = window.setTimeout(() => {
+      if (stepRef.current !== 3) return;
+      if (!hasUnsavedChangesRef.current) return;
       void (async () => {
         setAutosaveStatus("saving");
         setAutoSaveErr("");
         try {
-          const res = await postSettings();
+          const res = await postSettingsRef.current();
           if (cancelled) return;
           if (!res.ok) {
             const msg = await readSaveErrorFromResponse(res, t);
@@ -1858,6 +1933,7 @@ export default function SlugSettingsPage({
           if (!cancelled) {
             setAutoSaveErr("");
             setAutosaveStatus("saved");
+            clearDirtyAfterSave();
             const body = getSavePayloadRef.current() as Record<string, unknown>;
             if (payloadSavedTrialsWereCleared(body)) clearTrialServicesStash(slug);
             window.setTimeout(() => {
@@ -1876,18 +1952,7 @@ export default function SlugSettingsPage({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [
-    canAutosave,
-    postSettings,
-    settingsPresenceLocked,
-    slug,
-    services,
-    crmType,
-    crmApiKey,
-    crmBoxId,
-    crmArboxSourceId,
-    crmArboxStatusId,
-  ]);
+  }, [canAutosave, settingsPresenceLocked, step, slug, services, clearDirtyAfterSave, t, tp.autosaveNetwork]);
 
   useEffect(() => {
     if (!settingsPresenceLocked) return;
@@ -1915,6 +1980,7 @@ export default function SlugSettingsPage({
       setTimeout(() => setSavedOk(false), 3000);
       setAutosaveStatus("idle");
       setAutoSaveErr("");
+      clearDirtyAfterSave();
       return true;
     } catch {
       setSaveErr(tp.saveNetwork);
@@ -1922,7 +1988,22 @@ export default function SlugSettingsPage({
     } finally {
       setSaving(false);
     }
-  }, [postSettings, settingsPresenceLocked, slug]);
+  }, [postSettings, settingsPresenceLocked, slug, clearDirtyAfterSave, t, tp.saveNetwork]);
+
+  const unsavedController = useMemo(
+    () =>
+      settingsHydrated
+        ? {
+            hasUnsavedChanges,
+            saveAll,
+            saving,
+          }
+        : null,
+    [hasUnsavedChanges, saveAll, saving, settingsHydrated]
+  );
+  useRegisterSettingsUnsaved(unsavedController);
+
+  const billingHref = `/${encodeURIComponent(String(slug ?? "").trim().toLowerCase())}/account/billing`;
 
   const applyWaSalesFollowupDefaults = useCallback(() => {
     setWaSalesFollowup1(WA_SALES_FOLLOWUP_1_DEFAULT);
@@ -2605,6 +2686,7 @@ export default function SlugSettingsPage({
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
   const effectiveCanAutosave = canAutosave && !settingsPresenceLocked;
+  const showAutosaveStatus = effectiveCanAutosave && step === 3;
   const concurrentEditorsLabel = formatConcurrentEditorNames(settingsPresenceConcurrentNames, t);
 
   function nextStep() {
@@ -2645,14 +2727,16 @@ export default function SlugSettingsPage({
         >
           {effectiveCanAutosave ? (
             <>
-              {autosaveStatus === "saving" && (
+              {showAutosaveStatus && autosaveStatus === "saving" && (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7133da]" aria-hidden />
                   <span>{t.saving}</span>
                 </>
               )}
-              {autosaveStatus === "saved" && <span className="text-emerald-600">{t.savedAuto}</span>}
-              {autosaveStatus === "error" && (
+              {showAutosaveStatus && autosaveStatus === "saved" && !hasUnsavedChanges ? (
+                <span className="text-emerald-600">{t.allChangesSaved}</span>
+              ) : null}
+              {showAutosaveStatus && autosaveStatus === "error" && (
                 <span
                   className="max-w-[min(20rem,55vw)] text-right text-amber-600"
                   title={autoSaveErr || undefined}
@@ -2660,7 +2744,16 @@ export default function SlugSettingsPage({
                   {t.autosaveFailed}{autoSaveErr ? ` - ${autoSaveErr}` : ""}
                 </span>
               )}
-              {autosaveStatus === "idle" ? <span aria-hidden>&nbsp;</span> : null}
+              {hasUnsavedChanges && (!showAutosaveStatus || autosaveStatus !== "saving") ? (
+                <span className="inline-flex items-center gap-1.5 text-amber-600">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
+                  {t.unsavedIndicator}
+                </span>
+              ) : !hasUnsavedChanges && showAutosaveStatus && autosaveStatus === "idle" ? (
+                <span aria-hidden>&nbsp;</span>
+              ) : !hasUnsavedChanges && !showAutosaveStatus ? (
+                <span aria-hidden>&nbsp;</span>
+              ) : null}
             </>
           ) : (
             <span aria-hidden>&nbsp;</span>
@@ -2879,7 +2972,7 @@ export default function SlugSettingsPage({
         <div className="mx-auto mt-8 flex w-full max-w-2xl items-center justify-between border-t border-zinc-200 pt-4">
           <Button
             variant="outline"
-            onClick={prevStep}
+            onClick={() => void requestNavigation?.(prevStep)}
             disabled={isFirst}
             className="gap-2"
           >
@@ -2891,32 +2984,53 @@ export default function SlugSettingsPage({
 
           {isLast ? (
             <Button
-              onClick={() => void saveAll()}
-              disabled={saving || !settingsHydrated || settingsPresenceLocked}
+              onClick={() => {
+                if (!hasUnsavedChanges) return;
+                void saveAll();
+              }}
+              disabled={saving || !settingsHydrated || settingsPresenceLocked || !hasUnsavedChanges}
               className="gap-2"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {saving ? t.savingEllipsis : t.saveAll}
             </Button>
           ) : (
-            <Button
-              disabled={saving || !settingsHydrated}
-              onClick={() => {
-                if (settingsPresenceLocked) {
-                  nextStep();
-                  return;
-                }
-                void (async () => {
-                  const ok = await saveAll();
-                  if (ok) nextStep();
-                })();
-              }}
-              className="gap-2"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {t.next}
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                disabled={saving || !settingsHydrated || !hasUnsavedChanges || settingsPresenceLocked}
+                onClick={() => {
+                  if (!hasUnsavedChanges) return;
+                  void saveAll();
+                }}
+                className="gap-2"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {t.save}
+              </Button>
+              <Button
+                disabled={saving || !settingsHydrated}
+                onClick={() => {
+                  if (settingsPresenceLocked) {
+                    nextStep();
+                    return;
+                  }
+                  if (!hasUnsavedChanges) {
+                    nextStep();
+                    return;
+                  }
+                  void (async () => {
+                    const ok = await saveAll();
+                    if (ok) nextStep();
+                  })();
+                }}
+                className="gap-2"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {t.next}
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </div>
           )}
         </div>
 
@@ -2941,8 +3055,15 @@ export default function SlugSettingsPage({
               </div>
               <div className="mt-6 flex justify-start gap-2">
                 <NextLink
-                  href={`/${encodeURIComponent(String(slug ?? "").trim().toLowerCase())}/account/billing`}
-                  onClick={() => setShowStarterMediaProModal(false)}
+                  href={billingHref}
+                  onClick={(e) => {
+                    if (requestNavigation && hasUnsavedChanges) {
+                      e.preventDefault();
+                      void requestNavigation(billingHref).then(() => setShowStarterMediaProModal(false));
+                      return;
+                    }
+                    setShowStarterMediaProModal(false);
+                  }}
                   className="inline-flex h-10 items-center justify-center rounded-xl bg-[#7133da] px-5 text-sm font-medium text-white hover:bg-[#5f2bc7]"
                 >
                   {tp.upgradePro}

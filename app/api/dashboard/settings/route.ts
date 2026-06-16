@@ -316,15 +316,45 @@ export async function POST(req: NextRequest) {
       };
     });
 
+    const { data: existingServices } = await admin
+      .from("services")
+      .select("id, service_slug")
+      .eq("business_id", savedBiz.id);
+
     if (servicesPayload.length) {
-      await admin.from("services").delete().eq("business_id", savedBiz.id);
-      const { data } = await admin.from("services").insert(servicesPayload).select("id, service_slug");
+      const { data } = await admin
+        .from("services")
+        .upsert(servicesPayload, { onConflict: "business_id,service_slug" })
+        .select("id, service_slug");
       insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
+
+      const incomingSlugs = new Set(servicesPayload.map((s) => s.service_slug));
+      const slugsToDelete = (existingServices ?? [])
+        .filter((s) => !incomingSlugs.has(String((s as { service_slug: string }).service_slug)))
+        .map((s) => String((s as { service_slug: string }).service_slug));
+      if (slugsToDelete.length > 0) {
+        await admin
+          .from("services")
+          .delete()
+          .eq("business_id", savedBiz.id)
+          .in("service_slug", slugsToDelete);
+      }
     } else {
-      console.warn(
-        "[api/dashboard/settings] Skipping services replace: computed empty servicesPayload",
-        JSON.stringify({ slug, user_id: user.id })
+      const slugsToDelete = (existingServices ?? []).map((s) =>
+        String((s as { service_slug: string }).service_slug)
       );
+      if (slugsToDelete.length > 0) {
+        await admin
+          .from("services")
+          .delete()
+          .eq("business_id", savedBiz.id)
+          .in("service_slug", slugsToDelete);
+      } else {
+        console.warn(
+          "[api/dashboard/settings] Skipping services replace: computed empty servicesPayload",
+          JSON.stringify({ slug, user_id: user.id })
+        );
+      }
     }
   } else if (shouldReplaceFaqs) {
     const { data } = await admin.from("services").select("id, service_slug").eq("business_id", savedBiz.id);

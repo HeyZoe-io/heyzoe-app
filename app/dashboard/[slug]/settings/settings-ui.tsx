@@ -9,6 +9,7 @@ import {
   type DashboardLang,
 } from "@/lib/dashboard-lang";
 import { dashboardSettingsT, settingsStepHref } from "@/lib/dashboard-settings-i18n";
+import { useSettingsGuardedLinkClick } from "@/app/[slug]/settings/settings-unsaved-context";
 
 export const DASHBOARD_SETTINGS_SHELL = "mx-auto w-full max-w-4xl px-4 sm:px-6";
 export const DASHBOARD_CENTERED_CONTENT =
@@ -31,6 +32,7 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
   const t = dashboardSettingsT(lang);
   const steps = [...t.salesPathSteps];
   const base = `/${slug}/settings`;
+  const guardedLinkClick = useSettingsGuardedLinkClick();
   if (!pathname?.endsWith("/settings")) return null;
   const step = salesPathStepFromSearchParams(searchParams.get("step"));
 
@@ -46,11 +48,13 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
             {steps.map((label, i) => {
               const n = i + 1;
               const active = step === n;
+              const href = settingsStepHref(base, n, lang);
               return (
                 <Link
                   key={n}
-                  href={settingsStepHref(base, n, lang)}
+                  href={href}
                   prefetch={true}
+                  onClick={(e) => guardedLinkClick(e, href)}
                   className={[
                     dashboardStepTabClass(active),
                     "inline-flex items-center gap-1.5 rounded-xl px-3 py-2 sm:px-4",

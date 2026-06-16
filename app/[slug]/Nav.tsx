@@ -11,6 +11,7 @@ import {
 } from "@/app/dashboard/[slug]/settings/settings-ui";
 import { dashboardDir, dashboardHref, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
+import { useSettingsGuardedLinkClick } from "@/app/[slug]/settings/settings-unsaved-context";
 
 const i18n = {
   he: {
@@ -41,6 +42,7 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
   const lang = dashboardLangFromParam(searchParams.get("lang"));
   const t = i18n[lang];
   const base = `/${slug}`;
+  const guardedLinkClick = useSettingsGuardedLinkClick();
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED" | "not_provisioned">(null);
 
   const items: { href: string; label: string }[] = [
@@ -87,6 +89,7 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
           <Link
             href={dashboardHref(`${base}/analytics`, lang)}
             prefetch={true}
+            onClick={(e) => guardedLinkClick(e, dashboardHref(`${base}/analytics`, lang))}
             className="hidden sm:flex items-center select-none shrink-0"
             aria-label={t.logoAria}
           >
@@ -104,6 +107,9 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
             <Link
               href={settingsStepHref(`${base}/settings`, 1, lang)}
               prefetch={true}
+              onClick={(e) =>
+                guardedLinkClick(e, settingsStepHref(`${base}/settings`, 1, lang))
+              }
               className="hidden lg:flex items-center gap-2 text-xs font-light text-orange-700 hover:text-orange-800 transition"
               style={{ direction: dashboardDir(lang) }}
               aria-label={t.verifyBannerAria}
@@ -128,6 +134,7 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
                 key={item.href}
                 href={item.href}
                 prefetch={true}
+                onClick={(e) => guardedLinkClick(e, item.href)}
                 className={dashboardMainTabClass(active)}
                 aria-current={active ? "page" : undefined}
               >
