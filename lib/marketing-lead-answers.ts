@@ -56,6 +56,7 @@ export async function recordMarketingLeadFlowAnswer(input: {
 export type AggregatedLeadAnswerOption = {
   answerText: string;
   count: number;
+  uniqueLeads: number;
   lastAt: string;
   sharePct: number;
 };
@@ -64,12 +65,14 @@ export type AggregatedLeadAnswerQuestion = {
   flowNodeId: string | null;
   questionText: string;
   totalCount: number;
+  uniqueLeads: number;
   answers: AggregatedLeadAnswerOption[];
 };
 
 export type LeadAnswersReport = {
   questions: AggregatedLeadAnswerQuestion[];
   totalRows: number;
+  includesMessageHistory?: boolean;
   notice?: string;
 };
 
@@ -80,90 +83,155 @@ function normalizeAnswerKey(text: string): string {
     .replace(/\s+/g, " ");
 }
 
+type AnswerAggInput = {
+  flowNodeId: string | null;
+  questionText: string;
+  answerText: string;
+  phone: string;
+  createdAt: string;
+};
+
+function mergeClosedAnswerRows(inputs: AnswerAggInput[]): LeadAnswersReport {
+  const byQuestion = new Map<
+    string,
+    {
+      flowNodeId: string | null;
+      questionText: string;
+      totalCount: number;
+      leadPhones: Set<string>;
+      byAnswer: Map<
+        string,
+        { answerText: string; count: number; lastAt: string; leadPhones: Set<string> }
+      >;
+    }
+  >();
+
+  for (const row of inputs) {
+    const flowNodeId = row.flowNodeId;
+    const questionText = String(row.questionText ?? "").trim();
+    const answerText = String(row.answerText ?? "").trim();
+    const createdAt = String(row.createdAt ?? "");
+    const phone = String(row.phone ?? "").trim();
+    if (!answerText) continue;
+
+    const qKey = flowNodeId ? `node:${flowNodeId}` : `q:${questionText.toLowerCase()}`;
+    const q =
+      byQuestion.get(qKey) ??
+      (() => {
+        const init = {
+          flowNodeId,
+          questionText,
+          totalCount: 0,
+          leadPhones: new Set<string>(),
+          byAnswer: new Map<
+            string,
+            { answerText: string; count: number; lastAt: string; leadPhones: Set<string> }
+          >(),
+        };
+        byQuestion.set(qKey, init);
+        return init;
+      })();
+
+    q.totalCount += 1;
+    if (phone) q.leadPhones.add(phone);
+
+    const aKey = normalizeAnswerKey(answerText);
+    const agg = q.byAnswer.get(aKey);
+    if (!agg) {
+      const leadPhones = new Set<string>();
+      if (phone) leadPhones.add(phone);
+      q.byAnswer.set(aKey, { answerText, count: 1, lastAt: createdAt, leadPhones });
+    } else {
+      agg.count += 1;
+      if (phone) agg.leadPhones.add(phone);
+      if (createdAt > agg.lastAt) agg.lastAt = createdAt;
+    }
+  }
+
+  const questions: AggregatedLeadAnswerQuestion[] = [...byQuestion.values()]
+    .map((q) => {
+      const answers = [...q.byAnswer.values()]
+        .map((a) => ({
+          answerText: a.answerText,
+          count: a.count,
+          uniqueLeads: a.leadPhones.size,
+          lastAt: a.lastAt,
+          sharePct: q.totalCount > 0 ? Math.round((a.count / q.totalCount) * 100) : 0,
+        }))
+        .sort((a, b) => b.count - a.count || b.lastAt.localeCompare(a.lastAt));
+      return {
+        flowNodeId: q.flowNodeId,
+        questionText: q.questionText,
+        totalCount: q.totalCount,
+        uniqueLeads: q.leadPhones.size,
+        answers,
+      };
+    })
+    .sort((a, b) => b.totalCount - a.totalCount);
+
+  return { questions, totalRows: inputs.length };
+}
+
 /** תשובות מקובצות לשאלות סגורות בפלואו — לטאב אנאליטיקה באדמין. */
 export async function aggregateMarketingLeadAnswers(limit = 5000): Promise<LeadAnswersReport> {
   const empty: LeadAnswersReport = { questions: [], totalRows: 0 };
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin
-      .from("marketing_lead_answers")
-      .select("flow_node_id, question_text, answer_text, answer_kind, created_at")
-      .eq("answer_kind", "button")
-      .order("created_at", { ascending: false })
-      .limit(limit);
+    const [{ data, error }, { reconstructMarketingLeadEventsFromMessages }] = await Promise.all([
+      admin
+        .from("marketing_lead_answers")
+        .select("flow_node_id, question_text, answer_text, answer_kind, created_at, phone")
+        .eq("answer_kind", "button")
+        .order("created_at", { ascending: false })
+        .limit(limit),
+      import("@/lib/marketing-lead-message-history"),
+    ]);
 
-    if (error) {
-      if (/marketing_lead_answers|relation|column/i.test(error.message)) {
-        return { ...empty, notice: "missing_table" };
-      }
+    const tableMissing = Boolean(
+      error && /marketing_lead_answers|relation|column/i.test(error.message)
+    );
+    if (error && !tableMissing) {
       console.warn("[marketing-lead-answers] aggregate failed:", error.message);
-      return empty;
     }
 
-    const byQuestion = new Map<
-      string,
-      {
-        flowNodeId: string | null;
-        questionText: string;
-        totalCount: number;
-        byAnswer: Map<string, { answerText: string; count: number; lastAt: string }>;
-      }
-    >();
-
+    const inputs: AnswerAggInput[] = [];
     for (const r of data ?? []) {
       const row = r as Record<string, unknown>;
-      const flowNodeId = row.flow_node_id ? String(row.flow_node_id) : null;
-      const questionText = String(row.question_text ?? "").trim();
-      const answerText = String(row.answer_text ?? "").trim();
-      const createdAt = String(row.created_at ?? "");
-      if (!answerText) continue;
-
-      const qKey = flowNodeId ? `node:${flowNodeId}` : `q:${questionText.toLowerCase()}`;
-      const q =
-        byQuestion.get(qKey) ??
-        (() => {
-          const init = {
-            flowNodeId,
-            questionText,
-            totalCount: 0,
-            byAnswer: new Map<string, { answerText: string; count: number; lastAt: string }>(),
-          };
-          byQuestion.set(qKey, init);
-          return init;
-        })();
-
-      q.totalCount += 1;
-      const aKey = normalizeAnswerKey(answerText);
-      const agg = q.byAnswer.get(aKey);
-      if (!agg) {
-        q.byAnswer.set(aKey, { answerText, count: 1, lastAt: createdAt });
-      } else {
-        agg.count += 1;
-        if (createdAt > agg.lastAt) agg.lastAt = createdAt;
-      }
+      inputs.push({
+        flowNodeId: row.flow_node_id ? String(row.flow_node_id) : null,
+        questionText: String(row.question_text ?? ""),
+        answerText: String(row.answer_text ?? ""),
+        phone: String(row.phone ?? ""),
+        createdAt: String(row.created_at ?? ""),
+      });
     }
 
-    const questions: AggregatedLeadAnswerQuestion[] = [...byQuestion.values()]
-      .map((q) => {
-        const answers = [...q.byAnswer.values()]
-          .map((a) => ({
-            answerText: a.answerText,
-            count: a.count,
-            lastAt: a.lastAt,
-            sharePct: q.totalCount > 0 ? Math.round((a.count / q.totalCount) * 100) : 0,
-          }))
-          .sort((a, b) => b.count - a.count || b.lastAt.localeCompare(a.lastAt));
-        return {
-          flowNodeId: q.flowNodeId,
-          questionText: q.questionText,
-          totalCount: q.totalCount,
-          answers,
-        };
-      })
-      .sort((a, b) => b.totalCount - a.totalCount);
+    const history = await reconstructMarketingLeadEventsFromMessages(limit);
+    const tableKeys = new Set(
+      inputs.map(
+        (r) =>
+          `${r.flowNodeId ?? ""}|${normalizeAnswerKey(r.questionText)}|${normalizeAnswerKey(r.answerText)}|${r.phone}|${r.createdAt}`
+      )
+    );
+    for (const h of history.closed) {
+      const key = `${h.flowNodeId ?? ""}|${normalizeAnswerKey(h.questionText)}|${normalizeAnswerKey(h.answerText)}|${h.phone}|${h.createdAt}`;
+      if (tableKeys.has(key)) continue;
+      inputs.push({
+        flowNodeId: h.flowNodeId,
+        questionText: h.questionText,
+        answerText: h.answerText,
+        phone: h.phone,
+        createdAt: h.createdAt,
+      });
+    }
 
-    return { questions, totalRows: (data ?? []).length };
+    const report = mergeClosedAnswerRows(inputs);
+    return {
+      ...report,
+      includesMessageHistory: history.closed.length > 0,
+      notice: tableMissing && inputs.length === 0 ? "missing_table" : undefined,
+    };
   } catch (e) {
     console.warn("[marketing-lead-answers] aggregate exception:", e);
     return empty;
@@ -172,23 +240,27 @@ export async function aggregateMarketingLeadAnswers(limit = 5000): Promise<LeadA
 
 /** מפתחות תשובות סגורות ידועות — לסינון שאלות פתוחות מנתונים מעורבבים. */
 export async function loadKnownClosedAnswerKeys(limit = 10_000): Promise<Set<string>> {
+  const keys = new Set<string>();
   try {
+    const { loadFlowButtonLabelKeys } = await import("@/lib/marketing-lead-message-history");
+    for (const k of await loadFlowButtonLabelKeys()) keys.add(k);
+
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from("marketing_lead_answers")
       .select("answer_text")
       .eq("answer_kind", "button")
       .limit(limit);
-    if (error) return new Set();
-    const keys = new Set<string>();
-    for (const r of data ?? []) {
-      const t = normalizeAnswerKey(String((r as { answer_text?: string }).answer_text ?? ""));
-      if (t) keys.add(t);
+    if (!error) {
+      for (const r of data ?? []) {
+        const t = normalizeAnswerKey(String((r as { answer_text?: string }).answer_text ?? ""));
+        if (t) keys.add(t);
+      }
     }
-    return keys;
   } catch {
-    return new Set();
+    /* best effort */
   }
+  return keys;
 }
 
 /** תשובות שנאספו מליד בפלואו השיווקי — מהחדש לישן. */

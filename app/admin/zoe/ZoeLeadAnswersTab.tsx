@@ -85,7 +85,13 @@ function AnswerDistribution({
               />
             </Box>
             <p style={{ margin: "6px 0 0", fontSize: 11, color: "#a89bc4" }}>
-              {share}% מהתשובות · אחרונה: {formatDate(a.lastAt)}
+              {share}% מהתשובות
+              {a.uniqueLeads > 0 && a.uniqueLeads !== a.count
+                ? ` · ${a.uniqueLeads} לידים · ${a.count} בחירות`
+                : a.uniqueLeads > 0
+                  ? ` · ${a.uniqueLeads} לידים`
+                  : ""}
+              {" · "}אחרונה: {formatDate(a.lastAt)}
             </p>
           </li>
         );
@@ -136,8 +142,9 @@ export default function ZoeLeadAnswersTab() {
     <Box style={{ display: "flex", flexDirection: "column", gap: 20, textAlign: "right" }}>
       <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55 }}>
         תשובות לידים לשאלות סגורות בפלואו השיווקי (בחירה מכפתורים). לכל שאלה מוצגת התפלגות — כמה לידים
-        בחרו בכל אפשרות.
-        {totalAnswers > 0 ? ` סה״כ ${totalAnswers} תשובות.` : null}
+        בחרו בכל אפשרות. אם אותו מספר ענה מספר פעמים, זה נספר כמה בחירות מאותו ליד.
+        {totalAnswers > 0 ? ` סה״כ ${totalAnswers} בחירות.` : null}
+        {report?.includesMessageHistory ? " כולל שחזור מהיסטוריית השיחות." : null}
       </p>
 
       {report?.notice === "missing_table" ? (
@@ -172,7 +179,8 @@ export default function ZoeLeadAnswersTab() {
           <h2 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 600, color: "#1a0a3c" }}>
             {q.questionText || "שאלה בפלואו"}
             <span style={{ fontWeight: 400, fontSize: 13, color: MUTED, marginRight: 8 }}>
-              ({q.totalCount} תשובות)
+              ({q.totalCount} בחירות
+              {q.uniqueLeads > 0 && q.uniqueLeads !== q.totalCount ? ` · ${q.uniqueLeads} לידים` : ""})
             </span>
           </h2>
           <AnswerDistribution answers={q.answers} totalCount={q.totalCount} />
