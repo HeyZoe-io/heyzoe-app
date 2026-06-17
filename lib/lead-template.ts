@@ -17,7 +17,7 @@ export function buildTemplateIncomingContactPatch(nowIso: string): Record<string
     session_phase: "opening",
     flow_step: 0,
     not_relevant_at: null,
-    not_relevant_reason: null,
+    not_relevant_reason: "",
     wa_followup_stage: 0,
     wa_no_response_at: null,
     wa_next_followup_at: null,

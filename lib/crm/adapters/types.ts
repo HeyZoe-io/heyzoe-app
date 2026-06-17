@@ -17,7 +17,7 @@ export type CrmDispatchInput = {
 };
 
 /**
- * אדפטר upsert (Plan Do): POST /contacts/crm_form — יצירה או עדכון לפי plando_record_id.
+ * אדפטר upsert (Plan Do): POST /contacts/crm_form — עדכון לפי plando_contact_id / plando_record_id.
  * @see lib/crm/adapters/plan-do.ts
  */
 export interface CrmUpsertLeadAdapter {
