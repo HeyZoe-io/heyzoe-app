@@ -97,8 +97,8 @@ async function resolveRegistrationContext(input: {
 }
 
 /**
- * ליד הפך ל«לקוח» בפלנדו → סימון נרשם בזואי, עצירת פולואפים, הודעת אישור (אם בחלון 24ש').
- * לא שולח חזרה ל-CRM פלנדו (האירוע הגיע משם).
+ * ליד הפך ל«לקוח/תלמיד» בפלנדו → דורס סטטוס בזואי (כולל «לא רלוונטי»), עוצר פולואפים,
+ * הודעת אישור (אם בחלון 24ש'). פלנדו הוא מקור האמת לרישום — לא שולח חזרה ל-CRM.
  */
 export async function handlePlandoCustomerRegistered(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -168,16 +168,15 @@ export async function handlePlandoCustomerRegistered(input: {
     return { ok: true, already: true };
   }
 
-  if (existing?.opted_out === true) {
-    return { ok: false, error: "contact_opted_out" };
-  }
-  if (existing?.not_relevant_at) {
-    return { ok: false, error: "contact_not_relevant" };
-  }
+  const hadNotRelevant = Boolean(existing?.not_relevant_at);
+  const hadOptedOut = existing?.opted_out === true;
 
   const nowIso = new Date().toISOString();
   const patch: Record<string, unknown> = {
     ...buildTrialRegisteredContactPatch(nowIso),
+    not_relevant_at: null,
+    not_relevant_reason: "",
+    wa_no_response_at: null,
     updated_at: nowIso,
   };
   if (fullName) patch.full_name = fullName;
@@ -212,6 +211,15 @@ export async function handlePlandoCustomerRegistered(input: {
       return { ok: false, error: "contact_upsert_failed" };
     }
     if (!updated?.length) return { ok: false, error: "contact_not_found" };
+  }
+
+  if (hadNotRelevant || hadOptedOut) {
+    console.info("[leads/plando-registered] plando overrode zoe status", {
+      businessSlug,
+      phone: maskPhoneForLog(canonicalPhone),
+      had_not_relevant: hadNotRelevant,
+      had_opted_out: hadOptedOut,
+    });
   }
 
   const { data: channel } = await input.admin
