@@ -519,15 +519,17 @@ nav{
   transition:opacity 0.38s ease,transform 0.38s ease;
 }
 .lp-demo-bubble.show{opacity:1;transform:none;}
+.lp-demo-bubble--bot,
+.lp-demo-bubble--user{
+  align-self:flex-start;
+}
 .lp-demo-bubble--bot{
-  align-self:flex-end;
   background:rgba(255,255,255,0.14);
   border:1px solid rgba(255,255,255,0.18);
   color:rgba(255,255,255,0.95);
   backdrop-filter:blur(4px);
 }
 .lp-demo-bubble--user{
-  align-self:flex-start;
   background:rgba(53,255,112,0.14);
   border:1px solid rgba(53,255,112,0.28);
   color:rgba(255,255,255,0.92);
@@ -548,6 +550,62 @@ nav{
 .lp-demo-note{
   margin-top:10px;font-size:11px;line-height:1.45;color:rgba(255,255,255,0.55);
   padding-top:8px;border-top:1px dashed rgba(255,255,255,0.12);
+}
+@media(min-width:641px){
+  .hero-scan-panel{
+    max-width:min(920px,94vw);
+    min-height:520px;
+    padding:24px 22px 20px;
+  }
+  .hero-scan-heading{
+    font-size:clamp(17px,1.8vw,20px);
+    margin-bottom:18px;
+  }
+  .hero-scan-shell{
+    grid-template-columns:minmax(0,1fr) 188px;
+    gap:16px;
+    min-height:440px;
+  }
+  .hero-scan-body{
+    min-height:420px;max-height:420px;
+    padding:12px 8px 8px;
+  }
+  .hero-scan-tab{
+    padding:11px 12px;
+    font-size:13.5px;
+    border-radius:13px;
+  }
+  .hero-scan-tab-num{
+    width:26px;height:26px;font-size:12px;
+  }
+  .hero-scan-field{font-size:15.5px;line-height:1.5;gap:12px;}
+  .hero-scan-list{gap:10px;}
+  .hero-scan-list li{
+    font-size:15.5px;padding:10px 12px;border-radius:11px;
+  }
+  .hero-scan-more{font-size:14px;}
+  .hero-scan-message-text{
+    font-size:clamp(18px,1.6vw,22px);
+    max-width:26rem;
+  }
+  .hero-scan-error{font-size:15px;padding:20px;}
+  .lp-demo-chat{max-height:380px;gap:9px;}
+  .lp-demo-bubble{
+    max-width:90%;
+    padding:10px 13px;
+    font-size:14.5px;line-height:1.55;
+    border-radius:11px;
+  }
+  .lp-demo-qr-wrap{gap:5px;margin-top:8px;}
+  .lp-demo-qr{
+    padding:7px 10px;font-size:13px;border-radius:9px;
+  }
+  .lp-demo-cta{
+    margin-top:8px;padding:8px 14px;font-size:13px;border-radius:9px;
+  }
+  .lp-demo-note{
+    margin-top:12px;font-size:12.5px;line-height:1.5;padding-top:10px;
+  }
 }
 @media(max-width:640px){
   .hero-scan-shell{grid-template-columns:1fr;grid-template-rows:1fr auto;}
@@ -2525,7 +2583,9 @@ try{
     'רוצה להבריא ולהתגמש',
     'רוצה פעילות כיפית שאתמיד בה'
   ];
-  var scanState = { data: null, steps: [], completed: [], active: null, scanningStep: null, chatRunning: false, chatPlayed: false };
+  var scanState = { data: null, steps: [], completed: [], active: null, scanningStep: null, chatRunning: false, chatPlayed: false, chatSnapshot: null };
+  var chatAnimGen = 0;
+  var DEMO_CHAT_NOTE = '<p class="lp-demo-note">זואי עונה גם על שאלות פתוחות על פי המידע שזואי שאבה מהאתר ועובדות שתזינו לה ידנית!</p>';
 
   function renderLoader(){
     body.innerHTML =
@@ -2643,6 +2703,10 @@ try{
   }
 
   function renderPane(stepId){
+    if (stepId !== 4) {
+      chatAnimGen++;
+      scanState.chatRunning = false;
+    }
     var d = scanState.data || {};
     var html = '';
     if (stepId === 1) {
@@ -2662,12 +2726,25 @@ try{
         return '<li>' + esc(f) + '</li>';
       }).join('') + '</ul>';
     } else if (stepId === 4) {
-      html = '<div class="lp-demo-chat" id="lpDemoChat"></div>' +
-        '<p class="lp-demo-note">זואי עונה גם על שאלות פתוחות על פי המידע שזואי שאבה מהאתר ועובדות שתזינו לה ידנית!</p>';
+      if (scanState.chatSnapshot) {
+        html = scanState.chatSnapshot;
+      } else {
+        html = '<div class="lp-demo-chat" id="lpDemoChat"></div>' + DEMO_CHAT_NOTE;
+      }
     }
     body.innerHTML = '<div class="hero-scan-pane is-visible" data-pane="' + stepId + '">' + html + '</div>';
-    if (stepId === 4 && !scanState.chatPlayed && !scanState.chatRunning) {
-      void animateDemoChat(d);
+    if (stepId === 4) {
+      if (scanState.chatSnapshot) {
+        var savedChat = document.getElementById('lpDemoChat');
+        if (savedChat) {
+          savedChat.querySelectorAll('.lp-demo-bubble').forEach(function(el){
+            el.classList.add('show');
+          });
+          savedChat.scrollTop = savedChat.scrollHeight;
+        }
+      } else if (!scanState.chatPlayed && !scanState.chatRunning) {
+        void animateDemoChat(d);
+      }
     }
   }
 
@@ -2681,9 +2758,116 @@ try{
     nav.innerHTML = '';
   }
 
+  function demoFactsBlob(d){
+    return [
+      str(d.tagline), str(d.business_description), str(d.directions), str(d.address),
+      traits(d).join(' ')
+    ].join(' ');
+  }
+
+  function productPriceRange(products){
+    var nums = [];
+    (products || []).forEach(function(p){
+      var t = str(p && p.price_text);
+      var m = t.match(/(\d[\d,]*)/);
+      if (!m) return;
+      var n = parseInt(m[1].replace(/,/g, ''), 10);
+      if (n > 0 && n < 100000) nums.push(n);
+    });
+    nums.sort(function(a, b){ return a - b; });
+    return nums;
+  }
+
+  function buildDemoOpenQa(d){
+    var blob = demoFactsBlob(d);
+    var products = Array.isArray(d.products) ? d.products : [];
+    var topics = [
+      {
+        test: function(){
+          return /כל הרמות|לכל הרמות|מתאימים לכל|גם למתחיל|מתאים לכל/i.test(blob);
+        },
+        q: 'האם האימונים מתאימים גם למתחילים?',
+        a: function(){
+          if (/כל הרמות|לכל הרמות|מתאימים לכל/i.test(blob)) {
+            return 'בטח! האימונים שלנו מתאימים לכל הרמות, כולל מתחילים. נדאג ללוות אותך בקצב שלך החל מהצעד הראשון.';
+          }
+          return 'בטח! האימונים שלנו מתאימים גם לרמת מתחילים. נדאג ללוות אותך בקצב שלך החל מהצעד הראשון.';
+        }
+      },
+      {
+        test: function(){ return /חניה|חנייה|חניות|חניון/i.test(blob); },
+        q: 'יש חניה באזור?',
+        a: function(){
+          var dir = str(d.directions);
+          if (dir && /חנ/i.test(dir)) {
+            var sent = dir.split(/[.!\n]/).filter(function(s){ return /חנ/i.test(s); })[0];
+            if (sent && sent.trim().length >= 8) return sent.trim();
+          }
+          return null;
+        }
+      },
+      {
+        test: function(){
+          return /הריון|בהריון|מגבלה פיזית|פציע|שיקום|מותאם אישית|מגבלות/i.test(blob);
+        },
+        q: 'האם מתאים גם אם יש לי מגבלה פיזית?',
+        a: function(){
+          var sent = blob.split(/[.!\n]/).filter(function(s){
+            return /הריון|מגבלה|פציע|שיקום|מותאם/i.test(s);
+          })[0];
+          if (sent && sent.trim().length >= 12) return sent.trim().slice(0, 220);
+          return null;
+        }
+      },
+      {
+        test: function(){ return productPriceRange(products).length >= 1; },
+        q: 'מה טווח מחירי המנויים?',
+        a: function(){
+          var nums = productPriceRange(products);
+          if (nums.length >= 2) {
+            return 'המנויים שלנו נעים בין ' + nums[0] + ' ל־' + nums[nums.length - 1] + ' ש״ח לחודש, לפי סוג המנוי שתבחרו.';
+          }
+          if (nums.length === 1) {
+            return 'המנויים שלנו מתחילים מ־' + nums[0] + ' ש״ח לחודש.';
+          }
+          return null;
+        }
+      },
+      {
+        test: function(){
+          return /קבוצה אינטימית|קבוצות אינטימיות|קבוצה קטנה|עד \d+ (מתאמנים|משתתפים)/i.test(blob);
+        },
+        q: 'מה גודל הקבוצות באימון?',
+        a: function(){
+          var size = blob.match(/עד \d+ (מתאמנים|משתתפים)/i);
+          if (size) return 'גודל הקבוצות באימון הוא ' + size[0] + '.';
+          if (/קבוצה אינטימית|קבוצות אינטימיות/i.test(blob)) {
+            return 'השיעורים מתקיימים בקבוצות אינטימיות, עם ליווי צמוד של מדריך לאורך כל האימון.';
+          }
+          if (/קבוצה קטנה/i.test(blob)) {
+            return 'השיעורים מתקיימים בקבוצות קטנות, עם תשומת לב אישית לכל מתאמן.';
+          }
+          return null;
+        }
+      }
+    ];
+
+    for (var i = 0; i < topics.length; i++) {
+      if (!topics[i].test()) continue;
+      var answer = topics[i].a();
+      if (!answer) continue;
+      return { q: topics[i].q, a: answer };
+    }
+    return null;
+  }
+
   async function animateDemoChat(d){
     if (scanState.chatRunning) return;
     scanState.chatRunning = true;
+    var myGen = ++chatAnimGen;
+    function chatAlive(){
+      return myGen === chatAnimGen && !!document.getElementById('lpDemoChat');
+    }
     var chat = document.getElementById('lpDemoChat');
     if (!chat) { scanState.chatRunning = false; return; }
     chat.innerHTML = '';
@@ -2715,27 +2899,51 @@ try{
 
     addBubble('bot', open);
     await delay(2600);
+    if (!chatAlive()) { scanState.chatRunning = false; return; }
     addBubble('bot', 'מה מביא אותך אלינו?<div class="lp-demo-qr-wrap">' +
       MOTIVATION.map(function(t, i){
         return '<div class="lp-demo-qr' + (i === 0 ? ' is-picked' : '') + '">' + esc(t) + '</div>';
       }).join('') + '</div>');
     await delay(3000);
+    if (!chatAlive()) { scanState.chatRunning = false; return; }
     addBubble('user', esc(MOTIVATION[0]));
     await delay(1800);
+    if (!chatAlive()) { scanState.chatRunning = false; return; }
     addBubble('bot', 'מדהים! ב' + esc(name) + ' נדאג לקחת אותך ליעד שלך.<br>איזה אימון הכי מעניין אותך?<div class="lp-demo-qr-wrap">' +
       trainBtns.map(function(t, i){
         return '<div class="lp-demo-qr' + (i === 0 ? ' is-picked' : '') + '">' + esc(t) + '</div>';
       }).join('') + '</div>');
     await delay(3200);
+    if (!chatAlive()) { scanState.chatRunning = false; return; }
     addBubble('user', esc(pickedTrain));
     await delay(1800);
+    if (!chatAlive()) { scanState.chatRunning = false; return; }
     addBubble('bot',
       'תענוג, עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. ' +
       'האימון עולה ' + esc(price) + ' שקלים, והוא נמשך ' + esc(duration) + ' דקות. ' +
       'אין לנו ספק שהולכת להיות לך חוויה נפלאה. שנתקדם?' +
       '<span class="lp-demo-cta">הרשמה לשיעור ניסיון</span>');
     await delay(2200);
+    if (!chatAlive()) { scanState.chatRunning = false; return; }
     addBubble('bot', 'אגב אפשר לשאול אותי כל שאלה פתוחה ואני אענה!');
+    var openQa = buildDemoOpenQa(d);
+    if (openQa) {
+      await delay(2200);
+      if (!chatAlive()) { scanState.chatRunning = false; return; }
+      addBubble('user', esc(openQa.q));
+      await delay(1800);
+      if (!chatAlive()) { scanState.chatRunning = false; return; }
+      addBubble('bot', esc(openQa.a));
+      await delay(2200);
+      if (!chatAlive()) { scanState.chatRunning = false; return; }
+      addBubble('bot',
+        'מתאים לך? אפשר לשריין מקום לאימון ניסיון כאן:' +
+        '<span class="lp-demo-cta">הרשמה לשיעור ניסיון</span>');
+    }
+    chat = document.getElementById('lpDemoChat');
+    if (chat && chatAlive()) {
+      scanState.chatSnapshot = chat.outerHTML + DEMO_CHAT_NOTE;
+    }
     scanState.chatRunning = false;
     scanState.chatPlayed = true;
   }
@@ -2748,6 +2956,7 @@ try{
     scanState.active = null;
     scanState.scanningStep = null;
     scanState.chatPlayed = false;
+    scanState.chatSnapshot = null;
     renderTabs();
 
     for (var i = 0; i < scanState.steps.length; i++) {
@@ -2769,7 +2978,8 @@ try{
     linkBlock.classList.add('is-scanning');
     panel.classList.add('is-active');
     panel.classList.remove('has-data');
-    scanState = { data: null, steps: [1,2,3,4], completed: [], active: null, scanningStep: null, chatRunning: false, chatPlayed: false };
+    scanState = { data: null, steps: [1,2,3,4], completed: [], active: null, scanningStep: null, chatRunning: false, chatPlayed: false, chatSnapshot: null };
+    chatAnimGen++;
     renderLoader();
     nav.innerHTML = '';
 

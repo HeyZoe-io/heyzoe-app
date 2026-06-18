@@ -679,6 +679,102 @@ function guessBusinessNameFromMeta(metaHints: string, hostname: string): string 
   return "";
 }
 
+const TAGLINE_MAX_WORDS = 25;
+
+const PRIMARY_ACTIVITY_TERMS: { pattern: RegExp; term: string }[] = [
+  { pattern: /פילאטיס/i, term: "פילאטיס" },
+  { pattern: /יוגה/i, term: "יוגה" },
+  { pattern: /פילאטיס מכשירים|מכשירי פילאטיס/i, term: "פילאטיס מכשירים" },
+  { pattern: /אימון כוח|כושר|חדר כושר/i, term: "כושר" },
+  { pattern: /ריקוד|בלט/i, term: "ריקוד" },
+  { pattern: /שחייה/i, term: "שחייה" },
+  { pattern: /מסאז/i, term: "מסאז׳" },
+];
+
+function trimTaglineWords(text: string, maxWords = TAGLINE_MAX_WORDS): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text.trim();
+  return words.slice(0, maxWords).join(" ").trim();
+}
+
+function isJunkTaglineSentence(s: string): boolean {
+  return /דף הבית|צרו קשר|whatsapp|facebook|instagram|top of page|bottom of page|call us|back to top|מדיניות פרטיות|תקנון|לרכישה|ללוח השיעורים|arbox/i.test(
+    s
+  );
+}
+
+function detectPrimaryActivities(corpus: string, hostname: string): string[] {
+  const hay = `${corpus}\n${hostname}`;
+  const found: string[] = [];
+  for (const { pattern, term } of PRIMARY_ACTIVITY_TERMS) {
+    if (pattern.test(hay) && !found.includes(term)) found.push(term);
+  }
+  if (/פילאטיס/i.test(hay) && /מכשירים/i.test(hay) && !found.includes("פילאטיס מכשירים")) {
+    found.unshift("פילאטיס מכשירים");
+  }
+  return found;
+}
+
+function taglineMissingCriticalTerms(tagline: string, corpus: string, hostname: string): string[] {
+  const missing: string[] = [];
+  const primary = detectPrimaryActivities(corpus, hostname);
+  for (const term of primary) {
+    if (!tagline.includes(term)) missing.push(term);
+  }
+  if (
+    /פילאטיס/i.test(corpus) &&
+    /מכשירים/i.test(corpus) &&
+    !tagline.includes("פילאטיס") &&
+    !tagline.includes("מכשירים")
+  ) {
+    if (!missing.includes("פילאטיס")) missing.push("פילאטיס");
+  }
+  return missing;
+}
+
+function extractTaglineCandidates(corpus: string): string[] {
+  const early = corpus.slice(0, 6000);
+  const parts = early
+    .split(/(?<=[.!?])\s+|\n+|\.{3}/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter((s) => s.length >= 16 && s.length <= 220 && !isJunkTaglineSentence(s));
+  return [...new Set(parts)];
+}
+
+function scoreTaglineCandidate(sentence: string, missingTerms: string[]): number {
+  let score = 0;
+  for (const term of missingTerms) {
+    if (sentence.includes(term)) score += 6;
+  }
+  if (/סטודיו|מרכז|קליניק/i.test(sentence)) score += 2;
+  if (/מקצועי|ליווי|כל הרמות|מתאימ|מוסמכ/i.test(sentence)) score += 1;
+  if (/^מהם|בלב|על הסטודיו|אודות/i.test(sentence)) score += 1;
+  if (/אימון ניסיון|ש״ח|₪|\d+\s*שח/i.test(sentence)) score -= 4;
+  if (missingTerms.length && !missingTerms.some((t) => sentence.includes(t))) score -= 3;
+  return score;
+}
+
+/** אם ה-AI השמיט מילת מפתח מזהה (למשל «פילאטיס») — בוחר משפט טוב יותר מהפסקה הראשונה בקורפוס */
+function refineTaglineFromCorpus(tagline: string, corpus: string, hostname: string): string {
+  const trimmed = trimTaglineWords(tagline);
+  const missing = taglineMissingCriticalTerms(trimmed, corpus, hostname);
+  if (!missing.length && trimmed.length >= 12) return trimmed;
+
+  const candidates = extractTaglineCandidates(corpus);
+  let best = trimmed;
+  let bestScore = scoreTaglineCandidate(trimmed, missing);
+
+  for (const candidate of candidates) {
+    const score = scoreTaglineCandidate(candidate, missing);
+    if (score <= bestScore) continue;
+    if (missing.length && !missing.some((t) => candidate.includes(t))) continue;
+    best = candidate;
+    bestScore = score;
+  }
+
+  return trimTaglineWords(best);
+}
+
 function guessNicheFromHost(hostname: string): string {
   const h = hostname.toLowerCase();
   if (/gym|fit|pilates|yoga|studio/.test(h)) return "Fitness";
@@ -778,7 +874,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 
 חלץ מהאתר (או נחש בצורה סבירה רק לשם/נישה אם חסר לגמרי):
 - business_name: שם העסק כפי שמופיע בכותרת האתר או בלוגו — קצר, בלי "| אתר רשמי" ובלי סלוגן ארוך. העתק מדויק.
-- tagline: משפט תיאור עסק אחד מהאתר (תת-כותרת / אודות) — העתק מילה במילה אם קיים. עד ~25 מילים.
+- tagline: משפט תיאור עסק אחד — עדיפות לפסקה הראשונה בדף הבית או ב«אודות». חובה לכלול את סוג הפעילות המרכזי (למשל פילאטיס, יוגה) אם מופיע באתר; אל תסכם בלי מילת המפתח של העיסוק. העתק מילה במילה כשאפשר. עד ~25 מילים.
 - address: כתובת פיזית. חובה לחפש בפוטר, בדף יצירת קשר, בדף אודות, ובקטעים שמסומנים "מקור (פוטר)" / "מקור (דף אודות)". כמעט לכל עסק יש כתובת באחד מהמקומות האלה.
 - directions: הנחיות הגעה/חניה/כניסה — העתק מדויק אם מופיע (או ריק).
 - customer_service_phone: מספר טלפון לשירות לקוחות/יצירת קשר — העתק בדיוק כפי שמופיע. אם יש רשימת "טלפונים גולמיים" למטה — העתק אחד מהם בדיוק.
@@ -918,12 +1014,6 @@ ${combinedSiteCorpus}`;
     const traitsRaw = Array.isArray(parsed.business_traits)
       ? parsed.business_traits.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 12)
       : [];
-    const taglineStr =
-      typeof parsed.tagline === "string" && parsed.tagline.trim()
-        ? parsed.tagline.trim()
-        : typeof parsed.business_description === "string"
-          ? parsed.business_description.trim().split(/\n/)[0]?.trim() ?? ""
-          : "";
     const hostForName = (() => {
       try {
         return new URL(url).hostname;
@@ -931,6 +1021,13 @@ ${combinedSiteCorpus}`;
         return "";
       }
     })();
+    const taglineRaw =
+      typeof parsed.tagline === "string" && parsed.tagline.trim()
+        ? parsed.tagline.trim()
+        : typeof parsed.business_description === "string"
+          ? parsed.business_description.trim().split(/\n/)[0]?.trim() ?? ""
+          : "";
+    const taglineStr = refineTaglineFromCorpus(taglineRaw, combinedSiteCorpus, hostForName);
     let businessName =
       typeof parsed.business_name === "string" ? parsed.business_name.trim() : "";
     if (!businessName) {
