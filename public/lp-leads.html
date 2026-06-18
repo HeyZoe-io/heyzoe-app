@@ -414,6 +414,7 @@ nav{
   overflow:hidden;
   color:rgba(255,255,255,0.92);
   position:relative;
+  display:flex;flex-direction:column;
 }
 .hero-scan-pane{display:none;height:100%;overflow-y:auto;}
 .hero-scan-pane.is-visible{display:block;}
@@ -435,25 +436,44 @@ nav{
 }
 .hero-scan-more{font-size:13px;color:rgba(255,255,255,0.55);margin-top:8px;}
 .hero-scan-pick{
-  display:flex;align-items:center;justify-content:center;
-  min-height:280px;text-align:center;padding:16px;
+  display:flex;flex-direction:row;align-items:center;
+  direction:rtl;
+  gap:clamp(10px,2.5vw,14px);
+  align-self:flex-start;
+  padding:8px 6px 8px 0;
+  min-height:auto;text-align:right;
+  max-width:100%;
 }
-.hero-scan-pick p{
-  font-family:'Heebo',sans-serif;font-size:14px;line-height:1.55;
-  color:rgba(255,255,255,0.72);margin:0;
+.hero-scan-pick-arrow{
+  flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  color:rgba(255,255,255,0.88);
+  animation:heroPickArrowNudge 1.15s ease-in-out infinite alternate;
+}
+.hero-scan-pick-arrow svg{width:clamp(24px,6vw,30px);height:clamp(24px,6vw,30px);display:block;}
+@keyframes heroPickArrowNudge{
+  from{transform:translateX(4px);}
+  to{transform:translateX(-14px);}
 }
 .hero-scan-loader{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:280px;gap:22px;text-align:center;padding:12px;
+  flex:1;
+  min-height:0;gap:clamp(18px,4vw,26px);text-align:center;padding:12px;
+  width:100%;
 }
-.hero-scan-loader-text{
-  font-family:'Heebo',sans-serif;font-size:14px;font-weight:500;
-  color:rgba(255,255,255,0.88);margin:0;line-height:1.5;
+.hero-scan-message-text{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(17px,4.2vw,20px);font-weight:500;
+  color:rgba(255,255,255,0.9);margin:0;line-height:1.55;
+  max-width:22rem;
 }
 .hero-workout-icon{
-  width:96px;height:120px;overflow:visible;
+  width:clamp(88px,22vw,108px);height:auto;
+  aspect-ratio:64/80;
+  overflow:visible;
   color:#c4b5fd;
   filter:drop-shadow(0 0 14px rgba(196,181,253,0.45));
+  display:block;margin:0 auto;
 }
 .hero-workout-figure{
   transform-origin:32px 44px;
@@ -530,10 +550,22 @@ nav{
   padding-top:8px;border-top:1px dashed rgba(255,255,255,0.12);
 }
 @media(max-width:640px){
-  .hero-scan-shell{grid-template-columns:1fr;grid-template-rows:auto 1fr;}
-  .hero-scan-nav{flex-direction:row;flex-wrap:wrap;}
+  .hero-scan-shell{grid-template-columns:1fr;grid-template-rows:1fr auto;}
+  .hero-scan-nav{flex-direction:row;flex-wrap:wrap;order:2;}
+  .hero-scan-body{order:1;min-height:260px;max-height:260px;display:flex;flex-direction:column;}
   .hero-scan-tab{flex:1 1 calc(50% - 4px);font-size:11px;padding:8px;}
-  .hero-scan-body{min-height:260px;max-height:260px;}
+  .hero-scan-pick{
+    align-self:center;
+    flex-direction:column;
+    margin-top:auto;
+    padding:0 8px 10px;
+  }
+  .hero-scan-pick-arrow{animation-name:heroPickArrowNudgeMobile;}
+  .hero-scan-pick-arrow svg{transform:rotate(-90deg);}
+  @keyframes heroPickArrowNudgeMobile{
+    from{transform:translateY(-3px);}
+    to{transform:translateY(10px);}
+  }
 }
 .flow-phone-stage{
   display:flex;justify-content:center;align-items:center;
@@ -584,7 +616,7 @@ nav{
 }
 .hero .stat-lbl{color:rgba(255,255,255,0.68);}
 
-/* WHAT ZOE DOES — process strip (ui-ux-pro-max: B2B minimal) */
+/* WHAT ZOE DOES - process strip (ui-ux-pro-max: B2B minimal) */
 .zoe-cap-section{
   padding:clamp(64px,9vh,88px) 6%;
   background:#fff;
@@ -671,7 +703,7 @@ nav{
   line-height:0.95;
   display:block;
 }
-/* שכבה לבנה — מנתקת קווים מאחור (בלי ::before / filter ששוברים gradient) */
+/* שכבה לבנה - מנתקת קווים מאחור (בלי ::before / filter ששוברים gradient) */
 .zoe-cap-num-bg{
   position:absolute;
   inset:0;
@@ -727,6 +759,7 @@ nav{
   .zoe-cap-step:hover{transform:none;}
   .zoe-cap-step:hover .zoe-cap-num{transform:scale(1.05);}
   .bridge-shape{animation:none;opacity:0.3;}
+  .hero-scan-pick-arrow{animation:none;}
 }
 @media (max-width:480px){
   .zoe-cap-steps{grid-template-columns:1fr;max-width:320px;margin-inline:auto;}
@@ -1444,14 +1477,19 @@ section{padding:80px 6%;}
 .savings-metric-panel{
   position:relative;
   text-align:center;
-  padding:clamp(8px,2vw,16px) 0;
+}
+.savings-metric-orb{
+  position:relative;
+  width:min(100%,280px);
+  margin:0 auto;
+  aspect-ratio:1;
+  display:flex;align-items:center;justify-content:center;
 }
 .savings-metric-ring{
   position:absolute;
-  inset:50% auto auto 50%;
-  width:min(92%,260px);
-  aspect-ratio:1;
-  transform:translate(-50%,-54%);
+  inset:0;
+  width:100%;
+  height:100%;
   pointer-events:none;
   opacity:0.9;
 }
@@ -1471,26 +1509,41 @@ section{padding:80px 6%;}
   from{transform:rotate(0deg);}
   to{transform:rotate(360deg);}
 }
-.savings-num{
+.savings-metric-center{
   position:relative;z-index:1;
+  text-align:center;
+  padding:0 14%;
+}
+.savings-num-line{
+  display:flex;align-items:baseline;justify-content:center;
+  gap:0.14em;
+  margin-bottom:6px;
+}
+.savings-num{
   font-family:'Fredoka',sans-serif;
   font-size:clamp(56px,10vw,96px);font-weight:700;
   background:linear-gradient(135deg,var(--purple),var(--pink));
   background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  line-height:0.95;margin-bottom:6px;
+  line-height:0.95;
   letter-spacing:-0.03em;
 }
+.savings-num-hours{
+  font-family:'Fredoka',sans-serif;
+  font-size:clamp(28px,5vw,44px);font-weight:700;
+  background:linear-gradient(135deg,var(--purple),var(--pink));
+  background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  line-height:1;
+  letter-spacing:-0.02em;
+}
 .savings-unit{
-  position:relative;z-index:1;
   font-family:'Heebo',sans-serif;
   font-size:clamp(15px,2vw,18px);font-weight:600;
-  color:var(--dark);margin-bottom:12px;
+  color:var(--dark);
 }
 .savings-sub{
-  position:relative;z-index:1;
   font-family:'Heebo',sans-serif;
   font-size:clamp(15px,1.9vw,17px);
-  color:var(--muted);max-width:22rem;margin:0 auto;line-height:1.65;
+  color:var(--muted);max-width:22rem;margin:clamp(16px,3vh,24px) auto 0;line-height:1.65;
 }
 @media (max-width:820px){
   .savings-flow{
@@ -1632,7 +1685,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   html{scroll-behavior:auto;}
   .pricing-grid{grid-template-columns:1fr;}
   .funnel-diagram{height:280px;}
-  .hero{padding:96px 5% 48px;min-height:auto;}
+  .hero{padding:192px 5% 96px;min-height:auto;}
   .hero-link-bar{padding:5px 5px 5px 10px;}
   .hero-link-btn{padding:11px 16px;font-size:13px;}
   .hero-link-btn span{display:none;}
@@ -2045,7 +2098,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="savings-journey">
         <div class="savings-beat savings-beat--before">
           <div class="savings-beat-tag"><span class="savings-beat-emoji" aria-hidden="true">😩</span> לפני זואי</div>
-          <p class="savings-beat-text">שעות על הטלפון, עונים לאותן שאלות שוב ושוב. "איפה אתם?", "כמה עולה?", "יש חנייה?" — בין אימון לאימון.</p>
+          <p class="savings-beat-text">שעות על הטלפון, עונים לאותן שאלות שוב ושוב. "איפה אתם?", "כמה עולה?", "יש חנייה?" - בין אימון לאימון.</p>
         </div>
         <div class="savings-beat savings-beat--after">
           <div class="savings-beat-tag"><span class="savings-beat-emoji" aria-hidden="true">😌</span> עם זואי</div>
@@ -2053,22 +2106,29 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         </div>
       </div>
       <div class="savings-metric-panel">
-        <div class="savings-metric-ring" aria-hidden="true">
-          <svg viewBox="0 0 200 200" role="presentation">
-            <defs>
-              <linearGradient id="savingsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#7133da"/>
-                <stop offset="55%" stop-color="#a855f7"/>
-                <stop offset="100%" stop-color="#ff92ff"/>
-              </linearGradient>
-            </defs>
-            <circle class="savings-ring-track" cx="100" cy="100" r="88"/>
-            <circle class="savings-ring-arc" cx="100" cy="100" r="88"/>
-          </svg>
+        <div class="savings-metric-orb">
+          <div class="savings-metric-ring" aria-hidden="true">
+            <svg viewBox="0 0 200 200" role="presentation">
+              <defs>
+                <linearGradient id="savingsRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#7133da"/>
+                  <stop offset="55%" stop-color="#a855f7"/>
+                  <stop offset="100%" stop-color="#ff92ff"/>
+                </linearGradient>
+              </defs>
+              <circle class="savings-ring-track" cx="100" cy="100" r="88"/>
+              <circle class="savings-ring-arc" cx="100" cy="100" r="88"/>
+            </svg>
+          </div>
+          <div class="savings-metric-center">
+            <div class="savings-num-line">
+              <span class="savings-num">3-5</span>
+              <span class="savings-num-hours">שעות</span>
+            </div>
+            <div class="savings-unit">שזואי חוסכת לכם כל יום</div>
+          </div>
         </div>
-        <div class="savings-num">3–5</div>
-        <div class="savings-unit">שעות שזואי חוסכת לכם כל יום</div>
-        <p class="savings-sub">כדי שתוכלו ללכת לים, לחזור הביתה מוקדם, או לאמיצים — לעבוד על פיתוח העסק שלכם.</p>
+        <p class="savings-sub">כדי שתוכלו ללכת לים, לחזור הביתה מוקדם, או לאמיצים - לעבוד על פיתוח העסק שלכם.</p>
       </div>
     </div>
   </div>
@@ -2109,7 +2169,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>דשבורד ניהול</li>
           <li>תמיכה בצ'אט</li>
         </ul>
-        <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter — בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
+        <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter - בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
       </div>
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
@@ -2128,7 +2188,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>ליווי צמוד בהקמה</li>
           <li>אנליטיקס מתקדם</li>
         </ul>
-        <button class="pricing-btn pricing-btn-filled" data-hz-label="מחירים: Pro — קבלו את זואי" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
+        <button class="pricing-btn pricing-btn-filled" data-hz-label="מחירים: Pro - קבלו את זואי" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
       </div>
     </div>
   </div>
@@ -2378,7 +2438,7 @@ try{
   }
 }catch(e){}
 
-// WhatsApp float — מעבר לשיחה (המרה)
+// WhatsApp float - מעבר לשיחה (המרה)
 try{
   function hzMarkWaLpAttribution(){
     try{
@@ -2443,7 +2503,7 @@ try{
 }catch(e){}
 // Logo in nav - invert for dark bg not needed since transparent
 
-// Hero — סריקת אתר ותצוגת שלבים
+// Hero - סריקת אתר ותצוגת שלבים
 (function heroSiteScan(){
   var form = document.getElementById('heroLinkForm');
   var linkBlock = document.getElementById('heroLinkBlock');
@@ -2480,12 +2540,20 @@ try{
             '<path d="M32 36L42 62" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
           '</g>' +
         '</svg>' +
-        '<p class="hero-scan-loader-text">סורקת את האתר וממלאת את פלואו המכירה…</p>' +
+        '<p class="hero-scan-message-text">סורקת את האתר וממלאת את פלואו המכירה…</p>' +
       '</div>';
   }
 
   function renderPickHint(){
-    body.innerHTML = '<div class="hero-scan-pick"><p>לחצו על שלב מהתפריט לצפייה בתוכן שנאסף</p></div>';
+    body.innerHTML =
+      '<div class="hero-scan-pick">' +
+        '<p class="hero-scan-message-text">לחצו על שלב מהתפריט לצפייה בתוכן שנאסף</p>' +
+        '<span class="hero-scan-pick-arrow" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>' +
+          '</svg>' +
+        '</span>' +
+      '</div>';
   }
 
   function delay(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
@@ -2805,7 +2873,7 @@ const faqs = [
   {q:'האם אני יכול לצפות בשיחות שזואי מנהלת?', a:'כמובן! דרך הדשבורד, בטאב שיחות, תוכלו לראות את כל השיחות בזמן אמת, לעצור את זואי ולהתערב בשיחה עצמאית.'},
   {q:'האם אני חייב לקרוא לבוטית שלי זואי?', a:'האמת שלא :) מרגע שזואי תהיה שלך, היא יכולה להיקרא איך שתרצה, והיא תציג את עצמה ללקוחות באיזה שם שתבחר, אפילו אם השם יהיה אמנון.'},
   {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'לא, המחיר נשאר איתכם זהה לכל החיים. אם שילמת מחיר הנחה על החודש הראשון, הוא ישאר המחיר שלכם.'},
-  {q:'האם יש עלויות נוספות לשליחת הודעות?', a:'השימוש בוואטסאפ מתחלק לשני מצבים:<br><br><strong>חינם לחלוטין:</strong> כשליד פותח שיחה בעצמו דרך מודעה (click-to-whatsapp), קישור או כפתור, כל השיחה עם זואי לא עולה כלום. זה המצב הנפוץ ביותר בעבודה עם HeyZoe.<br><br><strong>עם עלות:</strong> הודעות שזואי שולחת ביוזמתה (למשל שליחת וואטסאפ מקמפיין <em>לידים</em>) דורשות טמפלייט מאושר של מטא ועולות כמה סנט לכל הודעה.<br><br>לרוב העסקים הישראלים שעובדים עם HeyZoe — העלות למטא (בעלים של וואטסאפ) זניחה או אפסית.'},
+  {q:'האם יש עלויות נוספות לשליחת הודעות?', a:'השימוש בוואטסאפ מתחלק לשני מצבים:<br><br><strong>חינם לחלוטין:</strong> כשליד פותח שיחה בעצמו דרך מודעה (click-to-whatsapp), קישור או כפתור, כל השיחה עם זואי לא עולה כלום. זה המצב הנפוץ ביותר בעבודה עם HeyZoe.<br><br><strong>עם עלות:</strong> הודעות שזואי שולחת ביוזמתה (למשל שליחת וואטסאפ מקמפיין <em>לידים</em>) דורשות טמפלייט מאושר של מטא ועולות כמה סנט לכל הודעה.<br><br>לרוב העסקים הישראלים שעובדים עם HeyZoe - העלות למטא (בעלים של וואטסאפ) זניחה או אפסית.'},
   {q:'מה עם ליד שלא ענה לזואי?', a:'במידה ועברו 6 שעות והליד לא ענה לזואי, הוא נשלח אליכם ל-CRM לטיפול.'},
 ];
 const fl = document.getElementById('faqList');
@@ -2833,21 +2901,21 @@ const zoeBrain = [
   {keys:['מי את','מה את','איך את','מה זואי','מה זה','ספר','ספרי'],
    ans:'אני זואי - בוטית המכירות של HeyZoe 😊 יודעת שאני רק בוט, אבל אני גאה בזה. אני חרוצה, תמיד זמינה, ואף פעם לא עונה "עוד רגע". כל המהות שלי היא לסגור עסקאות בשביל הסטודיו שלכם. מה תרצה לדעת?'},
   {keys:['מחיר','עולה','עלות','כמה','תשלום','חבילה'],
-   ans:'במבצע חודש '+promoMonth+': Starter 349 שח לחודש (במקום 500), Pro 499 (במקום 650) — כולל מע״מ. וספוילר - אני שווה את זה 😎'},
+   ans:'במבצע חודש '+promoMonth+': Starter 349 שח לחודש (במקום 500), Pro 499 (במקום 650) - כולל מע״מ. וספוילר - אני שווה את זה 😎'},
   {keys:['הקמ','מורכב','קשה','טכנולוגי','מסובך','זמן','דקות'],
    ans:'10 דקות. ממש. מזינים לינק לאתר, אני סורקת הכל לבד, אתם בודקים - וסיימנו. אין IT, אין מפתחים, אין דרמות. הדרמות תשמרו לשיעור הזומבה 💃'},
   {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
-   ans:'מובן לגמרי. אבל תחשוב על זה — מבצע חודש '+promoMonth+', מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
+   ans:'מובן לגמרי. אבל תחשוב על זה - מבצע חודש '+promoMonth+', מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
   {keys:['שיחות','מגבל','לידים','100','500'],
    ans:'Starter עד 100 שיחות בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
   {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
    ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
   {keys:['מאי','מבצע','חודש','מחיר'],
-   ans:'יש מבצע חודש '+promoMonth+': Starter ב־349 שח לחודש (במקום 500), Pro ב־499 (במקום 650) — הכול כולל מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
+   ans:'יש מבצע חודש '+promoMonth+': Starter ב־349 שח לחודש (במקום 500), Pro ב־499 (במקום 650) - הכול כולל מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
   {keys:['ביטול','לבטל','חוזה','קשור','כלוא'],
    ans:'ניתן לבטל בכל עת, אין חוזים ואין קנסות. אנחנו מאמינים שאם אתם נשארים, זה כי אני שווה את זה 😄'},
   {keys:['עייפ','נמאס','לחוץ','שחיקה','לא יכול'],
-   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע חודש '+promoMonth+' המחירים כוללים מע״מ — בוא נסגור את זה 💪'},
+   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע חודש '+promoMonth+' המחירים כוללים מע״מ - בוא נסגור את זה 💪'},
 ];
 
 let botCount = 0;
