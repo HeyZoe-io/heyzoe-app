@@ -734,8 +734,7 @@ nav{
 
 /* Bridge: מה זואי עושה → שיחה שמוכרת */
 .section-bridge{
-  padding:clamp(44px,6vh,60px) 6%;
-  padding-top:clamp(56px,8vh,76px);
+  padding:clamp(36px,5vh,48px) 6%;
   background:var(--bg);
   position:relative;
   overflow:visible;
@@ -778,7 +777,7 @@ nav{
 }
 .bridge-icons{
   position:relative;
-  height:clamp(200px,32vh,280px);
+  height:clamp(168px,26vh,232px);
   width:100%;
   max-width:clamp(120px,18vw,160px);
   pointer-events:none;
@@ -834,6 +833,12 @@ nav{
   55%{opacity:0.42;}
   100%{transform:translate(calc(var(--x,0px)),calc(-1 * var(--bridge-rise))) scale(1);opacity:0;}
 }
+@keyframes bridgeShapeRiseMobile{
+  0%{transform:translate(calc(var(--x,0px)),calc(var(--bridge-drop) + 12px)) scale(0.88);opacity:0;}
+  8%{opacity:0.72;}
+  42%{opacity:0.55;}
+  100%{transform:translate(calc(var(--x,0px)),calc(-1 * var(--bridge-rise))) scale(0.96);opacity:0;}
+}
 .section-bridge-text{
   text-align:center;
   font-family:'Heebo',sans-serif;
@@ -850,7 +855,7 @@ nav{
   font-size:clamp(22px,3vw,30px);
   font-weight:600;
   line-height:1.35;
-  margin-bottom:10px;
+  margin-bottom:8px;
   background:linear-gradient(135deg,var(--purple) 0%,#a855f7 42%,var(--pink) 100%);
   background-clip:text;-webkit-background-clip:text;
   -webkit-text-fill-color:transparent;
@@ -875,14 +880,13 @@ nav{
     gap:clamp(10px,2.5vw,22px);
   }
   .bridge-icons{
-    height:clamp(168px,28vh,230px);
+    height:clamp(148px,24vh,200px);
     max-width:100px;
   }
 }
 @media (max-width:680px){
   .section-bridge{
-    padding:clamp(36px,5vh,48px) 5%;
-    padding-top:clamp(44px,6vh,56px);
+    padding:clamp(28px,4.5vh,36px) 5%;
     --bridge-shape-size:clamp(48px,12vw,58px);
     --bridge-rise:clamp(58px,12vh,82px);
     --bridge-drop:clamp(58px,12vh,82px);
@@ -892,7 +896,7 @@ nav{
     gap:clamp(6px,2vw,12px);
   }
   .bridge-icons{
-    height:clamp(140px,24vh,180px);
+    height:clamp(128px,22vh,164px);
     max-width:84px;
   }
   .bridge-shape{border-radius:16px;}
@@ -905,13 +909,67 @@ nav{
 }
 @media (max-width:520px){
   .section-bridge{
-    padding:clamp(32px,5vh,40px) 6%;
-    overflow-x:clip;
+    padding:clamp(24px,4.5vh,32px) 6%;
+    overflow:hidden;
+    --bridge-shape-size:clamp(40px,11vw,52px);
+    --bridge-rise:clamp(168px,34vh,210px);
+    --bridge-drop:clamp(56px,10vh,76px);
   }
-  .bridge-icons{display:none;}
-  .section-bridge-layout{grid-template-columns:1fr;gap:0;}
-  .section-bridge-inner{max-width:100%;}
-  .section-bridge-text strong{margin-bottom:8px;}
+  .section-bridge-layout{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    min-height:clamp(168px,34vh,210px);
+    z-index:1;
+  }
+  .bridge-icons{
+    display:block;
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    max-width:none;
+    z-index:1;
+  }
+  .bridge-icons--left,
+  .bridge-icons--right{
+    justify-self:unset;
+  }
+  .bridge-shape{
+    bottom:0;
+    border-radius:14px;
+    animation-name:bridgeShapeRiseMobile;
+    animation-duration:10s;
+  }
+  .bridge-shape--msg{border-radius:12px 12px 12px 5px;}
+  .bridge-shape--msg .bridge-bubble-tail{
+    left:6px;bottom:-6px;width:12px;height:12px;border-radius:0 0 0 6px;
+  }
+  .section-bridge-floats--left .bridge-shape:nth-child(1){--delay:0s;--x:0px;--lane-x:13%;}
+  .section-bridge-floats--left .bridge-shape:nth-child(2){--delay:2.6s;--x:0px;--lane-x:30%;}
+  .section-bridge-floats--right .bridge-shape:nth-child(1){--delay:1.2s;--x:0px;--lane-x:70%;}
+  .section-bridge-floats--right .bridge-shape:nth-child(2){--delay:4s;--x:0px;--lane-x:87%;}
+  .section-bridge-inner{
+    position:relative;
+    z-index:3;
+    max-width:100%;
+    padding:clamp(10px,2vh,16px) 3%;
+  }
+  .section-bridge-inner::before{
+    content:'';
+    position:absolute;
+    inset:clamp(-4px,-1vh,-2px) -3%;
+    background:radial-gradient(ellipse 90% 84% at 50% 50%,rgba(245,243,255,0.97) 0%,rgba(245,243,255,0.8) 48%,rgba(245,243,255,0.3) 76%,transparent 100%);
+    border-radius:18px;
+    z-index:-1;
+    pointer-events:none;
+  }
+  .section-bridge-text{
+    position:relative;
+    z-index:1;
+  }
+  .section-bridge-text strong{margin-bottom:6px;}
   .section-bridge-line2{font-size:0.92em;}
 }
 @media (max-width:380px){
