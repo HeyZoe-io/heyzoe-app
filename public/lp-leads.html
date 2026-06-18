@@ -1282,7 +1282,7 @@ section{padding:80px 6%;}
 .lead-flow-head{margin-bottom:clamp(36px,5vw,52px);}
 .lead-flow-diagram{
   display:flex;flex-direction:column;align-items:center;
-  gap:0;direction:rtl;text-align:right;
+  gap:0;direction:rtl;text-align:center;
 }
 .lf-step{
   width:100%;max-width:760px;
@@ -1291,12 +1291,12 @@ section{padding:80px 6%;}
   border-radius:20px;
   padding:clamp(18px,3vw,26px) clamp(20px,3.5vw,30px);
   box-shadow:0 10px 32px rgba(113,51,218,0.07);
+  text-align:center;
 }
 .lf-step--3{max-width:980px;}
 .lf-step-head{
-  display:flex;align-items:center;gap:12px;
+  display:flex;align-items:center;justify-content:center;gap:12px;
 }
-.lf-step-head--center{justify-content:center;}
 .lf-step-num{
   flex-shrink:0;width:32px;height:32px;border-radius:50%;
   display:inline-flex;align-items:center;justify-content:center;
@@ -1351,7 +1351,7 @@ section{padding:80px 6%;}
 .lf-connector--split{padding:0 0 6px;}
 .lf-split-svg{width:min(100%,560px);height:44px;display:block;}
 .lf-zoe-row{
-  display:flex;align-items:center;gap:14px;
+  display:flex;align-items:center;justify-content:center;gap:14px;
   margin-top:16px;padding-top:14px;
   border-top:1px dashed rgba(113,51,218,0.12);
 }
@@ -1365,7 +1365,7 @@ section{padding:80px 6%;}
 .lf-zoe-caption{
   margin:0;font-family:'Heebo',sans-serif;
   font-size:clamp(14px,1.9vw,16px);line-height:1.55;
-  color:var(--muted);text-align:right;
+  color:var(--muted);text-align:center;
 }
 .lf-branches{
   display:grid;grid-template-columns:repeat(3,1fr);
@@ -1374,7 +1374,7 @@ section{padding:80px 6%;}
 .lf-branch{
   background:linear-gradient(180deg,#faf8ff 0%,#fff 100%);
   border:1px solid rgba(113,51,218,0.1);
-  border-radius:16px;padding:16px 14px;text-align:right;
+  border-radius:16px;padding:16px 14px;text-align:center;
   transition:transform 0.2s ease,box-shadow 0.2s ease;
 }
 .lf-branch:hover{
@@ -1403,9 +1403,8 @@ section{padding:80px 6%;}
 }
 @media(max-width:768px){
   .lf-branches{grid-template-columns:1fr;}
-  .lf-step-head--center{justify-content:flex-start;}
   .lf-split-svg{height:28px;}
-  .lf-zoe-row{flex-direction:column;align-items:flex-start;}
+  .lf-zoe-row{flex-direction:column;align-items:center;}
 }
 
 /* FLOW */
@@ -1644,7 +1643,7 @@ section{padding:80px 6%;}
 }
 .savings-metric-orb{
   position:relative;
-  width:min(100%,340px);
+  width:min(100%,300px);
   margin:0 auto;
   aspect-ratio:1;
   display:flex;align-items:center;justify-content:center;
@@ -1676,8 +1675,7 @@ section{padding:80px 6%;}
 .savings-metric-center{
   position:relative;z-index:1;
   text-align:center;
-  padding:18% 24%;
-  max-width:58%;
+  padding:0 12%;
 }
 .savings-num-line{
   display:flex;align-items:baseline;justify-content:center;
@@ -2189,7 +2187,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       </div>
 
       <div class="lf-step lf-step--3">
-        <div class="lf-step-head lf-step-head--center">
+        <div class="lf-step-head">
           <span class="lf-step-num">3</span>
           <p class="lf-step-title">מה קורה אחרי השיחה?</p>
         </div>
