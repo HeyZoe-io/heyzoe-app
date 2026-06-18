@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logMessage } from "@/lib/analytics";
+import { verifyLeadsWebhookSecret } from "@/lib/leads/webhook-auth";
 import {
   buildTemplateIncomingContactPatch,
   firstNameFromFullName,
@@ -20,15 +21,9 @@ type IncomingLeadBody = {
   business_slug?: unknown;
 };
 
-function unauthorized() {
-  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-}
-
 export async function POST(req: NextRequest) {
-  const expectedSecret = process.env.LEADS_WEBHOOK_SECRET?.trim() ?? "";
-  const providedSecret = req.headers.get("x-leads-secret")?.trim() ?? "";
-  if (!expectedSecret || providedSecret !== expectedSecret) {
-    return unauthorized();
+  if (!verifyLeadsWebhookSecret(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   let body: IncomingLeadBody;
