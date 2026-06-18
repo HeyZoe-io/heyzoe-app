@@ -588,7 +588,15 @@ nav{
 .zoe-cap-section{
   padding:clamp(64px,9vh,88px) 6%;
   background:#fff;
-  border-bottom:1px solid rgba(113,51,218,0.08);
+  position:relative;
+}
+.zoe-cap-section::after{
+  content:'';
+  position:absolute;
+  left:0;right:0;bottom:0;
+  height:clamp(52px,9vh,80px);
+  background:linear-gradient(180deg,transparent,var(--bg));
+  pointer-events:none;
 }
 .zoe-cap-inner{max-width:1080px;margin:0 auto;}
 .zoe-cap-head{text-align:center;margin-bottom:clamp(40px,6vw,56px);}
@@ -718,9 +726,197 @@ nav{
   .zoe-cap-num{animation:none;}
   .zoe-cap-step:hover{transform:none;}
   .zoe-cap-step:hover .zoe-cap-num{transform:scale(1.05);}
+  .bridge-shape{animation:none;opacity:0.3;}
 }
 @media (max-width:480px){
   .zoe-cap-steps{grid-template-columns:1fr;max-width:320px;margin-inline:auto;}
+}
+
+/* Bridge: מה זואי עושה → שיחה שמוכרת */
+.section-bridge{
+  padding:clamp(44px,6vh,60px) 6%;
+  padding-top:clamp(56px,8vh,76px);
+  background:var(--bg);
+  position:relative;
+  overflow:visible;
+  --bridge-rise:clamp(88px,16vh,128px);
+  --bridge-drop:clamp(88px,16vh,128px);
+  --bridge-shape-size:clamp(76px,11vw,96px);
+}
+.section-bridge::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:radial-gradient(ellipse 75% 90% at 50% 50%,rgba(192,132,252,0.12),transparent 68%);
+  pointer-events:none;
+  z-index:0;
+}
+.section-bridge::after{
+  content:'';
+  position:absolute;
+  left:0;right:0;bottom:0;
+  height:clamp(52px,9vh,80px);
+  background:linear-gradient(180deg,transparent,#fff);
+  pointer-events:none;
+  z-index:2;
+}
+.section-bridge-inner{
+  max-width:720px;
+  margin:0 auto;
+  position:relative;
+  z-index:3;
+}
+.section-bridge-layout{
+  display:grid;
+  grid-template-columns:minmax(100px,1fr) minmax(0,720px) minmax(100px,1fr);
+  align-items:center;
+  gap:clamp(14px,3vw,36px);
+  max-width:1040px;
+  margin:0 auto;
+  position:relative;
+  z-index:3;
+}
+.bridge-icons{
+  position:relative;
+  height:clamp(200px,32vh,280px);
+  width:100%;
+  max-width:clamp(120px,18vw,160px);
+  pointer-events:none;
+}
+.bridge-icons--left{justify-self:end;}
+.bridge-icons--right{justify-self:start;}
+.bridge-shape{
+  position:absolute;
+  left:var(--lane-x,50%);
+  bottom:var(--lane,32%);
+  width:var(--bridge-shape-size);
+  height:var(--bridge-shape-size);
+  margin-left:calc(var(--bridge-shape-size) * -0.5);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:22px;
+  background:rgba(255,255,255,0.92);
+  border:1px solid rgba(113,51,218,0.14);
+  box-shadow:0 10px 28px rgba(113,51,218,0.12);
+  opacity:0;
+  animation:bridgeShapeRise 9s ease-in-out infinite;
+  animation-delay:var(--delay,0s);
+}
+.bridge-shape svg{
+  width:58%;
+  height:58%;
+  display:block;
+  color:var(--purple);
+}
+.bridge-shape--msg{
+  border-radius:18px 18px 18px 8px;
+}
+.bridge-shape--msg .bridge-bubble-tail{
+  position:absolute;
+  left:10px;
+  bottom:-10px;
+  width:20px;
+  height:20px;
+  background:rgba(255,255,255,0.92);
+  border-left:1px solid rgba(113,51,218,0.14);
+  border-bottom:1px solid rgba(113,51,218,0.14);
+  border-radius:0 0 0 10px;
+  transform:skewX(-18deg);
+}
+.section-bridge-floats--left .bridge-shape:nth-child(1){--delay:0s;--x:-4px;--lane:52%;--lane-x:68%;}
+.section-bridge-floats--left .bridge-shape:nth-child(2){--delay:2.8s;--x:6px;--lane:28%;--lane-x:34%;}
+.section-bridge-floats--right .bridge-shape:nth-child(1){--delay:1.3s;--x:-6px;--lane:48%;--lane-x:32%;}
+.section-bridge-floats--right .bridge-shape:nth-child(2){--delay:4.1s;--x:4px;--lane:24%;--lane-x:66%;}
+@keyframes bridgeShapeRise{
+  0%{transform:translate(calc(var(--x,0px)),calc(var(--bridge-drop) + 20px)) scale(0.9);opacity:0;}
+  10%{opacity:0.88;}
+  55%{opacity:0.42;}
+  100%{transform:translate(calc(var(--x,0px)),calc(-1 * var(--bridge-rise))) scale(1);opacity:0;}
+}
+.section-bridge-text{
+  text-align:center;
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(18px,2.35vw,23px);
+  font-weight:400;
+  line-height:1.55;
+  color:var(--text);
+  margin:0;
+  letter-spacing:-0.01em;
+}
+.section-bridge-text strong{
+  display:block;
+  font-family:'Fredoka',sans-serif;
+  font-size:clamp(22px,3vw,30px);
+  font-weight:600;
+  line-height:1.35;
+  margin-bottom:10px;
+  background:linear-gradient(135deg,var(--purple) 0%,#a855f7 42%,var(--pink) 100%);
+  background-clip:text;-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.section-bridge-line1,
+.section-bridge-line2{
+  display:block;
+}
+.section-bridge-line2{
+  margin-top:4px;
+  color:var(--muted);
+  font-size:0.95em;
+}
+@media (max-width:960px){
+  .section-bridge{
+    --bridge-shape-size:clamp(58px,9vw,72px);
+    --bridge-rise:clamp(72px,14vh,108px);
+    --bridge-drop:clamp(72px,14vh,108px);
+  }
+  .section-bridge-layout{
+    grid-template-columns:minmax(68px,0.9fr) minmax(0,1fr) minmax(68px,0.9fr);
+    gap:clamp(10px,2.5vw,22px);
+  }
+  .bridge-icons{
+    height:clamp(168px,28vh,230px);
+    max-width:100px;
+  }
+}
+@media (max-width:680px){
+  .section-bridge{
+    padding:clamp(36px,5vh,48px) 5%;
+    padding-top:clamp(44px,6vh,56px);
+    --bridge-shape-size:clamp(48px,12vw,58px);
+    --bridge-rise:clamp(58px,12vh,82px);
+    --bridge-drop:clamp(58px,12vh,82px);
+  }
+  .section-bridge-layout{
+    grid-template-columns:minmax(56px,0.8fr) minmax(0,1fr) minmax(56px,0.8fr);
+    gap:clamp(6px,2vw,12px);
+  }
+  .bridge-icons{
+    height:clamp(140px,24vh,180px);
+    max-width:84px;
+  }
+  .bridge-shape{border-radius:16px;}
+  .bridge-shape--msg{border-radius:14px 14px 14px 6px;}
+  .bridge-shape--msg .bridge-bubble-tail{
+    left:7px;bottom:-7px;width:14px;height:14px;border-radius:0 0 0 7px;
+  }
+  .section-bridge-text{font-size:clamp(16px,4.2vw,19px);}
+  .section-bridge-text strong{font-size:clamp(20px,5.2vw,24px);}
+}
+@media (max-width:520px){
+  .section-bridge{
+    padding:clamp(32px,5vh,40px) 6%;
+    overflow-x:clip;
+  }
+  .bridge-icons{display:none;}
+  .section-bridge-layout{grid-template-columns:1fr;gap:0;}
+  .section-bridge-inner{max-width:100%;}
+  .section-bridge-text strong{margin-bottom:8px;}
+  .section-bridge-line2{font-size:0.92em;}
+}
+@media (max-width:380px){
+  .section-bridge{padding-inline:5%;}
+  .section-bridge-text strong{font-size:clamp(18px,5.8vw,22px);}
 }
 
 .hero-badge{
@@ -1318,6 +1514,43 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     </ol>
   </div>
 </section>
+
+<div class="section-bridge reveal" role="presentation">
+  <div class="section-bridge-layout">
+    <div class="bridge-icons bridge-icons--left section-bridge-floats--left" aria-hidden="true">
+      <div class="bridge-shape bridge-shape--msg">
+        <span class="bridge-bubble-tail"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 8.5h12M6 12h8"/>
+        </svg>
+      </div>
+      <div class="bridge-shape">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
+        </svg>
+      </div>
+    </div>
+    <div class="section-bridge-inner">
+      <p class="section-bridge-text">
+        <strong>זואי מנהלת שיחת מכירה חכמה:</strong>
+        <span class="section-bridge-line1">מובילה לפי פלואו מובנה ועונה על כל שאלה</span>
+        <span class="section-bridge-line2">מתוך האתר והמידע שלכם.</span>
+      </p>
+    </div>
+    <div class="bridge-icons bridge-icons--right section-bridge-floats--right" aria-hidden="true">
+      <div class="bridge-shape">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 10.5 12 5l7 5.5V19a1 1 0 0 1-1 1h-4.5v-5.5H10.5V20H6a1 1 0 0 1-1-1v-8.5z"/>
+        </svg>
+      </div>
+      <div class="bridge-shape">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M9.2 7.6v8.8l7.1-4.4L9.2 7.6z"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- FLOW -->
 <section class="flow-section" id="flow-section">
