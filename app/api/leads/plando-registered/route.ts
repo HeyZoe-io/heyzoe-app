@@ -30,11 +30,9 @@ export async function POST(req: NextRequest) {
     const status =
       result.error === "business_not_found" || result.error === "contact_not_found"
         ? 404
-        : result.error === "contact_opted_out" || result.error === "contact_not_relevant"
+        : result.error === "invalid_phone" || result.error === "missing_business_slug"
           ? 400
-          : result.error === "invalid_phone" || result.error === "missing_business_slug"
-            ? 400
-            : 500;
+          : 500;
     return NextResponse.json({ error: result.error }, { status });
   }
 
