@@ -37,11 +37,13 @@ export async function GET(req: NextRequest) {
   if (!sessionId) return NextResponse.json({ error: "missing_session_id" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const accessible = await loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") });
+  const [accessible, slugVariants] = await Promise.all([
+    loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") }),
+    resolveBusinessSlugVariants(admin, slug),
+  ]);
   const business = pickBusinessBySlug(accessible, slug) as DashboardBizRow | null;
   if (!business) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const slugVariants = await resolveBusinessSlugVariants(admin, slug);
   const { data: messages } = await admin
     .from("messages")
     .select("role, content, created_at, error_code, model_used")

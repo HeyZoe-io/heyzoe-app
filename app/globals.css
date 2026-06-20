@@ -236,3 +236,8 @@ input[type="checkbox"],
 select {
   cursor: pointer;
 }
+
+.wa-chat-wallpaper {
+  background-color: #efeae2;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260'%3E%3Cg fill='%23d4cfc6' fill-opacity='0.45'%3E%3Cpath d='M40 30h8v8h-8zM120 80h6v6h-6zM200 40h10v10h-10zM70 150h7v7h-7zM180 170h8v8h-8zM30 210h6v6h-6zM220 220h9v9h-9zM150 30h5v5h-5zM90 100h4v4h-4zM160 120h6v6h-6z'/%3E%3C/g%3E%3C/svg%3E");
+}

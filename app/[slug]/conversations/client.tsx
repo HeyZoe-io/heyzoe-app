@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Badge } from "@/components/ui/badge";
+import { ArrowRight, MoreVertical, Search, Send } from "lucide-react";
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
+import { parseConversationMessageContent } from "@/lib/conversation-message-display";
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
@@ -42,7 +43,13 @@ const i18n = {
     sending: "שולח...",
     pauseHint:
       'כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על "עצור בוט". לא לשכוח להפעיל מחדש :)',
-    selectConversation: "בחר שיחה משמאל כדי לראות את ההודעות ולהפעיל עצירת בוט / מענה ידני.",
+    selectConversation: "בחרו שיחה מהרשימה מימין כדי לצפות בהודעות.",
+    searchPlaceholder: "חיפוש לפי שם או מספר…",
+    chatsTitle: "שיחות",
+    emptyChatTitle: "שמרו על קשר עם הלקוחות",
+    emptyChatSubtitle: "בחרו שיחה מהרשימה כדי לצפות בהודעות, לעצור את הבוט או לשלוח מענה ידני.",
+    messageCount: (n: number) => `${n} הודעות`,
+    backToList: "חזרה לרשימה",
   },
   en: {
     pageTitle: (slug: string) => `Conversations — ${slug}`,
@@ -69,7 +76,13 @@ const i18n = {
     sending: "Sending...",
     pauseHint:
       'To reply manually and prevent Zoe from auto-replying, click "Pause Bot". Remember to resume when done :)',
-    selectConversation: "Select a conversation on the left to view messages and pause the bot / reply manually.",
+    selectConversation: "Select a conversation from the list on the right to view messages.",
+    searchPlaceholder: "Search by name or number…",
+    chatsTitle: "Chats",
+    emptyChatTitle: "Keep in touch with your customers",
+    emptyChatSubtitle: "Select a chat from the list to view messages, pause the bot, or send a manual reply.",
+    messageCount: (n: number) => `${n} messages`,
+    backToList: "Back to list",
   },
 } as const;
 
@@ -96,6 +109,8 @@ type SessionSummary = {
 };
 
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MESSAGES_STALE_MS = 180000;
+const PREFETCH_TOP_N = 10;
 
 function sessionLeadName(session: { fullName?: string | null }): string {
   return String(session.fullName ?? "").trim();
@@ -105,19 +120,74 @@ function sessionPhoneDisplay(session: { phone?: string }, unavailable: string): 
   return String(session.phone ?? "").trim() || unavailable;
 }
 
-function SessionContactStatusBadge({
+const AVATAR_COLORS = [
+  "bg-[#25D366] text-white",
+  "bg-[#128C7E] text-white",
+  "bg-[#34B7F1] text-white",
+  "bg-[#7F66FF] text-white",
+  "bg-[#E91E63] text-white",
+  "bg-[#FF9800] text-white",
+];
+
+function avatarColorClass(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash + seed.charCodeAt(i) * (i + 1)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[hash] ?? AVATAR_COLORS[0];
+}
+
+function avatarInitials(session: { fullName?: string | null; phone?: string }): string {
+  const name = sessionLeadName(session);
+  if (name) {
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  }
+  const phone = String(session.phone ?? "").replace(/\D/g, "");
+  return phone.slice(-2) || "?";
+}
+
+function messagePreviewText(content: string): string {
+  const parsed = parseConversationMessageContent(content);
+  if (parsed.kind === "text") return parsed.text.trim();
+  if (parsed.kind === "interactive") return parsed.text.trim() || parsed.buttons[0]?.label || "";
+  if (parsed.kind === "media") return parsed.caption?.trim() || (parsed.isVideo ? "🎥 וידאו" : "📷 תמונה");
+  return "";
+}
+
+function truncatePreview(text: string, max = 52): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+function SessionAvatar({ session }: { session: { fullName?: string | null; phone?: string; session_id: string } }) {
+  const seed = sessionLeadName(session) || session.phone || session.session_id;
+  return (
+    <div
+      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-medium ${avatarColorClass(seed)}`}
+      aria-hidden
+    >
+      {avatarInitials(session)}
+    </div>
+  );
+}
+
+function SessionContactStatusDot({
   statusKey,
   lang,
 }: {
   statusKey: ContactStatusKey | null | undefined;
   lang: DashboardLang;
 }) {
-  if (!statusKey) return <span className="text-[11px] text-zinc-400">—</span>;
+  if (!statusKey) return null;
   const meta = getContactStatusMeta(lang)[statusKey];
   return (
-    <Badge className={`text-[11px] font-medium px-3 py-1 ${meta.badgeClass}`} title={meta.tooltip}>
+    <span
+      className={`inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${meta.badgeClass}`}
+      title={meta.tooltip}
+    >
       {meta.label}
-    </Badge>
+    </span>
   );
 }
 
@@ -147,17 +217,18 @@ export default function ConversationsClient({
   const [manualText, setManualText] = useState("");
   const [sending, setSending] = useState(false);
   const [pausing, setPausing] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isDesktop, setIsDesktop] = useState(true);
+  const [lastMessagePreview, setLastMessagePreview] = useState<Record<string, string>>({});
 
   function normalizePhoneForMatch(raw: string): string {
     const digits = String(raw ?? "").replace(/\D/g, "");
     if (!digits) return "";
-    // +9725XXXXXXXX -> 05XXXXXXXX
     if (digits.startsWith("972") && digits.length >= 12) {
       const local = digits.slice(3);
       return local.startsWith("0") ? local : `0${local}`;
     }
     if (digits.startsWith("0")) return digits;
-    // fallback: last 9 digits (e.g. 521234567)
     if (digits.length >= 9) return digits.slice(-9);
     return digits;
   }
@@ -179,8 +250,16 @@ export default function ConversationsClient({
           return a9 && f9 && a9 === f9;
         })
       : sessions;
-    return sortSessionsByRecentActivity(list);
-  }, [sessions, normalizedFilter]);
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = q
+      ? list.filter((s) => {
+          const name = sessionLeadName(s).toLowerCase();
+          const phone = sessionPhoneDisplay(s, "").toLowerCase();
+          return name.includes(q) || phone.includes(q);
+        })
+      : list;
+    return sortSessionsByRecentActivity(filtered);
+  }, [sessions, normalizedFilter, searchQuery]);
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
 
@@ -190,6 +269,33 @@ export default function ConversationsClient({
   }
 
   const messagesSlug = selectedId ? slugForSession(selectedId) : slug.trim().toLowerCase();
+
+  const fetchConversationMessages = useCallback(
+    async (sessionSlug: string, sessionId: string, signal?: AbortSignal): Promise<SessionMessage[]> => {
+      const res = await fetch(
+        `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(sessionSlug)}&session_id=${encodeURIComponent(sessionId)}`,
+        { signal }
+      );
+      if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
+      const j = (await res.json()) as { messages?: SessionMessage[] };
+      return (j.messages ?? []) as SessionMessage[];
+    },
+    [apiPrefix]
+  );
+
+  const prefetchMessages = useCallback(
+    (sessionId: string, sessionSlug: string) => {
+      const sid = String(sessionId ?? "").trim();
+      const prefetchSlug = String(sessionSlug || slug).trim().toLowerCase();
+      if (!sid || !prefetchSlug) return;
+      void queryClient.prefetchQuery({
+        queryKey: [queryScope, "conversation_messages", prefetchSlug, sid],
+        queryFn: ({ signal }) => fetchConversationMessages(prefetchSlug, sid, signal),
+        staleTime: MESSAGES_STALE_MS,
+      });
+    },
+    [queryClient, queryScope, fetchConversationMessages, slug]
+  );
 
   const sessionsQuery = useQuery({
     queryKey: [queryScope, "conversations", slug],
@@ -209,36 +315,19 @@ export default function ConversationsClient({
   const messagesQuery = useQuery({
     queryKey: [queryScope, "conversation_messages", messagesSlug, selectedId ?? ""],
     enabled: Boolean(selectedId),
-    queryFn: async ({ signal }) => {
-      const res = await fetch(
-        `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(messagesSlug)}&session_id=${encodeURIComponent(
-          selectedId ?? ""
-        )}`,
-        { signal }
-      );
-      if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
-      const j = (await res.json()) as { messages?: SessionMessage[] };
-      return (j.messages ?? []) as SessionMessage[];
-    },
+    queryFn: ({ signal }) => fetchConversationMessages(messagesSlug, selectedId ?? "", signal),
+    staleTime: MESSAGES_STALE_MS,
   });
 
-  async function prefetchMessages(sessionId: string) {
-    const sid = String(sessionId ?? "").trim();
-    if (!sid) return;
-    const prefetchSlug = slugForSession(sid);
-    await queryClient.prefetchQuery({
-      queryKey: [queryScope, "conversation_messages", prefetchSlug, sid],
-      queryFn: async ({ signal }) => {
-        const res = await fetch(
-          `${apiPrefix}/conversation-messages?slug=${encodeURIComponent(prefetchSlug)}&session_id=${encodeURIComponent(sid)}`,
-          { signal }
-        );
-        if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
-        const j = (await res.json()) as { messages?: SessionMessage[] };
-        return (j.messages ?? []) as SessionMessage[];
-      },
-    });
-  }
+  const prefetchedSessionsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    for (const s of visibleSessions.slice(0, PREFETCH_TOP_N)) {
+      if (prefetchedSessionsRef.current.has(s.session_id)) continue;
+      prefetchedSessionsRef.current.add(s.session_id);
+      prefetchMessages(s.session_id, s.source_slug ?? slug);
+    }
+  }, [visibleSessions, slug, prefetchMessages]);
 
   function formatDmy(value: string): string {
     const d = new Date(value);
@@ -250,13 +339,54 @@ export default function ConversationsClient({
     }).format(d);
   }
 
+  function formatListTime(value: string): string {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    const now = new Date();
+    const sameDay =
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    if (sameDay) {
+      return new Intl.DateTimeFormat(dashboardDateLocale(lang), {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(d);
+    }
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      d.getFullYear() === yesterday.getFullYear() &&
+      d.getMonth() === yesterday.getMonth() &&
+      d.getDate() === yesterday.getDate();
+    if (isYesterday) return lang === "he" ? "אתמול" : "Yesterday";
+    return new Intl.DateTimeFormat(dashboardDateLocale(lang), {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    }).format(d);
+  }
+
+  function sessionDisplayTitle(session: SessionSummary): string {
+    return sessionLeadName(session) || sessionPhoneDisplay(session, t.unavailable);
+  }
+
+  function sessionPreviewLine(session: SessionSummary): string {
+    const cached = lastMessagePreview[session.session_id];
+    if (cached) return cached;
+    return t.messageCount(session.count);
+  }
+
   const selectedScrollKey = `${selected?.session_id ?? ""}:${messagesQuery.data?.length ?? 0}`;
 
   useEffect(() => {
-    // Desktop: open the latest conversation by default. Mobile: keep closed until user clicks a phone number.
     try {
-      const isDesktop = window.matchMedia?.("(min-width: 768px)")?.matches ?? false;
-      if (isDesktop && !selectedId) setSelectedId(initialSessions[0]?.session_id ?? null);
+      const mq = window.matchMedia?.("(min-width: 768px)");
+      const apply = () => setIsDesktop(mq?.matches ?? true);
+      apply();
+      mq?.addEventListener?.("change", apply);
+      if (mq?.matches && !selectedId) setSelectedId(initialSessions[0]?.session_id ?? null);
+      return () => mq?.removeEventListener?.("change", apply);
     } catch {
       /* noop */
     }
@@ -264,8 +394,17 @@ export default function ConversationsClient({
   }, []);
 
   useEffect(() => {
+    if (!selectedId || !messagesQuery.data?.length) return;
+    const last = messagesQuery.data[messagesQuery.data.length - 1];
+    const preview = truncatePreview(messagePreviewText(String(last?.content ?? "")));
+    if (!preview) return;
+    setLastMessagePreview((prev) =>
+      prev[selectedId] === preview ? prev : { ...prev, [selectedId]: preview }
+    );
+  }, [messagesQuery.data, selectedId]);
+
+  useEffect(() => {
     if (!normalizedFilter) return;
-    // If current selection is not in the filtered list, pick first filtered session.
     if (selectedId && visibleSessions.some((s) => s.session_id === selectedId)) return;
     setSelectedId(visibleSessions[0]?.session_id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -383,6 +522,7 @@ export default function ConversationsClient({
     }
     return null;
   }, [messagesQuery.data]);
+
   const manualReplyWindowExpired =
     lastUserMessageAt != null && Date.now() - lastUserMessageAt > WHATSAPP_REPLY_WINDOW_MS;
   const stopBotDisabled = Boolean(selected && !selected.isPaused && manualReplyWindowExpired);
@@ -398,169 +538,259 @@ export default function ConversationsClient({
         ? t.emptyMarketing
         : t.emptyBusiness;
 
+  const showListPanel = isDesktop || !selectedId;
+  const showChatPanel = isDesktop || Boolean(selectedId);
+  const messagesLoading = Boolean(selectedId) && messagesQuery.isFetching && messagesQuery.data === undefined;
+
   return (
-    <div className="space-y-6" dir={dashboardDir(lang)}>
-      <div className="hz-wave hz-wave-1">
-        <h1 className={`text-2xl font-semibold text-zinc-900 ${textAlignClass}`}>{t.pageTitle(slug)}</h1>
-        <p className={`text-sm text-zinc-600 ${textAlignClass}`}>{t.pageSubtitle}</p>
-      </div>
-
-      <div className="hz-wave hz-wave-2 grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] overflow-x-hidden">
-      <div className="space-y-2 rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 max-h-[520px] overflow-y-auto overflow-x-hidden">
-        {normalizedFilter ? (
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-[rgba(113,51,218,0.12)] bg-[#faf7ff] px-3 py-2">
-            <p className={`text-xs text-zinc-700 ${textAlignClass}`}>
-              {t.filteredBy}{" "}
-              <span className="font-semibold text-zinc-900">{phoneParam}</span>
-            </p>
-            <button
-              type="button"
-              onClick={clearPhoneFilter}
-              className="rounded-full px-3 py-1 text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-            >
-              ✕
-            </button>
-          </div>
-        ) : null}
-
-        {visibleSessions.map((s) => (
-          <div
-            key={s.session_id}
-            className={`w-full ${textAlignClass} rounded-xl border px-3 py-2 flex items-center justify-between ${
-              selectedId === s.session_id
-                ? "border-[rgba(113,51,218,0.35)] bg-[#f0eaff]"
-                : "border-[rgba(113,51,218,0.1)] bg-white hover:bg-[#faf7ff]"
-            }`}
+    <div dir={dashboardDir(lang)} className="flex h-[calc(100dvh-9.5rem)] min-h-[520px] flex-col">
+      {/* dir=rtl keeps chat list on the right and chat pane on the left (WhatsApp Web RTL) */}
+      <div
+        dir="rtl"
+        className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-[#e9edef] bg-white shadow-[0_2px_8px_rgba(11,20,26,0.08)]"
+      >
+        {showListPanel ? (
+          <aside
+            dir={dashboardDir(lang)}
+            className="flex w-full shrink-0 flex-col border-[#e9edef] bg-white md:w-[380px] md:border-e"
           >
-            <div className={textAlignClass}>
-              <p className="text-xs text-zinc-500">{sessionLeadName(s) ? t.leadLabel : t.phoneLabel}</p>
+            <header className="flex h-[59px] shrink-0 items-center justify-between bg-[#f0f2f5] px-4">
+              <h2 className="text-[19px] font-normal text-[#111b21]">{t.chatsTitle}</h2>
               <button
                 type="button"
-                onClick={() => setSelectedId((prev) => (prev === s.session_id ? null : s.session_id))}
-                onPointerDown={() => void prefetchMessages(s.session_id)}
-                className="text-sm font-medium text-zinc-900 truncate max-w-[220px] underline underline-offset-4 decoration-zinc-300 hover:decoration-zinc-500"
+                className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]"
+                aria-label={t.searchPlaceholder}
               >
-                {sessionLeadName(s) || sessionPhoneDisplay(s, t.unavailable)}
+                <MoreVertical className="h-5 w-5" aria-hidden />
               </button>
-              {sessionLeadName(s) ? (
-                <p className="text-[11px] text-zinc-600">{sessionPhoneDisplay(s, t.unavailable)}</p>
-              ) : null}
-              <p className="text-[11px] text-zinc-500">
-                {s.source_name ? (
-                  <span className="block text-[10px] text-[#7133da]">{s.source_name}</span>
-                ) : null}
-                {t.messagesMeta(s.count, formatDmy(s.lastAt))}
-              </p>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <SessionContactStatusBadge statusKey={s.contactStatus} lang={lang} />
-              {s.isPaused && (
-                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                  {t.botPaused}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-        {visibleSessions.length === 0 && (
-          <p className={`text-xs text-zinc-500 ${textAlignClass}`}>{emptyMessage}</p>
-        )}
-      </div>
+            </header>
 
-      <div className={`rounded-2xl border border-[rgba(113,51,218,0.1)] bg-white p-3 flex flex-col gap-2 ${textAlignClass} overflow-x-hidden min-w-0`}>
-        {selected ? (
-          <>
-            <div className="flex items-center justify-between mb-2">
-              <div className={textAlignClass}>
-                {sessionLeadName(selected) ? (
-                  <>
-                    <p className="text-xs text-zinc-500">{t.leadLabel}</p>
-                    <p className="text-sm font-medium text-zinc-900">{sessionLeadName(selected)}</p>
-                    <p className="text-[11px] text-zinc-600">{sessionPhoneDisplay(selected, t.unavailable)}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-zinc-500">{t.phoneLabel}</p>
-                    <p className="text-sm font-medium text-zinc-900">{sessionPhoneDisplay(selected, t.unavailable)}</p>
-                  </>
-                )}
-                <p className="text-[11px] text-zinc-500">
-                  {t.messagesMeta(selected.count, formatDmy(selected.lastAt))}
-                </p>
+            <div className="shrink-0 bg-white px-3 pb-2 pt-3">
+              <div className="flex items-center gap-3 rounded-lg bg-[#f0f2f5] px-3 py-[7px]">
+                <Search className="h-[18px] w-[18px] shrink-0 text-[#54656f]" aria-hidden />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t.searchPlaceholder}
+                  className="min-w-0 flex-1 border-0 bg-transparent text-[14px] text-[#111b21] placeholder:text-[#667781] focus:outline-none"
+                  dir={dashboardDir(lang)}
+                />
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (stopBotDisabled) return;
-                  void toggleBot(selected.session_id, !selected.isPaused);
-                }}
-                disabled={pausing === selected.session_id || stopBotDisabled}
-                title={stopBotDisabled ? stopBotDisabledText : undefined}
-                className={`rounded-full px-3 py-1 text-[11px] font-medium border ${
-                  selected.isPaused
-                    ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                    : "border-red-400 bg-red-50 text-red-800 hover:bg-red-100"
-                } disabled:opacity-50`}
-              >
-                {pausing === selected.session_id
-                  ? t.processing
-                  : selected.isPaused
-                  ? t.resumeBot
-                  : t.pauseBot}
-              </button>
-            </div>
-            {stopBotDisabled ? (
-              <p className={`mb-2 ${textAlignClass} text-[11px] leading-relaxed text-amber-700`}>
-                {stopBotDisabledText}
-              </p>
-            ) : null}
-
-            <div
-              id="hz-convo-messages"
-              className="flex-1 rounded-xl border border-[#d1d7db] bg-[#e5ddd5] p-3 max-h-72 overflow-y-auto overflow-x-hidden"
-            >
-              {(messagesQuery.data ?? []).map((m, idx) => (
-                <WaConversationMessage
-                  key={`${m.created_at}-${idx}`}
-                  role={m.role}
-                  content={m.content}
-                  createdAt={m.created_at}
-                  errorCode={m.error_code}
-                  modelUsed={m.model_used}
-                  lang={lang}
-                />
-              ))}
             </div>
 
-            {selected.isPaused && (
-              <div className="mt-2 space-y-2">
-                <textarea
-                  className={`w-full rounded-xl border border-zinc-300 p-2 text-sm ${textAlignClass} ${placeholderAlignClass}`}
-                  rows={3}
-                  placeholder={t.manualPlaceholder}
-                  value={manualText}
-                  onChange={(e) => setManualText(e.target.value)}
-                />
+            {normalizedFilter ? (
+              <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-lg border border-[#d1d7db] bg-[#f0f2f5] px-3 py-2">
+                <p className={`min-w-0 truncate text-xs text-[#54656f] ${textAlignClass}`}>
+                  {t.filteredBy}{" "}
+                  <span className="font-medium text-[#111b21]">{phoneParam}</span>
+                </p>
                 <button
                   type="button"
-                  onClick={sendManual}
-                  disabled={sending || !manualText.trim()}
-                  className="w-full rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-50 bg-[#128c7e] hover:bg-[#0f7a6e]"
+                  onClick={clearPhoneFilter}
+                  className="shrink-0 rounded-full px-2 py-0.5 text-xs text-[#54656f] hover:bg-[#e9edef]"
                 >
-                  {sending ? t.sending : t.sendManual}
+                  ✕
                 </button>
               </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+              {visibleSessions.map((s) => {
+                const active = selectedId === s.session_id;
+                const hasName = Boolean(sessionLeadName(s));
+                const phone = sessionPhoneDisplay(s, t.unavailable);
+                const title = hasName ? sessionLeadName(s) : phone;
+                return (
+                  <button
+                    key={s.session_id}
+                    type="button"
+                    onClick={() => setSelectedId(s.session_id)}
+                    onMouseEnter={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
+                    onFocus={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
+                    onPointerDown={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
+                    className={`flex w-full items-center gap-3 border-b border-[#f0f2f5] px-3 py-3 transition-colors hover:bg-[#f5f6f6] ${
+                      active ? "bg-[#f0f2f5]" : "bg-white"
+                    }`}
+                  >
+                    <SessionAvatar session={s} />
+                    <div className={`min-w-0 flex-1 ${textAlignClass}`}>
+                      <p className="truncate text-[17px] leading-tight text-[#111b21]">{title}</p>
+                      <p className="mt-0.5 truncate text-[14px] text-[#667781]">
+                        {hasName ? (
+                          <span dir="ltr" className="inline-block">
+                            {phone}
+                          </span>
+                        ) : (
+                          sessionPreviewLine(s)
+                        )}
+                      </p>
+                      {hasName ? (
+                        <p className="mt-0.5 truncate text-[13px] text-[#8696a0]">{sessionPreviewLine(s)}</p>
+                      ) : null}
+                      {s.source_name ? (
+                        <p className="mt-0.5 truncate text-[11px] text-[#25D366]">{s.source_name}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
+                      <span className="text-[12px] text-[#667781]">{formatListTime(s.lastAt)}</span>
+                      <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
+                      {s.isPaused ? (
+                        <span className="text-[10px] font-medium text-amber-700">{t.botPaused}</span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+              {visibleSessions.length === 0 ? (
+                <p className={`px-4 py-6 text-sm text-[#667781] ${textAlignClass}`}>{emptyMessage}</p>
+              ) : null}
+            </div>
+          </aside>
+        ) : null}
+
+        {showChatPanel ? (
+          <section dir={dashboardDir(lang)} className="flex min-w-0 flex-1 flex-col bg-[#f0f2f5]">
+            {selected ? (
+              <>
+                <header className="flex h-[59px] shrink-0 items-center justify-between gap-3 border-b border-[#e9edef] bg-[#f0f2f5] px-3 md:px-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {!isDesktop ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(null)}
+                        className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]"
+                        aria-label={t.backToList}
+                      >
+                        <ArrowRight className="h-5 w-5" aria-hidden />
+                      </button>
+                    ) : null}
+                    <SessionAvatar session={selected} />
+                    <div className={`min-w-0 ${textAlignClass}`}>
+                      <p className="truncate text-[16px] text-[#111b21]">{sessionDisplayTitle(selected)}</p>
+                      <p className="truncate text-[13px] text-[#667781]">
+                        {sessionLeadName(selected) ? (
+                          <span dir="ltr" className="inline-block">
+                            {sessionPhoneDisplay(selected, t.unavailable)}
+                          </span>
+                        ) : (
+                          t.messagesMeta(selected.count, formatDmy(selected.lastAt))
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (stopBotDisabled) return;
+                      void toggleBot(selected.session_id, !selected.isPaused);
+                    }}
+                    disabled={pausing === selected.session_id || stopBotDisabled}
+                    title={stopBotDisabled ? stopBotDisabledText : undefined}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50 ${
+                      selected.isPaused
+                        ? "bg-[#25D366] text-white hover:bg-[#20bd5a]"
+                        : "border border-[#ea0038] bg-white text-[#ea0038] hover:bg-[#fff5f5]"
+                    }`}
+                  >
+                    {pausing === selected.session_id
+                      ? t.processing
+                      : selected.isPaused
+                        ? t.resumeBot
+                        : t.pauseBot}
+                  </button>
+                </header>
+
+                {stopBotDisabled ? (
+                  <p className={`shrink-0 bg-[#fff8e6] px-4 py-2 text-[12px] leading-relaxed text-amber-800 ${textAlignClass}`}>
+                    {stopBotDisabledText}
+                  </p>
+                ) : null}
+
+                <div
+                  id="hz-convo-messages"
+                  className="wa-chat-wallpaper min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-[4%] py-3 md:px-[6%]"
+                >
+                  {messagesLoading ? (
+                    <div className="flex animate-pulse flex-col gap-3" aria-hidden>
+                      <div className="flex w-full justify-end">
+                        <div className="h-12 w-52 rounded-lg rounded-br-none bg-white/80" />
+                      </div>
+                      <div className="flex w-full justify-start">
+                        <div className="h-16 w-64 rounded-lg rounded-bl-none bg-[#d9fdd3]/80" />
+                      </div>
+                      <div className="flex w-full justify-end">
+                        <div className="h-10 w-40 rounded-lg rounded-br-none bg-white/80" />
+                      </div>
+                    </div>
+                  ) : (
+                    (messagesQuery.data ?? []).map((m, idx) => (
+                      <WaConversationMessage
+                        key={`${m.created_at}-${idx}`}
+                        role={m.role}
+                        content={m.content}
+                        createdAt={m.created_at}
+                        errorCode={m.error_code}
+                        modelUsed={m.model_used}
+                        lang={lang}
+                      />
+                    ))
+                  )}
+                </div>
+
+                {selected.isPaused ? (
+                  <footer className="shrink-0 border-t border-[#e9edef] bg-[#f0f2f5] px-3 py-2 md:px-4">
+                    <div className="flex items-end gap-2">
+                      <div className="min-w-0 flex-1 rounded-lg bg-white px-3 py-2 shadow-sm">
+                        <textarea
+                          className={`max-h-32 min-h-[42px] w-full resize-none border-0 bg-transparent text-[15px] text-[#111b21] focus:outline-none ${textAlignClass} ${placeholderAlignClass}`}
+                          rows={1}
+                          placeholder={t.manualPlaceholder}
+                          value={manualText}
+                          onChange={(e) => setManualText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              void sendManual();
+                            }
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void sendManual()}
+                        disabled={sending || !manualText.trim()}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#25D366] text-white transition-opacity hover:bg-[#20bd5a] disabled:opacity-40"
+                        aria-label={t.sendManual}
+                      >
+                        <Send className="h-5 w-5" aria-hidden />
+                      </button>
+                    </div>
+                  </footer>
+                ) : (
+                  <p className={`shrink-0 border-t border-[#e9edef] bg-[#f0f2f5] px-4 py-2.5 text-[12px] text-[#667781] ${textAlignClass}`}>
+                    {t.pauseHint}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center border-b border-[#e9edef] bg-[#f0f2f5] px-6 text-center">
+                <div className="mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-[#e9edef]">
+                  <svg viewBox="0 0 24 24" className="h-12 w-12 text-[#25D366]" aria-hidden>
+                    <path
+                      fill="currentColor"
+                      d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.33 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.183 8.183 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.233 8.233 0 0 1-1.26-4.38c.01-4.54 3.7-8.24 8.25-8.24"
+                    />
+                  </svg>
+                </div>
+                <h3 className="text-[32px] font-light text-[#41525d]">{t.emptyChatTitle}</h3>
+                <p className="mt-3 max-w-md text-[14px] leading-relaxed text-[#667781]">{t.emptyChatSubtitle}</p>
+                <p className="sr-only">{t.selectConversation}</p>
+              </div>
             )}
-            {!selected.isPaused && (
-              <p className="mt-2 text-[11px] text-zinc-500">{t.pauseHint}</p>
-            )}
-          </>
-        ) : (
-          <p className="text-xs text-zinc-500">{t.selectConversation}</p>
-        )}
-      </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );
 }
-
