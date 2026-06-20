@@ -31,7 +31,8 @@ import {
 import {
   dailySummaryDashboardUrl,
   formatDailySummaryLeadListForWa,
-  formatDailySummaryWaNotRelevantParamLine,
+  formatDailySummaryNotRelevantLeadListForWa,
+  formatDailySummaryWaNoResponseParamLine,
 } from "../lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
@@ -281,18 +282,20 @@ async function main() {
           { full_name: "ליאור", phone: "0508318162" },
           { full_name: "אופיר", phone: "0546758590" },
         ]),
-        notRelevantLine: formatDailySummaryWaNotRelevantParamLine(
-          [{ full_name: "דני", phone: "0521234567", not_relevant_reason: "מיקום" }],
+        notRelevantLine: formatDailySummaryNotRelevantLeadListForWa([
+          { full_name: "דני", phone: "0521234567", not_relevant_reason: "מיקום" },
+        ]),
+        noResponseLine: formatDailySummaryWaNoResponseParamLine(
+          [
+            { full_name: "איתי", phone: "0538475849" },
+            { full_name: "שולמית", phone: "0547685940" },
+            ...Array.from({ length: 17 }, (_, i) => ({
+              full_name: `ליד ${i + 3}`,
+              phone: `0500000${String(i).padStart(3, "0")}`,
+            })),
+          ],
           [{ full_name: "מיכל", phone: "0541112233" }]
         ),
-        noResponseLine: formatDailySummaryLeadListForWa([
-          { full_name: "איתי", phone: "0538475849" },
-          { full_name: "שולמית", phone: "0547685940" },
-          ...Array.from({ length: 17 }, (_, i) => ({
-            full_name: `ליד ${i + 3}`,
-            phone: `0500000${String(i).padStart(3, "0")}`,
-          })),
-        ]),
         dashboardUrl: dailySummaryDashboardUrl(SAMPLE.businessSlug),
       }),
     ],
