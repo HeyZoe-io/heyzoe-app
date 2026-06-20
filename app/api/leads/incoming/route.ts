@@ -5,6 +5,7 @@ import {
   buildTemplateIncomingContactPatch,
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
+  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { dispatchCrmEvent } from "@/lib/crm/dispatch";
@@ -113,12 +114,16 @@ export async function POST(req: NextRequest) {
     phoneNumberId,
     templateName,
     languageCode: "he",
-    components: [
-      {
-        type: "body",
-        parameters: [{ type: "text", text: firstName }],
-      },
-    ],
+    ...(leadTemplateUsesFirstName(templateName)
+      ? {
+          components: [
+            {
+              type: "body",
+              parameters: [{ type: "text", text: firstName }],
+            },
+          ],
+        }
+      : {}),
   });
 
   if (!sendResult.ok) {
