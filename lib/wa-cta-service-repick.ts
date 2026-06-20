@@ -17,6 +17,7 @@ const SERVICE_REPICK_MENU_MODELS = new Set(["sales_flow_cta_repick_service_menu"
 const NEGATIVE_REPLY =
   /^(לא\b|לא[,.!?\s]|אין\s|לא\s+תודה|לא\s+כרגע|לא\s+מעוניין|לא\s+רוצ)/iu;
 
+/** תשובות «כן» לגשר repick — gated ב-shouldHandleCtaServiceRepickYes (cta + שאלת bridge). */
 const AFFIRMATIVE_REPLY =
   /^(כן\b|כן[,.!?\s]|בטח|יאללה|אשמח|בואו|בוא\b|אוקי|אוקיי|ok\b|yes\b|מעוניין|מעוניינת|רוצה\s+לשנות|רוצה\s+אימון\s+אחר)/iu;
 
@@ -71,8 +72,9 @@ export function textMentionsOtherServiceFromMenu(
   return false;
 }
 
+/** כוונת הרשמה — בלי «אשמח» (מילת נימוס, לא סימן למעבר). */
 const WANTS_REGISTRATION_FOR_SERVICE_RE =
-  /(?:רוצה|רוצים|מעוניין|מעוניינת|אשמח|מעדיף|מעדיפה).{0,35}(?:לה?רשם|הרשמה|לרשום|להרשם|להירשם|להרשמה)/iu;
+  /(?:רוצה|רוצים|מעוניין|מעוניינת|מעדיף|מעדיפה).{0,35}(?:לה?רשם|הרשמה|לרשום|להרשם|להירשם|להרשמה)/iu;
 
 export type FreeTextServiceSwitchCandidate = {
   name: string;
@@ -83,40 +85,10 @@ export type FreeTextServiceSwitchResolution =
   | { mode: "switch"; serviceName: string }
   | { mode: "ambiguous" };
 
-const OFFER_KIND_INTEREST_RES: Array<{ kind: OfferKind; re: RegExp }> = [
-  { kind: "course", re: /קורס/u },
-  { kind: "workshop", re: /סדנ/u },
-  { kind: "trial", re: /(?:שיעור\s+)?ניסיון|אימון\s+ניסיון/u },
-];
-
 /** מילות שאלה — בלי \\b (ב-JS לא עובד טוב בעברית). */
 const OPEN_QUESTION_LEAD_RE = /^(?:מה|איך|כמה|מתי|איפה|האם|למה|מי)(?:\s|[?!.,]|$)/u;
 
-/** טוקנים גנéricיים — «שיעור»/«אימון» לבד לא מספיקים לזיהוי מעבר לשירות אחר. */
-const GENERIC_SERVICE_NAME_TOKENS = new Set([
-  "class",
-  "course",
-  "trial",
-  "workshop",
-  "אימון",
-  "אימוני",
-  "אימונים",
-  "ניסיון",
-  "קורס",
-  "סדנה",
-  "סדנא",
-  "שיעור",
-  "שיעורי",
-  "שיעורים",
-  "תרגול",
-  "תרגולים",
-]);
-
-function isGenericServiceNameToken(token: string): boolean {
-  return GENERIC_SERVICE_NAME_TOKENS.has(token.trim().toLowerCase());
-}
-
-function hasServiceSwitchIntent(text: string): boolean {
+function hasExplicitServiceSwitchIntent(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;
   if (userRequestedHumanAgent(t)) return false;
@@ -127,19 +99,17 @@ function hasServiceSwitchIntent(text: string): boolean {
   ) {
     return true;
   }
-  if (
-    /(?:אשמח).{0,40}(?:לה?רשם|הרשמה|לרשום|אימון\s+אחר|שיעור\s+אחר)/iu.test(t)
-  ) {
+  if (/(?:במקום|במקום\s+ה)/u.test(t)) return true;
+  if (/(?:אימון|שיעור)\s+אחר|משהו\s+אחר|במקום\s+(?:האימון|השיעור|זה)/iu.test(t)) {
     return true;
   }
-  if (/(?:במקום|במקום\s+ה)/u.test(t)) return true;
   return false;
 }
 
-/** שאלה פתוחה על העסק/שיעור — לא בקשה לעבור לאימון אחר. */
+/** רשת ביטחון — לא מנגנון ראשי לזיהוי מעבר. */
 export function isSalesFlowOpenKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
-  if (!t || hasServiceSwitchIntent(t) || isExplicitOtherServiceRequest(t)) return false;
+  if (!t || hasExplicitServiceSwitchIntent(t) || isExplicitOtherServiceRequest(t)) return false;
   if (OPEN_QUESTION_LEAD_RE.test(t)) return true;
   if (/כמה\s+(?:מתאמנים|משתתפים|אנשים|מקומות|נשים|גברים|ילדים)/iu.test(t)) {
     return true;
@@ -147,121 +117,77 @@ export function isSalesFlowOpenKnowledgeQuestion(text: string): boolean {
   return false;
 }
 
-function findOtherServicesMatchingPartialName(
+function findUnambiguousOtherServiceByFullName(
   text: string,
   lastPickedServiceName: string,
   services: FreeTextServiceSwitchCandidate[]
-): string[] {
+): FreeTextServiceSwitchResolution | null {
   const lastKey = normalizeServiceNameKey(lastPickedServiceName);
-  const t = normalizeInboundForServiceMatch(text);
-  if (!t || !lastKey) return [];
-  const hits: string[] = [];
-  for (const service of services) {
+  if (!lastKey) return null;
+  const matches = services.filter((service) => {
     const name = String(service.name ?? "").trim();
+    if (!name) return false;
     const key = normalizeServiceNameKey(name);
-    if (!key || key === lastKey) continue;
-    if (serviceNameMatchesInUserText(name, text)) {
-      hits.push(name);
-      continue;
-    }
-    for (const token of serviceTokens(key)) {
-      if (token.length >= 4 && !isGenericServiceNameToken(token) && t.includes(token)) {
-        hits.push(name);
-        break;
-      }
-    }
-  }
-  return [...new Set(hits)];
-}
-
-function findOtherServicesMatchingOfferKindInterest(
-  text: string,
-  lastPickedServiceName: string,
-  services: FreeTextServiceSwitchCandidate[]
-): string[] {
-  const lastKey = normalizeServiceNameKey(lastPickedServiceName);
-  const t = normalizeInboundForServiceMatch(text);
-  if (!t || !lastKey || !hasServiceSwitchIntent(text)) return [];
-  const hits: string[] = [];
-  for (const { kind, re } of OFFER_KIND_INTEREST_RES) {
-    if (!re.test(t)) continue;
-    for (const service of services) {
-      const name = String(service.name ?? "").trim();
-      const key = normalizeServiceNameKey(name);
-      if (!key || key === lastKey) continue;
-      if (String(service.offerKind ?? "trial").trim().toLowerCase() === kind) {
-        hits.push(name);
-      }
-    }
-  }
-  return [...new Set(hits)];
+    if (!key || key === lastKey) return false;
+    return serviceNameMatchesInUserText(name, text);
+  });
+  if (matches.length === 1) return { mode: "switch", serviceName: matches[0]!.name };
+  if (matches.length > 1) return { mode: "ambiguous" };
+  return null;
 }
 
 /**
- * טקסט חופשי אחרי בחירת שירות — האם יש כוונה לשירות/מוצר אחר?
- * switch = יעד יחיד (מעדכנים sf_service בשקט); ambiguous = repick מתפריט.
+ * מעבר שירות מפורש — phase-agnostic (כל שלב בפלואו).
+ * repick menu; לא Claude.
  */
-export function resolveImplicitServiceSwitchFromFreeText(input: {
-  text: string;
-  lastPickedServiceName: string | null;
-  services: FreeTextServiceSwitchCandidate[];
-}): FreeTextServiceSwitchResolution | null {
-  const last = String(input.lastPickedServiceName ?? "").trim();
-  if (!last || input.services.length < 2) return null;
-  const t = String(input.text ?? "").trim();
-  if (!t || t.length > 400 || isNumericServicePickReply(t)) return null;
-  if (isCtaServiceFitQuestion(t)) return null;
-  if (isSalesFlowOpenKnowledgeQuestion(t)) return null;
-  if (isExplicitOtherServiceRequest(t)) return { mode: "ambiguous" };
-
-  const serviceNames = input.services.map((s) => String(s.name ?? "").trim()).filter(Boolean);
-  if (textMentionsOtherServiceFromMenu(t, last, serviceNames)) {
-    const partial = findOtherServicesMatchingPartialName(t, last, input.services);
-    if (partial.length === 1) return { mode: "switch", serviceName: partial[0]! };
-    return { mode: "ambiguous" };
-  }
-
-  const partialMatches = findOtherServicesMatchingPartialName(t, last, input.services);
-  const kindMatches = findOtherServicesMatchingOfferKindInterest(t, last, input.services);
-  const candidates = [...new Set([...partialMatches, ...kindMatches])];
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return { mode: "switch", serviceName: candidates[0]! };
-  return { mode: "ambiguous" };
-}
-
-/** טקסט חופשי: מעוניין באימון אחר ממה שנבחר בכפתורים (לא שאלת התאמה לרמה בלבד). */
-export function isFreeTextDifferentServiceInterest(
+export function isPhaseAgnosticExplicitServiceSwitch(
   text: string,
   lastPickedServiceName: string | null,
-  serviceNames: string[],
-  services?: FreeTextServiceSwitchCandidate[]
+  serviceNames: string[]
 ): boolean {
   const last = String(lastPickedServiceName ?? "").trim();
-  if (!last) return false;
   const t = String(text ?? "").trim();
   if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
   if (isSalesFlowOpenKnowledgeQuestion(t)) return false;
-  if (isExplicitOtherServiceRequest(t)) return true;
   if (isCtaServiceFitQuestion(t)) return false;
-  if (textMentionsOtherServiceFromMenu(t, last, serviceNames)) return true;
+  if (isExplicitOtherServiceRequest(t)) return true;
+  if (!last) return false;
+  if (/(?:במקום|במקום\s+ה)/u.test(t) && textMentionsOtherServiceFromMenu(t, last, serviceNames)) {
+    return true;
+  }
+  if (hasExplicitServiceSwitchIntent(t) && textMentionsOtherServiceFromMenu(t, last, serviceNames)) {
+    return true;
+  }
   if (
     WANTS_REGISTRATION_FOR_SERVICE_RE.test(t) &&
     textMentionsOtherServiceFromMenu(t, last, serviceNames)
   ) {
     return true;
   }
-  if (/(?:אימון|שיעור)\s+אחר|משהו\s+אחר|במקום\s+(?:האימון|השיעור|זה)/iu.test(t)) {
-    return true;
-  }
-  if (services && services.length > 1) {
-    const implicit = resolveImplicitServiceSwitchFromFreeText({
-      text: t,
-      lastPickedServiceName: last,
-      services,
-    });
-    if (implicit) return true;
-  }
   return false;
+}
+
+/**
+ * מעבר שקט/מחדש — רק כשממתינים לבחירת שירות מהתפריט.
+ * רק התאמת שם מלא/חד-משמעי; בלי טוקן חלקי / offer-kind.
+ */
+export function resolveImplicitServiceSwitchFromFreeText(input: {
+  text: string;
+  lastPickedServiceName: string | null;
+  services: FreeTextServiceSwitchCandidate[];
+  awaitingServicePick: boolean;
+}): FreeTextServiceSwitchResolution | null {
+  if (!input.awaitingServicePick) return null;
+  const last = String(input.lastPickedServiceName ?? "").trim();
+  if (!last || input.services.length < 2) return null;
+  const t = String(input.text ?? "").trim();
+  if (!t || t.length > 400 || isNumericServicePickReply(t)) return null;
+  if (isCtaServiceFitQuestion(t)) return null;
+  if (isSalesFlowOpenKnowledgeQuestion(t)) return null;
+  if (isPhaseAgnosticExplicitServiceSwitch(t, last, input.services.map((s) => s.name))) {
+    return null;
+  }
+  return findUnambiguousOtherServiceByFullName(t, last, input.services);
 }
 
 /** בקשה מפורשת להחליף אימון — מפנה ישר לתפריט (בלי Claude + בלי גשר). */
@@ -345,7 +271,6 @@ export function isAffirmativeServiceRepickYes(text: string): boolean {
   if (!t || t.length > 80) return false;
   if (NEGATIVE_REPLY.test(t)) return false;
   if (userRequestedHumanAgent(t)) return false;
-  if (t.length > 24 && /^אשמח\b/u.test(t)) return false;
   return AFFIRMATIVE_REPLY.test(t);
 }
 

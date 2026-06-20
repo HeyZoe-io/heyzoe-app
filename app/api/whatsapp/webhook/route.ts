@@ -93,8 +93,8 @@ import {
   fetchLastAssistantMessageContent,
   isCtaServiceFitQuestion,
   isExplicitOtherServiceRequest,
-  isFreeTextDifferentServiceInterest,
   isNumericServicePickReply,
+  isPhaseAgnosticExplicitServiceSwitch,
   replyContainsServiceRepickBridge,
   resolveImplicitServiceSwitchFromFreeText,
   SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
@@ -2027,21 +2027,6 @@ async function sendSalesFlowServiceRepickAckAndMenu(input: {
     skipScheduleBoard: true,
     modelUsed: input.logModelUsed,
   });
-}
-
-function allowSilentImplicitServiceSwitch(input: {
-  sessionPhase: HeyzoeSessionPhase;
-  scheduleRequestedDate: string;
-  scheduleRequestedTime: string;
-}): boolean {
-  if (input.sessionPhase === "registered") return false;
-  if (
-    input.sessionPhase === "cta" &&
-    (input.scheduleRequestedDate.trim() || input.scheduleRequestedTime.trim())
-  ) {
-    return false;
-  }
-  return true;
 }
 
 async function commitImplicitServiceSwitch(input: {
@@ -5172,36 +5157,73 @@ async function processIncoming(
     }
   }
 
-  // בקשה מפורשת «אימון אחר» / מספר אחרי תפריט — לפני Claude (מונע CTA ישן + רשימה ממוספרת מהמודל)
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
-    const explicitRepick = isExplicitOtherServiceRequest(msg.text.trim());
-    const numericAfterRepickMenu =
-      isNumericServicePickReply(msg.text.trim()) &&
-      (isSalesFlowMultiServicePickPhase(contactSessionPhase) ||
-        (contactSessionPhase === "cta" &&
-          (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId }))));
+  // handoff / בקשת קשר — לפני repick (שומר על שלב השיחה)
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    isSalesFlowFreeTextInbound(msg) &&
+    (await trySendSalesFlowHumanAgentHandoff({
+      inboundText: msg.text.trim(),
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+    }))
+  ) {
+    return;
+  }
 
-    if (explicitRepick || numericAfterRepickMenu) {
-      if (explicitRepick) {
-        await sendSalesFlowServiceRepickAckAndMenu({
-          knowledge,
-          salesFlowServices,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          blockMedia: starterBlocksMedia,
-          logModelUsed: "sales_flow_explicit_service_repick",
-        });
-        contactSessionPhase = "opening";
-        contactFlowStep = 0;
-        contactScheduleRequestedDate = "";
-        contactScheduleRequestedTime = "";
-        return;
-      }
+  // explicit service switch (כל phase) — repick menu
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    salesFlowServices.length > 1 &&
+    isSalesFlowFreeTextInbound(msg)
+  ) {
+    const lastPickedForExplicitSwitch = await fetchLastSfServiceEventName({
+      business_slug,
+      session_id: sessionId,
+    });
+    const serviceNamesForSwitch = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
+    if (
+      isPhaseAgnosticExplicitServiceSwitch(
+        msg.text.trim(),
+        lastPickedForExplicitSwitch,
+        serviceNamesForSwitch
+      )
+    ) {
+      await sendSalesFlowServiceRepickAckAndMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+        logModelUsed: "sales_flow_explicit_service_repick",
+      });
+      contactSessionPhase = "opening";
+      contactFlowStep = 0;
+      contactScheduleRequestedDate = "";
+      contactScheduleRequestedTime = "";
+      return;
+    }
+  }
+
+  // מספר אחרי תפריט repick — רק awaiting-pick
+  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
+    const awaitingServicePickForNumeric =
+      isSalesFlowMultiServicePickPhase(contactSessionPhase) ||
+      (contactSessionPhase === "cta" &&
+        (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId })));
+    if (awaitingServicePickForNumeric && isNumericServicePickReply(msg.text.trim())) {
       if (contactSessionPhase === "cta") {
         const phoneVariants = contactPhoneLookupVariants(msg.from);
         await supabase
@@ -5352,26 +5374,7 @@ async function processIncoming(
     }
   }
 
-  // בקשת נציג / יצירת קשר — לפני repick (שומר על שלב השיחה, לא מאפס פלואו)
-  if (
-    msg.type === "text" &&
-    knowledge?.salesFlowConfig &&
-    businessId &&
-    isSalesFlowFreeTextInbound(msg) &&
-    (await trySendSalesFlowHumanAgentHandoff({
-      inboundText: msg.text.trim(),
-      knowledge,
-      msg,
-      accountSid,
-      authToken,
-      business_slug,
-      sessionId,
-    }))
-  ) {
-    return;
-  }
-
-  // טקסט חופשי — מעוניין באימון אחר ממה שנבחר בכפתורים (לפני Claude / מועד)
+  // implicit service switch — רק awaiting-pick (שם מלא/חד-משמעי)
   if (
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
@@ -5379,65 +5382,75 @@ async function processIncoming(
     salesFlowServices.length > 1 &&
     isSalesFlowFreeTextInbound(msg)
   ) {
-    const lastPickedForRepick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
-    const serviceNames = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
-    const switchServices = salesFlowServices.map((s) => ({ name: s.name, offerKind: s.offerKind }));
-    const canSilentSwitch = allowSilentImplicitServiceSwitch({
-      sessionPhase: contactSessionPhase,
-      scheduleRequestedDate: contactScheduleRequestedDate,
-      scheduleRequestedTime: contactScheduleRequestedTime,
-    });
-    const implicitSwitch =
-      lastPickedForRepick?.trim() && canSilentSwitch
+    const awaitingServicePickForImplicit =
+      isSalesFlowMultiServicePickPhase(contactSessionPhase) ||
+      (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId }));
+    if (awaitingServicePickForImplicit) {
+      const lastPickedForRepick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
+      const switchServices = salesFlowServices.map((s) => ({ name: s.name, offerKind: s.offerKind }));
+      const implicitSwitch = lastPickedForRepick?.trim()
         ? resolveImplicitServiceSwitchFromFreeText({
             text: msg.text.trim(),
             lastPickedServiceName: lastPickedForRepick,
             services: switchServices,
+            awaitingServicePick: true,
           })
         : null;
 
-    if (implicitSwitch?.mode === "switch" && canSilentSwitch) {
-      contactSessionPhase = await commitImplicitServiceSwitch({
-        knowledge,
-        salesFlowServices,
-        serviceName: implicitSwitch.serviceName,
-        msg,
-        supabase,
-        businessId,
-        sessionId,
-        business_slug,
-      });
-      contactFlowStep = 0;
-      contactScheduleRequestedDate = "";
-      contactScheduleRequestedTime = "";
-    } else if (
-      lastPickedForRepick?.trim() &&
-      (isFreeTextDifferentServiceInterest(
-        msg.text.trim(),
-        lastPickedForRepick,
-        serviceNames,
-        switchServices
-      ) ||
-        implicitSwitch?.mode === "ambiguous")
-    ) {
-      await sendSalesFlowServiceRepickAckAndMenu({
-        knowledge,
-        salesFlowServices,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-        blockMedia: starterBlocksMedia,
-        logModelUsed: "sales_flow_free_text_service_repick",
-      });
-      contactSessionPhase = "opening";
-      contactFlowStep = 0;
-      contactScheduleRequestedDate = "";
-      contactScheduleRequestedTime = "";
-      return;
+      if (implicitSwitch?.mode === "switch") {
+        contactSessionPhase = await commitImplicitServiceSwitch({
+          knowledge,
+          salesFlowServices,
+          serviceName: implicitSwitch.serviceName,
+          msg,
+          supabase,
+          businessId,
+          sessionId,
+          business_slug,
+        });
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
+        await sleepMs(700);
+        await sendFlowContinuation({
+          phase: contactSessionPhase,
+          contact: { flow_step: 0 },
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          blockTrialPickMedia: starterBlocksMedia,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
+        });
+        return;
+      } else if (implicitSwitch?.mode === "ambiguous") {
+        await sendSalesFlowServiceRepickAckAndMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          logModelUsed: "sales_flow_free_text_service_repick",
+        });
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
+        return;
+      }
     }
   }
 
