@@ -5352,6 +5352,25 @@ async function processIncoming(
     }
   }
 
+  // בקשת נציג / יצירת קשר — לפני repick (שומר על שלב השיחה, לא מאפס פלואו)
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    isSalesFlowFreeTextInbound(msg) &&
+    (await trySendSalesFlowHumanAgentHandoff({
+      inboundText: msg.text.trim(),
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+    }))
+  ) {
+    return;
+  }
+
   // טקסט חופשי — מעוניין באימון אחר ממה שנבחר בכפתורים (לפני Claude / מועד)
   if (
     msg.type === "text" &&

@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { fetchLastAssistantModelUsed } from "@/lib/analytics";
+import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 import type { OfferKind } from "@/lib/sales-flow";
 
 /** גשר קבוע — חייב להופיע בדיוק כך (גם לזיהוי «כן» בהודעה הבאה). */
@@ -88,13 +89,46 @@ const OFFER_KIND_INTEREST_RES: Array<{ kind: OfferKind; re: RegExp }> = [
   { kind: "trial", re: /(?:שיעור\s+)?ניסיון|אימון\s+ניסיון/u },
 ];
 
+/** מילות שאלה — בלי \\b (ב-JS לא עובד טוב בעברית). */
+const OPEN_QUESTION_LEAD_RE = /^(?:מה|איך|כמה|מתי|איפה|האם|למה|מי)(?:\s|[?!.,]|$)/u;
+
+/** טוקנים גנéricיים — «שיעור»/«אימון» לבד לא מספיקים לזיהוי מעבר לשירות אחר. */
+const GENERIC_SERVICE_NAME_TOKENS = new Set([
+  "class",
+  "course",
+  "trial",
+  "workshop",
+  "אימון",
+  "אימוני",
+  "אימונים",
+  "ניסיון",
+  "קורס",
+  "סדנה",
+  "סדנא",
+  "שיעור",
+  "שיעורי",
+  "שיעורים",
+  "תרגול",
+  "תרגולים",
+]);
+
+function isGenericServiceNameToken(token: string): boolean {
+  return GENERIC_SERVICE_NAME_TOKENS.has(token.trim().toLowerCase());
+}
+
 function hasServiceSwitchIntent(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;
+  if (userRequestedHumanAgent(t)) return false;
   if (WANTS_REGISTRATION_FOR_SERVICE_RE.test(t)) return true;
   if (isExplicitOtherServiceRequest(t)) return true;
   if (
-    /(?:רוצה|רוצים|מעוניין|מעוניינת|אשמח|מעדיף|מעדיפה|לעשות|להצטרף|לקחת|עדיף)/u.test(t)
+    /(?:רוצה|רוצים|מעוניין|מעוניינת|מעדיף|מעדיפה|לעשות|להצטרף|לקחת|עדיף)/u.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /(?:אשמח).{0,40}(?:לה?רשם|הרשמה|לרשום|אימון\s+אחר|שיעור\s+אחר)/iu.test(t)
   ) {
     return true;
   }
@@ -102,10 +136,15 @@ function hasServiceSwitchIntent(text: string): boolean {
   return false;
 }
 
-function isLikelySideQuestionWithoutSwitchIntent(text: string): boolean {
+/** שאלה פתוחה על העסק/שיעור — לא בקשה לעבור לאימון אחר. */
+export function isSalesFlowOpenKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
-  if (!t || hasServiceSwitchIntent(t)) return false;
-  return /^(?:מה|איך|כמה|מתי|איפה|האם)\b/u.test(t);
+  if (!t || hasServiceSwitchIntent(t) || isExplicitOtherServiceRequest(t)) return false;
+  if (OPEN_QUESTION_LEAD_RE.test(t)) return true;
+  if (/כמה\s+(?:מתאמנים|משתתפים|אנשים|מקומות|נשים|גברים|ילדים)/iu.test(t)) {
+    return true;
+  }
+  return false;
 }
 
 function findOtherServicesMatchingPartialName(
@@ -126,7 +165,7 @@ function findOtherServicesMatchingPartialName(
       continue;
     }
     for (const token of serviceTokens(key)) {
-      if (token.length >= 4 && t.includes(token)) {
+      if (token.length >= 4 && !isGenericServiceNameToken(token) && t.includes(token)) {
         hits.push(name);
         break;
       }
@@ -172,7 +211,7 @@ export function resolveImplicitServiceSwitchFromFreeText(input: {
   const t = String(input.text ?? "").trim();
   if (!t || t.length > 400 || isNumericServicePickReply(t)) return null;
   if (isCtaServiceFitQuestion(t)) return null;
-  if (isLikelySideQuestionWithoutSwitchIntent(t)) return null;
+  if (isSalesFlowOpenKnowledgeQuestion(t)) return null;
   if (isExplicitOtherServiceRequest(t)) return { mode: "ambiguous" };
 
   const serviceNames = input.services.map((s) => String(s.name ?? "").trim()).filter(Boolean);
@@ -201,6 +240,7 @@ export function isFreeTextDifferentServiceInterest(
   if (!last) return false;
   const t = String(text ?? "").trim();
   if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
+  if (isSalesFlowOpenKnowledgeQuestion(t)) return false;
   if (isExplicitOtherServiceRequest(t)) return true;
   if (isCtaServiceFitQuestion(t)) return false;
   if (textMentionsOtherServiceFromMenu(t, last, serviceNames)) return true;
@@ -304,6 +344,8 @@ export function isAffirmativeServiceRepickYes(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t || t.length > 80) return false;
   if (NEGATIVE_REPLY.test(t)) return false;
+  if (userRequestedHumanAgent(t)) return false;
+  if (t.length > 24 && /^אשמח\b/u.test(t)) return false;
   return AFFIRMATIVE_REPLY.test(t);
 }
 
