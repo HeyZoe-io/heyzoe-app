@@ -185,6 +185,32 @@ function isContactStatusEditable(
   return MANUAL_CONTACT_STATUSES.some((s) => canManuallySetContactStatus(s, contact));
 }
 
+function statusErrorMessage(code: string): string {
+  switch (code) {
+    case "unsupported_status":
+      return "העדכון עדיין לא זמין בשרת — נסו שוב בעוד דקה (העלאת גרסה).";
+    case "migration_required":
+      return "חסרה עמודת DB (human_requested_at). יש להריץ את המיגרציה ב-Supabase.";
+    case "contact_not_found":
+      return "לא נמצא ליד עם המספר הזה לעסק הזה.";
+    case "contact_opted_out":
+      return "הליד ביקש להסיר — לא ניתן לשנות סטטוס.";
+    case "contact_not_relevant":
+      return "הליד מסומן «לא רלוונטי» — לא ניתן לשנות לסטטוס הזה.";
+    case "contact_human_requested":
+      return "הליד כבר מסומן «ביקש נציג».";
+    case "subscription_inactive":
+      return "המנוי אינו פעיל — לא ניתן לעדכן סטטוס.";
+    case "forbidden":
+      return "אין הרשאה לעדכן ליד זה.";
+    case "update_failed":
+    case "contact_lookup_failed":
+      return "עדכון נכשל בשרת. ייתכן שצריך להריץ מיגרציה ל-DB. נסו שוב.";
+    default:
+      return "עדכון הסטטוס נכשל. נסו שוב.";
+  }
+}
+
 function ContactStatusMenu({
   contact,
   rowKey,
@@ -683,7 +709,8 @@ export default function ContactsClient({
       }
     } catch (e) {
       console.error(e);
-      showToast("עדכון הסטטוס נכשל. נסו שוב.");
+      const code = e instanceof Error ? e.message : "";
+      showToast(statusErrorMessage(code));
     } finally {
       setStatusUpdatingKey(null);
     }

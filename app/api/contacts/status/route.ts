@@ -100,13 +100,31 @@ export async function POST(req: NextRequest) {
   const businessId = access.business.id;
   const phoneVariants = contactPhoneLookupVariants(phone);
 
-  const { data: existingRows, error: existingErr } = await admin
+  const lookupPhones = phoneVariants.length ? phoneVariants : [phone];
+  let { data: existingRows, error: existingErr } = await admin
     .from("contacts")
     .select("full_name, not_relevant_at, human_requested_at, opted_out, phone, trial_registered, session_phase")
     .eq("business_id", businessId)
-    .in("phone", phoneVariants.length ? phoneVariants : [phone])
+    .in("phone", lookupPhones)
     .order("updated_at", { ascending: false })
     .limit(1);
+
+  if (existingErr && /human_requested_at|column/i.test(String(existingErr.message ?? ""))) {
+    if (status === "human_requested") {
+      console.error("[api/contacts/status] human_requested_at column missing — run migration");
+      return NextResponse.json({ error: "migration_required" }, { status: 503 });
+    }
+    console.warn("[api/contacts/status] human_requested_at missing — fallback lookup");
+    const fallback = await admin
+      .from("contacts")
+      .select("full_name, not_relevant_at, opted_out, phone, trial_registered, session_phase")
+      .eq("business_id", businessId)
+      .in("phone", lookupPhones)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    existingRows = fallback.data as typeof existingRows;
+    existingErr = fallback.error;
+  }
 
   if (existingErr) {
     console.error("[api/contacts/status] contact lookup failed:", existingErr.message);
