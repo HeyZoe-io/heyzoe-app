@@ -95,6 +95,77 @@ export function formatDailySummaryNotRelevantLeadListForWa(leads: NotRelevantLea
   return sanitized || "אין";
 }
 
+/** לידים שביקשו נציג אתמול (human_requested_at בחלון). */
+export async function fetchHumanRequestedYesterdayLeads(input: {
+  businessId: number;
+  periodStartIso: string;
+  periodEndIso: string;
+}): Promise<IdleLeadRow[]> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("contacts")
+    .select("full_name, phone")
+    .eq("business_id", input.businessId)
+    .not("human_requested_at", "is", null)
+    .gte("human_requested_at", input.periodStartIso)
+    .lt("human_requested_at", input.periodEndIso)
+    .order("human_requested_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    console.warn("[daily-summary] human requested yesterday query failed:", error.message);
+    return [];
+  }
+
+  return (data ?? [])
+    .map((row) => ({
+      full_name: String((row as { full_name?: string }).full_name ?? "").trim() || null,
+      phone: String((row as { phone?: string }).phone ?? "").trim(),
+    }))
+    .filter((r) => r.phone);
+}
+
+const HUMAN_REQUESTED_DAILY_SUMMARY_TAG = "ביקש נציג";
+
+export function formatDailySummaryHumanRequestedLeadEntry(lead: IdleLeadRow): string {
+  return `${formatDailySummaryLeadEntry(lead)} (${HUMAN_REQUESTED_DAILY_SUMMARY_TAG})`;
+}
+
+export function formatDailySummaryHumanRequestedLeadListLine(leads: IdleLeadRow[]): string {
+  if (!leads.length) return "אין";
+  const total = leads.length;
+  const shown = leads.slice(0, DAILY_SUMMARY_WA_LIST_LIMIT);
+  const parts = shown.map(formatDailySummaryHumanRequestedLeadEntry);
+  const remaining = total - shown.length;
+  if (remaining > 0) parts.push(`ועוד ${remaining}`);
+  return parts.join(DAILY_SUMMARY_LEADS_SEP);
+}
+
+export function formatDailySummaryHumanRequestedLeadListForWa(leads: IdleLeadRow[]): string {
+  const line = formatDailySummaryHumanRequestedLeadListLine(leads);
+  if (line === "אין") return line;
+  const sanitized = sanitizeMetaOwnerTemplateParam(line);
+  return sanitized || "אין";
+}
+
+/**
+ * פרמטר WA «לא רלוונטי» בתבנית Meta — משלב גם לידים שביקשו נציג (עד עדכון תבנית Meta).
+ */
+export function formatDailySummaryWaNotRelevantParamLine(
+  notRelevantLeads: NotRelevantLeadRow[],
+  humanRequestedLeads: IdleLeadRow[]
+): string {
+  const parts: string[] = [];
+  const humanLine = formatDailySummaryHumanRequestedLeadListLine(humanRequestedLeads);
+  const notRelevantLine = formatDailySummaryNotRelevantLeadListLine(notRelevantLeads);
+  if (humanLine !== "אין") parts.push(humanLine);
+  if (notRelevantLine !== "אין") parts.push(notRelevantLine);
+  if (!parts.length) return "אין";
+  const combined = parts.join(DAILY_SUMMARY_LEADS_SEP);
+  const sanitized = sanitizeMetaOwnerTemplateParam(combined);
+  return sanitized || "אין";
+}
+
 export async function fetchRegisteredYesterdayLeads(input: {
   businessId: number;
   periodStartIso: string;

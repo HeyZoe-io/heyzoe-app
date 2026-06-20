@@ -176,6 +176,7 @@ export async function handlePlandoCustomerRegistered(input: {
     ...buildTrialRegisteredContactPatch(nowIso),
     not_relevant_at: null,
     not_relevant_reason: "",
+    human_requested_at: null,
     wa_no_response_at: null,
     updated_at: nowIso,
   };

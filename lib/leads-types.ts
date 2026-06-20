@@ -6,6 +6,7 @@ export type LeadRow = {
   opted_out: boolean | null;
   not_relevant_at: string | null;
   not_relevant_reason: string | null;
+  human_requested_at: string | null;
   session_phase: string | null;
   trial_registered: boolean | null;
   wa_no_response_at: string | null;

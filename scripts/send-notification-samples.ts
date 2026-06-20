@@ -31,7 +31,7 @@ import {
 import {
   dailySummaryDashboardUrl,
   formatDailySummaryLeadListForWa,
-  formatDailySummaryNotRelevantLeadListForWa,
+  formatDailySummaryWaNotRelevantParamLine,
 } from "../lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
@@ -206,6 +206,7 @@ async function main() {
         not_relevant_leads: [
           { full_name: "דני", phone: "0521234567", not_relevant_reason: "מיקום" },
         ],
+        human_requested_leads: [{ full_name: "מיכל", phone: "0541112233" }],
         no_response_leads: [
           { full_name: "איתי", phone: "0538475849" },
           { full_name: "שולמית", phone: "0547685940" },
@@ -280,9 +281,10 @@ async function main() {
           { full_name: "ליאור", phone: "0508318162" },
           { full_name: "אופיר", phone: "0546758590" },
         ]),
-        notRelevantLine: formatDailySummaryNotRelevantLeadListForWa([
-          { full_name: "דני", phone: "0521234567", not_relevant_reason: "מיקום" },
-        ]),
+        notRelevantLine: formatDailySummaryWaNotRelevantParamLine(
+          [{ full_name: "דני", phone: "0521234567", not_relevant_reason: "מיקום" }],
+          [{ full_name: "מיכל", phone: "0541112233" }]
+        ),
         noResponseLine: formatDailySummaryLeadListForWa([
           { full_name: "איתי", phone: "0538475849" },
           { full_name: "שולמית", phone: "0547685940" },

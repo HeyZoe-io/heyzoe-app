@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   const { data: existingRows, error: existingErr } = await admin
     .from("contacts")
-    .select("full_name, not_relevant_at, opted_out, phone, trial_registered, session_phase")
+    .select("full_name, not_relevant_at, human_requested_at, opted_out, phone, trial_registered, session_phase")
     .eq("business_id", businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [phone])
     .order("updated_at", { ascending: false })
@@ -156,6 +156,9 @@ export async function POST(req: NextRequest) {
   }
   if ((existing as { not_relevant_at?: string | null }).not_relevant_at) {
     return NextResponse.json({ error: "contact_not_relevant" }, { status: 400 });
+  }
+  if ((existing as { human_requested_at?: string | null }).human_requested_at) {
+    return NextResponse.json({ error: "contact_human_requested" }, { status: 400 });
   }
 
   const result = await markContactTrialRegisteredManually({

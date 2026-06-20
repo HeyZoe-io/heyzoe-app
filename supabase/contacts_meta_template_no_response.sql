@@ -8,4 +8,5 @@ create index if not exists idx_contacts_meta_template_no_response_due
     and wa_no_response_at is null
     and (opted_out is distinct from true)
     and (trial_registered is distinct from true)
-    and not_relevant_at is null;
+    and not_relevant_at is null
+    and human_requested_at is null;

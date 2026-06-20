@@ -47,7 +47,7 @@ async function loadContactMetaByPhoneForBusiness(
   const { data, error } = await admin
     .from("contacts")
     .select(
-      "phone, full_name, opted_out, not_relevant_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
+      "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
     )
     .eq("business_id", businessId);
 
@@ -305,7 +305,7 @@ export async function loadBusinessConversationSessions(
       ? admin
           .from("contacts")
           .select(
-            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
+            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, human_requested_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
           )
           .eq("business_id", businessId)
           .eq("source", "meta_lead_ad")

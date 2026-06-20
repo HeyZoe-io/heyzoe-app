@@ -181,7 +181,7 @@ function isContactStatusEditable(
   if (marketingAdminMode) return false;
   if (!contact.phone?.trim()) return false;
   if (multiBusinessAdmin && !contact.business_slug?.trim()) return false;
-  if (contact.opted_out || contact.not_relevant_at) return false;
+  if (contact.opted_out || contact.not_relevant_at || contact.human_requested_at) return false;
   return MANUAL_CONTACT_STATUSES.some((s) => canManuallySetContactStatus(s, contact));
 }
 
@@ -500,6 +500,7 @@ export default function ContactsClient({
       followup: 0,
       no_response: 0,
       not_relevant: 0,
+      human_requested: 0,
       registered: 0,
       opted_out: 0,
     };
