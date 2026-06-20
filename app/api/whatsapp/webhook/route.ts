@@ -96,6 +96,7 @@ import {
   isFreeTextDifferentServiceInterest,
   isNumericServicePickReply,
   replyContainsServiceRepickBridge,
+  resolveImplicitServiceSwitchFromFreeText,
   SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
   shouldHandleCtaServiceRepickYes,
 } from "@/lib/wa-cta-service-repick";
@@ -2026,6 +2027,57 @@ async function sendSalesFlowServiceRepickAckAndMenu(input: {
     skipScheduleBoard: true,
     modelUsed: input.logModelUsed,
   });
+}
+
+function allowSilentImplicitServiceSwitch(input: {
+  sessionPhase: HeyzoeSessionPhase;
+  scheduleRequestedDate: string;
+  scheduleRequestedTime: string;
+}): boolean {
+  if (input.sessionPhase === "registered") return false;
+  if (
+    input.sessionPhase === "cta" &&
+    (input.scheduleRequestedDate.trim() || input.scheduleRequestedTime.trim())
+  ) {
+    return false;
+  }
+  return true;
+}
+
+async function commitImplicitServiceSwitch(input: {
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  serviceName: string;
+  msg: Pick<WaIncomingMessage, "from">;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<HeyzoeSessionPhase> {
+  const picked =
+    input.salesFlowServices.find((s) => s.name === input.serviceName) ??
+    input.salesFlowServices.find((s) => waLabelMatches(s.name, input.serviceName)) ??
+    null;
+  const nextPhase = scheduleSelectionPhaseAfterService(input.knowledge, picked);
+  const phoneVariants = contactPhoneLookupVariants(input.msg.from);
+  await input.supabase
+    .from("contacts")
+    .update({
+      session_phase: nextPhase,
+      flow_step: 0,
+      sf_requested_date: null,
+      sf_requested_time: null,
+    })
+    .eq("business_id", input.businessId)
+    .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "event",
+    content: `${HEYZOE_SF_SERVICE_PREFIX}${input.serviceName}`,
+    model_used: "sf_service_implicit_switch",
+    session_id: input.sessionId,
+  });
+  return nextPhase;
 }
 
 async function sendScheduleSlotPickMenu(input: {
@@ -5310,9 +5362,44 @@ async function processIncoming(
   ) {
     const lastPickedForRepick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
     const serviceNames = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
-    if (
+    const switchServices = salesFlowServices.map((s) => ({ name: s.name, offerKind: s.offerKind }));
+    const canSilentSwitch = allowSilentImplicitServiceSwitch({
+      sessionPhase: contactSessionPhase,
+      scheduleRequestedDate: contactScheduleRequestedDate,
+      scheduleRequestedTime: contactScheduleRequestedTime,
+    });
+    const implicitSwitch =
+      lastPickedForRepick?.trim() && canSilentSwitch
+        ? resolveImplicitServiceSwitchFromFreeText({
+            text: msg.text.trim(),
+            lastPickedServiceName: lastPickedForRepick,
+            services: switchServices,
+          })
+        : null;
+
+    if (implicitSwitch?.mode === "switch" && canSilentSwitch) {
+      contactSessionPhase = await commitImplicitServiceSwitch({
+        knowledge,
+        salesFlowServices,
+        serviceName: implicitSwitch.serviceName,
+        msg,
+        supabase,
+        businessId,
+        sessionId,
+        business_slug,
+      });
+      contactFlowStep = 0;
+      contactScheduleRequestedDate = "";
+      contactScheduleRequestedTime = "";
+    } else if (
       lastPickedForRepick?.trim() &&
-      isFreeTextDifferentServiceInterest(msg.text.trim(), lastPickedForRepick, serviceNames)
+      (isFreeTextDifferentServiceInterest(
+        msg.text.trim(),
+        lastPickedForRepick,
+        serviceNames,
+        switchServices
+      ) ||
+        implicitSwitch?.mode === "ambiguous")
     ) {
       await sendSalesFlowServiceRepickAckAndMenu({
         knowledge,
