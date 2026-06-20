@@ -593,7 +593,7 @@ export default function ContactsClient({
     }
 
     setStatusMenuKey(null);
-    if (status === "not_relevant" || status === "registered") {
+    if (status === "not_relevant" || status === "registered" || status === "human_requested") {
       setStatusPendingConfirm({ contact: c, rowKey, status });
       return;
     }
@@ -620,6 +620,7 @@ export default function ContactsClient({
         error?: string;
         not_relevant_at?: string;
         trial_registered_at?: string;
+        human_requested_at?: string;
       };
       if (!res.ok) throw new Error(j?.error || "status_update_failed");
 
@@ -661,6 +662,24 @@ export default function ContactsClient({
           )
         );
         showToast("הסטטוס עודכן — הליד סומן כנרשם, ייספר בהמרות ויועבר ל-CRM");
+      } else if (status === "human_requested") {
+        const humanRequestedAt = j.human_requested_at ?? new Date().toISOString();
+        setContacts((prev) =>
+          prev.map((row) =>
+            contactsSharePhone(row.phone, c.phone) &&
+            (!multiBusinessAdmin || row.business_slug === c.business_slug)
+              ? {
+                  ...row,
+                  human_requested_at: humanRequestedAt,
+                  wa_next_followup_at: null,
+                  wa_no_response_due_at: null,
+                  wa_followup_stage: 3,
+                  followup_sent: true,
+                }
+              : row
+          )
+        );
+        showToast("הסטטוס עודכן — זואי תפסיק פולואפים והליד יועבר ל-CRM");
       }
     } catch (e) {
       console.error(e);
@@ -1031,6 +1050,17 @@ export default function ContactsClient({
                   כנרשם?
                   <br />
                   זואי תפסיק פולואפים, הליד ייספר בהמרות ויועבר ל-CRM.
+                </>
+              ) : statusPendingConfirm.status === "human_requested" ? (
+                <>
+                  לסמן את{" "}
+                  <span className="font-medium text-zinc-900">
+                    {statusPendingConfirm.contact.full_name?.trim() ||
+                      statusPendingConfirm.contact.phone}
+                  </span>{" "}
+                  כ«ביקש נציג»?
+                  <br />
+                  זואי תפסיק פולואפים, תישלח התראה לבעלים והליד יועבר ל-CRM.
                 </>
               ) : (
                 <>

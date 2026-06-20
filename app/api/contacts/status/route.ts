@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { markContactNotRelevantManually } from "@/lib/not-relevant";
+import { markContactHumanRequestedManually } from "@/lib/human-requested";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
 
   if (!businessSlug) return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
   if (!phone) return NextResponse.json({ error: "missing_phone" }, { status: 400 });
-  if (status !== "not_relevant" && status !== "registered") {
+  if (status !== "not_relevant" && status !== "registered" && status !== "human_requested") {
     return NextResponse.json({ error: "unsupported_status" }, { status: 400 });
   }
 
@@ -145,6 +146,34 @@ export async function POST(req: NextRequest) {
       ok: true,
       status: "not_relevant",
       not_relevant_at: result.not_relevant_at,
+    });
+  }
+
+  if (status === "human_requested") {
+    if ((existing as { human_requested_at?: string | null }).human_requested_at) {
+      return NextResponse.json({ ok: true, already: true });
+    }
+    if ((existing as { not_relevant_at?: string | null }).not_relevant_at) {
+      return NextResponse.json({ error: "contact_not_relevant" }, { status: 400 });
+    }
+
+    const result = await markContactHumanRequestedManually({
+      admin,
+      businessId,
+      businessSlug,
+      phone: canonicalPhone,
+      fullName: (existing as { full_name?: string | null }).full_name ?? null,
+    });
+
+    if (!result.ok) {
+      const httpStatus = result.error === "contact_not_found" ? 404 : 500;
+      return NextResponse.json({ error: result.error }, { status: httpStatus });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status: "human_requested",
+      human_requested_at: result.human_requested_at,
     });
   }
 

@@ -170,7 +170,11 @@ export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
 export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";
 
 /** סטטוסים שניתן לקבוע ידנית מדשבורד הלידים */
-export const MANUAL_CONTACT_STATUSES: ContactStatusKey[] = ["registered", "not_relevant"];
+export const MANUAL_CONTACT_STATUSES: ContactStatusKey[] = [
+  "registered",
+  "not_relevant",
+  "human_requested",
+];
 
 export function canManuallySetContactStatus(
   target: ContactStatusKey,
@@ -178,6 +182,15 @@ export function canManuallySetContactStatus(
 ): boolean {
   if (target === "not_relevant") {
     return contact.opted_out !== true && !contact.not_relevant_at;
+  }
+  if (target === "human_requested") {
+    return (
+      contact.opted_out !== true &&
+      !contact.not_relevant_at &&
+      !contact.human_requested_at &&
+      contact.trial_registered !== true &&
+      contact.session_phase !== "registered"
+    );
   }
   if (target === "registered") {
     return (
