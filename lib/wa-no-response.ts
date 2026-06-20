@@ -6,6 +6,7 @@ export const WA_NO_RESPONSE_AFTER_MS = 26 * 60 * 60 * 1000;
 export type WaNoResponseContactGate = {
   opted_out?: boolean | null;
   not_relevant_at?: string | null;
+  human_requested_at?: string | null;
   trial_registered?: boolean | null;
   session_phase?: string | null;
 };
@@ -13,6 +14,7 @@ export type WaNoResponseContactGate = {
 export function waNoResponseEligible(contact: WaNoResponseContactGate): boolean {
   if (contact.opted_out === true) return false;
   if (contact.not_relevant_at) return false;
+  if (contact.human_requested_at) return false;
   if (contact.trial_registered === true) return false;
   if (String(contact.session_phase ?? "").trim() === "registered") return false;
   return true;

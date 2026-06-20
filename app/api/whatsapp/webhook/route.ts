@@ -4462,22 +4462,18 @@ async function processIncoming(
   if (msg.type === "text" && businessId) {
     try {
       if (userRequestedHumanAgent(msg.text)) {
-        const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
-        void triggerHumanRequestedNotification({
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        void handleLeadHumanRequested({
+          supabase,
           businessId: Number(businessId),
-          leadPhone: msg.from,
-          requestedAtIso: nowIso,
-        });
-        const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-        void dispatchCrmEvent({
-          businessId: Number(businessId),
-          leadPhone: msg.from,
-          kind: "human_requested",
-          eventAtIso: nowIso,
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
         });
       }
     } catch (e) {
-      console.warn("[WA Webhook] human_requested notification failed:", e);
+      console.warn("[WA Webhook] human_requested handling failed:", e);
     }
   }
 

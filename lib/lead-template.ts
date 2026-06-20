@@ -18,6 +18,7 @@ export function buildTemplateIncomingContactPatch(nowIso: string): Record<string
     flow_step: 0,
     not_relevant_at: null,
     not_relevant_reason: "",
+    human_requested_at: null,
     wa_followup_stage: 0,
     wa_no_response_at: null,
     wa_next_followup_at: null,
@@ -121,6 +122,7 @@ export function isLeadTemplateOnlyContact(input: ContactStatusInput): boolean {
   if (String(input.source ?? "").trim() !== "meta_lead_ad") return false;
   if (input.opted_out === true) return false;
   if (input.not_relevant_at) return false;
+  if (input.human_requested_at) return false;
   if (input.trial_registered === true || input.session_phase === "registered") return false;
 
   const stage = Number(input.wa_followup_stage ?? 0);

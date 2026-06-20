@@ -138,6 +138,7 @@ export async function GET(req: NextRequest) {
     .eq("followup_sent", false)
     .or("opted_out.eq.false,opted_out.is.null")
     .is("not_relevant_at", null)
+    .is("human_requested_at", null)
     .not("last_contact_at", "is", null)
     .lt("last_contact_at", cutoff)
     .eq("source", "whatsapp")

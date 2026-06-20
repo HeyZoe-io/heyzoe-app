@@ -5,6 +5,7 @@ import type { DashboardLang } from "@/lib/dashboard-lang";
 export type ContactStatusKey =
   | "opted_out"
   | "not_relevant"
+  | "human_requested"
   | "registered"
   | "no_response"
   | "followup"
@@ -14,6 +15,7 @@ export type ContactStatusKey =
 export type ContactStatusInput = {
   opted_out?: boolean | null;
   not_relevant_at?: string | null;
+  human_requested_at?: string | null;
   trial_registered?: boolean | null;
   session_phase?: string | null;
   source?: string | null;
@@ -28,6 +30,7 @@ export function computeContactStatus(input: ContactStatusInput): ContactStatusKe
   if (input.opted_out === true) return "opted_out";
   if (input.not_relevant_at) return "not_relevant";
   if (input.trial_registered === true || input.session_phase === "registered") return "registered";
+  if (input.human_requested_at) return "human_requested";
   if (input.wa_no_response_at) return "no_response";
 
   const stage = Number(input.wa_followup_stage ?? 0);
@@ -90,6 +93,11 @@ const CONTACT_STATUS_META_HE: Record<ContactStatusKey, ContactStatusMeta> = {
     tooltip: "הליד ציין שאינו מעוניין / לא רלוונטי — זואי הפסיקה פולואפים",
     badgeClass: "border-slate-300 bg-slate-100 text-slate-800",
   },
+  human_requested: {
+    label: "ביקש נציג",
+    tooltip: "הליד ביקש לדבר עם נציג — זואי הפסיקה פולואפים",
+    badgeClass: "border-orange-200 bg-orange-50 text-orange-900",
+  },
 };
 
 const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
@@ -128,6 +136,11 @@ const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
     tooltip: "Lead indicated not interested / not relevant — Zoe stopped follow-ups",
     badgeClass: "border-slate-300 bg-slate-100 text-slate-800",
   },
+  human_requested: {
+    label: "Requested Agent",
+    tooltip: "Lead asked to speak with a representative — Zoe stopped follow-ups",
+    badgeClass: "border-orange-200 bg-orange-50 text-orange-900",
+  },
 };
 
 /** Hebrew labels (backward compat for contacts page). */
@@ -149,6 +162,7 @@ export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
   "followup",
   "no_response",
   "not_relevant",
+  "human_requested",
   "registered",
   "opted_out",
 ];
@@ -169,6 +183,7 @@ export function canManuallySetContactStatus(
     return (
       contact.opted_out !== true &&
       !contact.not_relevant_at &&
+      !contact.human_requested_at &&
       contact.trial_registered !== true &&
       contact.session_phase !== "registered"
     );

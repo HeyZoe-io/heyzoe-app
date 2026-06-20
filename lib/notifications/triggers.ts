@@ -17,9 +17,10 @@ import {
   dailySummaryDashboardUrl,
   fetchConversationsHeldYesterday,
   fetchNotRelevantYesterdayLeads,
+  fetchHumanRequestedYesterdayLeads,
   fetchRegisteredYesterdayLeads,
   formatDailySummaryLeadListForWa,
-  formatDailySummaryNotRelevantLeadListForWa,
+  formatDailySummaryWaNotRelevantParamLine,
 } from "@/lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
@@ -323,7 +324,8 @@ export async function triggerDailySummaryNotification(input: {
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = input.businessId;
 
-  const [conversationsHeld, registeredLeads, notRelevantLeads, idleLeads] = await Promise.all([
+  const [conversationsHeld, registeredLeads, notRelevantLeads, humanRequestedLeads, idleLeads] =
+    await Promise.all([
     fetchConversationsHeldYesterday({
       businessId,
       periodStartIso: input.periodStartIso,
@@ -339,11 +341,16 @@ export async function triggerDailySummaryNotification(input: {
       periodStartIso: input.periodStartIso,
       periodEndIso: input.periodEndIso,
     }),
+    fetchHumanRequestedYesterdayLeads({
+      businessId,
+      periodStartIso: input.periodStartIso,
+      periodEndIso: input.periodEndIso,
+    }),
     fetchIdleLeadsInWindow(businessId, input.idleWindowMs),
   ]);
 
   const registeredLine = formatDailySummaryLeadListForWa(registeredLeads);
-  const notRelevantLine = formatDailySummaryNotRelevantLeadListForWa(notRelevantLeads);
+  const notRelevantLine = formatDailySummaryWaNotRelevantParamLine(notRelevantLeads, humanRequestedLeads);
   const noResponseLine = formatDailySummaryLeadListForWa(idleLeads);
   const dashboardUrl = dailySummaryDashboardUrl(slug);
 
@@ -372,6 +379,7 @@ export async function triggerDailySummaryNotification(input: {
         conversations_held: conversationsHeld,
         registered_leads: registeredLeads,
         not_relevant_leads: notRelevantLeads,
+        human_requested_leads: humanRequestedLeads,
         no_response_leads: idleLeads,
         dashboard_url: dashboardUrl,
         no_response_window_hours: input.idleWindowMs >= 48 * 60 * 60 * 1000 ? 48 : 24,

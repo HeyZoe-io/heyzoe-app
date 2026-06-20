@@ -57,7 +57,7 @@ export async function loadLeadsForBusiness(
   const { data: contacts } = await admin
     .from("contacts")
     .select(
-      "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at"
+      "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, human_requested_at, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at"
     )
     .eq("business_id", businessId);
 
@@ -86,6 +86,7 @@ export async function loadLeadsForBusiness(
       opted_out: row.opted_out as boolean | null,
       not_relevant_at: row.not_relevant_at as string | null,
       not_relevant_reason: row.not_relevant_reason as string | null,
+      human_requested_at: row.human_requested_at as string | null,
       session_phase: row.session_phase as string | null,
       trial_registered: row.trial_registered as boolean | null,
       wa_no_response_at: row.wa_no_response_at as string | null,
@@ -196,6 +197,7 @@ export async function loadMarketingAdminLeads(
       opted_out: false,
       not_relevant_at: null,
       not_relevant_reason: null,
+      human_requested_at: null,
       session_phase: deriveMarketingSessionPhase(
         {
           flow_completed: s.flow_completed as boolean | null,
@@ -223,7 +225,7 @@ export async function loadLeadsForAdmin(
     .from("contacts")
     .select(
       `
-      phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason,
+      phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, human_requested_at,
       session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at,
       business_id,
       businesses ( slug, name )
@@ -265,6 +267,7 @@ export async function loadLeadsForAdmin(
       opted_out: c.opted_out as boolean | null,
       not_relevant_at: c.not_relevant_at as string | null,
       not_relevant_reason: c.not_relevant_reason as string | null,
+      human_requested_at: c.human_requested_at as string | null,
       session_phase: c.session_phase as string | null,
       trial_registered: c.trial_registered as boolean | null,
       wa_no_response_at: c.wa_no_response_at as string | null,
