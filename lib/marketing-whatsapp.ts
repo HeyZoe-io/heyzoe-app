@@ -174,6 +174,8 @@ export type MarketingSessionSummary = {
   isOpen: boolean;
   isPaused: boolean;
   phone: string;
+  /** שם הליד מ-marketing_flow_sessions.full_name (WhatsApp ProfileName) */
+  fullName?: string | null;
 };
 
 type MarketingMessageRow = {
@@ -254,7 +256,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       .gt("paused_until", new Date().toISOString()),
     admin
       .from("marketing_flow_sessions")
-      .select("phone, updated_at, created_at")
+      .select("phone, updated_at, created_at, full_name")
       .order("updated_at", { ascending: false })
       .limit(5000),
   ]);
@@ -281,11 +283,14 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     ingestMarketingMessage(bySession, m);
   }
 
+  const nameBySid = new Map<string, string>();
   for (const s of flowSessions ?? []) {
-    const row = s as { phone?: string; updated_at?: string; created_at?: string };
+    const row = s as { phone?: string; updated_at?: string; created_at?: string; full_name?: string | null };
     const phoneRaw = String(row.phone ?? "").trim();
     if (!phoneRaw) continue;
     const sid = canonicalMarketingSessionId(phoneRaw);
+    const fullName = String(row.full_name ?? "").trim();
+    if (fullName && !nameBySid.has(sid)) nameBySid.set(sid, fullName);
     const at = new Date(String(row.updated_at ?? row.created_at ?? ""));
     if (Number.isNaN(at.getTime())) continue;
     const phone = formatMarketingPhoneDisplay(marketingPhoneDigits(phoneRaw) || phoneRaw);
@@ -305,6 +310,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
     isPaused: pausedCanonical.has(sid),
     phone: data.phone,
+    fullName: nameBySid.get(sid) ?? null,
   }));
 
   sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
