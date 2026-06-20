@@ -100,6 +100,11 @@ export function formatLeadTemplateMessageContent(
   return renderLeadTemplateMessageContent(templateName, opts);
 }
 
+/** האם ההודעה היא placeholder «נשלח טמפלייט…» שדורש העשרה לתצוגה. */
+export function leadTemplatePlaceholderNeedsEnrichment(content: string): boolean {
+  return LEAD_TEMPLATE_PLACEHOLDER_RE.test(String(content ?? "").trim());
+}
+
 /** משדרג רשומות ישנות «נשלח טמפלייט…» לטקסט מלא לתצוגה בדשבורד. */
 export function resolveLeadTemplateDisplayContent(
   content: string,

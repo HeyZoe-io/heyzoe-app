@@ -2,6 +2,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { computeContactStatus } from "@/lib/contact-status";
 import {
   firstNameFromFullName,
+  leadTemplatePlaceholderNeedsEnrichment,
   renderLeadTemplateMessageContent,
   resolveLeadTemplateDisplayContent,
 } from "@/lib/lead-template";
@@ -54,6 +55,9 @@ export async function enrichLeadTemplateMessagesForDisplay(input: {
   messages: SessionMessageRow[];
 }): Promise<SessionMessageRow[]> {
   if (!input.messages.length) return input.messages;
+  if (!input.messages.some((m) => leadTemplatePlaceholderNeedsEnrichment(m.content))) {
+    return input.messages;
+  }
 
   const firstName = await loadContactFirstNameForSession(input);
   return input.messages.map((m) => ({

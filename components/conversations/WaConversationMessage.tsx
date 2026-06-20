@@ -61,23 +61,18 @@ function BubbleShell({
 }) {
   const outgoing = from === "assistant";
   const greenText = outgoing && !interactive;
+  const bubbleClass = outgoing
+    ? greenText
+      ? "rounded-lg rounded-bl-none bg-[#d9fdd3] text-[#111b21]"
+      : "rounded-lg rounded-bl-none bg-white text-[#111b21]"
+    : "rounded-lg rounded-br-none bg-white text-[#111b21]";
   return (
-    <div className={`flex w-full ${outgoing ? "justify-end" : "justify-start"}`}>
-      <div
-        dir="rtl"
-        className={[
-          "max-w-[min(100%,280px)] shadow-sm",
-          greenText
-            ? "rounded-lg rounded-br-none bg-[#dcf8c6] text-zinc-900"
-            : "rounded-lg bg-white text-zinc-900",
-          !greenText && !outgoing ? "rounded-bl-none" : "",
-          !greenText && outgoing ? "rounded-br-none" : "",
-        ].join(" ")}
-      >
+    <div className={`flex w-full ${outgoing ? "justify-start" : "justify-end"}`} dir="rtl">
+      <div dir="rtl" className={`max-w-[min(100%,320px)] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${bubbleClass}`}>
         {children}
         {time ? (
-          <div className={`px-2 pb-1 pt-0 text-left text-[10px] leading-none text-zinc-500/90 ${outgoing ? "pe-2" : "ps-2"}`}>
-            {time}
+          <div className="flex items-end justify-end gap-1 px-2 pb-1 pt-0 text-[11px] leading-none text-[#667781]">
+            <span>{time}</span>
           </div>
         ) : null}
       </div>
