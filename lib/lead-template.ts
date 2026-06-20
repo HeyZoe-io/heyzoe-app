@@ -44,7 +44,23 @@ const LEAD_TEMPLATE_REGISTRY: Record<string, LeadTemplatePreview> = {
     buttons: ["אשמח לפרטים"],
     footer: "Hey Zoe",
   },
+  sanga_welcome2: {
+    body: [
+      "היי! כיף שהתעניינת בסאנגה יוגה ובחרת להקדיש שעה של שקט וחיבור לעצמך🧘",
+      "שנבחר יחד את השיעור שהכי מעניין אותך? וכמובן ניתן לך את כל הפרטים.",
+      "לוחצים על הכפתור והקסם מתחיל👇",
+    ].join("\n\n"),
+  },
 };
+
+/** האם לשלוח {{1}} = שם פרטי ב-body של הטמפלייט ב-Meta. */
+export function leadTemplateUsesFirstName(templateName: string): boolean {
+  const key = String(templateName ?? "").trim();
+  if (!key) return true;
+  const preview = LEAD_TEMPLATE_REGISTRY[key];
+  if (!preview) return true;
+  return preview.body.includes("{{1}}");
+}
 
 export function firstNameFromFullName(fullName: string): string {
   const trimmed = fullName.trim();
