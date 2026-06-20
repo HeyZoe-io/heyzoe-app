@@ -722,7 +722,10 @@ export default function ContactsClient({
     exportContactsToExcel(selectedContacts, showBusinessColumn);
   }
 
-  const emptyListMsg = "אין לידים בטווח שנבחר.";
+  const emptyListMsg =
+    contacts.length > 0
+      ? "אין לידים בטווח התאריכים שנבחר — נסו להרחיב את הטווח או לאפס סינון."
+      : "אין לידים לעסק הזה עדיין.";
   const embeddedAdmin = adminMode || marketingAdminMode;
 
   return (
@@ -730,7 +733,15 @@ export default function ContactsClient({
       <div className={embeddedAdmin ? undefined : "hz-wave hz-wave-1"}>
         <h1 className="text-2xl font-semibold text-zinc-900 text-right">לידים</h1>
         <p className="text-sm text-zinc-600 text-right">
-          סה״כ {stats.total} לידים ({stats.active} בתהליך מכירה)
+          {contacts.length > stats.total ? (
+            <>
+              מוצגים {stats.total} מתוך {contacts.length} לידים ({stats.active} בתהליך מכירה)
+            </>
+          ) : (
+            <>
+              סה״כ {stats.total} לידים ({stats.active} בתהליך מכירה)
+            </>
+          )}
         </p>
       </div>
 

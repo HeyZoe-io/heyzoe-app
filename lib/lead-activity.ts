@@ -3,8 +3,15 @@ export function leadConversationAt(row: {
   last_contact_at?: string | null;
   created_at?: string | null;
   not_relevant_at?: string | null;
+  human_requested_at?: string | null;
 }): string | null {
-  return row.last_contact_at ?? row.not_relevant_at ?? row.created_at ?? null;
+  return (
+    row.last_contact_at ??
+    row.human_requested_at ??
+    row.not_relevant_at ??
+    row.created_at ??
+    null
+  );
 }
 
 export function leadConversationAtMs(row: Parameters<typeof leadConversationAt>[0]): number {

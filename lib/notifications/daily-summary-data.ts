@@ -149,17 +149,22 @@ export function formatDailySummaryHumanRequestedLeadListForWa(leads: IdleLeadRow
 }
 
 /**
- * פרמטר WA «לא רלוונטי» בתבנית Meta — משלב גם לידים שביקשו נציג (עד עדכון תבנית Meta).
+ * פרמטר WA «ללא מענה» בתבנית Meta — משלב גם לידים שביקשו נציג (עד עדכון תבנית Meta).
  */
-export function formatDailySummaryWaNotRelevantParamLine(
-  notRelevantLeads: NotRelevantLeadRow[],
+export function formatDailySummaryWaNoResponseParamLine(
+  noResponseLeads: IdleLeadRow[],
   humanRequestedLeads: IdleLeadRow[]
 ): string {
+  const humanPhones = new Set(
+    humanRequestedLeads.map((lead) => String(lead.phone ?? "").trim()).filter(Boolean)
+  );
+  const idleOnly = noResponseLeads.filter((lead) => !humanPhones.has(String(lead.phone ?? "").trim()));
+
   const parts: string[] = [];
   const humanLine = formatDailySummaryHumanRequestedLeadListLine(humanRequestedLeads);
-  const notRelevantLine = formatDailySummaryNotRelevantLeadListLine(notRelevantLeads);
+  const idleLine = formatDailySummaryLeadListLine(idleOnly);
   if (humanLine !== "אין") parts.push(humanLine);
-  if (notRelevantLine !== "אין") parts.push(notRelevantLine);
+  if (idleLine !== "אין") parts.push(idleLine);
   if (!parts.length) return "אין";
   const combined = parts.join(DAILY_SUMMARY_LEADS_SEP);
   const sanitized = sanitizeMetaOwnerTemplateParam(combined);

@@ -50,16 +50,64 @@ function mapWaStage(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const LEAD_CONTACT_SELECT_BASE =
+  "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at";
+
+function mapContactRow(row: Record<string, unknown>, extras?: Partial<LeadRow>): LeadRow {
+  const phone = String(row.phone ?? "").trim();
+  const key = phoneKey(phone);
+  return {
+    phone: row.phone as string | null,
+    full_name: row.full_name as string | null,
+    source: row.source as string | null,
+    created_at: row.created_at as string | null,
+    opted_out: row.opted_out as boolean | null,
+    not_relevant_at: row.not_relevant_at as string | null,
+    not_relevant_reason: row.not_relevant_reason as string | null,
+    human_requested_at: (row.human_requested_at as string | null) ?? null,
+    session_phase: row.session_phase as string | null,
+    trial_registered: row.trial_registered as boolean | null,
+    wa_no_response_at: row.wa_no_response_at as string | null,
+    no_response_notified_at: row.no_response_notified_at as string | null,
+    wa_followup_stage: mapWaStage(row.wa_followup_stage),
+    last_contact_at: row.last_contact_at as string | null,
+    cta_clicked_at: extras?.cta_clicked_at ?? null,
+    business_slug: extras?.business_slug ?? null,
+    business_name: extras?.business_name ?? null,
+  };
+}
+
+async function fetchBusinessContactRows(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<Record<string, unknown>[]> {
+  const withHuman = `${LEAD_CONTACT_SELECT_BASE}, human_requested_at`;
+  const { data, error } = await admin.from("contacts").select(withHuman).eq("business_id", businessId);
+
+  if (!error) return (data ?? []) as Record<string, unknown>[];
+
+  if (/human_requested_at|column/i.test(String(error.message ?? ""))) {
+    console.warn("[leads-data] human_requested_at missing — fallback select without column");
+    const { data: legacy, error: legacyErr } = await admin
+      .from("contacts")
+      .select(LEAD_CONTACT_SELECT_BASE)
+      .eq("business_id", businessId);
+    if (legacyErr) {
+      console.error("[leads-data] contacts load failed:", legacyErr.message);
+      return [];
+    }
+    return (legacy ?? []) as Record<string, unknown>[];
+  }
+
+  console.error("[leads-data] contacts load failed:", error.message);
+  return [];
+}
+
 export async function loadLeadsForBusiness(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
 ): Promise<LeadRow[]> {
-  const { data: contacts } = await admin
-    .from("contacts")
-    .select(
-      "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, human_requested_at, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at"
-    )
-    .eq("business_id", businessId);
+  const contacts = await fetchBusinessContactRows(admin, businessId);
 
   const { data: conversations } = await admin
     .from("conversations")
@@ -74,27 +122,10 @@ export async function loadLeadsForBusiness(
     ctaByPhone.set(key, raw.cta_clicked_at ?? null);
   }
 
-  const rows = (contacts ?? []).map((c) => {
-    const row = c as Record<string, unknown>;
-    const phone = String(row.phone ?? "").trim();
+  const rows = contacts.map((c) => {
+    const phone = String(c.phone ?? "").trim();
     const key = phoneKey(phone);
-    return {
-      phone: row.phone as string | null,
-      full_name: row.full_name as string | null,
-      source: row.source as string | null,
-      created_at: row.created_at as string | null,
-      opted_out: row.opted_out as boolean | null,
-      not_relevant_at: row.not_relevant_at as string | null,
-      not_relevant_reason: row.not_relevant_reason as string | null,
-      human_requested_at: row.human_requested_at as string | null,
-      session_phase: row.session_phase as string | null,
-      trial_registered: row.trial_registered as boolean | null,
-      wa_no_response_at: row.wa_no_response_at as string | null,
-      no_response_notified_at: row.no_response_notified_at as string | null,
-      wa_followup_stage: mapWaStage(row.wa_followup_stage),
-      last_contact_at: row.last_contact_at as string | null,
-      cta_clicked_at: key ? (ctaByPhone.get(key) ?? null) : null,
-    };
+    return mapContactRow(c, { cta_clicked_at: key ? (ctaByPhone.get(key) ?? null) : null });
   });
   return sortLeadsByRecentActivity(dedupeLeadsByPhone(rows));
 }
@@ -221,19 +252,34 @@ export async function loadMarketingAdminLeads(
 export async function loadLeadsForAdmin(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<LeadRow[]> {
-  const { data: contacts, error } = await admin
-    .from("contacts")
-    .select(
-      `
-      phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, human_requested_at,
-      session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at,
+  const adminSelectWithHuman = `
+      ${LEAD_CONTACT_SELECT_BASE}, human_requested_at,
       business_id,
       businesses ( slug, name )
-    `
-    )
-    .limit(ADMIN_LEADS_LIMIT);
+    `;
+  const adminSelectLegacy = `
+      ${LEAD_CONTACT_SELECT_BASE},
+      business_id,
+      businesses ( slug, name )
+    `;
 
-  if (error) {
+  let contacts: Record<string, unknown>[] | null = null;
+  const { data, error } = await admin.from("contacts").select(adminSelectWithHuman).limit(ADMIN_LEADS_LIMIT);
+
+  if (!error) {
+    contacts = (data ?? []) as Record<string, unknown>[];
+  } else if (/human_requested_at|column/i.test(String(error.message ?? ""))) {
+    console.warn("[leads-data] admin human_requested_at missing — fallback select");
+    const { data: legacy, error: legacyErr } = await admin
+      .from("contacts")
+      .select(adminSelectLegacy)
+      .limit(ADMIN_LEADS_LIMIT);
+    if (legacyErr) {
+      console.warn("[leads-data] admin contacts load:", legacyErr.message);
+      return [];
+    }
+    contacts = (legacy ?? []) as Record<string, unknown>[];
+  } else {
     console.warn("[leads-data] admin contacts load:", error.message);
     return [];
   }
@@ -259,26 +305,11 @@ export async function loadLeadsForAdmin(
     const businessId = c.business_id;
     const phone = String(c.phone ?? "").trim();
     const key = phoneKey(phone);
-    return {
-      phone: c.phone as string | null,
-      full_name: c.full_name as string | null,
-      source: c.source as string | null,
-      created_at: c.created_at as string | null,
-      opted_out: c.opted_out as boolean | null,
-      not_relevant_at: c.not_relevant_at as string | null,
-      not_relevant_reason: c.not_relevant_reason as string | null,
-      human_requested_at: c.human_requested_at as string | null,
-      session_phase: c.session_phase as string | null,
-      trial_registered: c.trial_registered as boolean | null,
-      wa_no_response_at: c.wa_no_response_at as string | null,
-      no_response_notified_at: c.no_response_notified_at as string | null,
-      wa_followup_stage: mapWaStage(c.wa_followup_stage),
-      last_contact_at: c.last_contact_at as string | null,
+    return mapContactRow(c, {
       business_slug: biz?.slug ?? null,
       business_name: biz?.name ?? null,
-      cta_clicked_at:
-        businessId != null && key ? (ctaMap.get(`${businessId}:${key}`) ?? null) : null,
-    };
+      cta_clicked_at: businessId != null && key ? (ctaMap.get(`${businessId}:${key}`) ?? null) : null,
+    });
   });
   return sortLeadsByRecentActivity(
     dedupeLeadsByPhone(rows, (row) => `${row.business_slug ?? ""}:${phoneKey(String(row.phone ?? ""))}`)

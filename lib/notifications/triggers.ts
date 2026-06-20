@@ -20,7 +20,8 @@ import {
   fetchHumanRequestedYesterdayLeads,
   fetchRegisteredYesterdayLeads,
   formatDailySummaryLeadListForWa,
-  formatDailySummaryWaNotRelevantParamLine,
+  formatDailySummaryNotRelevantLeadListForWa,
+  formatDailySummaryWaNoResponseParamLine,
 } from "@/lib/notifications/daily-summary-data";
 import {
   buildDailySummaryWaParams,
@@ -350,8 +351,8 @@ export async function triggerDailySummaryNotification(input: {
   ]);
 
   const registeredLine = formatDailySummaryLeadListForWa(registeredLeads);
-  const notRelevantLine = formatDailySummaryWaNotRelevantParamLine(notRelevantLeads, humanRequestedLeads);
-  const noResponseLine = formatDailySummaryLeadListForWa(idleLeads);
+  const notRelevantLine = formatDailySummaryNotRelevantLeadListForWa(notRelevantLeads);
+  const noResponseLine = formatDailySummaryWaNoResponseParamLine(idleLeads, humanRequestedLeads);
   const dashboardUrl = dailySummaryDashboardUrl(slug);
 
   await sendIfEnabled({
