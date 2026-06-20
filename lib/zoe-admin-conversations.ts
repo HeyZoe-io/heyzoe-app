@@ -23,6 +23,12 @@ export function isZoeAdminAllConversationsSlug(slug: string): boolean {
   return String(slug ?? "").trim().toLowerCase() === ZOE_ADMIN_ALL_CONVERSATIONS_SLUG;
 }
 
+/** מפתח השוואת טלפון אחיד (9 ספרות אחרונות) להתאמת שם ליד בין פורמטים */
+function leadPhoneKey(phone: string): string {
+  const d = String(phone ?? "").replace(/\D/g, "");
+  return d.length >= 9 ? d.slice(-9) : d;
+}
+
 function formatPhoneDisplay(phone: string): string {
   const d = String(phone ?? "").replace(/\D/g, "");
   if (d.startsWith("972") && d.length >= 12) {
@@ -66,7 +72,7 @@ export async function loadAllZoeAdminConversationSessions(
       .gt("paused_until", new Date().toISOString()),
     admin
       .from("marketing_flow_sessions")
-      .select("phone, updated_at, created_at")
+      .select("phone, updated_at, created_at, full_name")
       .order("updated_at", { ascending: false })
       .limit(5000),
   ]);
@@ -99,6 +105,15 @@ export async function loadAllZoeAdminConversationSessions(
     bySlugSession.set(bs, sessions);
   }
 
+  const marketingNameByPhoneKey = new Map<string, string>();
+  for (const s of flowSessions ?? []) {
+    const phone = String((s as { phone?: string }).phone ?? "").trim();
+    if (!phone) continue;
+    const fullName = String((s as { full_name?: string | null }).full_name ?? "").trim();
+    const key = leadPhoneKey(phone);
+    if (fullName && key && !marketingNameByPhoneKey.has(key)) marketingNameByPhoneKey.set(key, fullName);
+  }
+
   const marketingSid = new Set((bySlugSession.get(MARKETING_CONVERSATIONS_SLUG) ?? []).map((s) => s.session_id));
   for (const s of flowSessions ?? []) {
     const phone = String((s as { phone?: string }).phone ?? "").trim();
@@ -126,9 +141,16 @@ export async function loadAllZoeAdminConversationSessions(
         bs === MARKETING_CONVERSATIONS_SLUG
           ? formatPhoneDisplay(extractLeadPhoneFromMarketingSession(s.session_id) || s.phone) || s.phone
           : formatPhoneDisplay(extractPhoneFromSessionId(s.session_id) || s.phone) || s.phone;
+      const fullName =
+        bs === MARKETING_CONVERSATIONS_SLUG
+          ? marketingNameByPhoneKey.get(leadPhoneKey(extractLeadPhoneFromMarketingSession(s.session_id) || s.phone)) ??
+            s.fullName ??
+            null
+          : s.fullName ?? null;
       out.push({
         ...s,
         phone,
+        fullName,
         source_slug: bs,
         source_name: label,
       });
