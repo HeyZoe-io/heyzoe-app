@@ -1580,63 +1580,118 @@ section{padding:80px 6%;}
 .savings-head{margin-bottom:clamp(36px,5vw,52px);}
 .savings-flow{
   display:grid;
-  grid-template-columns:minmax(0,1.1fr) minmax(220px,0.9fr);
+  grid-template-columns:minmax(0,1.15fr) minmax(220px,0.85fr);
   gap:clamp(28px,5vw,56px);
   align-items:center;
-  text-align:right;
   direction:rtl;
 }
-.savings-journey{
+.savings-compare{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  gap:clamp(10px,2vw,18px);
+  align-items:stretch;
+  text-align:right;
+}
+.savings-card{
   position:relative;
-  padding-inline-start:clamp(22px,3vw,30px);
+  border-radius:20px;
+  padding:clamp(18px,2.8vw,26px);
+  display:flex;flex-direction:column;gap:12px;
+  min-height:100%;
+  transition:transform 0.25s ease,box-shadow 0.25s ease;
 }
-.savings-journey::before{
+.savings-card--before{
+  background:linear-gradient(165deg,#f4f2f8 0%,#fff 100%);
+  border:1px solid rgba(113,51,218,0.1);
+  box-shadow:0 4px 18px rgba(26,10,60,0.04);
+}
+.savings-card--before::after{
   content:'';
-  position:absolute;
-  inset-inline-start:7px;
-  top:10px;bottom:10px;
-  width:2px;
-  border-radius:2px;
-  background:linear-gradient(180deg,rgba(113,51,218,0.18) 0%,var(--purple) 48%,rgba(53,255,112,0.55) 100%);
+  position:absolute;inset:0;border-radius:inherit;
+  background:repeating-linear-gradient(
+    -12deg,
+    transparent,
+    transparent 14px,
+    rgba(113,51,218,0.025) 14px,
+    rgba(113,51,218,0.025) 15px
+  );
+  pointer-events:none;
 }
-.savings-beat{
-  position:relative;
-  padding-inline-start:clamp(18px,2.5vw,26px);
+.savings-card--after{
+  background:linear-gradient(165deg,rgba(53,255,112,0.1) 0%,#fff 55%);
+  border:1px solid rgba(34,197,94,0.22);
+  box-shadow:
+    0 14px 40px rgba(53,255,112,0.12),
+    0 4px 16px rgba(113,51,218,0.06);
 }
-.savings-beat+.savings-beat{margin-top:clamp(28px,4vh,40px);}
-.savings-beat::before{
-  content:'';
-  position:absolute;
-  inset-inline-start:-23px;
-  top:0.55em;
-  width:10px;height:10px;
-  border-radius:50%;
-  transform:translateY(-50%);
-  background:#fff;
-  border:2px solid var(--purple);
-  box-shadow:0 0 0 4px rgba(113,51,218,0.1);
+.savings-card--after:hover,
+.savings-card--before:hover{transform:translateY(-3px);}
+.savings-card-head{
+  display:flex;align-items:center;gap:10px;
+  position:relative;z-index:1;
 }
-.savings-beat--after::before{
-  border-color:#22c55e;
-  box-shadow:0 0 0 4px rgba(53,255,112,0.15);
-}
-.savings-beat-tag{
-  display:inline-flex;align-items:center;gap:8px;
+.savings-card-emoji{font-size:1.4em;line-height:1;}
+.savings-card-label{
   font-family:'Heebo',sans-serif;
   font-size:12px;font-weight:700;
-  letter-spacing:0.06em;text-transform:uppercase;
-  margin-bottom:8px;
+  letter-spacing:0.08em;text-transform:uppercase;
+  color:var(--muted);
 }
-.savings-beat--before .savings-beat-tag{color:var(--muted);}
-.savings-beat--after .savings-beat-tag{color:#15803d;}
-.savings-beat-emoji{font-size:1.35em;line-height:1;letter-spacing:0;}
-.savings-beat-text{
+.savings-card-label--after{color:#15803d;}
+.savings-card-text{
   font-family:'Heebo',sans-serif;
-  font-size:clamp(16px,2vw,18px);
+  font-size:clamp(15px,1.9vw,17px);
   color:var(--text);line-height:1.7;margin:0;
-  max-width:34rem;
+  position:relative;z-index:1;
 }
-.savings-beat--before .savings-beat-text{opacity:0.82;}
+.savings-card--before .savings-card-text{opacity:0.88;}
+.savings-pain-chips{
+  list-style:none;margin:0;padding:0;
+  display:flex;flex-wrap:wrap;gap:6px;
+  position:relative;z-index:1;
+}
+.savings-pain-chips li{
+  font-family:'Heebo',sans-serif;
+  font-size:11.5px;font-weight:500;
+  padding:5px 10px;border-radius:999px;
+  background:rgba(113,51,218,0.07);
+  border:1px dashed rgba(113,51,218,0.18);
+  color:var(--muted);
+}
+.savings-card-highlight{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(13px,1.7vw,15px);font-weight:600;
+  line-height:1.5;color:#15803d;
+  margin:0;padding:10px 12px;border-radius:12px;
+  background:rgba(53,255,112,0.12);
+  border:1px solid rgba(34,197,94,0.18);
+  position:relative;z-index:1;
+}
+.savings-compare-bridge{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;padding:8px 4px;min-width:52px;
+}
+.savings-bridge-line{
+  flex:1;min-height:18px;width:2px;
+  background:linear-gradient(180deg,rgba(113,51,218,0.15),rgba(113,51,218,0.45));
+  border-radius:2px;
+}
+.savings-bridge-line:last-child{
+  background:linear-gradient(180deg,rgba(113,51,218,0.45),rgba(53,255,112,0.55));
+}
+.savings-bridge-orb{
+  flex-shrink:0;width:46px;height:46px;border-radius:50%;
+  background:#fff;border:1px solid rgba(113,51,218,0.14);
+  box-shadow:0 8px 28px rgba(113,51,218,0.2);
+  display:flex;align-items:center;justify-content:center;
+}
+.savings-bridge-orb img{width:58%;height:58%;object-fit:contain;}
+.savings-bridge-chev{
+  width:10px;height:10px;
+  border-inline-end:2px solid rgba(113,51,218,0.5);
+  border-block-end:2px solid rgba(113,51,218,0.5);
+  transform:rotate(45deg);
+}
 .savings-metric-panel{
   position:relative;
   text-align:center;
@@ -1647,6 +1702,7 @@ section{padding:80px 6%;}
   margin:0 auto;
   aspect-ratio:1;
   display:flex;align-items:center;justify-content:center;
+  overflow:visible;
 }
 .savings-metric-ring{
   position:absolute;
@@ -1675,20 +1731,25 @@ section{padding:80px 6%;}
 .savings-metric-center{
   position:relative;z-index:1;
   text-align:center;
-  padding:0 12%;
+  padding:8px 10%;
+  overflow:visible;
 }
 .savings-num-line{
   display:flex;align-items:baseline;justify-content:center;
-  gap:0.14em;
+  flex-wrap:wrap;
+  gap:0.12em 0.2em;
   margin-bottom:8px;
+  line-height:1.15;
 }
 .savings-num{
   font-family:'Fredoka',sans-serif;
   font-size:clamp(38px,6vw,62px);font-weight:700;
   background:linear-gradient(135deg,var(--purple),var(--pink));
   background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  line-height:0.95;
-  letter-spacing:-0.03em;
+  line-height:1.15;
+  letter-spacing:-0.01em;
+  padding-block:0.06em;
+  display:inline-block;
 }
 .savings-num-hours{
   font-family:'Fredoka',sans-serif;
@@ -1714,16 +1775,28 @@ section{padding:80px 6%;}
     gap:clamp(32px,6vw,44px);
   }
   .savings-metric-panel{order:-1;}
-  .savings-journey{text-align:center;}
-  .savings-beat-text{margin-inline:auto;}
-  .savings-journey::before{inset-inline-start:50%;transform:translateX(-50%);top:0;bottom:0;width:2px;}
-  .savings-beat{padding-inline-start:0;padding-top:28px;}
-  .savings-beat::before{
-    inset-inline-start:50%;
-    top:8px;
-    transform:translateX(-50%);
+  .savings-compare{
+    grid-template-columns:1fr;
+    gap:0;
   }
-  .savings-beat+.savings-beat{margin-top:clamp(36px,6vh,48px);}
+  .savings-compare-bridge{
+    flex-direction:row;
+    padding:14px 0;
+    min-width:0;
+  }
+  .savings-bridge-line{
+    flex:1;min-height:0;height:2px;width:auto;
+    background:linear-gradient(90deg,rgba(113,51,218,0.15),rgba(113,51,218,0.45));
+  }
+  .savings-bridge-line:last-child{
+    background:linear-gradient(90deg,rgba(113,51,218,0.45),rgba(53,255,112,0.55));
+  }
+  .savings-bridge-chev{
+    transform:rotate(-45deg);
+  }
+  .savings-card{text-align:center;}
+  .savings-card-head{justify-content:center;}
+  .savings-pain-chips{justify-content:center;}
 }
 @media (max-width:740px){
   .setup-section{padding:48px 5% 22px;}
@@ -2278,15 +2351,33 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <h2 class="section-title" style="color:var(--dark);">זמן אמיתי שחוזר אליכם</h2>
     </div>
     <div class="savings-flow reveal">
-      <div class="savings-journey">
-        <div class="savings-beat savings-beat--before">
-          <div class="savings-beat-tag"><span class="savings-beat-emoji" aria-hidden="true">😩</span> לפני זואי</div>
-          <p class="savings-beat-text">שעות על הטלפון, עונים לאותן שאלות שוב ושוב. "איפה אתם?", "כמה עולה?", "יש חנייה?" - בין אימון לאימון.</p>
+      <div class="savings-compare">
+        <article class="savings-card savings-card--before">
+          <header class="savings-card-head">
+            <span class="savings-card-emoji" aria-hidden="true">😩</span>
+            <span class="savings-card-label">לפני זואי</span>
+          </header>
+          <p class="savings-card-text">שעות על הטלפון, עונים לאותן שאלות שוב ושוב - בין אימון לאימון.</p>
+          <ul class="savings-pain-chips" aria-hidden="true">
+            <li>איפה אתם?</li>
+            <li>כמה עולה?</li>
+            <li>יש חנייה?</li>
+          </ul>
+        </article>
+        <div class="savings-compare-bridge" aria-hidden="true">
+          <span class="savings-bridge-line"></span>
+          <span class="savings-bridge-orb"><img src="/zoe-browser-icon.png" alt=""></span>
+          <span class="savings-bridge-chev"></span>
+          <span class="savings-bridge-line"></span>
         </div>
-        <div class="savings-beat savings-beat--after">
-          <div class="savings-beat-tag"><span class="savings-beat-emoji" aria-hidden="true">😌</span> עם זואי</div>
-          <p class="savings-beat-text">זואי עונה לכל זה בשבילכם. אתם מקבלים לידים שכבר נרשמו ורק צריכים לבוא לשיעור.</p>
-        </div>
+        <article class="savings-card savings-card--after">
+          <header class="savings-card-head">
+            <span class="savings-card-emoji" aria-hidden="true">😌</span>
+            <span class="savings-card-label savings-card-label--after">עם זואי</span>
+          </header>
+          <p class="savings-card-text">זואי עונה לכל זה בשבילכם. אתם מקבלים לידים שכבר נרשמו ורק צריכים לבוא לשיעור.</p>
+          <p class="savings-card-highlight">פחות טלפון, יותר זמן לעסק ולחיים</p>
+        </article>
       </div>
       <div class="savings-metric-panel">
         <div class="savings-metric-orb">
