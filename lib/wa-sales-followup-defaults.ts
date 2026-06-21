@@ -14,6 +14,27 @@ function asSocialRecord(social: unknown): Record<string, unknown> {
   return social as Record<string, unknown>;
 }
 
+/**
+ * כשאין מספר שירות לקוחות — להשמיט את פסוקית הטלפון שמכילה {{phone}}
+ * (למשל «או להרים טלפון ישירות למספר {{phone}}») במקום להשאיר משפט קטוע.
+ */
+export function stripPhonePlaceholderClauseWhenEmpty(tpl: string): string {
+  let out = String(tpl ?? "");
+  // פסוקית עם חיבור/הזמנה לפני {{phone}} — «או להרים טלפון…», «ניתן להתקשר ל…» וכד׳ → נקודה
+  out = out.replace(
+    /\s*(?:,?\s*(?:או|ו))?\s*(?:ניתן|אפשר|מוזמנ(?:ים|ות))?\s*(?:ל)?(?:הרים\s+טלפון|להתקשר|לחייג|טלפון)[^.!?\n]*\{\{phone\}\}/gu,
+    "."
+  );
+  // שארית {{phone}} בודדת אם נשארה
+  out = out.replace(/\s*\{\{phone\}\}/gu, "");
+  // ניקוי רווחים ופיסוק כפול
+  return out
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.!?,])/g, "$1")
+    .replace(/([.!?])[.,]+/g, "$1")
+    .trim();
+}
+
 export function resolveWaSalesFollowupTemplates(social: unknown): {
   t1: string;
   t2: string;
