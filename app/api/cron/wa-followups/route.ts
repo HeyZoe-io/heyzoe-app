@@ -9,7 +9,10 @@ import {
 } from "@/lib/whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
-import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
+import {
+  resolveWaSalesFollowupTemplates,
+  stripPhonePlaceholderClauseWhenEmpty,
+} from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
 import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
 import { customerServicePhoneFromSocialLinks } from "@/lib/whatsapp-copy";
@@ -599,12 +602,10 @@ export async function GET(req: NextRequest) {
       };
 
       const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as { social_links?: unknown }).social_links);
-      const raw =
-        nextStage === 1
-          ? fillTemplate(t1, vars)
-          : nextStage === 2
-            ? fillTemplate(t2, vars)
-            : fillTemplate(t3, vars);
+      let chosenTemplate = nextStage === 1 ? t1 : nextStage === 2 ? t2 : t3;
+      // אין מספר שירות לקוחות → להשמיט את פסוקית הטלפון במקום משפט קטוע
+      if (!csPhone) chosenTemplate = stripPhonePlaceholderClauseWhenEmpty(chosenTemplate);
+      const raw = fillTemplate(chosenTemplate, vars);
       const bodyCore = raw.trim();
       const sessionPhase = String((c as { session_phase?: string | null }).session_phase ?? "").trim();
       const cta = await resolveWaFollowupCta({
