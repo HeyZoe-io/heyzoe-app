@@ -4452,6 +4452,7 @@ async function processIncoming(
         businessSlug: business_slug,
         phone: msg.from,
         sessionId: earlySessionId,
+        contactId,
       });
       if (reactivated) {
         console.info("[WA Webhook] not-relevant lead reactivated via flow-start trigger", {
@@ -4460,6 +4461,37 @@ async function processIncoming(
         });
         contactNotRelevantAt = null;
         // ממשיכים — הברכה/כוונת הפתיחה יזוהו בהמשך ויאתחלו את פלואו המכירה.
+      }
+    }
+
+    // רשת ביטחון: המשך פלואו בלחיצת כפתור — אם not_relevant_at נשאר ב-DB (פורמט טלפון וכו׳).
+    if (
+      contactNotRelevantAt &&
+      !wantsFlowRestart &&
+      msg.type === "text" &&
+      isMetaInteractiveMenuReply(msg) &&
+      businessId &&
+      (contactSessionPhase === "opening" ||
+        contactSessionPhase === "warmup" ||
+        contactSessionPhase === "schedule_date" ||
+        contactSessionPhase === "schedule_time" ||
+        contactSessionPhase === "cta")
+    ) {
+      const reactivated = await reactivateNotRelevantLead({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        sessionId: earlySessionId,
+        contactId,
+      });
+      if (reactivated) {
+        console.info("[WA Webhook] not-relevant lead reactivated via in-flow menu pick", {
+          business_slug,
+          session_id: earlySessionId,
+          session_phase: contactSessionPhase,
+        });
+        contactNotRelevantAt = null;
       }
     }
 

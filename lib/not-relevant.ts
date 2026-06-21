@@ -456,19 +456,50 @@ export async function reactivateNotRelevantLead(input: {
   businessSlug: string;
   phone: string;
   sessionId: string;
+  /** מזהה contact מה-upsert — עדיף על phone (פורמט 972… לעומת +972…). */
+  contactId?: string | number | null;
 }): Promise<boolean> {
   const businessId = Number(input.businessId);
   const phone = String(input.phone ?? "").trim();
-  if (!businessId || !phone) return false;
+  const contactId = input.contactId;
+  if (!businessId || (!phone && (contactId === undefined || contactId === null))) return false;
 
-  const { error } = await input.supabase
-    .from("contacts")
-    .update(buildLeadReactivationPatch())
-    .eq("business_id", businessId)
-    .eq("phone", phone);
+  const patch = buildLeadReactivationPatch();
+  let updated: { id?: unknown }[] | null = null;
+  let error: { message?: string } | null = null;
+
+  if (contactId !== undefined && contactId !== null) {
+    const result = await input.supabase
+      .from("contacts")
+      .update(patch)
+      .eq("id", contactId)
+      .eq("business_id", businessId)
+      .select("id");
+    updated = result.data;
+    error = result.error;
+  } else {
+    const phoneVariants = contactPhoneLookupVariants(phone);
+    if (!phoneVariants.length) return false;
+    const result = await input.supabase
+      .from("contacts")
+      .update(patch)
+      .eq("business_id", businessId)
+      .in("phone", phoneVariants)
+      .select("id");
+    updated = result.data;
+    error = result.error;
+  }
 
   if (error) {
     console.error("[not-relevant] reactivation update failed:", error.message);
+    return false;
+  }
+  if (!updated?.length) {
+    console.warn("[not-relevant] reactivation matched 0 rows", {
+      businessId,
+      contactId: contactId ?? null,
+      phone,
+    });
     return false;
   }
 
@@ -571,11 +602,25 @@ export async function handleLeadNotRelevant(input: {
   const reason = await resolveNotRelevantReason({ text: input.text });
 
   const patch = buildNotRelevantContactPatch(reason, input.nowIso);
-  await input.supabase
+  const phoneVariants = contactPhoneLookupVariants(input.phone);
+  if (!phoneVariants.length) {
+    console.warn("[not-relevant] mark skipped — invalid phone", { phone: input.phone });
+    return;
+  }
+  const { data: marked, error: markErr } = await input.supabase
     .from("contacts")
     .update(patch)
     .eq("business_id", input.businessId)
-    .eq("phone", input.phone);
+    .in("phone", phoneVariants)
+    .select("id");
+  if (markErr) {
+    console.error("[not-relevant] mark update failed:", markErr.message);
+  } else if (!marked?.length) {
+    console.warn("[not-relevant] mark matched 0 rows", {
+      businessId: input.businessId,
+      phone: input.phone,
+    });
+  }
 
   const { sendWhatsAppMessage } = await import("@/lib/whatsapp");
   await sendWhatsAppMessage(
