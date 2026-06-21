@@ -250,9 +250,11 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 import {
+  answerNotRelevantLeadOpenQuestion,
   handleLeadNotRelevant,
   matchesNotRelevantKeyword,
   reactivateNotRelevantLead,
+  shouldAnswerNotRelevantLeadOpenQuestion,
 } from "@/lib/not-relevant";
 
 export const runtime = "nodejs";
@@ -4462,6 +4464,31 @@ async function processIncoming(
     }
 
     if (contactNotRelevantAt) {
+      const isOpenQuestion =
+        msg.type === "text" &&
+        businessId &&
+        claudeApiKey &&
+        (await shouldAnswerNotRelevantLeadOpenQuestion({
+          apiKey: claudeApiKey,
+          text: incomingTextRaw,
+        }));
+
+      if (isOpenQuestion) {
+        await answerNotRelevantLeadOpenQuestion({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          text: incomingTextRaw,
+          sessionId: earlySessionId,
+          waFromNumber: msg.toNumber,
+          accountSid,
+          authToken,
+          claudeApiKey,
+        });
+        return;
+      }
+
       await sendWhatsAppMessage(
         msg.toNumber,
         msg.from,

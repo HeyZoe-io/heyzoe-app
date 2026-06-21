@@ -1,6 +1,309 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { CLAUDE_WHATSAPP_MODEL, resolveClaudeApiKey } from "@/lib/claude";
+import {
+  CLAUDE_WHATSAPP_MODEL,
+  CLAUDE_WHATSAPP_MAX_TOKENS,
+  formatUserFacingClaudeError,
+  isRetryableClaudeError,
+  resolveClaudeApiKey,
+  sleepMs,
+} from "@/lib/claude";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+
+/** כפתור והודעת המשך אחרי שאלה פתוחה מליד «לא רלוונטי». */
+export const NOT_RELEVANT_FLOW_RESTART_BUTTON = "אשמח לפרטים";
+export const NOT_RELEVANT_FLOW_RESTART_CTA_BODY =
+  "להתחלת שיחה, קבלת פרטים ושריון אימון ניסיון לחצו על הכפתור";
+
+const NOT_RELEVANT_SHORT_DISMISSALS = new Set([
+  "תודה",
+  "תודה רבה",
+  "תודה!",
+  "אוקיי",
+  "אוקי",
+  "ok",
+  "okay",
+  "בסדר",
+  "יופי",
+  "מעולה",
+  "הבנתי",
+  "סבבה",
+  "נשמע טוב",
+]);
+
+const OPEN_QUESTION_HINTS = [
+  "מה ",
+  "איך ",
+  "כמה ",
+  "מתי ",
+  "איפה ",
+  "למה ",
+  "האם ",
+  "מי ",
+  "what ",
+  "how ",
+  "when ",
+  "where ",
+  "why ",
+  "can i ",
+  "do you ",
+  "is there ",
+];
+
+function hasObviousOpenQuestionShape(text: string): boolean {
+  const raw = text.trim();
+  if (!raw) return false;
+  if (raw.includes("?")) return true;
+  const t = normalizeNotRelevantToken(raw);
+  return OPEN_QUESTION_HINTS.some((hint) => t.includes(hint.trim()));
+}
+
+async function classifyNotRelevantOpenQuestionWithClaude(input: {
+  apiKey: string;
+  text: string;
+}): Promise<boolean> {
+  const apiKey = input.apiKey.trim();
+  const text = input.text.trim();
+  if (!apiKey || text.length < 4 || text.length > 500) return false;
+
+  try {
+    const anthropic = new Anthropic({ apiKey });
+    const resp = await anthropic.messages.create({
+      model: CLAUDE_WHATSAPP_MODEL,
+      max_tokens: 8,
+      temperature: 0,
+      messages: [
+        {
+          role: "user",
+          content: `האם המשפט הוא שאלה או בקשה למידע שסוכנת מכירות לסטודיו יכולה לענות עליה — ולא רק תודה, אישור קצר, או ברכה?
+ענה רק "YES" או "NO" (בדיוק, בלי טקסט נוסף).
+
+משפט: "${text}"`,
+        },
+      ],
+    });
+    const out = ( resp.content ?? [])
+      .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
+      .join("\n")
+      .trim()
+      .toUpperCase();
+    if (out.startsWith("NO")) return false;
+    return out.startsWith("YES");
+  } catch (e) {
+    console.warn("[not-relevant] open-question classify failed (continuing):", e);
+    return false;
+  }
+}
+
+/** האם לענות על שאלה פתוחה (במקום הודעת חסימה) לליד «לא רלוונטי». */
+export async function shouldAnswerNotRelevantLeadOpenQuestion(input: {
+  apiKey: string;
+  text: string;
+}): Promise<boolean> {
+  const text = input.text.trim();
+  if (!text || text.length < 4 || text.length > 500) return false;
+  if (matchesNotRelevantKeyword(text)) return false;
+
+  const normalized = normalizeNotRelevantToken(text);
+  if (NOT_RELEVANT_SHORT_DISMISSALS.has(normalized)) return false;
+
+  if (hasObviousOpenQuestionShape(text)) return true;
+
+  const apiKey = input.apiKey.trim();
+  if (!apiKey) return false;
+  return classifyNotRelevantOpenQuestionWithClaude({ apiKey, text });
+}
+
+/** תשובת AI + הודעת CTA נפרדת עם כפתור «אשמח לפרטים» — הליד נשאר «לא רלוונטי» עד לחיצה. */
+export async function answerNotRelevantLeadOpenQuestion(input: {
+  supabase: import("@supabase/supabase-js").SupabaseClient;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  text: string;
+  sessionId: string;
+  waFromNumber: string;
+  accountSid: string;
+  authToken: string;
+  claudeApiKey: string;
+}): Promise<void> {
+  const businessSlug = String(input.businessSlug ?? "").trim();
+  const userText = input.text.trim();
+  if (!businessSlug || !userText) return;
+
+  const { logMessage, fetchRecentSessionMessages } = await import("@/lib/analytics");
+  await logMessage({
+    business_slug: businessSlug,
+    role: "user",
+    content: userText,
+    session_id: input.sessionId,
+  }).catch((e) => console.error("[not-relevant] user log failed:", e));
+
+  const { getBusinessKnowledgePack, buildSystemPrompt } = await import("@/lib/business-context");
+  const { loadZoePlatformGuidelines } = await import("@/lib/business-zoe-platform");
+  const { applyKnownAssistantReplyFixes } = await import("@/lib/wa-assistant-reply-fixes");
+  const { stripTrailingFollowUpQuestion } = await import("@/lib/wa-split-answer");
+  const { sendWhatsAppMessage, sendWhatsAppTextOrMenu } = await import("@/lib/whatsapp");
+
+  const [knowledge, platformGuidelines] = await Promise.all([
+    getBusinessKnowledgePack(businessSlug),
+    loadZoePlatformGuidelines(),
+  ]);
+
+  const systemPrompt = buildSystemPrompt(
+    knowledge,
+    businessSlug,
+    "whatsapp",
+    {
+      sessionPhase: "opening",
+      trialRegistered: false,
+      suppressFollowUpQuestion: true,
+    },
+    platformGuidelines,
+    userText
+  );
+
+  const history = await fetchRecentSessionMessages({
+    business_slug: businessSlug,
+    session_id: input.sessionId,
+    limit: 10,
+  });
+  const claudeMessages =
+    history.length > 0
+      ? history.map((m) => ({ role: m.role, content: m.content }))
+      : [];
+  const lastHistoryMessage = claudeMessages[claudeMessages.length - 1];
+  if (
+    userText &&
+    (!lastHistoryMessage ||
+      lastHistoryMessage.role !== "user" ||
+      String(lastHistoryMessage.content ?? "").trim() !== userText)
+  ) {
+    claudeMessages.push({ role: "user" as const, content: userText });
+  }
+
+  let replyCore = "";
+  let replyModelUsed = CLAUDE_WHATSAPP_MODEL;
+  let replyErrorCode: string | null = null;
+  let isFallbackErrorReply = false;
+
+  const apiKey = input.claudeApiKey.trim();
+  if (!apiKey) {
+    replyCore = formatUserFacingClaudeError(new Error("Missing ANTHROPIC_API_KEY"));
+    isFallbackErrorReply = true;
+    replyErrorCode = "missing_api_key";
+  } else {
+    const client = new Anthropic({ apiKey });
+    try {
+      const runClaude = async () =>
+        client.messages.create({
+          model: CLAUDE_WHATSAPP_MODEL,
+          max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
+          system: systemPrompt,
+          messages: claudeMessages,
+        });
+
+      let response: Awaited<ReturnType<typeof runClaude>> | null = null;
+      try {
+        response = await runClaude();
+      } catch (e) {
+        if (isRetryableClaudeError(e)) {
+          await sleepMs(900);
+          response = await runClaude();
+        } else {
+          throw e;
+        }
+      }
+
+      const extractCombinedText = (resObj: unknown) => {
+        const content = (resObj as { content?: unknown[] })?.content;
+        const textBlocks = Array.isArray(content)
+          ? content
+              .filter(
+                (b) =>
+                  b &&
+                  typeof b === "object" &&
+                  (b as { type?: string }).type === "text" &&
+                  typeof (b as { text?: string }).text === "string"
+              )
+              .map((b) => String((b as { text?: string }).text ?? "").trim())
+              .filter(Boolean)
+          : [];
+        return textBlocks.join("\n").trim();
+      };
+
+      replyCore = extractCombinedText(response);
+      if (!replyCore) {
+        await sleepMs(700);
+        const retryResp = await runClaude();
+        replyCore = extractCombinedText(retryResp);
+      }
+      if (!replyCore) throw new Error("Claude empty response");
+    } catch (e) {
+      console.error("[not-relevant] open-question Claude failed:", e);
+      replyCore = formatUserFacingClaudeError(e);
+      isFallbackErrorReply = true;
+      replyErrorCode = "claude_failed";
+    }
+  }
+
+  const answerOnly = isFallbackErrorReply
+    ? replyCore
+    : stripTrailingFollowUpQuestion(
+        applyKnownAssistantReplyFixes(replyCore, {
+          knowledge,
+          phase: "opening",
+          multiServiceAwaitingPick: false,
+        })
+      );
+
+  try {
+    await sendWhatsAppMessage(
+      input.waFromNumber,
+      input.phone,
+      answerOnly,
+      input.accountSid,
+      input.authToken
+    );
+  } catch (e) {
+    console.error("[not-relevant] open-question answer send failed:", e);
+    return;
+  }
+
+  await logMessage({
+    business_slug: businessSlug,
+    role: "assistant",
+    content: answerOnly,
+    model_used: replyModelUsed,
+    session_id: input.sessionId,
+    error_code: replyErrorCode,
+  }).catch((e) => console.error("[not-relevant] answer log failed:", e));
+
+  if (isFallbackErrorReply) return;
+
+  await sleepMs(650);
+
+  try {
+    await sendWhatsAppTextOrMenu(
+      input.waFromNumber,
+      input.phone,
+      NOT_RELEVANT_FLOW_RESTART_CTA_BODY,
+      [NOT_RELEVANT_FLOW_RESTART_BUTTON],
+      input.accountSid,
+      input.authToken
+    );
+  } catch (e) {
+    console.error("[not-relevant] flow-restart CTA send failed:", e);
+    return;
+  }
+
+  await logMessage({
+    business_slug: businessSlug,
+    role: "assistant",
+    content: `${NOT_RELEVANT_FLOW_RESTART_CTA_BODY}\n[כפתורים: ${NOT_RELEVANT_FLOW_RESTART_BUTTON}]`,
+    model_used: "not_relevant_flow_restart_cta",
+    session_id: input.sessionId,
+  }).catch((e) => console.error("[not-relevant] CTA log failed:", e));
+}
 
 const NOT_RELEVANT_EXACT = new Set([
   "לא רלוונטי",
