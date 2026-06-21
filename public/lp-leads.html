@@ -1453,6 +1453,12 @@ section{padding:80px 6%;}
   font-size:14px;font-weight:400;
   color:var(--muted);line-height:1.45;margin:0;
 }
+.flow-steps-note{
+  font-family:'Heebo',sans-serif;
+  font-size:14px;font-weight:400;
+  color:var(--text);line-height:1.55;
+  margin:12px 0 0;text-align:right;
+}
 
 /* CRM */
 .crm-section{background:var(--bg);padding:clamp(56px,8vh,80px) 6%;}
@@ -1668,16 +1674,8 @@ section{padding:80px 6%;}
   position:relative;z-index:1;
 }
 .savings-compare-bridge{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:6px;padding:8px 4px;min-width:52px;
-}
-.savings-bridge-line{
-  flex:1;min-height:18px;width:2px;
-  background:linear-gradient(180deg,rgba(113,51,218,0.15),rgba(113,51,218,0.45));
-  border-radius:2px;
-}
-.savings-bridge-line:last-child{
-  background:linear-gradient(180deg,rgba(113,51,218,0.45),rgba(53,255,112,0.55));
+  display:flex;align-items:center;justify-content:center;
+  padding:8px 4px;min-width:52px;align-self:center;
 }
 .savings-bridge-orb{
   flex-shrink:0;width:46px;height:46px;border-radius:50%;
@@ -1686,12 +1684,6 @@ section{padding:80px 6%;}
   display:flex;align-items:center;justify-content:center;
 }
 .savings-bridge-orb img{width:58%;height:58%;object-fit:contain;}
-.savings-bridge-chev{
-  width:10px;height:10px;
-  border-inline-end:2px solid rgba(113,51,218,0.5);
-  border-block-end:2px solid rgba(113,51,218,0.5);
-  transform:rotate(45deg);
-}
 .savings-metric-panel{
   position:relative;
   text-align:center;
@@ -1780,19 +1772,9 @@ section{padding:80px 6%;}
     gap:0;
   }
   .savings-compare-bridge{
-    flex-direction:row;
     padding:14px 0;
     min-width:0;
-  }
-  .savings-bridge-line{
-    flex:1;min-height:0;height:2px;width:auto;
-    background:linear-gradient(90deg,rgba(113,51,218,0.15),rgba(113,51,218,0.45));
-  }
-  .savings-bridge-line:last-child{
-    background:linear-gradient(90deg,rgba(113,51,218,0.45),rgba(53,255,112,0.55));
-  }
-  .savings-bridge-chev{
-    transform:rotate(-45deg);
+    justify-content:center;
   }
   .savings-card{text-align:center;}
   .savings-card-head{justify-content:center;}
@@ -2154,6 +2136,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
             </div>
           </li>
         </ol>
+        <p class="flow-steps-note">רוצים לשנות משהו בפלואו המכירה? עשו זאת בקלות בכל עת דרך הדשבורד</p>
       </div>
     </div>
   </div>
@@ -2365,10 +2348,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           </ul>
         </article>
         <div class="savings-compare-bridge" aria-hidden="true">
-          <span class="savings-bridge-line"></span>
           <span class="savings-bridge-orb"><img src="/zoe-browser-icon.png" alt=""></span>
-          <span class="savings-bridge-chev"></span>
-          <span class="savings-bridge-line"></span>
         </div>
         <article class="savings-card savings-card--after">
           <header class="savings-card-head">
