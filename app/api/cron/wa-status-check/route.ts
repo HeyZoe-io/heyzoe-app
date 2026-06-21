@@ -160,6 +160,8 @@ export async function GET(req: NextRequest) {
       trial_registered?: boolean | null;
       opted_out?: boolean | null;
       last_contact_at?: string | null;
+      wa_followup_stage?: number | null;
+      full_name?: string | null;
     };
     const contactId = contact.id;
     const phone = String(contact.phone ?? "").trim();
@@ -222,6 +224,18 @@ export async function GET(req: NextRequest) {
         });
         bumpSkip("update_failed");
         continue;
+      }
+
+      const followupStage = Number(contact.wa_followup_stage ?? 0) || 0;
+      if (followupStage < 3) {
+        const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+        await dispatchCrmEvent({
+          businessId,
+          leadPhone: phone,
+          kind: "idle_no_response",
+          fullName: String(contact.full_name ?? "").trim() || null,
+          eventAtIso: nowIso,
+        });
       }
 
       marked += 1;

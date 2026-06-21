@@ -25,6 +25,7 @@ export type CrmEventKind =
   | "trial_registered"
   | "human_requested"
   | "no_response"
+  | "idle_no_response"
   | "not_relevant"
   | "template_sent"
   | "template_no_response";
@@ -93,6 +94,8 @@ export function buildCrmEventNote(
       return "🙋 זואי: הליד ביקש לדבר עם נציג";
     case "no_response":
       return "⏰ זואי: הליד לא ענה לאחר כל הפולואפים, מומלץ להתקשר";
+    case "idle_no_response":
+      return "עברו 24 שעות והליד לא נרשם - יש ליצור קשר טלפוני";
     case "template_sent":
       return "זואי - נשלח טמפלייט פתיחה לליד";
     case "template_no_response":
