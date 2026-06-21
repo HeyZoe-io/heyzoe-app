@@ -593,6 +593,7 @@ export async function GET(req: NextRequest) {
         bot_name: botName,
         business_name: businessName,
         phone: phoneDisplay || "",
+        service_phone_note: phoneDisplay ? `\n\nניתן גם להתקשר ל:${phoneDisplay}` : "",
       };
 
       const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as { social_links?: unknown }).social_links);
