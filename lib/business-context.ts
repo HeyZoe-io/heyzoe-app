@@ -652,6 +652,8 @@ export function buildSystemPrompt(
   const userLanguageBlock = buildUserLanguagePromptBlock(lastUserMessage);
   const platformSection = buildZoePlatformPromptSection(platform);
   const toneAnalysis = getZoePlatformCategoryBlock(platform, "tone_analysis");
+  const voiceStyle = getZoePlatformCategoryBlock(platform, "voice_style");
+  const voiceExamples = getZoePlatformCategoryBlock(platform, "voice_examples");
   const identityBlock = getZoePlatformCategoryBlock(platform, "identity");
 
   const registrationPaymentRule = isWhatsApp && postTrial
@@ -699,6 +701,8 @@ ${identityBlock ? `\n${identityBlock}` : ""}
 הנחיות סגנון מפורטות - יש ליישם בכל תשובה, כולל הודעת פתיחה עתידית או המשך שיחה:
 ${vibeDetail}
 ${toneAnalysis ? `\n${toneAnalysis}` : ""}
+${voiceStyle ? `\n${voiceStyle}` : ""}
+${voiceExamples ? `\n${voiceExamples}` : ""}
 
 כללים:
 ${legalRules}
