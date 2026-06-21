@@ -165,43 +165,6 @@ export async function resolveBusinessSlugVariants(
   return [...variants];
 }
 
-/** PostgREST מגביל ~1,000 שורות לבקשה — שליפה בדפים כדי לא לפספס הודעות חדשות. */
-const MESSAGES_PAGE_SIZE = 1000;
-const MESSAGES_PAGE_SAFETY_CAP = 100_000;
-
-async function fetchAllBusinessMessagesForSessions(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  slugVariants: string[],
-  phoneNumberIds: string[]
-): Promise<{ session_id?: string | null; role?: string | null; created_at?: string | null }[]> {
-  const filtered: { session_id?: string | null; role?: string | null; created_at?: string | null }[] = [];
-
-  for (let offset = 0; offset < MESSAGES_PAGE_SAFETY_CAP; offset += MESSAGES_PAGE_SIZE) {
-    const { data, error } = await admin
-      .from("messages")
-      .select("session_id, role, created_at, business_slug")
-      .in("business_slug", slugVariants)
-      .order("created_at", { ascending: true })
-      .range(offset, offset + MESSAGES_PAGE_SIZE - 1);
-
-    if (error) {
-      console.warn("[conversations-sessions] messages page load:", error.message);
-      break;
-    }
-
-    const batch = data ?? [];
-    for (const m of batch) {
-      if (sessionIdMatchesWaPhoneNumberIds(String((m as { session_id?: string }).session_id ?? ""), phoneNumberIds)) {
-        filtered.push(m);
-      }
-    }
-
-    if (batch.length < MESSAGES_PAGE_SIZE) break;
-  }
-
-  return filtered;
-}
-
 export function aggregateSessionsFromMessages(
   messages: { session_id?: string | null; role?: string | null; created_at?: string | null }[],
   pausedSet: Set<string>
@@ -235,6 +198,34 @@ export function aggregateSessionsFromMessages(
     };
   });
 
+  return sortSessionsByRecentActivity(sessions);
+}
+
+type RpcSessionRow = {
+  session_id: string | null;
+  last_at: string | null;
+  msg_count: number | null;
+  last_role: string | null;
+};
+
+function mapRpcRowsToSessions(rows: RpcSessionRow[], pausedSet: Set<string>): SessionSummary[] {
+  const sessions: SessionSummary[] = [];
+  for (const r of rows) {
+    const sid = String(r.session_id ?? "");
+    if (!sid) continue;
+    const at = new Date(String(r.last_at ?? ""));
+    if (Number.isNaN(at.getTime())) continue;
+    const lastFromUser = String(r.last_role ?? "") === "user";
+    const isOpen = lastFromUser && Date.now() - at.getTime() < 24 * 60 * 60 * 1000;
+    sessions.push({
+      session_id: sid,
+      lastAt: at.toISOString(),
+      count: Number(r.msg_count ?? 0),
+      isOpen,
+      isPaused: pausedSet.has(sid),
+      phone: extractPhoneFromSessionId(sid),
+    });
+  }
   return sortSessionsByRecentActivity(sessions);
 }
 
@@ -290,17 +281,22 @@ export async function loadBusinessConversationSessions(
   const phoneNumberIds = await resolveBusinessWaPhoneNumberIds(admin, slug);
   if (!phoneNumberIds.length) return [];
 
+  const waSessionPrefixes = phoneNumberIds.map((pid) => buildWaSessionPrefix(pid));
+
   const norm = String(slug ?? "").trim().toLowerCase();
   const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
   const businessId = Number((biz as { id?: number } | null)?.id ?? 0);
 
-  const [{ data: pausedRows }, filteredMessages, { data: templateContacts }] = await Promise.all([
+  const [{ data: pausedRows }, { data: rpcRows, error: rpcError }, { data: templateContacts }] = await Promise.all([
     admin
       .from("paused_sessions")
       .select("session_id, paused_until, business_slug")
       .in("business_slug", slugVariants)
       .gt("paused_until", new Date().toISOString()),
-    fetchAllBusinessMessagesForSessions(admin, slugVariants, phoneNumberIds),
+    admin.rpc("dashboard_session_summaries", {
+      slug_variants: slugVariants,
+      wa_session_prefixes: waSessionPrefixes,
+    }),
     Number.isFinite(businessId) && businessId > 0
       ? admin
           .from("contacts")
@@ -318,7 +314,8 @@ export async function loadBusinessConversationSessions(
       )
       .map((p) => String((p as { session_id?: string }).session_id ?? ""))
   );
-  let sessions = aggregateSessionsFromMessages(filteredMessages, pausedSet);
+  if (rpcError) console.warn("[conversations-sessions] rpc:", rpcError.message);
+  let sessions = mapRpcRowsToSessions((rpcRows ?? []) as RpcSessionRow[], pausedSet);
   sessions = appendTemplateOnlySessions(sessions, (templateContacts ?? []) as Record<string, unknown>[], phoneNumberIds);
 
   if (!Number.isFinite(businessId) || businessId <= 0) return sessions;
