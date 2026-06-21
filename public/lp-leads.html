@@ -50,7 +50,7 @@ nav{
   border-radius:999px;
   box-shadow:0 8px 32px rgba(26,10,60,0.12),0 1px 0 rgba(255,255,255,0.7) inset;
   padding:10px 20px;
-  display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;
+  display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:nowrap;
   will-change:transform;
 }
 .nav-login{
@@ -153,7 +153,8 @@ nav{
 
 .nav-logo{display:flex;align-items:center;justify-content:center;}
 .nav-logo img{height:30px;object-fit:contain;}
-.nav-links{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-size:16px;font-family:'Fredoka',sans-serif;}
+.nav-links{display:flex;align-items:center;justify-content:center;gap:clamp(2px,0.8vw,6px);flex-wrap:nowrap;font-size:clamp(13px,1.35vw,16px);font-family:'Fredoka',sans-serif;white-space:nowrap;}
+.nav-links a{padding:7px clamp(8px,1.2vw,14px) !important;}
 .nav-cta{
   background:var(--purple);color:white;border:none;border-radius:30px;
   padding:10px 22px;font-size:14px;font-weight:500;cursor:pointer;
@@ -320,8 +321,9 @@ nav{
 .hero-link-input{
   flex:1;min-width:0;border:0;outline:0;
   font-family:'Inter',system-ui,sans-serif;
-  font-size:15px;color:var(--dark);
+  font-size:16px;color:var(--dark);
   background:transparent;padding:10px 4px;
+  -webkit-text-size-adjust:100%;
 }
 .hero-link-input::placeholder{color:#9ca3af;}
 .hero-link-spark{
@@ -357,6 +359,29 @@ nav{
   animation:fadeUp 0.45s ease both;
 }
 .hero-scan-panel.is-active{display:block;}
+.hero-scan-continue{
+  display:none;width:100%;margin-top:14px;
+  text-align:center;
+}
+.hero-scan-continue.is-visible{display:block;}
+.hero-scan-continue-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#35ff70 0%,#22c55e 100%);
+  color:#0a0420;border:0;border-radius:999px;
+  padding:14px 32px;font-family:'Fredoka',sans-serif;
+  font-size:17px;font-weight:700;cursor:pointer;
+  text-decoration:none;
+  box-shadow:0 8px 28px rgba(53,255,112,0.35);
+  animation:heroContinuePulse 1.6s ease-in-out infinite;
+}
+.hero-scan-continue-btn:hover{
+  transform:translateY(-1px);
+  box-shadow:0 12px 32px rgba(53,255,112,0.45);
+}
+@keyframes heroContinuePulse{
+  0%,100%{transform:scale(1);}
+  50%{transform:scale(1.06);}
+}
 .hero-scan-heading{
   display:none;
   font-family:'Heebo',sans-serif;
@@ -621,9 +646,10 @@ nav{
   }
 }
 @media(max-width:640px){
-  .hero-scan-shell{grid-template-columns:1fr;grid-template-rows:1fr auto;}
+  .hero-scan-panel{min-height:480px;padding:16px 12px 14px;}
+  .hero-scan-shell{grid-template-columns:1fr;grid-template-rows:1fr auto;min-height:400px;}
   .hero-scan-nav{flex-direction:row;flex-wrap:wrap;order:2;}
-  .hero-scan-body{order:1;min-height:260px;max-height:260px;display:flex;flex-direction:column;}
+  .hero-scan-body{order:1;min-height:340px;max-height:340px;display:flex;flex-direction:column;}
   .hero-scan-tab{flex:1 1 calc(50% - 4px);font-size:11px;padding:8px;}
   .hero-scan-pick{
     align-self:center;
@@ -811,6 +837,13 @@ nav{
   transition:color 0.25s ease;
 }
 .zoe-cap-step:hover .zoe-cap-label{color:var(--purple);}
+.zoe-cap-footnote{
+  font-family:'Heebo',sans-serif;
+  font-size:14px;font-weight:400;
+  color:var(--text);line-height:1.55;
+  margin:clamp(24px,4vw,36px) auto 0;
+  max-width:32rem;text-align:center;
+}
 @media (max-width:768px){
   .zoe-cap-steps{
     flex-wrap:wrap;
@@ -1126,6 +1159,14 @@ nav{
   transition:transform 0.2s,box-shadow 0.2s;text-decoration:none;display:inline-block;
 }
 .btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(113,51,218,0.4);}
+.lp-cta-row{text-align:center;margin-top:clamp(28px,4vw,44px);}
+.lp-cta-btn{
+  background:linear-gradient(135deg,var(--purple),#a855f7);color:white;border:none;
+  border-radius:30px;padding:14px 32px;font-size:16px;font-weight:600;
+  cursor:pointer;font-family:'Fredoka',sans-serif;
+  transition:transform 0.2s,box-shadow 0.2s;text-decoration:none;display:inline-block;
+}
+.lp-cta-btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(113,51,218,0.4);}
 .btn-secondary{
   background:transparent;color:var(--purple);border:2px solid var(--purple);border-radius:30px;
   padding:14px 28px;font-size:16px;font-weight:500;cursor:pointer;
@@ -1402,7 +1443,14 @@ section{padding:80px 6%;}
   max-width:42rem;
 }
 @media(max-width:768px){
-  .lf-branches{grid-template-columns:1fr;}
+  .lf-branches{
+    grid-template-columns:repeat(3,1fr);
+    gap:6px;
+  }
+  .lf-branch{padding:12px 8px;}
+  .lf-branch-q{font-size:12px;margin-bottom:6px;}
+  .lf-branch-a{font-size:11px;line-height:1.45;}
+  .lf-branch-note{font-size:10px;}
   .lf-split-svg{height:28px;}
   .lf-zoe-row{flex-direction:column;align-items:center;}
 }
@@ -1453,12 +1501,6 @@ section{padding:80px 6%;}
   font-size:14px;font-weight:400;
   color:var(--muted);line-height:1.45;margin:0;
 }
-.flow-steps-note{
-  font-family:'Heebo',sans-serif;
-  font-size:14px;font-weight:400;
-  color:var(--text);line-height:1.55;
-  margin:12px 0 0;text-align:right;
-}
 
 /* CRM */
 .crm-section{background:var(--bg);padding:clamp(56px,8vh,80px) 6%;}
@@ -1475,6 +1517,32 @@ section{padding:80px 6%;}
   gap:clamp(12px,3.5vw,28px);
   direction:rtl;
 }
+.crm-orbit-wrap{
+  position:relative;flex:0 0 auto;
+  padding-top:clamp(56px,10vw,76px);
+  margin-top:clamp(4px,1.5vw,12px);
+}
+.crm-orbit-labels{
+  position:absolute;left:50%;top:0;
+  width:min(260px,72vw);height:clamp(72px,12vw,96px);
+  transform:translateX(-50%);pointer-events:none;
+}
+.crm-orbit-tag{
+  position:absolute;
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(10px,1.7vw,12px);font-weight:500;
+  color:var(--muted);white-space:nowrap;
+  padding:4px 10px;border-radius:999px;
+  background:rgba(255,255,255,0.92);
+  border:1px solid rgba(113,51,218,0.12);
+  box-shadow:0 2px 8px rgba(113,51,218,0.06);
+}
+.crm-orbit-tag:nth-child(1){right:0;bottom:6px;}
+.crm-orbit-tag:nth-child(2){right:14%;bottom:38px;}
+.crm-orbit-tag:nth-child(3){right:34%;top:14px;}
+.crm-orbit-tag:nth-child(4){left:34%;top:14px;}
+.crm-orbit-tag:nth-child(5){left:14%;bottom:38px;}
+.crm-orbit-tag:nth-child(6){left:0;bottom:6px;}
 .crm-node{
   display:flex;flex-direction:column;align-items:center;gap:10px;
   flex:0 0 auto;
@@ -1562,6 +1630,7 @@ section{padding:80px 6%;}
   font-family:'Fredoka',sans-serif;font-size:18px;font-weight:600;color:white;flex-shrink:0;
 }
 .step-title{font-family:'Fredoka',sans-serif;font-size:17px;font-weight:600;color:var(--dark);margin-bottom:4px;}
+.step-title-accent{color:#3b5bdb;}
 .step-desc{font-size:16px;color:var(--muted);line-height:1.65;}
 
 /* SAVINGS */
@@ -1590,6 +1659,26 @@ section{padding:80px 6%;}
   gap:clamp(28px,5vw,56px);
   align-items:center;
   direction:rtl;
+}
+.savings-testimonials{
+  display:flex;flex-direction:column;gap:clamp(14px,2.5vw,20px);
+  text-align:right;
+}
+.savings-quote{
+  margin:0;padding:clamp(18px,2.8vw,24px);
+  border-radius:20px;background:#fff;
+  border:1px solid rgba(113,51,218,0.1);
+  box-shadow:0 8px 28px rgba(26,10,60,0.05);
+}
+.savings-quote-text{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(14px,1.9vw,16px);line-height:1.75;
+  color:var(--text);margin:0 0 12px;
+}
+.savings-quote-author{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(13px,1.7vw,14px);font-weight:600;
+  color:var(--purple);margin:0;
 }
 .savings-compare{
   display:grid;
@@ -1906,7 +1995,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
   .hero-link-bar{padding:5px 5px 5px 10px;}
   .hero-link-btn{padding:11px 16px;font-size:13px;}
   .hero-link-btn span{display:none;}
-  .hero-link-input{font-size:14px;}
+  .hero-link-input{font-size:16px;}
   .flow-layout{
     grid-template-columns:1fr;
     gap:36px;
@@ -1984,6 +2073,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
             <div class="hero-scan-nav" id="heroScanNav" role="tablist" aria-label="שלבי איסוף מידע"></div>
           </div>
         </div>
+        <div class="hero-scan-continue" id="heroScanContinue">
+          <a href="#zoe-does" class="hero-scan-continue-btn" data-hz-label="בואו נמשיך! (דמו הירו)">בואו נמשיך!</a>
+        </div>
       </div>
     </div>
   </div>
@@ -2012,6 +2104,10 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <p class="zoe-cap-label">עונה גם<br>לשאלות פתוחות</p>
       </li>
     </ol>
+    <p class="zoe-cap-footnote reveal">רוצים לשנות משהו בפלואו המכירה? עשו זאת בקלות בכל עת דרך הדשבורד</p>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (מה זואי עושה)">בואו נתחיל!</a>
+    </div>
   </div>
 </section>
 
@@ -2136,8 +2232,10 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
             </div>
           </li>
         </ol>
-        <p class="flow-steps-note">רוצים לשנות משהו בפלואו המכירה? עשו זאת בקלות בכל עת דרך הדשבורד</p>
       </div>
+    </div>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (פלואו מכירה)">בואו נתחיל!</a>
     </div>
   </div>
 </section>
@@ -2151,15 +2249,25 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <p class="crm-intro">חוששים מהתעסקות במערכות וקודים? אל דאגה. אנחנו מבצעים איתכם פגישת הקמה קצרה לאחר ההרשמה ודואגים שהכל יהיה מסונכרן מבלי שתיאלצו להתעסק בתהליכים מורכבים.</p>
     </div>
     <div class="crm-diagram reveal" aria-hidden="false">
-      <div class="crm-node crm-node--client">
-        <div class="crm-node-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="4" width="18" height="16" rx="3"/>
-            <path d="M7 9h10M7 13h7M7 17h5"/>
-            <circle cx="17" cy="17" r="2.5"/>
-          </svg>
+      <div class="crm-orbit-wrap">
+        <div class="crm-orbit-labels" aria-hidden="true">
+          <span class="crm-orbit-tag">Arbox</span>
+          <span class="crm-orbit-tag">boostap</span>
+          <span class="crm-orbit-tag">fizikal</span>
+          <span class="crm-orbit-tag">plan do</span>
+          <span class="crm-orbit-tag">google sheets</span>
+          <span class="crm-orbit-tag">ועוד…</span>
         </div>
-        <span class="crm-node-label">ה-CRM שלכם</span>
+        <div class="crm-node crm-node--client">
+          <div class="crm-node-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="3"/>
+              <path d="M7 9h10M7 13h7M7 17h5"/>
+              <circle cx="17" cy="17" r="2.5"/>
+            </svg>
+          </div>
+          <span class="crm-node-label">ה-CRM שלכם</span>
+        </div>
       </div>
       <div class="crm-sync" aria-hidden="true">
         <svg viewBox="0 0 120 56" role="presentation">
@@ -2175,6 +2283,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         </div>
         <span class="crm-node-label">זואי</span>
       </div>
+    </div>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (אינטגרציה)">בואו נתחיל!</a>
     </div>
   </div>
 </section>
@@ -2227,7 +2338,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="lf-step lf-step--2">
         <div class="lf-step-head">
           <span class="lf-step-num">2</span>
-          <p class="lf-step-title">זואי מנהלת שיחת מכירה</p>
+          <p class="lf-step-title">זואי מנהלת שיחת מכירה בווטסאפ</p>
         </div>
         <div class="lf-zoe-row">
           <span class="lf-zoe-orb"><img src="/zoe-browser-icon.png" alt=""></span>
@@ -2265,6 +2376,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     </div>
 
     <p class="lead-flow-footnote reveal">אתם מקבלים למייל או לווטסאפ שלכם עדכונים שוטפים לגבי הלידים, ויכולים לצפות בשיחות בקלות וגם להתערב במידת הצורך.</p>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (תהליך ליד)">בואו נתחיל!</a>
+    </div>
   </div>
 </section>
 
@@ -2272,8 +2386,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 <!-- BOT -->
 <section class="bot-section">
   <div class="section-tag" style="background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.85);">שאלו את זואי</div>
-  <h2 class="section-title" style="margin:12px 0;">רוצים לראות את זואי בפעולה?</h2>
-  <p class="section-sub">שאלו אותה כל שאלה - היא תענה</p>
+  <h2 class="section-title" style="margin:12px 0;">שאלו את זואי כל שאלה!</h2>
   <div class="bot-stack">
     <div class="bot-chat" id="botChat"></div>
     <div class="bot-input-wrap" id="botInputWrap">
@@ -2294,6 +2407,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     <div class="demo-frame reveal" id="demoEmbed">
       <iframe class="demo-embed-frame" src="/heyzoe-demo-pilates-v2.html" title="דמו מונפש של זואי" loading="eager"></iframe>
     </div>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (דמו)">בואו נתחיל!</a>
+    </div>
   </div>
 </section>
 
@@ -2308,7 +2424,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     <div class="steps-list">
       <div class="setup-step reveal">
         <div class="step-circle">1</div>
-        <div><div class="step-title">מספר ווטסאפ רשמי לניהול הלידים</div><div class="step-desc">זואי רוכשת עבורכם מספר ייחודי ושולחת לאימות מול מטא.</div></div>
+        <div><div class="step-title">מספר ווטסאפ <span class="step-title-accent">רשמי</span> לניהול הלידים</div><div class="step-desc">זואי מחברת את הווטסאפ העסקי שלכם או רוכשת עבורכם מספר ושולחת לאימות מול מטא.</div></div>
       </div>
       <div class="setup-step reveal">
         <div class="step-circle">2</div>
@@ -2323,6 +2439,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div><div class="step-title">זואי יוצאת לדרך! 🚀</div><div class="step-desc">מהרגע הזה זואי עונה לכל ליד שמגיע - אתם חופשיים להתמקד באימונים.</div></div>
       </div>
     </div>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (הקמה)">בואו נתחיל!</a>
+    </div>
   </div>
 </section>
 
@@ -2334,30 +2453,15 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <h2 class="section-title" style="color:var(--dark);">זמן אמיתי שחוזר אליכם</h2>
     </div>
     <div class="savings-flow reveal">
-      <div class="savings-compare">
-        <article class="savings-card savings-card--before">
-          <header class="savings-card-head">
-            <span class="savings-card-emoji" aria-hidden="true">😩</span>
-            <span class="savings-card-label">לפני זואי</span>
-          </header>
-          <p class="savings-card-text">שעות על הטלפון, עונים לאותן שאלות שוב ושוב - בין אימון לאימון.</p>
-          <ul class="savings-pain-chips" aria-hidden="true">
-            <li>איפה אתם?</li>
-            <li>כמה עולה?</li>
-            <li>יש חנייה?</li>
-          </ul>
-        </article>
-        <div class="savings-compare-bridge" aria-hidden="true">
-          <span class="savings-bridge-orb"><img src="/zoe-browser-icon.png" alt=""></span>
-        </div>
-        <article class="savings-card savings-card--after">
-          <header class="savings-card-head">
-            <span class="savings-card-emoji" aria-hidden="true">😌</span>
-            <span class="savings-card-label savings-card-label--after">עם זואי</span>
-          </header>
-          <p class="savings-card-text">זואי עונה לכל זה בשבילכם. אתם מקבלים לידים שכבר נרשמו ורק צריכים לבוא לשיעור.</p>
-          <p class="savings-card-highlight">פחות טלפון, יותר זמן לעסק ולחיים</p>
-        </article>
+      <div class="savings-testimonials">
+        <figure class="savings-quote">
+          <blockquote class="savings-quote-text">היינו מבזבזים שעות על הטלפון בניסיון לנהל שיחה עם כל ליד וליד. היום, הבוט מבצעת הכל לבד, ורק במידה ולא בוצעה הרשמה אנחנו מקבלים התראה ומתערבים. זה הפחית לנו את העבודה מול הלידים ב־90%.</blockquote>
+          <figcaption class="savings-quote-author">סאנגה יוגה</figcaption>
+        </figure>
+        <figure class="savings-quote">
+          <blockquote class="savings-quote-text">היה לי בוט לסטודיו לפני שלא היה עונה לשאלות פתוחות וזה יצר המון תקלות ולידים שהתפספסו. זה שזואי מחוברת ל-AI ועונה בצורה כל כך מדויקת זה פשוט מטורף. ההקמה באמת לא לקחה יותר מחצי שעה וזה רק כי התעכבתי לדייק את הכל ולהוסיף לה פרטים שתדע לענות על הכל.</blockquote>
+          <figcaption class="savings-quote-author">AcrobyJoe</figcaption>
+        </figure>
       </div>
       <div class="savings-metric-panel">
         <div class="savings-metric-orb">
@@ -2384,6 +2488,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         </div>
         <p class="savings-sub">כדי שתוכלו ללכת לים, לחזור הביתה מוקדם, או לאמיצים - לעבוד על פיתוח העסק שלכם.</p>
       </div>
+    </div>
+    <div class="lp-cta-row reveal">
+      <a href="#pricing" class="lp-cta-btn" data-hz-label="בואו נתחיל! (המלצות)">בואו נתחיל!</a>
     </div>
   </div>
 </section>
@@ -2419,7 +2526,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>מספר ווטסאפ ייעודי</li>
           <li>פלואו מכירה מלא</li>
           <li>פולואפים אוטומטיים</li>
-          <li>עד 100 שיחות בחודש</li>
+          <li>עד 100 לידים בחודש</li>
           <li>דשבורד ניהול</li>
           <li>תמיכה בצ'אט</li>
         </ul>
@@ -2437,8 +2544,8 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="pricing-period">לחודש</div>
         <ul class="pricing-features">
           <li>כל מה שב-Starter</li>
-          <li>העלאת מדיה לצ'אט</li>
-          <li>עד 500 שיחות בחודש</li>
+          <li>שלבו תמונות וסרטונים בפלואו מכירה</li>
+          <li>עד 500 לידים בחודש</li>
           <li>ליווי צמוד בהקמה</li>
           <li>אנליטיקס מתקדם</li>
         </ul>
@@ -2664,6 +2771,11 @@ try{
   // Final CTA (white button) if present
   addCta(document.querySelector('a.btn-white[href="#pricing"]'), 'בואו נתחיל! (סוף דף)');
 
+  // Mid-page scroll CTAs
+  document.querySelectorAll('a.lp-cta-btn[href="#pricing"], a.hero-scan-continue-btn').forEach(function(a){
+    addCta(a, a.getAttribute('data-hz-label') || 'בואו נתחיל!');
+  });
+
   // Nav / in-page links to #pricing
   document.querySelectorAll('a[href="#pricing"]').forEach(function(a){
     if(a.classList && a.classList.contains('btn-white')) return;
@@ -2766,6 +2878,7 @@ try{
   var nav = document.getElementById('heroScanNav');
   var body = document.getElementById('heroScanBody');
   var urlInput = document.getElementById('heroSiteUrlInput');
+  var heroContinue = document.getElementById('heroScanContinue');
   if (!form || !panel || !nav || !body) return;
 
   var STEP_META = {
@@ -2822,6 +2935,19 @@ try{
     if (!v) return '';
     if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
     try { return new URL(v).toString(); } catch(e){ return ''; }
+  }
+  function extractUrlFromText(text){
+    var raw = String(text || '').trim();
+    if (!raw) return '';
+    var m = raw.match(/https?:\/\/[^\s<>"{}|\\^`\[\]]+/i);
+    if (m) return normalizeUrl(m[0]);
+    m = raw.match(/(?:www\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:\/[^\s]*)?/i);
+    if (m) return normalizeUrl(m[0]);
+    return normalizeUrl(raw);
+  }
+  function setHeroContinueVisible(show){
+    if (!heroContinue) return;
+    heroContinue.classList.toggle('is-visible', !!show);
   }
   function str(v){ return typeof v === 'string' ? v.trim() : ''; }
   function businessFields(d){
@@ -2902,6 +3028,9 @@ try{
     if (stepId !== 4) {
       chatAnimGen++;
       scanState.chatRunning = false;
+      setHeroContinueVisible(false);
+    } else {
+      setHeroContinueVisible(true);
     }
     var d = scanState.data || {};
     var html = '';
@@ -3142,6 +3271,7 @@ try{
     }
     scanState.chatRunning = false;
     scanState.chatPlayed = true;
+    setHeroContinueVisible(true);
   }
 
   async function revealSteps(d){
@@ -3167,9 +3297,11 @@ try{
     }
 
     renderPickHint();
+    setHeroContinueVisible(false);
   }
 
   async function startScan(url){
+    setHeroContinueVisible(false);
     try { if (window.hzTrack) hzTrack('lp_site_scan_start', url); } catch(e){}
     linkBlock.classList.add('is-scanning');
     panel.classList.add('is-active');
@@ -3211,6 +3343,18 @@ try{
     }
     void startScan(url);
   });
+
+  if (urlInput) {
+    urlInput.addEventListener('paste', function(e){
+      var clip = e.clipboardData || window.clipboardData;
+      if (!clip) return;
+      var text = clip.getData('text/plain') || clip.getData('text') || '';
+      var url = extractUrlFromText(text);
+      if (!url) return;
+      e.preventDefault();
+      urlInput.value = url;
+    });
+  }
 })();
 
 // WA chat animation - triggers on scroll
@@ -3313,7 +3457,7 @@ const zoeBrain = [
   {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
    ans:'מובן לגמרי. אבל תחשוב על זה - מבצע חודש '+promoMonth+', מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
   {keys:['שיחות','מגבל','לידים','100','500'],
-   ans:'Starter עד 100 שיחות בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
+   ans:'Starter עד 100 לידים בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
   {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
    ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
   {keys:['מאי','מבצע','חודש','מחיר'],
