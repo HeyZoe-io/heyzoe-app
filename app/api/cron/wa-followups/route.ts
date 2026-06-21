@@ -12,6 +12,7 @@ import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { resolveWaSalesFollowupTemplates } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
 import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
+import { customerServicePhoneFromSocialLinks } from "@/lib/whatsapp-copy";
 import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
@@ -441,7 +442,7 @@ export async function GET(req: NextRequest) {
     try {
       const { data: channel } = await admin
         .from("whatsapp_channels")
-        .select("phone_number_id, business_slug, phone_display, is_active")
+        .select("phone_number_id, business_slug, is_active")
         .eq("business_id", businessId)
         .eq("is_active", true)
         .limit(1)
@@ -587,13 +588,14 @@ export async function GET(req: NextRequest) {
         .maybeSingle();
       const businessName = String((biz as { name?: string }).name ?? "").trim() || business_slug;
       const botName = String((biz as { bot_name?: string }).bot_name ?? "").trim() || "זואי";
-      const phoneDisplay = String((channel as { phone_display?: string }).phone_display ?? "").trim();
+      // מספר שירות הלקוחות של העסק (טאב «על העסק») — לא מספר הוואטסאפ של זואי (phone_display)
+      const csPhone = customerServicePhoneFromSocialLinks((biz as { social_links?: unknown }).social_links);
 
       const vars = {
         bot_name: botName,
         business_name: businessName,
-        phone: phoneDisplay || "",
-        service_phone_note: phoneDisplay ? `\n\nניתן גם להתקשר ל:${phoneDisplay}` : "",
+        phone: csPhone || "",
+        service_phone_note: csPhone ? `\n\nניתן גם להתקשר ל:${csPhone}` : "",
       };
 
       const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as { social_links?: unknown }).social_links);
