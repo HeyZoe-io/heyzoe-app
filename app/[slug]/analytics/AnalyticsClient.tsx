@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import {
   DASHBOARD_CENTERED_CONTENT,
@@ -156,6 +156,9 @@ export default function AnalyticsClient({
   const textAlign = dashboardTextAlign(lang);
   const tooltipDir = lang === "en" ? "ltr" : "rtl";
 
+  const pathname = usePathname() ?? "";
+  const onAnalyticsPage = pathname.includes(`/${slug}/analytics`);
+
   const cachedOnMount = getAnalyticsClientCache(slug, initialRange);
   const [range, setRange] = useState<RangeKey>(cachedOnMount?.range ?? initialRange);
   const [data, setData] = useState<AnalyticsPayload | null>(cachedOnMount?.data ?? null);
@@ -166,7 +169,6 @@ export default function AnalyticsClient({
   const lastLoadedRangeRef = useRef<RangeKey>(cachedOnMount?.range ?? initialRange);
   const mountedRef = useRef(true);
   const inFlightRef = useRef<{ ac: AbortController | null; reqId: number }>({ ac: null, reqId: 0 });
-  const bootstrappedRef = useRef(Boolean(cachedOnMount));
 
   useEffect(() => {
     mountedRef.current = true;
@@ -202,13 +204,6 @@ export default function AnalyticsClient({
 
       if (!mountedRef.current) return;
       if (reqId !== inFlightRef.current.reqId) return;
-
-      try {
-        const path = window.location.pathname || "";
-        if (!path.endsWith(`/${slug}/analytics`) && !path.includes(`/${slug}/analytics`)) return;
-      } catch {
-        /* noop */
-      }
 
       const payload: AnalyticsPayload = {
         range: resolveRangeKey(j.range),
@@ -253,28 +248,34 @@ export default function AnalyticsClient({
     } catch (e: any) {
       if (e?.name === "AbortError") return;
     } finally {
+      if (ac.signal.aborted) return;
       if (mountedRef.current && reqId === inFlightRef.current.reqId) setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (bootstrappedRef.current) return;
-    bootstrappedRef.current = true;
-    void load(initialRange);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!onAnalyticsPage) return;
 
-  useEffect(() => {
-    if (range === lastLoadedRangeRef.current) return;
+    const hit = getAnalyticsClientCache(slug, range);
+    if (hit) {
+      setData(hit.data);
+      setPremium(hit.premium);
+      lastLoadedRangeRef.current = hit.range;
+      setLoading(false);
+      return;
+    }
+
+    if (lastLoadedRangeRef.current === range && data !== null) return;
+
     void load(range);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range]);
+  }, [onAnalyticsPage, range, slug]);
 
   function applyRange(next: RangeKey) {
     if (next === range) return;
-    lastLoadedRangeRef.current = next;
     const hit = getAnalyticsClientCache(slug, next);
     if (hit) {
+      lastLoadedRangeRef.current = next;
       setRange(next);
       setData(hit.data);
       setPremium(hit.premium);
