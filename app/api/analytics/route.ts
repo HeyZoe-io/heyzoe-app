@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack, invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
 import { computePremiumAnalytics, type PremiumRangeKey } from "@/lib/analytics-pro-metrics";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 // Premium analytics can be heavier on larger accounts.
@@ -101,7 +102,8 @@ export async function GET(req: NextRequest) {
   const isPremiumBiz = dbPlanIsPremium((biz as { plan?: unknown }).plan);
 
   const isOwner = String(biz.user_id) === user.user.id;
-  if (!isOwner) {
+  const isPlatformAdmin = isAdminAllowedEmail(user.user.email ?? "");
+  if (!isOwner && !isPlatformAdmin) {
     const { data: bu } = await admin
       .from("business_users")
       .select("role")
