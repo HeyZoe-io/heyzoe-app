@@ -129,6 +129,58 @@ export function formatNotRelevantCrmNote(reason: string | null): string {
   return r ? `זואי - לא רלוונטי - ${r}` : "זואי - לא רלוונטי";
 }
 
+/** איפוס סימון «לא רלוונטי» — מחזיר את הליד לפעיל ומאפשר חידוש פולואפים. */
+export function buildLeadReactivationPatch(): Record<string, unknown> {
+  return {
+    not_relevant_at: null,
+    not_relevant_reason: "",
+    wa_followup_stage: 0,
+    wa_followup_1_sent_at: null,
+    wa_followup_2_sent_at: null,
+    wa_followup_3_sent_at: null,
+    followup_sent: false,
+  };
+}
+
+/**
+ * הפעלה מחדש של ליד שסומן «לא רלוונטי» אחרי שהתחיל פלואו מחדש
+ * («אשמח לפרטים» / כוונת פתיחת פלואו). מנקה את הסטטוס בלבד —
+ * אתחול פלואו המכירה עצמו נעשה ב-flow הרגיל בהמשך.
+ */
+export async function reactivateNotRelevantLead(input: {
+  supabase: import("@supabase/supabase-js").SupabaseClient;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  sessionId: string;
+}): Promise<boolean> {
+  const businessId = Number(input.businessId);
+  const phone = String(input.phone ?? "").trim();
+  if (!businessId || !phone) return false;
+
+  const { error } = await input.supabase
+    .from("contacts")
+    .update(buildLeadReactivationPatch())
+    .eq("business_id", businessId)
+    .eq("phone", phone);
+
+  if (error) {
+    console.error("[not-relevant] reactivation update failed:", error.message);
+    return false;
+  }
+
+  const { logMessage } = await import("@/lib/analytics");
+  await logMessage({
+    business_slug: input.businessSlug,
+    role: "event",
+    content: "[heyzoe:lead_reactivated]",
+    model_used: "lead_reactivated",
+    session_id: input.sessionId,
+  }).catch((e) => console.error("[not-relevant] reactivation log failed:", e));
+
+  return true;
+}
+
 /** סימון ידני מדשבורד — עוצר פולואפים, ללא הודעה לליד */
 export async function markContactNotRelevantManually(input: {
   admin: import("@supabase/supabase-js").SupabaseClient;

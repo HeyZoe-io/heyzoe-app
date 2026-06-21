@@ -249,7 +249,11 @@ import {
 } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
-import { handleLeadNotRelevant, matchesNotRelevantKeyword } from "@/lib/not-relevant";
+import {
+  handleLeadNotRelevant,
+  matchesNotRelevantKeyword,
+  reactivateNotRelevantLead,
+} from "@/lib/not-relevant";
 
 export const runtime = "nodejs";
 
@@ -4420,14 +4424,53 @@ async function processIncoming(
   }
 
   if (contactNotRelevantAt) {
-    await sendWhatsAppMessage(
-      msg.toNumber,
-      msg.from,
-      "הבנתי שזה לא רלוונטי כרגע 🙏 אם תרצו בעתיד — כתבו *אשמח לפרטים*",
-      accountSid,
-      authToken
-    ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
-    return;
+    // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו («אשמח לפרטים» וכו׳) או הביע כוונה
+    // להתחיל פלואו מחדש — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
+    let wantsFlowRestart = msg.type === "text" && isSalesFlowGreetingTrigger(incomingTextRaw);
+    if (
+      !wantsFlowRestart &&
+      msg.type === "text" &&
+      businessId &&
+      incomingText.length >= 3 &&
+      incomingText.length <= 300
+    ) {
+      const apiKey = resolveClaudeApiKey();
+      if (apiKey) {
+        wantsFlowRestart = await classifySalesFlowStartIntentWithClaude({
+          apiKey,
+          text: incomingTextRaw,
+        });
+      }
+    }
+
+    if (wantsFlowRestart && businessId) {
+      const reactivated = await reactivateNotRelevantLead({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        sessionId: earlySessionId,
+      });
+      if (reactivated) {
+        console.info("[WA Webhook] not-relevant lead reactivated via flow-start trigger", {
+          business_slug,
+          session_id: earlySessionId,
+        });
+        contactNotRelevantAt = null;
+        // ממשיכים — הברכה/כוונת הפתיחה יזוהו בהמשך ויאתחלו את פלואו המכירה.
+      }
+    }
+
+    if (contactNotRelevantAt) {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "הבנתי שזה לא רלוונטי כרגע 🙏 אם תרצו בעתיד — כתבו *אשמח לפרטים*",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
+      return;
+    }
   }
 
   const sessionId = earlySessionId || buildWaSessionId(msg.toNumber, msg.from);
