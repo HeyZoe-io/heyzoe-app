@@ -34,11 +34,11 @@ type Lang = "he" | "en";
 const i18n = {
   he: {
     prepSteps: [
-      "קונים עבורך מספר ווטסאפ לבוט",
-      "מחברים אותו לווטסאפ",
-      "שולחים לאימות מול מטא",
-      "מכינים לך את הדשבורד",
-      "מחברים כל מה שצריך יחד…",
+      "מאמתים את התשלום",
+      "מכינים את החשבון שלך",
+      "טוענים את ההגדרות",
+      "מסדרים את הדשבורד",
+      "כמעט שם…",
     ],
     loginRedirectMsg: "התחברי כדי להיכנס לדשבורד.",
     missingEmail: "חסר אימייל בקישור. אם זה קרה אחרי תשלום, כתבו לנו בוואטסאפ ונעזור מיד.",
@@ -63,14 +63,35 @@ const i18n = {
     allReadyRedirect: "הכל מוכן! 🎉 מעבירים אותך...",
     preparing: "מכינים את הדשבורד שלך ✨",
     preparingHint: "זה לוקח בערך דקה, לא לסגור את הדף",
+    choiceTitle: "איך תרצו לחבר את הווטסאפ?",
+    choiceSubtitle: "בחרו את הדרך שמתאימה לכם — תמיד אפשר לשנות בהמשך.",
+    optCoexistenceTitle: "חיבור המספר הקיים שלי",
+    optCoexistenceDesc:
+      "נחבר את זואי למספר הווטסאפ העסקי הקיים שלכם, בלי לאבד את ההודעות והצ׳אטים. אם המספר עדיין על וואטסאפ רגיל — קודם התקינו WhatsApp Business והעבירו אליו את המספר.",
+    optNewTitle: "מספר חדש מ-HeyZoe",
+    optNewDesc: "נקנה ונחבר עבורכם מספר ווטסאפ חדש וייעודי לבוט. הדרך המהירה להתחיל.",
+    optManualTitle: "חיבור עם ליווי הצוות",
+    optManualDesc: "מעדיפים שנלווה אתכם? הצוות שלנו יחזור אליכם ויחבר את הכל יחד.",
+    comingSoon: "בקרוב",
+    manualInstructions:
+      "תודה! בחרתם חיבור עם ליווי. הצוות שלנו יחזור אליכם בהקדם כדי לחבר את הווטסאפ יחד. אפשר לסגור את הדף.",
+    changeChoice: "שינוי בחירה",
+    pathSaveError: "שמירת הבחירה נכשלה. נסו שוב.",
+    coexPreflightTitle: "לפני שמתחילים — כמה דברים חשובים",
+    coexReqAppOnly: "צריך שהמספר יהיה על אפליקציית WhatsApp Business (לא וואטסאפ הרגיל). אם הוא עדיין על וואטסאפ רגיל — התקינו WhatsApp Business והעבירו אליו את המספר קודם.",
+    coexReqVersion: "ודאו שאפליקציית WhatsApp Business מעודכנת לגרסה 2.24.17 ומעלה.",
+    coexReqKeepOpen: "השאירו את אפליקציית WhatsApp Business פתוחה במכשיר לאורך כל תהליך החיבור.",
+    coexReq14Days: "כדי לשמור על החיבור פעיל — פתחו את האפליקציה לפחות אחת ל-14 יום.",
+    coexAckButton: "הבנתי, ממשיכים",
+    coexConnect: "חברו את המספר הקיים",
   },
   en: {
     prepSteps: [
-      "Purchasing a WhatsApp number for your bot",
-      "Connecting it to WhatsApp",
-      "Sending it for Meta verification",
+      "Verifying your payment",
+      "Setting up your account",
+      "Loading your settings",
       "Preparing your dashboard",
-      "Connecting everything together…",
+      "Almost there…",
     ],
     loginRedirectMsg: "Sign in to access your dashboard.",
     missingEmail:
@@ -96,6 +117,27 @@ const i18n = {
     allReadyRedirect: "You're all set! 🎉 Redirecting you...",
     preparing: "Preparing your dashboard ✨",
     preparingHint: "This takes about a minute — please keep this page open",
+    choiceTitle: "How would you like to connect WhatsApp?",
+    choiceSubtitle: "Choose what works for you — you can always change this later.",
+    optCoexistenceTitle: "Connect my existing number",
+    optCoexistenceDesc:
+      "We'll connect Zoe to your existing WhatsApp Business number without losing your messages and chats. If the number is still on regular WhatsApp — first install WhatsApp Business and move the number to it.",
+    optNewTitle: "A new number from HeyZoe",
+    optNewDesc: "We'll buy and connect a dedicated new WhatsApp number for your bot. The fastest way to start.",
+    optManualTitle: "Guided setup with our team",
+    optManualDesc: "Prefer us to guide you? Our team will reach out and connect everything together.",
+    comingSoon: "Coming soon",
+    manualInstructions:
+      "Thanks! You chose guided setup. Our team will reach out shortly to connect WhatsApp together. You can close this page.",
+    changeChoice: "Change selection",
+    pathSaveError: "Couldn't save your selection. Please try again.",
+    coexPreflightTitle: "Before we start — a few important things",
+    coexReqAppOnly: "Your number must be on the WhatsApp Business app (not regular WhatsApp). If it's still on regular WhatsApp — install WhatsApp Business and move the number to it first.",
+    coexReqVersion: "Make sure the WhatsApp Business app is updated to version 2.24.17 or later.",
+    coexReqKeepOpen: "Keep the WhatsApp Business app open on your device throughout the connection process.",
+    coexReq14Days: "To keep the connection active — open the app at least once every 14 days.",
+    coexAckButton: "Got it, continue",
+    coexConnect: "Connect my existing number",
   },
 } as const;
 
@@ -165,6 +207,10 @@ export default function OnboardingSuccessClient() {
   const [fbConfigId, setFbConfigId] = useState("");
   const [embeddedState, setEmbeddedState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [embeddedErr, setEmbeddedErr] = useState<string | null>(null);
+  const [selectedPath, setSelectedPath] = useState<null | "coexistence" | "new_provisioned" | "manual">(null);
+  const [pathSaving, setPathSaving] = useState(false);
+  const [pathErr, setPathErr] = useState<string | null>(null);
+  const [coexAck, setCoexAck] = useState(false);
 
   const embeddedInFlightRef = useRef(false);
   const embeddedHandledWabaRef = useRef<string | null>(null);
@@ -306,7 +352,11 @@ export default function OnboardingSuccessClient() {
       const eventName = String(msg.event ?? "").trim();
       const data = msg.data ?? {};
 
-      if (eventName === "FINISH" || eventName === "FINISH_ONLY_WABA") {
+      if (
+        eventName === "FINISH" ||
+        eventName === "FINISH_ONLY_WABA" ||
+        eventName === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+      ) {
         const waba_id = String(data.waba_id ?? "")
           .trim()
           .replace(/\s+/g, "");
@@ -373,7 +423,36 @@ export default function OnboardingSuccessClient() {
     };
   }, []);
 
-  const connectEmbeddedWhatsApp = useCallback(() => {
+  const choosePath = useCallback(
+    (path: "coexistence" | "new_provisioned" | "manual") => {
+      if (!ready?.slug || !email) return;
+      const slug = ready.slug;
+      setPathErr(null);
+      setPathSaving(true);
+      void (async () => {
+        try {
+          const r = await fetch("/api/onboarding/set-onboarding-type", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ businessSlug: slug, email, onboarding_type: path }),
+          });
+          const j = (await r.json().catch(() => ({}))) as { success?: boolean; error?: string };
+          if (!r.ok || !j.success) {
+            setPathErr(j.error?.trim() || t.pathSaveError);
+            return;
+          }
+          setSelectedPath(path);
+        } catch {
+          setPathErr(t.pathSaveError);
+        } finally {
+          setPathSaving(false);
+        }
+      })();
+    },
+    [ready?.slug, email, t.pathSaveError]
+  );
+
+  const connectEmbeddedWhatsApp = useCallback((featureType: string = "") => {
     if (!ready?.slug || !email) return;
     if (!window.FB?.login) {
       setEmbeddedState("error");
@@ -388,7 +467,7 @@ export default function OnboardingSuccessClient() {
       scope: "whatsapp_business_management",
       response_type: "code",
       override_default_response_type: true,
-      extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
+      extras: { setup: {}, featureType, sessionInfoVersion: "3" },
     };
     if (fbConfigId) {
       loginOpts.config_id = fbConfigId;
@@ -643,62 +722,352 @@ export default function OnboardingSuccessClient() {
               </div>
             </div>
 
-            <div
-              style={{
-                marginTop: 18,
-                padding: "16px 16px",
-                borderRadius: "16px",
-                background: "rgba(255,255,255,0.95)",
-                border: "1px solid rgba(113,51,218,0.15)",
-                textAlign,
-              }}
-            >
-              <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
-                {t.title}
-              </p>
-              <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
-                {t.connectDescription}
-              </p>
-              {!fbAppId ? (
-                <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>{t.missingAppId}</p>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    disabled={!fbSdkReady || embeddedState === "loading" || embeddedState === "success"}
-                    onClick={() => connectEmbeddedWhatsApp()}
+            {!selectedPath ? (
+              <div
+                style={{
+                  marginTop: 18,
+                  padding: "16px 16px",
+                  borderRadius: "16px",
+                  background: "rgba(255,255,255,0.95)",
+                  border: "1px solid rgba(113,51,218,0.15)",
+                  textAlign,
+                }}
+              >
+                <p style={{ margin: "0 0 6px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
+                  {t.choiceTitle}
+                </p>
+                <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
+                  {t.choiceSubtitle}
+                </p>
+
+                <button
+                  type="button"
+                  disabled={pathSaving}
+                  onClick={() => choosePath("coexistence")}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    marginBottom: 10,
+                    padding: "12px 14px",
+                    borderRadius: "14px",
+                    border: "1px solid rgba(113,51,218,0.25)",
+                    background: "rgba(255,255,255,0.95)",
+                    cursor: pathSaving ? "wait" : "pointer",
+                    textAlign,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "block", fontSize: "14px", fontWeight: 700, color: "#2d1a6e" }}>
+                    {t.optCoexistenceTitle}
+                  </span>
+                  <span style={{ display: "block", margin: "6px 0 0", fontSize: "12px", lineHeight: 1.5, color: "#6b5b9a" }}>
+                    {t.optCoexistenceDesc}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={pathSaving}
+                  onClick={() => choosePath("new_provisioned")}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    marginBottom: 10,
+                    padding: "12px 14px",
+                    borderRadius: "14px",
+                    border: "1px solid rgba(113,51,218,0.25)",
+                    background: "rgba(255,255,255,0.95)",
+                    cursor: pathSaving ? "wait" : "pointer",
+                    textAlign,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "block", fontSize: "14px", fontWeight: 700, color: "#2d1a6e" }}>
+                    {t.optNewTitle}
+                  </span>
+                  <span style={{ display: "block", margin: "6px 0 0", fontSize: "12px", lineHeight: 1.5, color: "#6b5b9a" }}>
+                    {t.optNewDesc}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={pathSaving}
+                  onClick={() => choosePath("manual")}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: "12px 14px",
+                    borderRadius: "14px",
+                    border: "1px solid rgba(113,51,218,0.25)",
+                    background: "rgba(255,255,255,0.95)",
+                    cursor: pathSaving ? "wait" : "pointer",
+                    textAlign,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{ display: "block", fontSize: "14px", fontWeight: 700, color: "#2d1a6e" }}>
+                    {t.optManualTitle}
+                  </span>
+                  <span style={{ display: "block", margin: "6px 0 0", fontSize: "12px", lineHeight: 1.5, color: "#6b5b9a" }}>
+                    {t.optManualDesc}
+                  </span>
+                </button>
+
+                {pathErr ? (
+                  <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#b42318" }} role="alert">
+                    {pathErr}
+                  </p>
+                ) : null}
+              </div>
+            ) : selectedPath === "new_provisioned" ? (
+              <>
+                <div
+                  style={{
+                    marginTop: 18,
+                    padding: "16px 16px",
+                    borderRadius: "16px",
+                    background: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(113,51,218,0.15)",
+                    textAlign,
+                  }}
+                >
+                  <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
+                    {t.title}
+                  </p>
+                  <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
+                    {t.connectDescription}
+                  </p>
+                  {!fbAppId ? (
+                    <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>{t.missingAppId}</p>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!fbSdkReady || embeddedState === "loading" || embeddedState === "success"}
+                        onClick={() => connectEmbeddedWhatsApp()}
+                        style={{
+                          width: "100%",
+                          maxWidth: "100%",
+                          borderRadius: 999,
+                          border: "1px solid rgba(113,51,218,0.25)",
+                          background:
+                            !fbSdkReady || embeddedState === "loading"
+                              ? "rgba(113,51,218,0.35)"
+                              : "linear-gradient(135deg,#7133da,#ff92ff)",
+                          color: "#fff",
+                          padding: "12px 18px",
+                          fontFamily: "inherit",
+                          fontSize: "15px",
+                          fontWeight: 700,
+                          cursor: !fbSdkReady || embeddedState === "loading" ? "wait" : "pointer",
+                        }}
+                      >
+                        {embeddedState === "loading" ? t.connecting : t.connect}
+                      </button>
+                      {embeddedState === "success" ? (
+                        <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#0b5c2e", fontWeight: 600 }}>
+                          {t.successRedirecting}
+                        </p>
+                      ) : null}
+                      {embeddedState === "error" && embeddedErr ? (
+                        <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#b42318" }} role="alert">
+                          {embeddedErr}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPath(null)}
+                  style={{
+                    marginTop: 12,
+                    background: "none",
+                    border: "none",
+                    color: "#7133da",
+                    fontSize: "13px",
+                    fontFamily: "inherit",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  {t.changeChoice}
+                </button>
+              </>
+            ) : selectedPath === "coexistence" ? (
+              <>
+                {!coexAck ? (
+                  <div
                     style={{
-                      width: "100%",
-                      maxWidth: "100%",
-                      borderRadius: 999,
-                      border: "1px solid rgba(113,51,218,0.25)",
-                      background:
-                        !fbSdkReady || embeddedState === "loading"
-                          ? "rgba(113,51,218,0.35)"
-                          : "linear-gradient(135deg,#7133da,#ff92ff)",
-                      color: "#fff",
-                      padding: "12px 18px",
-                      fontFamily: "inherit",
-                      fontSize: "15px",
-                      fontWeight: 700,
-                      cursor: !fbSdkReady || embeddedState === "loading" ? "wait" : "pointer",
+                      marginTop: 18,
+                      padding: "16px 16px",
+                      borderRadius: "16px",
+                      background: "rgba(255,255,255,0.95)",
+                      border: "1px solid rgba(113,51,218,0.15)",
+                      textAlign,
                     }}
                   >
-                    {embeddedState === "loading" ? t.connecting : t.connect}
-                  </button>
-                  {embeddedState === "success" ? (
-                    <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#0b5c2e", fontWeight: 600 }}>
-                      {t.successRedirecting}
+                    <p style={{ margin: "0 0 12px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
+                      {t.coexPreflightTitle}
                     </p>
-                  ) : null}
-                  {embeddedState === "error" && embeddedErr ? (
-                    <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#b42318" }} role="alert">
-                      {embeddedErr}
+                    {[t.coexReqAppOnly, t.coexReqVersion, t.coexReqKeepOpen, t.coexReq14Days].map((line) => (
+                      <div
+                        key={line}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "10px",
+                          marginBottom: "10px",
+                          fontSize: "13px",
+                          lineHeight: 1.5,
+                          color: "#6b5b9a",
+                        }}
+                      >
+                        <span style={{ flexShrink: 0, color: "#7133da", fontWeight: 800 }} aria-hidden>
+                          •
+                        </span>
+                        <span>{line}</span>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setCoexAck(true)}
+                      style={{
+                        width: "100%",
+                        marginTop: 8,
+                        borderRadius: 999,
+                        border: "1px solid rgba(113,51,218,0.25)",
+                        background: "linear-gradient(135deg,#7133da,#ff92ff)",
+                        color: "#fff",
+                        padding: "12px 18px",
+                        fontFamily: "inherit",
+                        fontSize: "15px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {t.coexAckButton}
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      marginTop: 18,
+                      padding: "16px 16px",
+                      borderRadius: "16px",
+                      background: "rgba(255,255,255,0.95)",
+                      border: "1px solid rgba(113,51,218,0.15)",
+                      textAlign,
+                    }}
+                  >
+                    <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
+                      {t.optCoexistenceTitle}
                     </p>
-                  ) : null}
-                </>
-              )}
-            </div>
+                    <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
+                      {t.connectDescription}
+                    </p>
+                    {!fbAppId ? (
+                      <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>{t.missingAppId}</p>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={!fbSdkReady || embeddedState === "loading" || embeddedState === "success"}
+                          onClick={() => connectEmbeddedWhatsApp("whatsapp_business_app_onboarding")}
+                          style={{
+                            width: "100%",
+                            maxWidth: "100%",
+                            borderRadius: 999,
+                            border: "1px solid rgba(113,51,218,0.25)",
+                            background:
+                              !fbSdkReady || embeddedState === "loading"
+                                ? "rgba(113,51,218,0.35)"
+                                : "linear-gradient(135deg,#7133da,#ff92ff)",
+                            color: "#fff",
+                            padding: "12px 18px",
+                            fontFamily: "inherit",
+                            fontSize: "15px",
+                            fontWeight: 700,
+                            cursor: !fbSdkReady || embeddedState === "loading" ? "wait" : "pointer",
+                          }}
+                        >
+                          {embeddedState === "loading" ? t.connecting : t.coexConnect}
+                        </button>
+                        {embeddedState === "success" ? (
+                          <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#0b5c2e", fontWeight: 600 }}>
+                            {t.successRedirecting}
+                          </p>
+                        ) : null}
+                        {embeddedState === "error" && embeddedErr ? (
+                          <p style={{ margin: "12px 0 0", fontSize: "13px", color: "#b42318" }} role="alert">
+                            {embeddedErr}
+                          </p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPath(null);
+                    setCoexAck(false);
+                  }}
+                  style={{
+                    marginTop: 12,
+                    background: "none",
+                    border: "none",
+                    color: "#7133da",
+                    fontSize: "13px",
+                    fontFamily: "inherit",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  {t.changeChoice}
+                </button>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    marginTop: 18,
+                    padding: "16px 16px",
+                    borderRadius: "16px",
+                    background: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(113,51,218,0.15)",
+                    textAlign,
+                  }}
+                >
+                  <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
+                    {t.optManualTitle}
+                  </p>
+                  <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
+                    {t.manualInstructions}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPath(null)}
+                  style={{
+                    marginTop: 12,
+                    background: "none",
+                    border: "none",
+                    color: "#7133da",
+                    fontSize: "13px",
+                    fontFamily: "inherit",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  {t.changeChoice}
+                </button>
+              </>
+            )}
 
           </div>
         ) : (

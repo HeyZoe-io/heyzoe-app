@@ -348,52 +348,87 @@ export async function POST(req: NextRequest) {
             console.error("[api/icount-ipn] payment_sessions ready insert failed (existing biz):", e);
           }
 
-          // Trigger async WhatsApp provisioning *after successful payment* (reactivation flow):
-          // enqueue a job only if there's no active channel yet.
+          let isCoexistenceReactivation = false;
           try {
-            const { data: existingChannel } = await admin
-              .from("whatsapp_channels")
-              .select("id, provisioning_status, is_active")
-              .eq("business_slug", String(biz.slug).trim().toLowerCase())
-              .order("created_at", { ascending: false })
-              .limit(1)
+            const { data: bizTypeRow } = await admin
+              .from("businesses")
+              .select("onboarding_type")
+              .eq("id", biz.id)
               .maybeSingle();
-            const hasActive = Boolean((existingChannel as any)?.is_active) || (existingChannel as any)?.provisioning_status === "active";
-            if (!hasActive) {
-              const reactivationSlug = String(biz.slug).trim().toLowerCase();
-              const { data: bizWabaRow } = await admin
-                .from("businesses")
-                .select("waba_id")
-                .eq("id", biz.id)
-                .maybeSingle();
-              const existingWabaId = String((bizWabaRow as { waba_id?: unknown })?.waba_id ?? "")
-                .trim()
-                .replace(/\s+/g, "");
-              const reactivationStatus = existingWabaId ? "queued" : "awaiting_waba";
-              await admin.from("wa_provision_jobs").insert({
-                business_id: biz.id,
-                business_slug: reactivationSlug,
-                business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
-                status: reactivationStatus,
-              } as any);
-              console.info(
-                existingWabaId
-                  ? "[IPN] reactivation with existing waba_id - job created as queued"
-                  : "[IPN] reactivation without waba_id - job created as awaiting_waba"
-              );
-            }
-          } catch (e) {
-            console.error("[api/icount-ipn] enqueue wa_provision_jobs (reactivation) failed:", e);
+            isCoexistenceReactivation =
+              String((bizTypeRow as { onboarding_type?: unknown } | null)?.onboarding_type ?? "") === "coexistence";
+          } catch {
+            isCoexistenceReactivation = false;
           }
 
-          // Critical Meta registration step (best-effort; must not fail IPN)
-          void registerMetaNumberAndEmailAdmin({
-            admin,
-            business_id: Number(biz.id),
-            business_slug: String(biz.slug).trim().toLowerCase(),
-            business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
-            customer_email: email,
-          });
+          if (isCoexistenceReactivation) {
+            // Coexistence: reactivate the existing channel directly — no Twilio job, no Meta register.
+            try {
+              const { data: reactivated, error: reactivateErr } = await admin
+                .from("whatsapp_channels")
+                .update({ is_active: true, provisioning_status: "active" } as any)
+                .eq("business_id", biz.id)
+                .select("id");
+              if (reactivateErr || !reactivated?.length) {
+                console.warn("[api/icount-ipn] coexistence reactivation: no channel to reactivate", {
+                  business_id: biz.id,
+                  slug: biz.slug,
+                  error: reactivateErr?.message ?? null,
+                });
+              } else {
+                console.info("[IPN] coexistence reactivation - channel reactivated, no Twilio job");
+              }
+            } catch (e) {
+              console.error("[api/icount-ipn] coexistence reactivation channel update failed:", e);
+            }
+          } else {
+            // Trigger async WhatsApp provisioning *after successful payment* (reactivation flow):
+            // enqueue a job only if there's no active channel yet.
+            try {
+              const { data: existingChannel } = await admin
+                .from("whatsapp_channels")
+                .select("id, provisioning_status, is_active")
+                .eq("business_slug", String(biz.slug).trim().toLowerCase())
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              const hasActive = Boolean((existingChannel as any)?.is_active) || (existingChannel as any)?.provisioning_status === "active";
+              if (!hasActive) {
+                const reactivationSlug = String(biz.slug).trim().toLowerCase();
+                const { data: bizWabaRow } = await admin
+                  .from("businesses")
+                  .select("waba_id")
+                  .eq("id", biz.id)
+                  .maybeSingle();
+                const existingWabaId = String((bizWabaRow as { waba_id?: unknown })?.waba_id ?? "")
+                  .trim()
+                  .replace(/\s+/g, "");
+                const reactivationStatus = existingWabaId ? "queued" : "awaiting_waba";
+                await admin.from("wa_provision_jobs").insert({
+                  business_id: biz.id,
+                  business_slug: reactivationSlug,
+                  business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
+                  status: reactivationStatus,
+                } as any);
+                console.info(
+                  existingWabaId
+                    ? "[IPN] reactivation with existing waba_id - job created as queued"
+                    : "[IPN] reactivation without waba_id - job created as awaiting_waba"
+                );
+              }
+            } catch (e) {
+              console.error("[api/icount-ipn] enqueue wa_provision_jobs (reactivation) failed:", e);
+            }
+
+            // Critical Meta registration step (best-effort; must not fail IPN)
+            void registerMetaNumberAndEmailAdmin({
+              admin,
+              business_id: Number(biz.id),
+              business_slug: String(biz.slug).trim().toLowerCase(),
+              business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
+              customer_email: email,
+            });
+          }
 
           console.info("[api/icount-ipn] reactivated:", {
             email,
