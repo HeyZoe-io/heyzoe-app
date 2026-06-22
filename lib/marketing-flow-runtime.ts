@@ -8,6 +8,7 @@ import {
   replyContainsMarketingSupportWaLink,
   supportWhatsAppPrefillFromUserMessage,
 } from "@/lib/marketing-support-wa";
+import { fixNeutralLeadPluralAddressing } from "@/lib/wa-assistant-reply-fixes";
 import { sanitizeZoeDashes } from "@/lib/zoe-text";
 import {
   MARKETING_CONVERSATIONS_SLUG,
@@ -1228,7 +1229,7 @@ async function isMarketingPostFlowAiContext(leadPhone: string): Promise<boolean>
 
 /** מסיר סגירות ישנות מתשובת AI — הסגירה והכפתורים נשלחים בהודעה נפרדת */
 function prepareMarketingPostFlowAiReply(text: string): string {
-  let s = sanitizeZoeDashes(String(text ?? "").trim());
+  let s = fixNeutralLeadPluralAddressing(sanitizeZoeDashes(String(text ?? "").trim()));
 
   const lines = s.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   while (lines.length > 0) {
