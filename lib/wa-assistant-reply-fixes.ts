@@ -120,6 +120,31 @@ function normalizeWaDashes(text: string): string {
   return String(text ?? "").replace(/[—–]/g, "-");
 }
 
+/**
+ * ליד במגדר לא ידוע — ברירת מחדל זכר רבים («אתם», «לכם»), לא נקבה רבים («אתן», «לאתן»).
+ * זואי בגוף נקבה («שמחה») נשארת ללא שינוי.
+ */
+export function fixNeutralLeadPluralAddressing(text: string): string {
+  let s = String(text ?? "");
+  const pairs: Array<[RegExp, string]> = [
+    [/\bבואו\s+נמצא\s+לאתן\b/giu, "בואו נמצא לכם"],
+    [/\bנמצא\s+לאתן\b/giu, "נמצא לכם"],
+    [/\bמצא\s+לאתן\b/giu, "מצא לכם"],
+    [/\bשאתן\b/giu, "שאתם"],
+    [/\bלאתן\b/giu, "לכם"],
+    [/\bאתן\s+כאן\b/giu, "אתם כאן"],
+    [/\bאתן\s+מוזמנות\b/giu, "אתם מוזמנים"],
+    [/\bאתן\s+יכולות\b/giu, "אתם יכולים"],
+    [/\bאתן\s+הגעתן\b/giu, "אתם הגעתם"],
+    [/\bעבור\s+אתן\b/giu, "עבור אתם"],
+    [/\bשלכן\b/giu, "שלכם"],
+  ];
+  for (const [re, repl] of pairs) {
+    s = s.replace(re, repl);
+  }
+  return s;
+}
+
 /** «גופים» ברבים / «לכל סוגי גופים ודרישות» — לא תקני; מנקים או מחליפים ב«רמות». */
 function fixBodiesPhrasing(text: string): string {
   let s = String(text ?? "");
@@ -195,7 +220,7 @@ export function buildWaSpellingAndPhrasingPromptRule(
   const addressingHint =
     mode === "feminine"
       ? "מותר «מצאת עניין» (קהל נשים מפורש בידע)."
-      : "ניטרלי: «יש עניין», «אפשר», «ניתן» — לא «את מעניינת», לא «תוכלי/אוכלת לבחור».";
+      : "ניטרלי: «יש עניין», «אפשר», «ניתן» — לא «את מעניינת», לא «תוכלי/אוכלת לבחור». פנייה לליד במרובה: «אתם», «לכם», «שאתם» — לא «אתן», «לאתן», «שאתן».";
 
   return `
 איות וניסוח (חובה לפני סיום התשובה):
@@ -218,6 +243,9 @@ export function applyKnownAssistantReplyFixes(
   let s = normalizeWaDashes(applyTypoFixes(String(text ?? "").trim()));
   s = fixBodiesPhrasing(s);
   s = applyLocationFarClosingFix(s);
+  if (resolveWaReplyAddressingMode(input.knowledge) !== "feminine") {
+    s = fixNeutralLeadPluralAddressing(s);
+  }
   if (!s) return s;
 
   if (input.multiServiceAwaitingPick) {
