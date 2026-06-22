@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
-import { isAdminAllowedEmail } from "@/lib/server-env";
+import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { markContactNotRelevantManually } from "@/lib/not-relevant";
 import { markContactHumanRequestedManually } from "@/lib/human-requested";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
@@ -21,47 +21,6 @@ async function requireUser() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   return data.user ?? null;
-}
-
-async function requireBusinessAccess(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  userId: string,
-  slug: string,
-  userEmail?: string | null
-) {
-  const slugNorm = String(slug ?? "").trim().toLowerCase();
-  if (!slugNorm) return { ok: false as const, error: "missing_business_slug" as const };
-
-  const { data: biz, error: bizErr } = await admin
-    .from("businesses")
-    .select("id, slug, user_id, is_active")
-    .eq("slug", slugNorm)
-    .maybeSingle();
-
-  if (bizErr) return { ok: false as const, error: "business_lookup_failed" as const };
-  if (!biz?.id) return { ok: false as const, error: "business_not_found" as const };
-  if (!isBusinessSubscriptionActive(biz as { is_active?: boolean | null })) {
-    return { ok: false as const, error: "subscription_inactive" as const };
-  }
-
-  if (isAdminAllowedEmail(String(userEmail ?? "").trim().toLowerCase())) {
-    return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
-  }
-
-  const ownerOk = String(biz.user_id ?? "") === userId;
-  if (ownerOk) return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
-
-  const { data: membership, error: memErr } = await admin
-    .from("business_users")
-    .select("business_id")
-    .eq("user_id", userId)
-    .eq("business_id", biz.id)
-    .maybeSingle();
-
-  if (memErr) return { ok: false as const, error: "business_access_check_failed" as const };
-  if (!membership) return { ok: false as const, error: "forbidden" as const };
-
-  return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
 }
 
 export async function POST(req: NextRequest) {
@@ -86,15 +45,13 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createSupabaseAdminClient();
-  const access = await requireBusinessAccess(admin, user.id, businessSlug, user.email);
+  const access = await assertBusinessAccess(admin, { id: user.id, email: user.email }, businessSlug);
   if (!access.ok) {
-    const httpStatus =
-      access.error === "forbidden" || access.error === "subscription_inactive"
-        ? 403
-        : access.error === "business_not_found"
-          ? 404
-          : 400;
-    return NextResponse.json({ error: access.error }, { status: httpStatus });
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+
+  if (!isBusinessSubscriptionActive(access.business)) {
+    return NextResponse.json({ error: "subscription_inactive" }, { status: 403 });
   }
 
   const businessId = access.business.id;

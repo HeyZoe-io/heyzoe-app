@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack, invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
 import { computePremiumAnalytics, type PremiumRangeKey } from "@/lib/analytics-pro-metrics";
-import { isAdminAllowedEmail } from "@/lib/server-env";
+import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 
 export const runtime = "nodejs";
 // Premium analytics can be heavier on larger accounts.
@@ -88,31 +88,18 @@ export async function GET(req: NextRequest) {
   const { data: user } = await supabase.auth.getUser();
   if (!user.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  if (!businessSlug) return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
-
   const admin = createSupabaseAdminClient();
-  const { data: biz } = await admin
-    .from("businesses")
-    .select("id, slug, user_id, plan")
-    .eq("slug", businessSlug)
-    .maybeSingle();
-
-  if (!biz) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
-
-  const isPremiumBiz = dbPlanIsPremium((biz as { plan?: unknown }).plan);
-
-  const isOwner = String(biz.user_id) === user.user.id;
-  const isPlatformAdmin = isAdminAllowedEmail(user.user.email ?? "");
-  if (!isOwner && !isPlatformAdmin) {
-    const { data: bu } = await admin
-      .from("business_users")
-      .select("role")
-      .eq("business_id", biz.id)
-      .eq("user_id", user.user.id)
-      .maybeSingle();
-    const allowed = bu?.role === "admin";
-    if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const access = await assertBusinessAccess(
+    admin,
+    { id: user.user.id, email: user.user.email },
+    businessSlug
+  );
+  if (!access.ok) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
   }
+  const biz = access.business;
+
+  const isPremiumBiz = dbPlanIsPremium(biz.plan);
 
   // Metrics: prefer DB-side aggregation (fast, no large payloads).
   // Fallback to the old JS aggregation if RPC isn't deployed yet.

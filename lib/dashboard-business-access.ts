@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export type DashboardBizRow = Record<string, unknown> & {
   id?: number;
@@ -9,6 +10,71 @@ export type DashboardBizRow = Record<string, unknown> & {
 
 export function normDashboardSlug(s: unknown): string {
   return String(s ?? "").trim().toLowerCase();
+}
+
+export type AssertBusinessAccessBusiness = {
+  id: number;
+  slug: string;
+  user_id: string;
+  plan?: unknown;
+  is_active?: boolean | null;
+};
+
+export type AssertBusinessAccessResult =
+  | { ok: false; status: 400; error: "missing_business_slug" }
+  | { ok: false; status: 404; error: "business_not_found" }
+  | { ok: false; status: 403; error: "forbidden" }
+  | { ok: true; business: AssertBusinessAccessBusiness };
+
+/** גישה לעסק בודד: אדמין פלטפורמה, בעלות, או membership ב-business_users */
+export async function assertBusinessAccess(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  user: { id: string; email?: string | null },
+  slug: string
+): Promise<AssertBusinessAccessResult> {
+  const slugNorm = normDashboardSlug(slug);
+  if (!slugNorm) {
+    return { ok: false, status: 400, error: "missing_business_slug" };
+  }
+
+  const { data: biz } = await admin
+    .from("businesses")
+    .select("id, slug, user_id, plan, is_active")
+    .eq("slug", slugNorm)
+    .maybeSingle();
+
+  if (!biz?.id) {
+    return { ok: false, status: 404, error: "business_not_found" };
+  }
+
+  const business: AssertBusinessAccessBusiness = {
+    id: Number(biz.id),
+    slug: String(biz.slug ?? slugNorm),
+    user_id: String(biz.user_id ?? ""),
+    plan: (biz as { plan?: unknown }).plan,
+    is_active: (biz as { is_active?: boolean | null }).is_active,
+  };
+
+  if (isAdminAllowedEmail(user.email ?? "")) {
+    return { ok: true, business };
+  }
+
+  if (String(biz.user_id ?? "") === user.id) {
+    return { ok: true, business };
+  }
+
+  const { data: membership } = await admin
+    .from("business_users")
+    .select("business_id")
+    .eq("user_id", user.id)
+    .eq("business_id", biz.id)
+    .maybeSingle();
+
+  if (!membership) {
+    return { ok: false, status: 403, error: "forbidden" };
+  }
+
+  return { ok: true, business };
 }
 
 /** עסקים שהמשתמש רשאי לראות: בעלות + חברות ב-business_users */
