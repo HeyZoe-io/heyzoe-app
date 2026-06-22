@@ -844,6 +844,10 @@ nav{
   margin:clamp(24px,4vw,36px) auto 0;
   max-width:32rem;text-align:center;
 }
+.zoe-cap-footnote-br{display:none;}
+@media (max-width:768px){
+  .zoe-cap-footnote-br{display:block;}
+}
 @media (max-width:768px){
   .zoe-cap-steps{
     flex-wrap:wrap;
@@ -1464,6 +1468,150 @@ section{padding:80px 6%;}
 
 /* FLOW */
 .flow-section{background:#fff;padding:clamp(72px,10vh,96px) 6%;}
+
+/* WhatsApp number options */
+.wa-number-section{
+  position:relative;overflow:hidden;
+  padding:clamp(64px,9vh,88px) 6%;
+  background:linear-gradient(180deg,#fff 0%,#ecfdf5 18%,#eef2ff 55%,#f5f3ff 100%);
+}
+.wa-number-section::before,
+.wa-number-section::after{
+  content:'';position:absolute;border-radius:50%;pointer-events:none;filter:blur(60px);
+}
+.wa-number-section::before{
+  width:min(520px,70vw);height:min(520px,70vw);
+  top:-18%;left:-8%;
+  background:radial-gradient(circle,rgba(37,211,102,0.22),transparent 68%);
+}
+.wa-number-section::after{
+  width:min(440px,62vw);height:min(440px,62vw);
+  bottom:-14%;right:-6%;
+  background:radial-gradient(circle,rgba(113,51,218,0.16),transparent 70%);
+}
+.wa-number-inner{
+  max-width:960px;margin:0 auto;text-align:center;
+  position:relative;z-index:1;
+}
+.wa-number-head{margin-bottom:clamp(32px,5vw,48px);}
+.wa-number-head .section-title{margin:0 0 10px;}
+.wa-number-head-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  margin-bottom:14px;padding:7px 14px 7px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.82);
+  border:1px solid rgba(37,211,102,0.28);
+  box-shadow:0 4px 18px rgba(37,211,102,0.1);
+  font-family:'Heebo',sans-serif;
+  font-size:13px;font-weight:600;color:#128C7E;
+}
+.wa-number-head-badge svg{width:18px;height:18px;flex-shrink:0;}
+.wa-number-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:clamp(18px,3.2vw,26px);
+  text-align:right;
+  direction:rtl;
+}
+.wa-number-card{
+  position:relative;margin:0;
+  display:flex;flex-direction:column;align-items:flex-start;
+  padding:clamp(24px,3.2vw,30px);
+  border-radius:24px;background:rgba(255,255,255,0.94);
+  border:1px solid rgba(113,51,218,0.1);
+  box-shadow:0 10px 36px rgba(26,10,60,0.06);
+  transition:transform 0.25s ease,box-shadow 0.25s ease,border-color 0.25s ease;
+}
+.wa-number-card:hover{
+  transform:translateY(-4px);
+  border-color:rgba(113,51,218,0.2);
+  box-shadow:0 16px 44px rgba(113,51,218,0.1);
+}
+.wa-number-card-top{
+  display:flex;align-items:center;justify-content:space-between;
+  width:100%;gap:12px;margin-bottom:16px;
+}
+.wa-number-card-icon{
+  width:52px;height:52px;flex-shrink:0;
+  border-radius:16px;
+  display:flex;align-items:center;justify-content:center;
+  position:relative;
+}
+.wa-number-card-icon svg{width:26px;height:26px;}
+.wa-number-card-icon--existing{
+  background:linear-gradient(145deg,#25D366,#128C7E);
+  box-shadow:0 8px 22px rgba(37,211,102,0.28);
+}
+.wa-number-card-icon--existing svg{fill:#fff;}
+.wa-number-card-icon--new{
+  background:linear-gradient(145deg,#7133da,#a855f7);
+  box-shadow:0 8px 22px rgba(113,51,218,0.22);
+}
+.wa-number-card-icon--new svg{fill:#fff;}
+.wa-number-card-icon--new .wa-number-mini-wa{
+  position:absolute;bottom:-4px;left:-4px;
+  width:22px;height:22px;border-radius:50%;
+  background:#25D366;border:2px solid #fff;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(37,211,102,0.35);
+}
+.wa-number-card-icon--new .wa-number-mini-wa svg{width:12px;height:12px;fill:#fff;}
+.wa-number-card-chip{
+  font-family:'Heebo',sans-serif;
+  font-size:12px;font-weight:600;
+  color:var(--purple);
+  background:rgba(113,51,218,0.08);
+  border:1px solid rgba(113,51,218,0.14);
+  border-radius:999px;padding:5px 11px;
+  white-space:nowrap;
+}
+.wa-number-card-chip--green{
+  color:#128C7E;
+  background:rgba(37,211,102,0.1);
+  border-color:rgba(37,211,102,0.22);
+}
+.wa-number-card-title{
+  font-family:'Fredoka',sans-serif;
+  font-size:clamp(18px,2.4vw,22px);font-weight:600;
+  color:var(--dark);line-height:1.3;margin:0 0 10px;
+}
+.wa-number-card-desc{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(14px,1.85vw,15px);font-weight:400;
+  color:var(--muted);line-height:1.72;margin:0;
+}
+.wa-number-trust{
+  display:flex;align-items:flex-start;justify-content:center;gap:12px;
+  max-width:44rem;margin:clamp(28px,4.5vw,40px) auto 0;
+  padding:clamp(16px,2.5vw,20px) clamp(18px,3vw,24px);
+  border-radius:18px;
+  background:rgba(255,255,255,0.72);
+  border:1px solid rgba(113,51,218,0.1);
+  text-align:right;direction:rtl;
+}
+.wa-number-trust-icon{
+  flex-shrink:0;width:40px;height:40px;
+  border-radius:12px;
+  background:rgba(113,51,218,0.08);
+  color:var(--purple);
+  display:flex;align-items:center;justify-content:center;
+}
+.wa-number-trust-icon svg{width:20px;height:20px;}
+.wa-number-trust p{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(14px,1.85vw,15px);font-weight:400;
+  color:var(--text);line-height:1.75;margin:0;
+}
+@media (max-width:680px){
+  .wa-number-grid{grid-template-columns:1fr;}
+  .wa-number-section{padding:clamp(48px,8vh,64px) 6%;}
+  .wa-number-trust{flex-direction:row;align-items:flex-start;}
+  .wa-number-head-badge{font-size:12px;padding:6px 12px 6px 10px;}
+  .wa-number-head-badge span{max-width:16rem;line-height:1.35;text-align:right;}
+}
+@media (prefers-reduced-motion:reduce){
+  .wa-number-card:hover{transform:none;}
+}
 .flow-inner{max-width:1080px;margin:0 auto;}
 .flow-head{text-align:center;margin-bottom:clamp(40px,6vw,56px);}
 .flow-head-sub{color:var(--muted);margin:0 auto;max-width:520px;}
@@ -1653,28 +1801,29 @@ section{padding:80px 6%;}
 .savings-testimonials{
   display:flex;flex-direction:column;gap:clamp(14px,2.5vw,20px);
   text-align:right;
+  padding-top:clamp(18px,3vw,26px);
 }
 .savings-quote{
-  position:relative;margin:0;overflow:hidden;
+  position:relative;margin:0;overflow:visible;
   padding:clamp(24px,3.2vw,30px) clamp(18px,2.8vw,24px) clamp(18px,2.8vw,24px);
   border-radius:20px;background:#fff;
   border:1px solid rgba(113,51,218,0.1);
   box-shadow:0 8px 28px rgba(26,10,60,0.05);
 }
 .savings-quote-mark{
-  position:absolute;top:clamp(2px,0.8vw,6px);right:clamp(10px,2vw,16px);
+  position:absolute;top:0;right:clamp(14px,2.5vw,22px);
+  transform:translateY(-52%);
   font-family:'Fredoka',sans-serif;
-  font-size:clamp(56px,10vw,84px);font-weight:700;line-height:1;
+  font-size:clamp(48px,8.5vw,72px);font-weight:700;line-height:1;
   background:linear-gradient(145deg,#7133da 0%,#a855f7 55%,#c084fc 100%);
   background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  opacity:0.62;pointer-events:none;user-select:none;
+  opacity:0.72;pointer-events:none;user-select:none;z-index:2;
 }
 .savings-quote-text{
   position:relative;z-index:1;
   font-family:'Heebo',sans-serif;
   font-size:clamp(14px,1.9vw,16px);line-height:1.75;
   color:var(--text);margin:0 0 14px;
-  padding-inline-end:clamp(24px,4vw,36px);
 }
 .savings-quote-author{
   position:relative;z-index:1;
@@ -2106,7 +2255,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <p class="zoe-cap-label">עונה גם<br>לשאלות פתוחות</p>
       </li>
     </ol>
-    <p class="zoe-cap-footnote reveal">רוצים לשנות משהו בפלואו המכירה? עשו זאת בקלות בכל עת דרך הדשבורד</p>
+    <p class="zoe-cap-footnote reveal">רוצים לשנות משהו בפלואו המכירה?<br class="zoe-cap-footnote-br"> עשו זאת בקלות בכל עת דרך הדשבורד.</p>
   </div>
 </section>
 
@@ -2236,6 +2385,53 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           </li>
         </ol>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- WhatsApp Number -->
+<section class="wa-number-section" id="wa-number">
+  <div class="wa-number-inner">
+    <div class="wa-number-head reveal">
+      <div class="wa-number-head-badge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#25D366" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        <span>חיבור רשמי של מטא · WhatsApp Business API</span>
+      </div>
+      <h2 class="section-title" style="color:var(--dark);">מספר ווטסאפ עסקי</h2>
+    </div>
+    <div class="wa-number-grid reveal">
+      <article class="wa-number-card">
+        <div class="wa-number-card-top">
+          <div class="wa-number-card-icon wa-number-card-icon--existing" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          </div>
+          <span class="wa-number-card-chip wa-number-card-chip--green">אפשרות 1</span>
+        </div>
+        <h3 class="wa-number-card-title">המספר הקיים שלכם</h3>
+        <p class="wa-number-card-desc">ביכולתכם לשמור על המספר העסקי שלכם, להמשיך להשתמש בו באפליקציית ווטסאפ ביזנס ולהפעיל את זואי על גביו במקביל!</p>
+      </article>
+      <article class="wa-number-card">
+        <div class="wa-number-card-top">
+          <div class="wa-number-card-icon wa-number-card-icon--new" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M8.2 3.5h7.6c.9 0 1.6.7 1.6 1.6v14.3c0 .9-.7 1.6-1.6 1.6H8.2c-.9 0-1.6-.7-1.6-1.6V5.1c0-.9.7-1.6 1.6-1.6zm3.8 16.2a1.1 1.1 0 100 2.2 1.1 1.1 0 000-2.2z"/></svg>
+            <span class="wa-number-mini-wa" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            </span>
+          </div>
+          <span class="wa-number-card-chip">אפשרות 2 · כלול במחיר</span>
+        </div>
+        <h3 class="wa-number-card-title">מספר חדש מאיתנו</h3>
+        <p class="wa-number-card-desc">ביכולתכם לקבל מאיתנו מספר ווטסאפ מאומת שזואי תנהל את שיחות המכירה דרכו, כלול במחיר! תוכלו לצפות ולהתערב בשיחות דרך הדשבורד.</p>
+      </article>
+    </div>
+    <div class="wa-number-trust reveal">
+      <div class="wa-number-trust-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7.5 3v5.2c0 4.6-3.2 7.9-7.5 9.3C7.7 19.1 4.5 15.8 4.5 11.2V6L12 3z"/>
+          <path d="M9.2 12.1l1.9 1.9 3.8-3.9"/>
+        </svg>
+      </div>
+      <p>זואי משתמשת בחיבור הרשמי והמאובטח ביותר של מטא לבוט ווטסאפ. המספר יחובר אוטומטית לביזנס מנג׳ר שלכם ויהיה בבעלותכם, כך שתוכלו להריץ עליו מודעות click to whatsapp/leads ועוד.</p>
     </div>
   </div>
 </section>
@@ -2503,10 +2699,6 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
     </div>
   </div>
 </section>
-
-<div class="lp-cta-bridge reveal">
-  <a href="#pricing" class="lp-cta-btn" data-hz-label="הצטרפו לזואי (המלצות)">הצטרפו לזואי</a>
-</div>
 
 <!-- FINAL CTA -->
 <section class="final-cta">
