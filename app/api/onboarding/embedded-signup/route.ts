@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
+import { subscribeWabaToAppWebhooks, fetchPhoneNumbersForWaba } from "@/lib/meta-waba-resolve";
+import { canWriteForSlug } from "@/lib/onboarding-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,35 +18,6 @@ function normalizeEmail(raw: unknown): string {
   return String(raw ?? "")
     .trim()
     .toLowerCase();
-}
-
-/**
- * Allow saving WABA if the caller owns the business (session) or proves email matches
- * the business row / a ready payment session for that slug (onboarding success page).
- */
-async function canWriteWabaForSlug(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  slug: string,
-  userId: string | null,
-  proofEmail: string
-): Promise<boolean> {
-  const { data: biz } = await admin.from("businesses").select("id, user_id, email").eq("slug", slug).maybeSingle();
-  if (!biz) return false;
-  const row = biz as { id?: unknown; user_id?: unknown; email?: unknown };
-  if (userId && String(row.user_id ?? "") === userId) return true;
-  if (!proofEmail) return false;
-  const bizEmail = normalizeEmail(row.email);
-  if (bizEmail && bizEmail === proofEmail) return true;
-  const { data: ps } = await admin
-    .from("payment_sessions")
-    .select("id")
-    .eq("slug", slug)
-    .eq("email", proofEmail)
-    .eq("ready", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return Boolean(ps);
 }
 
 export async function POST(req: NextRequest) {
@@ -86,9 +58,22 @@ export async function POST(req: NextRequest) {
   const userId = user?.id ?? null;
 
   const admin = createSupabaseAdminClient();
-  const allowed = await canWriteWabaForSlug(admin, businessSlug, userId, proofEmail);
+  const allowed = await canWriteForSlug(admin, businessSlug, userId, proofEmail);
   if (!allowed) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  let isCoexistence = false;
+  try {
+    const { data: bizType } = await admin
+      .from("businesses")
+      .select("onboarding_type")
+      .eq("slug", businessSlug)
+      .maybeSingle();
+    isCoexistence =
+      String((bizType as { onboarding_type?: unknown } | null)?.onboarding_type ?? "") === "coexistence";
+  } catch {
+    isCoexistence = false;
   }
 
   const { error } = await admin
@@ -125,17 +110,23 @@ export async function POST(req: NextRequest) {
     });
   } else if (bizForRelease?.id) {
     const businessId = Number((bizForRelease as { id?: unknown }).id);
-    const { data: releasedJobs, error: releaseErr } = await admin
-      .from("wa_provision_jobs")
-      .update({ status: "queued", updated_at: new Date().toISOString() } as any)
-      .eq("business_id", businessId)
-      .eq("status", "awaiting_waba")
-      .select("id");
-    if (releaseErr) {
-      console.error("[embedded-signup] release wa_provision_jobs failed:", releaseErr.message);
-    } else if (releasedJobs?.length) {
+    if (!isCoexistence) {
+      const { data: releasedJobs, error: releaseErr } = await admin
+        .from("wa_provision_jobs")
+        .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+        .eq("business_id", businessId)
+        .eq("status", "awaiting_waba")
+        .select("id");
+      if (releaseErr) {
+        console.error("[embedded-signup] release wa_provision_jobs failed:", releaseErr.message);
+      } else if (releasedJobs?.length) {
+        console.info(
+          `[embedded-signup] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+        );
+      }
+    } else {
       console.info(
-        `[embedded-signup] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+        `[embedded-signup] coexistence: skipping wa_provision_jobs release for business_id=${businessId}`
       );
     }
   }
@@ -151,7 +142,39 @@ export async function POST(req: NextRequest) {
     // לא לחסום את הflow - webhook הוא fallback
   }
 
-  if (phone_number_id) {
+  let effectivePhoneNumberId = phone_number_id;
+  let effectivePhoneDisplay: string | null = null;
+
+  if (isCoexistence && !effectivePhoneNumberId) {
+    const systemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim();
+    if (systemToken) {
+      try {
+        const numbers = await fetchPhoneNumbersForWaba(waba_id, systemToken);
+        if (numbers.length > 0) {
+          effectivePhoneNumberId = numbers[0].id;
+          effectivePhoneDisplay = numbers[0].display_phone_number ?? null;
+          console.info(
+            `[embedded-signup] coexistence: resolved phone_number_id=${effectivePhoneNumberId} from WABA`
+          );
+        } else {
+          console.warn(
+            `[embedded-signup] coexistence: no phone numbers on WABA yet waba_id=${waba_id}; PARTNER_ADDED will self-heal`
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[embedded-signup] coexistence: fetchPhoneNumbersForWaba failed; PARTNER_ADDED will self-heal",
+          { waba_id, error: e instanceof Error ? e.message : String(e) }
+        );
+      }
+    } else {
+      console.warn(
+        "[embedded-signup] coexistence: WHATSAPP_SYSTEM_TOKEN missing; cannot resolve phone_number_id"
+      );
+    }
+  }
+
+  if (effectivePhoneNumberId) {
     const { data: biz, error: bizErr } = await admin
       .from("businesses")
       .select("id")
@@ -168,9 +191,10 @@ export async function POST(req: NextRequest) {
         {
           business_id: biz.id,
           business_slug: businessSlug,
-          phone_number_id,
-          is_active: false,
-          provisioning_status: "pending",
+          phone_number_id: effectivePhoneNumberId,
+          is_active: isCoexistence ? true : false,
+          provisioning_status: isCoexistence ? "active" : "pending",
+          ...(effectivePhoneDisplay ? { phone_display: effectivePhoneDisplay } : {}),
         } as any,
         { onConflict: "phone_number_id" }
       );
@@ -178,11 +202,11 @@ export async function POST(req: NextRequest) {
       if (channelErr) {
         console.warn("[embedded-signup] whatsapp_channels upsert failed (waba_id saved):", {
           slug: businessSlug,
-          phone_number_id,
+          phone_number_id: effectivePhoneNumberId,
           error: channelErr.message,
         });
       } else {
-        console.info(`[embedded-signup] upserted whatsapp_channels for phone_number_id=${phone_number_id}`);
+        console.info(`[embedded-signup] upserted whatsapp_channels for phone_number_id=${effectivePhoneNumberId}`);
       }
     }
   }

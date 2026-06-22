@@ -3713,7 +3713,7 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
 
   const { data: business, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug")
+    .select("id, slug, onboarding_type")
     .eq("waba_id", wabaId)
     .limit(1)
     .maybeSingle();
@@ -3795,17 +3795,24 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
     console.warn("[WA Webhook] self-healing skipped: WHATSAPP_SYSTEM_TOKEN missing");
   }
 
-  const { data: releasedJobs, error: releaseErr } = await admin
-    .from("wa_provision_jobs")
-    .update({ status: "queued", updated_at: new Date().toISOString() } as any)
-    .eq("business_id", businessId)
-    .eq("status", "awaiting_waba")
-    .select("id");
-  if (releaseErr) {
-    console.error("[WA Webhook] release wa_provision_jobs failed:", releaseErr.message);
-  } else if (releasedJobs?.length) {
+  const onboardingType = String((business as { onboarding_type?: unknown }).onboarding_type ?? "");
+  if (onboardingType !== "coexistence") {
+    const { data: releasedJobs, error: releaseErr } = await admin
+      .from("wa_provision_jobs")
+      .update({ status: "queued", updated_at: new Date().toISOString() } as any)
+      .eq("business_id", businessId)
+      .eq("status", "awaiting_waba")
+      .select("id");
+    if (releaseErr) {
+      console.error("[WA Webhook] release wa_provision_jobs failed:", releaseErr.message);
+    } else if (releasedJobs?.length) {
+      console.info(
+        `[WA Webhook] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+      );
+    }
+  } else {
     console.info(
-      `[WA Webhook] released wa_provision_jobs from awaiting_waba to queued for business_id=${businessId}`
+      `[WA Webhook] coexistence: skipping wa_provision_jobs release for business_id=${businessId}`
     );
   }
 
