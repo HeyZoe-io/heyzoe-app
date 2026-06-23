@@ -40,6 +40,7 @@ import {
   normalizePhone,
   waSessionPhoneKey,
 } from "@/lib/phone-normalize";
+import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import {
   composeGreeting,
   defaultSalesFlowConfig,
@@ -4868,7 +4869,7 @@ async function processIncoming(
           .from("contacts")
           .select("trial_registered, trial_registered_at, session_phase")
           .eq("business_id", businessId)
-          .eq("phone", msg.from)
+          .in("phone", contactPhoneLookupVariants(msg.from))
           .maybeSingle();
         if (sel.error) {
           console.warn("[WA Webhook] trial_registered select:", sel.error.message);
@@ -4905,9 +4906,9 @@ async function processIncoming(
         if (alreadyRegisteredClaim) {
           const { error: upErr } = await supabase
             .from("contacts")
-            .update({ trial_registered: true, trial_registered_at: contactTrialRegisteredAt || nowIso })
+            .update(buildTrialRegisteredContactPatch(contactTrialRegisteredAt || nowIso))
             .eq("business_id", businessId)
-            .eq("phone", msg.from);
+            .in("phone", contactPhoneLookupVariants(msg.from));
           if (upErr) {
             console.warn("[WA Webhook] trial_registered already-claim update failed:", upErr.message);
           } else {
@@ -5041,9 +5042,9 @@ async function processIncoming(
 
         const { error: upErr } = await supabase
           .from("contacts")
-          .update({ trial_registered: true, trial_registered_at: nowIso })
+          .update(buildTrialRegisteredContactPatch(nowIso))
           .eq("business_id", businessId)
-          .eq("phone", msg.from);
+          .in("phone", contactPhoneLookupVariants(msg.from));
         if (upErr) {
           console.warn("[WA Webhook] trial_registered update failed:", upErr.message);
         } else {
