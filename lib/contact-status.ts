@@ -75,7 +75,8 @@ const CONTACT_STATUS_META_HE: Record<ContactStatusKey, ContactStatusMeta> = {
   },
   no_response: {
     label: "ללא מענה",
-    tooltip: "26+ שעות מהודעת הליד האחרונה, בלי «נרשמתי» (לא נרשם / לא הסיר)",
+    tooltip:
+      "26+ שעות מהודעת הליד האחרונה, בלי «נרשמתי» — או סימון ידני. זואי מפסיקה פולואפים; הודעה חדשה מהליד מחזירה לפעיל",
     badgeClass: "border-red-200 bg-red-50 text-red-800",
   },
   registered: {
@@ -118,7 +119,8 @@ const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
   },
   no_response: {
     label: "No Response",
-    tooltip: "26+ hours since last lead message, without «I registered» (not registered / not opted out)",
+    tooltip:
+      "26+ hours since last lead message without «I registered» — or set manually. Zoe stops follow-ups; a new message reactivates the lead",
     badgeClass: "border-red-200 bg-red-50 text-red-800",
   },
   registered: {
@@ -173,6 +175,7 @@ export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";
 export const MANUAL_CONTACT_STATUSES: ContactStatusKey[] = [
   "registered",
   "not_relevant",
+  "no_response",
   "human_requested",
 ];
 
@@ -182,6 +185,16 @@ export function canManuallySetContactStatus(
 ): boolean {
   if (target === "not_relevant") {
     return contact.opted_out !== true && !contact.not_relevant_at;
+  }
+  if (target === "no_response") {
+    return (
+      contact.opted_out !== true &&
+      !contact.not_relevant_at &&
+      !contact.human_requested_at &&
+      !contact.wa_no_response_at &&
+      contact.trial_registered !== true &&
+      contact.session_phase !== "registered"
+    );
   }
   if (target === "human_requested") {
     return (

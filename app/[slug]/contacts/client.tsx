@@ -181,7 +181,8 @@ function isContactStatusEditable(
   if (marketingAdminMode) return false;
   if (!contact.phone?.trim()) return false;
   if (multiBusinessAdmin && !contact.business_slug?.trim()) return false;
-  if (contact.opted_out || contact.not_relevant_at || contact.human_requested_at) return false;
+  if (contact.opted_out || contact.not_relevant_at || contact.human_requested_at || contact.wa_no_response_at)
+    return false;
   return MANUAL_CONTACT_STATUSES.some((s) => canManuallySetContactStatus(s, contact));
 }
 
@@ -199,6 +200,10 @@ function statusErrorMessage(code: string): string {
       return "הליד מסומן «לא רלוונטי» — לא ניתן לשנות לסטטוס הזה.";
     case "contact_human_requested":
       return "הליד כבר מסומן «ביקש נציג».";
+    case "contact_no_response":
+      return "הליד מסומן «ללא מענה» — לא ניתן לשנות לסטטוס הזה.";
+    case "contact_registered":
+      return "הליד כבר נרשם — לא ניתן לסמן כללא מענה.";
     case "subscription_inactive":
       return "המנוי אינו פעיל — לא ניתן לעדכן סטטוס.";
     case "forbidden":
@@ -619,7 +624,12 @@ export default function ContactsClient({
     }
 
     setStatusMenuKey(null);
-    if (status === "not_relevant" || status === "registered" || status === "human_requested") {
+    if (
+      status === "not_relevant" ||
+      status === "registered" ||
+      status === "human_requested" ||
+      status === "no_response"
+    ) {
       setStatusPendingConfirm({ contact: c, rowKey, status });
       return;
     }
@@ -647,6 +657,7 @@ export default function ContactsClient({
         not_relevant_at?: string;
         trial_registered_at?: string;
         human_requested_at?: string;
+        wa_no_response_at?: string;
       };
       if (!res.ok) throw new Error(j?.error || "status_update_failed");
 
@@ -706,6 +717,24 @@ export default function ContactsClient({
           )
         );
         showToast("הסטטוס עודכן — זואי תפסיק פולואפים והליד יועבר ל-CRM");
+      } else if (status === "no_response") {
+        const noResponseAt = j.wa_no_response_at ?? new Date().toISOString();
+        setContacts((prev) =>
+          prev.map((row) =>
+            contactsSharePhone(row.phone, c.phone) &&
+            (!multiBusinessAdmin || row.business_slug === c.business_slug)
+              ? {
+                  ...row,
+                  wa_no_response_at: noResponseAt,
+                  wa_next_followup_at: null,
+                  wa_no_response_due_at: null,
+                  wa_followup_stage: 3,
+                  followup_sent: true,
+                }
+              : row
+          )
+        );
+        showToast("הסטטוס עודכן — זואי תפסיק פולואפים לליד הזה");
       }
     } catch (e) {
       console.error(e);
@@ -1088,6 +1117,17 @@ export default function ContactsClient({
                   כ«ביקש נציג»?
                   <br />
                   זואי תפסיק פולואפים, תישלח התראה לבעלים והליד יועבר ל-CRM.
+                </>
+              ) : statusPendingConfirm.status === "no_response" ? (
+                <>
+                  לסמן את{" "}
+                  <span className="font-medium text-zinc-900">
+                    {statusPendingConfirm.contact.full_name?.trim() ||
+                      statusPendingConfirm.contact.phone}
+                  </span>{" "}
+                  כ«ללא מענה»?
+                  <br />
+                  זואי תפסיק לשלוח פולואפים. אם הליד ישלח שוב הודעה — הסטטוס יחזור לפעיל.
                 </>
               ) : (
                 <>

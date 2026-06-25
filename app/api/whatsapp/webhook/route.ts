@@ -259,6 +259,7 @@ import {
   reactivateNotRelevantLead,
   shouldAnswerNotRelevantLeadOpenQuestion,
 } from "@/lib/not-relevant";
+import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
 
 export const runtime = "nodejs";
 
@@ -4174,16 +4175,25 @@ async function processIncoming(
         id?: string | number;
         wa_followup_stage?: number | null;
         last_contact_at?: string | null;
+        wa_no_response_at?: string | null;
       } | null = null;
       try {
         const priorQ = await supabase
           .from("contacts")
-          .select("id, wa_followup_stage, last_contact_at")
+          .select("id, wa_followup_stage, last_contact_at, wa_no_response_at")
           .eq("business_id", businessId)
           .in("phone", phoneLookupVariants.length ? phoneLookupVariants : [contactPhone])
           .maybeSingle();
         if (!priorQ.error) priorContact = priorQ.data;
-        else {
+        else if (/wa_no_response_at|column/i.test(String(priorQ.error.message ?? ""))) {
+          const fallback = await supabase
+            .from("contacts")
+            .select("id, wa_followup_stage, last_contact_at")
+            .eq("business_id", businessId)
+            .in("phone", phoneLookupVariants.length ? phoneLookupVariants : [contactPhone])
+            .maybeSingle();
+          if (!fallback.error) priorContact = fallback.data;
+        } else {
           const fallback = await supabase
             .from("contacts")
             .select("id")
@@ -4211,6 +4221,23 @@ async function processIncoming(
         followup_sent: false,
       };
       if (fullName) upsertPayload.full_name = fullName;
+
+      const priorNoResponseAt = String(priorContact?.wa_no_response_at ?? "").trim();
+      if (priorNoResponseAt) {
+        Object.assign(upsertPayload, buildNoResponseReactivationPatch());
+        console.info("[WA Webhook] no-response lead reactivated on inbound message", {
+          business_slug,
+          phone: contactPhone,
+          prior_wa_no_response_at: priorNoResponseAt,
+        });
+        void logMessage({
+          business_slug,
+          role: "event",
+          content: "[heyzoe:no_response:reactivated]",
+          model_used: "no_response_reactivated",
+          session_id: buildWaSessionId(msg.toNumber, msg.from),
+        }).catch((e) => console.error("[WA Webhook] no-response reactivation log failed:", e));
+      }
 
       if (shouldResetWaFollowupCycleOnInbound(priorContact)) {
         Object.assign(upsertPayload, WA_FOLLOWUP_CYCLE_RESET_PATCH);
