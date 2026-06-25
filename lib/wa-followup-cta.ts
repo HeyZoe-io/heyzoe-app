@@ -3,9 +3,11 @@ import { detectMessageLanguage } from "@/lib/language-detect";
 import type { WaIdleFollowupCta } from "@/lib/whatsapp";
 import { resolveWaFollowupRegistrationCta } from "@/lib/wa-followup-registration-cta";
 
-/** כפתור תשובה בפולואפ — מפעיל מחדש את פלואו המכירה (כמו טקסט «אשמח לפרטים»). */
-export const WA_FOLLOWUP_RESTART_BUTTON_LABEL_HE = "אשמח לפרטים";
-export const WA_FOLLOWUP_RESTART_BUTTON_LABEL_EN = "More info please";
+import { SALES_FLOW_START_BUTTON_LABEL_HE, SALES_FLOW_START_BUTTON_LABEL_EN } from "@/lib/sales-flow-start-triggers";
+
+/** כפתור תשובה בפולואפ — מפעיל מחדש את פלואו המכירה (כמו טקסט «בואו נתחיל»). */
+export const WA_FOLLOWUP_RESTART_BUTTON_LABEL_HE = SALES_FLOW_START_BUTTON_LABEL_HE;
+export const WA_FOLLOWUP_RESTART_BUTTON_LABEL_EN = SALES_FLOW_START_BUTTON_LABEL_EN.replace(/!$/, "");
 
 /** @deprecated Prefer resolveWaFollowupRestartButtonLabel — Hebrew default for backward compat. */
 export const WA_FOLLOWUP_RESTART_BUTTON_LABEL = WA_FOLLOWUP_RESTART_BUTTON_LABEL_HE;

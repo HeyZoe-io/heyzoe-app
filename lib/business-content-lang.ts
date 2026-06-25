@@ -1,5 +1,9 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import { detectMessageLanguage } from "@/lib/language-detect";
+import {
+  SALES_FLOW_START_BUTTON_LABEL_EN,
+  SALES_FLOW_START_BUTTON_LABEL_HE,
+} from "@/lib/sales-flow-start-triggers";
 
 export type BusinessContentLanguage = "he" | "en";
 
@@ -50,7 +54,9 @@ export function metaWhatsNextBody(lang: BusinessContentLanguage = "he"): string 
 }
 
 export function waFollowupReplyFallbackLabel(lang: BusinessContentLanguage = "he"): string {
-  return lang === "en" ? "More info please" : "אשמח לפרטים";
+  return lang === "en"
+    ? SALES_FLOW_START_BUTTON_LABEL_EN.replace(/!$/, "")
+    : SALES_FLOW_START_BUTTON_LABEL_HE;
 }
 
 export function ctaOpenQuestionNote(lang: BusinessContentLanguage): string {

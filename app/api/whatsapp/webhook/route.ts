@@ -125,8 +125,10 @@ import {
 import {
   isMetaInteractiveMenuReply,
   isSalesFlowFreeTextInbound,
+  isSalesFlowStartInbound,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 import {
@@ -361,7 +363,7 @@ async function classifySalesFlowStartIntentWithClaude(input: { apiKey: string; t
 
 ענה רק "${SALES_FLOW_START_INTENT_START}" או "${SALES_FLOW_START_INTENT_NO}" (בדיוק, בלי טקסט נוסף).
 
-דוגמאות ל-${SALES_FLOW_START_INTENT_START}: אשמח לפרטים, היי אשמח לפרטים, רוצה להצטרף, מה יש אצלכם, ספרו לי עליכם, אשמח לשמוע פרטים
+דוגמאות ל-${SALES_FLOW_START_INTENT_START}: בואו נתחיל, אשמח לפרטים, היי אשמח לפרטים, רוצה להצטרף, מה יש אצלכם, ספרו לי עליכם, אשמח לשמוע פרטים
 דוגמאות ל-${SALES_FLOW_START_INTENT_NO}: מה המחיר בדיוק, איפה אתם, כמה עולה אימון ביום שלישי, האם יש חניה
 
 משפט: "${text}"`,
@@ -382,47 +384,11 @@ async function classifySalesFlowStartIntentWithClaude(input: { apiKey: string; t
 }
 
 function normalizeGreetingToken(s: string): string {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/[!.,?;:~'"`\-]+/g, "")
-    .replace(/\s+/g, " ");
+  return normalizeSalesFlowGreetingToken(s);
 }
 
-/** איפוס והפעלת פלואו מכירה — הודעות קצרות שמטופלות כמו «היי» (לא נשלחות ל-Claude). */
-const SALES_FLOW_GREETING_TRIGGERS = new Set([
-  "שלום",
-  "היי",
-  "הי",
-  "אהלן",
-  "hello",
-  "hi",
-  "בואו נתחיל",
-  "בוא נתחיל",
-  "נתחיל",
-  "lets start",
-  "let us start",
-  "אשמח לשמוע פרטים",
-  "היי אשמח לשמוע פרטים",
-  "הי אשמח לשמוע פרטים",
-  "אשמח לפרטים",
-  "היי אשמח לפרטים",
-  "הי אשמח לפרטים",
-  // English (normalized: apostrophes stripped → i'd → id)
-  "id like details",
-  "i would like details",
-  "id like more info",
-  "tell me more",
-  "more info",
-  "more details",
-  "info please",
-  "details please",
-  "more info please",
-  "looking for info",
-]);
-
 function isSalesFlowGreetingTrigger(text: string): boolean {
-  return SALES_FLOW_GREETING_TRIGGERS.has(normalizeGreetingToken(text));
+  return isSalesFlowStartTrigger(text);
 }
 
 function resolveWaMenuChoice(
@@ -4485,7 +4451,7 @@ async function processIncoming(
   if (contactNotRelevantAt) {
     // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו («אשמח לפרטים» וכו׳) או הביע כוונה
     // להתחיל פלואו מחדש — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
-    let wantsFlowRestart = msg.type === "text" && isSalesFlowGreetingTrigger(incomingTextRaw);
+    let wantsFlowRestart = isSalesFlowStartInbound(msg);
     if (
       !wantsFlowRestart &&
       msg.type === "text" &&
@@ -4581,7 +4547,7 @@ async function processIncoming(
       await sendWhatsAppMessage(
         msg.toNumber,
         msg.from,
-        "הבנתי שזה לא רלוונטי כרגע 🙏 אם תרצו בעתיד — כתבו *אשמח לפרטים*",
+        `הבנתי שזה לא רלוונטי כרגע 🙏 אם תרצו בעתיד — כתבו *${SALES_FLOW_START_BUTTON_LABEL_HE}*`,
         accountSid,
         authToken
       ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
@@ -5242,8 +5208,8 @@ async function processIncoming(
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
-    if (isSalesFlowGreetingTrigger(msg.text)) {
-      // «היי» / «אשמח לשמוע פרטים» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
+    if (isSalesFlowStartInbound(msg)) {
+      // «היי» / «בואו נתחיל» / «אשמח לשמוע פרטים» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({
         knowledge,
         salesFlowServices,

@@ -1,4 +1,5 @@
 import type { ContactStatusInput } from "@/lib/contact-status";
+import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 
 /** model_used ב-messages לשליחת טמפלייט פתיחה ממודעת Meta */
 export const LEAD_TEMPLATE_MODEL = "lead_template";
@@ -42,7 +43,7 @@ const LEAD_TEMPLATE_REGISTRY: Record<string, LeadTemplatePreview> = {
   sangha_lead_welcome: {
     header: "סאנגה יוגה",
     body: "היי {{1}}! איזה כיף להכיר.\nלחצ/י על הכפתור ואספר לך הכל על סאנגה יוגה🧘",
-    buttons: ["אשמח לפרטים"],
+    buttons: [SALES_FLOW_START_BUTTON_LABEL_HE],
     footer: "Hey Zoe",
   },
   sanga_welcome2: {
