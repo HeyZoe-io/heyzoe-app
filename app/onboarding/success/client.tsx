@@ -521,30 +521,7 @@ export default function OnboardingSuccessClient() {
         const data = (await res.json()) as { ready?: boolean; slug?: string };
         if (data?.ready && data.slug) {
           const slug = data.slug;
-          try {
-            const sid = sessionStorage.getItem("hz_lp_session_id") || "";
-            let src = sessionStorage.getItem("hz_lp_source");
-            if (!src) {
-              try {
-                const until = Number(localStorage.getItem("hz_wa_lp_attribution") || "0");
-                if (Number.isFinite(until) && until > Date.now()) src = "wa_lp";
-              } catch {
-                /* ignore */
-              }
-            }
-            const valRaw = sessionStorage.getItem("hz_lp_plan_value");
-            const value = valRaw ? Number(valRaw) : null;
-            if (sid && typeof value === "number" && Number.isFinite(value) && value > 0) {
-              void fetch("/api/track", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ event_type: "purchase", value, source: src, session_id: sid }),
-                keepalive: true,
-              });
-            }
-          } catch {
-            /* ignore */
-          }
+          // Purchase events are now recorded server-side only (single source of truth in /api/icount-ipn).
           setReady({ slug });
           console.log("[onboarding/success] payment ready, awaiting Embedded Signup");
           return;

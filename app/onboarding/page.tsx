@@ -157,6 +157,16 @@ function OnboardingContent() {
           sessionStorage.setItem("hz_lp_source", "onboarding");
         }
       }
+      // Capture UTM params for campaigns that link directly to /onboarding (skipping the LP).
+      try {
+        const params = new URLSearchParams(window.location.search);
+        for (const k of ["utm_source", "utm_campaign", "utm_content"]) {
+          const v = (params.get(k) ?? "").trim();
+          if (v) sessionStorage.setItem(`hz_${k}`, v);
+        }
+      } catch {
+        // ignore
+      }
     } catch {
       // ignore
     }
@@ -470,6 +480,13 @@ function OnboardingContent() {
         return;
       }
 
+      const readUtm = (k: string): string | null => {
+        try {
+          return sessionStorage.getItem(`hz_${k}`)?.trim() || null;
+        } catch {
+          return null;
+        }
+      };
       const saveRes = await fetch("/api/onboarding/save-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -484,6 +501,9 @@ function OnboardingContent() {
           business_type: resolvedBusinessType,
           description: form.description,
           address: form.address,
+          utm_source: readUtm("utm_source"),
+          utm_campaign: readUtm("utm_campaign"),
+          utm_content: readUtm("utm_content"),
         }),
       });
       if (!saveRes.ok) {

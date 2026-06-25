@@ -63,7 +63,7 @@ export default async function AdminAnalyticsPage({
   const [{ data: eventsRaw, error: eventsError }, waData] = await Promise.all([
     admin
       .from("analytics_events")
-      .select("event_type, value, source, label, session_id, created_at")
+      .select("event_type, value, source, label, session_id, created_at, metadata")
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(200_000),
