@@ -1278,6 +1278,9 @@ type ScheduleBoardDelivery = "image" | "link" | "none";
 /** המתנה אחרי תמונת מערכת שעות — WA לעיתים מציג טקסט לפני שהמדיה מוכנה. */
 const SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS = 2200;
 
+/** המתנה מינימלית בין תשובה לכפתור חימום לשאלת המשך — רק אחרי שההודעה הראשונה נשלחה. */
+const WARMUP_REPLY_BEFORE_NEXT_QUESTION_MS = 280;
+
 /** סשן מערכת שעות — נשלח אוטומטית אחרי הפתיחה (תמונה או קישור), לפני בחירת מוצר / המשך הפלואו. */
 async function sendScheduleBoardAfterOpening(input: {
   assets: ScheduleBoardAssets;
@@ -1638,6 +1641,61 @@ type WarmupExtraPickResult =
   | { handled: false }
   | { handled: true; contactSessionPhase?: HeyzoeSessionPhase; contactFlowStep?: number };
 
+async function sendWarmupReplyThenNextQuestionMenu(input: {
+  msg: Pick<WaIncomingText, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  replyText: string;
+  nextQuestion: string;
+  nextOptionLabels: string[];
+  menuFooter: string;
+  contentLang: import("@/lib/business-content-lang").BusinessContentLanguage;
+  replyModelUsed: string;
+  sendErrorLabel: string;
+}): Promise<void> {
+  const replyText = String(input.replyText ?? "").trim();
+  const nextQuestion = String(input.nextQuestion ?? "").trim();
+  const nextOpts = input.nextOptionLabels.map((o) => String(o ?? "").trim()).filter(Boolean);
+
+  if (replyText) {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, replyText, input.accountSid, input.authToken).catch(
+      (e) => console.error(`[WA Webhook] ${input.sendErrorLabel} reply failed:`, e)
+    );
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: replyText,
+      model_used: input.replyModelUsed,
+      session_id: input.sessionId,
+    });
+    if (nextQuestion) {
+      await sleepMs(WARMUP_REPLY_BEFORE_NEXT_QUESTION_MS);
+    }
+  }
+
+  if (!nextQuestion) return;
+
+  await sendWhatsAppTextOrMenu(
+    input.msg.toNumber,
+    input.msg.from,
+    nextQuestion,
+    nextOpts,
+    input.accountSid,
+    input.authToken,
+    { footerHint: input.menuFooter, language: input.contentLang }
+  ).catch((e) => console.error(`[WA Webhook] ${input.sendErrorLabel} next question failed:`, e));
+
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: formatInteractiveConversationLog(nextQuestion, nextOpts, input.menuFooter),
+    model_used: "sales_flow_warmup_extra",
+    session_id: input.sessionId,
+  });
+}
+
 async function executeWarmupExtraPickAt(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -1670,17 +1728,19 @@ async function executeWarmupExtraPickAt(input: {
   if (nextIdx < input.cleanSteps.length) {
     const next = input.cleanSteps[nextIdx]!;
     const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-    const combined = [replyRaw, next.question].filter(Boolean).join("\n\n").trim();
-    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, combined, nextOpts, input.accountSid, input.authToken, {
-      footerHint: menuFooter,
-      language: contentLang,
-    }).catch((e) => console.error("[WA Webhook] Send warmup-extra next step failed:", e));
-    await logMessage({
+    await sendWarmupReplyThenNextQuestionMenu({
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
       business_slug: input.business_slug,
-      role: "assistant",
-      content: formatInteractiveConversationLog(combined, nextOpts, menuFooter),
-      model_used: "sales_flow_warmup_extra",
-      session_id: input.sessionId,
+      sessionId: input.sessionId,
+      replyText: replyRaw,
+      nextQuestion: next.question,
+      nextOptionLabels: nextOpts,
+      menuFooter,
+      contentLang,
+      replyModelUsed: "sales_flow_warmup_extra",
+      sendErrorLabel: "Send warmup-extra next step",
     });
     await logMessage({
       business_slug: input.business_slug,
@@ -6759,18 +6819,20 @@ async function processIncoming(
             const first = cleanSteps[0]!;
             const firstOpts = first.options.map((o) => String(o ?? "").trim()).filter(Boolean);
             const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
-            const combined = [bodyOnly, first.question].filter(Boolean).join("\n\n").trim();
             const menuFooter = salesFlowMenuFooter(knowledge);
-            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, combined, firstOpts, accountSid, authToken, {
-              footerHint: menuFooter,
-              language: resolveBusinessContentLanguageFromKnowledge(knowledge),
-            }).catch((e) => console.error("[WA Webhook] Send warmup-extra first step failed:", e));
-            await logMessage({
+            await sendWarmupReplyThenNextQuestionMenu({
+              msg,
+              accountSid,
+              authToken,
               business_slug,
-              role: "assistant",
-              content: formatInteractiveConversationLog(combined, firstOpts, menuFooter),
-              model_used: "sales_flow_warmup_extra",
-              session_id: sessionId,
+              sessionId,
+              replyText: bodyOnly,
+              nextQuestion: first.question,
+              nextOptionLabels: firstOpts,
+              menuFooter,
+              contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
+              replyModelUsed: "sales_flow_after_experience",
+              sendErrorLabel: "Send warmup-extra first step",
             });
             await logMessage({
               business_slug,
