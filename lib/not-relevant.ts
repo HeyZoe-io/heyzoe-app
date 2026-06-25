@@ -7,10 +7,11 @@ import {
   resolveClaudeApiKey,
   sleepMs,
 } from "@/lib/claude";
+import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 
 /** כפתור והודעת המשך אחרי שאלה פתוחה מליד «לא רלוונטי». */
-export const NOT_RELEVANT_FLOW_RESTART_BUTTON = "אשמח לפרטים";
+export const NOT_RELEVANT_FLOW_RESTART_BUTTON = SALES_FLOW_START_BUTTON_LABEL_HE;
 export const NOT_RELEVANT_FLOW_RESTART_CTA_BODY =
   "להתחלת שיחה, קבלת פרטים ושריון אימון ניסיון לחצו על הכפתור";
 

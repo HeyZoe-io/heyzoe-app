@@ -1,4 +1,5 @@
-import type { WaIncomingMessage, WaIncomingText } from "@/lib/whatsapp";
+import { isSalesFlowStartTrigger } from "@/lib/sales-flow-start-triggers";
+import { metaInteractiveDecodeReplyId, type WaIncomingMessage, type WaIncomingText } from "@/lib/whatsapp";
 
 /**
  * Meta `list_reply` / `button_reply` מגיעים כ־type:"text" + metaInteractiveReplyKind
@@ -24,4 +25,21 @@ export function isSalesFlowFreeTextInbound(msg: WaIncomingMessage): msg is WaInc
  */
 export function shouldResendDeterministicMenuOnUnrecognizedPick(msg: WaIncomingMessage): boolean {
   return isMetaInteractiveMenuReply(msg);
+}
+
+/** טקסט לבדיקת התנעת פלואו — מפענח id מקודד של כפתור Meta לפני השוואה לטריגרים. */
+export function inboundTextForSalesFlowStartCheck(msg: WaIncomingText): string {
+  const raw = String(msg.text ?? "").trim();
+  const id = msg.metaInteractiveReplyId?.trim() ?? "";
+  if (id) {
+    const decoded = metaInteractiveDecodeReplyId(id);
+    if (decoded) return decoded;
+  }
+  return raw;
+}
+
+/** הקלדה או לחיצה על כפתור (טמפלייט / quick-reply / interactive) עם טקסט התנעה. */
+export function isSalesFlowStartInbound(msg: WaIncomingMessage): boolean {
+  if (msg.type !== "text") return false;
+  return isSalesFlowStartTrigger(inboundTextForSalesFlowStartCheck(msg));
 }
