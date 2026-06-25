@@ -17,6 +17,9 @@ export async function POST(req: NextRequest) {
       business_type,
       description,
       address,
+      utm_source,
+      utm_campaign,
+      utm_content,
     } = (await req.json()) as {
       email?: string;
       plan?: "starter" | "pro";
@@ -28,6 +31,9 @@ export async function POST(req: NextRequest) {
       business_type?: string;
       description?: string;
       address?: string;
+      utm_source?: string | null;
+      utm_campaign?: string | null;
+      utm_content?: string | null;
     };
 
     const cleanEmail = String(email ?? "").trim().toLowerCase();
@@ -43,8 +49,13 @@ export async function POST(req: NextRequest) {
 
     const admin = createSupabaseAdminClient();
 
+    const cleanUtm = (v: unknown): string | null => {
+      const s = String(v ?? "").trim();
+      return s ? s : null;
+    };
+
     // Upsert by email (no unique constraint, so we use insert and keep the latest rows)
-    const { error } = await admin.from("payment_sessions").insert({
+    const basePayload = {
       email: cleanEmail,
       plan: resolvedPlan,
       first_name: String(first_name ?? "").trim(),
@@ -56,7 +67,20 @@ export async function POST(req: NextRequest) {
       address: String(address ?? "").trim(),
       password_ciphertext: encryptPaymentSessionSecret(pw),
       ready: false,
-    } as any);
+    };
+    const payloadWithUtm = {
+      ...basePayload,
+      utm_source: cleanUtm(utm_source),
+      utm_campaign: cleanUtm(utm_campaign),
+      utm_content: cleanUtm(utm_content),
+    };
+
+    let { error } = await admin.from("payment_sessions").insert(payloadWithUtm as any);
+    // Resilient: if the UTM columns are not migrated yet, fall back to the base insert
+    // so signups are never blocked by a pending migration.
+    if (error && /utm_(source|campaign|content)|column/i.test(String(error.message ?? ""))) {
+      ({ error } = await admin.from("payment_sessions").insert(basePayload as any));
+    }
 
     if (error) {
       console.error("[api/onboarding/save-session] insert failed:", error.message);

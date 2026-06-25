@@ -300,6 +300,86 @@ async function notifyAdminMarketingLeadOnPaid(input: {
   }
 }
 
+/**
+ * מקור-אמת יחיד ל-purchase: אם אין התאמת ליד שיווקי (marketing_flow_sessions) לטלפון —
+ * רושם שורת analytics_events אחת (tryRecordWaMarketingPurchase כבר מטפל בהתאמה → wa_marketing).
+ * ה-source ב-no-match נקבע לפי נוכחות UTM ב-payment_sessions:
+ *   יש UTM → "landing_page", אין UTM → "unknown" (אף אחד מהם אינו נספר כ-WhatsApp-attributed).
+ * כך כל תשלום מקבל שורה אחת בדיוק: wa_marketing (התאמה) או landing_page/unknown (אין התאמה).
+ * עצמאי לחלוטין: לעולם לא זורק החוצה. ה-IPN ממשיך כרגיל ומחזיר 200.
+ */
+async function recordLpPurchaseIfNoMarketingMatch(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  email: string;
+  customerPhone: unknown;
+  businessId: number;
+  planPrice: number;
+}): Promise<void> {
+  try {
+    const businessId = Number(input.businessId);
+    const planPrice = Number(input.planPrice);
+    if (!Number.isFinite(businessId) || businessId <= 0) return;
+    if (!Number.isFinite(planPrice) || planPrice <= 0) return;
+
+    // התאמת טלפון → ה-purchase שייך ל-wa_marketing (tryRecordWaMarketingPurchase כותב אותו), דלג.
+    const normalized = normalizePhone(input.customerPhone);
+    if (normalized) {
+      const { data: waLead } = await input.admin
+        .from("marketing_flow_sessions")
+        .select("id")
+        .eq("phone", normalized)
+        .maybeSingle();
+      if (waLead?.id) return;
+    }
+
+    // העשרת UTM (best-effort; אם העמודות עוד לא עברו migration — נכתוב בלי, לא נשבר).
+    let utm: { utm_source: string | null; utm_campaign: string | null; utm_content: string | null } = {
+      utm_source: null,
+      utm_campaign: null,
+      utm_content: null,
+    };
+    const { data: utmRow } = await input.admin
+      .from("payment_sessions")
+      .select("utm_source,utm_campaign,utm_content")
+      .eq("email", input.email)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (utmRow) {
+      utm = {
+        utm_source: (utmRow as Record<string, unknown>).utm_source as string | null ?? null,
+        utm_campaign: (utmRow as Record<string, unknown>).utm_campaign as string | null ?? null,
+        utm_content: (utmRow as Record<string, unknown>).utm_content as string | null ?? null,
+      };
+    }
+
+    const hasUtm = Boolean(utm.utm_source || utm.utm_campaign || utm.utm_content);
+    const source = hasUtm ? "landing_page" : "unknown";
+
+    const row: Record<string, unknown> = {
+      event_type: "purchase",
+      source,
+      session_id: `lp_biz_${businessId}`,
+      value: planPrice,
+      label: `biz_${businessId}`,
+      metadata: { ...utm, business_id: businessId },
+    };
+
+    let { error } = await input.admin.from("analytics_events").insert(row);
+    if (error && /metadata|column/i.test(String(error.message ?? ""))) {
+      const { metadata: _meta, ...withoutMeta } = row;
+      ({ error } = await input.admin.from("analytics_events").insert(withoutMeta));
+    }
+    if (error) {
+      console.error("[api/icount-ipn] lp purchase insert failed:", error.message);
+      return;
+    }
+    console.info("[api/icount-ipn] lp purchase recorded:", { business_id: businessId, source });
+  } catch (e) {
+    console.error("[api/icount-ipn] lp purchase record failed:", e);
+  }
+}
+
 export async function POST(req: NextRequest) {
   // iCount חייב לקבל 200 תמיד כדי לא לעשות retries אינסופיים
   try {
@@ -495,6 +575,20 @@ export async function POST(req: NextRequest) {
             slug: biz.slug,
             plan: paidPlan,
           });
+
+          // Single source of truth for purchase: record exactly one row for reactivation too.
+          void tryRecordWaMarketingPurchase({
+            customerPhone,
+            businessId: Number(biz.id),
+            planPrice: paidPlanPrice,
+          });
+          void recordLpPurchaseIfNoMarketingMatch({
+            admin,
+            email,
+            customerPhone,
+            businessId: Number(biz.id),
+            planPrice: paidPlanPrice,
+          });
         } else {
           // User exists but business missing - create it now (paid), then mark ready.
           const baseSlug =
@@ -563,6 +657,13 @@ export async function POST(req: NextRequest) {
           });
 
           void tryRecordWaMarketingPurchase({
+            customerPhone,
+            businessId: Number(insertedBiz.id),
+            planPrice: plan_price,
+          });
+          void recordLpPurchaseIfNoMarketingMatch({
+            admin,
+            email,
             customerPhone,
             businessId: Number(insertedBiz.id),
             planPrice: plan_price,
@@ -664,6 +765,13 @@ export async function POST(req: NextRequest) {
     });
 
     void tryRecordWaMarketingPurchase({
+      customerPhone,
+      businessId: Number(insertedBiz.id),
+      planPrice: plan_price,
+    });
+    void recordLpPurchaseIfNoMarketingMatch({
+      admin,
+      email,
       customerPhone,
       businessId: Number(insertedBiz.id),
       planPrice: plan_price,

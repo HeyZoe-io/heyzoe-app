@@ -2851,6 +2851,18 @@ function hzTrack(event_type, value, label, sourceOverride){
 // Expose helpers for quick debugging from DevTools
 try{ window.hzTrack = hzTrack; window.hzGetSessionId = hzGetSessionId; }catch(e){}
 
+// Capture UTM params from the URL into sessionStorage (parallel to hz_lp_source; does not touch it).
+// Persisted on save-session and later attached to the wa_lp purchase metadata in the IPN.
+try{
+  var hzUtmUrl = new URL(window.location.href);
+  ['utm_source','utm_campaign','utm_content'].forEach(function(k){
+    try{
+      var v = (hzUtmUrl.searchParams.get(k)||'').trim();
+      if(v) sessionStorage.setItem('hz_'+k, v);
+    }catch(e){}
+  });
+}catch(e){}
+
 // pageview on load
 try{ hzTrack('pageview', null, null); }catch(e){}
 

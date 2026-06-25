@@ -57,9 +57,11 @@ export default function LandingAnalyticsPanel({
             textAlign: "right",
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>המרות מוואטסאפ (דף נחיתה)</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>
+            רכישות מלידים שדיברו עם זואי-שיווק
+          </h2>
           <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
-            checkout / purchase עם מקור wa_lp — לידים שלחצו קישור וואטסאפ בדף ואז המשיכו לרכישה (תוך 7 ימים)
+            checkout / purchase עם מקור wa_marketing — לידים שהתאימו לפלואו השיווקי ושילמו (iCount IPN)
           </p>
           <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
             <div>
@@ -166,7 +168,8 @@ export default function LandingAnalyticsPanel({
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>מקור תנועה</h2>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
             <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
-              קיבוץ לפי utm_source · {sourceMode === "purchases" ? "רוכשים (unique sessions)" : "כל האירועים"}
+              קיבוץ לפי source · {sourceMode === "purchases" ? "רוכשים (unique sessions)" : "כל האירועים"} ·
+              רכישות והכנסה מכל המקורות
             </p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <a
@@ -193,23 +196,134 @@ export default function LandingAnalyticsPanel({
               </a>
             </div>
           </div>
-          {data.sourcesSorted.length ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              {data.sourcesSorted.map(([src, c]) => {
-                const w = data.sourcesMax ? Math.max(3, Math.round((c / data.sourcesMax) * 100)) : 0;
-                return (
-                  <div key={src} style={{ display: "grid", gap: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                      <span style={{ color: "#1a0a3c", fontWeight: 400 }}>{src}</span>
-                      <span style={{ color: "#6b5b9a" }}>{c}</span>
-                    </div>
-                    <div style={{ height: 10, background: "#f5f3ff", borderRadius: 999 }}>
-                      <div style={{ width: `${w}%`, height: "100%", borderRadius: 999, background: "#7133da" }} />
-                    </div>
+          {data.sourcesBreakdown.length ? (
+            <>
+              <div style={{ overflowX: "auto" }}>
+                <table
+                  dir="rtl"
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 13,
+                    textAlign: "right",
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                        מקור
+                      </th>
+                      <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                        {sourceMode === "purchases" ? "סשנים" : "אירועים"}
+                      </th>
+                      <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                        רכישות
+                      </th>
+                      <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                        הכנסה
+                      </th>
+                      <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                        % מההכנסה
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sourcesBreakdown.map((row) => {
+                      const w = data.sourcesBreakdownMax
+                        ? Math.max(3, Math.round((row.count / data.sourcesBreakdownMax) * 100))
+                        : 0;
+                      return (
+                        <tr key={row.source}>
+                          <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#1a0a3c", fontWeight: 400 }}>
+                            <div style={{ display: "grid", gap: 6 }}>
+                              <span>{row.source}</span>
+                              <div style={{ height: 6, background: "#f5f3ff", borderRadius: 999, maxWidth: 180 }}>
+                                <div style={{ width: `${w}%`, height: "100%", borderRadius: 999, background: "#7133da" }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#6b5b9a" }}>
+                            {row.count}
+                          </td>
+                          <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#6b5b9a" }}>
+                            {row.purchases}
+                          </td>
+                          <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#1a0a3c" }}>
+                            {currencyIls(row.revenue)}
+                          </td>
+                          <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#6b5b9a" }}>
+                            {row.revenuePct}%
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid rgba(113,51,218,0.10)" }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 500, color: "#1a0a3c" }}>פילוח קמפיינים (UTM)</h3>
+                <p style={{ margin: "0 0 12px", fontSize: 12, color: "#6b5b9a" }}>
+                  רכישות עם metadata — מקור / קמפיין / תוכן
+                </p>
+                {data.campaignBreakdown.length ? (
+                  <div style={{ overflowX: "auto" }}>
+                    <table
+                      dir="rtl"
+                      style={{
+                        width: "100%",
+                        borderCollapse: "collapse",
+                        fontSize: 13,
+                        textAlign: "right",
+                      }}
+                    >
+                      <thead>
+                        <tr>
+                          <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                            utm_source
+                          </th>
+                          <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                            utm_campaign
+                          </th>
+                          <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                            utm_content
+                          </th>
+                          <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                            רכישות
+                          </th>
+                          <th style={{ padding: "8px 10px", borderBottom: "2px solid rgba(113,51,218,0.14)", color: "#6b5b9a", fontWeight: 400 }}>
+                            הכנסה
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.campaignBreakdown.map((row) => (
+                          <tr key={`${row.utm_source}|${row.utm_campaign}|${row.utm_content}`}>
+                            <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#1a0a3c" }}>
+                              {row.utm_source}
+                            </td>
+                            <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#1a0a3c" }}>
+                              {row.utm_campaign}
+                            </td>
+                            <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#1a0a3c" }}>
+                              {row.utm_content}
+                            </td>
+                            <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#6b5b9a" }}>
+                              {row.count}
+                            </td>
+                            <td style={{ padding: "10px 10px", borderBottom: "1px solid rgba(113,51,218,0.08)", color: "#1a0a3c" }}>
+                              {currencyIls(row.revenue)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 13, color: "#6b5b9a" }}>אין עדיין נתוני קמפיינים</p>
+                )}
+              </div>
+            </>
           ) : (
             <p style={{ margin: 0, fontSize: 13, color: "#6b5b9a" }}>אין נתונים עדיין.</p>
           )}
