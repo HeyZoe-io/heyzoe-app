@@ -35,7 +35,6 @@ import {
   createDefaultWarmupExtraStep,
   isWarmupExperienceQuestion1Configured,
   SCHEDULE_BOARD_CAPTION,
-  stripScheduleLineFromMultiServiceQuestion,
   type SalesFlowExtraStep,
 } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
@@ -1099,13 +1098,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               <>
                 <Field label={t.salesFlow.questionAndButtons} className="space-y-1" lang={lang}>
                   <Textarea
-                    value={stripScheduleLineFromMultiServiceQuestion(
-                      salesFlowConfig.multi_service_question ?? ""
-                    )}
+                    value={salesFlowConfig.multi_service_question ?? ""}
                     onChange={(v) =>
                       setSalesFlowConfig((c) => ({
                         ...c,
-                        multi_service_question: stripScheduleLineFromMultiServiceQuestion(v),
+                        multi_service_question: v,
                       }))
                     }
                     rows={4}
