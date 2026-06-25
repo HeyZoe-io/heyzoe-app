@@ -3,11 +3,16 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 import { extractIcountClientIdFromPayload } from "@/lib/icount-v3";
 import { sendEmail } from "@/lib/send-email";
-import { normalizePhoneToE164 } from "@/lib/phone-normalize";
+import { normalizePhone, normalizePhoneToE164 } from "@/lib/phone-normalize";
 import {
   extractCustomerPhoneFromIcountPayload,
   tryRecordWaMarketingPurchase,
 } from "@/lib/wa-marketing-purchase";
+import {
+  MARKETING_CONVERSATIONS_SLUG,
+  marketingWaSessionId,
+  sendMarketingWhatsApp,
+} from "@/lib/marketing-whatsapp";
 
 export const runtime = "nodejs";
 
@@ -240,6 +245,59 @@ async function insertBusinessResilient(admin: ReturnType<typeof createSupabaseAd
     }
   }
   return r;
+}
+
+/** מרקר ב-messages.model_used לנעילת idempotency של הודעת "שילם" (בלי migration). */
+const ADMIN_LEAD_PAID_MODEL_MARKER = "icount_paid_confirmation";
+
+/**
+ * לאחר תשלום מוצלח: אם המשלם הוא ליד שיווקי קיים (marketing_flow_sessions) —
+ * שלח לו הודעת WhatsApp בקו השיווקי, פעם אחת בלבד.
+ * עצמאי לחלוטין: לעולם לא זורק החוצה. כל שגיאה → console + המשך. ה-IPN ממשיך כרגיל.
+ * הערה: חלון 24ש' בלבד (בלי template); אם הליד לא כתב לאחרונה — Meta תחזיר שגיאה, נתפוס ונרשום.
+ */
+async function notifyAdminMarketingLeadOnPaid(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  customerPhone: unknown;
+}): Promise<void> {
+  try {
+    const normalized = normalizePhone(input.customerPhone);
+    if (!normalized) {
+      console.log("[api/icount-ipn] admin-lead: missing/invalid phone, skip");
+      return;
+    }
+
+    const { data: lead } = await input.admin
+      .from("marketing_flow_sessions")
+      .select("id")
+      .eq("phone", normalized)
+      .maybeSingle();
+    if (!lead?.id) {
+      console.log("no admin lead match");
+      return;
+    }
+
+    const sessionId = marketingWaSessionId(normalized);
+
+    const { data: alreadySent } = await input.admin
+      .from("messages")
+      .select("id")
+      .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+      .eq("session_id", sessionId)
+      .eq("model_used", ADMIN_LEAD_PAID_MODEL_MARKER)
+      .limit(1)
+      .maybeSingle();
+    if (alreadySent?.id) {
+      console.log("[api/icount-ipn] admin-lead paid confirmation already sent, skip");
+      return;
+    }
+
+    const text = "קיבלנו את התשלום 🎉 ברוכ/ה הבא/ה! זואי כבר מתכוננת בשבילך 💜";
+    await sendMarketingWhatsApp(normalized, { type: "text", text }, { model_used: ADMIN_LEAD_PAID_MODEL_MARKER });
+    console.info("[api/icount-ipn] admin-lead paid confirmation sent", { marketing_session_id: lead.id });
+  } catch (e) {
+    console.error("[api/icount-ipn] admin-lead notify failed:", e);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -509,6 +567,8 @@ export async function POST(req: NextRequest) {
             businessId: Number(insertedBiz.id),
             planPrice: plan_price,
           });
+
+          void notifyAdminMarketingLeadOnPaid({ admin, customerPhone });
         }
         return NextResponse.json({ ok: true });
       }
@@ -608,6 +668,8 @@ export async function POST(req: NextRequest) {
       businessId: Number(insertedBiz.id),
       planPrice: plan_price,
     });
+
+    void notifyAdminMarketingLeadOnPaid({ admin, customerPhone });
 
     console.info("[api/icount-ipn] ready:", {
       email,
