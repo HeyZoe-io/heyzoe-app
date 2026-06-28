@@ -87,6 +87,50 @@ function stripSquareBracketSegments(text: string): string {
   return text.replace(/\s*\[[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * TEMPORARY hardcode — סאנגה יוגה בלבד.
+ * האתר החדש מציג מועדים בכרטיסים (#classes) ובטבלה (#schedule) עם פיצול שונה (במיוחד יוגה לנשים).
+ * עד שדשבורד יתמוך ב-selector per עסק — מגבילים חילוץ HTML ל-#classes רק ל-host הזה.
+ * ה-route לא מקבל slug; הזיהוי הוא לפי hostname של scheduleUrl.
+ */
+const SANGA_SCHEDULE_EXTRACT_HOSTS = new Set(["sanga-yoga-web.vercel.app"]);
+
+function scheduleExtractHostFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isSangaScheduleExtractSite(scheduleUrl: string): boolean {
+  return SANGA_SCHEDULE_EXTRACT_HOSTS.has(scheduleExtractHostFromUrl(scheduleUrl));
+}
+
+/** שליפת אלמנט לפי id (למשל section#classes) — מחזיר HTML מלא של האלמנט או null */
+function extractElementById(html: string, id: string): string | null {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `<([a-zA-Z][\\w-]*)([^>]*\\bid=["']${escaped}["'][^>]*)>([\\s\\S]*?)<\\/\\1>`,
+    "i"
+  );
+  const m = re.exec(html);
+  return m ? m[0] : null;
+}
+
+/** HTML לחילוץ טקסט — ברירת מחדל: כל הדף; סאנגה: רק #classes עם fallback לדף מלא */
+function htmlForScheduleTextExtract(fullHtml: string, scheduleUrl: string): string {
+  if (!isSangaScheduleExtractSite(scheduleUrl)) return fullHtml;
+  const section = extractElementById(fullHtml, "classes");
+  if (!section) {
+    console.warn("[extract-product-schedule-slots] Sanga #classes not found; using full page", {
+      host: scheduleExtractHostFromUrl(scheduleUrl),
+    });
+    return fullHtml;
+  }
+  return section;
+}
+
 function resolveImageMediaType(mime: string): ImageMediaType | null {
   const m = mime.toLowerCase();
   if (m.includes("jpeg") || m.includes("jpg")) return "image/jpeg";
@@ -415,8 +459,9 @@ export async function POST(req: NextRequest) {
   }
 
   const htmlOrText = buf.toString("utf8");
+  const htmlScope = htmlForScheduleTextExtract(htmlOrText, safe.url);
   const extracted = stripSquareBracketSegments(
-    stripHtmlToText(htmlOrText).slice(0, TEXT_EXTRACT_MAX)
+    stripHtmlToText(htmlScope).slice(0, TEXT_EXTRACT_MAX)
   );
 
   const textServices = await claudeExtractSchedule(
