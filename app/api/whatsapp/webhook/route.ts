@@ -26,6 +26,7 @@ import {
   WA_UNSUPPORTED_INBOUND_REPLY,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
+import { type SfServiceRow } from "@/lib/sf-service-rows";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import {
@@ -2385,38 +2386,6 @@ async function sendTrialPickMediaIfAllowed(input: {
   }
 }
 
-type SfOfferKind = "trial" | "workshop" | "course";
-
-type SfServiceRow = {
-  name: string;
-  benefit: string;
-  priceText: string;
-  durationText: string;
-  paymentLink: string;
-  levelsEnabled: boolean;
-  levels: string[];
-  trialPickMediaUrl: string;
-  trialPickMediaType: "image" | "video" | "";
-  offerKind: SfOfferKind;
-  courseSessionsText: string;
-  courseStartDate: string;
-  courseEndDate: string;
-  /** מועדי לוח / מחזורי קורס — לבחירה בווטסאפ */
-  scheduleSlots: WaSchedulePickSlot[];
-  courseCycles: CourseCycle[];
-};
-
-/** כש-JSON ב-description שבור — משחזרים לפחות את שדות מדיית בחירת השירות */
-function fallbackTrialPickFromRawDescription(raw: string): Pick<SfServiceRow, "trialPickMediaUrl" | "trialPickMediaType"> {
-  const text = raw.trim();
-  if (!text) return { trialPickMediaUrl: "", trialPickMediaType: "" };
-  const url = (text.match(/"trial_pick_media_url"\s*:\s*"([^"]*)"/)?.[1] ?? "").trim();
-  const t = (text.match(/"trial_pick_media_type"\s*:\s*"(video|image)"/i)?.[1] ?? "").toLowerCase();
-  const trialPickMediaType =
-    t === "video" ? ("video" as const) : t === "image" ? ("image" as const) : ("" as const);
-  return { trialPickMediaUrl: url, trialPickMediaType };
-}
-
 async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   knowledge: BusinessKnowledgePack;
   msg: Pick<WaIncomingMessage, "toNumber" | "from">;
@@ -4687,103 +4656,7 @@ async function processIncoming(
   }
 
   const knowledge = await getBusinessKnowledgePack(business_slug);
-  let salesFlowServices: SfServiceRow[] = [];
-  if (knowledge?.salesFlowConfig && businessId) {
-    try {
-      const { data: services } = await supabase
-        .from("services")
-        .select("name, description, service_slug, price_text")
-        .eq("business_id", Number(businessId))
-        .order("id", { ascending: true })
-        .limit(24);
-      salesFlowServices = (services ?? [])
-        .map((s: { name?: unknown; description?: unknown; price_text?: unknown }) => ({
-          name: String(s.name ?? "").trim(),
-          ...(() => {
-            try {
-              const raw = String(s.description ?? "");
-              const stripped = raw.trim().startsWith("__META__:") ? raw.trim().slice("__META__:".length) : raw;
-              const candidate = stripped.replace(/^\uFEFF/, "").trimStart();
-              const jsonStart = candidate.indexOf("{");
-              const toParse = jsonStart >= 0 ? candidate.slice(jsonStart) : candidate;
-              const meta = JSON.parse(toParse.trim() || "{}") as Record<string, unknown>;
-              return {
-                benefit: String(meta.benefit_line ?? "").trim(),
-                priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
-                durationText: String(meta.duration ?? "").trim(),
-                paymentLink: String(meta.payment_link ?? "").trim(),
-                levelsEnabled: meta.levels_enabled === true,
-                levels: Array.isArray(meta.levels)
-                  ? meta.levels.map((x) => String(x ?? "").trim()).filter(Boolean)
-                  : [],
-                trialPickMediaUrl: String(meta.trial_pick_media_url ?? "").trim(),
-                trialPickMediaType:
-                  meta.trial_pick_media_type === "video"
-                    ? ("video" as const)
-                    : meta.trial_pick_media_type === "image"
-                      ? ("image" as const)
-                      : ("" as const),
-                offerKind: (() => {
-                  const k = offerKindFromServiceMeta(meta);
-                  return k;
-                })(),
-                courseSessionsText: String(meta.course_sessions_count ?? "").trim(),
-                courseStartDate: (() => {
-                  const k = offerKindFromServiceMeta(meta);
-                  if (k === "course") {
-                    let c = 0;
-                    return syncCourseLegacyDatesFromCycles(
-                      migrateLegacyCourseToCycles(meta, () => `s${c++}`)
-                    ).course_start_date;
-                  }
-                  return String(meta.course_start_date ?? "").trim();
-                })(),
-                courseEndDate: (() => {
-                  const k = offerKindFromServiceMeta(meta);
-                  if (k === "course") {
-                    let c = 0;
-                    return syncCourseLegacyDatesFromCycles(
-                      migrateLegacyCourseToCycles(meta, () => `s${c++}`)
-                    ).course_end_date;
-                  }
-                  return String(meta.course_end_date ?? "").trim();
-                })(),
-                scheduleSlots: (() => {
-                  let c = 0;
-                  return resolveWaSchedulePickSlotsFromMeta(meta, offerKindFromServiceMeta(meta), () => `s${c++}`);
-                })(),
-                courseCycles: (() => {
-                  let c = 0;
-                  return migrateLegacyCourseToCycles(meta, () => `s${c++}`);
-                })(),
-              };
-            } catch {
-              const raw = String(s.description ?? "");
-              const fb = fallbackTrialPickFromRawDescription(raw);
-              return {
-                benefit: "",
-                priceText: String(s.price_text ?? "").trim(),
-                durationText: "",
-                paymentLink: "",
-                levelsEnabled: false,
-                levels: [],
-                trialPickMediaUrl: fb.trialPickMediaUrl,
-                trialPickMediaType: fb.trialPickMediaType,
-                offerKind: "trial" as const,
-                courseSessionsText: "",
-                courseStartDate: "",
-                courseEndDate: "",
-                scheduleSlots: [],
-                courseCycles: [],
-              };
-            }
-          })(),
-        }))
-        .filter((s: SfServiceRow) => s.name);
-    } catch (e) {
-      console.warn("[WA Webhook] sales-flow services load failed:", e);
-    }
-  }
+  const salesFlowServices = knowledge?.salesFlowServices ?? [];
 
   // Handle unsupported message types
   if (msg.type === "unsupported") {

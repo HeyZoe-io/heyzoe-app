@@ -24,6 +24,7 @@ import {
 import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
 import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-fixes";
 import { detectMessageLanguage } from "@/lib/language-detect";
+import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -80,6 +81,8 @@ export type BusinessKnowledgePack = {
   membershipsAndCardsText: string;
   salesFlowConfig: SalesFlowConfig | null;
   salesFlowPromptSection: string;
+  /** שירותים parsed ל-runtime פלואו ווטסאפ (עד 24, כמו limit הישן ב-webhook) */
+  salesFlowServices: SfServiceRow[];
   /** קישור אינסטגרם (social_links.instagram) */
   instagramUrl: string;
   promotionsText: string;
@@ -407,6 +410,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
+      salesFlowServices: salesFlowConfig ? parseSfServiceRows(services ?? []).slice(0, 24) : [],
       instagramUrl,
       promotionsText,
       traits: traitsList,
