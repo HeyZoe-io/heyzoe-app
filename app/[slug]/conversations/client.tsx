@@ -37,7 +37,8 @@ const i18n = {
     pauseBot: "עצור בוט",
     leadPhoneFallback: "מספר הליד",
     windowExpired: (phone: string) =>
-      `לא ניתן לשלוח הודעה לאחר 24 שעות. ניתן ליצור קשר מהמספר שלכם: ${phone}`,
+      `שליחה ידנית מהמערכת אפשרית רק בתוך 24 שעות מהודעת הלקוח האחרונה. אפשר לעצור את הבוט — וליצור קשר מהמספר שלכם: ${phone}`,
+    actionFailed: "הפעולה נכשלה. נסו שוב או רעננו את הדף.",
     manualPlaceholder: "כתוב תשובה ידנית לוואטסאפ...",
     sendManual: "שליחת הודעה ידנית",
     sending: "שולח...",
@@ -70,7 +71,8 @@ const i18n = {
     pauseBot: "Pause Bot",
     leadPhoneFallback: "lead number",
     windowExpired: (phone: string) =>
-      `Cannot send a message after 24 hours. You can reach out from your number: ${phone}`,
+      `Manual replies from the dashboard are only available within 24 hours of the customer's last message. You can still pause the bot and reach out from your number: ${phone}`,
+    actionFailed: "Action failed. Please try again or refresh the page.",
     manualPlaceholder: "Write a manual WhatsApp reply...",
     sendManual: "Send Manual Message",
     sending: "Sending...",
@@ -220,6 +222,7 @@ export default function ConversationsClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [isDesktop, setIsDesktop] = useState(true);
   const [lastMessagePreview, setLastMessagePreview] = useState<Record<string, string>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
 
   function normalizePhoneForMatch(raw: string): string {
     const digits = String(raw ?? "").replace(/\D/g, "");
@@ -394,6 +397,10 @@ export default function ConversationsClient({
   }, []);
 
   useEffect(() => {
+    setActionError(null);
+  }, [selectedId]);
+
+  useEffect(() => {
     if (!selectedId || !messagesQuery.data?.length) return;
     const last = messagesQuery.data[messagesQuery.data.length - 1];
     const preview = truncatePreview(messagePreviewText(String(last?.content ?? "")));
@@ -425,10 +432,11 @@ export default function ConversationsClient({
 
   async function toggleBot(sessionId: string, nextPaused: boolean) {
     setPausing(sessionId);
+    setActionError(null);
     const bizSlug = slugForSession(sessionId);
     try {
       const url = nextPaused ? "/api/whatsapp/pause" : "/api/whatsapp/unpause";
-      await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -436,6 +444,10 @@ export default function ConversationsClient({
           session_id: sessionId,
         }),
       });
+      if (!res.ok) {
+        setActionError(t.actionFailed);
+        return;
+      }
       setSessions((prev) =>
         prev.map((s) =>
           s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s
@@ -450,8 +462,9 @@ export default function ConversationsClient({
   }
 
   async function sendManual() {
-    if (!selected || !manualText.trim()) return;
+    if (!selected || !manualText.trim() || manualReplyWindowExpired) return;
     setSending(true);
+    setActionError(null);
     try {
       const manualUrl =
         apiScope === "admin" && isMarketingConversationsSlug(messagesSlug)
@@ -505,6 +518,8 @@ export default function ConversationsClient({
           )
         );
         setManualText("");
+      } else {
+        setActionError(t.actionFailed);
       }
     } finally {
       setSending(false);
@@ -525,8 +540,8 @@ export default function ConversationsClient({
 
   const manualReplyWindowExpired =
     lastUserMessageAt != null && Date.now() - lastUserMessageAt > WHATSAPP_REPLY_WINDOW_MS;
-  const stopBotDisabled = Boolean(selected && !selected.isPaused && manualReplyWindowExpired);
-  const stopBotDisabledText = selected
+  const manualSendBlocked = Boolean(selected?.isPaused && manualReplyWindowExpired);
+  const manualWindowNotice = selected
     ? t.windowExpired(selected.phone || t.leadPhoneFallback)
     : "";
 
@@ -681,12 +696,8 @@ export default function ConversationsClient({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (stopBotDisabled) return;
-                      void toggleBot(selected.session_id, !selected.isPaused);
-                    }}
-                    disabled={pausing === selected.session_id || stopBotDisabled}
-                    title={stopBotDisabled ? stopBotDisabledText : undefined}
+                    onClick={() => void toggleBot(selected.session_id, !selected.isPaused)}
+                    disabled={pausing === selected.session_id}
                     className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50 ${
                       selected.isPaused
                         ? "bg-[#25D366] text-white hover:bg-[#20bd5a]"
@@ -701,9 +712,15 @@ export default function ConversationsClient({
                   </button>
                 </header>
 
-                {stopBotDisabled ? (
+                {manualSendBlocked ? (
                   <p className={`shrink-0 bg-[#fff8e6] px-4 py-2 text-[12px] leading-relaxed text-amber-800 ${textAlignClass}`}>
-                    {stopBotDisabledText}
+                    {manualWindowNotice}
+                  </p>
+                ) : null}
+
+                {actionError ? (
+                  <p className={`shrink-0 bg-[#fde8e8] px-4 py-2 text-[12px] leading-relaxed text-[#ea0038] ${textAlignClass}`}>
+                    {actionError}
                   </p>
                 ) : null}
 
@@ -759,7 +776,8 @@ export default function ConversationsClient({
                       <button
                         type="button"
                         onClick={() => void sendManual()}
-                        disabled={sending || !manualText.trim()}
+                        disabled={sending || !manualText.trim() || manualReplyWindowExpired}
+                        title={manualReplyWindowExpired ? manualWindowNotice : undefined}
                         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#25D366] text-white transition-opacity hover:bg-[#20bd5a] disabled:opacity-40"
                         aria-label={t.sendManual}
                       >

@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { logMessage } from "@/lib/analytics";
-import { resolveTwilioAccountSid, resolveTwilioAuthToken, sendWhatsAppMessage } from "@/lib/whatsapp";
+import {
+  isMetaCloudPhoneNumberId,
+  resolveMetaAccessToken,
+  resolveTwilioAccountSid,
+  resolveTwilioAuthToken,
+  sendWhatsAppMessage,
+} from "@/lib/whatsapp";
+import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
 
 export const runtime = "nodejs";
 
@@ -40,15 +47,15 @@ async function requireBusinessAccess(admin: ReturnType<typeof createSupabaseAdmi
 }
 
 function parseSession(sessionId: string) {
-  // Format: wa_{toNumber}_{fromNumber}
+  // Format: wa_{phone_number_id}_{leadPhone}
   if (!sessionId.startsWith("wa_")) return null;
   const rest = sessionId.slice(3);
   const firstUnderscore = rest.indexOf("_");
   if (firstUnderscore < 0) return null;
-  const toNumber = rest.slice(0, firstUnderscore);
-  const fromNumber = rest.slice(firstUnderscore + 1);
-  if (!toNumber || !fromNumber) return null;
-  return { toNumber, fromNumber };
+  const phoneNumberId = rest.slice(0, firstUnderscore);
+  const leadPhone = extractPhoneFromSessionId(sessionId) || rest.slice(firstUnderscore + 1);
+  if (!phoneNumberId || !leadPhone) return null;
+  return { phoneNumberId, leadPhone };
 }
 
 export async function POST(req: NextRequest) {
@@ -80,12 +87,19 @@ export async function POST(req: NextRequest) {
 
     const accountSid = resolveTwilioAccountSid();
     const authToken = resolveTwilioAuthToken();
-    if (!accountSid || !authToken) {
+    const metaSend =
+      isMetaCloudPhoneNumberId(parsed.phoneNumberId) && Boolean(resolveMetaAccessToken());
+    if (!metaSend && (!accountSid || !authToken)) {
       return NextResponse.json({ error: "missing_twilio_credentials" }, { status: 500 });
     }
 
-    // Send manual WhatsApp message via Twilio
-    await sendWhatsAppMessage(parsed.toNumber, parsed.fromNumber, text, accountSid, authToken);
+    await sendWhatsAppMessage(
+      parsed.phoneNumberId,
+      parsed.leadPhone,
+      text,
+      accountSid ?? "",
+      authToken ?? ""
+    );
 
     // Log assistant-style message
     await logMessage({
