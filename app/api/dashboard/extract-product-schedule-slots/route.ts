@@ -82,6 +82,11 @@ function stripHtmlToText(html: string): string {
     .trim();
 }
 
+/** מסיר תוויות בסוגריים מרובעים (למשל שם מורה) מהטקסט לפני matching / שליחה ל-Claude */
+function stripSquareBracketSegments(text: string): string {
+  return text.replace(/\s*\[[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
+}
+
 function resolveImageMediaType(mime: string): ImageMediaType | null {
   const m = mime.toLowerCase();
   if (m.includes("jpeg") || m.includes("jpg")) return "image/jpeg";
@@ -179,7 +184,7 @@ function parseServicesPayload(parsed: unknown): ServiceSlots[] {
   for (const item of rawList) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    const name = String(o.name ?? o.service_name ?? "").trim();
+    const name = stripSquareBracketSegments(String(o.name ?? o.service_name ?? ""));
     const slotsRaw = o.slots;
     if (!name || !Array.isArray(slotsRaw)) continue;
     const slots: SlotRow[] = [];
@@ -384,6 +389,7 @@ export async function POST(req: NextRequest) {
     "- Pay close attention to AM/PM in 24h format: do NOT convert 08:30 → 20:30 (or vice versa) unless the tens digit is clearly visible on the schedule.",
     "- Add a slot ONLY when you can read: (product/class name) + (day) + (time) on the schedule.",
     "- For each product from the input list: include slots where the product name appears clearly on the schedule. If not found, slots must be [].",
+    "- Ignore any text in square brackets (e.g. [teacher name]) when reading class names on the schedule; match only the class/product title.",
     "- Use Hebrew product names EXACTLY as given in the input list for the output 'name'.",
   ].join("\n");
 
@@ -409,7 +415,9 @@ export async function POST(req: NextRequest) {
   }
 
   const htmlOrText = buf.toString("utf8");
-  const extracted = stripHtmlToText(htmlOrText).slice(0, TEXT_EXTRACT_MAX);
+  const extracted = stripSquareBracketSegments(
+    stripHtmlToText(htmlOrText).slice(0, TEXT_EXTRACT_MAX)
+  );
 
   const textServices = await claudeExtractSchedule(
     client,
