@@ -130,6 +130,7 @@ import {
 } from "@/lib/sales-flow-inbound";
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
+import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 import {
   addressDirectionsPrefix,
@@ -543,25 +544,6 @@ const CTA_MENU_SENT_MODELS = new Set([
 function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
   const m = String(model ?? "").trim();
   return m === CLAUDE_WHATSAPP_MODEL || m === GEMINI_WHATSAPP_MODEL;
-}
-
-/** «איך נרשמים/מצטרפים» — לא שאלות כלליות על «הרשמה» באמצע חימום וכו׳ */
-function isJoinSignupIntentText(normalized: string): boolean {
-  const t = normalizeGreetingToken(normalized);
-  if (!t) return false;
-  if (/^(איך|איפה)\s+/u.test(t) && /(נרשמים|נרשם|נרשמת|להירשם|מצטרפים|מצטרף|להצטרף|הצטרפות)/u.test(t)) {
-    return true;
-  }
-  if (/רוצה\s+(להירשם|להצטרף)/u.test(t)) return true;
-  if (/איך\s+מתחילים/u.test(t)) return true;
-  if (/איך\s+(קונים|רוכשים|מזמינים|משריינים|שומרים\s+מקום)/u.test(t)) return true;
-  if (/^how (?:do|can) i (?:sign up|register|join)/u.test(t)) return true;
-  if (/^how to (?:sign up|register|join)/u.test(t)) return true;
-  if (/^i want to (?:register|join|sign up)/u.test(t)) return true;
-  if (/^id like to (?:register|join|sign up)/u.test(t)) return true;
-  if (/^i would like to (?:register|join|sign up)/u.test(t)) return true;
-  if (/^sign me up$/u.test(t)) return true;
-  return false;
 }
 
 type JoinSignupRecoveryAction = "none" | "service_pick" | "cta_menu";
@@ -7046,7 +7028,13 @@ async function processIncoming(
   const isFreeTextSalesFlowAi =
     isSalesFlowOpenQuestionAi && !registeredInCurrentFlow;
 
-  const isJoinSignupIntent = msg.type === "text" && isJoinSignupIntentText(incomingNorm);
+  const isJoinSignupIntent = msg.type === "text" && isJoinSignupIntentText(incomingRaw);
+
+  const isWarmupSkipIntent =
+    msg.type === "text" &&
+    !registeredInCurrentFlow &&
+    (contactSessionPhase === "opening" || contactSessionPhase === "warmup") &&
+    isWarmupSkipIntentText(incomingRaw, contactSessionPhase);
 
   const joinSignupRecovery: JoinSignupRecoveryAction =
     matched || matchedPredefinedClosedLabel
@@ -7118,6 +7106,24 @@ async function processIncoming(
       blockTrialPickMedia: starterBlocksMedia,
       sendOpeningMediaIfConfigured,
       logModelUsed: "predefined_choice_guard",
+    });
+    return;
+  } else if (isWarmupSkipIntent && knowledge?.salesFlowConfig && businessId) {
+    await advanceAfterWarmupSessionComplete({
+      knowledge,
+      salesFlowServices,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      blockTrialPickMedia: starterBlocksMedia,
+      trialRegistered: contactTrialRegistered,
+      allowTrialCta: allowTrialCtaThisSession,
+      sfConsumedKinds: sfClickedCtaKinds,
+      instagramFollowPromptSent: contactInstagramFollowPromptSent,
     });
     return;
   } else if (joinSignupRecovery === "service_pick" && knowledge?.salesFlowConfig && businessId) {
