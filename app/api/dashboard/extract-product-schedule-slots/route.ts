@@ -88,12 +88,13 @@ function stripSquareBracketSegments(text: string): string {
 }
 
 /**
- * TEMPORARY hardcode — סאנגה יוגה בלבד.
- * האתר החדש מציג מועדים בכרטיסים (#classes) ובטבלה (#schedule) עם פיצול שונה (במיוחד יוגה לנשים).
- * עד שדשבורד יתמוך ב-selector per עסק — מגבילים חילוץ HTML ל-#classes רק ל-host הזה.
+ * TEMPORARY hardcode — סאנגה יוגה (sanga-yoga-web.vercel.app) בלבד.
+ * פרסור דטרמיניסטי של section#schedule > table + מיפוי נשים + דילוג על קורס מתחילים.
+ * להחליף בעתיד ב: schedule_extract_selector + schedule_product_aliases + פרסר טבלה גנרי.
  * ה-route לא מקבל slug; הזיהוי הוא לפי hostname של scheduleUrl.
  */
 const SANGA_SCHEDULE_EXTRACT_HOSTS = new Set(["sanga-yoga-web.vercel.app"]);
+const SANGA_WOMEN_UNIFIED_LABEL = "שיעור יוגה לנשים";
 
 function scheduleExtractHostFromUrl(url: string): string {
   try {
@@ -107,7 +108,7 @@ function isSangaScheduleExtractSite(scheduleUrl: string): boolean {
   return SANGA_SCHEDULE_EXTRACT_HOSTS.has(scheduleExtractHostFromUrl(scheduleUrl));
 }
 
-/** שליפת אלמנט לפי id (למשל section#classes) — מחזיר HTML מלא של האלמנט או null */
+/** שליפת אלמנט לפי id — משמש ל-section#schedule (סאנגה) */
 function extractElementById(html: string, id: string): string | null {
   const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(
@@ -118,17 +119,154 @@ function extractElementById(html: string, id: string): string | null {
   return m ? m[0] : null;
 }
 
-/** HTML לחילוץ טקסט — ברירת מחדל: כל הדף; סאנגה: רק #classes עם fallback לדף מלא */
-function htmlForScheduleTextExtract(fullHtml: string, scheduleUrl: string): string {
-  if (!isSangaScheduleExtractSite(scheduleUrl)) return fullHtml;
-  const section = extractElementById(fullHtml, "classes");
-  if (!section) {
-    console.warn("[extract-product-schedule-slots] Sanga #classes not found; using full page", {
-      host: scheduleExtractHostFromUrl(scheduleUrl),
+function decodeHtmlEntitiesBasic(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, num) => {
+      const n = Number(num);
+      return Number.isFinite(n) ? String.fromCharCode(n) : "";
     });
-    return fullHtml;
+}
+
+function parseHebrewDayLetter(raw: string): SlotRow["day"] | null {
+  const dayClean = decodeHtmlEntitiesBasic(String(raw ?? ""))
+    .replace(/[\u0591-\u05C7]/g, "")
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "")
+    .replace(/[''׳]/g, "")
+    .trim();
+  const dayLower = dayClean.toLowerCase();
+  const byName: Record<string, SlotRow["day"]> = {
+    "ראשון": "א",
+    "יום ראשון": "א",
+    "שני": "ב",
+    "יום שני": "ב",
+    "שלישי": "ג",
+    "יום שלישי": "ג",
+    "רביעי": "ד",
+    "יום רביעי": "ד",
+    "חמישי": "ה",
+    "יום חמישי": "ה",
+    "שישי": "ו",
+    "יום שישי": "ו",
+    "שבת": "ש",
+    "יום שבת": "ש",
+  };
+  for (const [k, v] of Object.entries(byName)) {
+    if (dayLower.includes(k)) return v;
   }
-  return section;
+  const first = [...dayClean][0] ?? "";
+  if (/^[אבגדהוש]$/u.test(first)) return first as SlotRow["day"];
+  return null;
+}
+
+function parseTimeFromCell(tdHtml: string): string | null {
+  const text = decodeHtmlEntitiesBasic(stripHtmlToText(tdHtml));
+  const m = text.match(/(\d{1,2}:\d{2})/);
+  if (!m) return null;
+  return normalizeSlotRow({ day: "א", time: m[1] })?.time ?? null;
+}
+
+function isSangaCourseBeginnersLabel(label: string): boolean {
+  return /קורס\s+מתחילים/i.test(label);
+}
+
+function isTeacherOnlyBracketLabel(label: string): boolean {
+  return /^\[[^\]]+\]$/.test(label.trim());
+}
+
+/** TEMPORARY סאנגה: מיפוי רמות נשים לשם מוצר אחד בדשבורד */
+function normalizeSangaTableClassLabel(label: string): string | null {
+  const s = stripSquareBracketSegments(label).trim();
+  if (!s || isTeacherOnlyBracketLabel(s) || isSangaCourseBeginnersLabel(s)) return null;
+  if (/^שיעור\s+יוגה\s+לנשים(?:\s+(?:מתחילות|ממשיכות|מתקדמות))?$/iu.test(s)) {
+    return SANGA_WOMEN_UNIFIED_LABEL;
+  }
+  return s;
+}
+
+/**
+ * TEMPORARY סאנגה: כל שיעור/קורס בתא הוא span.inline-flex נפרד (לא span.block חיצוני עם קינון).
+ * span.block חיצוני מכיל separator פנימי — regex לא-גreedy על block היה נחתך מוקדם מדי.
+ */
+function extractSangaCellClassLabels(tdHtml: string): string[] {
+  const labels: string[] = [];
+  for (const m of tdHtml.matchAll(
+    /<span\s+class=["']inline-flex[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi
+  )) {
+    const text = stripSquareBracketSegments(stripHtmlToText(m[1] ?? "")).trim();
+    if (!text || isTeacherOnlyBracketLabel(text)) continue;
+    labels.push(text);
+  }
+  if (!labels.length) {
+    const fallback = stripSquareBracketSegments(stripHtmlToText(tdHtml)).trim();
+    if (fallback && !isTeacherOnlyBracketLabel(fallback)) labels.push(fallback);
+  }
+  return labels;
+}
+
+/**
+ * TEMPORARY סאנגה — פרסור דטרמיניסטי של טבלת #schedule.
+ * מחזיר null אם section/table/ch headers לא תקינים.
+ */
+function tryParseSangaScheduleTable(html: string): ServiceSlots[] | null {
+  const section = extractElementById(html, "schedule");
+  if (!section) return null;
+  const tableMatch = section.match(/<table[\s\S]*?<\/table>/i);
+  if (!tableMatch) return null;
+  const tableHtml = tableMatch[0];
+
+  const thead = tableHtml.match(/<thead[\s\S]*?<\/thead>/i)?.[0] ?? "";
+  const headerCells = [...thead.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)];
+  if (headerCells.length < 2) return null;
+
+  const dayLetters: SlotRow["day"][] = [];
+  for (let i = 1; i < headerCells.length; i++) {
+    const day = parseHebrewDayLetter(stripHtmlToText(headerCells[i][1]));
+    if (!day) return null;
+    dayLetters.push(day);
+  }
+
+  const byProduct = new Map<string, Map<string, SlotRow>>();
+  const tbody = tableHtml.match(/<tbody[\s\S]*?<\/tbody>/i)?.[0] ?? tableHtml;
+  const rows = [...tbody.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+
+  for (const rowMatch of rows) {
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)];
+    if (cells.length < 2) continue;
+    const time = parseTimeFromCell(cells[0][1]);
+    if (!time) continue;
+
+    for (let col = 0; col < dayLetters.length && col + 1 < cells.length; col++) {
+      const day = dayLetters[col]!;
+      const labels = extractSangaCellClassLabels(cells[col + 1][1]);
+      for (const raw of labels) {
+        if (isSangaCourseBeginnersLabel(raw)) continue;
+        const productName = normalizeSangaTableClassLabel(raw);
+        if (!productName) continue;
+        const slot = normalizeSlotRow({ day, time });
+        if (!slot) continue;
+        let slots = byProduct.get(productName);
+        if (!slots) {
+          slots = new Map();
+          byProduct.set(productName, slots);
+        }
+        slots.set(`${slot.day}|${slot.time}`, slot);
+      }
+    }
+  }
+
+  if (!byProduct.size) return null;
+
+  return [...byProduct.entries()].map(([name, slots]) => ({
+    name,
+    slots: [...slots.values()],
+  }));
 }
 
 function resolveImageMediaType(mime: string): ImageMediaType | null {
@@ -459,9 +597,29 @@ export async function POST(req: NextRequest) {
   }
 
   const htmlOrText = buf.toString("utf8");
-  const htmlScope = htmlForScheduleTextExtract(htmlOrText, safe.url);
+
+  // TEMPORARY סאנגה: פרסור טבלה דטרמיניסטי — רק host sanga-yoga-web.vercel.app, רק נתיב HTML (לא תמונה).
+  if (isSangaScheduleExtractSite(safe.url)) {
+    const sangaParsed = tryParseSangaScheduleTable(htmlOrText);
+    const sangaTotal = sangaParsed ? countTotalSlots(sangaParsed) : 0;
+    if (sangaParsed && sangaTotal > 0) {
+      const mapped = mapToCanonicalNames(sangaParsed, serviceNames);
+      return NextResponse.json({
+        ok: true,
+        mode: "sanga_html_table",
+        services: mapped,
+        slots_found: countTotalSlots(mapped),
+      });
+    }
+    console.warn("[extract-product-schedule-slots] Sanga #schedule table parse failed; Claude fallback", {
+      host: scheduleExtractHostFromUrl(safe.url),
+      parsed_products: sangaParsed?.length ?? 0,
+      parsed_slots: sangaTotal,
+    });
+  }
+
   const extracted = stripSquareBracketSegments(
-    stripHtmlToText(htmlScope).slice(0, TEXT_EXTRACT_MAX)
+    stripHtmlToText(htmlOrText).slice(0, TEXT_EXTRACT_MAX)
   );
 
   const textServices = await claudeExtractSchedule(
