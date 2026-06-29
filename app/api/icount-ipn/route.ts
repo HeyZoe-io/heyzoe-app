@@ -46,7 +46,7 @@ async function registerMetaNumberAndEmailAdmin(input: {
       .maybeSingle();
 
     const phoneNumberId = String((ch as any)?.phone_number_id ?? "").trim();
-    if (chErr || !phoneNumberId) {
+    if (chErr) {
       await sendEmail({
         to: adminEmail,
         subject: `❌ שגיאה ברישום WhatsApp — ${input.business_name}`,
@@ -54,9 +54,18 @@ async function registerMetaNumberAndEmailAdmin(input: {
           `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
           `<p><b>שם העסק:</b> ${esc(input.business_name)}</p>`,
           `<p><b>Phone Number ID:</b> ${esc(phoneNumberId || "-")}</p>`,
-          `<p><b>שגיאה:</b> ${esc(String((chErr as any)?.message ?? "missing_phone_number_id"))}</p>`,
+          `<p><b>שגיאה:</b> ${esc(String((chErr as any)?.message ?? "db_error"))}</p>`,
           `</div>`,
         ].join(""),
+      });
+      return;
+    }
+    // Normal for new signups: payment succeeded but Meta/WABA connect happens later on /onboarding/success.
+    // wa-provision cron performs /register once phone_number_id exists — do not alert admin here.
+    if (!phoneNumberId) {
+      console.info("[api/icount-ipn] skip Meta register (no phone_number_id yet):", {
+        business_id: input.business_id,
+        business_slug: input.business_slug,
       });
       return;
     }
