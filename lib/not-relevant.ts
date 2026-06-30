@@ -143,7 +143,7 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
   const { loadZoePlatformGuidelines } = await import("@/lib/business-zoe-platform");
   const { applyKnownAssistantReplyFixes } = await import("@/lib/wa-assistant-reply-fixes");
   const { stripTrailingFollowUpQuestion } = await import("@/lib/wa-split-answer");
-  const { sendWhatsAppMessage, sendWhatsAppTextOrMenu } = await import("@/lib/whatsapp");
+  const { sendWhatsAppMessage } = await import("@/lib/whatsapp");
 
   const [knowledge, platformGuidelines] = await Promise.all([
     getBusinessKnowledgePack(businessSlug),
@@ -278,32 +278,6 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
     session_id: input.sessionId,
     error_code: replyErrorCode,
   }).catch((e) => console.error("[not-relevant] answer log failed:", e));
-
-  if (isFallbackErrorReply) return;
-
-  await sleepMs(650);
-
-  try {
-    await sendWhatsAppTextOrMenu(
-      input.waFromNumber,
-      input.phone,
-      NOT_RELEVANT_FLOW_RESTART_CTA_BODY,
-      [NOT_RELEVANT_FLOW_RESTART_BUTTON],
-      input.accountSid,
-      input.authToken
-    );
-  } catch (e) {
-    console.error("[not-relevant] flow-restart CTA send failed:", e);
-    return;
-  }
-
-  await logMessage({
-    business_slug: businessSlug,
-    role: "assistant",
-    content: `${NOT_RELEVANT_FLOW_RESTART_CTA_BODY}\n[כפתורים: ${NOT_RELEVANT_FLOW_RESTART_BUTTON}]`,
-    model_used: "not_relevant_flow_restart_cta",
-    session_id: input.sessionId,
-  }).catch((e) => console.error("[not-relevant] CTA log failed:", e));
 }
 
 const NOT_RELEVANT_EXACT = new Set([
@@ -339,7 +313,7 @@ const LOCATION_HINTS = [
 ];
 
 export const NOT_RELEVANT_REPLY_MESSAGE =
-  "הבנתי, תודה שעדכנת 🙏 אם תרצו בעתיד — אנחנו כאן. יום נעים!";
+  "אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 🙂";
 
 export function normalizeNotRelevantToken(text: string): string {
   return text
@@ -348,6 +322,54 @@ export function normalizeNotRelevantToken(text: string): string {
     .replace(/[!.,?;:~'"`\-]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** תשובת המודל שמסמנת שהליד לא מעוניין — לא שולחים CTA / המשך פלואו. */
+export function assistantReplyIndicatesLeadNotRelevant(text: string): boolean {
+  const t = normalizeNotRelevantToken(text);
+  if (!t) return false;
+  if (t.includes("אין בעיה בכלל") && t.includes("אם משהו ישתנה בעתיד")) return true;
+  if (t.includes("אם משהו ישתנה בעתיד") && t.includes("אנחנו כאן")) return true;
+  return false;
+}
+
+/** Claude — הליד לא מעוניין בשירות (לא opt-out מדיוור). */
+export async function classifyNotRelevantIntentWithClaude(input: {
+  apiKey: string;
+  text: string;
+}): Promise<boolean> {
+  const apiKey = input.apiKey.trim();
+  const text = input.text.trim();
+  if (!apiKey || text.length < 4 || text.length > 400) return false;
+  if (matchesNotRelevantKeyword(text)) return true;
+
+  try {
+    const anthropic = new Anthropic({ apiKey });
+    const resp = await anthropic.messages.create({
+      model: CLAUDE_WHATSAPP_MODEL,
+      max_tokens: 8,
+      temperature: 0,
+      messages: [
+        {
+          role: "user",
+          content: `האם המשפט מביע שהשולח לא מעוניין להמשיך / שהשירות לא מתאים לו (למשל: רחוק מדי, לא בזמן, לא מחפש כרגע, לא רלוונטי) — ולא שאלה על העסק ולא בקשה להפסיק לקבל הודעות (opt-out)?
+ענה רק "YES" או "NO" (בדיוק, בלי טקסט נוסף).
+
+משפט: "${text}"`,
+        },
+      ],
+    });
+    const out = (resp.content ?? [])
+      .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
+      .join("\n")
+      .trim()
+      .toUpperCase();
+    if (out.startsWith("NO")) return false;
+    return out.startsWith("YES");
+  } catch (e) {
+    console.warn("[not-relevant] intent classify failed (continuing):", e);
+    return false;
+  }
 }
 
 /** זיהוי מילות מפתח מפורשות — לפני opt-out / אוטומציה. */

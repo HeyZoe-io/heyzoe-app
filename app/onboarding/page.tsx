@@ -975,7 +975,7 @@ function OnboardingContent() {
 
               <div style={{ marginBottom: "16px" }}>
                 <label style={labelStyle} htmlFor="onboarding_phone">
-                  טלפון
+                  טלפון (להתקשרות בינינו)
                 </label>
                 <input
                   id="onboarding_phone"
@@ -1012,7 +1012,7 @@ function OnboardingContent() {
 
               <div style={{ marginBottom: "16px" }}>
                 <label style={labelStyle} htmlFor="onboarding_email">
-                  אימייל
+                  מייל (להתקשרות בינינו)
                 </label>
                 <input
                   id="onboarding_email"
