@@ -1,4 +1,5 @@
-import { logMessage } from "@/lib/analytics";
+import { HEYZOE_SF_REGISTERED, logMessage } from "@/lib/analytics";
+import { salesFlowOpeningResetPatch } from "@/lib/wa-warmup-awaiting-idx";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -101,7 +102,7 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
   const phoneVariants = contactPhoneLookupVariants(input.msg.from);
   await input.supabase
     .from("contacts")
-    .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+    .update(salesFlowOpeningResetPatch())
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
 

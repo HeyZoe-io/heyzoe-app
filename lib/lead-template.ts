@@ -1,5 +1,6 @@
 import type { ContactStatusInput } from "@/lib/contact-status";
 import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
+import { salesFlowOpeningResetPatch } from "@/lib/wa-warmup-awaiting-idx";
 
 /** model_used ב-messages לשליחת טמפלייט פתיחה ממודעת Meta */
 export const LEAD_TEMPLATE_MODEL = "lead_template";
@@ -14,9 +15,8 @@ export function templateNoResponseDueAtIso(fromMs: number = Date.now()): string 
 /** איפוס מצב ליד ל«טמפלייט» כששולחים טמפלייט פתיחה מחדש (כולל לידים שסומנו לא רלוונטי). */
 export function buildTemplateIncomingContactPatch(nowIso: string): Record<string, unknown> {
   return {
+    ...salesFlowOpeningResetPatch(),
     source: "meta_lead_ad",
-    session_phase: "opening",
-    flow_step: 0,
     not_relevant_at: null,
     not_relevant_reason: "",
     human_requested_at: null,
