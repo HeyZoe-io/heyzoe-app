@@ -1,4 +1,5 @@
 import { HEYZOE_SF_REGISTERED } from "@/lib/analytics";
+import { withWarmupExtraAwaitingOff } from "@/lib/wa-warmup-awaiting-idx";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import type { CrmTrialRegistrationContext } from "@/lib/crm/types";
 import { resolveServiceNameForSession } from "@/lib/notifications/owner-email-context";
@@ -6,7 +7,7 @@ import type { OfferKind } from "@/lib/sales-flow";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 
 export function buildTrialRegisteredContactPatch(atIso: string): Record<string, unknown> {
-  return {
+  return withWarmupExtraAwaitingOff({
     trial_registered: true,
     trial_registered_at: atIso,
     session_phase: "registered",
@@ -16,7 +17,7 @@ export function buildTrialRegisteredContactPatch(atIso: string): Record<string, 
     wa_no_response_due_at: null,
     wa_followup_stage: 3,
     followup_sent: true,
-  };
+  });
 }
 
 async function resolveRegistrationContext(input: {

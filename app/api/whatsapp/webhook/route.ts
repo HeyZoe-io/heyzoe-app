@@ -133,6 +133,11 @@ import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger } from "@/lib/
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
+import {
+  salesFlowOpeningResetPatch,
+  withWarmupExtraAwaitingOff,
+  WARMUP_EXTRA_AWAITING_OFF,
+} from "@/lib/wa-warmup-awaiting-idx";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 import {
   addressDirectionsPrefix,
@@ -593,7 +598,7 @@ async function updateContactSessionPhase(input: {
   try {
     const { error } = await supabase
       .from("contacts")
-      .update({ session_phase: phase, flow_step: 0 })
+      .update(withWarmupExtraAwaitingOff({ session_phase: phase, flow_step: 0 }))
       .eq("business_id", businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [phone]);
     if (error) console.warn("[WA Webhook] session_phase update failed:", error.message);
@@ -633,6 +638,7 @@ async function resetContactSalesFlowStateForGreeting(input: {
         sf_requested_time: null,
         instagram_follow_prompt_sent: false,
         flow_step: 0,
+        warmup_extra_awaiting_idx: WARMUP_EXTRA_AWAITING_OFF,
         trial_registered: false,
         trial_registered_at: null,
       })
@@ -2076,7 +2082,7 @@ async function sendSalesFlowServiceRepickAckAndMenu(input: {
   const phoneVariants = contactPhoneLookupVariants(input.msg.from);
   await input.supabase
     .from("contacts")
-    .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+    .update(salesFlowOpeningResetPatch())
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
 
@@ -2113,12 +2119,14 @@ async function commitImplicitServiceSwitch(input: {
   const phoneVariants = contactPhoneLookupVariants(input.msg.from);
   await input.supabase
     .from("contacts")
-    .update({
-      session_phase: nextPhase,
-      flow_step: 0,
-      sf_requested_date: null,
-      sf_requested_time: null,
-    })
+    .update(
+      withWarmupExtraAwaitingOff({
+        session_phase: nextPhase,
+        flow_step: 0,
+        sf_requested_date: null,
+        sf_requested_time: null,
+      })
+    )
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
   await logMessage({
@@ -4270,13 +4278,13 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, not_relevant_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
-            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
-            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id, starter_quota_notice_month",
-            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, id",
+            "opted_out, not_relevant_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, id, starter_quota_notice_month",
+            "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, id",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, id, starter_quota_notice_month",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, id",
-            "opted_out, claude_message_count, trial_registered, session_phase, flow_step, id",
+            "opted_out, claude_message_count, trial_registered, session_phase, flow_step, warmup_extra_awaiting_idx, id",
             "opted_out, claude_message_count, trial_registered, id",
             "opted_out",
           ];
@@ -5301,7 +5309,7 @@ async function processIncoming(
         const phoneVariants = contactPhoneLookupVariants(msg.from);
         await supabase
           .from("contacts")
-          .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+          .update(salesFlowOpeningResetPatch())
           .eq("business_id", businessId)
           .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
         contactSessionPhase = "opening";
@@ -5381,7 +5389,14 @@ async function processIncoming(
         const phoneVariantsAfterPick = contactPhoneLookupVariants(msg.from);
         await supabase
           .from("contacts")
-          .update({ session_phase: nextPhase, flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+          .update(
+            withWarmupExtraAwaitingOff({
+              session_phase: nextPhase,
+              flow_step: 0,
+              sf_requested_date: null,
+              sf_requested_time: null,
+            })
+          )
           .eq("business_id", businessId)
           .in("phone", phoneVariantsAfterPick.length ? phoneVariantsAfterPick : [msg.from]);
         contactSessionPhase = nextPhase;
@@ -5424,7 +5439,7 @@ async function processIncoming(
       const phoneVariants = contactPhoneLookupVariants(msg.from);
       await supabase
         .from("contacts")
-        .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+        .update(salesFlowOpeningResetPatch())
         .eq("business_id", businessId)
         .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
       contactScheduleRequestedDate = "";
@@ -5571,7 +5586,7 @@ async function processIncoming(
             const phoneVariants = contactPhoneLookupVariants(msg.from);
             await supabase
               .from("contacts")
-              .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+              .update(salesFlowOpeningResetPatch())
               .eq("business_id", businessId)
               .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
             contactScheduleRequestedDate = "";
@@ -5600,12 +5615,14 @@ async function processIncoming(
             const nextPhase = phaseAfterSchedulePickComplete();
             const { error } = await supabase
               .from("contacts")
-              .update({
-                sf_requested_date: dateTxt,
-                sf_requested_time: "",
-                session_phase: nextPhase,
-                flow_step: 0,
-              })
+              .update(
+                withWarmupExtraAwaitingOff({
+                  sf_requested_date: dateTxt,
+                  sf_requested_time: "",
+                  session_phase: nextPhase,
+                  flow_step: 0,
+                })
+              )
               .eq("business_id", businessId)
               .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
             if (error) console.warn("[WA Webhook] course cycle start pick update failed:", error.message);
@@ -5710,7 +5727,7 @@ async function processIncoming(
           const phoneVariants = contactPhoneLookupVariants(msg.from);
           await supabase
             .from("contacts")
-            .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+            .update(salesFlowOpeningResetPatch())
             .eq("business_id", businessId)
             .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
           contactScheduleRequestedDate = "";
@@ -5739,12 +5756,14 @@ async function processIncoming(
         const nextPhase = phaseAfterSchedulePickComplete();
         const { error } = await supabase
           .from("contacts")
-          .update({
-            sf_requested_date: dateTxt,
-            sf_requested_time: timeTxt,
-            session_phase: nextPhase,
-            flow_step: 0,
-          })
+          .update(
+            withWarmupExtraAwaitingOff({
+              sf_requested_date: dateTxt,
+              sf_requested_time: timeTxt,
+              session_phase: nextPhase,
+              flow_step: 0,
+            })
+          )
           .eq("business_id", businessId)
           .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
         if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
@@ -5834,7 +5853,13 @@ async function processIncoming(
         } else {
           const { error } = await supabase
             .from("contacts")
-            .update({ sf_requested_date: parsedDate, session_phase: "schedule_time", flow_step: 0 })
+            .update(
+              withWarmupExtraAwaitingOff({
+                sf_requested_date: parsedDate,
+                session_phase: "schedule_time",
+                flow_step: 0,
+              })
+            )
             .eq("business_id", businessId)
             .in("phone", contactPhoneLookupVariants(msg.from));
           if (error) console.warn("[WA Webhook] sf_requested_date update failed:", error.message);
@@ -5881,7 +5906,13 @@ async function processIncoming(
         const nextPhaseLegacy = phaseAfterSchedulePickComplete();
         const { error: timeUpErr } = await supabase
           .from("contacts")
-          .update({ sf_requested_time: parsedTime, session_phase: nextPhaseLegacy, flow_step: 0 })
+          .update(
+            withWarmupExtraAwaitingOff({
+              sf_requested_time: parsedTime,
+              session_phase: nextPhaseLegacy,
+              flow_step: 0,
+            })
+          )
           .eq("business_id", businessId)
           .in("phone", contactPhoneLookupVariants(msg.from));
         if (timeUpErr) console.warn("[WA Webhook] sf_requested_time update failed:", timeUpErr.message);
@@ -7013,7 +7044,7 @@ async function processIncoming(
     const phoneVariants = contactPhoneLookupVariants(msg.from);
     await supabase
       .from("contacts")
-      .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+      .update(salesFlowOpeningResetPatch())
       .eq("business_id", businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
     contactSessionPhase = "opening";
@@ -7051,7 +7082,7 @@ async function processIncoming(
     const phoneVariants = contactPhoneLookupVariants(msg.from);
     await supabase
       .from("contacts")
-      .update({ session_phase: "opening", flow_step: 0, sf_requested_date: null, sf_requested_time: null })
+      .update(salesFlowOpeningResetPatch())
       .eq("business_id", businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
     contactSessionPhase = "opening";
