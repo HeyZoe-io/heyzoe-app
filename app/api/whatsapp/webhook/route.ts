@@ -129,7 +129,7 @@ import {
   isSalesFlowStartInbound,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
@@ -255,11 +255,12 @@ import {
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 import {
-  answerNotRelevantLeadOpenQuestion,
+  assistantReplyIndicatesLeadNotRelevant,
+  classifyNotRelevantIntentWithClaude,
   handleLeadNotRelevant,
   matchesNotRelevantKeyword,
+  NOT_RELEVANT_REPLY_MESSAGE,
   reactivateNotRelevantLead,
-  shouldAnswerNotRelevantLeadOpenQuestion,
 } from "@/lib/not-relevant";
 import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
 
@@ -4403,6 +4404,44 @@ async function processIncoming(
     return;
   }
 
+  // 1.6) NOT RELEVANT (Claude) — רחוק / לא מתאים / לא מעוניין (לא opt-out)
+  if (
+    msg.type === "text" &&
+    businessId &&
+    !contactNotRelevantAt &&
+    incomingText.length >= 4 &&
+    incomingText.length <= 400 &&
+    !matchesNotRelevantKeyword(incomingTextRaw)
+  ) {
+    const apiKey = resolveClaudeApiKey();
+    if (apiKey) {
+      const isNotRelevant = await classifyNotRelevantIntentWithClaude({
+        apiKey,
+        text: incomingTextRaw,
+      });
+      if (isNotRelevant) {
+        const fullName =
+          typeof (msg as { profileName?: string }).profileName === "string"
+            ? (msg as { profileName?: string }).profileName!.trim()
+            : "";
+        await handleLeadNotRelevant({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          text: incomingTextRaw,
+          nowIso,
+          waFromNumber: msg.toNumber,
+          accountSid,
+          authToken,
+          sessionId: earlySessionId,
+          fullName: fullName || null,
+        });
+        return;
+      }
+    }
+  }
+
   // 2) OPT-OUT DETECTION (only for text)
   if (msg.type === "text" && matchesAny(incomingText, OPT_OUT)) {
     if (businessId) {
@@ -4557,35 +4596,10 @@ async function processIncoming(
     }
 
     if (contactNotRelevantAt) {
-      const isOpenQuestion =
-        msg.type === "text" &&
-        businessId &&
-        claudeApiKey &&
-        (await shouldAnswerNotRelevantLeadOpenQuestion({
-          apiKey: claudeApiKey,
-          text: incomingTextRaw,
-        }));
-
-      if (isOpenQuestion) {
-        await answerNotRelevantLeadOpenQuestion({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          text: incomingTextRaw,
-          sessionId: earlySessionId,
-          waFromNumber: msg.toNumber,
-          accountSid,
-          authToken,
-          claudeApiKey,
-        });
-        return;
-      }
-
       await sendWhatsAppMessage(
         msg.toNumber,
         msg.from,
-        `הבנתי שזה לא רלוונטי כרגע 🙏 אם תרצו בעתיד — כתבו *${SALES_FLOW_START_BUTTON_LABEL_HE}*`,
+        NOT_RELEVANT_REPLY_MESSAGE,
         accountSid,
         authToken
       ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
@@ -7502,6 +7516,31 @@ async function processIncoming(
       scheduleDayLabels: pickedServiceScheduleDayLabels,
     }
   );
+
+  if (
+    !isFallbackErrorReply &&
+    businessId &&
+    assistantReplyIndicatesLeadNotRelevant(replyCoreClean)
+  ) {
+    const fullName =
+      typeof (msg as { profileName?: string }).profileName === "string"
+        ? (msg as { profileName?: string }).profileName!.trim()
+        : "";
+    await handleLeadNotRelevant({
+      supabase,
+      businessId: Number(businessId),
+      businessSlug: business_slug,
+      phone: msg.from,
+      text: incomingTextRaw,
+      nowIso,
+      waFromNumber: msg.toNumber,
+      accountSid,
+      authToken,
+      sessionId: sessionId,
+      fullName: fullName || null,
+    });
+    return;
+  }
 
   function softenWebsiteAttribution(text: string): string {
     // Keep replies sounding like the business, not "the website".

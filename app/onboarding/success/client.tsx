@@ -67,7 +67,7 @@ const i18n = {
     choiceSubtitle: "בחרו את הדרך שמתאימה לכם — תמיד אפשר לשנות בהמשך.",
     optCoexistenceTitle: "חיבור המספר הקיים שלי",
     optCoexistenceDesc:
-      "נחבר את זואי למספר הווטסאפ העסקי הקיים שלכם, בלי לאבד את ההודעות והצ׳אטים. אם המספר עדיין על וואטסאפ רגיל — קודם התקינו WhatsApp Business והעבירו אליו את המספר.",
+      "נחבר את זואי למספר הווטסאפ העסקי הקיים שלכם, ותוכלו לגשת לשיחות גם בדשבורד וגם באפליקציית ווטסאפ ביזנס.",
     optNewTitle: "מספר חדש מ-HeyZoe",
     optNewDesc: "נקנה ונחבר עבורכם מספר ווטסאפ חדש וייעודי לבוט. הדרך המהירה להתחיל.",
     optManualTitle: "חיבור עם ליווי הצוות",
@@ -86,7 +86,7 @@ const i18n = {
     coexConnect: "חברו את המספר הקיים",
     coexConnectHint:
       "במסך של פייסבוק שייפתח, תחת «WhatsApp Business account» — בחרו «Connect a WhatsApp Business App» (האייקון הירוק), ולא «Create a WhatsApp Business account».",
-    coexStuckHelp: "נתקעת? דברו איתנו בוואטסאפ",
+    coexStuckHelp: "נתקעתם? דברו איתנו בוואטסאפ",
   },
   en: {
     prepSteps: [
@@ -124,7 +124,7 @@ const i18n = {
     choiceSubtitle: "Choose what works for you — you can always change this later.",
     optCoexistenceTitle: "Connect my existing number",
     optCoexistenceDesc:
-      "We'll connect Zoe to your existing WhatsApp Business number without losing your messages and chats. If the number is still on regular WhatsApp — first install WhatsApp Business and move the number to it.",
+      "We'll connect Zoe to your existing WhatsApp Business number, and you'll be able to access conversations in both the dashboard and the WhatsApp Business app.",
     optNewTitle: "A new number from HeyZoe",
     optNewDesc: "We'll buy and connect a dedicated new WhatsApp number for your bot. The fastest way to start.",
     optManualTitle: "Guided setup with our team",
@@ -1159,7 +1159,7 @@ export default function OnboardingSuccessClient() {
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              fontSize: "12px",
+              fontSize: "13px",
               lineHeight: 1.5,
               color: "#8b7cb8",
               textDecoration: "underline",
