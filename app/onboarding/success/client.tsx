@@ -84,6 +84,9 @@ const i18n = {
     coexReq14Days: "כדי לשמור על החיבור פעיל — פתחו את האפליקציה לפחות אחת ל-14 יום.",
     coexAckButton: "הבנתי, ממשיכים",
     coexConnect: "חברו את המספר הקיים",
+    coexConnectHint:
+      "במסך של פייסבוק שייפתח, תחת «WhatsApp Business account» — בחרו «Connect a WhatsApp Business App» (האייקון הירוק), ולא «Create a WhatsApp Business account».",
+    coexStuckHelp: "נתקעת? דברו איתנו בוואטסאפ",
   },
   en: {
     prepSteps: [
@@ -138,6 +141,9 @@ const i18n = {
     coexReq14Days: "To keep the connection active — open the app at least once every 14 days.",
     coexAckButton: "Got it, continue",
     coexConnect: "Connect my existing number",
+    coexConnectHint:
+      "In the Facebook screen that opens, under «WhatsApp Business account», choose «Connect a WhatsApp Business App» (the green icon) — not «Create a WhatsApp Business account».",
+    coexStuckHelp: "Stuck? Chat with us on WhatsApp",
   },
 } as const;
 
@@ -155,6 +161,8 @@ const POLL_MS = 2000;
 const TIMEOUT_MS = 120_000;
 const WHATSAPP_HELP_URL =
   "https://wa.me/972508318162?text=%D7%94%D7%99%D7%99%2C%20%D7%99%D7%A9%20%D7%9C%D7%99%20%D7%A9%D7%90%D7%9C%D7%94%20%D7%91%D7%A0%D7%95%D7%92%D7%A2%20%D7%9C%D7%96%D7%95%D7%90%D7%99%21";
+const ONBOARDING_STUCK_HELP_URL =
+  "https://wa.me/97233824981?text=%D7%A0%D7%AA%D7%A7%D7%A2%D7%AA%D7%99%20%D7%91%D7%94%D7%A8%D7%A9%D7%9E%D7%94%20-%20%D7%A0%D7%93%D7%A8%D7%A9%20%D7%A0%D7%A6%D7%99%D7%92";
 
 const STEP_REVEAL_MS = 2200;
 const EMBEDDED_SUCCESS_REDIRECT_MS = 3000;
@@ -949,6 +957,17 @@ export default function OnboardingSuccessClient() {
                       <p style={{ margin: 0, fontSize: "12px", color: "#b42318", lineHeight: 1.5 }}>{t.missingAppId}</p>
                     ) : (
                       <>
+                        <p
+                          style={{
+                            margin: "0 0 12px",
+                            fontSize: "12px",
+                            lineHeight: 1.55,
+                            color: "#6b5b9a",
+                            textAlign,
+                          }}
+                        >
+                          {t.coexConnectHint}
+                        </p>
                         <button
                           type="button"
                           disabled={!fbSdkReady || embeddedState === "loading" || embeddedState === "success"}
@@ -1133,6 +1152,23 @@ export default function OnboardingSuccessClient() {
             </div>
           </>
         )}
+
+        <p style={{ margin: "20px 0 0", paddingTop: "16px", borderTop: "1px solid rgba(113,51,218,0.08)" }}>
+          <a
+            href={ONBOARDING_STUCK_HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontSize: "12px",
+              lineHeight: 1.5,
+              color: "#8b7cb8",
+              textDecoration: "underline",
+              textUnderlineOffset: "2px",
+            }}
+          >
+            {t.coexStuckHelp}
+          </a>
+        </p>
       </div>
     </main>
   );
