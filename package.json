@@ -10,6 +10,8 @@
     "wa:find-phone-id": "node --env-file=.env.local scripts/find_id.js",
     "wa:send-test": "node --env-file=.env.local scripts/send_test.js",
     "test:warmup-skip": "npx tsx lib/wa-warmup-skip-intent.test.ts",
+    "test:warmup-resend-parity": "npx tsx lib/wa-warmup-resend-parity.test.ts",
+    "test:warmup-resend-race": "npx tsx lib/wa-warmup-resend-race.test.ts",
     "notifications:send-samples": "npx tsx --env-file=.env.local scripts/send-notification-samples.ts"
   },
   "dependencies": {

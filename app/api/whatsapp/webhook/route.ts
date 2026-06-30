@@ -132,6 +132,7 @@ import {
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
+import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 import {
   addressDirectionsPrefix,
@@ -3348,19 +3349,14 @@ async function resendUnansweredSalesFlowPrompt(
     const { cleanSteps: cleanWarm, hasWarmupQ1 } = buildWarmupExtraCleanStepsFromWb(wbWarm);
     const lastIdxFromEvent = await fetchLastSfWarmupExtraIndex({ business_slug, session_id: sessionId });
     const lastAssist = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-    let extraIdx = resolveActiveWarmupExtraMenuIndex({
-      contactSessionPhase: "warmup",
+    const resendDecision = decideWarmupExtraResendAction({
       contactFlowStep: step,
-      hasWarmupQ1,
-      cleanSteps: cleanWarm,
-      lastAssistModel: lastAssist,
       lastIdxFromEvent,
-      incomingText: "",
+      lastAssistModel: lastAssist,
+      hasWarmupQ1,
+      cleanStepsCount: cleanWarm.length,
     });
-    if (extraIdx == null && cleanWarm.length > 0) {
-      const fromStep = hasWarmupQ1 ? step - 1 : step;
-      if (fromStep >= 0 && fromStep < cleanWarm.length) extraIdx = fromStep;
-    }
+    const extraIdx = resendDecision.action === "send" ? resendDecision.targetExtraIdx : null;
     const st = extraIdx != null ? cleanWarm[extraIdx] : undefined;
     if (st?.question && (st.options?.length ?? 0) >= 2) {
       const opts = st.options.map((o) => String(o ?? "").trim()).filter(Boolean);
