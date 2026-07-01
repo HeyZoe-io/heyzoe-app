@@ -22,8 +22,60 @@ type IncomingLeadBody = {
   business_slug?: unknown;
 };
 
+type IncomingWebhookAuditResult =
+  | "unauthorized"
+  | "business_not_found"
+  | "validated"
+  | "template_sent"
+  | "error";
+
+async function writeIncomingAudit(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  body: Record<string, unknown> | null;
+  result: IncomingWebhookAuditResult;
+  statusCode: number;
+  errorDetail?: string | null;
+}) {
+  try {
+    const body = input.body;
+    const fullNameRaw = body?.full_name;
+    const { error } = await input.admin.from("webhook_audit").insert({
+      source: "leads_incoming",
+      business_slug:
+        body?.business_slug != null ? String(body.business_slug) : null,
+      phone: body?.phone != null ? String(body.phone) : null,
+      full_name:
+        fullNameRaw != null && String(fullNameRaw).trim()
+          ? String(fullNameRaw).trim()
+          : null,
+      external_ids: null,
+      result: input.result,
+      status_code: input.statusCode,
+      raw_body: body,
+      error_detail: input.errorDetail ?? null,
+    });
+    if (error) {
+      console.error(
+        "[api/leads/incoming] webhook_audit insert failed:",
+        error.message
+      );
+    }
+  } catch (e) {
+    console.error("[api/leads/incoming] webhook_audit write failed:", e);
+  }
+}
+
 export async function POST(req: NextRequest) {
+  const admin = createSupabaseAdminClient();
+
   if (!verifyLeadsWebhookSecret(req)) {
+    await writeIncomingAudit({
+      admin,
+      body: null,
+      result: "unauthorized",
+      statusCode: 401,
+      errorDetail: "unauthorized",
+    });
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -32,21 +84,41 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as IncomingLeadBody;
   } catch (e) {
     console.error("[api/leads/incoming] invalid JSON:", e);
+    await writeIncomingAudit({
+      admin,
+      body: null,
+      result: "error",
+      statusCode: 400,
+      errorDetail: "invalid_json",
+    });
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const bodyRecord = body as Record<string, unknown>;
   const fullName = String(body.full_name ?? "").trim();
   const businessSlug = String(body.business_slug ?? "").trim().toLowerCase();
   const phoneNorm = normalizePhone(body.phone);
 
   if (!phoneNorm) {
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 400,
+      errorDetail: "invalid_phone",
+    });
     return NextResponse.json({ error: "invalid_phone" }, { status: 400 });
   }
   if (!businessSlug) {
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 400,
+      errorDetail: "missing_business_slug",
+    });
     return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
   }
-
-  const admin = createSupabaseAdminClient();
 
   const { data: business, error: bizErr } = await admin
     .from("businesses")
@@ -56,20 +128,48 @@ export async function POST(req: NextRequest) {
 
   if (bizErr) {
     console.error("[api/leads/incoming] business lookup failed:", bizErr);
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 500,
+      errorDetail: "business_lookup_failed",
+    });
     return NextResponse.json({ error: "business_lookup_failed" }, { status: 500 });
   }
   if (!business?.id) {
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "business_not_found",
+      statusCode: 404,
+      errorDetail: "business_not_found",
+    });
     return NextResponse.json({ error: "business_not_found" }, { status: 404 });
   }
 
   const businessId = Number(business.id);
   if (!Number.isFinite(businessId)) {
     console.error("[api/leads/incoming] invalid business id:", business.id);
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 500,
+      errorDetail: "business_lookup_failed",
+    });
     return NextResponse.json({ error: "business_lookup_failed" }, { status: 500 });
   }
 
   const templateName = String((business as { lead_template_name?: string | null }).lead_template_name ?? "").trim();
   if (!templateName) {
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 400,
+      errorDetail: "no lead template configured",
+    });
     return NextResponse.json({ error: "no lead template configured" }, { status: 400 });
   }
 
@@ -84,14 +184,35 @@ export async function POST(req: NextRequest) {
 
   if (channelErr) {
     console.error("[api/leads/incoming] whatsapp channel lookup failed:", channelErr);
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 500,
+      errorDetail: "channel_lookup_failed",
+    });
     return NextResponse.json({ error: "channel_lookup_failed" }, { status: 500 });
   }
   if (!channel?.phone_number_id) {
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 404,
+      errorDetail: "whatsapp_channel_not_found",
+    });
     return NextResponse.json({ error: "whatsapp_channel_not_found" }, { status: 404 });
   }
 
   const phoneNumberId = String(channel.phone_number_id).trim();
   const nowIso = new Date().toISOString();
+
+  await writeIncomingAudit({
+    admin,
+    body: bodyRecord,
+    result: "validated",
+    statusCode: 200,
+  });
 
   const { error: upsertErr } = await admin.from("contacts").upsert(
     {
@@ -105,6 +226,13 @@ export async function POST(req: NextRequest) {
 
   if (upsertErr) {
     console.error("[api/leads/incoming] contacts upsert failed:", upsertErr);
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 500,
+      errorDetail: "contact_upsert_failed",
+    });
     return NextResponse.json({ error: "contact_upsert_failed" }, { status: 500 });
   }
 
@@ -128,6 +256,13 @@ export async function POST(req: NextRequest) {
 
   if (!sendResult.ok) {
     console.error("[api/leads/incoming] template send failed:", sendResult.error);
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 502,
+      errorDetail: "template_send_failed",
+    });
     return NextResponse.json({ error: "template_send_failed" }, { status: 502 });
   }
 
@@ -146,6 +281,13 @@ export async function POST(req: NextRequest) {
     kind: "template_sent",
     fullName: fullName || null,
     eventAtIso: nowIso,
+  });
+
+  await writeIncomingAudit({
+    admin,
+    body: bodyRecord,
+    result: "template_sent",
+    statusCode: 200,
   });
 
   return NextResponse.json({ ok: true });
