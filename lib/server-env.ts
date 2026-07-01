@@ -40,7 +40,7 @@ export function resolveSupabaseServiceRoleKey(): string {
   return process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
 }
 
-/** אם מוגדר — נתיבי cron (למשל /api/cron/followup) דורשים `Authorization: Bearer …`. */
+/** אם מוגדר — נתיבי cron (למשל /api/cron/wa-followups) דורשים `Authorization: Bearer …`. */
 export function resolveCronSecret(): string {
   return process.env.CRON_SECRET?.trim() ?? "";
 }

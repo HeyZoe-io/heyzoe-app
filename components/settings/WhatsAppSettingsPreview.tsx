@@ -11,7 +11,7 @@ import {
   type SalesFlowConfig,
 } from "@/lib/sales-flow";
 
-type PreviewStep = 1 | 2 | 3 | 4 | 5;
+type PreviewStep = 1 | 2 | 3 | 4;
 
 type Props = {
   step: PreviewStep;
@@ -24,7 +24,6 @@ type Props = {
   businessTagline: string;
   traits: string[];
   address: string;
-  whatsappIdleFollowupMessage: string;
 };
 
 function Bubble({
@@ -71,7 +70,6 @@ export function WhatsAppSettingsPreview({
   businessTagline,
   traits,
   address,
-  whatsappIdleFollowupMessage,
 }: Props) {
   const facts = traits.map((f) => f.trim()).filter(Boolean);
   const tag = businessTagline.trim();
@@ -383,18 +381,6 @@ export function WhatsAppSettingsPreview({
             <Bubble from="bot">
               <span className="text-zinc-600">חיבור פייסבוק ופיקסל — אין הודעת צ׳אט כאן</span>
             </Bubble>
-          )}
-
-          {step === 5 && (
-            <>
-              {whatsappIdleFollowupMessage.trim() ? (
-                <Bubble from="bot">{whatsappIdleFollowupMessage.trim()}</Bubble>
-              ) : (
-                <Bubble from="bot">
-                  <span className="text-zinc-500">מלאו הודעת פולואפ למחרת בבוקר</span>
-                </Bubble>
-              )}
-            </>
           )}
         </div>
       </div>
