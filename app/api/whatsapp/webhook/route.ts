@@ -138,6 +138,12 @@ import {
   withWarmupExtraAwaitingOff,
   WARMUP_EXTRA_AWAITING_OFF,
 } from "@/lib/wa-warmup-awaiting-idx";
+import {
+  rollbackWarmupAwaitingAfterSendFailure,
+  tryAdvanceWarmupAwaitingIdx,
+  tryAdvanceWarmupAwaitingOnPick,
+  tryClaimWarmupAwaitingSend,
+} from "@/lib/wa-warmup-awaiting-cas";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
 import {
   addressDirectionsPrefix,
@@ -1645,15 +1651,21 @@ async function sendWarmupReplyThenNextQuestionMenu(input: {
   contentLang: import("@/lib/business-content-lang").BusinessContentLanguage;
   replyModelUsed: string;
   sendErrorLabel: string;
+  /** When true, Meta/Twilio send errors propagate (for CAS + rollback paths). */
+  rethrowOnFailure?: boolean;
 }): Promise<void> {
   const replyText = String(input.replyText ?? "").trim();
   const nextQuestion = String(input.nextQuestion ?? "").trim();
   const nextOpts = input.nextOptionLabels.map((o) => String(o ?? "").trim()).filter(Boolean);
+  const rethrow = input.rethrowOnFailure === true;
 
   if (replyText) {
-    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, replyText, input.accountSid, input.authToken).catch(
-      (e) => console.error(`[WA Webhook] ${input.sendErrorLabel} reply failed:`, e)
-    );
+    try {
+      await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, replyText, input.accountSid, input.authToken);
+    } catch (e) {
+      console.error(`[WA Webhook] ${input.sendErrorLabel} reply failed:`, e);
+      if (rethrow) throw e;
+    }
     await logMessage({
       business_slug: input.business_slug,
       role: "assistant",
@@ -1668,15 +1680,28 @@ async function sendWarmupReplyThenNextQuestionMenu(input: {
 
   if (!nextQuestion) return;
 
-  await sendWhatsAppTextOrMenu(
-    input.msg.toNumber,
-    input.msg.from,
-    nextQuestion,
-    nextOpts,
-    input.accountSid,
-    input.authToken,
-    { footerHint: input.menuFooter, language: input.contentLang }
-  ).catch((e) => console.error(`[WA Webhook] ${input.sendErrorLabel} next question failed:`, e));
+  try {
+    await sendWhatsAppTextOrMenu(
+      input.msg.toNumber,
+      input.msg.from,
+      nextQuestion,
+      nextOpts,
+      input.accountSid,
+      input.authToken,
+      { footerHint: input.menuFooter, language: input.contentLang }
+    );
+  } catch (e) {
+    console.error(`[WA Webhook] ${input.sendErrorLabel} next question failed:`, e);
+    if (rethrow) throw e;
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: formatInteractiveConversationLog(nextQuestion, nextOpts, input.menuFooter),
+      model_used: "sales_flow_warmup_extra",
+      session_id: input.sessionId,
+    });
+    return;
+  }
 
   await logMessage({
     business_slug: input.business_slug,
@@ -1719,27 +1744,55 @@ async function executeWarmupExtraPickAt(input: {
   if (nextIdx < input.cleanSteps.length) {
     const next = input.cleanSteps[nextIdx]!;
     const nextOpts = next.options.map((o) => String(o ?? "").trim()).filter(Boolean);
-    await sendWarmupReplyThenNextQuestionMenu({
-      msg: input.msg,
-      accountSid: input.accountSid,
-      authToken: input.authToken,
-      business_slug: input.business_slug,
-      sessionId: input.sessionId,
-      replyText: replyRaw,
-      nextQuestion: next.question,
-      nextOptionLabels: nextOpts,
-      menuFooter,
-      contentLang,
-      replyModelUsed: "sales_flow_warmup_extra",
-      sendErrorLabel: "Send warmup-extra next step",
+    const cas = await tryAdvanceWarmupAwaitingOnPick({
+      supabase: input.supabase,
+      businessId: input.businessId,
+      phone: input.msg.from,
+      pickIdx: input.lastIdx,
+      nextIdx,
     });
-    await logMessage({
-      business_slug: input.business_slug,
-      role: "event",
-      content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${nextIdx}`,
-      model_used: "sf_warmup_extra",
-      session_id: input.sessionId,
-    });
+    if (!cas.advanced) {
+      return { handled: true };
+    }
+    try {
+      await sendWarmupReplyThenNextQuestionMenu({
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        replyText: replyRaw,
+        nextQuestion: next.question,
+        nextOptionLabels: nextOpts,
+        menuFooter,
+        contentLang,
+        replyModelUsed: "sales_flow_warmup_extra",
+        sendErrorLabel: "Send warmup-extra next step",
+        rethrowOnFailure: true,
+      });
+    } catch (e) {
+      await rollbackWarmupAwaitingAfterSendFailure({
+        supabase: input.supabase,
+        businessId: input.businessId,
+        phone: input.msg.from,
+        readIdx: cas.readIdx,
+        nextIdx: cas.nextIdx,
+        context: "executeWarmupExtraPickAt",
+        sendError: e,
+      });
+      return { handled: true };
+    }
+    try {
+      await logMessage({
+        business_slug: input.business_slug,
+        role: "event",
+        content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${nextIdx}`,
+        model_used: "sf_warmup_extra",
+        session_id: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] warmup extra pick event log failed (send succeeded; no CAS rollback):", e);
+    }
     return { handled: true };
   }
 
@@ -2659,54 +2712,102 @@ async function sendWarmupExperienceQuestionMenu(input: {
   });
   if (!menu) return false;
 
-  if (input.bumpFlowStep) {
-    const named =
-      input.salesFlowServices.length === 1
-        ? input.salesFlowServices[0]!.name
-        : (await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.sessionId })) ??
-          "";
-    const svcRow =
-      input.salesFlowServices.length === 1
-        ? input.salesFlowServices[0] ?? null
-        : input.salesFlowServices.find((s) => s.name === named) ?? null;
-    await sendTrialPickMediaIfAllowed({
-      blockMedia: input.blockTrialPickMedia,
-      mediaUrl: svcRow?.trialPickMediaUrl ?? "",
-      mediaType: svcRow?.trialPickMediaType ?? "",
-      msg: input.msg,
-      accountSid: input.accountSid,
-      authToken: input.authToken,
+  const menuFooter = getZoeWhatsAppMenuFooter(input.contentLang ?? "he");
+
+  if (!input.bumpFlowStep) {
+    await sendWhatsAppTextOrMenu(
+      input.msg.toNumber,
+      input.msg.from,
+      menu.question,
+      menu.options,
+      input.accountSid,
+      input.authToken,
+      { footerHint: menuFooter, language: input.contentLang ?? "he" }
+    ).catch((e) => console.error("[WA Webhook] warmup experience menu failed:", e));
+
+    await logMessage({
       business_slug: input.business_slug,
-      sessionId: input.sessionId,
+      role: "assistant",
+      content: formatInteractiveConversationLog(menu.question, menu.options, menuFooter),
+      model_used: WA_WARMUP_EXPERIENCE_SENT_MODEL,
+      session_id: input.sessionId,
     });
+    return true;
   }
 
-  const menuFooter = getZoeWhatsAppMenuFooter(input.contentLang ?? "he");
-  await sendWhatsAppTextOrMenu(
-    input.msg.toNumber,
-    input.msg.from,
-    menu.question,
-    menu.options,
-    input.accountSid,
-    input.authToken,
-    { footerHint: menuFooter, language: input.contentLang ?? "he" }
-  ).catch((e) => console.error("[WA Webhook] warmup experience menu failed:", e));
-
-  await logMessage({
-    business_slug: input.business_slug,
-    role: "assistant",
-    content: formatInteractiveConversationLog(menu.question, menu.options, menuFooter),
-    model_used: WA_WARMUP_EXPERIENCE_SENT_MODEL,
-    session_id: input.sessionId,
+  const cas = await tryClaimWarmupAwaitingSend({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    requireReadIdx: WARMUP_EXTRA_AWAITING_OFF,
+    nextIdx: -1,
   });
+  if (!cas.advanced) return false;
 
-  if (input.bumpFlowStep) {
+  const named =
+    input.salesFlowServices.length === 1
+      ? input.salesFlowServices[0]!.name
+      : (await fetchLastSfServiceEventName({ business_slug: input.business_slug, session_id: input.sessionId })) ??
+        "";
+  const svcRow =
+    input.salesFlowServices.length === 1
+      ? input.salesFlowServices[0] ?? null
+      : input.salesFlowServices.find((s) => s.name === named) ?? null;
+  await sendTrialPickMediaIfAllowed({
+    blockMedia: input.blockTrialPickMedia,
+    mediaUrl: svcRow?.trialPickMediaUrl ?? "",
+    mediaType: svcRow?.trialPickMediaType ?? "",
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+  }).catch((e) => console.warn("[WA Webhook] warmup Q1 trial pick media failed (continuing):", e));
+
+  try {
+    await sendWhatsAppTextOrMenu(
+      input.msg.toNumber,
+      input.msg.from,
+      menu.question,
+      menu.options,
+      input.accountSid,
+      input.authToken,
+      { footerHint: menuFooter, language: input.contentLang ?? "he" }
+    );
+  } catch (e) {
+    await rollbackWarmupAwaitingAfterSendFailure({
+      supabase: input.supabase,
+      businessId: input.businessId,
+      phone: input.msg.from,
+      readIdx: cas.readIdx,
+      nextIdx: cas.nextIdx,
+      context: "sendWarmupExperienceQuestionMenu",
+      sendError: e,
+    });
+    return false;
+  }
+
+  try {
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: formatInteractiveConversationLog(menu.question, menu.options, menuFooter),
+      model_used: WA_WARMUP_EXPERIENCE_SENT_MODEL,
+      session_id: input.sessionId,
+    });
+  } catch (e) {
+    console.error("[WA Webhook] warmup experience logMessage failed (send succeeded; no CAS rollback):", e);
+  }
+
+  try {
     await bumpContactFlowStep({
       supabase: input.supabase,
       businessId: input.businessId,
       phone: input.msg.from,
       nextStep: 1,
     });
+  } catch (e) {
+    console.warn("[WA Webhook] warmup experience flow_step bump failed (send succeeded; no CAS rollback):", e);
   }
   return true;
 }
@@ -3116,25 +3217,63 @@ async function sendFlowContinuation(input: {
     const extraIdx = hasWarmupQ1 ? step - 1 : step;
     const st = extraIdx >= 0 ? cleanWarm[extraIdx] : undefined;
     if (st) {
-      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
-        footerHint: menuFooter,
-        language: contentLang,
-      }).catch((e) => console.error("[WA Webhook] flow continuation warmup extra failed:", e));
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
-        model_used: "flow_continuation_warmup_extra",
-        session_id: sessionId,
+      const cas = await tryClaimWarmupAwaitingSend({
+        supabase,
+        businessId,
+        phone: msg.from,
+        requireReadIdx: WARMUP_EXTRA_AWAITING_OFF,
+        nextIdx: extraIdx,
       });
-      await logMessage({
-        business_slug,
-        role: "event",
-        content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${extraIdx}`,
-        model_used: "sf_warmup_extra",
-        session_id: sessionId,
-      });
-      await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: step + 1 });
+      if (!cas.advanced) return;
+
+      try {
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, st.question, st.options, accountSid, authToken, {
+          footerHint: menuFooter,
+          language: contentLang,
+        });
+      } catch (e) {
+        await rollbackWarmupAwaitingAfterSendFailure({
+          supabase,
+          businessId,
+          phone: msg.from,
+          readIdx: cas.readIdx,
+          nextIdx: cas.nextIdx,
+          context: "sendFlowContinuation_warmup_extra",
+          sendError: e,
+        });
+        return;
+      }
+
+      try {
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: formatInteractiveConversationLog(st.question, st.options, menuFooter),
+          model_used: "flow_continuation_warmup_extra",
+          session_id: sessionId,
+        });
+        await logMessage({
+          business_slug,
+          role: "event",
+          content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}${extraIdx}`,
+          model_used: "sf_warmup_extra",
+          session_id: sessionId,
+        });
+      } catch (e) {
+        console.error(
+          "[WA Webhook] flow continuation warmup extra log failed (send succeeded; no CAS rollback):",
+          e
+        );
+      }
+
+      try {
+        await bumpContactFlowStep({ supabase, businessId, phone: msg.from, nextStep: step + 1 });
+      } catch (e) {
+        console.warn(
+          "[WA Webhook] flow continuation warmup extra flow_step bump failed (send succeeded; no CAS rollback):",
+          e
+        );
+      }
       return;
     }
 
@@ -6716,27 +6855,57 @@ async function processIncoming(
             const firstOpts = first.options.map((o) => String(o ?? "").trim()).filter(Boolean);
             const bodyOnly = [afterExperience].filter((x) => x.length > 0).join("\n\n").trim();
             const menuFooter = salesFlowMenuFooter(knowledge);
-            await sendWarmupReplyThenNextQuestionMenu({
-              msg,
-              accountSid,
-              authToken,
-              business_slug,
-              sessionId,
-              replyText: bodyOnly,
-              nextQuestion: first.question,
-              nextOptionLabels: firstOpts,
-              menuFooter,
-              contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
-              replyModelUsed: "sales_flow_after_experience",
-              sendErrorLabel: "Send warmup-extra first step",
+            const cas = await tryAdvanceWarmupAwaitingIdx({
+              supabase,
+              businessId,
+              phone: msg.from,
+              requireReadIdx: -1,
+              nextIdx: 0,
             });
-            await logMessage({
-              business_slug,
-              role: "event",
-              content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}0`,
-              model_used: "sf_warmup_extra",
-              session_id: sessionId,
-            });
+            if (!cas.advanced) return;
+
+            try {
+              await sendWarmupReplyThenNextQuestionMenu({
+                msg,
+                accountSid,
+                authToken,
+                business_slug,
+                sessionId,
+                replyText: bodyOnly,
+                nextQuestion: first.question,
+                nextOptionLabels: firstOpts,
+                menuFooter,
+                contentLang: resolveBusinessContentLanguageFromKnowledge(knowledge),
+                replyModelUsed: "sales_flow_after_experience",
+                sendErrorLabel: "Send warmup-extra first step",
+                rethrowOnFailure: true,
+              });
+            } catch (e) {
+              await rollbackWarmupAwaitingAfterSendFailure({
+                supabase,
+                businessId,
+                phone: msg.from,
+                readIdx: cas.readIdx,
+                nextIdx: cas.nextIdx,
+                context: "warmup_q1_answer_to_extra",
+                sendError: e,
+              });
+              return;
+            }
+            try {
+              await logMessage({
+                business_slug,
+                role: "event",
+                content: `${HEYZOE_SF_WARMUP_EXTRA_PREFIX}0`,
+                model_used: "sf_warmup_extra",
+                session_id: sessionId,
+              });
+            } catch (e) {
+              console.error(
+                "[WA Webhook] warmup Q1→extra event log failed (send succeeded; no CAS rollback):",
+                e
+              );
+            }
             return;
           }
 
