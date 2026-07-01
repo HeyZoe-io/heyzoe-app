@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
     session_id: sessionId || null,
   });
 
-  void dispatchCrmEvent({
+  await dispatchCrmEvent({
     businessId,
     leadPhone: phoneNorm,
     kind: "template_sent",
