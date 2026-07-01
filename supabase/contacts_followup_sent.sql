@@ -1,4 +1,4 @@
--- One-time inactive WhatsApp follow-up per dormancy cycle (daily cron ~morning IL; see /api/cron/followup)
+-- Legacy flag: inactive WhatsApp follow-up per dormancy cycle (deprecated cron removed; column kept for existing rows)
 alter table if exists public.contacts
   add column if not exists followup_sent boolean not null default false;
 

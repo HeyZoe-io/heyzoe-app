@@ -74,10 +74,6 @@ export type BusinessKnowledgePack = {
   welcomeQuestionText: string;
   welcomeOptionLabels: string[];
   salesFlowBlocks: SalesFlowBlockPack[];
-  /** הודעת פולואפ ווטסאפ אוטומטית לליד שאינו מגיב (למחרת בבוקר) */
-  whatsappIdleFollowupMessage: string;
-  whatsappIdleFollowupCtaKind: "trial" | "schedule" | "custom";
-  whatsappIdleFollowupCtaLabel: string;
   membershipsAndCardsText: string;
   salesFlowConfig: SalesFlowConfig | null;
   salesFlowPromptSection: string;
@@ -295,34 +291,6 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         x !== null && Boolean(x.intro || x.question || x.options.length > 0)
       );
 
-    const whatsappIdleFollowupMessage = (() => {
-      const key =
-        typeof social.whatsapp_idle_followup_message === "string"
-          ? social.whatsapp_idle_followup_message.trim()
-          : "";
-      if (key) return key;
-      const legacyHour =
-        typeof social.followup_after_hour_no_registration === "string"
-          ? social.followup_after_hour_no_registration.trim()
-          : "";
-      const legacyTrial =
-        typeof social.followup_day_after_trial === "string" ? social.followup_day_after_trial.trim() : "";
-      return legacyHour || legacyTrial;
-    })();
-
-    const ctaKindRaw = String(social.whatsapp_idle_followup_cta_kind ?? "trial").trim();
-    const whatsappIdleFollowupCtaKind: "trial" | "schedule" | "custom" =
-      ctaKindRaw === "schedule" || ctaKindRaw === "custom" ? ctaKindRaw : "trial";
-    const whatsappIdleFollowupCtaLabel =
-      typeof social.whatsapp_idle_followup_cta_label === "string" &&
-      social.whatsapp_idle_followup_cta_label.trim()
-        ? social.whatsapp_idle_followup_cta_label.trim()
-        : whatsappIdleFollowupCtaKind === "schedule"
-          ? "צפייה במערכת השעות"
-          : whatsappIdleFollowupCtaKind === "custom"
-            ? "לחצו כאן"
-            : "הרשמה לשיעור ניסיון";
-
     const openingServices: { name: string; offer_kind: OfferKind }[] = (services ?? [])
       .map((s) => {
         const name = String(s.name ?? "").trim();
@@ -404,9 +372,6 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       welcomeQuestionText: typeof social.welcome_question === "string" ? social.welcome_question : "",
       welcomeOptionLabels,
       salesFlowBlocks,
-      whatsappIdleFollowupMessage,
-      whatsappIdleFollowupCtaKind,
-      whatsappIdleFollowupCtaLabel,
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
@@ -441,18 +406,6 @@ function formatSalesFlowBlocksForPrompt(blocks: SalesFlowBlockPack[]): string {
       return `שלב ${i + 2} (אחרי תשובה מתאימה מהלקוח):\nטקסט לפני שאלה: ${b.intro || "(ריק)"}\nשאלה: ${b.question || "(ריק)"}\nכפתורים:\n${opts || "  (אין)"}`;
     })
     .join("\n\n");
-}
-
-function formatFollowupSnippets(k: BusinessKnowledgePack | null): string {
-  if (!k?.whatsappIdleFollowupMessage?.trim()) return "";
-  const t = k.whatsappIdleFollowupMessage.trim().slice(0, 450);
-  const kindHint =
-    k.whatsappIdleFollowupCtaKind === "trial"
-      ? "כפתור הקישור מוביל לדף רכישת אימון ניסיון (לינק סליקה מהאימון הראשון בהגדרות)."
-      : k.whatsappIdleFollowupCtaKind === "schedule"
-        ? "כפתור הקישור מוביל למערכת השעות."
-        : "כפתור הקישור מוביל לכתובת מותאמת שהעסק הגדיר.";
-  return `\nדוגמה לטון מהודעת הפולואפ האוטומטית (למחרת בבוקר לליד שאינו מגיב; שמרי על שפה עקבית; אל תחזירי את הטקסט כולו כתשובה שגרתית):\n${t}\nתווית הכפתור בהגדרות: «${k.whatsappIdleFollowupCtaLabel}». ${kindHint}\n`;
 }
 
 function formatUnknownKnowledgeBlock(phoneDisplay: string, platform: ZoePlatformGuidelines): string {
@@ -717,7 +670,6 @@ ${warmupResumeRule}
 ${promotionsRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}
-${formatFollowupSnippets(knowledge)}
 
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
