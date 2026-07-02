@@ -344,7 +344,7 @@ const FRIENDLY: SalesFlowConfig = {
   ],
   opening_extra_steps_course: [],
   cta_body:
-    "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {price} שקלים, הוא נמשך {duration} דקות ובאמת שהולך להיות כיף.",
+    "עכשיו רק נותר לשריין את מקומך באמצעות תשלום מאובטח על האימון ניסיון - {price} ₪ בלבד, הטבה דרך השיחה שלנו כאן :)\nלשמור לך מקום? 💜",
   show_memberships_button: true,
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial", trial_cta_delivery: "link" },
@@ -359,7 +359,7 @@ const FRIENDLY: SalesFlowConfig = {
     { id: "cta-memberships", label: "מחירי מנויים", kind: "memberships", memberships_cta_delivery: "link" },
   ],
   cta_workshop_body:
-    "מה דעתך על הסדנה שלנו? המחיר הוא {price} שקלים, היא נמשכת {duration} דקות, ובאמת שהולך להיות כיף!",
+    "עכשיו רק נותר לשריין את מקומך לסדנה באמצעות תשלום מאובטח - {price} ₪ בלבד, הטבה דרך השיחה שלנו כאן :)\nלשמור לך מקום? 💜",
   cta_workshop_buttons: [
     {
       id: "cta-workshop-buy",
@@ -370,7 +370,7 @@ const FRIENDLY: SalesFlowConfig = {
     { id: "cta-workshop-contact", label: "יצירת קשר", kind: "workshop_contact" },
   ],
   cta_course_body:
-    "מה שנשאר כעת הוא להצטרף לקורס! המחיר הוא {price} שקלים, הוא נמשך כ-{sessions} מפגשים, {schedule_phrase}",
+    "מה שנשאר כעת הוא לשריין מקומך לקורס באמצעות תשלום מאובטח! המחיר הוא מחיר מוזל לשבוע הקרוב על סך {price} שקלים. הקורס נמשך כ-{sessions} מפגשים, {schedule_phrase}\n\nלשמור לך מקום? 💜",
   cta_course_buttons: [
     {
       id: "cta-course-enroll",
@@ -394,7 +394,7 @@ const FRIENDLY: SalesFlowConfig = {
   course_cycle_pick_question: "מתי נוח לך להתחיל את הקורס?",
   after_course_cycle_pick: "מעולה! רשמנו שתרצו להתחיל את {serviceName} בתאריך {requested_date}.",
   cta_body_after_schedule:
-    "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {price} שקלים, הוא נמשך {duration} דקות ובאמת שהולך להיות כיף. שנתקדם?",
+    "עכשיו רק נותר לשריין את מקומך באמצעות תשלום מאובטח על האימון ניסיון - {price} ₪ בלבד, הטבה דרך השיחה שלנו כאן :)\nלשמור לך מקום? 💜",
   after_trial_registration_body_after_schedule: `כל הכבוד! נרשמת בהצלחה 🎉
 
 מתרגשים לראותך בקרוב ב{serviceName} ביום {requested_date} בשעה {requested_time}
@@ -482,7 +482,7 @@ const FORMAL: SalesFlowConfig = {
   after_experience_course:
     "מצוין. {serviceName} יאפשר לכם לחזק את היסודות ולרכוש מיומנויות נוספות.",
   cta_body:
-    "מה דעתכם להגיע לאימון ניסיון בקרוב? האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף.",
+    "עכשיו רק נותר לשריין את מקומכם באמצעות תשלום מאובטח על האימון ניסיון - {price} ₪ בלבד, הטבה דרך השיחה שלנו כאן :)\nלשמור לכם מקום? 💜",
   show_memberships_button: true,
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial", trial_cta_delivery: "link" },
@@ -524,7 +524,7 @@ const DIRECT: SalesFlowConfig = {
   after_service_pick:
     "כלל מערכת: [מילת פתיחה]! [קידומת/שם] [הם/היא] + תיאור מטאב אימון ניסיון (טקסט כפי שנשמר ללא עריכה).",
   cta_body:
-    "מה דעתך להגיע לאימון ניסיון בקרוב? האימון עולה {price} שקלים, הוא נמשך {duration} דקות ובאמת שהולך להיות כיף.",
+    "עכשיו רק נותר לשריין את מקומך באמצעות תשלום מאובטח על האימון ניסיון - {price} ₪ בלבד, הטבה דרך השיחה שלנו כאן :)\nלשמור לך מקום? 💜",
   show_memberships_button: true,
   cta_buttons: [
     { id: "cta-trial", label: "הרשמה לשיעור ניסיון", kind: "trial", trial_cta_delivery: "link" },

@@ -309,7 +309,7 @@ export const dashboardSettingsI18n = {
       workshopScheduleSlotsHintSuffix:
         ". אם אין מועדים בלוח — שאלות תאריך ושעה חופשיות.",
       ctaWorkshopBodyHint:
-        "מחיר ומשך הסדנה יימשכו אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»",
+        "מחיר הסדנה ({price}) יימשך אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»",
     },
     followup: {
       title: "פולואפ",
@@ -697,7 +697,7 @@ export const dashboardSettingsI18n = {
       workshopScheduleSlotsHintSuffix:
         ". If no schedule slots exist, free date/time questions are used.",
       ctaWorkshopBodyHint:
-        "Workshop price and duration are pulled automatically from «Workshop» products in Products",
+        "Workshop price ({price}) is pulled automatically from «Workshop» products in Products",
     },
     followup: {
       title: "Follow-up",
