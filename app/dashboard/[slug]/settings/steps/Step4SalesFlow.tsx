@@ -1456,14 +1456,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 rows={4}
                 placeholder={
                   showScheduleSelectionSession
-                    ? "Next step: reserve your spot. Price: {price} NIS, duration: {duration} min."
-                    : "Would you like a trial class? Price: {price} NIS, duration: {duration} min."
+                    ? "Secure payment to reserve your spot — {price} NIS only."
+                    : "Secure payment to reserve your trial spot — {price} NIS only."
                 }
               />
               <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                 {lang === "en"
-                  ? "Variables: {price} {duration} — filled from trial product settings."
-                  : "משתנים: {price} מחיר · {duration} משך (דקות) — נמשכים מטאב מוצרים."}
+                  ? "Variables: {price} — filled from trial product settings."
+                  : "משתנים: {price} מחיר — נמשך מטאב מוצרים."}
                 {showScheduleSelectionSession ? (lang === "en" ? " · no schedule button here" : " · בלי כפתור מערכת שעות") : ""}
               </p>
             </div>
@@ -1689,8 +1689,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     rows={4}
                     placeholder={
                       lang === "en"
-                        ? "What do you think about our workshop? Price is x, duration x minutes — it's going to be fun!"
-                        : "מה דעתך על הסדנה שלנו? המחיר הוא x שקלים, היא נמשכת x דקות, ובאמת שהולך להיות כיף!"
+                        ? "Secure payment to reserve your workshop spot — {price} NIS only."
+                        : "עכשיו רק נותר לשריין את מקומך לסדנה באמצעות תשלום מאובטח - {price} ₪ בלבד, הטבה דרך השיחה שלנו כאן :)"
                     }
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
@@ -1776,7 +1776,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }))
                     }
                     rows={4}
-                    placeholder="Final step: join the course. Price {price}, {sessions} sessions, every {day} at {hour}."
+                    placeholder="Final step: join the course. {price} NIS, {sessions} sessions, {schedule_phrase}."
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                     {lang === "en"
