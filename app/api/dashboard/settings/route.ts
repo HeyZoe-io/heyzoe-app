@@ -87,8 +87,13 @@ export async function GET(req: NextRequest) {
   }
 
   const [{ data: services }, { data: faqs }] = await Promise.all([
-    /** id משקף את סדר ההכנסה אחרי delete+שמירה; created_at לא יציב בריבוי שורות באותה שנייה */
-    admin.from("services").select("*").eq("business_id", business.id).order("id", { ascending: true }),
+    /** sort_order מהדשבורד; id כגיבוי לשורות ישנות */
+    admin
+      .from("services")
+      .select("*")
+      .eq("business_id", business.id)
+      .order("sort_order", { ascending: true })
+      .order("id", { ascending: true }),
     admin.from("faqs").select("*").eq("business_id", business.id).order("sort_order", { ascending: true }),
   ]);
 
@@ -313,6 +318,7 @@ export async function POST(req: NextRequest) {
         location_text: String(s.location_text ?? ""),
         price_text: String(s.price_text ?? ""),
         service_slug: slug,
+        sort_order: index,
       };
     });
 

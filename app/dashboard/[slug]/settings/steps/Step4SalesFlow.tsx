@@ -1456,13 +1456,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 rows={4}
                 placeholder={
                   showScheduleSelectionSession
-                    ? "Next step: reserve your spot by completing payment. The class costs x and lasts x minutes."
-                    : "Would you like to join a trial class soon? The class costs x and lasts x minutes."
+                    ? "Next step: reserve your spot. Price: {price} NIS, duration: {duration} min."
+                    : "Would you like a trial class? Price: {price} NIS, duration: {duration} min."
                 }
               />
               <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                Price and duration are auto-filled by selected service type
-                {showScheduleSelectionSession ? " · without schedule button (already sent earlier)" : ""}
+                {lang === "en"
+                  ? "Variables: {price} {duration} — filled from trial product settings."
+                  : "משתנים: {price} מחיר · {duration} משך (דקות) — נמשכים מטאב מוצרים."}
+                {showScheduleSelectionSession ? (lang === "en" ? " · no schedule button here" : " · בלי כפתור מערכת שעות") : ""}
               </p>
             </div>
             <div
@@ -1774,10 +1776,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       }))
                     }
                     rows={4}
-                    placeholder="Final step: join the course. Price x, around x sessions, every day x at x."
+                    placeholder="Final step: join the course. Price {price}, {sessions} sessions, every {day} at {hour}."
                   />
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
-                    Course price, sessions, and schedule are auto-filled from Products.
+                    {lang === "en"
+                      ? "Variables: {price} {sessions} {day} {hour} {schedule_phrase} {start_date} {end_date} — from Products / course cycles."
+                      : "משתנים: {price} מחיר · {sessions} מפגשים · {day} יום · {hour} שעה · {schedule_phrase} משפט מלא · {start_date}/{end_date} תאריכים — מטאב מוצרים."}
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -24,10 +24,10 @@ import {
   composeGreeting,
   defaultSalesFlowConfig,
   fillAfterExperienceTemplate,
-  fillCtaBodyTemplate,
-  fillCourseCtaBodyTemplate,
-  fillWorkshopCtaBodyTemplate,
-  migrateCtaBodyDisplayPlaceholders,
+  ctaTemplateForEditor,
+  storeCourseCtaBodyFromDisplay,
+  storeTrialCtaBodyFromDisplay,
+  storeWorkshopCtaBodyFromDisplay,
   formatServiceLevelsText,
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
@@ -49,6 +49,7 @@ import { compressImageForWhatsAppIfNeeded } from "@/lib/compress-image-for-whats
 import { buildCourseSchedulePhraseForCta } from "@/lib/product-schedule-slots";
 import { dashboardMaxUploadBytesForFile } from "@/lib/whatsapp-media-limits";
 import { buildFactQuestions } from "@/lib/fact-questions";
+import { sortServiceRowsBySortOrder } from "@/lib/service-sort-order";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
@@ -284,7 +285,7 @@ function mergeServerServicesIntoLocal(
 
 /** מפת שורות services מהשרת למצב טופס ההגדרות */
 function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): ServiceItem[] {
-  return rows.map((s) => {
+  return sortServiceRowsBySortOrder(rows).map((s) => {
     const name = String(s.name ?? "");
     const rawDescription = String(s.description ?? "");
     const parsed = parseStoredServiceDescription(rawDescription);
@@ -342,7 +343,7 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
   });
 }
 
-function serviceDescriptionMetaForSave(s: ServiceItem): Record<string, unknown> {
+function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Record<string, unknown> {
   const base = {
     price_text: (s.price_text ?? "").trim(),
     duration: s.duration,
@@ -353,6 +354,7 @@ function serviceDescriptionMetaForSave(s: ServiceItem): Record<string, unknown> 
     levels: s.levels,
     offer_kind: s.offer_kind,
     course_sessions_count: s.course_sessions_count,
+    sort_order: sortOrder,
     trial_pick_media_url: (s.trial_pick_media_url ?? "").trim(),
     trial_pick_media_type:
       s.trial_pick_media_type === "video"
@@ -782,6 +784,7 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "course_end_date",
   "course_sessions_count",
   "course_cycles",
+  "sort_order",
 ]);
 
 /**
@@ -952,22 +955,15 @@ function afterExperienceToStore(typed: string, service: ServiceItem | null): str
 }
 
 function ctaBodyForDisplay(stored: string): string {
-  // ב־UI מציגים משתנה קבוע (x) כי המחיר/משך תלויים בבחירת סוג האימון
-  return fillCtaBodyTemplate(stored, "x", "x");
+  return ctaTemplateForEditor(stored, "trial");
 }
 
 function ctaBodyToStore(typed: string, priceText: string, durationText: string): string {
-  let s = migrateCtaBodyDisplayPlaceholders(typed);
-  // אם המשתמש השאיר x כפי שמוצג ב־UI, נשמור חזרה את התבנית.
-  const p = priceText.trim();
-  const d = durationText.trim();
-  if (p && s.includes(p)) s = s.split(p).join("{priceText}");
-  if (d && s.includes(d)) s = s.split(d).join("{durationText}");
-  return s;
+  return storeTrialCtaBodyFromDisplay(typed, priceText, durationText);
 }
 
 function workshopCtaBodyForDisplayUi(stored: string): string {
-  return fillWorkshopCtaBodyTemplate(stored, "x", "x");
+  return ctaTemplateForEditor(stored, "workshop");
 }
 
 function workshopCtaBodyToStore(
@@ -975,18 +971,11 @@ function workshopCtaBodyToStore(
   priceText: string,
   durationText: string
 ): string {
-  let s = migrateCtaBodyDisplayPlaceholders(typed)
-    .replace(/\{priceText\}/g, "{price}")
-    .replace(/\{durationText\}/g, "{duration}");
-  const p = priceText.trim();
-  const d = durationText.trim();
-  if (p && s.includes(p)) s = s.split(p).join("{price}");
-  if (d && s.includes(d)) s = s.split(d).join("{duration}");
-  return s;
+  return storeWorkshopCtaBodyFromDisplay(typed, priceText, durationText);
 }
 
 function courseCtaBodyForDisplayUi(stored: string): string {
-  return fillCourseCtaBodyTemplate(stored, "x", "x", "x", "x", "כל יום x בשעה x");
+  return ctaTemplateForEditor(stored, "course");
 }
 
 function courseCtaBodyToStore(
@@ -997,22 +986,14 @@ function courseCtaBodyToStore(
   endDate: string,
   schedulePhrase: string
 ): string {
-  let s = typed;
-  s = migrateCtaBodyDisplayPlaceholders(s).replace(/\{priceText\}/g, "{price}");
-  s = s.replace(/כ-?x\s+מפגשים/gu, "כ-{sessions} מפגשים").replace(/x\s+מפגשים/gu, "{sessions} מפגשים");
-  s = s.replace(/כל יום x בשעה x/gu, "{schedule_phrase}");
-  s = s.replace(/x\s+עד\s+x/gu, "{start_date} עד {end_date}");
-  const p = priceText.trim();
-  const sess = sessionsText.trim();
-  const a = startDate.trim();
-  const b = endDate.trim();
-  const sched = schedulePhrase.trim();
-  if (p && s.includes(p)) s = s.split(p).join("{price}");
-  if (sess && s.includes(sess)) s = s.split(sess).join("{sessions}");
-  if (sched && s.includes(sched)) s = s.split(sched).join("{schedule_phrase}");
-  if (a && s.includes(a)) s = s.split(a).join("{start_date}");
-  if (b && s.includes(b)) s = s.split(b).join("{end_date}");
-  return s;
+  return storeCourseCtaBodyFromDisplay(
+    typed,
+    priceText,
+    sessionsText,
+    startDate,
+    endDate,
+    schedulePhrase
+  );
 }
 
 /** שם תצוגה מ־slug כשאין שם שמור בדאטהבייס */
@@ -1778,7 +1759,7 @@ export default function SlugSettingsPage({
     return servicesHydrated
       ? {
           ...base,
-          services: services.filter((s) => s.name.trim()).map((s) => ({
+          services: services.filter((s) => s.name.trim()).map((s, index) => ({
             name: truncateTrialServiceName(s.name.trim()),
             service_slug: serviceSlugForPersistence(
               s.service_slug,
@@ -1788,7 +1769,8 @@ export default function SlugSettingsPage({
             price_text: s.price_text,
             location_text: s.location_text,
             location_mode: "location",
-            description: JSON.stringify(serviceDescriptionMetaForSave(s)),
+            sort_order: index,
+            description: JSON.stringify(serviceDescriptionMetaForSave(s, index)),
           })),
         }
       : base;

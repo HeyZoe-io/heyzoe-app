@@ -282,6 +282,33 @@ export function buildCourseSchedulePhraseForCtaFromPick(
   return buildCourseSchedulePhraseForCta(cycles);
 }
 
+/** יום+שעה ראשונים ממחזור שנבחר (או מכל המחזורים) — ל־{day} / {hour} בתבנית CTA. */
+export function resolveCourseScheduleDayHourForCta(
+  cycles: CourseCycle[],
+  pickedDisplayStartDate?: string
+): { day: string; hour: string } {
+  const picked = pickedDisplayStartDate?.trim()
+    ? findCourseCycleByDisplayStartDate(cycles, pickedDisplayStartDate)
+    : null;
+  const ordered = picked
+    ? [picked]
+    : sortCourseCyclesByStartDate(
+        cycles.filter(
+          (c) =>
+            c.start_date.trim() ||
+            c.end_date.trim() ||
+            filterConfiguredProductScheduleSlots(c.schedule_slots).length > 0
+        )
+      );
+  for (const cycle of ordered) {
+    const slots = sortProductScheduleSlots(filterConfiguredProductScheduleSlots(cycle.schedule_slots));
+    if (!slots.length) continue;
+    const slot = slots[0]!;
+    return { day: hebrewDayLabelForPhrase(slot.day), hour: String(slot.time ?? "").trim() };
+  }
+  return { day: "", hour: "" };
+}
+
 /** לתבנית CTA קורס: «כל יום ראשון בשעה 08:30» (מכל המחזורים) */
 export function buildCourseSchedulePhraseForCta(cycles: CourseCycle[]): string {
   const sorted = sortCourseCyclesByStartDate(
