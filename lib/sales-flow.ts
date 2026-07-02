@@ -8,6 +8,10 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
+import {
+  fillProductDescriptionTemplate,
+  type ProductDescriptionFillInput,
+} from "@/lib/product-description-template";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 
 export type SalesFlowExtraStep = {
@@ -2360,11 +2364,16 @@ export function trialServicePhraseForAfterPick(serviceName: string): string {
   return buildServicePickSubjectFragment(serviceName);
 }
 
-/** טקסט ללקוח אחרי בחירת סוג אימון — benefit_line כפי שנכתב (תיאור המוצר / עריכה בטאב מכירה). */
-export function fillAfterServicePickTemplate(_template: string, _serviceName: string, benefitLine: string): string {
+/** טקסט ללקוח אחרי בחירת סוג אימון — benefit_line / תיאור מוצר (עם מילוי placeholders). */
+export function fillAfterServicePickTemplate(
+  _template: string,
+  _serviceName: string,
+  benefitLine: string,
+  fill?: ProductDescriptionFillInput
+): string {
   void _template;
   void _serviceName;
-  return benefitLine.trim();
+  return fillProductDescriptionTemplate(benefitLine, fill ?? {});
 }
 
 export function fillCtaBodyTemplate(
