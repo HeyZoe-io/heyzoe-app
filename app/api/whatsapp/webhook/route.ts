@@ -249,6 +249,7 @@ import {
   findCourseCycleByDisplayStartDate,
   formatCycleSlotsPhrase,
   buildCourseSchedulePhraseForCta,
+  resolveCourseScheduleDayHourForCta,
   courseCycleStartButtonLabelsMatch,
   courseCyclesForStartButtons,
   courseHasCycleSchedulePickData,
@@ -1012,6 +1013,10 @@ function courseCtaFillFromService(service: SfServiceRow | null, pickedCycleStart
   const schedulePhrase = pickedCycleStartDisplay?.trim()
     ? buildCourseSchedulePhraseForCtaFromPick(cycles, pickedCycleStartDisplay)
     : buildCourseSchedulePhraseForCta(cycles);
+  const { day: scheduleDay, hour: scheduleHour } = resolveCourseScheduleDayHourForCta(
+    cycles,
+    pickedCycleStartDisplay
+  );
   return {
     priceText: service?.priceText ?? "",
     sessionsText: service?.courseSessionsText ?? "",
@@ -1020,6 +1025,8 @@ function courseCtaFillFromService(service: SfServiceRow | null, pickedCycleStart
       ? formatCycleDateShort(picked.end_date)
       : service?.courseEndDate ?? "",
     schedulePhrase,
+    scheduleDay,
+    scheduleHour,
   };
 }
 

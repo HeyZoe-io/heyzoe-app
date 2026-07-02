@@ -151,8 +151,9 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const [{ data: services }, { data: faqs }] = await Promise.all([
       admin
         .from("services")
-        .select("name, description, price_text, location_text, service_slug")
+        .select("name, description, price_text, location_text, service_slug, sort_order, id")
         .eq("business_id", business.id)
+        .order("sort_order", { ascending: true })
         .order("id", { ascending: true }),
       admin.from("faqs").select("question, answer").eq("business_id", business.id).order("sort_order", { ascending: true }),
     ]);
