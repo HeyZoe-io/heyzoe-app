@@ -9,6 +9,10 @@ import {
   CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS,
 } from "@/lib/claude";
 import { normalizeMasculinePredicatesAfterPracticeHead } from "@/lib/sales-flow";
+import {
+  appendGeneratedProductDescriptionFooter,
+  stripGeneratedProductDescriptionFooter,
+} from "@/lib/product-description-template";
 
 export type FetchSiteScanResult = { status: number; body: Record<string, unknown> };
 
@@ -1201,7 +1205,9 @@ export async function generateProductDescriptionFromContext(
   const offerKind = String(input.offer_kind ?? "trial").trim() || "trial";
   const priceText = String(input.price_text ?? "").trim();
   const duration = String(input.duration ?? "").trim();
-  const descriptionCurrent = String(input.description_current ?? "").trim();
+  const descriptionCurrent = stripGeneratedProductDescriptionFooter(
+    String(input.description_current ?? "").trim()
+  );
   const hasSite = siteCorpus.trim().length >= 40;
 
   const prompt = `כתוב תיאור מוצר אחד בעברית תקנית לדשבורד HeyZoe — תשובה ללקוח אחרי בחירת מוצר בווטסאפ.
@@ -1225,6 +1231,7 @@ ${hasSite ? `רמזי מטא מהאתר: ${metaHints || "אין"}` : "אין א�
 5) דקדוק: כשהנושא «תרגול / שיעור / אימון» + סוג — פועלים בזכר לפי שורש הפעילות (למשל «תרגול יוגה מחזק…»).
 6) אל תפתח ב«איזה כיף» או «וואו» — תיאור ענייני על המוצר.
 7) החזר JSON בלבד: {"description":"..."}
+8) אל תכלול מחיר, משך, כתובת או מועדי קורס — המערכת מוסיפה בסוף אוטומטית (בג׳ינרוט בלבד).
 
 ${hasSite ? `טקסט מהאתר:\n${siteCorpus.slice(0, 16_000)}` : ""}`;
 
@@ -1245,6 +1252,7 @@ ${hasSite ? `טקסט מהאתר:\n${siteCorpus.slice(0, 16_000)}` : ""}`;
     if (!description) {
       return { status: 502, body: { error: "ai_empty_response" } };
     }
+    description = appendGeneratedProductDescriptionFooter(description, offerKind);
     return { status: 200, body: { description } };
   } catch (e) {
     console.error("[generate-product-description] Claude failed:", e);

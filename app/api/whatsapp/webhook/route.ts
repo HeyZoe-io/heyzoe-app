@@ -5495,7 +5495,14 @@ async function processIncoming(
 
       if (picked) {
         const cfg = knowledge.salesFlowConfig;
-        const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit);
+        const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit, {
+          priceText: picked.priceText,
+          durationText: picked.durationText,
+          businessAddress: knowledge.addressText ?? "",
+          sessionsText: picked.courseSessionsText,
+          schedulePhrase: buildCourseSchedulePhraseForCta(picked.courseCycles ?? []),
+          offerKind: picked.offerKind,
+        });
         if (!starterBlocksMedia && !picked.trialPickMediaUrl?.trim()) {
           console.warn(
             `[WA Webhook] sf_service_pick: מדיה למסלול שיעור הניסיון חסרה ב-DB בשירות "${picked.name}" (בודקים ש-description כולל trial_pick_media_url בשמירת ההגדרות).`

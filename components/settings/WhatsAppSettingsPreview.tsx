@@ -243,7 +243,12 @@ export function WhatsAppSettingsPreview({
                           {fillAfterServicePickTemplate(
                             salesFlowConfig.after_service_pick,
                             trialServices[0]?.name ?? "",
-                            trialServices[0]?.benefit_line ?? ""
+                            trialServices[0]?.benefit_line ?? "",
+                            {
+                              priceText: trialServices[0]?.price_text ?? "",
+                              durationText: trialServices[0]?.duration ?? "",
+                              businessAddress: address,
+                            }
                           )}
                         </p>
                       </Bubble>
