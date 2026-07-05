@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { logMessage } from "@/lib/analytics";
+import { formatManualMediaMessageContent, isAllowedManualMediaUrl } from "@/lib/conversation-manual-media";
 import {
   isMetaCloudPhoneNumberId,
   resolveMetaAccessToken,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
+  sendWhatsAppMediaMessage,
   sendWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
@@ -67,9 +69,14 @@ export async function POST(req: NextRequest) {
     const businessSlug = typeof body.business_slug === "string" ? body.business_slug.trim() : "";
     const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : "";
     const text = typeof body.text === "string" ? body.text.trim() : "";
+    const mediaUrl = typeof body.media_url === "string" ? body.media_url.trim() : "";
 
-    if (!businessSlug || !sessionId || !text) {
+    if (!businessSlug || !sessionId || (!text && !mediaUrl)) {
       return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+    }
+
+    if (mediaUrl && !isAllowedManualMediaUrl(mediaUrl)) {
+      return NextResponse.json({ error: "invalid_media_url" }, { status: 400 });
     }
 
     const admin = createSupabaseAdminClient();
@@ -93,25 +100,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "missing_twilio_credentials" }, { status: 500 });
     }
 
-    await sendWhatsAppMessage(
-      parsed.phoneNumberId,
-      parsed.leadPhone,
-      text,
-      accountSid ?? "",
-      authToken ?? ""
-    );
+    if (mediaUrl) {
+      await sendWhatsAppMediaMessage(
+        parsed.phoneNumberId,
+        parsed.leadPhone,
+        mediaUrl,
+        accountSid ?? "",
+        authToken ?? "",
+        text || undefined,
+        "image"
+      );
+    } else {
+      await sendWhatsAppMessage(
+        parsed.phoneNumberId,
+        parsed.leadPhone,
+        text,
+        accountSid ?? "",
+        authToken ?? ""
+      );
+    }
+
+    const loggedContent = mediaUrl
+      ? formatManualMediaMessageContent(mediaUrl, text)
+      : text;
 
     // Log assistant-style message
     await logMessage({
       business_slug: businessSlug,
       role: "assistant",
-      content: text,
+      content: loggedContent,
       model_used: "manual_handoff",
       session_id: sessionId,
       error_code: null,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, content: loggedContent });
   } catch (e) {
     console.error("[api/whatsapp/manual-send] failed:", e);
     return NextResponse.json({ error: "manual_send_failed" }, { status: 500 });
