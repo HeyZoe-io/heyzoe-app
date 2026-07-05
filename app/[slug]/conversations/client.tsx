@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, MoreVertical, Search, Send } from "lucide-react";
+import { ArrowRight, ImagePlus, MoreVertical, Search, Send, X } from "lucide-react";
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
+import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
+import { uploadDashboardImageFile } from "@/lib/upload-dashboard-media-client";
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
@@ -41,6 +43,9 @@ const i18n = {
     actionFailed: "הפעולה נכשלה. נסו שוב או רעננו את הדף.",
     manualPlaceholder: "כתוב תשובה ידנית לוואטסאפ...",
     sendManual: "שליחת הודעה ידנית",
+    attachImage: "צירוף תמונה",
+    removeImage: "הסרת תמונה",
+    imageUploadFailed: "העלאת התמונה נכשלה. נסו JPG/PNG קטן יותר.",
     sending: "שולח...",
     pauseHint:
       'כדי לענות ידנית ולמנוע מזואי לענות אוטומטית, לחץ על "עצור בוט". לא לשכוח להפעיל מחדש :)',
@@ -75,6 +80,9 @@ const i18n = {
     actionFailed: "Action failed. Please try again or refresh the page.",
     manualPlaceholder: "Write a manual WhatsApp reply...",
     sendManual: "Send Manual Message",
+    attachImage: "Attach image",
+    removeImage: "Remove image",
+    imageUploadFailed: "Image upload failed. Try a smaller JPG/PNG.",
     sending: "Sending...",
     pauseHint:
       'To reply manually and prevent Zoe from auto-replying, click "Pause Bot". Remember to resume when done :)',
@@ -217,12 +225,38 @@ export default function ConversationsClient({
   const [sessions, setSessions] = useState<SessionSummary[]>(initialSessions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [manualText, setManualText] = useState("");
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [pausing, setPausing] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDesktop, setIsDesktop] = useState(true);
   const [lastMessagePreview, setLastMessagePreview] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const clearPendingImage = useCallback(() => {
+    setPendingImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPendingImageFile(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      setPendingImagePreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    clearPendingImage();
+    setManualText("");
+  }, [selectedId, clearPendingImage]);
 
   function normalizePhoneForMatch(raw: string): string {
     const digits = String(raw ?? "").replace(/\D/g, "");
@@ -462,22 +496,37 @@ export default function ConversationsClient({
   }
 
   async function sendManual() {
-    if (!selected || !manualText.trim() || manualReplyWindowExpired) return;
+    if (!selected || manualReplyWindowExpired || !selected.isPaused) return;
+    const caption = manualText.trim();
+    const isMarketingAdmin =
+      apiScope === "admin" && isMarketingConversationsSlug(messagesSlug);
+    if (!caption && !pendingImageFile) return;
+    if (isMarketingAdmin && !caption) return;
+
     setSending(true);
     setActionError(null);
     try {
-      const manualUrl =
-        apiScope === "admin" && isMarketingConversationsSlug(messagesSlug)
-          ? "/api/admin/marketing/manual-send"
-          : "/api/whatsapp/manual-send";
-      const manualBody =
-        apiScope === "admin" && isMarketingConversationsSlug(messagesSlug)
-          ? { session_id: selected.session_id, text: manualText.trim() }
-          : {
-              business_slug: messagesSlug,
-              session_id: selected.session_id,
-              text: manualText.trim(),
-            };
+      let mediaUrl = "";
+      if (pendingImageFile && !isMarketingAdmin) {
+        try {
+          mediaUrl = await uploadDashboardImageFile(pendingImageFile);
+        } catch {
+          setActionError(t.imageUploadFailed);
+          return;
+        }
+      }
+
+      const manualUrl = isMarketingAdmin
+        ? "/api/admin/marketing/manual-send"
+        : "/api/whatsapp/manual-send";
+      const manualBody = isMarketingAdmin
+        ? { session_id: selected.session_id, text: caption }
+        : {
+            business_slug: messagesSlug,
+            session_id: selected.session_id,
+            text: caption,
+            ...(mediaUrl ? { media_url: mediaUrl } : {}),
+          };
       const res = await fetch(manualUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -485,9 +534,22 @@ export default function ConversationsClient({
       });
       if (res.ok) {
         const nowIso = new Date().toISOString();
+        let loggedContent = caption;
+        if (!isMarketingAdmin) {
+          try {
+            const j = (await res.json()) as { content?: string };
+            if (typeof j.content === "string" && j.content.trim()) {
+              loggedContent = j.content.trim();
+            } else if (mediaUrl) {
+              loggedContent = formatManualMediaMessageContent(mediaUrl, caption);
+            }
+          } catch {
+            if (mediaUrl) loggedContent = formatManualMediaMessageContent(mediaUrl, caption);
+          }
+        }
         const msg: SessionMessage = {
           role: "assistant",
-          content: manualText.trim(),
+          content: loggedContent,
           created_at: nowIso,
         };
         setSessions((prev) =>
@@ -518,12 +580,24 @@ export default function ConversationsClient({
           )
         );
         setManualText("");
+        clearPendingImage();
       } else {
         setActionError(t.actionFailed);
       }
     } finally {
       setSending(false);
     }
+  }
+
+  function onManualImageSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPendingImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setPendingImageFile(file);
   }
 
   const lastUserMessageAt = useMemo(() => {
@@ -544,6 +618,12 @@ export default function ConversationsClient({
   const manualWindowNotice = selected
     ? t.windowExpired(selected.phone || t.leadPhoneFallback)
     : "";
+  const manualMediaSupported =
+    !(apiScope === "admin" && isMarketingConversationsSlug(messagesSlug));
+  const canSendManual =
+    Boolean(selected?.isPaused) &&
+    !manualReplyWindowExpired &&
+    (manualText.trim().length > 0 || Boolean(pendingImageFile));
 
   const emptyMessage = normalizedFilter
     ? t.emptyFilter
@@ -757,7 +837,47 @@ export default function ConversationsClient({
 
                 {selected.isPaused ? (
                   <footer className="shrink-0 border-t border-[#e9edef] bg-[#f0f2f5] px-3 py-2 md:px-4">
+                    {pendingImagePreviewUrl ? (
+                      <div className="mb-2 flex items-start gap-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={pendingImagePreviewUrl}
+                          alt=""
+                          className="h-16 w-16 rounded-lg border border-[#d1d7db] object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={clearPendingImage}
+                          disabled={sending}
+                          className="rounded-full p-1 text-[#54656f] hover:bg-[#e9edef] disabled:opacity-40"
+                          aria-label={t.removeImage}
+                        >
+                          <X className="h-4 w-4" aria-hidden />
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="flex items-end gap-2">
+                      {manualMediaSupported ? (
+                        <>
+                          <input
+                            ref={imageInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/gif"
+                            className="hidden"
+                            onChange={onManualImageSelected}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => imageInputRef.current?.click()}
+                            disabled={sending || manualReplyWindowExpired}
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#54656f] transition-colors hover:bg-[#e9edef] disabled:opacity-40"
+                            aria-label={t.attachImage}
+                            title={t.attachImage}
+                          >
+                            <ImagePlus className="h-5 w-5" aria-hidden />
+                          </button>
+                        </>
+                      ) : null}
                       <div className="min-w-0 flex-1 rounded-lg bg-white px-3 py-2 shadow-sm">
                         <textarea
                           className={`max-h-32 min-h-[42px] w-full resize-none border-0 bg-transparent text-[15px] text-[#111b21] focus:outline-none ${textAlignClass} ${placeholderAlignClass}`}
@@ -776,7 +896,7 @@ export default function ConversationsClient({
                       <button
                         type="button"
                         onClick={() => void sendManual()}
-                        disabled={sending || !manualText.trim() || manualReplyWindowExpired}
+                        disabled={sending || !canSendManual}
                         title={manualReplyWindowExpired ? manualWindowNotice : undefined}
                         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#25D366] text-white transition-opacity hover:bg-[#20bd5a] disabled:opacity-40"
                         aria-label={t.sendManual}
