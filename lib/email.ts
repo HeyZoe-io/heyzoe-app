@@ -298,6 +298,34 @@ export function starterQuota100Email(displayName: string, billingUrl: string): E
   };
 }
 
+/** פנימי — 30 יום אחרי ביטול מנוי: תזכורת לנתק WhatsApp Manager במטא */
+export function adminWhatsAppManagerDisconnectReminderEmail(
+  businessName: string,
+  businessSlug: string,
+  wabaId?: string
+): EmailTemplateResult {
+  const name = String(businessName ?? "").trim() || "—";
+  const slug = String(businessSlug ?? "").trim() || "—";
+  const waba = String(wabaId ?? "").trim();
+  const lines = [
+    "עברו 30 יום מבקשת ביטול המנוי — הגישה נסגרה היום.",
+    "",
+    `שם העסק: ${name}`,
+    `סלאג: ${slug}`,
+    ...(waba ? [`WABA ID: ${waba}`] : []),
+    "",
+    "פעולה נדרשת: נתק את ה-WhatsApp Business Manager של הלקוח מ-Meta Business Manager (הסר שיתוף שותפות / Partner access).",
+  ];
+  return {
+    subject: `תזכורת: נתק WhatsApp Manager — ${name} (${slug})`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p(lines)}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
 /** פנימי — Pro מתקרב למכסה (450) */
 export function proQuota450OpsEmail(businessName: string, businessSlug: string, monthlyCount: number): EmailTemplateResult {
   const bn = String(businessName ?? "").trim() || businessSlug;
