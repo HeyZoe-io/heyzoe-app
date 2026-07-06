@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export type AccountBusinessContext = {
   businessId: number;
@@ -67,10 +68,11 @@ export async function resolveAccountBusinessForUser(userId: string): Promise<Acc
   return loadBiz(Number(membership.business_id));
 }
 
-/** עסק לפי slug — רק אם המשתמש בעלים או חבר business_users */
+/** עסק לפי slug — בעלים, חבר business_users, או אדמין פלטפורמה */
 export async function resolveAccountBusinessForUserBySlug(
   userId: string,
-  slug: string
+  slug: string,
+  opts?: { userEmail?: string | null }
 ): Promise<AccountBusinessContext | null> {
   const normSlug = String(slug ?? "")
     .trim()
@@ -87,6 +89,16 @@ export async function resolveAccountBusinessForUserBySlug(
   if (!biz?.id) return null;
   const businessId = Number(biz.id);
   if (!Number.isFinite(businessId)) return null;
+
+  if (opts?.userEmail && isAdminAllowedEmail(opts.userEmail)) {
+    const phone = String(biz.owner_whatsapp_phone ?? "").trim();
+    return {
+      businessId,
+      slug: String(biz.slug ?? "").trim(),
+      ownerWhatsappOptedIn: biz.owner_whatsapp_opted_in === true,
+      ownerWhatsappPhone: phone || null,
+    };
+  }
 
   const ownerId = String(biz.user_id ?? "").trim();
   if (ownerId && ownerId === userId) {
