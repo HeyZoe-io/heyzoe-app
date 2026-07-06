@@ -71,14 +71,18 @@ export async function handleLeadHumanRequested(input: {
     requestedAtIso: input.nowIso,
   }).catch((e) => console.error("[human-requested] owner notification failed:", e));
 
-  const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-  void dispatchCrmEvent({
-    businessId,
-    leadPhone: input.phone,
-    kind: "human_requested",
-    fullName,
-    eventAtIso: input.nowIso,
-  }).catch((e) => console.error("[human-requested] CRM dispatch failed:", e));
+  try {
+    const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+    await dispatchCrmEvent({
+      businessId,
+      leadPhone: input.phone,
+      kind: "human_requested",
+      fullName,
+      eventAtIso: input.nowIso,
+    });
+  } catch (e) {
+    console.error("[human-requested] CRM dispatch failed:", e);
+  }
 
   return { already: false };
 }
@@ -166,14 +170,47 @@ export async function markContactHumanRequestedManually(input: {
     requestedAtIso: nowIso,
   }).catch((e) => console.error("[human-requested] manual owner notification failed:", e));
 
-  const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-  void dispatchCrmEvent({
-    businessId,
-    leadPhone: input.phone,
-    kind: "human_requested",
-    fullName,
-    eventAtIso: nowIso,
-  }).catch((e) => console.error("[human-requested] manual CRM dispatch failed:", e));
+  try {
+    const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+    await dispatchCrmEvent({
+      businessId,
+      leadPhone: input.phone,
+      kind: "human_requested",
+      fullName,
+      eventAtIso: nowIso,
+    });
+  } catch (e) {
+    console.error("[human-requested] manual CRM dispatch failed:", e);
+  }
 
   return { ok: true, human_requested_at: nowIso };
+}
+
+/** כבר נשלחה לליד הודעת «אין בעיה» / העברה לנציג בפלואו מכירה. */
+export async function recentSalesFlowHumanHandoffSent(input: {
+  businessSlug: string;
+  sessionId: string;
+}): Promise<boolean> {
+  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
+  const sessionId = String(input.sessionId ?? "").trim();
+  if (!slug || !sessionId) return false;
+
+  const { createSupabaseAdminClient } = await import("@/lib/supabase-admin");
+  const admin = createSupabaseAdminClient();
+  const { data } = await admin
+    .from("messages")
+    .select("model_used, content")
+    .eq("business_slug", slug)
+    .eq("session_id", sessionId)
+    .eq("role", "assistant")
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  for (const row of data ?? []) {
+    const model = String((row as { model_used?: string }).model_used ?? "");
+    if (/sales_flow_human_agent_handoff/i.test(model)) return true;
+    const content = String((row as { content?: string }).content ?? "");
+    if (/נציג אנושי יחזור|נציג אנושי יצור/i.test(content)) return true;
+  }
+  return false;
 }
