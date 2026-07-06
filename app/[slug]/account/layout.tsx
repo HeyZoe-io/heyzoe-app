@@ -19,7 +19,9 @@ export default async function SlugAccountLayout({ children, params }: Props) {
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/dashboard/login");
 
-  const ctx = await resolveAccountBusinessForUserBySlug(data.user.id, slug);
+  const ctx = await resolveAccountBusinessForUserBySlug(data.user.id, slug, {
+    userEmail: data.user.email,
+  });
   if (!ctx || ctx.slug.toLowerCase() !== slug) redirect("/dashboard/login");
 
   return (

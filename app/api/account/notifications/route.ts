@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { resolveAccountBusinessForUser } from "@/lib/account/resolve-business";
+import {
+  resolveAccountBusinessForUser,
+  resolveAccountBusinessForUserBySlug,
+} from "@/lib/account/resolve-business";
+import { normDashboardSlug } from "@/lib/dashboard-business-access";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   NOTIFICATION_SETTING_KEYS,
@@ -59,12 +63,21 @@ async function loadBusinessEmails(businessId: number) {
   };
 }
 
-export async function GET() {
+async function resolveNotificationsContext(user: { id: string; email?: string | null }, slugParam?: string) {
+  const slug = normDashboardSlug(slugParam ?? "");
+  if (slug) {
+    return resolveAccountBusinessForUserBySlug(user.id, slug, { userEmail: user.email });
+  }
+  return resolveAccountBusinessForUser(user.id);
+}
+
+export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   if (!data.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const ctx = await resolveAccountBusinessForUser(data.user.id);
+  const slugParam = req.nextUrl.searchParams.get("slug") ?? "";
+  const ctx = await resolveNotificationsContext(data.user, slugParam);
   if (!ctx) return NextResponse.json({ error: "no_business" }, { status: 404 });
 
   const settings = ctx.ownerWhatsappOptedIn
@@ -89,10 +102,15 @@ export async function POST(req: NextRequest) {
   const { data } = await supabase.auth.getUser();
   if (!data.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const ctx = await resolveAccountBusinessForUser(data.user.id);
+  const body = await req.json().catch(() => null);
+  const slugFromBody =
+    body && typeof body === "object" && typeof (body as { slug?: unknown }).slug === "string"
+      ? String((body as { slug: string }).slug)
+      : "";
+  const slugParam = req.nextUrl.searchParams.get("slug") ?? slugFromBody;
+  const ctx = await resolveNotificationsContext(data.user, slugParam);
   if (!ctx) return NextResponse.json({ error: "no_business" }, { status: 404 });
 
-  const body = await req.json().catch(() => null);
   const uiPatch = parseUiSettingsBody(body);
   const emailPatch = parseOwnerNotificationEmailPatch(body);
   if (!uiPatch && emailPatch === undefined) {

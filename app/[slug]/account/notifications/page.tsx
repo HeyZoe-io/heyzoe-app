@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -56,6 +57,8 @@ function uiSettingsFromFull(full: NotificationSettings): Pick<NotificationSettin
 }
 
 export default function AccountNotificationsPage() {
+  const params = useParams();
+  const slug = String(params?.slug ?? "").trim().toLowerCase();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -68,9 +71,12 @@ export default function AccountNotificationsPage() {
   const [effectiveNotificationEmail, setEffectiveNotificationEmail] = useState("");
 
   const load = useCallback(async () => {
+    if (!slug) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/account/notifications", { cache: "no-store" });
+      const res = await fetch(`/api/account/notifications?slug=${encodeURIComponent(slug)}`, {
+        cache: "no-store",
+      });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         if (data.settings) {
@@ -95,7 +101,7 @@ export default function AccountNotificationsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     void load();
@@ -115,7 +121,7 @@ export default function AccountNotificationsPage() {
     setSaving(true);
     setToast("");
     try {
-      const res = await fetch("/api/account/notifications", {
+      const res = await fetch(`/api/account/notifications?slug=${encodeURIComponent(slug)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
