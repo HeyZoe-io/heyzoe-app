@@ -276,8 +276,14 @@ import {
   reactivateNotRelevantLead,
 } from "@/lib/not-relevant";
 import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
+import {
+  acquireContactProcessingLock,
+  releaseContactProcessingLock,
+} from "@/lib/wa-contact-processing-lock";
 
 export const runtime = "nodejs";
+/** Below CONTACT_PROCESSING_LOCK_TTL_SECONDS (60s) so Vercel kills stuck handlers before lock expires. */
+export const maxDuration = 55;
 
 // In-process dedup: fast path that prevents double-processing on the same instance.
 const processedMessageIds = new Set<string>();
@@ -4869,6 +4875,26 @@ async function processIncoming(
     session_id: sessionId,
   });
 
+  let contactProcessingClaimedUntil: string | null = null;
+  if (contactId != null) {
+    const lock = await acquireContactProcessingLock(contactId);
+    if (!lock.acquired) {
+      console.info(
+        `[WA Webhook] Contact ${contactId} already processing — message logged, skipping duplicate handler`,
+        { business_slug, sessionId, messageId: msg.messageId }
+      );
+      return;
+    }
+    contactProcessingClaimedUntil = lock.claimedUntil;
+  } else {
+    console.error("[WA Webhook] missing contactId — proceeding without contact processing lock (fail-open)", {
+      business_slug,
+      sessionId,
+      messageId: msg.messageId,
+    });
+  }
+
+  try {
   // Check if this session is currently paused (manual takeover by human).
   try {
     const nowIso = new Date().toISOString();
@@ -8113,6 +8139,11 @@ async function processIncoming(
         .eq("phone", msg.from);
     } catch (e) {
       console.warn("[WA Webhook] claude_message_count update failed (continuing):", e);
+    }
+  }
+  } finally {
+    if (contactId != null && contactProcessingClaimedUntil) {
+      await releaseContactProcessingLock(contactId, contactProcessingClaimedUntil);
     }
   }
 }
