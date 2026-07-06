@@ -97,5 +97,13 @@ export async function isNotificationEnabled(
   key: NotificationSettingKey
 ): Promise<boolean> {
   const settings = await getNotificationSettings(businessId);
-  return settings[key] !== false;
+  return settings[key] === true;
+}
+
+export function isAnyOwnerEmailNotificationEnabled(settings: NotificationSettings): boolean {
+  return (
+    settings.lead_registered_email === true ||
+    settings.human_requested_email === true ||
+    settings.daily_summary_email === true
+  );
 }

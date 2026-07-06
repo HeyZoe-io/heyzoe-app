@@ -275,7 +275,7 @@ export default function AccountNotificationsPage() {
                     >
                       <input
                         type="checkbox"
-                        checked={settings[row.whatsappKey]}
+                        checked={waLocked ? false : settings[row.whatsappKey]}
                         onChange={() => toggle(row.whatsappKey)}
                         disabled={waLocked}
                         className="h-4 w-4 rounded border-zinc-300 text-fuchsia-600 focus:ring-fuchsia-500 disabled:cursor-not-allowed"

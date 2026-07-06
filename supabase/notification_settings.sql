@@ -2,11 +2,11 @@
 create table if not exists public.notification_settings (
   business_id bigint primary key references public.businesses(id) on delete cascade,
   new_lead boolean not null default false,
-  human_requested boolean not null default true,
-  bot_paused_waiting boolean not null default true,
+  human_requested boolean not null default false,
+  bot_paused_waiting boolean not null default false,
   cta_no_signup boolean not null default false,
-  lead_registered boolean not null default true,
-  daily_summary boolean not null default true,
+  lead_registered boolean not null default false,
+  daily_summary boolean not null default false,
   last_daily_summary_at timestamptz null,
   updated_at timestamptz not null default now()
 );
