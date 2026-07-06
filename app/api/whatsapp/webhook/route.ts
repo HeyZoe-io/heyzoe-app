@@ -276,8 +276,14 @@ import {
   reactivateNotRelevantLead,
 } from "@/lib/not-relevant";
 import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
+import {
+  acquireContactProcessingLock,
+  releaseContactProcessingLock,
+} from "@/lib/wa-contact-processing-lock";
 
 export const runtime = "nodejs";
+/** Below CONTACT_PROCESSING_LOCK_TTL_SECONDS (60s) so Vercel kills stuck handlers before lock expires. */
+export const maxDuration = 55;
 
 // In-process dedup: fast path that prevents double-processing on the same instance.
 const processedMessageIds = new Set<string>();
@@ -739,7 +745,6 @@ async function restartSalesFlowFromGreeting(input: {
     phone: input.msg.from,
   });
 
-  await sleepMs(1500);
   await sendFlowContinuation({
     phase,
     contact: { flow_step: 0 },
@@ -854,8 +859,6 @@ async function recoverUnrecognizedMenuPick(input: {
     model_used: input.logModelUsed,
     session_id: input.sessionId,
   });
-
-  await sleepMs(800);
 
   const phase = input.contactSessionPhase;
   const canContinue =
@@ -1129,6 +1132,10 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
 }): Promise<boolean> {
   const inbound = String(input.inboundText ?? "").trim();
   if (!inbound || !userRequestedHumanAgent(inbound)) return false;
+  const { recentSalesFlowHumanHandoffSent } = await import("@/lib/human-requested");
+  if (await recentSalesFlowHumanHandoffSent({ businessSlug: input.business_slug, sessionId: input.sessionId })) {
+    return true;
+  }
   const csPhone = input.knowledge.customerServicePhone?.trim() ?? "";
   const txt = buildSalesFlowHumanAgentHandoffReply(csPhone);
   await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken).catch(
@@ -1282,9 +1289,6 @@ type ScheduleBoardDelivery = "image" | "link" | "none";
 /** המתנה אחרי תמונת מערכת שעות — WA לעיתים מציג טקסט לפני שהמדיה מוכנה. */
 const SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS = 2200;
 
-/** המתנה מינימלית בין תשובה לכפתור חימום לשאלת המשך — רק אחרי שההודעה הראשונה נשלחה. */
-const WARMUP_REPLY_BEFORE_NEXT_QUESTION_MS = 280;
-
 /** סשן מערכת שעות — נשלח אוטומטית אחרי הפתיחה (תמונה או קישור), לפני בחירת מוצר / המשך הפלואו. */
 async function sendScheduleBoardAfterOpening(input: {
   assets: ScheduleBoardAssets;
@@ -1335,7 +1339,6 @@ async function sendScheduleBoardAfterOpening(input: {
       model_used: modelUsed,
       session_id: sessionId,
     });
-    await sleepMs(450);
     return "link";
   }
   return "none";
@@ -1680,9 +1683,6 @@ async function sendWarmupReplyThenNextQuestionMenu(input: {
       model_used: input.replyModelUsed,
       session_id: input.sessionId,
     });
-    if (nextQuestion) {
-      await sleepMs(WARMUP_REPLY_BEFORE_NEXT_QUESTION_MS);
-    }
   }
 
   if (!nextQuestion) return;
@@ -2146,7 +2146,6 @@ async function sendSalesFlowServiceRepickAckAndMenu(input: {
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
 
-  await sleepMs(650);
   await sendOpeningServicePickMenu({
     knowledge: input.knowledge,
     salesFlowServices: input.salesFlowServices,
@@ -2667,8 +2666,6 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     const shouldSendNote =
       !lastNoteAt || (lastResetAt && String(lastNoteAt) < String(lastResetAt));
     if (shouldSendNote) {
-      // Immediate follow-up after CTA buttons: encourage free-text questions.
-      await sleepMs(450);
       const note = ctaOpenQuestionNote(contentLang);
       await sendWhatsAppMessage(msg.toNumber, msg.from, note, accountSid, authToken).catch((e) =>
         console.error("[WA Webhook] Send CTA note failed:", e)
@@ -2817,31 +2814,6 @@ async function sendWarmupExperienceQuestionMenu(input: {
     console.warn("[WA Webhook] warmup experience flow_step bump failed (send succeeded; no CAS rollback):", e);
   }
   return true;
-}
-
-function scheduleFlowContinuation(input: {
-  delayMs: number;
-  phase: HeyzoeSessionPhase;
-  contact: { flow_step: number };
-  knowledge: BusinessKnowledgePack;
-  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
-  accountSid: string;
-  authToken: string;
-  supabase: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: string;
-  business_slug: string;
-  sessionId: string;
-  salesFlowServices: SfServiceRow[];
-  trialRegistered: boolean | null;
-  allowTrialCta: boolean;
-  blockTrialPickMedia: boolean;
-  sfConsumedKinds?: string[];
-  instagramFollowPromptSent?: boolean;
-}): void {
-  const delayMs = Number.isFinite(input.delayMs) ? Math.max(0, Math.floor(input.delayMs)) : 0;
-  setTimeout(() => {
-    void sendFlowContinuation(input).catch((e) => console.error("[WA Webhook] sendFlowContinuation failed:", e));
-  }, delayMs);
 }
 
 async function sendFlowContinuation(input: {
@@ -4303,6 +4275,7 @@ async function processIncoming(
   // If contact is opted out, we may early-return before reaching any automated flow.
   let contactOptedOut: boolean | null = null;
   let contactNotRelevantAt: string | null = null;
+  let contactHumanRequestedAt: string | null = null;
   let contactClaudeCount: number | null = null;
   let contactTrialRegistered: boolean | null = null;
   let contactTrialRegisteredAt: string | null = null;
@@ -4424,7 +4397,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, not_relevant_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
+            "opted_out, not_relevant_at, human_requested_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, id, starter_quota_notice_month",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, id",
@@ -4457,6 +4430,10 @@ async function processIncoming(
       contactNotRelevantAt =
         typeof (contactRow as any)?.not_relevant_at === "string"
           ? String((contactRow as any).not_relevant_at).trim() || null
+          : null;
+      contactHumanRequestedAt =
+        typeof (contactRow as any)?.human_requested_at === "string"
+          ? String((contactRow as any).human_requested_at).trim() || null
           : null;
       const cc = (contactRow as any)?.claude_message_count;
       contactClaudeCount = typeof cc === "number" && Number.isFinite(cc) ? cc : null;
@@ -4790,7 +4767,7 @@ async function processIncoming(
     try {
       if (userRequestedHumanAgent(msg.text)) {
         const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-        void handleLeadHumanRequested({
+        await handleLeadHumanRequested({
           supabase,
           businessId: Number(businessId),
           businessSlug: business_slug,
@@ -4869,6 +4846,26 @@ async function processIncoming(
     session_id: sessionId,
   });
 
+  let contactProcessingClaimedUntil: string | null = null;
+  if (contactId != null) {
+    const lock = await acquireContactProcessingLock(contactId);
+    if (!lock.acquired) {
+      console.info(
+        `[WA Webhook] Contact ${contactId} already processing — message logged, skipping duplicate handler`,
+        { business_slug, sessionId, messageId: msg.messageId }
+      );
+      return;
+    }
+    contactProcessingClaimedUntil = lock.claimedUntil;
+  } else {
+    console.error("[WA Webhook] missing contactId — proceeding without contact processing lock (fail-open)", {
+      business_slug,
+      sessionId,
+      messageId: msg.messageId,
+    });
+  }
+
+  try {
   // Check if this session is currently paused (manual takeover by human).
   try {
     const nowIso = new Date().toISOString();
@@ -4928,6 +4925,30 @@ async function processIncoming(
     } catch (e) {
       console.error("[WA Webhook] monthly quota handler failed:", e);
     }
+  }
+
+  // בקשת נציג — הודעת «אין בעיה» פעם אחת, אחר כך שקט (ללא פלואו / AI / resend)
+  if (contactHumanRequestedAt) {
+    console.info("[WA Webhook] human_requested — skipping auto-reply", {
+      business_slug,
+      sessionId,
+      human_requested_at: contactHumanRequestedAt,
+    });
+    return;
+  }
+  if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
+    if (knowledge?.salesFlowConfig) {
+      await trySendSalesFlowHumanAgentHandoff({
+        inboundText: msg.text.trim(),
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+      });
+    }
+    return;
   }
 
   // Trial registration keyword → update contact + send after-trial template (no Claude)
@@ -5554,7 +5575,6 @@ async function processIncoming(
           .in("phone", phoneVariantsAfterPick.length ? phoneVariantsAfterPick : [msg.from]);
         contactSessionPhase = nextPhase;
         contactFlowStep = 0;
-        await sleepMs(700);
         await sendFlowContinuation({
           phase: nextPhase,
           contact: { flow_step: 0 },
@@ -5652,7 +5672,6 @@ async function processIncoming(
         contactFlowStep = 0;
         contactScheduleRequestedDate = "";
         contactScheduleRequestedTime = "";
-        await sleepMs(700);
         await sendFlowContinuation({
           phase: contactSessionPhase,
           contact: { flow_step: 0 },
@@ -5797,7 +5816,6 @@ async function processIncoming(
               model_used: "sales_flow_after_course_cycle_pick",
               session_id: sessionId,
             });
-            await sleepMs(900);
             await sendSalesFlowCtaMenuWithPhaseUpdate({
               knowledge,
               msg,
@@ -5943,7 +5961,6 @@ async function processIncoming(
           model_used: "sales_flow_after_schedule_selection",
           session_id: sessionId,
         });
-        await sleepMs(900);
         await sendSalesFlowCtaMenuWithPhaseUpdate({
           knowledge,
           msg,
@@ -6098,7 +6115,6 @@ async function processIncoming(
           model_used: "sales_flow_after_schedule_selection",
           session_id: sessionId,
         });
-        await sleepMs(450);
         await sendSalesFlowCtaMenuWithPhaseUpdate({
           knowledge,
           msg,
@@ -6936,8 +6952,6 @@ async function processIncoming(
             model_used: "sales_flow_after_experience",
             session_id: sessionId,
           });
-
-          await sleepMs(700);
 
           if (businessId) {
             await advanceAfterWarmupSessionComplete({
@@ -7944,7 +7958,6 @@ async function processIncoming(
           error_code: replyErrorCode,
         });
         assistantReplyLogged = true;
-        await sleepMs(650);
         if (businessId && knowledge?.salesFlowConfig && !needsCtaRepickBridge) {
           await sendSalesFlowCtaMenuWithPhaseUpdate({
             knowledge,
@@ -8001,7 +8014,6 @@ async function processIncoming(
           error_code: replyErrorCode,
         });
         assistantReplyLogged = true;
-        await sleepMs(1500);
         if (knowledge && businessId && !shouldOfferServicePickAfterCs) {
           await continueDeterministicFlowAfterFreeTextAi({
             phase: contactSessionPhase,
@@ -8066,8 +8078,7 @@ async function processIncoming(
         !shouldOfferServicePickAfterCs &&
         !needsCtaRepickBridge
       ) {
-        scheduleFlowContinuation({
-          delayMs: 1500,
+        await sendFlowContinuation({
           phase: contactSessionPhase,
           contact: { flow_step: contactFlowStep },
           knowledge,
@@ -8113,6 +8124,11 @@ async function processIncoming(
         .eq("phone", msg.from);
     } catch (e) {
       console.warn("[WA Webhook] claude_message_count update failed (continuing):", e);
+    }
+  }
+  } finally {
+    if (contactId != null && contactProcessingClaimedUntil) {
+      await releaseContactProcessingLock(contactId, contactProcessingClaimedUntil);
     }
   }
 }
