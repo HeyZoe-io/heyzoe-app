@@ -34,16 +34,22 @@ export type NotificationSettings = Record<NotificationSettingKey, boolean>;
 
 /** UI fallback + defaults when no DB row exists */
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
-  lead_registered: true,
-  human_requested: true,
-  daily_summary: true,
+  lead_registered: false,
+  human_requested: false,
+  daily_summary: false,
   new_lead: false,
   cta_no_signup: false,
-  bot_paused_waiting: true,
+  bot_paused_waiting: false,
   lead_registered_email: false,
   human_requested_email: false,
   daily_summary_email: false,
 };
+
+export const WHATSAPP_NOTIFICATION_SETTING_KEYS = [
+  "lead_registered",
+  "human_requested",
+  "daily_summary",
+] as const satisfies readonly NotificationSettingKey[];
 
 /** Written on HEYZOE_OWNER opt-in */
 export const OWNER_OPT_IN_NOTIFICATION_SETTINGS: NotificationSettings = {

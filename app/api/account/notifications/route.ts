@@ -9,6 +9,7 @@ import {
   DEFAULT_NOTIFICATION_SETTINGS,
   NOTIFICATION_SETTING_KEYS,
   NOTIFICATION_UI_SETTING_KEYS,
+  WHATSAPP_NOTIFICATION_SETTING_KEYS,
   type NotificationSettings,
 } from "@/lib/notifications/types";
 import {
@@ -71,6 +72,18 @@ async function resolveNotificationsContext(user: { id: string; email?: string | 
   return resolveAccountBusinessForUser(user.id);
 }
 
+function normalizeSettingsForResponse(
+  settings: NotificationSettings,
+  ownerWhatsappOptedIn: boolean
+): NotificationSettings {
+  if (ownerWhatsappOptedIn) return settings;
+  const out = { ...settings };
+  for (const key of WHATSAPP_NOTIFICATION_SETTING_KEYS) {
+    out[key] = false;
+  }
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
@@ -80,9 +93,12 @@ export async function GET(req: NextRequest) {
   const ctx = await resolveNotificationsContext(data.user, slugParam);
   if (!ctx) return NextResponse.json({ error: "no_business" }, { status: 404 });
 
-  const settings = ctx.ownerWhatsappOptedIn
-    ? await ensureOwnerNotificationSettingsRow(ctx.businessId)
-    : await getNotificationSettings(ctx.businessId);
+  const settings = normalizeSettingsForResponse(
+    ctx.ownerWhatsappOptedIn
+      ? await ensureOwnerNotificationSettingsRow(ctx.businessId)
+      : await getNotificationSettings(ctx.businessId),
+    ctx.ownerWhatsappOptedIn
+  );
 
   const emails = await loadBusinessEmails(ctx.businessId);
 
@@ -125,6 +141,11 @@ export async function POST(req: NextRequest) {
   for (const key of NOTIFICATION_SETTING_KEYS) {
     if (typeof merged[key] !== "boolean") merged[key] = DEFAULT_NOTIFICATION_SETTINGS[key];
   }
+  if (!ctx.ownerWhatsappOptedIn) {
+    for (const key of WHATSAPP_NOTIFICATION_SETTING_KEYS) {
+      merged[key] = false;
+    }
+  }
 
   if (uiPatch) {
     const result = await upsertNotificationSettings(ctx.businessId, merged);
@@ -156,7 +177,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    settings: merged,
+    settings: normalizeSettingsForResponse(merged, ctx.ownerWhatsappOptedIn),
     owner_whatsapp_opted_in: ctx.ownerWhatsappOptedIn,
     ...emails,
   });
