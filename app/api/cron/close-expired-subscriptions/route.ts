@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
-import { adminPlainAlertEmail, subscriptionAccessEndedEmail, sendEmail } from "@/lib/email";
+import {
+  adminPlainAlertEmail,
+  adminWhatsAppManagerDisconnectReminderEmail,
+  subscriptionAccessEndedEmail,
+  sendEmail,
+} from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,8 +57,9 @@ export async function GET(req: NextRequest) {
 
   const { data: rows, error } = await admin
     .from("businesses")
-    .select("id, slug, name, email, cancellation_effective_at, is_active")
+    .select("id, slug, name, email, waba_id, cancellation_effective_at, is_active")
     .lte("cancellation_effective_at", nowIso)
+    .not("cancellation_effective_at", "is", null)
     .eq("is_active", true)
     .limit(500);
 
@@ -81,11 +87,21 @@ export async function GET(req: NextRequest) {
       .select("id, phone_display, phone_number_id, twilio_sid, is_active")
       .eq("business_id", id);
 
-    const { error: upErr } = await admin.from("businesses").update({ is_active: false } as any).eq("id", id);
+    const { data: closedRow, error: upErr } = await admin
+      .from("businesses")
+      .update({ is_active: false } as any)
+      .eq("id", id)
+      .eq("is_active", true)
+      .select("id")
+      .maybeSingle();
 
     if (upErr) {
       console.error("[cron/close-expired-subscriptions] is_active update failed:", { id, slug, err: upErr });
       results.push({ id, slug, ok: false });
+      continue;
+    }
+    if (!closedRow) {
+      console.info("[cron/close-expired-subscriptions] skip — already closed (concurrent run?)", { id, slug });
       continue;
     }
     console.info("[cron/close-expired-subscriptions] set is_active=false", { id, slug });
@@ -128,6 +144,26 @@ export async function GET(req: NextRequest) {
       console.info("[cron/close-expired-subscriptions] ops email sent", { opsTo, slug });
     } catch (e) {
       console.error("[cron/close-expired-subscriptions] ops email failed:", e);
+    }
+
+    try {
+      const wabaId = String(b.waba_id ?? "").trim();
+      const waTpl = adminWhatsAppManagerDisconnectReminderEmail(name, slug, wabaId || undefined);
+      const waRes = await sendEmail({
+        to: TWILIO_OPS_EMAIL,
+        subject: waTpl.subject,
+        htmlContent: waTpl.htmlContent,
+      });
+      console.info("[cron/close-expired-subscriptions] whatsapp manager disconnect reminder", {
+        to: TWILIO_OPS_EMAIL,
+        slug,
+        ok: waRes.ok,
+      });
+      if (!waRes.ok) {
+        console.error("[cron/close-expired-subscriptions] whatsapp manager reminder failed:", waRes.error);
+      }
+    } catch (e) {
+      console.error("[cron/close-expired-subscriptions] whatsapp manager reminder exception:", e);
     }
 
     const channelList = (channels ?? []) as Array<{
