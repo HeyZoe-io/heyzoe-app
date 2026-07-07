@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
@@ -4071,11 +4071,28 @@ export async function POST(req: NextRequest) {
     msg = parseTwilioWebhook(params);
   }
 
-  // Process the message (awaited — webhook keeps connection open for up to 10s)
+  // Fast-ACK: dedup + claim are awaited (cheap — in-memory check + one DB insert),
+  // but the heavy processing (Claude, WhatsApp sends, media delays) runs after the
+  // response is sent so Meta/Twilio get 200 immediately and don't retry into a duplicate flood.
   if (msg) {
-    await processIncoming(msg, accountSid, authToken).catch((e) =>
-      console.error("[WA Webhook] processIncoming error:", e)
-    );
+    const message = msg;
+    if (processedMessageIds.has(message.messageId)) {
+      console.info(`[WA Webhook] Skipping duplicate ${message.messageId}`);
+      return new Response("", { status: 200 });
+    }
+    processedMessageIds.add(message.messageId);
+    if (processedMessageIds.size > 10_000) {
+      const first = processedMessageIds.values().next().value;
+      if (first) processedMessageIds.delete(first);
+    }
+    const claimed = await claimMessageForProcessing(message.messageId);
+    if (claimed) {
+      after(() =>
+        processIncoming(message, accountSid, authToken).catch((e) =>
+          console.error("[WA Webhook] processIncoming error:", e)
+        )
+      );
+    }
   }
 
   // Meta expects 200 quickly as well.
@@ -4089,18 +4106,7 @@ async function processIncoming(
   accountSid: string,
   authToken: string
 ): Promise<void> {
-  // Dedup — fast in-memory path first (same instance), then durable cross-instance claim.
-  if (processedMessageIds.has(msg.messageId)) {
-    console.info(`[WA Webhook] Skipping duplicate ${msg.messageId}`);
-    return;
-  }
-  processedMessageIds.add(msg.messageId);
-  if (processedMessageIds.size > 10_000) {
-    const first = processedMessageIds.values().next().value;
-    if (first) processedMessageIds.delete(first);
-  }
-  const claimed = await claimMessageForProcessing(msg.messageId);
-  if (!claimed) return;
+  // Dedup + claim now happen in POST before this is scheduled via after() — see fast-ACK comment there.
 
   // Marketing line intercept — route to marketing flow before channel lookup
   if (msg.toNumber === "1179786855208358" && msg.type === "text") {
