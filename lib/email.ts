@@ -298,7 +298,7 @@ export function starterQuota100Email(displayName: string, billingUrl: string): E
   };
 }
 
-/** פנימי — 30 יום אחרי ביטול מנוי: תזכורת לנתק WhatsApp Manager במטא */
+/** פנימי — בסיום תקופת הגישה לאחר ביטול (close-expired-subscriptions): תזכורת לנתק WhatsApp Manager במטא */
 export function adminWhatsAppManagerDisconnectReminderEmail(
   businessName: string,
   businessSlug: string,
@@ -308,7 +308,7 @@ export function adminWhatsAppManagerDisconnectReminderEmail(
   const slug = String(businessSlug ?? "").trim() || "—";
   const waba = String(wabaId ?? "").trim();
   const lines = [
-    "עברו 30 יום מבקשת ביטול המנוי — הגישה נסגרה היום.",
+    "הסתיימה תקופת הגישה של העסק לאחר ביטול המנוי — הגישה נסגרה היום.",
     "",
     `שם העסק: ${name}`,
     `סלאג: ${slug}`,
@@ -357,7 +357,7 @@ export function cancellationEmail(business_name: string, access_until: string, d
         "",
         "קיבלנו את בקשת הביטול שלך.",
         "",
-        `רק חשוב לדעת - יש לך גישה מלאה ל-HeyZoe עד ${au} (30 יום מהיום).`,
+        `רק חשוב לדעת - יש לך גישה מלאה ל-HeyZoe עד ${au}.`,
         "",
         "אחרי התאריך הזה זואי תפסיק לענות ללידים שלך.",
         "",

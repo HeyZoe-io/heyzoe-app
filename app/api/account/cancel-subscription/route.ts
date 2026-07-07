@@ -12,6 +12,7 @@ import {
   formatDateDdMmYyyy,
   sendEmail,
 } from "@/lib/email";
+import { addCancellationGracePeriod } from "@/lib/subscription-cancellation-grace";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   const { data: business } = await admin
     .from("businesses")
     .select(
-      "id, user_id, slug, name, email, cancellation_requested_at, cancellation_effective_at, icount_client_id, icount_hk_cancelled"
+      "id, user_id, slug, name, email, cancellation_requested_at, cancellation_effective_at, icount_client_id, icount_hk_cancelled, billing_anchor_day"
     )
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
@@ -69,7 +70,10 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date();
-  const effective = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const effective = addCancellationGracePeriod(
+    now,
+    (business as { billing_anchor_day?: unknown }).billing_anchor_day
+  );
   const businessId = Number((business as any).id);
   const businessName = String((business as any)?.name ?? "").trim();
   const slug = String((business as any)?.slug ?? "").trim().toLowerCase();

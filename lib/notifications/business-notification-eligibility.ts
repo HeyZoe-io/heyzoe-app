@@ -3,7 +3,7 @@ export type BusinessNotificationEligibilityRow = {
   cancellation_effective_at?: string | null | unknown;
 };
 
-/** מנוי פעיל — כולל 30 יום לאחר בקשת ביטול (כל עוד is_active=true). */
+/** מנוי פעיל — כולל התקופה ששולמה עד cancellation_effective_at (כל עוד is_active=true). */
 export function isBusinessSubscriptionActive(
   biz: Pick<BusinessNotificationEligibilityRow, "is_active">
 ): boolean {
@@ -12,7 +12,7 @@ export function isBusinessSubscriptionActive(
 
 /**
  * עסק זכאי להתראות (מייל + וואטסאפ לבעלים) כל עוד המנוי פעיל,
- * כולל 30 הימים לאחר בקשת ביטול. בתום התקופה — לא שולחים.
+ * כולל התקופה ששולמה עד cancellation_effective_at. בתום התקופה — לא שולחים.
  */
 export function isBusinessEligibleForOwnerNotifications(
   biz: BusinessNotificationEligibilityRow,

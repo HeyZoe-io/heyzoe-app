@@ -4231,7 +4231,7 @@ async function processIncoming(
   try {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .select("id, is_active, social_links")
+      .select("id, is_active, social_links, cancellation_effective_at")
       .eq("slug", business_slug)
       .maybeSingle();
     if (bizErr || !biz) {
@@ -4243,7 +4243,7 @@ async function processIncoming(
       businessId = resolvedId != null ? String(resolvedId) : null;
     }
     const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
-    if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean })) {
+    if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean; cancellation_effective_at?: string | null })) {
       const inactiveReply = buildInactiveBusinessAutoReply(
         customerServicePhoneFromSocialLinks((biz as { social_links?: unknown }).social_links)
       );
