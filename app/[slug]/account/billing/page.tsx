@@ -107,6 +107,8 @@ export default function AccountBillingPage() {
   /** מנוי משולם פעיל — בלי זה לא מציגים «החבילה שלך» גם אם plan ב-DB נשאר basic/premium */
   const [subscriptionActive, setSubscriptionActive] = useState(false);
   const [cancellationEffectiveAt, setCancellationEffectiveAt] = useState<string | null>(null);
+  const [cancellationRequestedAt, setCancellationRequestedAt] = useState<string | null>(null);
+  const [cancellationEffectiveAtPreview, setCancellationEffectiveAtPreview] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [billingStateLoaded, setBillingStateLoaded] = useState(false);
@@ -118,6 +120,8 @@ export default function AccountBillingPage() {
   const [cancelSurveyDetail, setCancelSurveyDetail] = useState<string>("");
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelError, setCancelError] = useState<string>("");
+  const [disconnectLoading, setDisconnectLoading] = useState(false);
+  const [disconnectError, setDisconnectError] = useState<string>("");
   const sp = useSearchParams();
   const reactivate = sp.get("reactivate") === "1";
   const nextParam = sp.get("next") || "";
@@ -147,12 +151,6 @@ export default function AccountBillingPage() {
     if (fromNext) billingSlugRef.current = fromNext;
   }
 
-  const previewEndDate = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return formatHebrewDate(d.toISOString());
-  }, []);
-
   function loadBillingState() {
     setBillingStateLoaded(false);
     const stableNext = initialParamsRef.current?.nextParam ?? "";
@@ -169,6 +167,10 @@ export default function AccountBillingPage() {
         setSubscriptionActive(Boolean(j?.business?.is_active));
         const eff = j?.business?.cancellation_effective_at;
         setCancellationEffectiveAt(typeof eff === "string" && eff ? eff : null);
+        const req = j?.business?.cancellation_requested_at;
+        setCancellationRequestedAt(typeof req === "string" && req ? req : null);
+        const preview = j?.business?.cancellation_effective_at_preview;
+        setCancellationEffectiveAtPreview(typeof preview === "string" && preview ? preview : null);
         const gotSlug = typeof j?.business?.slug === "string" ? String(j.business.slug).trim().toLowerCase() : "";
         if (gotSlug && !billingSlugRef.current) {
           billingSlugRef.current = gotSlug;
@@ -331,6 +333,7 @@ export default function AccountBillingPage() {
       }
       if (data?.effective_at) {
         setCancellationEffectiveAt(data.effective_at);
+        setCancellationRequestedAt(new Date().toISOString());
         loadBillingState();
       }
       setCancelSurveyReason("");
@@ -340,6 +343,39 @@ export default function AccountBillingPage() {
       setCancelError("שגיאה, נסו שוב.");
     } finally {
       setCancelLoading(false);
+    }
+  }
+
+  async function confirmDisconnectWhatsApp() {
+    const slug = activeSlug || billingSlugRef.current;
+    if (!slug) return;
+    if (
+      !window.confirm(
+        "לנתק את זואי מהמספר שלך? לאחר הניתוק לא יישלחו הודעות אוטומטיות מהמספר, עד להפעלה מחדש."
+      )
+    ) {
+      return;
+    }
+    setDisconnectError("");
+    setDisconnectLoading(true);
+    try {
+      const res = await fetch("/api/account/disconnect-whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ business_slug: slug }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; status?: string };
+      if (!res.ok) {
+        setDisconnectError("לא ניתן לנתק כרגע, נסו שוב.");
+        return;
+      }
+      if (data?.status === "already_disconnected") {
+        setDisconnectError("זואי כבר מנותקת מהמספר.");
+      }
+    } catch {
+      setDisconnectError("שגיאה, נסו שוב.");
+    } finally {
+      setDisconnectLoading(false);
     }
   }
 
@@ -515,25 +551,32 @@ export default function AccountBillingPage() {
         >
           <h2 className="text-lg font-semibold text-zinc-900">ביטול מנוי</h2>
           {cancellationEffectiveAt ? (
-            <div className="mt-3 space-y-2 text-sm text-zinc-700">
+            <div className="mt-3 space-y-3 text-sm text-zinc-700">
               <p>
                 המנוי יסתיים בתאריך{" "}
                 <span className="font-semibold text-zinc-900">
                   {formatHebrewDate(cancellationEffectiveAt)}
                 </span>
-                . לפרטים פנה ל־
-                <a
-                  className="text-[#7133da] underline underline-offset-2"
-                  href="mailto:office@heyzoe.io"
-                >
-                  office@heyzoe.io
-                </a>
+                . לא יבוצע חיוב נוסף.
               </p>
+              {cancellationRequestedAt ? (
+                <div>
+                  {disconnectError ? <p className="mb-2 text-sm text-red-600">{disconnectError}</p> : null}
+                  <button
+                    type="button"
+                    disabled={disconnectLoading}
+                    onClick={() => void confirmDisconnectWhatsApp()}
+                    className="inline-flex w-full sm:w-auto cursor-pointer items-center justify-center rounded-2xl border border-zinc-300 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {disconnectLoading ? "מנתק..." : "נתק את זואי מהמספר שלי"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             <>
               <p className="mt-1 text-sm text-zinc-600">
-                ביטול אינו מיידי: השירות ימשיך בפעולה 30 יום מתאריך הבקשה, ואז מסתיימת הגישה.
+                ביטול אינו מיידי: הגישה תימשך עד סוף התקופה ששולמה (תאריך החיוב הבא), ואז מסתיימת.
               </p>
               {cancelError ? <p className="mt-2 text-sm text-red-600">{cancelError}</p> : null}
               <button
@@ -576,7 +619,12 @@ export default function AccountBillingPage() {
             <h3 className="text-lg font-semibold text-zinc-900">ביטול מנוי</h3>
             <p className="mt-2 text-sm leading-relaxed text-zinc-600">
               לפני הביטול נשמח לשמוע למה. אי אפשר לדלג על השאלון. השירות ימשיך לפעול עד{" "}
-              <span className="font-semibold text-zinc-800">{previewEndDate}</span>, ואז תיסגר הגישה לדשבורד.
+              <span className="font-semibold text-zinc-800">
+                {cancellationEffectiveAtPreview
+                  ? formatHebrewDate(cancellationEffectiveAtPreview)
+                  : "סוף התקופה ששולמה"}
+              </span>
+              , ואז תיסגר הגישה לדשבורד.
             </p>
 
             <div className="mt-4">

@@ -12,6 +12,7 @@ import {
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
+import { addCancellationGracePeriod } from "@/lib/subscription-cancellation-grace";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -103,9 +104,23 @@ export async function GET(req: NextRequest) {
       ? (socialRaw as Record<string, unknown>)
       : {};
 
+  const cancellationEffectiveAt =
+    typeof (business as { cancellation_effective_at?: unknown }).cancellation_effective_at === "string"
+      ? String((business as { cancellation_effective_at: string }).cancellation_effective_at)
+      : null;
+  const isActive = (business as { is_active?: boolean | null }).is_active === true;
+  const cancellationEffectiveAtPreview =
+    !cancellationEffectiveAt && isActive
+      ? addCancellationGracePeriod(
+          new Date(),
+          (business as { billing_anchor_day?: unknown }).billing_anchor_day
+        ).toISOString()
+      : null;
+
   return NextResponse.json({
     business: {
       ...business,
+      cancellation_effective_at_preview: cancellationEffectiveAtPreview,
       plan: typeof (business as any).plan === "string" ? (business as any).plan : "basic",
       website_url: typeof social.website_url === "string" ? social.website_url : "",
       business_description:

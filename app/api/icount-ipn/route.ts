@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 import { extractIcountClientIdFromPayload } from "@/lib/icount-v3";
+import { billingAnchorDayFromPaymentDate } from "@/lib/subscription-cancellation-grace";
 import { sendEmail } from "@/lib/send-email";
 import { normalizePhone, normalizePhoneToE164 } from "@/lib/phone-normalize";
 import {
@@ -243,7 +244,7 @@ async function insertBusinessResilient(admin: ReturnType<typeof createSupabaseAd
   if (!r.error) return r;
 
   // Retry removing missing columns (limited to known optional ones)
-  const optionalCols = ["email", "status", "plan_price", "icount_client_id"];
+  const optionalCols = ["email", "status", "plan_price", "icount_client_id", "billing_anchor_day"];
   let nextPayload = { ...payload };
   for (const col of optionalCols) {
     if (r.error && isSchemaColumnMissing(r.error, col) && col in nextPayload) {
@@ -472,20 +473,24 @@ export async function POST(req: NextRequest) {
         // Reactivation flow: mark existing business as active + update plan tier.
         const { data: biz } = await admin
           .from("businesses")
-          .select("id, slug")
+          .select("id, slug, billing_anchor_day")
           .eq("user_id", existingAuth.id)
           .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle();
         if (biz?.id) {
+          const reactivationUpdate: Record<string, unknown> = {
+            is_active: true,
+            plan: paidPlan,
+            plan_price: paidPlanPrice,
+            ...(icountClientId ? { icount_client_id: icountClientId } : {}),
+          };
+          if ((biz as { billing_anchor_day?: number | null }).billing_anchor_day == null) {
+            reactivationUpdate.billing_anchor_day = billingAnchorDayFromPaymentDate(new Date());
+          }
           await admin
             .from("businesses")
-            .update({
-              is_active: true,
-              plan: paidPlan,
-              plan_price: paidPlanPrice,
-              ...(icountClientId ? { icount_client_id: icountClientId } : {}),
-            } as any)
+            .update(reactivationUpdate as any)
             .eq("id", biz.id);
 
           // Mark ready for /onboarding/success
@@ -625,6 +630,7 @@ export async function POST(req: NextRequest) {
             is_active: true,
             email,
             status: "active",
+            billing_anchor_day: billingAnchorDayFromPaymentDate(new Date()),
             ...(icountClientId ? { icount_client_id: icountClientId } : {}),
           };
 
@@ -734,6 +740,7 @@ export async function POST(req: NextRequest) {
       is_active: true,
       email,
       status: "active",
+      billing_anchor_day: billingAnchorDayFromPaymentDate(new Date()),
       ...(icountClientId ? { icount_client_id: icountClientId } : {}),
     };
 
