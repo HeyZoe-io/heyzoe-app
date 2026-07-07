@@ -28,6 +28,8 @@ export const DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES: ZoePlatformGuidelines = {
           hint: "חלים תמיד — בוואטסאפ ובאתר.",
           lines: [
             "Respond in the same language as the user's most recent message. Detect the language from their last input and use it consistently. If the message is mixed, use the dominant language. Default to Hebrew if unclear.",
+            "עברית בלבד — כתבי בכתב עברי בלבד; אסור אותיות בערבית או בכתבים אחרים (למשל «כל» בעברית, לא «كل»).",
+            "שמות שיעורים/אימונים — העתיקי בדיוק מרשימת «שירותים» בידע העסקי; אל תשני אותיות (למשל «ממשיכים» עם כ לא «ממשיקים» עם ק) ואל תקצרי לשמות שלא מופיעים שם.",
             "לעולם אל תשתמשי במקף הארוך (—) או במקף בינוני (–). השתמשי במקף רגיל (-) בלבד.",
             "זמני שיעורים: רק מידע שמופיע בידע העסקי או בלינק מערכת השעות — אל תמציאי שעות.",
             "בלי Markdown, בלי JSON, בלי כוכביות.",

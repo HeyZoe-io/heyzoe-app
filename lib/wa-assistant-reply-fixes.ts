@@ -1,4 +1,5 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
+import { sanitizeZoeOutboundLanguage } from "@/lib/zoe-text";
 import {
   formatCourseCyclesForKnowledge,
   formatScheduleSlotsForKnowledge,
@@ -104,20 +105,75 @@ export function buildScheduleSlotsInterestPhrase(
   return `אם יש עניין ב${svc}, אפשר לבחור בכל אחד מהזמנים האלה`;
 }
 
-function applyTypoFixes(text: string): string {
-  return String(text ?? "")
-    .replace(/\bאימן\b/gu, "אימון")
-    .replace(/לא\s+יש\s+לי\s+את/giu, "אין לי את")
-    .replace(/לא\s+יש\s+לי\b/giu, "אין לי")
-    .replace(/לא\s+יש\s+מידע/giu, "אין לי מידע")
-    .replace(/נירשמ/gu, "נרשמ")
-    .replace(/נרישמ/gu, "נרשמ")
-    .replace(/מצליחה\s+בחיפוש/giu, "בהצלחה בחיפוש");
+const SERVICE_LEXICON_SKIP = new Set([
+  "שיעור",
+  "שיעורי",
+  "שיעורים",
+  "יוגה",
+  "אימון",
+  "אימוני",
+  "אימונים",
+  "קורס",
+  "סדנה",
+  "ניסיון",
+  "לכל",
+  "הרמות",
+  "נשים",
+  "מתחיל",
+  "מפגשים",
+]);
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** מקף ארוך/בינוני → מקף רגיל (כלל זואי בוואטסאפ). */
-function normalizeWaDashes(text: string): string {
-  return String(text ?? "").replace(/[—–]/g, "-");
+function collectServiceLexiconTokens(serviceNames: string[]): string[] {
+  const tokens = new Set<string>();
+  for (const raw of serviceNames) {
+    const name = String(raw ?? "").trim();
+    if (!name) continue;
+    tokens.add(name);
+    for (const word of name.match(/[\u0590-\u05FF]{4,}/gu) ?? []) {
+      if (!SERVICE_LEXICON_SKIP.has(word)) tokens.add(word);
+    }
+  }
+  return [...tokens].sort((a, b) => b.length - a.length);
+}
+
+function collectServiceNamesFromKnowledge(knowledge: BusinessKnowledgePack | null): string[] {
+  if (!knowledge) return [];
+  const names = new Set<string>();
+  for (const n of knowledge.serviceNamesForOpening ?? []) {
+    const t = String(n ?? "").trim();
+    if (t) names.add(t);
+  }
+  for (const row of knowledge.salesFlowServices ?? []) {
+    const t = String(row.name ?? "").trim();
+    if (t) names.add(t);
+  }
+  return [...names];
+}
+
+/** תיקון שגיאות כתיב נפוצות בשמות שירות מהדשבורד (ח/ק, «ל» מיותר). */
+function applyServiceLexiconFixes(text: string, serviceNames: string[]): string {
+  const tokens = collectServiceLexiconTokens(serviceNames);
+  if (!tokens.length) return text;
+  let s = String(text ?? "");
+  for (const canonical of tokens) {
+    const typos = new Set<string>();
+    if (canonical.includes("ח")) typos.add(canonical.replace(/ח/g, "ק"));
+    if (canonical.includes("ק")) typos.add(canonical.replace(/ק/g, "ח"));
+    if (canonical.includes("כ")) typos.add(canonical.replace(/כ/g, "ק"));
+    if (canonical.includes("ק")) typos.add(canonical.replace(/ק/g, "כ"));
+    if (/^מ[\u0590-\u05FF]+(?:ים|ות)$/u.test(canonical)) {
+      typos.add(`ל${canonical}`);
+    }
+    for (const typo of typos) {
+      if (typo === canonical) continue;
+      s = s.replace(new RegExp(`(?<![\u0590-\u05FF])${escapeRegExp(typo)}(?![\u0590-\u05FF])`, "gu"), canonical);
+    }
+  }
+  return s;
 }
 
 /**
@@ -142,20 +198,6 @@ export function fixNeutralLeadPluralAddressing(text: string): string {
   for (const [re, repl] of pairs) {
     s = s.replace(re, repl);
   }
-  return s;
-}
-
-/** «גופים» ברבים / «לכל סוגי גופים ודרישות» — לא תקני; מנקים או מחליפים ב«רמות». */
-function fixBodiesPhrasing(text: string): string {
-  let s = String(text ?? "");
-  // «(ו)לכל סוגי (ה)גופים (ו)(ה)דרישות» — מסירים את הסעיף השגוי (לרוב אחרי «לכל הרמות»).
-  s = s.replace(/\s*ו?לכל\s+סוגי\s+ה?גופים(?:\s+ו?ה?דרישות)?/giu, "");
-  // «סוגי (ה)גופים» בודד → «הרמות».
-  s = s.replace(/סוגי\s+ה?גופים/giu, "הרמות");
-  // «גופים» ברבים שנותר → «רמות» (גם «הגופים» → «הרמות»).
-  s = s.replace(/גופים/giu, "רמות");
-  // ניקוי רווחים/פיסוק כפול שנותרו מההסרה.
-  s = s.replace(/\s{2,}/g, " ").replace(/\s+([.,!?])/g, "$1");
   return s;
 }
 
@@ -226,7 +268,8 @@ export function buildWaSpellingAndPhrasingPromptRule(
 
   return `
 איות וניסוח (חובה לפני סיום התשובה):
-- לקסיקון מהדשבורד: שמות אימונים, מחירים, FAQ ומועדים - מהשדות «ידע עסקי» ומהשורות למטה; פרפרזה רק לגוון, בלי לשנות שמות שירות, ימי שבוע (רביעי, שלישי…) או שעות.
+- לקסיקון מהדשבורד: שמות אימונים, מחירים, FAQ ומועדים - מהשדות «ידע עסקי» ומהשורות למטה; העתיקי שמות שירות בדיוק (אות-באות) — פרפרזה רק לגוון, בלי לשנות אותיות, בלי לקצר (למשל «ממשיכים» עם כ לא «ממשיקים» עם ק), ובלי לשנות ימי שבוע (רביעי, שלישי…) או שעות.
+- עברית בלבד — כתב עברי בלבד; אסור אותיות בערבית (למשל «כל» לא «كل»).
 - איות: «אימון» לא «אימן»; «אין לי» לא «לא יש לי»; «בהצלחה» לא «מצליחה».
 - מקף: רק מקף רגיל (-). אסור מקף ארוך (—) או מקף בינוני (–).
 - כשמסבירים על התמחות/סוג השירות: קצר ועובדתי, למשל «ההתמחות שלנו היא ביוגה». אסור «גופים» ברבים ואסור ניסוחים כמו «לכל סוגי הגופים» / «לכל סוגי גופים ודרישות» - זה לא תקני בעברית. אם רוצים להרחיב: «לכל הרמות» או «מתאים לכל אחת ואחד».
@@ -242,8 +285,9 @@ export function applyKnownAssistantReplyFixes(
   text: string,
   input: ApplyAssistantReplyFixesInput
 ): string {
-  let s = normalizeWaDashes(applyTypoFixes(String(text ?? "").trim()));
-  s = fixBodiesPhrasing(s);
+  const serviceNames = collectServiceNamesFromKnowledge(input.knowledge);
+  let s = sanitizeZoeOutboundLanguage(String(text ?? "").trim());
+  s = applyServiceLexiconFixes(s, serviceNames);
   s = applyLocationFarClosingFix(s);
   if (resolveWaReplyAddressingMode(input.knowledge) !== "feminine") {
     s = fixNeutralLeadPluralAddressing(s);
@@ -257,7 +301,7 @@ export function applyKnownAssistantReplyFixes(
   if (input.scheduleSlotsWithPickedService && input.selectedServiceName?.trim()) {
     const mode = resolveWaReplyAddressingMode(input.knowledge);
     s = fixWrongScheduleSlotsInterest(s, input.selectedServiceName.trim(), mode);
-    s = applyTypoFixes(s);
+    s = sanitizeZoeOutboundLanguage(s);
   }
 
   if ((input.scheduleDayLabels?.length ?? 0) > 0) {

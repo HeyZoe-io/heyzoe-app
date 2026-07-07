@@ -572,7 +572,7 @@ function buildUserLanguagePromptBlock(lastUserMessage?: string): string {
     return "The user is writing in English. Respond in clear, natural English.";
   }
   if (detected === "he") {
-    return "המשתמש כותב בעברית. ענה בעברית טבעית וזורמת.";
+    return "המשתמש כותב בעברית. ענה בעברית טבעית וזורמת — בכתב עברי בלבד, בלי אותיות בערבית או בכתבים אחרים.";
   }
   return "";
 }
