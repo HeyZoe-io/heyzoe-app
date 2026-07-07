@@ -4531,40 +4531,66 @@ async function processIncoming(
     return;
   }
 
-  // 1.6) NOT RELEVANT (Claude) — רחוק / לא מתאים / לא מעוניין (לא opt-out)
-  if (
-    msg.type === "text" &&
-    businessId &&
-    !contactNotRelevantAt &&
-    incomingText.length >= 4 &&
-    incomingText.length <= 400 &&
-    !matchesNotRelevantKeyword(incomingTextRaw)
-  ) {
-    const apiKey = resolveClaudeApiKey();
-    if (apiKey) {
-      const isNotRelevant = await classifyNotRelevantIntentWithClaude({
-        apiKey,
-        text: incomingTextRaw,
-      });
-      if (isNotRelevant) {
-        const fullName =
-          typeof (msg as { profileName?: string }).profileName === "string"
-            ? (msg as { profileName?: string }).profileName!.trim()
-            : "";
-        await handleLeadNotRelevant({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          text: incomingTextRaw,
-          nowIso,
-          waFromNumber: msg.toNumber,
-          accountSid,
-          authToken,
-          sessionId: earlySessionId,
-          fullName: fullName || null,
-        });
-        return;
+  // 1.6) NOT RELEVANT (Claude) + 2.1) OPT-OUT (Claude) — skipped for Meta menu/button picks (deterministic).
+  // Free-text runs both when eligible (Promise.all); not-relevant result takes precedence over opt-out.
+  let preLockOptOutClaudePositive = false;
+  if (!isMetaInteractiveMenuReply(msg) && msg.type === "text") {
+    const notRelevantClaudeEligible =
+      Boolean(businessId) &&
+      !contactNotRelevantAt &&
+      incomingText.length >= 4 &&
+      incomingText.length <= 400 &&
+      !matchesNotRelevantKeyword(incomingTextRaw);
+
+    const optOutClaudeEligible =
+      !optedInThisMessage &&
+      Boolean(businessId) &&
+      incomingText.length >= 3 &&
+      incomingText.length <= 300 &&
+      !matchesTrialRegisteredMessage(incomingTextRaw);
+
+    if (notRelevantClaudeEligible || optOutClaudeEligible) {
+      const apiKey = resolveClaudeApiKey();
+      if (apiKey) {
+        let isNotRelevant = false;
+        let wantsOptOut = false;
+
+        if (notRelevantClaudeEligible && optOutClaudeEligible) {
+          [isNotRelevant, wantsOptOut] = await Promise.all([
+            classifyNotRelevantIntentWithClaude({ apiKey, text: incomingTextRaw }),
+            classifyOptOutWithClaude({ apiKey, text: incomingTextRaw }),
+          ]);
+        } else if (notRelevantClaudeEligible) {
+          isNotRelevant = await classifyNotRelevantIntentWithClaude({
+            apiKey,
+            text: incomingTextRaw,
+          });
+        } else {
+          wantsOptOut = await classifyOptOutWithClaude({ apiKey, text: incomingTextRaw });
+        }
+
+        if (isNotRelevant && businessId) {
+          const fullName =
+            typeof (msg as { profileName?: string }).profileName === "string"
+              ? (msg as { profileName?: string }).profileName!.trim()
+              : "";
+          await handleLeadNotRelevant({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            text: incomingTextRaw,
+            nowIso,
+            waFromNumber: msg.toNumber,
+            accountSid,
+            authToken,
+            sessionId: earlySessionId,
+            fullName: fullName || null,
+          });
+          return;
+        }
+
+        preLockOptOutClaudePositive = wantsOptOut;
       }
     }
   }
@@ -4588,35 +4614,21 @@ async function processIncoming(
     return;
   }
 
-  // 2.1) OPT-OUT DETECTION (Claude) — before any other automation
-  // Skip for explicit opt-in, menu numeric, and short "trial registered" confirmations (handled elsewhere).
-  if (
-    msg.type === "text" &&
-    !optedInThisMessage &&
-    businessId &&
-    incomingText.length >= 3 &&
-    incomingText.length <= 300 &&
-    !matchesTrialRegisteredMessage(incomingTextRaw)
-  ) {
-    const apiKey = resolveClaudeApiKey();
-    if (apiKey) {
-      const wantsOptOut = await classifyOptOutWithClaude({ apiKey, text: incomingTextRaw });
-      if (wantsOptOut) {
-        await supabase
-          .from("contacts")
-          .update({ opted_out: true, opted_out_at: nowIso })
-          .eq("business_id", businessId)
-          .eq("phone", msg.from);
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
-          accountSid,
-          authToken
-        ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
-        return;
-      }
-    }
+  // 2.1) OPT-OUT (Claude) — applied after keyword check (classifiers may have run in parallel above).
+  if (preLockOptOutClaudePositive && msg.type === "text" && businessId) {
+    await supabase
+      .from("contacts")
+      .update({ opted_out: true, opted_out_at: nowIso })
+      .eq("business_id", businessId)
+      .eq("phone", msg.from);
+    await sendWhatsAppMessage(
+      msg.toNumber,
+      msg.from,
+      "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
+      accountSid,
+      authToken
+    ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+    return;
   }
 
   // 3) OPT-IN DETECTION (for users who previously opted out)
