@@ -1,4 +1,4 @@
--- ביטול מנוי: תאריך בקשה + תוקף (אחרי המרווח המחודשת ~30 יום)
+-- ביטול מנוי: תאריך בקשה + תוקף (גישה עד תאריך החיוב הבא / billing_anchor_day)
 -- הרצה חד-פעמית אם עדיין לא הופעל:
 alter table public.businesses
   add column if not exists cancellation_requested_at timestamptz,
