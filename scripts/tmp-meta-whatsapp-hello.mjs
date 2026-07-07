@@ -3,12 +3,22 @@
  *
  * הרצה (מהשורש של הפרויקט, עם משתני סביבה מ-.env.local):
  *   node --env-file=.env.local scripts/tmp-meta-whatsapp-hello.mjs
+ *   node --env-file=.env.local scripts/tmp-meta-whatsapp-hello.mjs --slug info-2815
  *
+ * נמען: תמיד WARMUP_TEST_PHONE. phone_number_id: מ-active channel של --slug / WARMUP_TEST_SLUG.
  * טוקן: WHATSAPP_TOKEN (אם הגדרת), אחרת META_ACCESS_TOKEN או WHATSAPP_SYSTEM_TOKEN
  */
 
-const PHONE_NUMBER_ID = "1032443923294518";
-const TO = "972508318162";
+import {
+  assertWarmupTestPhone,
+  enforceWarmupTestSafe,
+  resolveBusinessFromSlug,
+  resolveWarmupTestSlug,
+} from "./warmup-test-config.mjs";
+
+const TO = enforceWarmupTestSafe("tmp-meta-whatsapp-hello");
+const SLUG = resolveWarmupTestSlug();
+const { phoneNumberId: PHONE_NUMBER_ID, slug, businessId } = await resolveBusinessFromSlug(SLUG);
 
 const token =
   process.env.WHATSAPP_TOKEN?.trim() ||
@@ -20,6 +30,16 @@ if (!token) {
   console.error("חסר טוקן: הגדר WHATSAPP_TOKEN או META_ACCESS_TOKEN או WHATSAPP_SYSTEM_TOKEN ב-.env.local");
   process.exit(1);
 }
+
+assertWarmupTestPhone(TO, "tmp-meta-whatsapp-hello before send");
+
+console.log(
+  JSON.stringify(
+    { slug, businessId, phoneNumberId: PHONE_NUMBER_ID, testPhone: TO },
+    null,
+    2
+  )
+);
 
 const url = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
 

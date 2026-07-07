@@ -5,7 +5,8 @@
  *   npm run wa:send-test
  *   node --env-file=.env.local scripts/send_test.js
  *
- * משתני סביבה: WA_TOKEN (או WHATSAPP_TOKEN), RECIPIENT_PHONE (9725… ללא +)
+ * נמען: תמיד WARMUP_TEST_PHONE (ברירת מחדל 972508318162) — לא RECIPIENT_PHONE.
+ * משתני סביבה: WA_TOKEN (או WHATSAPP_TOKEN)
  * אופציונלי: WA_PHONE_NUMBER_ID, WA_BUSINESS_ACCOUNT_ID (ברירת מחדל — ערכים ישנים לבדיקה)
  */
 const path = require("node:path");
@@ -13,11 +14,13 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env.local") });
 
 const axios = require("axios");
 
-async function sendTemplate({ idLabel, idValue, token, body }) {
+async function sendTemplate({ idLabel, idValue, token, body, assertWarmupTestPhone }) {
   const url = `https://graph.facebook.com/v21.0/${idValue}/messages`;
 
   console.log(`\n=== Trying with ${idLabel}... ===`);
   console.log("Full URL:", url);
+
+  assertWarmupTestPhone(body.to, `send_test.js ${idLabel}`);
 
   const res = await axios.post(url, body, {
     headers: {
@@ -36,17 +39,16 @@ async function sendTemplate({ idLabel, idValue, token, body }) {
 }
 
 async function main() {
-  const WA_TOKEN = (process.env.WA_TOKEN || process.env.WHATSAPP_TOKEN || "").trim();
-  const RECIPIENT_PHONE = String(process.env.RECIPIENT_PHONE ?? "").trim();
+  const { assertWarmupTestPhone, enforceWarmupTestSafe } = await import("./warmup-test-config.mjs");
 
-  if (!WA_TOKEN || !RECIPIENT_PHONE) {
+  const WA_TOKEN = (process.env.WA_TOKEN || process.env.WHATSAPP_TOKEN || "").trim();
+  const RECIPIENT_PHONE = enforceWarmupTestSafe("send_test.js");
+
+  if (!WA_TOKEN) {
     console.error("[WA TEST] Missing env vars.", {
-      WA_TOKEN: WA_TOKEN ? "EXISTS" : "MISSING",
-      RECIPIENT_PHONE: RECIPIENT_PHONE ? "EXISTS" : "MISSING",
+      WA_TOKEN: "MISSING",
     });
-    console.error(
-      '[WA TEST] Add to .env.local: RECIPIENT_PHONE="9725XXXXXXX" (your personal WhatsApp, no + sign)'
-    );
+    console.error("[WA TEST] Add WA_TOKEN or WHATSAPP_TOKEN to .env.local");
     process.exit(1);
   }
 
@@ -71,6 +73,7 @@ async function main() {
       idValue: PHONE_ID,
       token: WA_TOKEN,
       body,
+      assertWarmupTestPhone,
     });
 
     if (resPhone.status >= 200 && resPhone.status < 300) {
@@ -83,6 +86,7 @@ async function main() {
       idValue: BUSINESS_ID,
       token: WA_TOKEN,
       body,
+      assertWarmupTestPhone,
     });
 
     if (resBiz.status >= 200 && resBiz.status < 300) {

@@ -5,8 +5,10 @@
  *   npx tsx --env-file=.env.local scripts/send-notification-samples.ts
  *
  * אופציונלי:
- *   TEST_EMAIL=you@example.com TEST_PHONE=9725XXXXXXXX npm run notifications:send-samples
+ *   TEST_EMAIL=you@example.com
  *   DRY_RUN=1 — רק מדפיס מה היה נשלח
+ *
+ * WhatsApp: תמיד WARMUP_TEST_PHONE (ברירת מחדל 972508318162) — לא TEST_PHONE.
  */
 
 import {
@@ -49,7 +51,6 @@ import {
 } from "../lib/notifications/sendOwnerNotification";
 
 const TEST_EMAIL = (process.env.TEST_EMAIL ?? "liornativ@hotmail.com").trim();
-const TEST_PHONE_RAW = (process.env.TEST_PHONE ?? "0508318162").trim();
 const DRY_RUN = process.env.DRY_RUN === "1";
 /** רשימת מפתחות מופרדת בפסיק, למשל: human_agent,daily_summary */
 const WA_FILTER = (process.env.WA_FILTER ?? "")
@@ -57,16 +58,12 @@ const WA_FILTER = (process.env.WA_FILTER ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-function normalizeIsraeliWhatsAppTo(to: string): string {
-  const digits = String(to ?? "").replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("972")) return digits;
-  if (digits.startsWith("0") && digits.length >= 9) return `972${digits.slice(1)}`;
-  if (digits.length === 9 && digits.startsWith("5")) return `972${digits}`;
-  return digits;
-}
+type WarmupTestConfig = typeof import("./warmup-test-config.mjs");
 
-const TEST_PHONE = normalizeIsraeliWhatsAppTo(TEST_PHONE_RAW);
+async function resolveGuardedTestPhone(): Promise<string> {
+  const mod = (await import("./warmup-test-config.mjs")) as WarmupTestConfig;
+  return mod.enforceWarmupTestSafe("send-notification-samples.ts");
+}
 
 const SAMPLE = {
   businessName: "סטודיו בדיקה HeyZoe",
@@ -98,14 +95,17 @@ async function sendOneEmail(label: string, tpl: EmailTemplateResult): Promise<bo
 }
 
 async function sendOneWa(
+  testPhone: string,
   label: string,
   templateName: string,
   components?: Parameters<typeof sendOwnerNotification>[0]["components"]
 ): Promise<boolean> {
   console.log(`\n📱 ${label}: ${templateName}`);
   if (DRY_RUN) return true;
+  const { assertWarmupTestPhone } = (await import("./warmup-test-config.mjs")) as WarmupTestConfig;
+  assertWarmupTestPhone(testPhone, `send-notification-samples.ts ${label}`);
   const r = await sendOwnerNotification({
-    ownerPhone: TEST_PHONE,
+    ownerPhone: testPhone,
     templateName,
     languageCode: "he",
     components,
@@ -120,9 +120,11 @@ async function sendOneWa(
 }
 
 async function main() {
+  const TEST_PHONE = await resolveGuardedTestPhone();
+
   console.log("=== HeyZoe notification samples ===");
   console.log("Email:", TEST_EMAIL);
-  console.log("WhatsApp to:", TEST_PHONE, `(from ${TEST_PHONE_RAW})`);
+  console.log("WhatsApp to:", TEST_PHONE, "(WARMUP_TEST_PHONE)");
   if (DRY_RUN) console.log("DRY_RUN=1 — לא נשלח בפועל");
 
   const hasBrevo = Boolean(process.env.BREVO_API_KEY?.trim());
@@ -312,7 +314,7 @@ async function main() {
   console.log("\n--- WhatsApp (תבניות Meta לבעלים) ---");
   for (const [label, name, components] of waTemplates) {
     if (WA_FILTER.length > 0 && !WA_FILTER.includes(label)) continue;
-    if (await sendOneWa(label, name, components)) waOk++;
+    if (await sendOneWa(TEST_PHONE, label, name, components)) waOk++;
     else waFail++;
   }
 
