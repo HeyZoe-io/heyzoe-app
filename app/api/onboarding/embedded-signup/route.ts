@@ -145,17 +145,28 @@ export async function POST(req: NextRequest) {
   let effectivePhoneNumberId = phone_number_id;
   let effectivePhoneDisplay: string | null = null;
 
-  if (isCoexistence && !effectivePhoneNumberId) {
+  if (isCoexistence && effectivePhoneDisplay === null) {
     const systemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim();
     if (systemToken) {
       try {
         const numbers = await fetchPhoneNumbersForWaba(waba_id, systemToken);
         if (numbers.length > 0) {
-          effectivePhoneNumberId = numbers[0].id;
-          effectivePhoneDisplay = numbers[0].display_phone_number ?? null;
-          console.info(
-            `[embedded-signup] coexistence: resolved phone_number_id=${effectivePhoneNumberId} from WABA`
-          );
+          if (effectivePhoneNumberId) {
+            // phone_number_id already known (from the client) — only resolve its display
+            // name, do not overwrite the id. Fall back to the first number if the WABA
+            // listing doesn't contain a matching id (e.g. still propagating on Meta's side).
+            const match = numbers.find((n) => n.id === effectivePhoneNumberId);
+            effectivePhoneDisplay = (match ?? numbers[0]).display_phone_number ?? null;
+            console.info(
+              `[embedded-signup] coexistence: resolved phone_display for existing phone_number_id=${effectivePhoneNumberId}`
+            );
+          } else {
+            effectivePhoneNumberId = numbers[0].id;
+            effectivePhoneDisplay = numbers[0].display_phone_number ?? null;
+            console.info(
+              `[embedded-signup] coexistence: resolved phone_number_id=${effectivePhoneNumberId} from WABA`
+            );
+          }
         } else {
           console.warn(
             `[embedded-signup] coexistence: no phone numbers on WABA yet waba_id=${waba_id}; PARTNER_ADDED will self-heal`
