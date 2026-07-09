@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 
 export const runtime = "nodejs";
 
+async function requireUser() {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  return data.user ?? null;
+}
+
 export async function POST(req: NextRequest) {
+  const user = await requireUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   try {
     const body = await req.json();
     const businessSlug =
@@ -15,20 +26,21 @@ export async function POST(req: NextRequest) {
     }
 
     const admin = createSupabaseAdminClient();
-
-    const { data: biz } = await admin.from("businesses").select("id").eq("slug", businessSlug).maybeSingle();
-    const businessId = biz?.id ? Number(biz.id) : null;
-    if (businessId) {
-      const { extractPhoneFromSessionId } = await import("@/lib/conversations-sessions");
-      const { setConversationBotPaused } = await import("@/lib/notifications/conversations");
-      const leadPhone = extractPhoneFromSessionId(sessionId) || sessionId;
-      await setConversationBotPaused({
-        businessId,
-        phone: leadPhone,
-        sessionId,
-        paused: false,
-      });
+    const access = await assertBusinessAccess(admin, { id: user.id, email: user.email }, businessSlug);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
+
+    const businessId = access.business.id;
+    const { extractPhoneFromSessionId } = await import("@/lib/conversations-sessions");
+    const { setConversationBotPaused } = await import("@/lib/notifications/conversations");
+    const leadPhone = extractPhoneFromSessionId(sessionId) || sessionId;
+    await setConversationBotPaused({
+      businessId,
+      phone: leadPhone,
+      sessionId,
+      paused: false,
+    });
 
     const { error } = await admin
       .from("paused_sessions")

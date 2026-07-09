@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
   });
   const biz = pickBusinessBySlug(accessible, slug);
   if (!biz) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const zoeActivated = Boolean((biz as { zoe_activated?: boolean | null }).zoe_activated);
 
   const { data, error } = await admin
     .from("whatsapp_channels")
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
           provisioning_status,
         }
       : null,
+    zoe_activated: zoeActivated,
   });
 }
 

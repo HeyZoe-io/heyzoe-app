@@ -4200,10 +4200,14 @@ async function processIncoming(
 
   // Resolve business_id + subscription gate (needed for contacts upsert)
   let businessId: string | null = (channel as any).business_id ?? null;
+  // Per-business "Zoe activated" flag — resolved from the same business row below (no extra
+  // query). Stays `null` (treated as not-activated) if this lookup fails; see the gate after
+  // the paused_sessions check.
+  let zoeActivated: boolean | null = null;
   try {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .select("id, is_active, social_links, cancellation_effective_at")
+      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated")
       .eq("slug", business_slug)
       .maybeSingle();
     if (bizErr || !biz) {
@@ -4214,6 +4218,7 @@ async function processIncoming(
       const resolvedId = (biz as { id?: string | number | null }).id;
       businessId = resolvedId != null ? String(resolvedId) : null;
     }
+    zoeActivated = (biz as { zoe_activated?: boolean | null }).zoe_activated === true;
     const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
     if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean; cancellation_effective_at?: string | null })) {
       const inactiveReply = buildInactiveBusinessAutoReply(
@@ -4902,6 +4907,23 @@ async function processIncoming(
     }
   } catch (e) {
     console.error("[WA Webhook] pause-check failed (continuing anyway):", e);
+  }
+
+  // Business-level Zoe activation gate — independent of paused_sessions (per-session pause).
+  // The inbound message is already saved above, so it still shows up in the dashboard even
+  // when Zoe hasn't been activated yet; only the auto-reply is skipped here. On any failure to
+  // confirm activation, default to NOT replying (fail closed) rather than risk auto-replying to
+  // leads before the owner has turned Zoe on.
+  try {
+    if (zoeActivated !== true) {
+      console.info(
+        `[WA Webhook] Zoe not activated for ${business_slug}; message saved, skipping auto-reply.`
+      );
+      return;
+    }
+  } catch (e) {
+    console.error("[WA Webhook] zoe_activated check failed — defaulting to no auto-reply:", e);
+    return;
   }
 
   if (businessId && bizQuotaRow) {

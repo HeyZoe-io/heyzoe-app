@@ -96,6 +96,11 @@ type WhatsAppChannel = {
   provisioning_status: "pending" | "active" | "failed" | null;
 } | null;
 
+type WhatsAppChannelResponse = {
+  channel: WhatsAppChannel;
+  zoe_activated?: boolean;
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 async function readSaveErrorFromResponse(
@@ -445,22 +450,26 @@ function WhatsAppNumberSection({
   const tp = t.page;
   const fetcher = useCallback(async (key: string) => {
     const res = await fetch(key, { method: "GET" });
-    const j = (await res.json()) as { channel?: WhatsAppChannel; error?: string };
+    const j = (await res.json()) as WhatsAppChannelResponse & { error?: string };
     if (!res.ok) throw new Error(j.error || `request_failed (${res.status})`);
-    return (j.channel ?? null) as WhatsAppChannel;
+    return { channel: j.channel ?? null, zoe_activated: Boolean(j.zoe_activated) };
   }, []);
 
   const key = useMemo(() => `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`, [slug]);
-  const { data, error, isLoading } = useSWR(key, fetcher, {
+  const { data: channelData, error, isLoading, mutate } = useSWR(key, fetcher, {
     /** מעבר בין טאבי ההגדרות לא אמור «למרר» את הנראות; רענון בפוקוס לא נחוץ */
     revalidateOnFocus: false,
     keepPreviousData: true,
     refreshInterval: (latest) => {
-      const st = (latest as WhatsAppChannel)?.provisioning_status ?? null;
+      const st = (latest as WhatsAppChannelResponse | undefined)?.channel?.provisioning_status ?? null;
       return st === "pending" ? 10_000 : 0;
     },
   });
 
+  const data = channelData?.channel ?? null;
+  const zoeActivated = channelData?.zoe_activated ?? false;
+  const [zoeToggling, setZoeToggling] = useState(false);
+  const [zoeToggleError, setZoeToggleError] = useState(false);
   const status = data?.provisioning_status ?? null;
   const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
   const whatsAppSendHref = useMemo(
@@ -561,7 +570,7 @@ function WhatsAppNumberSection({
     if (metaStatus === "CONNECTED") {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-          {tp.statusActive}
+          {tp.statusConnected}
         </span>
       );
     }
@@ -621,6 +630,29 @@ function WhatsAppNumberSection({
     };
   }, []);
 
+  const toggleZoeActivated = useCallback(async () => {
+    setZoeToggling(true);
+    setZoeToggleError(false);
+    const nextActivate = !zoeActivated;
+    try {
+      const res = await fetch("/api/whatsapp/activate-zoe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ business_slug: slug, activate: nextActivate }),
+      });
+      if (!res.ok) throw new Error(`request_failed (${res.status})`);
+      await mutate(
+        (prev) => ({ channel: prev?.channel ?? null, zoe_activated: nextActivate }),
+        { revalidate: false }
+      );
+    } catch (e) {
+      console.error("[settings] toggleZoeActivated failed:", e);
+      setZoeToggleError(true);
+    } finally {
+      setZoeToggling(false);
+    }
+  }, [slug, zoeActivated, mutate]);
+
   return (
     <div
       className={
@@ -640,7 +672,7 @@ function WhatsAppNumberSection({
           badge
         ) : status === "active" ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.statusActive}
+            {tp.statusConnected}
           </span>
         ) : status === "pending" ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 text-[11px] font-medium">
@@ -657,6 +689,31 @@ function WhatsAppNumberSection({
           </span>
         )}
       </div>
+
+      <div className={`${compact ? "mt-2" : "mt-3"} flex flex-wrap items-center justify-between gap-2`}>
+        {zoeActivated ? (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+            {tp.zoeRepliesActive}
+          </span>
+        ) : (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
+            {tp.zoeRepliesOff}
+          </span>
+        )}
+        <Button
+          type="button"
+          variant={zoeActivated ? "outline" : "default"}
+          className={compact ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-xs"}
+          disabled={zoeToggling}
+          onClick={() => void toggleZoeActivated()}
+        >
+          {zoeToggling ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+          {zoeActivated ? tp.deactivateZoeButton : tp.activateZoeButton}
+        </Button>
+      </div>
+      {zoeToggleError ? (
+        <div className="mt-1.5 text-[11px] text-rose-700 text-right">{tp.zoeToggleFailed}</div>
+      ) : null}
 
       {error ? (
         <div

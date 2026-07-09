@@ -16,20 +16,23 @@ export default async function SlugLayout({ children, params }: Props) {
   const normSlug = String(slug ?? "").trim().toLowerCase();
 
   let showOwnerWhatsappOptIn = false;
+  let zoeActivated = false;
   try {
     const admin = createSupabaseAdminClient();
     const { data: biz } = await admin
       .from("businesses")
-      .select("owner_whatsapp_opted_in")
+      .select("owner_whatsapp_opted_in, zoe_activated")
       .eq("slug", normSlug)
       .maybeSingle();
     showOwnerWhatsappOptIn = biz?.owner_whatsapp_opted_in !== true;
+    zoeActivated = biz?.zoe_activated === true;
   } catch {
     showOwnerWhatsappOptIn = false;
+    zoeActivated = false;
   }
 
   return (
-    <SlugLayoutChrome slug={slug} showOwnerWhatsappOptIn={showOwnerWhatsappOptIn}>
+    <SlugLayoutChrome slug={slug} showOwnerWhatsappOptIn={showOwnerWhatsappOptIn} zoeActivated={zoeActivated}>
       {children}
     </SlugLayoutChrome>
   );
