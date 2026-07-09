@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { logMessage } from "@/lib/analytics";
 import { formatManualMediaMessageContent, isAllowedManualMediaUrl } from "@/lib/conversation-manual-media";
 import {
@@ -19,33 +20,6 @@ async function requireUser() {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   return data.user ?? null;
-}
-
-async function requireBusinessAccess(admin: ReturnType<typeof createSupabaseAdminClient>, userId: string, slug: string) {
-  const slugNorm = String(slug ?? "").trim().toLowerCase();
-  if (!slugNorm) return { ok: false as const, error: "missing_business_slug" as const };
-
-  const { data: biz, error: bizErr } = await admin
-    .from("businesses")
-    .select("id, slug, user_id")
-    .eq("slug", slugNorm)
-    .maybeSingle();
-  if (bizErr) return { ok: false as const, error: "business_lookup_failed" as const };
-  if (!biz?.id) return { ok: false as const, error: "business_not_found" as const };
-
-  const ownerOk = String(biz.user_id ?? "") === userId;
-  if (ownerOk) return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
-
-  const { data: membership, error: memErr } = await admin
-    .from("business_users")
-    .select("business_id")
-    .eq("user_id", userId)
-    .eq("business_id", biz.id)
-    .maybeSingle();
-  if (memErr) return { ok: false as const, error: "business_access_check_failed" as const };
-  if (!membership) return { ok: false as const, error: "forbidden" as const };
-
-  return { ok: true as const, business: biz as { id: number; slug: string; user_id: string } };
 }
 
 function parseSession(sessionId: string) {
@@ -80,11 +54,9 @@ export async function POST(req: NextRequest) {
     }
 
     const admin = createSupabaseAdminClient();
-    const access = await requireBusinessAccess(admin, user.id, businessSlug);
+    const access = await assertBusinessAccess(admin, { id: user.id, email: user.email }, businessSlug);
     if (!access.ok) {
-      const status =
-        access.error === "forbidden" ? 403 : access.error === "business_not_found" ? 404 : 400;
-      return NextResponse.json({ error: access.error }, { status });
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const parsed = parseSession(sessionId);
