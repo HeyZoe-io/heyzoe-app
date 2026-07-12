@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -11,8 +11,11 @@ import {
   pickBusinessBySlug,
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { sendAdminWhatsAppTemplate } from "@/lib/notifications/sendAdminWhatsAppTemplate";
 
 export const runtime = "nodejs";
+
+const ADMIN_SUPPORT_ALERT_WHATSAPP = process.env.ADMIN_SUPPORT_ALERT_WHATSAPP || "972508318162";
 
 type ReqBody = {
   slug: string;
@@ -163,6 +166,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "failed_to_create_thread", message: error?.message ?? "" }, { status: 500 });
     }
     requestId = Number(created.id);
+
+    after(async () => {
+      try {
+        const raw = String(message ?? "");
+        const preview =
+          raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 150) ||
+          "(ללא טקסט)";
+        await sendAdminWhatsAppTemplate({
+          to: ADMIN_SUPPORT_ALERT_WHATSAPP,
+          templateName: "admin_support_chat_opened",
+          languageCode: "he",
+          bodyParams: [String(biz.name ?? slug), preview],
+        });
+      } catch (e) {
+        console.error("[admin-support-alert] failed", e);
+      }
+    });
   }
 
   // Persist owner message.
