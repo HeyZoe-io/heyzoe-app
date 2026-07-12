@@ -86,9 +86,32 @@ export type BusinessKnowledgePack = {
 };
 
 function formatMembershipsLinkLine(social: Record<string, unknown>): string {
+  const lines: string[] = [];
+
   const url = typeof social.memberships_url === "string" ? social.memberships_url.trim() : "";
-  if (!url) return "";
-  return `קישור לדף מנויים וכרטיסיות (להפניה כששואלים על מחירים): ${url}`;
+  if (url) {
+    lines.push(`קישור לדף מנויים וכרטיסיות (להפניה כששואלים על מחירים): ${url}`);
+  }
+
+  const salesFlow = social.sales_flow;
+  const ctaButtons =
+    salesFlow && typeof salesFlow === "object"
+      ? (salesFlow as Record<string, unknown>).cta_buttons
+      : null;
+  if (Array.isArray(ctaButtons)) {
+    const membershipsButton = ctaButtons.find(
+      (b) => b && typeof b === "object" && (b as Record<string, unknown>).kind === "memberships"
+    ) as Record<string, unknown> | undefined;
+    if (membershipsButton?.memberships_cta_delivery === "range") {
+      const min = String(membershipsButton.memberships_price_range_min ?? "").trim();
+      const max = String(membershipsButton.memberships_price_range_max ?? "").trim();
+      if (min && max) {
+        lines.push(`טווח מחירי מנויים: בין ${min} ₪ ל-${max} ₪`);
+      }
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function truncateText(value: string, max = 280): string {
