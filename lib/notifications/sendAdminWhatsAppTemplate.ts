@@ -1,6 +1,9 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
 
+export const ADMIN_SUPPORT_ALERT_WHATSAPP =
+  process.env.ADMIN_SUPPORT_ALERT_WHATSAPP || "972508318162";
+
 export async function sendAdminWhatsAppTemplate(input: {
   to: string;
   templateName: string;

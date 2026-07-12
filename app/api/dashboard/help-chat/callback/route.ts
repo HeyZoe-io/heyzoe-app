@@ -1,6 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  ADMIN_SUPPORT_ALERT_WHATSAPP,
+  sendAdminWhatsAppTemplate,
+} from "@/lib/notifications/sendAdminWhatsAppTemplate";
 
 export const runtime = "nodejs";
 
@@ -53,6 +57,37 @@ export async function POST(req: NextRequest) {
     role: "system",
     content: `בעל העסק ביקש חזרה טלפונית. מספר לחזרה: ${phone}`,
     model_used: "callback_request",
+  });
+
+  after(async () => {
+    try {
+      const { data: lastOwnerMsg } = await admin
+        .from("support_request_messages")
+        .select("content")
+        .eq("request_id", threadId)
+        .eq("role", "owner")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const { data: bizRow } = await admin
+        .from("businesses")
+        .select("name")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      const raw = String(lastOwnerMsg?.content ?? "");
+      const preview =
+        raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 150) ||
+        "(ללא טקסט)";
+      await sendAdminWhatsAppTemplate({
+        to: ADMIN_SUPPORT_ALERT_WHATSAPP,
+        templateName: "admin_support_chat_opened",
+        languageCode: "he",
+        bodyParams: [String(bizRow?.name ?? slug), preview],
+      });
+    } catch (e) {
+      console.error("[admin-support-alert] failed", e);
+    }
   });
 
   return NextResponse.json({ ok: true });
