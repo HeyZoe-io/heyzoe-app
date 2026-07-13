@@ -518,7 +518,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const applyWarmupStyleShort = () => {
     regenerateSalesFlowSection("opening");
     regenerateSalesFlowSection("warmup", "trial");
-    setSalesFlowConfig((c) => ({ ...c, warmup_style: "short" }));
+    // Force-clear leftover quiz extras: the generic warmup regenerate merges into
+    // existing opening_extra_steps rather than replacing them, so without this it
+    // would leave 2 of the 3 quiz questions behind after switching back to "short".
+    setSalesFlowConfig((c) => ({ ...c, warmup_style: "short", opening_extra_steps: [] }));
   };
   const applyWarmupStyleQuiz = () => {
     const trialPriceLabel = computeTrialPriceLabel(services);
@@ -534,6 +537,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
       greeting_body_override: generated.greetingBodyOverride,
       greeting_extra_steps: [],
       opening_extra_steps: generated.openingExtraSteps,
+      // Clear the old single-question warmup (experience_question/options/replies) so
+      // it doesn't play before the 3 numbered quiz questions.
+      experience_question: "",
+      experience_options: [],
+      experience_replies: [],
+      after_experience: "",
     }));
   };
 
