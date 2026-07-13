@@ -963,7 +963,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               variant="outline"
               className="gap-1 text-xs py-1.5 px-3 h-auto"
               disabled={isSalesGenerating}
-              onClick={() => regenerateSalesFlowSection("opening")}
+              onClick={() => (warmupStyle === "quiz" ? applyWarmupStyleQuiz() : regenerateSalesFlowSection("opening"))}
             >
               {isGen("opening") ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1014,7 +1014,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   variant="outline"
                   className="gap-1 text-xs py-1.5 px-3 h-auto"
                   disabled={isSalesGenerating}
-                  onClick={() => regenerateSalesFlowSection("warmup")}
+                  onClick={() => (warmupStyle === "quiz" ? applyWarmupStyleQuiz() : regenerateSalesFlowSection("warmup"))}
                 >
                   {isGen("warmup") ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
