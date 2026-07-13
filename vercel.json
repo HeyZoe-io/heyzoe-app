@@ -1,4 +1,5 @@
 {
+  "regions": ["hnd1"],
   "crons": [
     { "path": "/api/cron/reset-monthly-quota-warnings", "schedule": "30 21 * * *" },
     { "path": "/api/cron/reset-monthly-quota-warnings", "schedule": "30 23 * * *" }
