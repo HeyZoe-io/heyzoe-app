@@ -36,6 +36,8 @@ import {
   isWarmupExperienceQuestion1Configured,
   SCHEDULE_BOARD_CAPTION,
   type SalesFlowExtraStep,
+  computeTrialPriceLabel,
+  buildWarmupQuizContent,
 } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -129,6 +131,8 @@ type Step4SalesFlowProps = {
     schedulePhrase: string
   ) => string;
   uid: () => string;
+  businessName: string;
+  addressText: string;
 };
 
 function resolveOfferTab(
@@ -505,8 +509,33 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     courseCtaBodyForDisplayUi,
     courseCtaBodyToStore,
     uid,
+    businessName,
+    addressText,
   } = props;
   const t = dashboardSettingsT(lang);
+
+  const warmupStyle = salesFlowConfig.warmup_style === "quiz" ? "quiz" : "short";
+  const applyWarmupStyleShort = () => {
+    regenerateSalesFlowSection("opening");
+    regenerateSalesFlowSection("warmup", "trial");
+    setSalesFlowConfig((c) => ({ ...c, warmup_style: "short" }));
+  };
+  const applyWarmupStyleQuiz = () => {
+    const trialPriceLabel = computeTrialPriceLabel(services);
+    const generated = buildWarmupQuizContent({
+      businessName,
+      trialPriceLabel,
+      addressText,
+      newStepId: uid,
+    });
+    setSalesFlowConfig((c) => ({
+      ...c,
+      warmup_style: "quiz",
+      greeting_body_override: generated.greetingBodyOverride,
+      greeting_extra_steps: [],
+      opening_extra_steps: generated.openingExtraSteps,
+    }));
+  };
 
   const isSalesGenerating = typeof regeneratingKey === "string" && regeneratingKey.startsWith("sales:");
   const isGen = (section: string, offerTab?: CtaOfferTab) => {
@@ -765,6 +794,33 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         navAriaLabel={t.salesFlow.navAria}
         lang={lang}
       >
+        <div className="mb-4 rounded-2xl border border-zinc-200 bg-white p-4">
+          <p className="mb-2 text-sm font-semibold text-zinc-800">בחירת פלואו לסשן הפתיחה והחימום</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={applyWarmupStyleShort}
+              className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                warmupStyle === "short"
+                  ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              קצר ולעניין
+            </button>
+            <button
+              type="button"
+              onClick={applyWarmupStyleQuiz}
+              className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                warmupStyle === "quiz"
+                  ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              שאלון חימום
+            </button>
+          </div>
+        </div>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="media"

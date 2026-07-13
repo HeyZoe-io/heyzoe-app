@@ -141,6 +141,8 @@ export type SalesFlowConfig = {
   greeting_body_override?: string;
   /** @deprecated נגזר מ־memberships_cta_delivery בכפתור המנויים; נשמר לתאימות לקוחות ישנים */
   show_memberships_button?: boolean;
+  /** בחירת פלואו לסשן פתיחה/חימום בטאב «מכירה» — "quiz" מזריק תוכן קבוע (שם עסק/מחיר/כתובת מוקפאים בזמן היצירה) */
+  warmup_style?: "short" | "quiz";
 };
 
 export function emptyWarmupButtonPairs(count = WARMUP_MIN_BUTTONS): { options: string[]; replies: string[] } {
@@ -1613,6 +1615,7 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     greeting_body_override: migrateLegacyGreetingBodyOverride(o.greeting_body_override),
     /** ברירת מחדל true — לתאימות בלבד; בשימוש אפשרי עם applyLegacyMembershipsCheckbox */
     show_memberships_button: o.show_memberships_button === false ? false : true,
+    warmup_style: o.warmup_style === "quiz" ? "quiz" : "short",
   };
 
   // Migration: older defaults asked about "experience before"; replace with the new goals question,
@@ -1783,6 +1786,88 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     after_course_registration_body: c.after_course_registration_body,
     after_course_registration_body_after_schedule: c.after_course_registration_body_after_schedule,
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
+    warmup_style: c.warmup_style === "quiz" ? "quiz" : undefined,
+  };
+}
+
+/** מחיר שיעור ניסיון להזרקה קבועה בתוכן «שאלון חימום»: מספר יחיד אם כל שירותי הניסיון
+ * באותו מחיר, טווח אם לא. מוקפא בזמן היצירה — לא placeholder חי. */
+export function computeTrialPriceLabel(
+  services: { name: string; offer_kind?: OfferKind; price_text?: string }[]
+): string {
+  const prices = services
+    .filter((s) => s.name.trim() && s.offer_kind === "trial")
+    .map((s) => String(s.price_text ?? "").trim())
+    .filter(Boolean);
+  if (prices.length === 0) return "";
+
+  const unique = Array.from(new Set(prices));
+  if (unique.length === 1) {
+    const only = unique[0]!;
+    return /₪/.test(only) ? only : `${only}₪`;
+  }
+
+  const nums = prices
+    .map((p) => Number(p.replace(/[^\d.]/g, "")))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (nums.length === prices.length) {
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    return min === max ? `${min}₪` : `${min}-${max}₪`;
+  }
+  return unique.join("/");
+}
+
+/** תוכן קבוע לפלואו «שאלון חימום» — שם עסק/מחיר/כתובת מוקפאים בזמן היצירה (לא placeholders חיים),
+ * כי greeting_body_override נשלח כלשונו (composeGreeting לא מבצע substitution עליו). */
+export function buildWarmupQuizContent(input: {
+  businessName: string;
+  trialPriceLabel: string;
+  addressText: string;
+  newStepId: () => string;
+}): { greetingBodyOverride: string; openingExtraSteps: SalesFlowExtraStep[] } {
+  const biz = input.businessName.trim() || "העסק";
+  const price = input.trialPriceLabel.trim();
+  const addr = input.addressText.trim();
+  const priceLine = price
+    ? `עלות שיעור ניסיון מוזלת דרך השיחה איתי כאן: ${price}.`
+    : "עלות שיעור ניסיון מוזלת דרך השיחה איתי כאן.";
+  const trialCta = addr ? `${priceLine} כתובתנו: ${addr}.` : priceLine;
+
+  return {
+    greetingBodyOverride: `ברוכים הבאים ל${biz}\nהנה 3 שאלות קצרות כדי להתאים את התרגול המדויק עבורך🤸🏻‍♂️\nאפשר לשאול אותי גם שאלה פתוחה ואני אענה.`,
+    openingExtraSteps: [
+      {
+        id: input.newStepId(),
+        question: "שאלה 1/3 - מה הכי היית רוצה לקבל מהתרגול?",
+        options: ["גוף גמיש וחזק יותר", "חיטוב/שיפור גזרה", "פאן ושחרור מתחים"],
+        replies: [
+          "הידעת? הסוד לגוף חזק שנע בקלות הוא שילוב של גמישות וכוח יחד, מה שמגן על הגוף לאורך זמן!",
+          "מעולה, לא צריך לסבול בשביל להגיע לגזרה הרצויה. האימונים שלנו יעזרו לך להגיע למטרה בדרך מהנה שקל להתמיד בה.",
+          "איזה כיף לשמוע! האימונים שלנו ידועים בהרמת האנרגיה, שחרור מתחים ושיפור מצב הרוח לטווח הקצר והארוך!",
+        ],
+      },
+      {
+        id: input.newStepId(),
+        question: "שאלה 2/3 - מה הכי יעזור לך להתמיד?",
+        options: ["קבוצה מגובשת", "לתרגל בקצב מתאים", "תחושת התקדמות"],
+        replies: [
+          "מחקרים מצאו: שייכות לקבוצה מאפשרת התמדה בתרגול לאורך זמן. יש לנו קהילה חזקה ומגובשת שאתם הולכים להיות חלק ממנה, מה שמשמח, איזה כיף!",
+          "בטח, אתגרים שאפשר לגדול מהם הם כאלה שמותחים את היכולות שלנו במידה הנכונה. דאגנו להתאים את התרגול כך שתוכלו להתאמן ברמה המתאימה לכם.",
+          "בטח, כשרואים התקדמות גופנית ומנטלית, תחושת המסוגלות שלנו עולה משמעותית! אנחנו נדאג לזה.",
+        ],
+      },
+      {
+        id: input.newStepId(),
+        question: "שאלה 3/3 - יצא לך לתרגל משהו דומה בעבר?",
+        options: ["פעם ראשונה/מעט", "כן בעבר ורוצה לחזור", "מתרגל/ת באופן קבוע"],
+        replies: [
+          `נהדר, מתרגשים לעשות איתך את הצעדים הראשונים! ${trialCta}`,
+          `מהמם, נשמח להעמיק איתך יותר ולקחת אותך לרמה הבאה! ${trialCta}`,
+          `נהדר! נשמח להעמיק איתך יותר ולקחת אותך לרמה הבאה! ${trialCta}`,
+        ],
+      },
+    ],
   };
 }
 

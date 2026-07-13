@@ -2892,6 +2892,8 @@ export default function SlugSettingsPage({
             courseCtaBodyForDisplayUi={courseCtaBodyForDisplayUi}
             courseCtaBodyToStore={courseCtaBodyToStore}
             uid={uid}
+            businessName={name}
+            addressText={address}
           />
         )}
 
