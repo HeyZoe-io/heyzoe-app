@@ -153,11 +153,17 @@ function parseServiceMeta(rawDescription: string): Record<string, unknown> {
   }
 }
 
+/** Single source of truth for the in-memory knowledge-pack cache key — must match
+ * between getBusinessKnowledgePack's get/set and invalidateBusinessKnowledgePackCache,
+ * or invalidation silently misses the entry. Cache key only — never the DB query input. */
+const normalizePackKey = (slug: string): string => String(slug ?? "").trim().toLowerCase();
+
 export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKnowledgePack | null> {
   const cache = ((globalThis as unknown as { __hzBizPackCache?: Map<string, { at: number; v: BusinessKnowledgePack | null }> }).__hzBizPackCache ??=
     new Map<string, { at: number; v: BusinessKnowledgePack | null }>());
+  const key = normalizePackKey(slug);
   const now = Date.now();
-  const hit = cache.get(slug);
+  const hit = cache.get(key);
   // Short TTL to keep chats snappy while reflecting dashboard edits quickly.
   if (hit && now - hit.at < 8_000) {
     return hit.v;
@@ -404,17 +410,17 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       promotionsText,
       traits: traitsList,
     };
-    cache.set(slug, { at: now, v: packed });
+    cache.set(key, { at: now, v: packed });
     return packed;
   } catch (e) {
     console.warn("[business-context] getBusinessKnowledgePack failed:", e);
-    cache.set(slug, { at: now, v: null });
+    cache.set(key, { at: now, v: null });
     return null;
   }
 }
 
 export function invalidateBusinessKnowledgePackCache(slug: string): void {
-  const key = String(slug ?? "").trim().toLowerCase();
+  const key = normalizePackKey(slug);
   if (!key) return;
   const cache = (globalThis as unknown as {
     __hzBizPackCache?: Map<string, { at: number; v: BusinessKnowledgePack | null }>;
