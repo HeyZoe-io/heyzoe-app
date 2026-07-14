@@ -41,7 +41,7 @@ export async function tryRecordWaMarketingPurchase(input: {
     const admin = createSupabaseAdminClient();
     const { data: waLead } = await admin
       .from("marketing_flow_sessions")
-      .select("id, created_at")
+      .select("id, created_at, ctwa_clid")
       .eq("phone", normalized)
       .maybeSingle();
 
@@ -74,14 +74,30 @@ export async function tryRecordWaMarketingPurchase(input: {
 
     if (error) {
       console.error("[wa-marketing-purchase] analytics insert failed:", error.message);
-      return;
+    } else {
+      console.info("[wa-marketing-purchase] recorded:", {
+        phone: normalized,
+        marketing_session_id: waLead.id,
+        business_id: businessId,
+      });
     }
 
-    console.info("[wa-marketing-purchase] recorded:", {
-      phone: normalized,
-      marketing_session_id: waLead.id,
-      business_id: businessId,
-    });
+    try {
+      const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
+      const capiResult = await sendMetaCapiEvent({
+        eventName: "Purchase",
+        phone: normalized,
+        ctwaClid: (waLead as { ctwa_clid?: string | null }).ctwa_clid,
+        externalId: waLead.id,
+        value: planPrice,
+        currency: "ILS",
+      });
+      if (!capiResult.ok) {
+        console.warn("[wa-marketing-purchase] Purchase CAPI event failed:", capiResult.error);
+      }
+    } catch (e) {
+      console.error("[wa-marketing-purchase] Purchase CAPI event threw:", e);
+    }
   } catch (e) {
     console.error("[wa-marketing-purchase] failed:", e);
   }

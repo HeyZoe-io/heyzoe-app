@@ -3950,6 +3950,36 @@ export async function GET(req: NextRequest) {
   return new Response("Unauthorized", { status: 401 });
 }
 
+/**
+ * CTWA (Click-to-WhatsApp) referral.ctwa_clid from the raw Meta webhook payload.
+ * Deliberately separate from parseMetaWebhook/parseOneMetaMessage — only used by the
+ * Marketing line intercept (HeyZoe's own line), not the general per-business parser.
+ */
+function extractMetaCtwaClid(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  for (const entry of entries) {
+    const changes = Array.isArray((entry as Record<string, unknown>)?.changes)
+      ? ((entry as Record<string, unknown>).changes as unknown[])
+      : [];
+    for (const change of changes) {
+      const value = (change as Record<string, unknown>)?.value;
+      const msgs = Array.isArray((value as Record<string, unknown>)?.messages)
+        ? ((value as Record<string, unknown>).messages as unknown[])
+        : [];
+      for (const rawMsg of msgs) {
+        const referral = (rawMsg as Record<string, unknown>)?.referral as
+          | Record<string, unknown>
+          | undefined;
+        const clid = String(referral?.ctwa_clid ?? "").trim();
+        if (clid) return clid;
+      }
+    }
+  }
+  return null;
+}
+
 // ─── POST — incoming messages from Twilio or Meta ─────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -4076,6 +4106,7 @@ export async function POST(req: NextRequest) {
   // response is sent so Meta/Twilio get 200 immediately and don't retry into a duplicate flood.
   if (msg) {
     const message = msg;
+    const ctwaClid = metaPayload ? extractMetaCtwaClid(metaPayload) : null;
     if (processedMessageIds.has(message.messageId)) {
       console.info(`[WA Webhook] Skipping duplicate ${message.messageId}`);
       return new Response("", { status: 200 });
@@ -4088,7 +4119,7 @@ export async function POST(req: NextRequest) {
     const claimed = await claimMessageForProcessing(message.messageId);
     if (claimed) {
       after(() =>
-        processIncoming(message, accountSid, authToken).catch((e) =>
+        processIncoming(message, accountSid, authToken, ctwaClid).catch((e) =>
           console.error("[WA Webhook] processIncoming error:", e)
         )
       );
@@ -4104,7 +4135,8 @@ export async function POST(req: NextRequest) {
 async function processIncoming(
   msg: WaIncomingMessage,
   accountSid: string,
-  authToken: string
+  authToken: string,
+  ctwaClid: string | null
 ): Promise<void> {
   // Dedup + claim now happen in POST before this is scheduled via after() — see fast-ACK comment there.
 
@@ -4142,7 +4174,7 @@ async function processIncoming(
 
       const { handleMarketingFlowInbound, answerOpenQuestionDuringMarketingFlow, deliverMarketingPostFlowAiResponse } =
         await import("@/lib/marketing-flow-runtime");
-      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text, { profileName });
+      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text, { profileName, ctwaClid });
       await applyMarketingInboundFollowupSideEffects(msg.from, msg.text);
       if (profileName) await touchMarketingLeadDisplayName(msg.from, profileName);
       if (!flowResult.handled) {

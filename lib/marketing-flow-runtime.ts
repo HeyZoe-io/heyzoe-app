@@ -670,7 +670,7 @@ async function sendNodeChain(
 export async function handleMarketingFlowInbound(
   phoneRaw: string,
   userText: string,
-  opts?: { profileName?: string }
+  opts?: { profileName?: string; ctwaClid?: string | null }
 ): Promise<MarketingFlowInboundResult> {
   const { isHeyzoeOwnerOptInMessage, tryHandleHeyzoeOwnerOptIn } = await import(
     "@/lib/notifications/owner-opt-in"
@@ -705,6 +705,16 @@ export async function handleMarketingFlowInbound(
   const session = await loadMarketingFlowSession(admin, phone);
 
   if (startFlowMessage) {
+    const { data: existingCtwaRow } = await admin
+      .from("marketing_flow_sessions")
+      .select("ctwa_clid")
+      .eq("phone", phone)
+      .maybeSingle();
+    const resolvedCtwaClid =
+      String((existingCtwaRow as { ctwa_clid?: string | null } | null)?.ctwa_clid ?? "").trim() ||
+      String(opts?.ctwaClid ?? "").trim() ||
+      null;
+
     await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
     console.info("[marketing-flow] flow start/restart for:", phone, { hadSession: Boolean(session) });
 
@@ -725,11 +735,19 @@ export async function handleMarketingFlowInbound(
       updated_at: nowIso,
     };
     if (profileName) sessionUpsert.full_name = profileName;
+    if (resolvedCtwaClid) sessionUpsert.ctwa_clid = resolvedCtwaClid;
     await admin.from("marketing_flow_sessions").upsert(sessionUpsert, { onConflict: "phone" });
 
     if (!session) {
       const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");
       void trackWaNewLead(phone);
+
+      const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
+      sendMetaCapiEvent({
+        eventName: "LeadSubmitted",
+        phone,
+        ctwaClid: resolvedCtwaClid,
+      }).catch((e) => console.error("[marketing-flow] LeadSubmitted CAPI event failed:", e));
     }
 
     return { handled: true };
