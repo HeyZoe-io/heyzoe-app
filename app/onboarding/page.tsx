@@ -167,6 +167,23 @@ function OnboardingContent() {
       } catch {
         // ignore
       }
+      // Capture Meta fbp/fbc for campaigns that link directly to /onboarding (skipping the LP).
+      try {
+        const getCookie = (name: string): string | null => {
+          const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+          return m ? decodeURIComponent(m[1]) : null;
+        };
+        const fbp = getCookie("_fbp");
+        if (fbp) sessionStorage.setItem("hz_fbp", fbp);
+        let fbc = getCookie("_fbc");
+        if (!fbc) {
+          const fbclid = (new URLSearchParams(window.location.search).get("fbclid") ?? "").trim();
+          if (fbclid) fbc = `fb.1.${Date.now()}.${fbclid}`;
+        }
+        if (fbc) sessionStorage.setItem("hz_fbc", fbc);
+      } catch {
+        // ignore
+      }
     } catch {
       // ignore
     }
@@ -487,6 +504,21 @@ function OnboardingContent() {
           return null;
         }
       };
+      const readFb = (key: "fbp" | "fbc"): string | null => {
+        try {
+          const stored = sessionStorage.getItem(`hz_${key}`)?.trim();
+          if (stored) return stored;
+        } catch {
+          // ignore
+        }
+        try {
+          const name = key === "fbp" ? "_fbp" : "_fbc";
+          const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+          return m ? decodeURIComponent(m[1]) : null;
+        } catch {
+          return null;
+        }
+      };
       const saveRes = await fetch("/api/onboarding/save-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -504,6 +536,8 @@ function OnboardingContent() {
           utm_source: readUtm("utm_source"),
           utm_campaign: readUtm("utm_campaign"),
           utm_content: readUtm("utm_content"),
+          fbp: readFb("fbp"),
+          fbc: readFb("fbc"),
         }),
       });
       if (!saveRes.ok) {

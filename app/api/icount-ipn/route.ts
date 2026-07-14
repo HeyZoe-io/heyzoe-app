@@ -311,12 +311,14 @@ async function notifyAdminMarketingLeadOnPaid(input: {
 }
 
 /**
- * מקור-אמת יחיד ל-purchase: אם אין התאמת ליד שיווקי (marketing_flow_sessions) לטלפון —
- * רושם שורת analytics_events אחת (tryRecordWaMarketingPurchase כבר מטפל בהתאמה → wa_marketing).
+ * (1) שולחת אירוע Purchase ל-Meta CAPI עם action_source:"website" תמיד (fbp/fbc מ-payment_sessions),
+ *     בלי קשר להתאמה שיווקית — כל תשלום עובר דרך עמוד ה-onboarding באתר.
+ * (2) מקור-אמת יחיד לשורת analytics_events: אם אין התאמת ליד שיווקי (marketing_flow_sessions) לטלפון —
+ * רושמת שורה אחת (tryRecordWaMarketingPurchase כבר מטפל בהתאמה → wa_marketing).
  * ה-source ב-no-match נקבע לפי נוכחות UTM ב-payment_sessions:
  *   יש UTM → "landing_page", אין UTM → "unknown" (אף אחד מהם אינו נספר כ-WhatsApp-attributed).
  * כך כל תשלום מקבל שורה אחת בדיוק: wa_marketing (התאמה) או landing_page/unknown (אין התאמה).
- * עצמאי לחלוטין: לעולם לא זורק החוצה. ה-IPN ממשיך כרגיל ומחזיר 200.
+ * עצמאי לחלוטין: לעולם לא זורקת החוצה. ה-IPN ממשיך כרגיל ומחזיר 200.
  */
 async function recordLpPurchaseIfNoMarketingMatch(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -331,6 +333,48 @@ async function recordLpPurchaseIfNoMarketingMatch(input: {
     if (!Number.isFinite(businessId) || businessId <= 0) return;
     if (!Number.isFinite(planPrice) || planPrice <= 0) return;
 
+    // העשרת UTM/fbp/fbc (best-effort; אם העמודות עוד לא עברו migration — נופל חזרה בלי, לא נשבר).
+    let sessionRow: Record<string, unknown> | null = null;
+    {
+      const { data, error } = await input.admin
+        .from("payment_sessions")
+        .select("utm_source,utm_campaign,utm_content,fbp,fbc")
+        .eq("email", input.email)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error && /fbp|fbc|column/i.test(String(error.message ?? ""))) {
+        const fallback = await input.admin
+          .from("payment_sessions")
+          .select("utm_source,utm_campaign,utm_content")
+          .eq("email", input.email)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        sessionRow = (fallback.data as Record<string, unknown>) ?? null;
+      } else {
+        sessionRow = (data as Record<string, unknown>) ?? null;
+      }
+    }
+    const sessionCols = sessionRow ?? {};
+
+    // Website-sourced Purchase CAPI event (best-effort). Every purchase reaches payment through the
+    // onboarding website regardless of WhatsApp-marketing attribution below, so this fires unconditionally.
+    try {
+      const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
+      void sendMetaCapiEvent({
+        eventName: "Purchase",
+        actionSource: "website",
+        email: input.email,
+        fbp: (sessionCols.fbp as string | null) ?? null,
+        fbc: (sessionCols.fbc as string | null) ?? null,
+        value: planPrice,
+        currency: "ILS",
+      });
+    } catch (e) {
+      console.error("[api/icount-ipn] website purchase CAPI failed:", e);
+    }
+
     // התאמת טלפון → ה-purchase שייך ל-wa_marketing (tryRecordWaMarketingPurchase כותב אותו), דלג.
     const normalized = normalizePhone(input.customerPhone);
     if (normalized) {
@@ -342,26 +386,11 @@ async function recordLpPurchaseIfNoMarketingMatch(input: {
       if (waLead?.id) return;
     }
 
-    // העשרת UTM (best-effort; אם העמודות עוד לא עברו migration — נכתוב בלי, לא נשבר).
-    let utm: { utm_source: string | null; utm_campaign: string | null; utm_content: string | null } = {
-      utm_source: null,
-      utm_campaign: null,
-      utm_content: null,
+    const utm = {
+      utm_source: (sessionCols.utm_source as string | null) ?? null,
+      utm_campaign: (sessionCols.utm_campaign as string | null) ?? null,
+      utm_content: (sessionCols.utm_content as string | null) ?? null,
     };
-    const { data: utmRow } = await input.admin
-      .from("payment_sessions")
-      .select("utm_source,utm_campaign,utm_content")
-      .eq("email", input.email)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (utmRow) {
-      utm = {
-        utm_source: (utmRow as Record<string, unknown>).utm_source as string | null ?? null,
-        utm_campaign: (utmRow as Record<string, unknown>).utm_campaign as string | null ?? null,
-        utm_content: (utmRow as Record<string, unknown>).utm_content as string | null ?? null,
-      };
-    }
 
     const hasUtm = Boolean(utm.utm_source || utm.utm_campaign || utm.utm_content);
     const source = hasUtm ? "landing_page" : "unknown";

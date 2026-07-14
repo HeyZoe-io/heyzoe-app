@@ -20,6 +20,8 @@ export async function POST(req: NextRequest) {
       utm_source,
       utm_campaign,
       utm_content,
+      fbp,
+      fbc,
     } = (await req.json()) as {
       email?: string;
       plan?: "starter" | "pro";
@@ -34,6 +36,8 @@ export async function POST(req: NextRequest) {
       utm_source?: string | null;
       utm_campaign?: string | null;
       utm_content?: string | null;
+      fbp?: string | null;
+      fbc?: string | null;
     };
 
     const cleanEmail = String(email ?? "").trim().toLowerCase();
@@ -73,18 +77,37 @@ export async function POST(req: NextRequest) {
       utm_source: cleanUtm(utm_source),
       utm_campaign: cleanUtm(utm_campaign),
       utm_content: cleanUtm(utm_content),
+      fbp: cleanUtm(fbp),
+      fbc: cleanUtm(fbc),
     };
 
     let { error } = await admin.from("payment_sessions").insert(payloadWithUtm as any);
-    // Resilient: if the UTM columns are not migrated yet, fall back to the base insert
+    // Resilient: if the UTM/fbp/fbc columns are not migrated yet, fall back to the base insert
     // so signups are never blocked by a pending migration.
-    if (error && /utm_(source|campaign|content)|column/i.test(String(error.message ?? ""))) {
+    if (error && /utm_(source|campaign|content)|fbp|fbc|column/i.test(String(error.message ?? ""))) {
       ({ error } = await admin.from("payment_sessions").insert(basePayload as any));
     }
 
     if (error) {
       console.error("[api/onboarding/save-session] insert failed:", error.message);
       return NextResponse.json({ error: "insert_failed" }, { status: 500 });
+    }
+
+    // Best-effort, non-blocking: InitiateCheckout CAPI now that the checkout step is reached.
+    try {
+      const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
+      void sendMetaCapiEvent({
+        eventName: "InitiateCheckout",
+        actionSource: "website",
+        email: cleanEmail,
+        phone: String(phone ?? "").trim(),
+        fbp: cleanUtm(fbp),
+        fbc: cleanUtm(fbc),
+        value: resolvedPlan === "pro" ? 499 : 349,
+        currency: "ILS",
+      });
+    } catch (e) {
+      console.error("[api/onboarding/save-session] InitiateCheckout CAPI failed:", e);
     }
 
     return NextResponse.json({ ok: true, plan: resolvedPlan });

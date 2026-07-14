@@ -11,6 +11,22 @@
   !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
   posthog.init('phc_AAb58yWkknUTrY6v4od4CnvYgrs5rb3g58hMxk2TKfbm', {api_host: 'https://us.i.posthog.com'})
 </script>
+<!-- Meta Pixel -->
+<script>
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '1533038311894259');
+fbq('track', 'PageView');
+</script>
+<noscript><img height="1" width="1" style="display:none"
+src="https://www.facebook.com/tr?id=1533038311894259&ev=PageView&noscript=1"
+/></noscript>
 <style>
 :root{
   --purple:#7133da;
@@ -2863,6 +2879,30 @@ try{
   });
 }catch(e){}
 
+// Capture Meta fbp/fbc (Pixel click identifiers) for server-side Conversions API attribution.
+// Persisted the same way as UTM: sessionStorage now, read + sent to payment_sessions on save-session.
+try{
+  function hzGetCookie(name){
+    var m = document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+  function hzCaptureFbpFbc(){
+    try{
+      var fbp = hzGetCookie('_fbp');
+      if(fbp) sessionStorage.setItem('hz_fbp', fbp);
+      var fbc = hzGetCookie('_fbc');
+      if(!fbc){
+        var fbclid = (hzUtmUrl.searchParams.get('fbclid')||'').trim();
+        if(fbclid) fbc = 'fb.1.'+Date.now()+'.'+fbclid;
+      }
+      if(fbc) sessionStorage.setItem('hz_fbc', fbc);
+    }catch(e){}
+  }
+  hzCaptureFbpFbc();
+  // _fbp is set async by fbevents.js; retry shortly after it has had time to load.
+  setTimeout(hzCaptureFbpFbc, 1500);
+}catch(e){}
+
 // pageview on load
 try{ hzTrack('pageview', null, null); }catch(e){}
 
@@ -2871,12 +2911,22 @@ try{
   var fireOnceKey = 'hz_lp_fired_v1';
   var fired = {};
   try{ fired = JSON.parse(sessionStorage.getItem(fireOnceKey)||'{}') || {}; }catch(e){ fired = {}; }
+  // Meta Pixel custom events piggyback on the same once-per-session dedup as the internal hzTrack calls.
+  var HZ_FBQ_EVENT_MAP = {
+    lp_10s: '10s_visit',
+    lp_30s: '30s_visit',
+    lp_scroll_20: 'scroll_20',
+    lp_scroll_50: 'scroll_50',
+    lp_scroll_75: 'scroll_75'
+  };
   function hzFireOnce(name){
     try{
       if(fired && fired[name]) return;
       fired[name] = 1;
       try{ sessionStorage.setItem(fireOnceKey, JSON.stringify(fired)); }catch(e){}
       hzTrack(name, null, null);
+      var fbEvent = HZ_FBQ_EVENT_MAP[name];
+      if(fbEvent && typeof fbq === 'function'){ try{ fbq('trackCustom', fbEvent); }catch(e){} }
     }catch(e){}
   }
 
@@ -2954,10 +3004,11 @@ try{
     raf = requestAnimationFrame(function(){
       raf = 0;
       var pct = docScrollPct();
-      // Fire in ascending order so reaching 75% also records 50%.
+      // Fire in ascending order so reaching 75% also records the lower thresholds.
+      if(pct >= 0.20) hzFireOnce('lp_scroll_20');
       if(pct >= 0.50) hzFireOnce('lp_scroll_50');
       if(pct >= 0.75) hzFireOnce('lp_scroll_75');
-      if(fired.lp_scroll_50 && fired.lp_scroll_75) {
+      if(fired.lp_scroll_20 && fired.lp_scroll_50 && fired.lp_scroll_75) {
         window.removeEventListener('scroll', onScroll, { passive:true });
       }
     });
@@ -3010,6 +3061,24 @@ try{
     var plan = /plan=pro/.test(String(btn.getAttribute('onclick')||'')) ? 'pro' : /plan=starter/.test(String(btn.getAttribute('onclick')||'')) ? 'starter' : '';
     addCta(btn, plan ? ('מחירים: '+plan) : 'מחירים');
   });
+}catch(e){}
+
+// Meta Pixel: custom cta_click event for any button/link whose visible text matches a campaign CTA.
+// Single delegated handler (text-contains match) so it also covers CTAs not wired into addCta() above.
+try{
+  var HZ_FB_CTA_STRINGS = ['גלו עכשיו','בואו נתחיל','קבלו את זואי','הצטרפו לזואי'];
+  document.addEventListener('click', function(e){
+    try{
+      var el = e.target && e.target.closest ? e.target.closest('button, a') : null;
+      if(!el) return;
+      var text = (el.textContent || '').trim();
+      var matched = null;
+      for(var i=0;i<HZ_FB_CTA_STRINGS.length;i++){
+        if(text.indexOf(HZ_FB_CTA_STRINGS[i]) !== -1){ matched = HZ_FB_CTA_STRINGS[i]; break; }
+      }
+      if(matched && typeof fbq === 'function') fbq('trackCustom', 'cta_click', { label: matched });
+    }catch(e){}
+  }, {capture:true});
 }catch(e){}
 
 // Pricing section view (#pricing)
