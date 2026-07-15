@@ -343,6 +343,8 @@ export default function ConversationsClient({
       return (j.sessions ?? []) as SessionSummary[];
     },
     initialData: initialSessions,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
   });
 
   useEffect(() => {
