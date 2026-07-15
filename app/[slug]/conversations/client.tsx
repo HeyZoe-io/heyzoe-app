@@ -31,8 +31,7 @@ const i18n = {
     botPaused: "בוט מושהה",
     emptyFilter: "אין שיחות שתואמות למסנן זה.",
     emptyAdmin: "אין שיחות מתועדות במערכת.",
-    emptyMarketing:
-      "לא נמצאו שיחות בקו השיווקי. נסו «כל השיחות» מהתפריט — ייתכן שההודעות נשמרו תחת עסק אחר.",
+    emptyMarketing: "אין עדיין שיחות בקו זואי שיווק.",
     emptyBusiness: "טרם התקבלו שיחות לעסק זה.",
     processing: "מעבד...",
     resumeBot: "הפעל בוט",
@@ -68,8 +67,7 @@ const i18n = {
     botPaused: "Bot Paused",
     emptyFilter: "No conversations match this filter.",
     emptyAdmin: "No conversations recorded in the system.",
-    emptyMarketing:
-      "No conversations found on the marketing line. Try «All Conversations» from the menu — messages may be stored under another business.",
+    emptyMarketing: "No conversations yet on the Zoe Marketing line.",
     emptyBusiness: "No conversations received for this business yet.",
     processing: "Processing...",
     resumeBot: "Resume Bot",
@@ -348,7 +346,15 @@ export default function ConversationsClient({
   });
 
   useEffect(() => {
-    if (sessionsQuery.data) setSessions(sortSessionsByRecentActivity(sessionsQuery.data));
+    if (!sessionsQuery.data) return;
+    // A background refetch (poll / window-focus) that comes back empty must not wipe an
+    // already-populated list — treat that as a transient hiccup and keep showing what we had.
+    // A real empty state still renders correctly on first load / when the slug itself changes.
+    setSessions((prev) =>
+      sessionsQuery.data.length > 0 || prev.length === 0
+        ? sortSessionsByRecentActivity(sessionsQuery.data)
+        : prev
+    );
   }, [sessionsQuery.data]);
 
   const messagesQuery = useQuery({
