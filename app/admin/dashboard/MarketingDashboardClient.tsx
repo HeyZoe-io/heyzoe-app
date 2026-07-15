@@ -137,7 +137,7 @@ export default function MarketingDashboardClient({
         {sub === "flow" ? (
           <MarketingFlowBuilder onDirtyChange={setFlowDirty} />
         ) : sub === "conversations" ? (
-          <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} />
+          <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} marketingOnly />
         ) : sub === "questions" ? (
           <ZoeLeadQuestionsTab />
         ) : sub === "answers" ? (

@@ -7,7 +7,7 @@ import Link from "next/link";
 import { AdminNav } from "@/app/admin/AdminNav";
 import MarketingDashboardClient from "./MarketingDashboardClient";
 import type { ZoeBusinessOption } from "@/app/admin/zoe/ZoeConversationsTab";
-import { loadAllZoeAdminConversationSessions, type ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
+import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,26 +51,8 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   const admin = createSupabaseAdminClient();
 
   if (marketingTab) {
-    const { data: bizRows } = await admin
-      .from("businesses")
-      .select("slug, name")
-      .order("name", { ascending: true })
-      .limit(2000);
-
-    const marketingBusinesses: ZoeBusinessOption[] = (bizRows ?? [])
-      .map((b) => ({
-        slug: String((b as { slug?: string }).slug ?? "").trim().toLowerCase(),
-        name: ((b as { name?: string | null }).name ?? null) as string | null,
-      }))
-      .filter((b) => b.slug);
-
-    let marketingInitialAllSessions: ZoeAdminSessionSummary[] = [];
-    try {
-      marketingInitialAllSessions = await loadAllZoeAdminConversationSessions(admin, marketingBusinesses);
-    } catch (e) {
-      console.error("[admin/dashboard] preload marketing conversations failed:", e);
-    }
-
+    // Marketing sub-dashboard shows only the זואי שיווק line (ZoeConversationsTab marketingOnly),
+    // so there's no need to preload the (slow, truncation-prone) all-businesses conversation list here.
     return (
       <DashboardV2
         marketingTab
@@ -84,8 +66,8 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
         waNumbers={[]}
         businessOverview={[]}
         health={[]}
-        marketingBusinesses={marketingBusinesses}
-        marketingInitialAllSessions={marketingInitialAllSessions}
+        marketingBusinesses={[]}
+        marketingInitialAllSessions={[]}
       />
     );
   }

@@ -33,11 +33,15 @@ const ALL_OPTION: ZoeBusinessOption = {
 export default function ZoeConversationsTab({
   businesses,
   initialAllSessions = [],
+  marketingOnly = false,
 }: {
   businesses: ZoeBusinessOption[];
   initialAllSessions?: ZoeAdminSessionSummary[];
+  /** מסך שיווק בלבד: בלי אופציית "כל השיחות" ובלי עסקים אחרים, רק קו זואי שיווק/אדמין. */
+  marketingOnly?: boolean;
 }) {
   const sorted = useMemo(() => {
+    if (marketingOnly) return [MARKETING_OPTION];
     const biz = [...businesses].sort((a, b) => (a.name || a.slug).localeCompare(b.name || b.slug, "he"));
     return [
       ALL_OPTION,
@@ -46,26 +50,31 @@ export default function ZoeConversationsTab({
         (b) => b.slug !== MARKETING_CONVERSATIONS_SLUG && b.slug !== ZOE_ADMIN_ALL_CONVERSATIONS_SLUG
       ),
     ];
-  }, [businesses]);
+  }, [businesses, marketingOnly]);
 
   const searchParams = useSearchParams();
   const initialConvSlug = (searchParams.get("conv_slug") ?? "").trim();
-  const [slug, setSlug] = useState(() =>
-    initialConvSlug && [ZOE_ADMIN_ALL_CONVERSATIONS_SLUG, MARKETING_CONVERSATIONS_SLUG].includes(initialConvSlug)
+  const [slug, setSlug] = useState(() => {
+    if (marketingOnly) return MARKETING_CONVERSATIONS_SLUG;
+    return initialConvSlug &&
+      [ZOE_ADMIN_ALL_CONVERSATIONS_SLUG, MARKETING_CONVERSATIONS_SLUG].includes(initialConvSlug)
       ? initialConvSlug
-      : ZOE_ADMIN_ALL_CONVERSATIONS_SLUG
+      : ZOE_ADMIN_ALL_CONVERSATIONS_SLUG;
+  });
+  const [initialSessions, setInitialSessions] = useState<ZoeAdminSessionSummary[]>(
+    marketingOnly ? [] : initialAllSessions
   );
-  const [initialSessions, setInitialSessions] = useState<ZoeAdminSessionSummary[]>(initialAllSessions);
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState("");
 
   useEffect(() => {
+    if (marketingOnly) return;
     const next = (searchParams.get("conv_slug") ?? "").trim();
     if (!next) return;
     if (next === ZOE_ADMIN_ALL_CONVERSATIONS_SLUG || next === MARKETING_CONVERSATIONS_SLUG) {
       setSlug(next);
     }
-  }, [searchParams]);
+  }, [searchParams, marketingOnly]);
 
   useEffect(() => {
     if (!slug) {
@@ -112,43 +121,54 @@ export default function ZoeConversationsTab({
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       <p style={{ margin: 0, fontSize: 14, color: MUTED, lineHeight: 1.55, textAlign: "right" }}>
-        מעקב אחרי שיחות וואטסאפ — ברירת מחדל <strong style={{ color: "#1a0a3c" }}>כל השיחות</strong> (קו
-        שיווקי {MARKETING_PHONE_DISPLAY} + כל העסקים). אפשר לסנן לפי מקור. עצירת בוט ומענה ידנית כמו בדשבורד
-        בעל העסק.
+        {marketingOnly ? (
+          <>
+            מעקב אחרי שיחות קו <strong style={{ color: "#1a0a3c" }}>זואי שיווק</strong> ({MARKETING_PHONE_DISPLAY})
+            בלבד. עצירת בוט ומענה ידנית כמו בדשבורד בעל העסק.
+          </>
+        ) : (
+          <>
+            מעקב אחרי שיחות וואטסאפ — ברירת מחדל <strong style={{ color: "#1a0a3c" }}>כל השיחות</strong> (קו
+            שיווקי {MARKETING_PHONE_DISPLAY} + כל העסקים). אפשר לסנן לפי מקור. עצירת בוט ומענה ידנית כמו בדשבורד
+            בעל העסק.
+          </>
+        )}
       </p>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", marginTop: 16 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 220px", textAlign: "right" }}>
-          <span style={{ fontSize: 12, color: MUTED }}>בחר מקור שיחות</span>
-          <select
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            style={{
-              borderRadius: 10,
-              border: `1px solid rgba(113,51,218,0.22)`,
-              padding: "10px 12px",
-              fontFamily: "inherit",
-              fontSize: 14,
-              background: "#fff",
-            }}
-          >
-            {sorted.map((b) => (
-              <option key={b.slug} value={b.slug}>
-                {(b.name || b.slug).trim()}
-                {!isAll && !isMarketing && b.slug !== MARKETING_CONVERSATIONS_SLUG ? ` (${b.slug})` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        {selectedBiz && !isMarketing && !isAll ? (
-          <a
-            href={`/${encodeURIComponent(selectedBiz.slug)}/conversations`}
-            style={{ fontSize: 13, color: PURPLE, textDecoration: "underline", textUnderlineOffset: 3 }}
-          >
-            פתיחה בדשבורד העסק
-          </a>
-        ) : null}
-      </div>
+      {marketingOnly ? null : (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", marginTop: 16 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 220px", textAlign: "right" }}>
+            <span style={{ fontSize: 12, color: MUTED }}>בחר מקור שיחות</span>
+            <select
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              style={{
+                borderRadius: 10,
+                border: `1px solid rgba(113,51,218,0.22)`,
+                padding: "10px 12px",
+                fontFamily: "inherit",
+                fontSize: 14,
+                background: "#fff",
+              }}
+            >
+              {sorted.map((b) => (
+                <option key={b.slug} value={b.slug}>
+                  {(b.name || b.slug).trim()}
+                  {!isAll && !isMarketing && b.slug !== MARKETING_CONVERSATIONS_SLUG ? ` (${b.slug})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedBiz && !isMarketing && !isAll ? (
+            <a
+              href={`/${encodeURIComponent(selectedBiz.slug)}/conversations`}
+              style={{ fontSize: 13, color: PURPLE, textDecoration: "underline", textUnderlineOffset: 3 }}
+            >
+              פתיחה בדשבורד העסק
+            </a>
+          ) : null}
+        </div>
+      )}
 
       {loadErr ? (
         <p style={{ margin: "12px 0 0", fontSize: 13, color: "#b42318" }} role="alert">
@@ -165,7 +185,9 @@ export default function ZoeConversationsTab({
               {isAll
                 ? "אין שיחות מתועדות במערכת — יוצגו אחרי הודעות וואטסאפ בקו שיווקי או בקו של עסק."
                 : isMarketing
-                  ? "אין שיחות בקו השיווקי בנפרד — נסו «כל השיחות»; ייתכן שההודעות נשמרו תחת slug עסק אחר."
+                  ? marketingOnly
+                    ? "אין עדיין שיחות בקו זואי שיווק."
+                    : "אין שיחות בקו השיווקי בנפרד — נסו «כל השיחות»; ייתכן שההודעות נשמרו תחת slug עסק אחר."
                   : "לא נמצאו שיחות למספר הוואטסאפ של עסק זה. אם יש קו פעיל, ודאו שיש רשומה ב-whatsapp_channels."}
             </p>
           ) : null}
