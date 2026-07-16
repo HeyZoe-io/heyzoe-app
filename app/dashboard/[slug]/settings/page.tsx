@@ -3066,7 +3066,7 @@ export default function SlugSettingsPage({
                 ) : (
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
                     {directionsMediaType === "video" ? (
-                      <div className="relative mx-auto w-fit max-w-full">
+                      <div className="relative mx-auto w-full">
                         <video
                           src={videoUrlForPreview(directionsMediaUrl)}
                           className="block max-h-72 max-w-full rounded-xl bg-black"
@@ -3078,7 +3078,7 @@ export default function SlugSettingsPage({
                         <p className="text-center text-xs text-emerald-600 mt-2 font-medium">{tp.videoSaved}</p>
                       </div>
                     ) : (
-                      <div className="relative mx-auto w-fit max-w-full">
+                      <div className="relative mx-auto w-full">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={directionsMediaUrl} alt={tp.directionsMediaAlt} className="mx-auto block max-h-72 max-w-full rounded-xl object-contain" />
                         <p className="text-center text-xs text-emerald-600 mt-2 font-medium">{tp.imageSaved}</p>

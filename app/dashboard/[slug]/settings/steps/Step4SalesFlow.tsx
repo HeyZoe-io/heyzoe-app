@@ -878,7 +878,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           ) : (
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
               {openingMediaType === "video" ? (
-                <div className="relative mx-auto w-fit max-w-full">
+                <div className="relative mx-auto w-full">
                   <video
                     src={videoUrlForPreview(openingMediaUrl)}
                     className="block max-h-72 max-w-full rounded-xl bg-black"
@@ -892,7 +892,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   </p>
                 </div>
               ) : (
-                <div className="relative mx-auto w-fit max-w-full">
+                <div className="relative mx-auto w-full">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={openingMediaUrl}

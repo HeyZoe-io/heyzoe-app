@@ -57,20 +57,11 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
                   onClick={(e) => guardedLinkClick(e, href)}
                   className={[
                     dashboardStepTabClass(active),
-                    "inline-flex items-center gap-1.5 rounded-xl px-3 py-2 sm:px-4",
+                    "inline-flex items-center rounded-xl px-3 py-2 sm:px-4",
                     active ? "bg-white shadow-sm ring-1 ring-[#7133da]/15" : "hover:bg-white/60",
                   ].join(" ")}
                   aria-current={active ? "page" : undefined}
                 >
-                  <span
-                    className={[
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums",
-                      active ? "bg-[#7133da] text-white" : "bg-zinc-200/90 text-zinc-500",
-                    ].join(" ")}
-                    aria-hidden
-                  >
-                    {n}
-                  </span>
                   <span>{label}</span>
                 </Link>
               );
@@ -90,7 +81,7 @@ const TAB_STEP_BASE =
 export function dashboardMainTabClass(active: boolean) {
   return [
     TAB_MAIN_BASE,
-    "px-4 py-2 text-[17px] sm:text-[18px]",
+    "px-2 py-2 text-[13px] sm:px-4 sm:text-[18px]",
     active ? "text-[#7133da]" : "text-zinc-600 hover:text-zinc-900",
   ].join(" ");
 }
@@ -98,7 +89,7 @@ export function dashboardMainTabClass(active: boolean) {
 export function dashboardStepTabClass(active: boolean) {
   return [
     TAB_STEP_BASE,
-    "text-[13px] sm:text-sm",
+    "text-[12px] sm:text-sm",
     active ? "text-[#7133da]" : "text-zinc-600 hover:text-zinc-900",
   ].join(" ");
 }
