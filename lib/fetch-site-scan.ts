@@ -1111,6 +1111,8 @@ export type GenerateProductDescriptionInput = {
   price_text?: string;
   duration?: string;
   description_current?: string;
+  location_mode?: string;
+  course_dates_enabled?: boolean;
 };
 
 async function fetchSiteCorpusForProductDescription(websiteUrl: string): Promise<{
@@ -1252,7 +1254,10 @@ ${hasSite ? `טקסט מהאתר:\n${siteCorpus.slice(0, 16_000)}` : ""}`;
     if (!description) {
       return { status: 502, body: { error: "ai_empty_response" } };
     }
-    description = appendGeneratedProductDescriptionFooter(description, offerKind);
+    description = appendGeneratedProductDescriptionFooter(description, offerKind, {
+      online: String(input.location_mode ?? "").toLowerCase() === "online",
+      courseDatesEnabled: input.course_dates_enabled !== false,
+    });
     return { status: 200, body: { description } };
   } catch (e) {
     console.error("[generate-product-description] Claude failed:", e);

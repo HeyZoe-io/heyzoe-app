@@ -65,6 +65,8 @@ type ServiceItem = {
   trial_pick_media_type: "image" | "video" | "";
   schedule_slots: { id: string; day: string; time: string }[];
   course_cycles: { id: string; start_date: string; end_date: string; schedule_slots: { id: string; day: string; time: string }[] }[];
+  location_mode: "location" | "online";
+  course_dates_enabled: boolean;
 };
 
 type CtaOfferTab = "trial" | "workshop" | "course";

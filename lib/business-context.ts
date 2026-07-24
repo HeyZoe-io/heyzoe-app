@@ -180,7 +180,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const [{ data: services }, { data: faqs }] = await Promise.all([
       admin
         .from("services")
-        .select("name, description, price_text, location_text, service_slug, sort_order, id")
+        .select("name, description, price_text, location_text, location_mode, service_slug, sort_order, id")
         .eq("business_id", business.id)
         .order("sort_order", { ascending: true })
         .order("id", { ascending: true }),
@@ -215,9 +215,15 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
             const offerKind = offerKindFromServiceMeta(meta);
             let slotsText = "";
             if (offerKind === "course") {
-              const cycles = migrateLegacyCourseToCycles(meta, () => `s${slotId++}`);
+              const datesOn = meta.course_dates_enabled !== false;
+              const cycles = datesOn ? migrateLegacyCourseToCycles(meta, () => `s${slotId++}`) : [];
               const cyclesFormatted = formatCourseCyclesForKnowledge(cycles);
-              slotsText = cyclesFormatted ? ` | מחזורי קורס: ${cyclesFormatted}` : "";
+              const online = String(s.location_mode ?? meta.location_mode ?? "").toLowerCase() === "online";
+              const locLabel = online
+                ? ` | מיקום: אונליין`
+                : ` | מיקום: ${s.location_text ?? "לא צוין"}`;
+              slotsText = cyclesFormatted ? ` | מחזורי קורס: ${cyclesFormatted}` : datesOn ? "" : " | ללא תאריכי התחלה/סיום";
+              return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)}${locLabel}${levelsText}${slotsText} | תיאור: ${truncateText(descriptionText, 140)}`;
             } else {
               const slotRows = normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${slotId++}`);
               const slotsFormatted = formatScheduleSlotsForKnowledge(slotRows);
@@ -442,8 +448,8 @@ function formatUnknownKnowledgeBlock(phoneDisplay: string, platform: ZoePlatform
   const staticBlock = getZoePlatformCategoryBlock(platform, "unknown_knowledge");
   const phoneHint =
     phoneDisplay && phoneDisplay !== "לא הוגדר"
-      ? `- אם בשדה «טלפון שירות לקוחות» למעלה מופיע מספר - הציעי ליצור קשר ישירות עם העסק בטלפון הזה; הציגי את המספר בדיוק כפי שמופיע (כולל קידומת), בלי לשנות ספרות.`
-      : `- טלפון שירות לקוחות לא הוגדר בידע - אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
+      ? `- אם בשדה «טלפון שירות לקוחות» למעלה מופיע מספר - הציעי ליצור קשר ישירות עם העסק בטלפון הזה; הציגי את המספר בדיוק כפי שמופיע (כולל קידומת), בלי לשנות ספרות. אל תוסיפי אפשרות נוספת לכתוב/לפנות לשירות לקוחות דרך לינק מערכת שעות - הלינק הזה, אם קיים, הוא רק לצפייה בלוח שיעורים/שעות ולא ערוץ פנייה.`
+      : `- טלפון שירות לקוחות לא הוגדר בידע - אל תמציאי מספר; הציעי לפנות לעסק דרך לינק שעות (לצפייה בלוח שיעורים/שעות בלבד, לא לכתיבה/פנייה) או פרטים אחרים שכן מופיעים בידע, בלי להמציא.`;
   return `
 חוסר ידע מדויק - כששאלה פתוחה ואין לה מענה כלל בידע העסקי:
 ${staticBlock || "רק אם באמת אין מידע: פתחי בנוסח תקני כמו «אין לי את הפרטים», «אין לי כרגע מידע על כך» או «אני מתנצלת, אין לי כרגע מידע לגבי [הנושא]». אסור «לא יש לי», «לא יש לי את הפרטים» או «לא יש מידע». אל תכתבי את המילה «התנצלות» כחלק מהתשובה; אל תמציאי ואל תנחשי."}

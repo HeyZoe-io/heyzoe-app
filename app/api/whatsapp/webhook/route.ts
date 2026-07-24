@@ -51,6 +51,7 @@ import {
   fillCtaBodyTemplate,
   fillOfferKindCtaBody,
   formatAfterTrialRegistrationForWhatsAppDelivery,
+  adaptCourseAfterRegistrationBodyForDelivery,
   ctaButtonsForOfferKind,
   filterTrialCtaButtonsAfterSchedule,
   getEffectiveFollowupMenuLabels,
@@ -988,11 +989,13 @@ function shouldCollectCourseCycleStartPick(
 ): boolean {
   if (knowledge.scheduleDirectRegistration !== false) return false;
   if (service?.offerKind !== "course") return false;
+  if (service.courseDatesEnabled === false) return false;
   if (isCourseWithDefinedDates(service)) return false;
   return courseHasCycleSchedulePickData(service.courseCycles ?? []);
 }
 
 function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): boolean {
+  if (service?.offerKind === "course" && service.courseDatesEnabled === false) return false;
   if (shouldCollectCourseCycleStartPick(knowledge, service)) return false;
   return knowledge.scheduleDirectRegistration === false && !isCourseWithDefinedDates(service);
 }
@@ -1010,27 +1013,38 @@ function phaseAfterSchedulePickComplete(): HeyzoeSessionPhase {
 }
 
 function courseCtaFillFromService(service: SfServiceRow | null, pickedCycleStartDisplay?: string) {
-  const cycles = service?.courseCycles ?? [];
+  const datesOn = service?.courseDatesEnabled !== false;
+  const cycles = datesOn ? service?.courseCycles ?? [] : [];
   const picked = pickedCycleStartDisplay?.trim()
     ? findCourseCycleByDisplayStartDate(cycles, pickedCycleStartDisplay)
     : null;
-  const schedulePhrase = pickedCycleStartDisplay?.trim()
-    ? buildCourseSchedulePhraseForCtaFromPick(cycles, pickedCycleStartDisplay)
-    : buildCourseSchedulePhraseForCta(cycles);
-  const { day: scheduleDay, hour: scheduleHour } = resolveCourseScheduleDayHourForCta(
-    cycles,
-    pickedCycleStartDisplay
-  );
+  const schedulePhrase =
+    !datesOn
+      ? ""
+      : pickedCycleStartDisplay?.trim()
+        ? buildCourseSchedulePhraseForCtaFromPick(cycles, pickedCycleStartDisplay)
+        : buildCourseSchedulePhraseForCta(cycles);
+  const { day: scheduleDay, hour: scheduleHour } = datesOn
+    ? resolveCourseScheduleDayHourForCta(cycles, pickedCycleStartDisplay)
+    : { day: "", hour: "" };
   return {
     priceText: service?.priceText ?? "",
     sessionsText: service?.courseSessionsText ?? "",
-    startDate: picked ? formatCycleDateShort(picked.start_date) : service?.courseStartDate ?? "",
-    endDate: picked?.end_date?.trim()
-      ? formatCycleDateShort(picked.end_date)
-      : service?.courseEndDate ?? "",
+    startDate: datesOn
+      ? picked
+        ? formatCycleDateShort(picked.start_date)
+        : service?.courseStartDate ?? ""
+      : "",
+    endDate: datesOn
+      ? picked?.end_date?.trim()
+        ? formatCycleDateShort(picked.end_date)
+        : service?.courseEndDate ?? ""
+      : "",
     schedulePhrase,
     scheduleDay,
     scheduleHour,
+    online: service?.locationMode === "online",
+    sessionsUnit: service?.locationMode === "online" ? ("lessons" as const) : ("sessions" as const),
   };
 }
 
@@ -5182,7 +5196,6 @@ async function processIncoming(
           return;
         }
 
-        const useScheduleRegistrationTemplate = knowledge.scheduleDirectRegistration === false;
         const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
         const scheduleState = await fetchContactScheduleSelectionState({
           supabase,
@@ -5206,6 +5219,10 @@ async function processIncoming(
           regOfferKind === "workshop" ? "הסדנה" : regOfferKind === "course" ? "הקורס" : "האימון";
         const serviceName =
           selectedService?.name?.trim() || selectedServiceName.trim() || regServiceFallback;
+
+        const useScheduleRegistrationTemplate =
+          knowledge.scheduleDirectRegistration === false &&
+          !(regOfferKind === "course" && selectedService?.courseDatesEnabled === false);
 
         let bodyTemplate = resolveAfterRegistrationBodyTemplate(
           sfCfg,
@@ -5253,19 +5270,34 @@ async function processIncoming(
           bodyTemplate.includes("{serviceName}") ||
           bodyTemplate.includes("(שם האימון)");
         const courseSchedForReg =
-          regOfferKind === "course" && requestedDate
+          regOfferKind === "course" &&
+          selectedService?.courseDatesEnabled !== false &&
+          requestedDate
             ? courseSchedulePhraseForRegistration(selectedService, requestedDate)
             : "";
         const regContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+        const courseOnline = regOfferKind === "course" && selectedService?.locationMode === "online";
+        const courseHasDates =
+          regOfferKind === "course" &&
+          selectedService?.courseDatesEnabled !== false &&
+          Boolean(String(requestedDate ?? "").trim() || (selectedService?.courseCycles?.length ?? 0) > 0);
+        const adaptedRegBody =
+          regOfferKind === "course"
+            ? adaptCourseAfterRegistrationBodyForDelivery(bodyTemplate, {
+                online: courseOnline,
+                hasDates: courseHasDates,
+                serviceName,
+              })
+            : bodyTemplate;
         const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
-          bodyTemplate,
+          adaptedRegBody,
           includeIgPrompt ? igUrlRaw : "",
-          knowledge.addressText ?? "",
-          knowledge.directionsText ?? "",
+          courseOnline ? "" : knowledge.addressText ?? "",
+          courseOnline ? "" : knowledge.directionsText ?? "",
           shouldFillSchedule
             ? {
-                requestedDate,
-                requestedTime,
+                requestedDate: courseHasDates ? requestedDate : "",
+                requestedTime: courseHasDates ? requestedTime : "",
                 serviceName,
                 offerKind: regOfferKind,
                 courseSchedulePhrase: courseSchedForReg,
@@ -5667,11 +5699,21 @@ async function processIncoming(
         const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit, {
           priceText: picked.priceText,
           durationText: picked.durationText,
-          businessAddress: knowledge.addressText ?? "",
+          businessAddress:
+            picked.offerKind === "course" && picked.locationMode === "online"
+              ? picked.locationText.trim() || "אונליין"
+              : knowledge.addressText ?? "",
           sessionsText: picked.courseSessionsText,
-          schedulePhrase: buildCourseSchedulePhraseForCta(picked.courseCycles ?? []),
+          schedulePhrase:
+            picked.offerKind === "course" && picked.courseDatesEnabled === false
+              ? ""
+              : buildCourseSchedulePhraseForCta(picked.courseCycles ?? []),
           offerKind: picked.offerKind,
         });
+        const afterPickText =
+          picked.offerKind === "course" && picked.locationMode === "online"
+            ? afterPick.replace(/מפגשים/g, "שיעורים")
+            : afterPick;
         if (!starterBlocksMedia && !picked.trialPickMediaUrl?.trim()) {
           console.warn(
             `[WA Webhook] sf_service_pick: מדיה למסלול שיעור הניסיון חסרה ב-DB בשירות "${picked.name}" (בודקים ש-description כולל trial_pick_media_url בשמירת ההגדרות).`
@@ -5688,14 +5730,14 @@ async function processIncoming(
           business_slug,
           sessionId,
         });
-        if (afterPick.trim()) {
-          await sendWhatsAppMessage(msg.toNumber, msg.from, afterPick.trim(), accountSid, authToken).catch((e) =>
+        if (afterPickText.trim()) {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, afterPickText.trim(), accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send sales-flow pick reply failed:", e)
           );
           await logMessage({
             business_slug,
             role: "assistant",
-            content: afterPick.trim(),
+            content: afterPickText.trim(),
             model_used: "sales_flow",
             session_id: sessionId,
           });

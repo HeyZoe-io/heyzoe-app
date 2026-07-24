@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
     price_text: body.price_text,
     duration: body.duration,
     description_current: body.description_current,
+    location_mode: body.location_mode,
+    course_dates_enabled: body.course_dates_enabled,
   });
 
   return NextResponse.json(result.body, { status: result.status });

@@ -86,6 +86,8 @@ type ServiceItem = {
   trial_pick_media_type: "" | "image" | "video";
   schedule_slots: { id: string; day: string; time: string }[];
   course_cycles: CourseCycle[];
+  location_mode: "location" | "online";
+  course_dates_enabled: boolean;
 };
 
 function courseCyclesForOfferKindSwitch(
@@ -627,6 +629,9 @@ export default function Step3Trial(props: {
                         ...s,
                         offer_kind: k,
                         course_cycles: courseCyclesForOfferKindSwitch(s, k, uid),
+                        course_dates_enabled: k === "course" ? s.course_dates_enabled !== false : true,
+                        location_mode:
+                          k === "course" ? s.location_mode ?? "location" : "location",
                       };
                       setServices(arr);
                     }}
@@ -663,7 +668,62 @@ export default function Step3Trial(props: {
             {productOpen ? (
             <div className="space-y-4 border-t border-zinc-100 p-4">
               <div>
-                <SalesPathFieldLabel hint={t.products.charsMax(TRIAL_SERVICE_NAME_MAX_CHARS)}>{t.products.serviceName}</SalesPathFieldLabel>
+                <SalesPathFieldLabel
+                  hint={t.products.charsMax(TRIAL_SERVICE_NAME_MAX_CHARS)}
+                  action={
+                    s.offer_kind === "course" ? (
+                      <div
+                        dir="rtl"
+                        className="inline-flex rounded-full border border-zinc-200 bg-white p-0.5"
+                        role="group"
+                        aria-label={t.products.courseDeliveryAria}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const arr = [...services];
+                            const nextLoc =
+                              !s.location_text.trim() || s.location_text.trim() === t.products.locationOnlineDefault
+                                ? address || ""
+                                : s.location_text;
+                            arr[i] = { ...s, location_mode: "location", location_text: nextLoc };
+                            setServices(arr);
+                          }}
+                          className={[
+                            "rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                            s.location_mode !== "online"
+                              ? "bg-[#f3edff] text-[#2d1a6e]"
+                              : "text-zinc-500 hover:text-zinc-700",
+                          ].join(" ")}
+                        >
+                          {t.products.coursePhysical}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const arr = [...services];
+                            const nextLoc =
+                              !s.location_text.trim() || s.location_text.trim() === (address || "").trim()
+                                ? t.products.locationOnlineDefault
+                                : s.location_text;
+                            arr[i] = { ...s, location_mode: "online", location_text: nextLoc };
+                            setServices(arr);
+                          }}
+                          className={[
+                            "rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                            s.location_mode === "online"
+                              ? "bg-[#f3edff] text-[#2d1a6e]"
+                              : "text-zinc-500 hover:text-zinc-700",
+                          ].join(" ")}
+                        >
+                          {t.products.courseOnline}
+                        </button>
+                      </div>
+                    ) : undefined
+                  }
+                >
+                  {s.offer_kind === "course" ? t.products.courseName : t.products.serviceName}
+                </SalesPathFieldLabel>
                 <Input
                   dir={dashboardDir(lang)}
                   value={s.name}
@@ -679,7 +739,7 @@ export default function Step3Trial(props: {
                     };
                     setServices(arr);
                   }}
-                  placeholder={t.products.offerTrial}
+                  placeholder={s.offer_kind === "course" ? t.products.offerCourse : t.products.offerTrial}
                   className={PRODUCT_INPUT}
                 />
               </div>
@@ -701,7 +761,9 @@ export default function Step3Trial(props: {
                   />
                 </div>
                 <div>
-                  <SalesPathFieldLabel>{t.products.sessions}</SalesPathFieldLabel>
+                  <SalesPathFieldLabel>
+                    {s.location_mode === "online" ? t.products.lessons : t.products.sessions}
+                  </SalesPathFieldLabel>
                   <Input
                     dir={dashboardDir(lang)}
                     inputMode="numeric"
@@ -777,7 +839,11 @@ export default function Step3Trial(props: {
                     arr[i] = { ...s, location_text: e.target.value };
                     setServices(arr);
                   }}
-                  placeholder={address || "Location"}
+                  placeholder={
+                    s.offer_kind === "course" && s.location_mode === "online"
+                      ? t.products.locationOnlineDefault
+                      : address || "Location"
+                  }
                   className={PRODUCT_INPUT}
                 />
               </div>
@@ -831,7 +897,54 @@ export default function Step3Trial(props: {
             {scheduleDirectRegistration === false ? (
               s.offer_kind === "course" ? (
               <div className="space-y-4 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
-                <SalesPathFieldLabel>{t.products.courseCycles}</SalesPathFieldLabel>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <SalesPathFieldLabel>{t.products.courseCycles}</SalesPathFieldLabel>
+                  <div
+                    dir="rtl"
+                    className="inline-flex rounded-full border border-zinc-200 bg-white p-0.5"
+                    role="group"
+                    aria-label={t.products.courseDatesToggle}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const arr = [...services];
+                        const cycles =
+                          s.course_cycles?.length ? s.course_cycles : [createEmptyCourseCycle(uid)];
+                        arr[i] = { ...s, course_dates_enabled: true, course_cycles: cycles };
+                        setServices(arr);
+                      }}
+                      className={[
+                        "rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                        s.course_dates_enabled !== false
+                          ? "bg-[#f3edff] text-[#2d1a6e]"
+                          : "text-zinc-500 hover:text-zinc-700",
+                      ].join(" ")}
+                    >
+                      {t.products.courseDatesOn}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const arr = [...services];
+                        arr[i] = { ...s, course_dates_enabled: false };
+                        setServices(arr);
+                      }}
+                      className={[
+                        "rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                        s.course_dates_enabled === false
+                          ? "bg-[#f3edff] text-[#2d1a6e]"
+                          : "text-zinc-500 hover:text-zinc-700",
+                      ].join(" ")}
+                    >
+                      {t.products.courseDatesOff}
+                    </button>
+                  </div>
+                </div>
+                {s.course_dates_enabled === false ? (
+                  <p className="text-[11px] text-zinc-500 leading-snug">{t.products.courseDatesOffHint}</p>
+                ) : (
+                <>
                 <p className="text-[11px] text-zinc-500 leading-snug">
                   {t.products.courseCyclesHint}
                 </p>
@@ -1036,6 +1149,8 @@ export default function Step3Trial(props: {
                   <Plus className="h-3.5 w-3.5" />
                   {t.products.addCycle}
                 </Button>
+                </>
+                )}
               </div>
               ) : (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir={dashboardDir(lang)}>
@@ -1216,6 +1331,8 @@ export default function Step3Trial(props: {
                     trial_pick_media_type: "",
                     schedule_slots: [],
                     course_cycles: [],
+                    location_mode: "location",
+                    course_dates_enabled: true,
                   },
                 ]);
               }}

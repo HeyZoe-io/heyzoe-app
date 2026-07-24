@@ -1143,7 +1143,8 @@ function applyCourseCtaLiteralFallbacks(
   sessionsText: string,
   schedulePhrase: string,
   scheduleDay: string,
-  scheduleHour: string
+  scheduleHour: string,
+  sessionsUnit: "sessions" | "lessons" = "sessions"
 ): string {
   let s = text;
   const p = priceText.trim();
@@ -1151,10 +1152,11 @@ function applyCourseCtaLiteralFallbacks(
   const sched = schedulePhrase.trim();
   const day = scheduleDay.trim();
   const hour = scheduleHour.trim();
+  const unitWord = sessionsUnit === "lessons" ? "שיעורים" : "מפגשים";
   if (p) s = s.replace(CTA_LITERAL_X_PRICE_RE, `${p} שקלים`);
   if (sess) {
-    s = s.replace(CTA_LITERAL_X_SESSIONS_KE_RE, `כ-${sess} מפגשים`);
-    s = s.replace(CTA_LITERAL_X_SESSIONS_RE, `${sess} מפגשים`);
+    s = s.replace(CTA_LITERAL_X_SESSIONS_KE_RE, `כ-${sess} ${unitWord}`);
+    s = s.replace(CTA_LITERAL_X_SESSIONS_RE, `${sess} ${unitWord}`);
   }
   if (day && hour) {
     s = s.replace(CTA_LITERAL_X_DAY_HOUR_RE, `כל יום ${day} בשעה ${hour}`);
@@ -1215,27 +1217,53 @@ export function fillCourseCtaBodyTemplate(
   endDate: string,
   schedulePhrase = "",
   scheduleDay = "",
-  scheduleHour = ""
+  scheduleHour = "",
+  opts?: { sessionsUnit?: "sessions" | "lessons"; online?: boolean }
 ): string {
   const p = priceText.trim() || "...";
   const s = sessionsText.trim() || "...";
-  const a = startDate.trim() || "...";
-  const b = endDate.trim() || "...";
-  const sched = schedulePhrase.trim() || "...";
-  const day = scheduleDay.trim() || "...";
-  const hour = scheduleHour.trim() || "...";
+  const a = startDate.trim();
+  const b = endDate.trim();
+  const sched = schedulePhrase.trim();
+  const day = scheduleDay.trim();
+  const hour = scheduleHour.trim();
+  const sessionsUnit = opts?.sessionsUnit ?? "sessions";
+  const unitWord = sessionsUnit === "lessons" ? "שיעורים" : "מפגשים";
   const normalized = normalizeCtaTemplateFromEditor(template, "course");
-  const filled = normalized
+  let filled = normalized
     .replace(/\{priceText\}/g, p)
     .replace(/\{price\}/g, p)
     .replace(/\{sessions\}/g, s)
-    .replace(/\{start_date\}/g, a)
-    .replace(/\{end_date\}/g, b)
+    .replace(/\{start_date\}/g, a || "")
+    .replace(/\{end_date\}/g, b || "")
     .replace(/\{schedule_phrase\}/g, sched)
     .replace(/\{schedulePhrase\}/g, sched)
     .replace(/\{day\}/g, day)
     .replace(/\{hour\}/g, hour);
-  return applyCourseCtaLiteralFallbacks(filled, priceText, sessionsText, schedulePhrase, scheduleDay, scheduleHour);
+  if (!sched) {
+    filled = filled
+      .replace(/,\s*\{schedule_phrase\}/gi, "")
+      .replace(/,\s*\{schedulePhrase\}/gi, "")
+      .replace(/,\s*\n/g, "\n")
+      .replace(/מפגשים,\s*$/gm, "מפגשים.")
+      .replace(/שיעורים,\s*$/gm, "שיעורים.");
+  }
+  if (sessionsUnit === "lessons") {
+    filled = filled.replace(/מפגשים/g, unitWord);
+  }
+  if (opts?.online) {
+    filled = filled.replace(/לשמור לך מקום\?/g, "להצטרף לקורס?");
+  }
+  filled = filled.replace(/\n{3,}/g, "\n\n").trim();
+  return applyCourseCtaLiteralFallbacks(
+    filled,
+    priceText,
+    sessionsText,
+    schedulePhrase,
+    scheduleDay,
+    scheduleHour,
+    sessionsUnit
+  );
 }
 
 export function fillOfferKindCtaBody(
@@ -1250,6 +1278,8 @@ export function fillOfferKindCtaBody(
     schedulePhrase?: string;
     scheduleDay?: string;
     scheduleHour?: string;
+    online?: boolean;
+    sessionsUnit?: "sessions" | "lessons";
   }
 ): string {
   if (kind === "workshop") {
@@ -1264,7 +1294,8 @@ export function fillOfferKindCtaBody(
       row.endDate,
       row.schedulePhrase ?? "",
       row.scheduleDay ?? "",
-      row.scheduleHour ?? ""
+      row.scheduleHour ?? "",
+      { online: row.online, sessionsUnit: row.sessionsUnit }
     );
   }
   return fillCtaBodyTemplate(cfg.cta_body, row.priceText, row.durationText);
@@ -2790,6 +2821,45 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return s;
+}
+
+/** התאמת הודעת אחרי־הרשמה לקורס אונליין (עם/בלי תאריכים). */
+export function adaptCourseAfterRegistrationBodyForDelivery(
+  body: string,
+  opts: { online: boolean; hasDates: boolean; serviceName?: string }
+): string {
+  if (!opts.online) return body;
+  const service = String(opts.serviceName ?? "").trim() || "הקורס";
+  let t = String(body ?? "");
+
+  t = t
+    .replace(/זה קורה בכתובת:\s*\{business_address\}/g, "הקורס מתקיים אונליין.")
+    .replace(/זה קורה בכתובת:\s*[^\n]*/g, "הקורס מתקיים אונליין.")
+    .replace(/ככה מגיעים אלינו:\s*\n?\{business_directions\}\n*/g, "")
+    .replace(/ככה מגיעים אלינו:\s*\n?[^\n]*\n*/g, "")
+    .replace(/מומלץ להגיע[^\n]*\n?/g, "");
+
+  if (!opts.hasDates) {
+    t = t
+      .replace(
+        /מתרגשים לראותך בקרוב ב\{serviceName\}[^\n]*/g,
+        `מתרגשים שאתם מצטרפים לקורס ${service} אונליין!`
+      )
+      .replace(
+        /מתרגשים לראותך בקרוב ב[^\n]*—[^\n]*/g,
+        `מתרגשים שאתם מצטרפים לקורס ${service} אונליין!`
+      )
+      .replace(/מתרגשים לראותך בקרוב בקורס!/g, `מתרגשים שאתם מצטרפים לקורס ${service} אונליין!`)
+      .replace(/\s*—\s*התחלה ב-\{requested_date\}\{course_schedule\}/g, "")
+      .replace(/\{requested_date\}/g, "")
+      .replace(/\{requested_time\}/g, "")
+      .replace(/\{course_schedule\}/g, "");
+    if (!/אונליין/.test(t)) {
+      t = `כל הכבוד! נרשמתם בהצלחה 🎉\n\nמתרגשים שאתם מצטרפים לקורס ${service} אונליין!\nנשלח לכם את כל פרטי הגישה והשיעורים בהמשך.\nסופר מחכים להתחיל!\n\n{instagram_cta}`;
+    }
+  }
+
+  return t.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function formatWarmupButtonPairsForPrompt(

@@ -89,6 +89,10 @@ type ServiceItem = {
   schedule_slots: { id: string; day: string; time: string }[];
   /** קורס בלבד: מחזורים (תאריכים + מועדים שבועיים) */
   course_cycles: CourseCycle[];
+  /** location = פיזי (ברירת מחדל) | online = אונליין */
+  location_mode: "location" | "online";
+  /** קורס: האם מוגדרים תאריכי התחלה/סיום (מחזורים). ברירת מחדל true */
+  course_dates_enabled: boolean;
 };
 
 type WhatsAppChannel = {
@@ -225,6 +229,8 @@ function readTrialServicesStash(slug: string): ServiceItem[] | null {
                 schedule_slots: normalizeProductScheduleSlotsFromMeta(cy?.schedule_slots, uid),
               }))
           : [],
+        location_mode: r.location_mode === "online" ? "online" : "location",
+        course_dates_enabled: r.course_dates_enabled !== false,
       });
     }
     return out.length ? out : null;
@@ -325,11 +331,17 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
             : "",
       offer_kind: offerKindFromServiceMeta(meta),
       course_sessions_count: String(meta.course_sessions_count ?? "").trim(),
+      location_mode:
+        String(s.location_mode ?? meta.location_mode ?? "").trim().toLowerCase() === "online"
+          ? "online"
+          : "location",
+      course_dates_enabled: meta.course_dates_enabled !== false,
       ...(() => {
         const kind = offerKindFromServiceMeta(meta);
         if (kind === "course") {
-          let course_cycles = migrateLegacyCourseToCycles(meta, uid);
-          if (!course_cycles.length) course_cycles = [createEmptyCourseCycle(uid)];
+          const datesOn = meta.course_dates_enabled !== false;
+          let course_cycles = datesOn ? migrateLegacyCourseToCycles(meta, uid) : [];
+          if (datesOn && !course_cycles.length) course_cycles = [createEmptyCourseCycle(uid)];
           const legacy = syncCourseLegacyDatesFromCycles(course_cycles);
           return {
             course_cycles,
@@ -368,17 +380,22 @@ function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Recor
         : s.trial_pick_media_type === "image"
           ? "image"
           : "",
+    location_mode: s.location_mode === "online" ? "online" : "location",
   };
   if (s.offer_kind === "course") {
-    const course_cycles = (s.course_cycles ?? []).map((cy) => ({
-      id: cy.id,
-      start_date: cy.start_date.trim(),
-      end_date: cy.end_date.trim(),
-      schedule_slots: cy.schedule_slots,
-    }));
+    const datesOn = s.course_dates_enabled !== false;
+    const course_cycles = datesOn
+      ? (s.course_cycles ?? []).map((cy) => ({
+          id: cy.id,
+          start_date: cy.start_date.trim(),
+          end_date: cy.end_date.trim(),
+          schedule_slots: cy.schedule_slots,
+        }))
+      : [];
     const { course_start_date, course_end_date } = syncCourseLegacyDatesFromCycles(course_cycles);
     return {
       ...base,
+      course_dates_enabled: datesOn,
       course_cycles,
       course_start_date,
       course_end_date,
@@ -387,6 +404,7 @@ function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Recor
   }
   return {
     ...base,
+    course_dates_enabled: true,
     course_start_date: s.course_start_date,
     course_end_date: s.course_end_date,
     schedule_slots: s.schedule_slots,
@@ -940,6 +958,8 @@ function trialServiceItemFromSiteProduct(
     trial_pick_media_type: "",
     schedule_slots: [],
     course_cycles: [],
+    location_mode: "location",
+    course_dates_enabled: true,
   };
 }
 
@@ -1827,7 +1847,7 @@ export default function SlugSettingsPage({
             ),
             price_text: s.price_text,
             location_text: s.location_text,
-            location_mode: "location",
+            location_mode: s.offer_kind === "course" && s.location_mode === "online" ? "online" : "location",
             sort_order: index,
             description: JSON.stringify(serviceDescriptionMetaForSave(s, index)),
           })),
@@ -2178,6 +2198,8 @@ export default function SlugSettingsPage({
             price_text: service.price_text,
             duration: service.duration,
             description_current: service.description,
+            location_mode: service.location_mode,
+            course_dates_enabled: service.course_dates_enabled,
           }),
         });
         let j: Record<string, unknown> = {};

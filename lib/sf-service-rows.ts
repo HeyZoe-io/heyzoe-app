@@ -9,6 +9,9 @@ import {
 
 export type SfOfferKind = "trial" | "workshop" | "course";
 
+/** פיזי (location) | אונליין — רלוונטי במיוחד לקורס */
+export type SfLocationMode = "location" | "online";
+
 export type SfServiceRow = {
   name: string;
   benefit: string;
@@ -26,13 +29,27 @@ export type SfServiceRow = {
   /** מועדי לוח / מחזורי קורס — לבחירה בווטסאפ */
   scheduleSlots: WaSchedulePickSlot[];
   courseCycles: CourseCycle[];
+  locationMode: SfLocationMode;
+  locationText: string;
+  /** קורס: האם יש תאריכי התחלה/סיום (מחזורים). ברירת מחדל true */
+  courseDatesEnabled: boolean;
 };
 
 export type RawServiceRowInput = {
   name?: unknown;
   description?: unknown;
   price_text?: unknown;
+  location_mode?: unknown;
+  location_text?: unknown;
 };
+
+export function resolveSfLocationMode(raw: unknown): SfLocationMode {
+  return String(raw ?? "").trim().toLowerCase() === "online" ? "online" : "location";
+}
+
+export function resolveCourseDatesEnabled(meta: Record<string, unknown> | null | undefined): boolean {
+  return meta?.course_dates_enabled !== false;
+}
 
 /** כש-JSON ב-description שבור — משחזרים לפחות את שדות מדיית בחירת השירות */
 export function fallbackTrialPickFromRawDescription(
@@ -58,6 +75,17 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
     const jsonStart = candidate.indexOf("{");
     const toParse = jsonStart >= 0 ? candidate.slice(jsonStart) : candidate;
     const meta = JSON.parse(toParse.trim() || "{}") as Record<string, unknown>;
+    const offerKind = offerKindFromServiceMeta(meta);
+    const courseDatesEnabled = offerKind === "course" ? resolveCourseDatesEnabled(meta) : true;
+    const courseCycles = (() => {
+      if (offerKind !== "course" || !courseDatesEnabled) return [] as CourseCycle[];
+      let c = 0;
+      return migrateLegacyCourseToCycles(meta, () => `s${c++}`);
+    })();
+    const locationModeFromMeta =
+      meta.location_mode === "online" || meta.location_mode === "location"
+        ? meta.location_mode
+        : undefined;
     return {
       name,
       benefit: String(meta.benefit_line ?? "").trim(),
@@ -75,36 +103,25 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
           : meta.trial_pick_media_type === "image"
             ? ("image" as const)
             : ("" as const),
-      offerKind: offerKindFromServiceMeta(meta),
+      offerKind,
       courseSessionsText: String(meta.course_sessions_count ?? "").trim(),
       courseStartDate: (() => {
-        const k = offerKindFromServiceMeta(meta);
-        if (k === "course") {
-          let c = 0;
-          return syncCourseLegacyDatesFromCycles(
-            migrateLegacyCourseToCycles(meta, () => `s${c++}`)
-          ).course_start_date;
-        }
-        return String(meta.course_start_date ?? "").trim();
+        if (offerKind !== "course" || !courseDatesEnabled) return "";
+        return syncCourseLegacyDatesFromCycles(courseCycles).course_start_date;
       })(),
       courseEndDate: (() => {
-        const k = offerKindFromServiceMeta(meta);
-        if (k === "course") {
-          let c = 0;
-          return syncCourseLegacyDatesFromCycles(
-            migrateLegacyCourseToCycles(meta, () => `s${c++}`)
-          ).course_end_date;
-        }
-        return String(meta.course_end_date ?? "").trim();
+        if (offerKind !== "course" || !courseDatesEnabled) return "";
+        return syncCourseLegacyDatesFromCycles(courseCycles).course_end_date;
       })(),
       scheduleSlots: (() => {
+        if (offerKind === "course" && !courseDatesEnabled) return [];
         let c = 0;
-        return resolveWaSchedulePickSlotsFromMeta(meta, offerKindFromServiceMeta(meta), () => `s${c++}`);
+        return resolveWaSchedulePickSlotsFromMeta(meta, offerKind, () => `s${c++}`);
       })(),
-      courseCycles: (() => {
-        let c = 0;
-        return migrateLegacyCourseToCycles(meta, () => `s${c++}`);
-      })(),
+      courseCycles,
+      locationMode: resolveSfLocationMode(locationModeFromMeta ?? s.location_mode),
+      locationText: String(s.location_text ?? meta.location_text ?? "").trim(),
+      courseDatesEnabled,
     };
   } catch {
     const raw = String(s.description ?? "");
@@ -125,6 +142,9 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
       courseEndDate: "",
       scheduleSlots: [],
       courseCycles: [],
+      locationMode: resolveSfLocationMode(s.location_mode),
+      locationText: String(s.location_text ?? "").trim(),
+      courseDatesEnabled: true,
     };
   }
 }

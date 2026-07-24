@@ -9,10 +9,18 @@ const WORKSHOP_PRODUCT_DESC_FOOTER =
 const COURSE_PRODUCT_DESC_FOOTER =
   "המחיר הוא מחיר מוזל לשבוע הקרוב על סך {price} שקלים. הקורס נמשך כ-{sessions} מפגשים.\n\n{schedule_phrase}";
 
+const COURSE_PRODUCT_DESC_FOOTER_ONLINE =
+  "המחיר הוא מחיר מוזל לשבוע הקרוב על סך {price} שקלים. הקורס נמשך כ-{sessions} שיעורים.\n\n{schedule_phrase}";
+
+const COURSE_PRODUCT_DESC_FOOTER_ONLINE_NO_DATES =
+  "המחיר הוא מחיר מוזל לשבוע הקרוב על סך {price} שקלים. הקורס נמשך כ-{sessions} שיעורים אונליין :) נשלח לך את כל הפרטים לאחר ההרשמה.";
+
 const PRODUCT_DESC_FOOTER_MARKERS = [
   TRIAL_PRODUCT_DESC_FOOTER,
   WORKSHOP_PRODUCT_DESC_FOOTER,
   COURSE_PRODUCT_DESC_FOOTER,
+  COURSE_PRODUCT_DESC_FOOTER_ONLINE,
+  COURSE_PRODUCT_DESC_FOOTER_ONLINE_NO_DATES,
   "נשלח לך את כל הפרטים לאחר ההרשמה",
   "מחיר מוזל לשבוע הקרוב על סך {price}",
 ] as const;
@@ -24,6 +32,8 @@ export type ProductDescriptionFillInput = {
   sessionsText?: string;
   schedulePhrase?: string;
   offerKind?: ProductOfferKind | string;
+  online?: boolean;
+  courseDatesEnabled?: boolean;
 };
 
 function normalizeOfferKind(offerKind: string | undefined): ProductOfferKind {
@@ -32,8 +42,15 @@ function normalizeOfferKind(offerKind: string | undefined): ProductOfferKind {
   return "trial";
 }
 
-function footerForOfferKind(offerKind: ProductOfferKind): string {
-  if (offerKind === "course") return COURSE_PRODUCT_DESC_FOOTER;
+function footerForOfferKind(
+  offerKind: ProductOfferKind,
+  opts?: { online?: boolean; courseDatesEnabled?: boolean }
+): string {
+  if (offerKind === "course") {
+    if (opts?.online && opts.courseDatesEnabled === false) return COURSE_PRODUCT_DESC_FOOTER_ONLINE_NO_DATES;
+    if (opts?.online) return COURSE_PRODUCT_DESC_FOOTER_ONLINE;
+    return COURSE_PRODUCT_DESC_FOOTER;
+  }
   if (offerKind === "workshop") return WORKSHOP_PRODUCT_DESC_FOOTER;
   return TRIAL_PRODUCT_DESC_FOOTER;
 }
@@ -54,10 +71,14 @@ export function stripGeneratedProductDescriptionFooter(text: string): string {
 }
 
 /** מוסיף סיומת ברירת מחדל אחרי ג׳ינרוט AI — רק בלחיצה «ג׳נרט תיאור». */
-export function appendGeneratedProductDescriptionFooter(description: string, offerKindRaw?: string): string {
+export function appendGeneratedProductDescriptionFooter(
+  description: string,
+  offerKindRaw?: string,
+  opts?: { online?: boolean; courseDatesEnabled?: boolean }
+): string {
   const offerKind = normalizeOfferKind(offerKindRaw);
   const base = stripGeneratedProductDescriptionFooter(description);
-  const footer = footerForOfferKind(offerKind);
+  const footer = footerForOfferKind(offerKind, opts);
   if (!base) return footer;
   if (base.includes(footer)) return base;
   return `${base}\n\n${footer}`;
