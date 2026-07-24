@@ -57,6 +57,8 @@ import {
   getEffectiveFollowupMenuLabels,
   getEffectiveSalesFlowCtaButtons,
   getEffectiveSecondaryOfferCtaButtons,
+  applyOnlineCourseCtaButtonLabels,
+  ONLINE_COURSE_ENROLL_CTA_LABEL,
   matchesTrialAlreadyRegisteredMessage,
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
@@ -2638,10 +2640,11 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   const ctaBank = inScheduleTrialFlow
     ? filterTrialCtaButtonsAfterSchedule(ctaButtonsForOfferKind(cfg, activeOfferKind))
     : ctaButtonsForOfferKind(cfg, activeOfferKind);
-  const filtered =
+  const filteredRaw =
     activeOfferKind === "trial"
       ? getEffectiveSalesFlowCtaButtons(ctaBank, sfEff)
       : getEffectiveSecondaryOfferCtaButtons(ctaBank, sfConsumedKinds ?? []);
+  const filtered = applyOnlineCourseCtaButtonLabels(filteredRaw, selectedService);
 
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
@@ -6381,7 +6384,10 @@ async function processIncoming(
           salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
 
         const activeOfferKind = selectedService?.offerKind ?? "trial";
-        const ctaBs = ctaButtonsForOfferKind(cfg, activeOfferKind);
+        const ctaBs = applyOnlineCourseCtaButtonLabels(
+          ctaButtonsForOfferKind(cfg, activeOfferKind),
+          selectedService
+        );
 
         const sfEff: EffectiveSalesFlowCtaInput = {
           trialRegistered: contactTrialRegistered,
@@ -6686,7 +6692,9 @@ async function processIncoming(
         if (
           activeOfferKind === "course" &&
           courseEnrollBtn &&
-          waLabelMatches(incomingResolved, courseEnrollBtn.label) &&
+          (waLabelMatches(incomingResolved, courseEnrollBtn.label) ||
+            waLabelMatches(incomingResolved, ONLINE_COURSE_ENROLL_CTA_LABEL) ||
+            waLabelMatches(incomingResolved, "הצטרפות לקורס")) &&
           !consumedSf("course_enroll")
         ) {
           const del = courseEnrollBtn.secondary_purchase_delivery ?? "link";
@@ -7266,12 +7274,15 @@ async function processIncoming(
   const sfAiOfferKind = sfAiSelected?.offerKind ?? "trial";
   const filteredCtaForAi =
     sfCfgForAi != null && sfAiEff != null
-      ? sfAiOfferKind === "trial"
-        ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff)
-        : getEffectiveSecondaryOfferCtaButtons(
-            ctaButtonsForOfferKind(sfCfgForAi, sfAiOfferKind),
-            sfClickedCtaKinds
-          )
+      ? applyOnlineCourseCtaButtonLabels(
+          sfAiOfferKind === "trial"
+            ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff)
+            : getEffectiveSecondaryOfferCtaButtons(
+                ctaButtonsForOfferKind(sfCfgForAi, sfAiOfferKind),
+                sfClickedCtaKinds
+              ),
+          sfAiSelected
+        )
       : [];
   const effectiveFollowLabelsForPred =
     sfCfgForAi != null && sfAiEff != null

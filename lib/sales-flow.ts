@@ -1018,6 +1018,19 @@ export function ctaButtonsForOfferKind(cfg: SalesFlowConfig, kind: OfferKind): S
   return cfg.cta_buttons ?? [];
 }
 
+/** כפתור הרשמה לקורס אונליין — תווית קבועה בווטסאפ */
+export const ONLINE_COURSE_ENROLL_CTA_LABEL = "לקורס אונליין";
+
+export function applyOnlineCourseCtaButtonLabels(
+  buttons: SalesFlowCtaButton[],
+  service: { offerKind?: string; locationMode?: string } | null | undefined
+): SalesFlowCtaButton[] {
+  if (service?.offerKind !== "course" || service.locationMode !== "online") return buttons;
+  return buttons.map((b) =>
+    b.kind === "course_enroll" ? { ...b, label: ONLINE_COURSE_ENROLL_CTA_LABEL } : b
+  );
+}
+
 /** x כמשתנה תצוגה ישן — בלי \\b אחרי עברית (JS לא מזהה גבול מילה לפני פיסוק). */
 const CTA_LITERAL_X_PRICE_RE = /x\s+שקלים/gu;
 const CTA_LITERAL_X_DURATION_RE = /x\s+דקות/gu;
@@ -1250,9 +1263,6 @@ export function fillCourseCtaBodyTemplate(
   }
   if (sessionsUnit === "lessons") {
     filled = filled.replace(/מפגשים/g, unitWord);
-  }
-  if (opts?.online) {
-    filled = filled.replace(/לשמור לך מקום\?/g, "להצטרף לקורס?");
   }
   filled = filled.replace(/\n{3,}/g, "\n\n").trim();
   return applyCourseCtaLiteralFallbacks(
@@ -2843,20 +2853,21 @@ export function adaptCourseAfterRegistrationBodyForDelivery(
     t = t
       .replace(
         /מתרגשים לראותך בקרוב ב\{serviceName\}[^\n]*/g,
-        `מתרגשים לקורס ${service} אונליין!`
+        `מתרגשים לראותכם בקורס ${service}!`
       )
       .replace(
         /מתרגשים לראותך בקרוב ב[^\n]*—[^\n]*/g,
-        `מתרגשים לקורס ${service} אונליין!`
+        `מתרגשים לראותכם בקורס ${service}!`
       )
-      .replace(/מתרגשים לראותך בקרוב בקורס!/g, `מתרגשים לקורס ${service} אונליין!`)
-      .replace(/מתרגשים שאתם מצטרפים לקורס[^\n]*/g, `מתרגשים לקורס ${service} אונליין!`)
+      .replace(/מתרגשים לראותך בקרוב בקורס!/g, `מתרגשים לראותכם בקורס ${service}!`)
+      .replace(/מתרגשים שאתם מצטרפים לקורס[^\n]*/g, `מתרגשים לראותכם בקורס ${service}!`)
+      .replace(/מתרגשים לקורס[^\n]*/g, `מתרגשים לראותכם בקורס ${service}!`)
       .replace(/\s*—\s*התחלה ב-\{requested_date\}\{course_schedule\}/g, "")
       .replace(/\{requested_date\}/g, "")
       .replace(/\{requested_time\}/g, "")
       .replace(/\{course_schedule\}/g, "");
     if (!/אונליין/.test(t)) {
-      t = `כל הכבוד! נרשמתם בהצלחה 🎉\n\nמתרגשים לקורס ${service} אונליין!\nנשלח לכם את כל פרטי הגישה והשיעורים בהמשך.\nסופר מחכים להתחיל!\n\n{instagram_cta}`;
+      t = `כל הכבוד! נרשמתם בהצלחה 🎉\n\nמתרגשים לראותכם בקורס ${service}!\nהקורס מתקיים אונליין.\nנשלח לכם את כל פרטי הגישה והשיעורים בהמשך.\nסופר מחכים להתחיל!\n\n{instagram_cta}`;
     }
   }
 
