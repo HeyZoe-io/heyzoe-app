@@ -1,9 +1,25 @@
--- Update AcrobyJoe WhatsApp channel to Meta Cloud API phone_number_id
-update public.whatsapp_channels
-set
-  phone_number_id = '1048979848304824',
-  phone_display = '+972 3 382 3034',
-  business_slug = 'acrobyjoe',
-  is_active = true
-where business_slug = 'acrobyjoe';
+-- Fix AcroByJoe WhatsApp display number (Twilio) in dashboard
+-- Local IL: 03-382-3805 → E.164: +972 3 382 3805
+-- Run in Supabase SQL Editor.
 
+UPDATE public.whatsapp_channels
+SET
+  phone_display = '+972 3 382 3805',
+  is_active = true,
+  provisioning_status = 'active',
+  business_slug = 'acrobyjoe'
+WHERE lower(coalesce(business_slug, '')) = 'acrobyjoe'
+   OR business_id = (SELECT id FROM public.businesses WHERE lower(slug) = 'acrobyjoe' LIMIT 1);
+
+UPDATE public.businesses
+SET
+  whatsapp_number = '+972 3 382 3805',
+  is_active = true,
+  updated_at = now()
+WHERE lower(slug) = 'acrobyjoe';
+
+-- Verify
+SELECT id, business_slug, phone_number_id, phone_display, is_active, provisioning_status
+FROM public.whatsapp_channels
+WHERE lower(coalesce(business_slug, '')) = 'acrobyjoe'
+   OR business_id = (SELECT id FROM public.businesses WHERE lower(slug) = 'acrobyjoe' LIMIT 1);

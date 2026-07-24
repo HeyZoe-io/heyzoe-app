@@ -491,10 +491,14 @@ function WhatsAppNumberSection({
   const [zoeToggleError, setZoeToggleError] = useState(false);
   const status = data?.provisioning_status ?? null;
   const isActiveLocally = data?.is_active === true;
-  const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
+  const phoneDisplayRaw = String(data?.phone_display ?? "").trim();
+  const hasLocalNumber = Boolean(phoneDisplayRaw);
+  /** מספר פעיל מקומית (טוויליו/Meta) — מוצג גם בלי סטטוס Meta CONNECTED */
+  const showLocalConnectedNumber = isActiveLocally && hasLocalNumber && status !== "pending";
+  const friendly = formatIlWhatsAppPhoneFriendly(phoneDisplayRaw);
   const whatsAppSendHref = useMemo(
-    () => whatsAppPrefilledMessageHref(data?.phone_display ?? "", tp.waHi),
-    [data?.phone_display, tp.waHi]
+    () => whatsAppPrefilledMessageHref(phoneDisplayRaw, tp.waHi),
+    [phoneDisplayRaw, tp.waHi]
   );
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
@@ -587,7 +591,7 @@ function WhatsAppNumberSection({
   }, [fetchMetaStatus]);
 
   const badge = useMemo(() => {
-    if (metaStatus === "CONNECTED" && isActiveLocally) {
+    if ((metaStatus === "CONNECTED" || showLocalConnectedNumber) && isActiveLocally) {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
           {tp.statusConnected}
@@ -609,7 +613,7 @@ function WhatsAppNumberSection({
       );
     }
     return null;
-  }, [metaStatus, isActiveLocally]);
+  }, [metaStatus, isActiveLocally, showLocalConnectedNumber, tp.statusConnected, tp.statusPendingApproval, tp.statusUnverified]);
 
   const metaText = useMemo(() => {
     if (metaStatus === "CONNECTED") {
@@ -625,7 +629,7 @@ function WhatsAppNumberSection({
   }, [metaStatus, tp.waConnected, tp.waPending, tp.waUnverified]);
 
   const copy = useCallback(async () => {
-    const value = String(data?.phone_display ?? "").trim();
+    const value = phoneDisplayRaw;
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
@@ -640,7 +644,7 @@ function WhatsAppNumberSection({
       document.execCommand("copy");
       document.body.removeChild(ta);
     }
-  }, [data?.phone_display]);
+  }, [phoneDisplayRaw]);
 
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
@@ -699,9 +703,13 @@ function WhatsAppNumberSection({
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
             {tp.statusProvisioning}
           </span>
-        ) : status === "failed" ? (
+        ) : status === "failed" && !showLocalConnectedNumber ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
             {tp.statusFailed}
+          </span>
+        ) : showLocalConnectedNumber ? (
+          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+            {tp.statusConnected}
           </span>
         ) : (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
@@ -752,7 +760,7 @@ function WhatsAppNumberSection({
         </div>
       ) : null}
 
-      {isActiveLocally && (metaStatus === "CONNECTED" || status === "active") ? (
+      {showLocalConnectedNumber || (isActiveLocally && (metaStatus === "CONNECTED" || status === "active")) ? (
         <div className={`${compact ? "mt-2" : "mt-3"} space-y-1.5 text-right`}>
           <div
             className={`flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white ${
@@ -760,7 +768,7 @@ function WhatsAppNumberSection({
             }`}
           >
             <span className={`font-semibold text-zinc-900 ${compact ? "text-xs" : "text-sm"}`} dir="ltr">
-              {friendly || data?.phone_display || "—"}
+              {friendly || phoneDisplayRaw || "—"}
             </span>
             <div className="flex shrink-0 items-center gap-1">
               <Button
