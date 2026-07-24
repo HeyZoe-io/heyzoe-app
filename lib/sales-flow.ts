@@ -2843,19 +2843,20 @@ export function adaptCourseAfterRegistrationBodyForDelivery(
     t = t
       .replace(
         /מתרגשים לראותך בקרוב ב\{serviceName\}[^\n]*/g,
-        `מתרגשים שאתם מצטרפים לקורס ${service} אונליין!`
+        `מתרגשים לקורס ${service} אונליין!`
       )
       .replace(
         /מתרגשים לראותך בקרוב ב[^\n]*—[^\n]*/g,
-        `מתרגשים שאתם מצטרפים לקורס ${service} אונליין!`
+        `מתרגשים לקורס ${service} אונליין!`
       )
-      .replace(/מתרגשים לראותך בקרוב בקורס!/g, `מתרגשים שאתם מצטרפים לקורס ${service} אונליין!`)
+      .replace(/מתרגשים לראותך בקרוב בקורס!/g, `מתרגשים לקורס ${service} אונליין!`)
+      .replace(/מתרגשים שאתם מצטרפים לקורס[^\n]*/g, `מתרגשים לקורס ${service} אונליין!`)
       .replace(/\s*—\s*התחלה ב-\{requested_date\}\{course_schedule\}/g, "")
       .replace(/\{requested_date\}/g, "")
       .replace(/\{requested_time\}/g, "")
       .replace(/\{course_schedule\}/g, "");
     if (!/אונליין/.test(t)) {
-      t = `כל הכבוד! נרשמתם בהצלחה 🎉\n\nמתרגשים שאתם מצטרפים לקורס ${service} אונליין!\nנשלח לכם את כל פרטי הגישה והשיעורים בהמשך.\nסופר מחכים להתחיל!\n\n{instagram_cta}`;
+      t = `כל הכבוד! נרשמתם בהצלחה 🎉\n\nמתרגשים לקורס ${service} אונליין!\nנשלח לכם את כל פרטי הגישה והשיעורים בהמשך.\nסופר מחכים להתחיל!\n\n{instagram_cta}`;
     }
   }
 
