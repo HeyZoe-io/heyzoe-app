@@ -28,6 +28,7 @@ import {
   type CtaSlotSubChoice,
   type OfferKind,
   type SalesFlowConfig,
+  type ScheduleBoardPlacement,
   type SecondaryPurchaseCtaDelivery,
   type SalesFlowCtaButton,
   WARMUP_MAX_BUTTONS,
@@ -38,9 +39,11 @@ import {
   type SalesFlowExtraStep,
   computeTrialPriceLabel,
   buildWarmupQuizContent,
+  resolveScheduleBoardPlacement,
 } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
+import { cn } from "@/lib/utils";
 
 type ServiceItem = {
   ui_id: string;
@@ -704,6 +707,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const scheduleBoardConfigured = Boolean(
     String(scheduleScanImageUrl ?? "").trim() || String(scheduleBoardLink ?? "").trim()
   );
+  const scheduleBoardPlacement = resolveScheduleBoardPlacement(salesFlowConfig);
+  const [draggingScheduleBoard, setDraggingScheduleBoard] = useState(false);
+  const [scheduleDropHover, setScheduleDropHover] = useState<ScheduleBoardPlacement | null>(null);
+
+  const setScheduleBoardPlacement = (placement: ScheduleBoardPlacement) => {
+    setSalesFlowConfig((c) => ({ ...c, schedule_board_placement: placement }));
+  };
 
   type SalesSectionId =
     | "media"
@@ -714,21 +724,54 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     | "schedule_selection"
     | "cta"
     | "after_trial";
-  const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = useMemo(
-    () => [
-      { id: "media", label: t.salesFlow.sections.media.label, hint: t.salesFlow.sections.media.hint },
-      { id: "opening", label: t.salesFlow.openingMessage, hint: t.salesFlow.sections.opening.hint },
-      { id: "warmup", label: t.salesFlow.warmupQuestion, hint: t.salesFlow.sections.warmup.hint },
-      { id: "schedule_board", label: t.salesFlow.sections.schedule_board.label, hint: t.salesFlow.sections.schedule_board.hint },
-      { id: "service_pick", label: t.salesFlow.answerOptions, hint: t.salesFlow.sections.service_pick.hint },
-      ...(showScheduleSelectionSession
-        ? ([{ id: "schedule_selection", label: t.salesFlow.sections.schedule_selection.label, hint: t.salesFlow.sections.schedule_selection.hint }] as const)
-        : []),
-      { id: "cta", label: t.salesFlow.ctaTrialOffer, hint: t.salesFlow.sections.cta.hint },
-      { id: "after_trial", label: t.salesFlow.postRegistration, hint: t.salesFlow.sections.after_trial.hint },
-    ],
-    [showScheduleSelectionSession, t]
-  );
+  const SALES_SECTIONS: { id: SalesSectionId; label: string; hint?: string }[] = useMemo(() => {
+    const media = { id: "media" as const, label: t.salesFlow.sections.media.label, hint: t.salesFlow.sections.media.hint };
+    const opening = {
+      id: "opening" as const,
+      label: t.salesFlow.openingMessage,
+      hint: t.salesFlow.sections.opening.hint,
+    };
+    const warmup = {
+      id: "warmup" as const,
+      label: t.salesFlow.warmupQuestion,
+      hint: t.salesFlow.sections.warmup.hint,
+    };
+    const scheduleBoard = {
+      id: "schedule_board" as const,
+      label: t.salesFlow.sections.schedule_board.label,
+      hint: t.salesFlow.sections.schedule_board.hint,
+    };
+    const servicePick = {
+      id: "service_pick" as const,
+      label: t.salesFlow.answerOptions,
+      hint: t.salesFlow.sections.service_pick.hint,
+    };
+    const scheduleSelection = {
+      id: "schedule_selection" as const,
+      label: t.salesFlow.sections.schedule_selection.label,
+      hint: t.salesFlow.sections.schedule_selection.hint,
+    };
+    const cta = { id: "cta" as const, label: t.salesFlow.ctaTrialOffer, hint: t.salesFlow.sections.cta.hint };
+    const afterTrial = {
+      id: "after_trial" as const,
+      label: t.salesFlow.postRegistration,
+      hint: t.salesFlow.sections.after_trial.hint,
+    };
+    const mid =
+      scheduleBoardPlacement === "after_opening"
+        ? [scheduleBoard, warmup, servicePick]
+        : scheduleBoardPlacement === "after_service_pick"
+          ? [warmup, servicePick, scheduleBoard]
+          : [warmup, scheduleBoard, servicePick];
+    return [
+      media,
+      opening,
+      ...mid,
+      ...(showScheduleSelectionSession ? [scheduleSelection] : []),
+      cta,
+      afterTrial,
+    ];
+  }, [showScheduleSelectionSession, scheduleBoardPlacement, t]);
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
     useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
       media: true,
@@ -768,6 +811,97 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const openingMediaConfigured = Boolean(String(openingMediaUrl ?? "").trim());
   /** אחרי העלאה שנכשלה לא מראים תצוגה של מדיה שמורה — רק מסגרת העלאה + הודעת שגיאה */
   const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
+
+  const renderScheduleDropSlot = (placement: ScheduleBoardPlacement, label: string) => {
+    if (!draggingScheduleBoard) return null;
+    if (scheduleBoardPlacement === placement) return null;
+    const hovered = scheduleDropHover === placement;
+    return (
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setScheduleDropHover(placement);
+        }}
+        onDragLeave={() => setScheduleDropHover((h) => (h === placement ? null : h))}
+        onDrop={(e) => {
+          e.preventDefault();
+          setScheduleBoardPlacement(placement);
+          setDraggingScheduleBoard(false);
+          setScheduleDropHover(null);
+        }}
+        className={cn(
+          "flex items-center justify-center rounded-xl border-2 border-dashed px-3 py-3 text-xs font-medium transition-colors",
+          hovered
+            ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
+            : "border-zinc-300 bg-zinc-50/80 text-zinc-500"
+        )}
+      >
+        {label}
+      </div>
+    );
+  };
+
+  const renderScheduleBoardSection = () => (
+    <SalesPathSectionBlock
+      stepPrefix="sales"
+      id="schedule_board"
+      title={t.salesFlow.scheduleBoard}
+      open={openSections.schedule_board}
+      onToggle={() => toggle("schedule_board")}
+      filled={scheduleBoardConfigured}
+      leading={
+        <span
+          draggable
+          onDragStart={(e) => {
+            e.stopPropagation();
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", "schedule_board");
+            setDraggingScheduleBoard(true);
+          }}
+          onDragEnd={() => {
+            setDraggingScheduleBoard(false);
+            setScheduleDropHover(null);
+          }}
+          className="inline-flex cursor-grab touch-none items-center justify-center rounded p-1 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"
+          aria-label={t.salesFlow.dragScheduleBoard}
+          title={t.salesFlow.dragScheduleBoard}
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+      }
+    >
+      <div className="space-y-3 text-right" dir={dashboardDir(lang)}>
+        <p className="text-[11px] leading-relaxed text-zinc-500 text-center">
+          {t.salesFlow.scheduleBoardPlacementHint}
+        </p>
+        <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
+          <p className="text-sm text-zinc-800">{t.salesFlow.scheduleBoardCaption}</p>
+        </div>
+        {String(scheduleScanImageUrl ?? "").trim() ? (
+          <div className="rounded-xl border border-zinc-100 bg-white p-3">
+            <p className="text-xs font-semibold text-zinc-700 text-center mb-2">{t.salesFlow.imageToSend}</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={scheduleScanImageUrl.trim()}
+              alt=""
+              className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
+            />
+          </div>
+        ) : String(scheduleBoardLink ?? "").trim() ? (
+          <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
+            {t.salesFlow.noImageLink}{" "}
+            <span dir="ltr" className="font-mono text-[10px] break-all">
+              {scheduleBoardLink.trim()}
+            </span>
+          </p>
+        ) : (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+            {t.salesFlow.addScheduleInLinks}
+          </p>
+        )}
+      </div>
+    </SalesPathSectionBlock>
+  );
 
   return (
     <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
@@ -979,6 +1113,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           </div>
         </SalesPathSectionBlock>
 
+        {renderScheduleDropSlot("after_opening", t.salesFlow.scheduleBoardDropAfterOpening)}
+        {scheduleBoardPlacement === "after_opening" ? renderScheduleBoardSection() : null}
+
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="warmup"
@@ -1093,42 +1230,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           </div>
         </SalesPathSectionBlock>
 
-        <SalesPathSectionBlock
-          stepPrefix="sales"
-          id="schedule_board"
-          title={t.salesFlow.scheduleBoard}
-          open={openSections.schedule_board}
-          onToggle={() => toggle("schedule_board")}
-          filled={scheduleBoardConfigured}
-        >
-          <div className="space-y-3 text-right" dir={dashboardDir(lang)}>
-            <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
-              <p className="text-sm text-zinc-800">{t.salesFlow.scheduleBoardCaption}</p>
-            </div>
-            {String(scheduleScanImageUrl ?? "").trim() ? (
-              <div className="rounded-xl border border-zinc-100 bg-white p-3">
-                <p className="text-xs font-semibold text-zinc-700 text-center mb-2">{t.salesFlow.imageToSend}</p>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={scheduleScanImageUrl.trim()}
-                  alt=""
-                  className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
-                />
-              </div>
-            ) : String(scheduleBoardLink ?? "").trim() ? (
-              <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
-                {t.salesFlow.noImageLink}{" "}
-                <span dir="ltr" className="font-mono text-[10px] break-all">
-                  {scheduleBoardLink.trim()}
-                </span>
-              </p>
-            ) : (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-                {t.salesFlow.addScheduleInLinks}
-              </p>
-            )}
-          </div>
-        </SalesPathSectionBlock>
+        {renderScheduleDropSlot("before_service_pick", t.salesFlow.scheduleBoardDropBeforePick)}
+        {scheduleBoardPlacement === "before_service_pick" ? renderScheduleBoardSection() : null}
 
         <SalesPathSectionBlock
           stepPrefix="sales"
@@ -1154,7 +1257,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     placeholder={t.salesFlow.questionAndButtons}
                   />
                   <p className="text-[11px] leading-relaxed text-zinc-500 text-right">
-                    {t.salesFlow.scheduleSentEarlier}
+                    {scheduleBoardPlacement === "after_service_pick"
+                      ? t.salesFlow.scheduleSentAfterPick
+                      : scheduleBoardPlacement === "after_opening"
+                        ? t.salesFlow.scheduleSentEarlier
+                        : t.salesFlow.scheduleSentBeforePick}
                   </p>
                 </Field>
                 <div className="space-y-3">
@@ -1194,6 +1301,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             )}
           </div>
         </SalesPathSectionBlock>
+
+        {renderScheduleDropSlot("after_service_pick", t.salesFlow.scheduleBoardDropAfterPick)}
+        {scheduleBoardPlacement === "after_service_pick" ? renderScheduleBoardSection() : null}
 
         {showScheduleSelectionSession ? (
           <SalesPathSectionBlock

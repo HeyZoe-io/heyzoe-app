@@ -74,6 +74,7 @@ import {
   buildScheduleSlotPickQuestion,
   DEFAULT_MULTI_SERVICE_QUESTION_TAIL,
   resolveScheduleBoardAssets,
+  resolveScheduleBoardPlacement,
   SCHEDULE_BOARD_CAPTION,
   splitMultiServiceQuestionForWhatsApp,
   stripScheduleLineFromMultiServiceQuestion,
@@ -1349,6 +1350,7 @@ const SCHEDULE_BOARD_SENT_MODELS = new Set([
   "sales_flow_schedule_board_after_opening_single",
   "sales_flow_schedule_board_after_opening_multi",
   "sales_flow_schedule_board_before_service_pick",
+  "sales_flow_schedule_board_after_service_pick",
 ]);
 
 async function ensureScheduleBoardSentOnce(input: {
@@ -1438,7 +1440,35 @@ async function wasScheduleBoardSentInSession(input: {
   }
 }
 
-/** אחרי חימום (או כשחימום כבוי): מערכת שעות → בחירת מוצר (מרובים) / המשך מסלול (יחיד */
+async function maybeSendScheduleBoardForPlacement(input: {
+  knowledge: BusinessKnowledgePack;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  blockTrialPickMedia?: boolean;
+  when: "after_opening" | "after_service_pick";
+}): Promise<ScheduleBoardDelivery> {
+  const placement = resolveScheduleBoardPlacement(input.knowledge.salesFlowConfig);
+  if (placement !== input.when) return "none";
+  return ensureScheduleBoardSentOnce({
+    supabase: input.supabase,
+    assets: scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockTrialPickMedia ?? false),
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    modelUsed:
+      input.when === "after_service_pick"
+        ? "sales_flow_schedule_board_after_service_pick"
+        : "sales_flow_schedule_board_after_opening",
+  });
+}
+
+/** אחרי חימום (או כשחימום כבוי): מערכת שעות (לפי מיקום) → בחירת מוצר (מרובים) / המשך מסלול (יחיד) */
 async function advanceAfterWarmupSessionComplete(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -1473,19 +1503,32 @@ async function advanceAfterWarmupSessionComplete(input: {
   } = input;
 
   try {
-    const scheduleBoardDelivery = await ensureScheduleBoardSentOnce({
-      supabase,
-      assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia ?? false),
-      msg,
-      accountSid,
-      authToken,
-      business_slug,
-      sessionId,
-      modelUsed:
-        salesFlowServices.length === 1
-          ? "sales_flow_schedule_board_after_opening_single"
-          : "sales_flow_schedule_board_after_opening_multi",
-    });
+    const placement = resolveScheduleBoardPlacement(knowledge.salesFlowConfig);
+    // after_opening: כבר נשלח (או safety-net כאן). before_service_pick: עכשיו.
+    // after_service_pick + מרובים: אחרי בחירת מוצר. יחיד: כאן (אין שלב בחירה).
+    const shouldSendScheduleNow =
+      placement === "before_service_pick" ||
+      placement === "after_opening" ||
+      (placement === "after_service_pick" && salesFlowServices.length <= 1);
+
+    let scheduleBoardDelivery: ScheduleBoardDelivery = "none";
+    if (shouldSendScheduleNow) {
+      scheduleBoardDelivery = await ensureScheduleBoardSentOnce({
+        supabase,
+        assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia ?? false),
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        modelUsed:
+          placement === "after_service_pick"
+            ? "sales_flow_schedule_board_after_service_pick"
+            : salesFlowServices.length === 1
+              ? "sales_flow_schedule_board_after_opening_single"
+              : "sales_flow_schedule_board_after_opening_multi",
+      });
+    }
 
     if (salesFlowServices.length > 1) {
       if (scheduleBoardDelivery === "image") {
@@ -2066,7 +2109,8 @@ async function sendOpeningServicePickMenu(input: {
 
   const qRaw = String(cfg.multi_service_question ?? "").trim() || buildDefaultMultiServiceQuestion();
   const assets = scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockMedia ?? false);
-  if (!input.skipScheduleBoard) {
+  const placement = resolveScheduleBoardPlacement(cfg);
+  if (!input.skipScheduleBoard && placement === "before_service_pick") {
     const scheduleBoardDelivery = await sendScheduleBoardAfterOpening({
       assets,
       msg: input.msg,
@@ -3130,6 +3174,22 @@ async function sendFlowContinuation(input: {
       return;
     }
 
+    {
+      const scheduleDelivery = await maybeSendScheduleBoardForPlacement({
+        knowledge,
+        supabase,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockTrialPickMedia,
+        when: "after_opening",
+      });
+      if (scheduleDelivery === "image") {
+        await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+      }
+    }
     await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "warmup" });
     await sendFlowContinuation({
       phase: "warmup",
@@ -3659,6 +3719,22 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
       if (warmupAlreadyComplete) {
         await advanceAfterWarmupSessionComplete(flowBase);
         return true;
+      }
+      {
+        const scheduleDelivery = await maybeSendScheduleBoardForPlacement({
+          knowledge: input.knowledge,
+          supabase: input.supabase,
+          msg: input.msg,
+          accountSid: input.accountSid,
+          authToken: input.authToken,
+          business_slug: input.business_slug,
+          sessionId: input.sessionId,
+          blockTrialPickMedia: input.blockTrialPickMedia,
+          when: "after_opening",
+        });
+        if (scheduleDelivery === "image") {
+          await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+        }
       }
       await updateContactSessionPhase({
         supabase: input.supabase,
@@ -5631,6 +5707,20 @@ async function processIncoming(
           model_used: "sf_service_pick",
           session_id: sessionId,
         });
+        const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+          knowledge,
+          supabase,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          when: "after_service_pick",
+        });
+        if (scheduleAfterPick === "image") {
+          await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+        }
         const nextPhase = scheduleSelectionPhaseAfterService(knowledge, picked);
         const phoneVariantsAfterPick = contactPhoneLookupVariants(msg.from);
         await supabase
@@ -5744,6 +5834,22 @@ async function processIncoming(
         contactFlowStep = 0;
         contactScheduleRequestedDate = "";
         contactScheduleRequestedTime = "";
+        {
+          const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+            knowledge,
+            supabase,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            when: "after_service_pick",
+          });
+          if (scheduleAfterPick === "image") {
+            await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+          }
+        }
         await sendFlowContinuation({
           phase: contactSessionPhase,
           contact: { flow_step: 0 },

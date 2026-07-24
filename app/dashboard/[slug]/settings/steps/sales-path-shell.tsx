@@ -49,6 +49,7 @@ export function SalesPathSectionBlock({
   children,
   headerAction,
   titleAction,
+  leading,
 }: {
   stepPrefix: string;
   id: string;
@@ -61,11 +62,18 @@ export function SalesPathSectionBlock({
   headerAction?: ReactNode;
   /** מוצג משמאל לכותרת (RTL) בשורת הכותרת */
   titleAction?: ReactNode;
+  /** ידית גרירה / אייקון לפני הכותרת */
+  leading?: ReactNode;
 }) {
   const sectionDomId = `${stepPrefix}-section-${id}`;
   return (
     <section id={sectionDomId} className="scroll-mt-24 overflow-hidden rounded-xl border border-zinc-200/70 bg-white">
       <div className="flex items-stretch gap-2">
+        {leading ? (
+          <div className="flex shrink-0 items-center ps-2" onClick={(e) => e.stopPropagation()}>
+            {leading}
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={onToggle}
