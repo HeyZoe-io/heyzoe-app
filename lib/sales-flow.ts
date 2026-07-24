@@ -114,6 +114,8 @@ export type SalesFlowConfig = {
   /** סשן הנעה — קורס */
   cta_course_body: string;
   cta_course_buttons: SalesFlowCtaButton[];
+  /** סשן הנעה — קורס אונליין (נפרד מקורס פיזי) */
+  cta_course_online_body: string;
   cta_extra_steps: SalesFlowExtraStep[];
   /** הודעת המשך קצרה עם תפריט קבוע אחרי שליחת לינק (הרשמה / מערכת שעות / מנויים) */
   followup_after_next_class_body: string;
@@ -402,6 +404,8 @@ const FRIENDLY: SalesFlowConfig = {
     },
     { id: "cta-course-contact", label: "יצירת קשר", kind: "course_contact" },
   ],
+  cta_course_online_body:
+    "מה דעתך להצטרף לקורס האונליין שלנו? המחיר הוא {price} שקלים, הוא כולל {sessions} מפגשים, וזו חוויה בלתי נשכחת ומלמדת",
   cta_extra_steps: [],
   followup_after_next_class_body: "שנשריין לך את האימון? 🙂",
   followup_after_next_class_options: [
@@ -1225,6 +1229,29 @@ export function resolveCourseCyclePickQuestion(cfg: SalesFlowConfig | null | und
   return q || "מתי נוח לך להתחיל את הקורס?";
 }
 
+/** ברירת מחדל ל־CTA של קורס אונליין (בלי תאריכים). */
+export const DEFAULT_CTA_COURSE_ONLINE_BODY =
+  "מה דעתך להצטרף לקורס האונליין שלנו? המחיר הוא {price} שקלים, הוא כולל {sessions} מפגשים, וזו חוויה בלתי נשכחת ומלמדת";
+
+/** CTA קורס אונליין עם טווח תאריכים. */
+export const DEFAULT_CTA_COURSE_ONLINE_BODY_WITH_DATES =
+  "מה דעתך להצטרף לקורס האונליין שלנו? המחיר הוא {price} שקלים, הוא כולל {sessions} מפגשים בתאריכים {start_date} עד {end_date}, וזו חוויה בלתי נשכחת ומלמדת";
+
+export function defaultCtaCourseOnlineBody(hasDates: boolean): string {
+  return hasDates ? DEFAULT_CTA_COURSE_ONLINE_BODY_WITH_DATES : DEFAULT_CTA_COURSE_ONLINE_BODY;
+}
+
+export function resolveCourseCtaBodyTemplate(
+  cfg: SalesFlowConfig,
+  opts?: { online?: boolean; hasDates?: boolean }
+): string {
+  if (opts?.online) {
+    const stored = String(cfg.cta_course_online_body ?? "").trim();
+    return stored || defaultCtaCourseOnlineBody(Boolean(opts.hasDates));
+  }
+  return String(cfg.cta_course_body ?? "").trim();
+}
+
 export function fillCourseCtaBodyTemplate(
   template: string,
   priceText: string,
@@ -1245,6 +1272,7 @@ export function fillCourseCtaBodyTemplate(
   const hour = scheduleHour.trim();
   const sessionsUnit = opts?.sessionsUnit ?? "sessions";
   const unitWord = sessionsUnit === "lessons" ? "שיעורים" : "מפגשים";
+  const hasDates = Boolean(a && b);
   const normalized = normalizeCtaTemplateFromEditor(template, "course");
   let filled = normalized
     .replace(/\{priceText\}/g, p)
@@ -1264,19 +1292,35 @@ export function fillCourseCtaBodyTemplate(
       .replace(/מפגשים,\s*$/gm, "מפגשים.")
       .replace(/שיעורים,\s*$/gm, "שיעורים.");
   }
-  if (!day && !hour && !sched) {
+  if (!hasDates) {
     filled = filled
-      .replace(/כל יום\s+בשעה\s*/g, "")
-      .replace(/כל יום\s*\{day\}\s*בשעה\s*\{hour\}/gi, "")
+      .replace(/בתאריכים\s*\{start_date\}\s*עד\s*\{end_date\}/gi, "")
+      .replace(/בתאריכים\s+עד/g, "")
+      .replace(/התאריכים:\s*עד/g, "")
+      .replace(/התאריכים:\s*/g, "")
+      .replace(/תאריכים:\s*עד/g, "")
+      .replace(/תאריכים:\s*/g, "")
       .replace(/\s*—\s*\{start_date\}\s*עד\s*\{end_date\}/gi, "")
       .replace(/\{start_date\}\s*עד\s*\{end_date\}/gi, "")
       .replace(/\s*—\s*עד\s*/g, "")
-      .replace(/^\s*עד\s*$/gm, "");
+      .replace(/^\s*עד\s*$/gm, "")
+      .replace(/מפגשים\s+בתאריכים\s*,/g, "מפגשים,")
+      .replace(/מפגשים\s+בתאריכים\s+/g, "מפגשים ")
+      .replace(/מפגשים\s*,\s*,/g, "מפגשים,")
+      .replace(/,\s*,/g, ",");
+  }
+  if (!day && !hour && !sched) {
+    filled = filled
+      .replace(/כל יום\s+בשעה\s*/g, "")
+      .replace(/כל יום\s*\{day\}\s*בשעה\s*\{hour\}/gi, "");
+  }
+  if (opts?.online && hasDates && !/בתאריכים/.test(filled)) {
+    filled = filled.replace(/(\d+|\.\.\.)\s+מפגשים/u, `$1 מפגשים בתאריכים ${a} עד ${b}`);
   }
   if (sessionsUnit === "lessons") {
     filled = filled.replace(/מפגשים/g, unitWord);
   }
-  filled = filled.replace(/\n{3,}/g, "\n\n").trim();
+  filled = filled.replace(/\n{3,}/g, "\n\n").replace(/[ \t]{2,}/g, " ").trim();
   return applyCourseCtaLiteralFallbacks(
     filled,
     priceText,
@@ -1308,16 +1352,23 @@ export function fillOfferKindCtaBody(
     return fillWorkshopCtaBodyTemplate(cfg.cta_workshop_body ?? "", row.priceText, row.durationText);
   }
   if (kind === "course") {
+    const online = Boolean(row.online);
+    const hasDates = Boolean(String(row.startDate ?? "").trim() && String(row.endDate ?? "").trim());
+    const template = resolveCourseCtaBodyTemplate(cfg, { online, hasDates });
     return fillCourseCtaBodyTemplate(
-      cfg.cta_course_body ?? "",
+      template,
       row.priceText,
       row.sessionsText,
       row.startDate,
       row.endDate,
-      row.schedulePhrase ?? "",
-      row.scheduleDay ?? "",
-      row.scheduleHour ?? "",
-      { online: row.online, sessionsUnit: row.sessionsUnit }
+      online ? "" : row.schedulePhrase ?? "",
+      online ? "" : row.scheduleDay ?? "",
+      online ? "" : row.scheduleHour ?? "",
+      {
+        online,
+        // טקסט ברירת מחדל לאונליין משתמש ב«מפגשים» לפי ניסוח המוצר
+        sessionsUnit: online ? "sessions" : row.sessionsUnit ?? "sessions",
+      }
     );
   }
   return fillCtaBodyTemplate(cfg.cta_body, row.priceText, row.durationText);
@@ -1628,6 +1679,10 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     cta_workshop_buttons: parseOfferKindFlowButtons(o.cta_workshop_buttons, base.cta_workshop_buttons),
     cta_course_body: typeof o.cta_course_body === "string" ? o.cta_course_body : base.cta_course_body,
     cta_course_buttons: parseOfferKindFlowButtons(o.cta_course_buttons, base.cta_course_buttons),
+    cta_course_online_body:
+      typeof o.cta_course_online_body === "string" && String(o.cta_course_online_body).trim()
+        ? String(o.cta_course_online_body)
+        : base.cta_course_online_body,
     cta_extra_steps: parseExtraSteps(o.cta_extra_steps),
     followup_after_next_class_body:
       typeof o.followup_after_next_class_body === "string"
@@ -1811,6 +1866,7 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
       return row;
     }),
     cta_course_body: c.cta_course_body,
+    cta_course_online_body: c.cta_course_online_body,
     cta_course_buttons: (c.cta_course_buttons ?? []).map((b) => {
       const row: Record<string, unknown> = { id: b.id, label: truncateWaButtonLabel(b.label), kind: b.kind };
       if (b.kind === "workshop_purchase" || b.kind === "course_enroll") {

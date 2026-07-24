@@ -23,6 +23,7 @@ import {
   appendTrialPromotionToCtaBody,
   composeGreeting,
   defaultSalesFlowConfig,
+  defaultCtaCourseOnlineBody,
   fillAfterExperienceTemplate,
   ctaTemplateForEditor,
   storeCourseCtaBodyFromDisplay,
@@ -1337,22 +1338,51 @@ export default function SlugSettingsPage({
   }, [services]);
 
   const courseCtaSample = useMemo(() => {
-    const row = services.find((s) => s.name.trim() && s.offer_kind === "course");
+    const row = services.find(
+      (s) => s.name.trim() && s.offer_kind === "course" && s.location_mode !== "online"
+    );
     if (!row) {
       return { priceText: "", sessionsText: "", startDate: "", endDate: "", schedulePhrase: "" };
     }
-    const fromCycles = syncCourseLegacyDatesFromCycles(row.course_cycles ?? []);
+    const datesOn = row.course_dates_enabled !== false;
+    const fromCycles = datesOn ? syncCourseLegacyDatesFromCycles(row.course_cycles ?? []) : { course_start_date: "", course_end_date: "" };
     return {
       priceText: row.price_text.trim(),
       sessionsText: row.course_sessions_count.trim(),
-      startDate: fromCycles.course_start_date || row.course_start_date.trim(),
-      endDate: fromCycles.course_end_date || row.course_end_date.trim(),
-      schedulePhrase: buildCourseSchedulePhraseForCta(row.course_cycles ?? []),
+      startDate: fromCycles.course_start_date || (datesOn ? row.course_start_date.trim() : ""),
+      endDate: fromCycles.course_end_date || (datesOn ? row.course_end_date.trim() : ""),
+      schedulePhrase: datesOn ? buildCourseSchedulePhraseForCta(row.course_cycles ?? []) : "",
+    };
+  }, [services]);
+
+  const courseOnlineCtaSample = useMemo(() => {
+    const row = services.find(
+      (s) => s.name.trim() && s.offer_kind === "course" && s.location_mode === "online"
+    );
+    if (!row) {
+      return { priceText: "", sessionsText: "", startDate: "", endDate: "", hasDates: false };
+    }
+    const datesOn = row.course_dates_enabled !== false;
+    const fromCycles = datesOn ? syncCourseLegacyDatesFromCycles(row.course_cycles ?? []) : { course_start_date: "", course_end_date: "" };
+    const startDate = fromCycles.course_start_date || (datesOn ? row.course_start_date.trim() : "");
+    const endDate = fromCycles.course_end_date || (datesOn ? row.course_end_date.trim() : "");
+    return {
+      priceText: row.price_text.trim(),
+      sessionsText: row.course_sessions_count.trim(),
+      startDate,
+      endDate,
+      hasDates: datesOn && Boolean(startDate && endDate),
     };
   }, [services]);
 
   const hasWorkshopOffers = services.some((s) => s.name.trim() && s.offer_kind === "workshop");
   const hasCourseOffers = services.some((s) => s.name.trim() && s.offer_kind === "course");
+  const hasCoursePhysicalOffers = services.some(
+    (s) => s.name.trim() && s.offer_kind === "course" && s.location_mode !== "online"
+  );
+  const hasCourseOnlineOffers = services.some(
+    (s) => s.name.trim() && s.offer_kind === "course" && s.location_mode === "online"
+  );
   const hasTrialOffers = services.some((s) => s.name.trim() && s.offer_kind === "trial");
 
   const factQuestions = useMemo(() => {
@@ -2063,7 +2093,7 @@ export default function SlugSettingsPage({
         | "warmup"
         | "cta"
         | "after_trial_registration",
-      warmupOfferKind: OfferKind = "trial"
+      warmupOfferKind: OfferKind | "course_online" = "trial"
     ) => {
       const base = defaultSalesFlowConfig(vibe);
       if (section === "service_pick") {
@@ -2091,9 +2121,10 @@ export default function SlugSettingsPage({
           };
         }
         if (section === "warmup") {
+          const kind = warmupOfferKind === "course_online" ? "course" : warmupOfferKind;
           return {
             ...c,
-            ...patchWarmupRegenerationForOfferKind(c, base, warmupOfferKind, uid),
+            ...patchWarmupRegenerationForOfferKind(c, base, kind, uid),
           };
         }
         if (section === "cta") {
@@ -2109,6 +2140,13 @@ export default function SlugSettingsPage({
             return {
               ...c,
               cta_course_body: base.cta_course_body,
+              cta_course_buttons: structuredClone(base.cta_course_buttons),
+            };
+          }
+          if (kind === "course_online") {
+            return {
+              ...c,
+              cta_course_online_body: defaultCtaCourseOnlineBody(courseOnlineCtaSample.hasDates),
               cta_course_buttons: structuredClone(base.cta_course_buttons),
             };
           }
@@ -2161,7 +2199,7 @@ export default function SlugSettingsPage({
         return c;
       });
     },
-    [regenerateServiceBenefitLinesFromDescriptions, vibe]
+    [regenerateServiceBenefitLinesFromDescriptions, vibe, courseOnlineCtaSample.hasDates]
   );
 
   const regenerateSalesFlowSectionBusy = useCallback(
@@ -2172,7 +2210,7 @@ export default function SlugSettingsPage({
         | "warmup"
         | "cta"
         | "after_trial_registration",
-      warmupOfferKind?: OfferKind
+      warmupOfferKind?: OfferKind | "course_online"
     ) => {
       const busyKey =
         section === "warmup" && warmupOfferKind
@@ -2918,8 +2956,11 @@ export default function SlugSettingsPage({
             hasTrialOffers={hasTrialOffers}
             hasWorkshopOffers={hasWorkshopOffers}
             hasCourseOffers={hasCourseOffers}
+            hasCoursePhysicalOffers={hasCoursePhysicalOffers}
+            hasCourseOnlineOffers={hasCourseOnlineOffers}
             workshopCtaSample={workshopCtaSample}
             courseCtaSample={courseCtaSample}
+            courseOnlineCtaSample={courseOnlineCtaSample}
             workshopCtaBodyForDisplayUi={workshopCtaBodyForDisplayUi}
             workshopCtaBodyToStore={workshopCtaBodyToStore}
             courseCtaBodyForDisplayUi={courseCtaBodyForDisplayUi}

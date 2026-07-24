@@ -69,7 +69,7 @@ type ServiceItem = {
   course_dates_enabled: boolean;
 };
 
-type CtaOfferTab = "trial" | "workshop" | "course";
+type CtaOfferTab = "trial" | "workshop" | "course" | "course_online";
 
 type Step4SalesFlowProps = {
   lang?: DashboardLang;
@@ -90,7 +90,7 @@ type Step4SalesFlowProps = {
   mediaUploadError: string;
   regenerateSalesFlowSection: (
     section: "opening" | "service_pick" | "warmup" | "cta" | "after_trial_registration",
-    warmupOfferKind?: "trial" | "workshop" | "course"
+    warmupOfferKind?: "trial" | "workshop" | "course" | "course_online"
   ) => void;
   regeneratingKey: string | null;
   salesFlowConfig: SalesFlowConfig;
@@ -116,6 +116,8 @@ type Step4SalesFlowProps = {
   hasTrialOffers: boolean;
   hasWorkshopOffers: boolean;
   hasCourseOffers: boolean;
+  hasCoursePhysicalOffers: boolean;
+  hasCourseOnlineOffers: boolean;
   workshopCtaSample: { priceText: string; durationText: string };
   courseCtaSample: {
     priceText: string;
@@ -123,6 +125,13 @@ type Step4SalesFlowProps = {
     startDate: string;
     endDate: string;
     schedulePhrase: string;
+  };
+  courseOnlineCtaSample: {
+    priceText: string;
+    sessionsText: string;
+    startDate: string;
+    endDate: string;
+    hasDates: boolean;
   };
   workshopCtaBodyForDisplayUi: (stored: string) => string;
   workshopCtaBodyToStore: (typed: string, priceText: string, durationText: string) => string;
@@ -144,13 +153,34 @@ function resolveOfferTab(
   preferred: CtaOfferTab,
   hasTrial: boolean,
   hasWorkshop: boolean,
-  hasCourse: boolean
+  hasCoursePhysical: boolean,
+  hasCourseOnline: boolean
 ): CtaOfferTab {
   const ok =
     (preferred === "trial" && hasTrial) ||
     (preferred === "workshop" && hasWorkshop) ||
-    (preferred === "course" && hasCourse);
+    (preferred === "course" && hasCoursePhysical) ||
+    (preferred === "course_online" && hasCourseOnline);
   if (ok) return preferred;
+  if (hasTrial) return "trial";
+  if (hasWorkshop) return "workshop";
+  if (hasCoursePhysical) return "course";
+  if (hasCourseOnline) return "course_online";
+  return "trial";
+}
+
+function resolveScheduleOfferTab(
+  preferred: CtaOfferTab,
+  hasTrial: boolean,
+  hasWorkshop: boolean,
+  hasCourse: boolean
+): CtaOfferTab {
+  const preferredNorm = preferred === "course_online" ? "course" : preferred;
+  const ok =
+    (preferredNorm === "trial" && hasTrial) ||
+    (preferredNorm === "workshop" && hasWorkshop) ||
+    (preferredNorm === "course" && hasCourse);
+  if (ok) return preferredNorm;
   if (hasTrial) return "trial";
   if (hasWorkshop) return "workshop";
   return "course";
@@ -507,8 +537,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     hasTrialOffers,
     hasWorkshopOffers,
     hasCourseOffers,
+    hasCoursePhysicalOffers,
+    hasCourseOnlineOffers,
     workshopCtaSample,
     courseCtaSample,
+    courseOnlineCtaSample,
     workshopCtaBodyForDisplayUi,
     workshopCtaBodyToStore,
     courseCtaBodyForDisplayUi,
@@ -575,12 +608,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     </Field>
   );
 
-  const hasAnyCtaOfferTab = hasTrialOffers || hasWorkshopOffers || hasCourseOffers;
+  const hasAnyCtaOfferTab =
+    hasTrialOffers || hasWorkshopOffers || hasCoursePhysicalOffers || hasCourseOnlineOffers;
 
   const [ctaOfferTabPreferred, setCtaOfferTab] = useState<CtaOfferTab>(() => {
     if (hasTrialOffers) return "trial";
     if (hasWorkshopOffers) return "workshop";
-    return "course";
+    if (hasCoursePhysicalOffers) return "course";
+    return "course_online";
   });
   const ctaOfferTab = useMemo(
     () =>
@@ -588,9 +623,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         ctaOfferTabPreferred,
         hasTrialOffers,
         hasWorkshopOffers,
-        hasCourseOffers
+        hasCoursePhysicalOffers,
+        hasCourseOnlineOffers
       ),
-    [ctaOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCourseOffers]
+    [ctaOfferTabPreferred, hasTrialOffers, hasWorkshopOffers, hasCoursePhysicalOffers, hasCourseOnlineOffers]
   );
 
   const hasAnyScheduleOfferTab = hasTrialOffers || hasWorkshopOffers || hasCourseOffers;
@@ -601,7 +637,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   });
   const scheduleOfferTab = useMemo(
     () =>
-      resolveOfferTab(
+      resolveScheduleOfferTab(
         scheduleOfferTabPreferred,
         hasTrialOffers,
         hasWorkshopOffers,
@@ -611,12 +647,20 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   useEffect(() => {
-    setCtaOfferTab((prev) => resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers));
-  }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
+    setCtaOfferTab((prev) =>
+      resolveOfferTab(
+        prev,
+        hasTrialOffers,
+        hasWorkshopOffers,
+        hasCoursePhysicalOffers,
+        hasCourseOnlineOffers
+      )
+    );
+  }, [hasTrialOffers, hasWorkshopOffers, hasCoursePhysicalOffers, hasCourseOnlineOffers]);
 
   useEffect(() => {
     setScheduleOfferTab((prev) =>
-      resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers)
+      resolveScheduleOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers)
     );
   }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
@@ -627,7 +671,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   });
   const afterRegOfferTab = useMemo(
     () =>
-      resolveOfferTab(
+      resolveScheduleOfferTab(
         afterRegOfferTabPreferred,
         hasTrialOffers,
         hasWorkshopOffers,
@@ -638,7 +682,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
   useEffect(() => {
     setAfterRegOfferTab((prev) =>
-      resolveOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers)
+      resolveScheduleOfferTab(prev, hasTrialOffers, hasWorkshopOffers, hasCourseOffers)
     );
   }, [hasTrialOffers, hasWorkshopOffers, hasCourseOffers]);
 
@@ -687,18 +731,22 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
       : salesFlowConfig.cta_body;
     const trialOk = !hasTrialOffers || Boolean(String(trialBody ?? "").trim());
     const workshopOk = !hasWorkshopOffers || Boolean(String(salesFlowConfig.cta_workshop_body ?? "").trim());
-    const courseOk = !hasCourseOffers || Boolean(String(salesFlowConfig.cta_course_body ?? "").trim());
+    const courseOk =
+      (!hasCoursePhysicalOffers || Boolean(String(salesFlowConfig.cta_course_body ?? "").trim())) &&
+      (!hasCourseOnlineOffers || Boolean(String(salesFlowConfig.cta_course_online_body ?? "").trim()));
     return trialOk && workshopOk && courseOk;
   }, [
     hasAnyCtaOfferTab,
     hasTrialOffers,
     hasWorkshopOffers,
-    hasCourseOffers,
+    hasCoursePhysicalOffers,
+    hasCourseOnlineOffers,
     showScheduleSelectionSession,
     salesFlowConfig.cta_body,
     salesFlowConfig.cta_body_after_schedule,
     salesFlowConfig.cta_workshop_body,
     salesFlowConfig.cta_course_body,
+    salesFlowConfig.cta_course_online_body,
   ]);
 
   const trialCtaButtonsForUi = useMemo(
@@ -1603,7 +1651,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     {t.salesFlow.workshop}
                 </button>
               ) : null}
-              {hasCourseOffers ? (
+              {hasCoursePhysicalOffers ? (
                 <button
                   type="button"
                   role="tab"
@@ -1615,7 +1663,22 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   }`}
                   onClick={() => setCtaOfferTab("course")}
                 >
-                    {t.salesFlow.course}
+                  {t.salesFlow.course}
+                </button>
+              ) : null}
+              {hasCourseOnlineOffers ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ctaOfferTab === "course_online"}
+                  className={`text-xs font-medium rounded-full px-2.5 py-1 border transition-colors text-right ${
+                    ctaOfferTab === "course_online"
+                      ? "border-[#7133da]/25 bg-[#f8f5ff] text-[#4b2a86]"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                  onClick={() => setCtaOfferTab("course_online")}
+                >
+                  {t.salesFlow.courseOnline}
                 </button>
               ) : null}
             </div>
@@ -1953,7 +2016,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               </>
             ) : null}
 
-            {ctaOfferTab === "course" && hasCourseOffers ? (
+            {ctaOfferTab === "course" && hasCoursePhysicalOffers ? (
               <>
                 <div>
                   <Textarea
@@ -1987,6 +2050,89 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       b.secondary_purchase_delivery === "phone" ? "phone" : "link";
                     return (
                       <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                        <Field label={t.salesFlow.button(bi + 1)} description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)} lang={lang}>
+                          <WaButtonLabelInput
+                            value={b.label}
+                            onValueChange={(v) => {
+                              setSalesFlowConfig((c) => ({
+                                ...c,
+                                cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                  x.id === b.id ? { ...x, label: v } : x
+                                ),
+                              }));
+                            }}
+                          />
+                        </Field>
+                        <div className="space-y-1.5">
+                          <label className="block text-center text-xs font-medium text-zinc-600">
+                            {enroll ? t.salesFlow.courseEnroll : t.salesFlow.contact}
+                          </label>
+                          {enroll ? (
+                            <select
+                              dir={dashboardDir(lang)}
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                              value={del}
+                              onChange={(e) => {
+                                const next: SecondaryPurchaseCtaDelivery =
+                                  e.target.value === "phone" ? "phone" : "link";
+                                setSalesFlowConfig((c) => ({
+                                  ...c,
+                                  cta_course_buttons: (c.cta_course_buttons ?? []).map((x: SalesFlowCtaButton) =>
+                                    x.id === b.id ? { ...x, secondary_purchase_delivery: next } : x
+                                  ),
+                                }));
+                              }}
+                            >
+                              <option value="link">{t.salesFlow.linkFromProducts}</option>
+                              <option value="phone">{t.salesFlow.deliveryPhone}</option>
+                            </select>
+                          ) : (
+                            <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
+                              {t.salesFlow.deliveryFixed}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            {ctaOfferTab === "course_online" && hasCourseOnlineOffers ? (
+              <>
+                <div>
+                  <Textarea
+                    value={courseCtaBodyForDisplayUi(salesFlowConfig.cta_course_online_body ?? "")}
+                    onChange={(v) =>
+                      setSalesFlowConfig((c) => ({
+                        ...c,
+                        cta_course_online_body: courseCtaBodyToStore(
+                          v,
+                          courseOnlineCtaSample.priceText,
+                          courseOnlineCtaSample.sessionsText,
+                          courseOnlineCtaSample.startDate,
+                          courseOnlineCtaSample.endDate,
+                          ""
+                        ),
+                      }))
+                    }
+                    rows={4}
+                    placeholder="מה דעתך להצטרף לקורס האונליין שלנו? המחיר הוא {price} שקלים, הוא כולל {sessions} מפגשים, וזו חוויה בלתי נשכחת ומלמדת"
+                  />
+                  <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
+                    {lang === "en"
+                      ? "Variables: {price} {sessions} — and {start_date}/{end_date} only when online course dates are enabled."
+                      : "משתנים: {price} מחיר · {sessions} מפגשים · עם מועדים: גם {start_date}/{end_date} (בתאריכים … עד …). בלי מועדים — בלי שורת תאריכים."}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
+                    const enroll = b.kind === "course_enroll";
+                    const del: SecondaryPurchaseCtaDelivery =
+                      b.secondary_purchase_delivery === "phone" ? "phone" : "link";
+                    return (
+                      <div key={`online-${b.id}`} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
                         <Field label={t.salesFlow.button(bi + 1)} description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)} lang={lang}>
                           <WaButtonLabelInput
                             value={b.label}
