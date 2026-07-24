@@ -129,7 +129,7 @@ SET
     "after_experience_course": "So cool — the {serviceName} course will help you build a strong foundation and learn new skills.",
     "cta_body_after_schedule": "Now all that's left is to secure your spot with payment for the trial class. The class costs {priceText} ₪, lasts {durationText} minutes, and it's going to be a lot of fun. Shall we continue?",
     "show_memberships_button": true,
-    "after_schedule_selection": "Awesome! We'll make sure to schedule you for the time you chose!",
+    "after_schedule_selection": "Awesome! We'll make sure to schedule you for {serviceName} on {requested_date} at {requested_time}!",
     "after_experience_workshop": "How fun to hear — the {serviceName} workshop is exactly the place for that.",
     "experience_options_course": [
       "Strength and Toning",

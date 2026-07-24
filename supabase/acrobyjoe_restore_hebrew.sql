@@ -127,7 +127,7 @@ SET
     "after_experience_course": "מגניב לגמרי, קורס {serviceName} יאפשר לך לבנות יסודות חזקים ולרכוש מיומנויות חדשות.",
     "cta_body_after_schedule": "עכשיו רק נותר לשריין את מקומך באמצעות תשלום על האימון ניסיון. האימון עולה {priceText} שקלים, הוא נמשך {durationText} דקות ובאמת שהולך להיות כיף. שנתקדם?",
     "show_memberships_button": true,
-    "after_schedule_selection": "מהמם! נדאג לשבץ אותך למועד שבחרת!",
+    "after_schedule_selection": "מהמם! נדאג לשבץ אותך ל{serviceName} ביום {requested_date} בשעה {requested_time}",
     "after_experience_workshop": "איזה כיף לשמוע, סדנת {serviceName} היא בדיוק המקום לזה.",
     "experience_options_course": [
       "כוח וחיטוב",
