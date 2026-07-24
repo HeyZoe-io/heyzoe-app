@@ -289,6 +289,7 @@ export const dashboardSettingsI18n = {
       needProductsForCta:
         "כדי לערוך הנעה לפעולה — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים» (שלב 3).",
       ctaTypeAria: "סוג סשן הנעה לפעולה",
+      ctaBodyText: "טקסט הנעה לפעולה",
       button: (n: number) => `כפתור ${n}`,
       charsMax: (n: number) => `עד ${n} תווים`,
       linkFromProducts: "לינק מטאב «מוצרים»",
@@ -712,6 +713,7 @@ export const dashboardSettingsI18n = {
       needProductsForCta:
         "To edit CTA — add a trial, workshop, or course in Products (step 3).",
       ctaTypeAria: "CTA session type",
+      ctaBodyText: "Call-to-action text",
       button: (n: number) => `Button ${n}`,
       charsMax: (n: number) => `Up to ${n} characters`,
       linkFromProducts: "Link from Products tab",

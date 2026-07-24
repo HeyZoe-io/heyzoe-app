@@ -1132,25 +1132,30 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               : salesOpeningAutoText
             )?.trim()
           )}
-          headerAction={
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1 text-xs py-1.5 px-3 h-auto"
-              disabled={isSalesGenerating}
-              onClick={() => (warmupStyle === "quiz" ? applyWarmupStyleQuiz() : regenerateSalesFlowSection("opening"))}
-            >
-              {isGen("opening") ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {isGen("opening") ? t.generating : t.regenerate}
-            </Button>
-          }
         >
           <div className="space-y-3">
-            <Field label={t.salesFlow.openingText} lang={lang}>
+            <Field
+              label={t.salesFlow.openingText}
+              lang={lang}
+              labelAction={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1 text-xs py-1.5 px-3 h-auto"
+                  disabled={isSalesGenerating}
+                  onClick={() =>
+                    warmupStyle === "quiz" ? applyWarmupStyleQuiz() : regenerateSalesFlowSection("opening")
+                  }
+                >
+                  {isGen("opening") ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  {isGen("opening") ? t.generating : t.regenerate}
+                </Button>
+              }
+            >
               <Textarea
                 value={
                   salesFlowConfig.greeting_body_override !== undefined
@@ -1589,24 +1594,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           open={openSections.cta}
           onToggle={() => toggle("cta")}
           filled={ctaSectionFilled}
-          headerAction={
-            hasAnyCtaOfferTab ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-1 text-xs py-1.5 px-3 h-auto"
-                disabled={isSalesGenerating}
-                onClick={() => regenerateSalesFlowSection("cta", ctaOfferTab)}
-              >
-                {isGen("cta", ctaOfferTab) ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                {isGen("cta", ctaOfferTab) ? t.generating : t.regenerate}
-              </Button>
-            ) : null
-          }
         >
           <div className="space-y-4">
             {!hasAnyCtaOfferTab ? (
@@ -1685,7 +1672,26 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
             {ctaOfferTab === "trial" && hasTrialOffers ? (
               <>
-            <div>
+            <Field
+              label={t.salesFlow.ctaBodyText}
+              lang={lang}
+              labelAction={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1 text-xs py-1.5 px-3 h-auto"
+                  disabled={isSalesGenerating}
+                  onClick={() => regenerateSalesFlowSection("cta", ctaOfferTab)}
+                >
+                  {isGen("cta", ctaOfferTab) ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  {isGen("cta", ctaOfferTab) ? t.generating : t.regenerate}
+                </Button>
+              }
+            >
               <Textarea
                 value={ctaBodyForDisplay(
                   showScheduleSelectionSession
@@ -1725,7 +1731,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   : "משתנים: {price} מחיר — נמשך מטאב מוצרים."}
                 {showScheduleSelectionSession ? (lang === "en" ? " · no schedule button here" : " · בלי כפתור מערכת שעות") : ""}
               </p>
-            </div>
+            </Field>
             <div
               className={`grid grid-cols-1 gap-3 ${showScheduleSelectionSession ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}
             >
@@ -1932,7 +1938,26 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
             {ctaOfferTab === "workshop" && hasWorkshopOffers ? (
               <>
-                <div>
+                <Field
+                  label={t.salesFlow.ctaBodyText}
+                  lang={lang}
+                  labelAction={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-1 text-xs py-1.5 px-3 h-auto"
+                      disabled={isSalesGenerating}
+                      onClick={() => regenerateSalesFlowSection("cta", ctaOfferTab)}
+                    >
+                      {isGen("cta", ctaOfferTab) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                      {isGen("cta", ctaOfferTab) ? t.generating : t.regenerate}
+                    </Button>
+                  }
+                >
                   <Textarea
                     value={workshopCtaBodyForDisplayUi(salesFlowConfig.cta_workshop_body ?? "")}
                     onChange={(v) =>
@@ -1955,7 +1980,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   <p className="text-[11px] text-zinc-500 mt-1.5 text-center leading-relaxed">
                     {t.salesFlow.ctaWorkshopBodyHint}
                   </p>
-                </div>
+                </Field>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {(salesFlowConfig.cta_workshop_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
                     const purchase = b.kind === "workshop_purchase";
@@ -2018,7 +2043,26 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
             {ctaOfferTab === "course" && hasCoursePhysicalOffers ? (
               <>
-                <div>
+                <Field
+                  label={t.salesFlow.ctaBodyText}
+                  lang={lang}
+                  labelAction={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-1 text-xs py-1.5 px-3 h-auto"
+                      disabled={isSalesGenerating}
+                      onClick={() => regenerateSalesFlowSection("cta", ctaOfferTab)}
+                    >
+                      {isGen("cta", ctaOfferTab) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                      {isGen("cta", ctaOfferTab) ? t.generating : t.regenerate}
+                    </Button>
+                  }
+                >
                   <Textarea
                     value={courseCtaBodyForDisplayUi(salesFlowConfig.cta_course_body ?? "")}
                     onChange={(v) =>
@@ -2042,7 +2086,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       ? "Variables: {price} {sessions} {day} {hour} {schedule_phrase} {start_date} {end_date} — from Products / course cycles."
                       : "משתנים: {price} מחיר · {sessions} מפגשים · {day} יום · {hour} שעה · {schedule_phrase} משפט מלא · {start_date}/{end_date} תאריכים — מטאב מוצרים."}
                   </p>
-                </div>
+                </Field>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
                     const enroll = b.kind === "course_enroll";
@@ -2101,7 +2145,26 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
 
             {ctaOfferTab === "course_online" && hasCourseOnlineOffers ? (
               <>
-                <div>
+                <Field
+                  label={t.salesFlow.ctaBodyText}
+                  lang={lang}
+                  labelAction={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-1 text-xs py-1.5 px-3 h-auto"
+                      disabled={isSalesGenerating}
+                      onClick={() => regenerateSalesFlowSection("cta", ctaOfferTab)}
+                    >
+                      {isGen("cta", ctaOfferTab) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                      {isGen("cta", ctaOfferTab) ? t.generating : t.regenerate}
+                    </Button>
+                  }
+                >
                   <Textarea
                     value={courseCtaBodyForDisplayUi(salesFlowConfig.cta_course_online_body ?? "")}
                     onChange={(v) =>
@@ -2125,7 +2188,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       ? "Variables: {price} {sessions} — and {start_date}/{end_date} only when online course dates are enabled."
                       : "משתנים: {price} מחיר · {sessions} מפגשים · עם מועדים: גם {start_date}/{end_date} (בתאריכים … עד …). בלי מועדים — בלי שורת תאריכים."}
                   </p>
-                </div>
+                </Field>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {(salesFlowConfig.cta_course_buttons ?? []).map((b: SalesFlowCtaButton, bi: number) => {
                     const enroll = b.kind === "course_enroll";
@@ -2193,26 +2256,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           open={openSections.after_trial}
           onToggle={() => toggle("after_trial")}
           filled={afterRegistrationFilled}
-          headerAction={
-            hasAnyCtaOfferTab ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-1 text-xs py-1.5 px-3 h-auto"
-                disabled={isSalesGenerating}
-                onClick={() =>
-                  regenerateSalesFlowSection("after_trial_registration", afterRegOfferTab)
-                }
-              >
-                {isGen("after_trial_registration", afterRegOfferTab) ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                {isGen("after_trial_registration", afterRegOfferTab) ? t.generating : t.regenerate}
-              </Button>
-            ) : null
-          }
         >
           <div className="space-y-3">
             {!hasAnyCtaOfferTab ? (
@@ -2275,7 +2318,30 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 </div>
 
                 {afterRegOfferTab === "trial" && hasTrialOffers ? (
-                  <Field label={t.salesFlow.autoFillDetails} lang={lang}>
+                  <Field
+                    label={t.salesFlow.autoFillDetails}
+                    lang={lang}
+                    labelAction={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto"
+                        disabled={isSalesGenerating}
+                        onClick={() =>
+                          regenerateSalesFlowSection("after_trial_registration", afterRegOfferTab)
+                        }
+                      >
+                        {isGen("after_trial_registration", afterRegOfferTab) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5" />
+                        )}
+                        {isGen("after_trial_registration", afterRegOfferTab)
+                          ? t.generating
+                          : t.regenerate}
+                      </Button>
+                    }
+                  >
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -2301,7 +2367,30 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
 
                 {afterRegOfferTab === "workshop" && hasWorkshopOffers ? (
-                  <Field label={t.salesFlow.autoFillDetails} lang={lang}>
+                  <Field
+                    label={t.salesFlow.autoFillDetails}
+                    lang={lang}
+                    labelAction={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto"
+                        disabled={isSalesGenerating}
+                        onClick={() =>
+                          regenerateSalesFlowSection("after_trial_registration", afterRegOfferTab)
+                        }
+                      >
+                        {isGen("after_trial_registration", afterRegOfferTab) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5" />
+                        )}
+                        {isGen("after_trial_registration", afterRegOfferTab)
+                          ? t.generating
+                          : t.regenerate}
+                      </Button>
+                    }
+                  >
                     <Textarea
                       value={
                         showScheduleSelectionSession
@@ -2327,7 +2416,30 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
 
                 {afterRegOfferTab === "course" && hasCourseOffers ? (
-                  <Field label={t.salesFlow.autoFillDetails} lang={lang}>
+                  <Field
+                    label={t.salesFlow.autoFillDetails}
+                    lang={lang}
+                    labelAction={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 text-xs py-1.5 px-3 h-auto"
+                        disabled={isSalesGenerating}
+                        onClick={() =>
+                          regenerateSalesFlowSection("after_trial_registration", afterRegOfferTab)
+                        }
+                      >
+                        {isGen("after_trial_registration", afterRegOfferTab) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5" />
+                        )}
+                        {isGen("after_trial_registration", afterRegOfferTab)
+                          ? t.generating
+                          : t.regenerate}
+                      </Button>
+                    }
+                  >
                     <Textarea
                       value={
                         showScheduleSelectionSession

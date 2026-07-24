@@ -134,6 +134,7 @@ export function Field({
   inline = false,
   inlineAlign = "center",
   lang,
+  labelAction,
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
@@ -142,6 +143,8 @@ export function Field({
   inline?: boolean;
   inlineAlign?: "center" | "start";
   lang?: DashboardLang;
+  /** כפתור/פעולה בשורת הכותרת (למשל ג׳נרט מחדש) — בצד ימין של התיבה */
+  labelAction?: React.ReactNode;
 }) {
   const dir = lang ? dashboardDir(lang) : "rtl";
   const textAlign = lang ? dashboardTextAlign(lang) : "right";
@@ -163,8 +166,14 @@ export function Field({
 
   return (
     <div className={`w-full space-y-2 ${className}`}>
-      <div className="block text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800" style={{ textAlign }}>
-        {label}
+      <div className="flex w-full items-center justify-between gap-2">
+        <div
+          className="min-w-0 flex-1 text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800"
+          style={{ textAlign }}
+        >
+          {label}
+        </div>
+        {labelAction ? <div className="shrink-0">{labelAction}</div> : null}
       </div>
       {description ? (
         <p className="text-xs leading-6 text-zinc-500" style={{ textAlign }}>
