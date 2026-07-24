@@ -981,8 +981,14 @@ function sortHeScheduleSlots<T extends { day: string; time: string }>(slots: T[]
 
 function isCourseWithDefinedDates(service: SfServiceRow | null): boolean {
   if (service?.offerKind !== "course") return false;
+  if (service.courseDatesEnabled === false) return false;
   if ((service.scheduleSlots?.length ?? 0) > 0) return false;
   return Boolean(service.courseStartDate.trim() && service.courseEndDate.trim());
+}
+
+/** קורס עם טאגל מועדים כבוי — לא שולחים ולא אוספים מועדים/מחזורים. */
+function courseSkipsScheduleCollection(service: SfServiceRow | null): boolean {
+  return service?.offerKind === "course" && service.courseDatesEnabled === false;
 }
 
 function shouldCollectCourseCycleStartPick(
@@ -991,22 +997,29 @@ function shouldCollectCourseCycleStartPick(
 ): boolean {
   if (knowledge.scheduleDirectRegistration !== false) return false;
   if (service?.offerKind !== "course") return false;
-  if (service.courseDatesEnabled === false) return false;
+  if (courseSkipsScheduleCollection(service)) return false;
   if (isCourseWithDefinedDates(service)) return false;
   return courseHasCycleSchedulePickData(service.courseCycles ?? []);
 }
 
 function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): boolean {
-  if (service?.offerKind === "course" && service.courseDatesEnabled === false) return false;
+  if (courseSkipsScheduleCollection(service)) return false;
   if (shouldCollectCourseCycleStartPick(knowledge, service)) return false;
   return knowledge.scheduleDirectRegistration === false && !isCourseWithDefinedDates(service);
 }
 
-function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): HeyzoeSessionPhase {
-  const needsSchedulePick =
+function needsAnyScheduleCollection(
+  knowledge: BusinessKnowledgePack,
+  service: SfServiceRow | null
+): boolean {
+  return (
     shouldCollectScheduleSelection(knowledge, service) ||
-    shouldCollectCourseCycleStartPick(knowledge, service);
-  return needsSchedulePick ? "schedule_date" : "cta";
+    shouldCollectCourseCycleStartPick(knowledge, service)
+  );
+}
+
+function scheduleSelectionPhaseAfterService(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): HeyzoeSessionPhase {
+  return needsAnyScheduleCollection(knowledge, service) ? "schedule_date" : "cta";
 }
 
 /** אחרי בחירת מועד/מחזור — תמיד CTA (חימום כבר עבר לפניו). */
@@ -2952,13 +2965,33 @@ async function sendFlowContinuation(input: {
     return;
   }
 
-  if (phase === "schedule_date") {
+  if (phase === "schedule_date" || phase === "schedule_time") {
     const selectedServiceName =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
         : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+    // קורס בלי מועדים (או כל מצב שלא אוספים שיבוץ) — דלג ישר ל-CTA
+    if (!needsAnyScheduleCollection(knowledge, selectedService)) {
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        modelUsed: "flow_continuation_skip_schedule_to_cta",
+        blockMedia: blockTrialPickMedia,
+      });
+      return;
+    }
     if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
       await sendCourseCycleStartPickMenu({
         knowledge,
@@ -2972,7 +3005,9 @@ async function sendFlowContinuation(input: {
         business_slug,
         sessionId,
       });
-    } else if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
+      return;
+    }
+    if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
       await sendScheduleSlotPickMenu({
         knowledge,
         selectedService,
@@ -2985,47 +3020,12 @@ async function sendFlowContinuation(input: {
         business_slug,
         sessionId,
       });
-    } else {
+      return;
+    }
+    if (phase === "schedule_date") {
       await sendScheduleSelectionDateQuestion({
         knowledge,
         selectedService,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-      });
-    }
-    return;
-  }
-
-  if (phase === "schedule_time") {
-    const selectedServiceName =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0]!.name
-        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-    const selectedService =
-      salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
-    if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
-      await sendCourseCycleStartPickMenu({
-        knowledge,
-        selectedService,
-        blockMedia: blockTrialPickMedia,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-      });
-    } else if ((selectedService?.scheduleSlots?.length ?? 0) > 0) {
-      await sendScheduleSlotPickMenu({
-        knowledge,
-        selectedService,
-        blockMedia: blockTrialPickMedia,
         msg,
         accountSid,
         authToken,
@@ -3455,6 +3455,9 @@ async function resendUnansweredSalesFlowPrompt(
     sessionId,
     salesFlowServices,
     blockTrialPickMedia,
+    trialRegistered,
+    allowTrialCta,
+    sfConsumedKinds,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -3613,6 +3616,26 @@ async function resendUnansweredSalesFlowPrompt(
         : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+
+    if (!needsAnyScheduleCollection(knowledge, selectedService)) {
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        modelUsed: "sales_flow_resend_skip_schedule_to_cta",
+        blockMedia: blockTrialPickMedia,
+      });
+      return;
+    }
 
     if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
       await sendCourseCycleStartPickMenu({
@@ -3794,9 +3817,7 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
         input.salesFlowServices.find((s) => s.name === selectedServiceName) ??
         input.salesFlowServices[0] ??
         null;
-      const needsSchedule =
-        shouldCollectScheduleSelection(input.knowledge, selectedService) ||
-        shouldCollectCourseCycleStartPick(input.knowledge, selectedService);
+      const needsSchedule = needsAnyScheduleCollection(input.knowledge, selectedService);
       if (!needsSchedule) {
         await updateContactSessionPhase({
           supabase: input.supabase,
@@ -7404,7 +7425,7 @@ async function processIncoming(
     if (pickedNameForLexicon) {
       const pickedRow =
         salesFlowServices.find((s) => s.name === pickedNameForLexicon) ?? null;
-      if (pickedRow) {
+        if (pickedRow && !courseSkipsScheduleCollection(pickedRow)) {
         pickedServiceScheduleLexicon = buildPickedServiceScheduleLexiconForPrompt({
           serviceName: pickedRow.name,
           scheduleSlots: pickedRow.scheduleSlots,

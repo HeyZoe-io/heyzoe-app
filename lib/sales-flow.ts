@@ -1175,6 +1175,9 @@ function applyCourseCtaLiteralFallbacks(
     s = s.replace(CTA_LITERAL_X_DAY_HOUR_RE, `כל יום ${day} בשעה ${hour}`);
   } else if (sched) {
     s = s.replace(CTA_LITERAL_X_DAY_HOUR_RE, sched);
+  } else {
+    // בלי מועדים — אל תשאיר placeholder של יום/שעה בטקסט CTA
+    s = s.replace(CTA_LITERAL_X_DAY_HOUR_RE, "").replace(CTA_LITERAL_X_DATE_RANGE_RE, "");
   }
   return s;
 }
@@ -1260,6 +1263,15 @@ export function fillCourseCtaBodyTemplate(
       .replace(/,\s*\n/g, "\n")
       .replace(/מפגשים,\s*$/gm, "מפגשים.")
       .replace(/שיעורים,\s*$/gm, "שיעורים.");
+  }
+  if (!day && !hour && !sched) {
+    filled = filled
+      .replace(/כל יום\s+בשעה\s*/g, "")
+      .replace(/כל יום\s*\{day\}\s*בשעה\s*\{hour\}/gi, "")
+      .replace(/\s*—\s*\{start_date\}\s*עד\s*\{end_date\}/gi, "")
+      .replace(/\{start_date\}\s*עד\s*\{end_date\}/gi, "")
+      .replace(/\s*—\s*עד\s*/g, "")
+      .replace(/^\s*עד\s*$/gm, "");
   }
   if (sessionsUnit === "lessons") {
     filled = filled.replace(/מפגשים/g, unitWord);
