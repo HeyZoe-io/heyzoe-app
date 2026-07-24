@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import type { FactQuestion } from "@/lib/fact-questions";
 import { factFromQuestionAnswer } from "@/lib/fact-questions";
 import {
   SALES_PATH_INPUT,
+  SALES_PATH_TEXTAREA,
   SalesPathFieldLabel,
   SalesPathSectionBlock,
   SalesPathStepShell,
@@ -18,6 +19,116 @@ import {
 } from "./sales-path-shell";
 
 const INPUT = SALES_PATH_INPUT;
+
+function autosizeFactTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.max(el.scrollHeight, 40)}px`;
+}
+
+/** כרטיסיית עובדה בודדת — תצוגה מקוצרת / עריכה ב-textarea בלחיצה */
+function FactCard({
+  value,
+  onChange,
+  placeholder,
+  dir,
+  canRemove,
+  onRemove,
+  removeAriaLabel,
+  indexLabel,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  dir: "rtl" | "ltr";
+  canRemove: boolean;
+  onRemove: () => void;
+  removeAriaLabel: string;
+  indexLabel: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    const el = taRef.current;
+    if (!el) return;
+    el.focus();
+    const len = el.value.length;
+    try {
+      el.setSelectionRange(len, len);
+    } catch {
+      /* ignore */
+    }
+    autosizeFactTextarea(el);
+  }, [editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    autosizeFactTextarea(taRef.current);
+  }, [editing, value]);
+
+  return (
+    <li className="flex items-start gap-2">
+      <span className="mt-2.5 w-5 shrink-0 text-center text-[11px] tabular-nums text-zinc-400">
+        {indexLabel}
+      </span>
+      {editing ? (
+        <textarea
+          ref={taRef}
+          dir={dir}
+          value={value}
+          placeholder={placeholder}
+          rows={1}
+          onChange={(e) => {
+            onChange(e.target.value);
+            autosizeFactTextarea(e.target);
+          }}
+          onBlur={() => setEditing(false)}
+          className={cn(
+            SALES_PATH_TEXTAREA,
+            "min-h-10 flex-1 [field-sizing:content]"
+          )}
+        />
+      ) : (
+        <button
+          type="button"
+          dir={dir}
+          onClick={() => setEditing(true)}
+          className={cn(
+            INPUT,
+            "flex h-auto min-h-10 flex-1 cursor-text items-start px-3 py-2 text-start"
+          )}
+          aria-label={placeholder}
+        >
+          <span
+            className={cn(
+              "line-clamp-2 w-full whitespace-pre-wrap break-words text-sm leading-snug",
+              value.trim() ? "text-zinc-800" : "text-zinc-400"
+            )}
+          >
+            {value.trim() ? value : placeholder}
+          </span>
+        </button>
+      )}
+      {canRemove ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="mt-1.5 shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+          aria-label={removeAriaLabel}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ) : (
+        <span className="w-8 shrink-0" />
+      )}
+    </li>
+  );
+}
 
 type SectionId = "contact" | "identity" | "location" | "knowledge";
 
@@ -290,36 +401,23 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
               <SalesPathFieldLabel hint={t.about.factsHint}>{t.about.facts}</SalesPathFieldLabel>
               <ul className="space-y-2">
                 {traits.map((row, i) => (
-                  <li key={i} className="flex items-center gap-2">
-                    <span className="w-5 shrink-0 text-center text-[11px] tabular-nums text-zinc-400">
-                      {i + 1}
-                    </span>
-                    <Input
-                      dir={dashboardDir(lang)}
-                      value={row}
-                      onChange={(e) =>
-                        setTraits((prev) => {
-                          const next = [...prev];
-                          next[i] = e.target.value;
-                          return next;
-                        })
-                      }
-                      placeholder={traitPlaceholder(i, lang)}
-                      className={cn(INPUT, "flex-1")}
-                    />
-                    {traits.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
-                        className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                        aria-label={t.about.removeRow}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : (
-                      <span className="w-8 shrink-0" />
-                    )}
-                  </li>
+                  <FactCard
+                    key={i}
+                    indexLabel={String(i + 1)}
+                    value={row}
+                    placeholder={traitPlaceholder(i, lang)}
+                    dir={dashboardDir(lang)}
+                    canRemove={traits.length > 1}
+                    removeAriaLabel={t.about.removeRow}
+                    onChange={(next) =>
+                      setTraits((prev) => {
+                        const copy = [...prev];
+                        copy[i] = next;
+                        return copy;
+                      })
+                    }
+                    onRemove={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
+                  />
                 ))}
               </ul>
               <Button
