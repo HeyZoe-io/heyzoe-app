@@ -722,7 +722,11 @@ export default function Step3Trial(props: {
                     ) : undefined
                   }
                 >
-                  {s.offer_kind === "course" ? t.products.courseName : t.products.serviceName}
+                  {s.offer_kind === "course"
+                    ? t.products.courseName
+                    : s.offer_kind === "workshop"
+                      ? t.products.workshopName
+                      : t.products.serviceName}
                 </SalesPathFieldLabel>
                 <Input
                   dir={dashboardDir(lang)}
