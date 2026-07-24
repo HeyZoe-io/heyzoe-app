@@ -329,7 +329,7 @@ export async function POST(req: NextRequest) {
         business_id: savedBiz.id,
         name,
         description: String(s.description ?? ""),
-        location_mode: String(s.location_mode ?? "online"),
+        location_mode: String(s.location_mode ?? "location"),
         location_text: String(s.location_text ?? ""),
         price_text: String(s.price_text ?? ""),
         service_slug: slug,

@@ -5408,7 +5408,7 @@ async function processIncoming(
         ]
           .filter(Boolean)
           .join("\n\n");
-        if (directionsMediaUrl && !starterBlocksMedia) {
+        if (directionsMediaUrl && !starterBlocksMedia && !courseOnline) {
           await sendWhatsAppMediaMessage(
             msg.toNumber,
             msg.from,

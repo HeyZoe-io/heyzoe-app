@@ -4,6 +4,7 @@ import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-cont
 import { planIsStarter } from "@/lib/conversation-quota";
 import type { OfferKind } from "@/lib/sales-flow";
 import {
+  adaptCourseAfterRegistrationBodyForDelivery,
   defaultSalesFlowConfig,
   formatAfterTrialRegistrationForWhatsAppDelivery,
   resolveAfterRegistrationBodyTemplate,
@@ -142,21 +143,29 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const requestedTime = scheduleState.requestedTime;
   const hasScheduleSelection = Boolean(requestedDate && requestedTime);
 
+  const salesFlowServices = knowledge.salesFlowServices ?? [];
   const selectedServiceName =
-    knowledge.openingServices.length === 1
-      ? knowledge.openingServices[0]!.name
-      : (await fetchLastSfServiceEventName({ business_slug: businessSlug, session_id: sessionId })) ?? "";
+    salesFlowServices.length === 1
+      ? salesFlowServices[0]!.name
+      : knowledge.openingServices.length === 1
+        ? knowledge.openingServices[0]!.name
+        : ((await fetchLastSfServiceEventName({ business_slug: businessSlug, session_id: sessionId })) ??
+          "");
   const selectedService =
-    knowledge.openingServices.find((s) => s.name === selectedServiceName) ??
-    knowledge.openingServices[0] ??
-    null;
-  const regOfferKind: OfferKind = selectedService?.offer_kind ?? "trial";
+    salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+  const regOfferKind: OfferKind =
+    selectedService?.offerKind ??
+    knowledge.openingServices.find((s) => s.name === selectedServiceName)?.offer_kind ??
+    knowledge.openingServices[0]?.offer_kind ??
+    "trial";
   const regServiceFallback =
     regOfferKind === "workshop" ? "הסדנה" : regOfferKind === "course" ? "הקורס" : "האימון";
   const serviceName =
     selectedService?.name?.trim() || selectedServiceName.trim() || regServiceFallback;
 
-  const useScheduleRegistrationTemplate = knowledge.scheduleDirectRegistration === false;
+  const courseDatesOff = regOfferKind === "course" && selectedService?.courseDatesEnabled === false;
+  const useScheduleRegistrationTemplate =
+    knowledge.scheduleDirectRegistration === false && !courseDatesOff;
   const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
 
   let bodyTemplate = resolveAfterRegistrationBodyTemplate(
@@ -172,7 +181,8 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     ).trim();
   }
 
-  const hasCourseCycleDate = regOfferKind === "course" && Boolean(requestedDate);
+  const hasCourseCycleDate =
+    regOfferKind === "course" && !courseDatesOff && Boolean(requestedDate);
   const hasWorkshopSchedulePick =
     regOfferKind === "workshop" &&
     (Boolean(requestedDate) || Boolean(requestedTime));
@@ -202,16 +212,30 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     bodyTemplate.includes("{serviceName}") ||
     bodyTemplate.includes("(שם האימון)");
 
+  const courseOnline = regOfferKind === "course" && selectedService?.locationMode === "online";
+  const courseHasDates =
+    regOfferKind === "course" &&
+    selectedService?.courseDatesEnabled !== false &&
+    Boolean(String(requestedDate ?? "").trim() || (selectedService?.courseCycles?.length ?? 0) > 0);
+  const adaptedRegBody =
+    regOfferKind === "course"
+      ? adaptCourseAfterRegistrationBodyForDelivery(bodyTemplate, {
+          online: courseOnline,
+          hasDates: courseHasDates,
+          serviceName,
+        })
+      : bodyTemplate;
+
   const regContentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
   const delivered = formatAfterTrialRegistrationForWhatsAppDelivery(
-    bodyTemplate,
+    adaptedRegBody,
     includeIgPrompt ? igUrlRaw : "",
-    knowledge.addressText ?? "",
-    knowledge.directionsText ?? "",
+    courseOnline ? "" : knowledge.addressText ?? "",
+    courseOnline ? "" : knowledge.directionsText ?? "",
     shouldFillSchedule
       ? {
-          requestedDate,
-          requestedTime,
+          requestedDate: courseHasDates || regOfferKind !== "course" ? requestedDate : "",
+          requestedTime: courseHasDates || regOfferKind !== "course" ? requestedTime : "",
           serviceName,
           offerKind: regOfferKind,
           courseSchedulePhrase: undefined,
@@ -239,7 +263,7 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     ]
       .filter(Boolean)
       .join("\n\n");
-    if (directionsMediaUrl && !starterBlocksMedia) {
+    if (directionsMediaUrl && !starterBlocksMedia && !courseOnline) {
       await sendWhatsAppMediaMessage(
         phoneNumberId,
         input.phone,

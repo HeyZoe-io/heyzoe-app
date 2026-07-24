@@ -894,8 +894,7 @@ export default function Step3Trial(props: {
               </p>
             </div>
 
-            {scheduleDirectRegistration === false ? (
-              s.offer_kind === "course" ? (
+            {s.offer_kind === "course" ? (
               <div className="space-y-4 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir="rtl">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <SalesPathFieldLabel>{t.products.courseCycles}</SalesPathFieldLabel>
@@ -1152,7 +1151,7 @@ export default function Step3Trial(props: {
                 </>
                 )}
               </div>
-              ) : (
+              ) : scheduleDirectRegistration === false ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir={dashboardDir(lang)}>
                 <SalesPathFieldLabel>{t.products.weeklySlots}</SalesPathFieldLabel>
                 <p className="text-[11px] text-zinc-500 leading-snug">
@@ -1282,7 +1281,6 @@ export default function Step3Trial(props: {
                   {t.products.addSlot}
                 </Button>
               </div>
-              )
             ) : null}
 
             <TrialPickMediaAttachmentSection
