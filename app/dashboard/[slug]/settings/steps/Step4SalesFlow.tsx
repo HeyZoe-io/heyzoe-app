@@ -96,6 +96,7 @@ type Step4SalesFlowProps = {
   salesFlowConfig: SalesFlowConfig;
   setSalesFlowConfig: Dispatch<SetStateAction<SalesFlowConfig>>;
   scheduleDirectRegistration?: boolean;
+  setScheduleDirectRegistration?: (v: boolean) => void;
   scheduleScanImageUrl?: string;
   scheduleBoardLink?: string;
   warmupSessionEnabled?: boolean;
@@ -486,6 +487,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     salesFlowConfig,
     setSalesFlowConfig,
     scheduleDirectRegistration = true,
+    setScheduleDirectRegistration,
     scheduleScanImageUrl = "",
     scheduleBoardLink = "",
     warmupSessionEnabled = true,
@@ -769,11 +771,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
       media,
       opening,
       ...mid,
-      ...(showScheduleSelectionSession ? [scheduleSelection] : []),
+      scheduleSelection,
       cta,
       afterTrial,
     ];
-  }, [showScheduleSelectionSession, scheduleBoardPlacement, t]);
+  }, [scheduleBoardPlacement, t]);
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
     useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
       media: true,
@@ -1307,8 +1309,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         {renderScheduleDropSlot("after_service_pick", t.salesFlow.scheduleBoardDropAfterPick)}
         {scheduleBoardPlacement === "after_service_pick" ? renderScheduleBoardSection() : null}
 
-        {showScheduleSelectionSession ? (
-          <SalesPathSectionBlock
+        <SalesPathSectionBlock
             stepPrefix="sales"
             id="schedule_selection"
             title={t.salesFlow.schedulePick}
@@ -1316,17 +1317,56 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
             filled={
-              (!hasTrialOffers ||
+              !showScheduleSelectionSession ||
+              ((!hasTrialOffers ||
                 Boolean(String(salesFlowConfig.after_schedule_selection ?? "").trim())) &&
-              (!hasWorkshopOffers ||
-                Boolean(String(salesFlowConfig.after_schedule_selection_workshop ?? "").trim())) &&
-              (!hasCourseOffers ||
-                Boolean(String(salesFlowConfig.after_course_cycle_pick ?? "").trim())) &&
-              hasAnyScheduleOfferTab
+                (!hasWorkshopOffers ||
+                  Boolean(String(salesFlowConfig.after_schedule_selection_workshop ?? "").trim())) &&
+                (!hasCourseOffers ||
+                  Boolean(String(salesFlowConfig.after_course_cycle_pick ?? "").trim())) &&
+                hasAnyScheduleOfferTab)
             }
           >
             <div className="space-y-3">
-              {!hasAnyScheduleOfferTab ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2.5">
+                <div className="min-w-0 text-right">
+                  <p className="text-sm font-medium text-zinc-800">{t.salesFlow.schedulePickToggle}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                    {t.salesFlow.schedulePickToggleHint}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showScheduleSelectionSession}
+                  onClick={() => setScheduleDirectRegistration?.(!scheduleDirectRegistration)}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    showScheduleSelectionSession
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-zinc-200 bg-white text-zinc-600"
+                  }`}
+                >
+                  <span>{showScheduleSelectionSession ? t.salesFlow.schedulePickOn : t.salesFlow.schedulePickOff}</span>
+                  <span
+                    className={`h-4 w-7 rounded-full p-0.5 transition-colors ${
+                      showScheduleSelectionSession ? "bg-emerald-500" : "bg-zinc-300"
+                    }`}
+                    aria-hidden
+                  >
+                    <span
+                      className={`block h-3 w-3 rounded-full bg-white transition-transform ${
+                        showScheduleSelectionSession ? "translate-x-0" : "-translate-x-3"
+                      }`}
+                    />
+                  </span>
+                </button>
+              </div>
+
+              {!showScheduleSelectionSession ? (
+                <p className="text-sm text-zinc-600 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-3 py-3 text-center leading-relaxed">
+                  {t.salesFlow.schedulePickDisabledNote}
+                </p>
+              ) : !hasAnyScheduleOfferTab ? (
                 <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
                   {t.salesFlow.needProductsForSchedule}
                 </p>
@@ -1493,7 +1533,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               )}
             </div>
           </SalesPathSectionBlock>
-        ) : null}
 
         <SalesPathSectionBlock
           stepPrefix="sales"

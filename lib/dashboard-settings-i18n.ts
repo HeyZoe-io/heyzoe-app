@@ -268,7 +268,14 @@ export const dashboardSettingsI18n = {
       answerForService: (name: string) => `תשובה לאימון: ${name}`,
       needProductsForPick: "הוסיפו לפחות שירות אחד בטאב «מוצרים» כדי להגדיר את מסלול הבחירה.",
       schedulePick: "בחירת מועד",
-      schedulePickHint: "נשלח כשאין הרשמה ישירה ממערכת השעות",
+      schedulePickHint: "שאלת יום ושעה בשיחה — גם כשמערכת השעות לא אינטראקטיבית",
+      schedulePickToggle: "סשן בחירת מועד",
+      schedulePickToggleHint:
+        "כבוי: לא יוצעו מועדים בשיחה, בלי «נדאג לשבץ» אחרי בחירה ובלי מועד בהודעת אחרי הרשמה.",
+      schedulePickOn: "On",
+      schedulePickOff: "Off",
+      schedulePickDisabledNote:
+        "בחירת מועד כבויה — אחרי בחירת מוצר עוברים ישר להנעה לפעולה, בלי שיבוץ יום/שעה.",
       needProductsForSchedule:
         "כדי לערוך בחירת מועד — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים».",
       schedulePickTypeAria: "סוג סשן בחירת מועד",
@@ -683,7 +690,14 @@ export const dashboardSettingsI18n = {
       answerForService: (name: string) => `Reply for class: ${name}`,
       needProductsForPick: "Add at least one service in Products to configure the choice flow.",
       schedulePick: "Time selection",
-      schedulePickHint: "Sent when there's no direct registration from schedule system",
+      schedulePickHint: "Ask for day and time in chat — even with a non-interactive schedule board",
+      schedulePickToggle: "Schedule selection session",
+      schedulePickToggleHint:
+        "Off: no schedule prompts in chat, no «we'll slot you in» after pick, and no schedule in the post-registration message.",
+      schedulePickOn: "On",
+      schedulePickOff: "Off",
+      schedulePickDisabledNote:
+        "Schedule selection is off — after product pick we go straight to the CTA, without day/time booking.",
       needProductsForSchedule:
         "To edit time selection — add a trial, workshop, or course in Products.",
       schedulePickTypeAria: "Time selection session type",

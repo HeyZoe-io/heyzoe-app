@@ -2890,6 +2890,7 @@ export default function SlugSettingsPage({
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}
             scheduleDirectRegistration={scheduleDirectRegistration}
+            setScheduleDirectRegistration={setScheduleDirectRegistration}
             scheduleScanImageUrl={scheduleScanImageUrl}
             scheduleBoardLink={(schedulePublicUrl.trim() || arboxLink.trim()).trim()}
             warmupSessionEnabled={warmupSessionEnabled}
