@@ -171,6 +171,10 @@ export const dashboardSettingsI18n = {
       paymentLink: "לינק סליקה *",
       location: "מיקום",
       details: "תיאור",
+      generateDescription: "ג׳נרט תיאור",
+      generateDescriptionHint:
+        "יימשך מהאתר אם נמצא מידע מתאים, או לפי הבנת זואי משם השיעור.",
+      descriptionPlaceholder: "תיאור קצר לשיעור",
       courseCycles: "מחזורי קורס",
       courseCyclesHint:
         "לכל מחזור — תאריך התחלה וסיום, ובתוכו ימים ושעות שבועיים (ראשון–שבת, 24 שעות).",
@@ -238,9 +242,8 @@ export const dashboardSettingsI18n = {
       questionAndButtons: "שאלה + כפתורי בחירה",
       scheduleSentEarlier: "מערכת השעות נשלחת בסשן קודם — כאן רק שאלת הבחירה בין המוצרים.",
       answer: "תשובה",
-      noDescription: "אין תיאור — לחצו «ג׳נרט» או הוסיפו בטאב «מוצרים»",
-      editedInProducts: "ניתן לערוך בטאב «מוצרים» או לג׳נרט כאן לפי מוצר.",
-      generateDescription: "ג׳נרט תיאור",
+      noDescription: "אין תיאור — הוסיפו בטאב «מוצרים»",
+      editedInProducts: "התוכן נשאב מטאב «מוצרים».",
       singleServiceNote:
         "מוגדר שירות יחיד — אין שלב בחירה בין מוצרים. השאלה והכפתורים מופיעים ב«סשן חימום» למעלה.",
       answerForService: (name: string) => `תשובה לאימון: ${name}`,
@@ -563,6 +566,10 @@ export const dashboardSettingsI18n = {
       paymentLink: "Payment link *",
       location: "Location",
       details: "Description",
+      generateDescription: "Generate description",
+      generateDescriptionHint:
+        "Pulled from your website when matching data is found, or drafted by Zoe from the class name.",
+      descriptionPlaceholder: "Short class description",
       courseCycles: "Course cycles",
       courseCyclesHint:
         "Per cycle — start and end dates, with weekly days and times (Sun–Sat, 24h).",
@@ -630,9 +637,8 @@ export const dashboardSettingsI18n = {
       questionAndButtons: "Question + choice buttons",
       scheduleSentEarlier: "Schedule was sent earlier — here only the product choice question.",
       answer: "Answer",
-      noDescription: "No description — click Generate or add in Products tab",
-      editedInProducts: "Edit in Products tab or generate here per product.",
-      generateDescription: "Generate description",
+      noDescription: "No description — add one in the Products tab",
+      editedInProducts: "Content is taken from the Products tab.",
       singleServiceNote:
         "Single service configured — no product choice step. Question/buttons appear in Warmup above.",
       answerForService: (name: string) => `Reply for class: ${name}`,

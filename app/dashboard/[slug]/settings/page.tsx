@@ -94,6 +94,7 @@ type ServiceItem = {
 type WhatsAppChannel = {
   phone_display: string;
   provisioning_status: "pending" | "active" | "failed" | null;
+  is_active: boolean;
 } | null;
 
 type WhatsAppChannelResponse = {
@@ -471,6 +472,7 @@ function WhatsAppNumberSection({
   const [zoeToggling, setZoeToggling] = useState(false);
   const [zoeToggleError, setZoeToggleError] = useState(false);
   const status = data?.provisioning_status ?? null;
+  const isActiveLocally = data?.is_active === true;
   const friendly = formatIlWhatsAppPhoneFriendly(data?.phone_display ?? "");
   const whatsAppSendHref = useMemo(
     () => whatsAppPrefilledMessageHref(data?.phone_display ?? "", tp.waHi),
@@ -567,7 +569,7 @@ function WhatsAppNumberSection({
   }, [fetchMetaStatus]);
 
   const badge = useMemo(() => {
-    if (metaStatus === "CONNECTED") {
+    if (metaStatus === "CONNECTED" && isActiveLocally) {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
           {tp.statusConnected}
@@ -589,7 +591,7 @@ function WhatsAppNumberSection({
       );
     }
     return null;
-  }, [metaStatus]);
+  }, [metaStatus, isActiveLocally]);
 
   const metaText = useMemo(() => {
     if (metaStatus === "CONNECTED") {
@@ -670,7 +672,7 @@ function WhatsAppNumberSection({
         </div>
         {badge ? (
           badge
-        ) : status === "active" ? (
+        ) : status === "active" && isActiveLocally ? (
           <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
             {tp.statusConnected}
           </span>
@@ -732,7 +734,7 @@ function WhatsAppNumberSection({
         </div>
       ) : null}
 
-      {metaStatus === "CONNECTED" || status === "active" ? (
+      {isActiveLocally && (metaStatus === "CONNECTED" || status === "active") ? (
         <div className={`${compact ? "mt-2" : "mt-3"} space-y-1.5 text-right`}>
           <div
             className={`flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white ${
@@ -2161,7 +2163,7 @@ export default function SlugSettingsPage({
     (uiId: string) => {
       const service = services.find((s) => s.ui_id === uiId);
       if (!service?.name.trim()) return;
-      runBusy(`sales:product_desc:${uiId}`, async () => {
+      runBusy(`products:product_desc:${uiId}`, async () => {
         const res = await fetch("/api/dashboard/generate-product-description", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2838,6 +2840,7 @@ export default function SlugSettingsPage({
             runBusy={runBusy}
             scheduleDirectRegistration={scheduleDirectRegistration}
             scheduleUrl={(scheduleScanImageUrl.trim() || arboxLink).trim()}
+            generateProductDescription={generateProductDescriptionBusy}
           />
         )}
 
@@ -2861,7 +2864,6 @@ export default function SlugSettingsPage({
             setMediaUploadError={setMediaUploadError}
             mediaUploadError={mediaUploadError}
             regenerateSalesFlowSection={regenerateSalesFlowSectionBusy}
-            generateProductDescription={generateProductDescriptionBusy}
             regeneratingKey={busyAction}
             salesFlowConfig={salesFlowConfig}
             setSalesFlowConfig={setSalesFlowConfig}

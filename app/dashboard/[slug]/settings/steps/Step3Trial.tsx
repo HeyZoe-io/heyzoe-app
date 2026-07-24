@@ -311,6 +311,7 @@ export default function Step3Trial(props: {
   scheduleDirectRegistration: boolean;
   /** לינק מערכת השעות (טאב לינקים) */
   scheduleUrl: string;
+  generateProductDescription: (uiId: string) => void;
 }) {
   const {
     lang = "he",
@@ -336,6 +337,7 @@ export default function Step3Trial(props: {
     runBusy,
     scheduleDirectRegistration,
     scheduleUrl,
+    generateProductDescription,
   } = props;
   const t = dashboardSettingsT(lang);
 
@@ -782,7 +784,28 @@ export default function Step3Trial(props: {
             </div>
 
             <div>
-              <SalesPathFieldLabel>{t.products.details}</SalesPathFieldLabel>
+              <SalesPathFieldLabel
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto shrink-0 gap-1 px-3 py-1.5 text-xs"
+                    disabled={!s.name.trim() || busyAction != null}
+                    onClick={() => generateProductDescription(s.ui_id)}
+                  >
+                    {busyAction === `products:product_desc:${s.ui_id}` ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {busyAction === `products:product_desc:${s.ui_id}`
+                      ? t.generating
+                      : t.products.generateDescription}
+                  </Button>
+                }
+              >
+                {t.products.details}
+              </SalesPathFieldLabel>
               <textarea
                 dir={dashboardDir(lang)}
                 value={s.description}
@@ -796,10 +819,13 @@ export default function Step3Trial(props: {
                   };
                   setServices(arr);
                 }}
-                placeholder="Short class description"
+                placeholder={t.products.descriptionPlaceholder}
                 rows={4}
                 className={SALES_PATH_TEXTAREA}
               />
+              <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
+                {t.products.generateDescriptionHint}
+              </p>
             </div>
 
             {scheduleDirectRegistration === false ? (
