@@ -873,24 +873,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
 
   const renderScheduleDropSlot = (placement: ScheduleBoardPlacement, label: string) => {
-    // תמיד ב-DOM (בלי remount באמצע גרירה) — אחרת הדפדפן מבטל את ה-drag
-    if (scheduleBoardPlacement === placement) {
-      return (
-        <SalesPathSectionRow key={`schedule-drop-${placement}`}>
-          <div className="hidden" aria-hidden />
-        </SalesPathSectionRow>
-      );
-    }
-    const active = draggingScheduleBoard;
+    // לא מרנדרים כלום כשלא בגרירה — אחרת space-y + שורת ריפוד יוצרים מרווחים ריקים
+    if (scheduleBoardPlacement === placement) return null;
+    if (!draggingScheduleBoard) return null;
     const hovered = scheduleDropHover === placement;
     return (
-      <SalesPathSectionRow key={`schedule-drop-${placement}`}>
+      <SalesPathSectionRow key={`schedule-drop-${placement}`} lang={lang}>
         <div
           onDragOver={(e) => {
             if (!draggingScheduleBoardRef.current) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
-            if (!draggingScheduleBoard) setDraggingScheduleBoard(true);
             setScheduleDropHover(placement);
           }}
           onDragLeave={() => setScheduleDropHover((h) => (h === placement ? null : h))}
@@ -902,18 +895,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             endScheduleBoardDrag();
           }}
           className={cn(
-            "flex items-center justify-center rounded-xl border-2 border-dashed text-xs font-medium transition-[padding,opacity,colors,min-height] duration-150",
-            active
-              ? cn(
-                  "min-h-[2.75rem] px-3 py-3",
-                  hovered
-                    ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
-                    : "border-zinc-300 bg-zinc-50/80 text-zinc-500"
-                )
-              : // רצועה דקה תמיד פעילה לקליטת dragover בלי לבטל גרירה ב-re-render
-                "min-h-2 border-transparent p-0 text-transparent opacity-0"
+            "flex min-h-[2.75rem] items-center justify-center rounded-xl border-2 border-dashed px-3 py-3 text-xs font-medium transition-colors",
+            hovered
+              ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
+              : "border-zinc-300 bg-zinc-50/80 text-zinc-500"
           )}
-          aria-hidden={!active}
         >
           {label}
         </div>
@@ -950,7 +936,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
 
   const renderScheduleBoardSection = () => (
-    <SalesPathSectionRow trail={scheduleBoardDragHandle}>
+    <SalesPathSectionRow trail={scheduleBoardDragHandle} lang={lang}>
       <SalesPathSectionBlock
         stepPrefix="sales"
         id="schedule_board"
@@ -1034,7 +1020,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             </button>
           </div>
         </div>
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="media"
@@ -1159,7 +1145,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         </SalesPathSectionBlock>
         </SalesPathSectionRow>
 
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="opening"
@@ -1214,7 +1200,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         {renderScheduleDropSlot("after_opening", t.salesFlow.scheduleBoardDropAfterOpening)}
         {scheduleBoardPlacement === "after_opening" ? renderScheduleBoardSection() : null}
 
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="warmup"
@@ -1222,33 +1208,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           open={openSections.warmup}
           onToggle={() => toggle("warmup")}
           filled={warmupSectionFilled}
-          headerAction={
+          titleAction={
             warmupSessionEnabled ? (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg border border-red-100 bg-white p-1.5 text-red-500 transition-colors hover:bg-red-50"
-                  onClick={() => setWarmupSessionEnabled?.(false)}
-                  aria-label={t.salesFlow.removeWarmup}
-                  title={t.salesFlow.removeWarmup}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-1 text-xs py-1.5 px-3 h-auto"
-                  disabled={isSalesGenerating}
-                  onClick={() => (warmupStyle === "quiz" ? applyWarmupStyleQuiz() : regenerateSalesFlowSection("warmup"))}
-                >
-                  {isGen("warmup") ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
-                  )}
-                  {isGen("warmup") ? t.generating : t.regenerate}
-                </Button>
-              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-red-100 bg-white p-1.5 text-red-500 transition-colors hover:bg-red-50"
+                onClick={() => setWarmupSessionEnabled?.(false)}
+                aria-label={t.salesFlow.removeWarmup}
+                title={t.salesFlow.removeWarmup}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             ) : null
           }
         >
@@ -1272,9 +1242,27 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               </p>
             ) : (
               <>
-                <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
-                  {t.salesFlow.warmupUnified}
-                </p>
+                <div className="flex w-full items-center justify-between gap-2">
+                  <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-zinc-500 text-start">
+                    {t.salesFlow.warmupUnified}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 gap-1 text-xs py-1.5 px-3 h-auto"
+                    disabled={isSalesGenerating}
+                    onClick={() =>
+                      warmupStyle === "quiz" ? applyWarmupStyleQuiz() : regenerateSalesFlowSection("warmup")
+                    }
+                  >
+                    {isGen("warmup") ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {isGen("warmup") ? t.generating : t.regenerate}
+                  </Button>
+                </div>
                 <WarmupSessionQuestion1Block
                   lang={lang}
                   t={t}
@@ -1333,7 +1321,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         {renderScheduleDropSlot("before_service_pick", t.salesFlow.scheduleBoardDropBeforePick)}
         {scheduleBoardPlacement === "before_service_pick" ? renderScheduleBoardSection() : null}
 
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="service_pick"
@@ -1407,7 +1395,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         {renderScheduleDropSlot("after_service_pick", t.salesFlow.scheduleBoardDropAfterPick)}
         {scheduleBoardPlacement === "after_service_pick" ? renderScheduleBoardSection() : null}
 
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
             stepPrefix="sales"
             id="schedule_selection"
@@ -1633,7 +1621,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           </SalesPathSectionBlock>
         </SalesPathSectionRow>
 
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="cta"
@@ -2297,7 +2285,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
         </SalesPathSectionBlock>
         </SalesPathSectionRow>
 
-        <SalesPathSectionRow>
+        <SalesPathSectionRow lang={lang}>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="after_trial"

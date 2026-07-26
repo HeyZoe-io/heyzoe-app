@@ -77,11 +77,11 @@ export function SalesPathSectionBlock({
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5 text-right transition-colors hover:bg-zinc-50/90"
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5 text-start transition-colors hover:bg-zinc-50/90"
           aria-expanded={open}
         >
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-start gap-2">
               <span
                 className={cn("h-1.5 w-1.5 shrink-0 rounded-full", filled ? "bg-[#7133da]" : "bg-zinc-200")}
                 aria-hidden
@@ -93,7 +93,7 @@ export function SalesPathSectionBlock({
                 </span>
               ) : null}
             </div>
-            {hint ? <p className="mt-0.5 pr-3.5 text-xs text-zinc-500">{hint}</p> : null}
+            {hint ? <p className="mt-0.5 text-xs text-zinc-500 ps-3.5">{hint}</p> : null}
           </div>
           <ChevronDown
             className={cn("h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-200", open && "rotate-180")}
@@ -109,19 +109,24 @@ export function SalesPathSectionBlock({
 
 /**
  * שורת סשן עם עמודה קבועה מימין (ידית גרירה / ריפוד ריק)
- * כדי שכותרות כל הסשנים יישרו לאותו קו.
+ * כדי שכותרות כל הסשנים יישרו לאותו קו — בלי לשבור RTL של תוכן הסשן.
  */
 export function SalesPathSectionRow({
   children,
   trail,
+  lang = "he",
 }: {
   children: ReactNode;
   /** תוכן בעמודה הקבועה מימין (למשל ידית גרירה) */
   trail?: ReactNode;
+  lang?: DashboardLang;
 }) {
+  const contentDir = dashboardDir(lang);
   return (
     <div className="flex w-full items-start gap-1.5" dir="ltr">
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1" dir={contentDir}>
+        {children}
+      </div>
       <div className="flex w-8 shrink-0 items-start justify-center pt-3.5">
         {trail ?? <span className="block h-8 w-8" aria-hidden />}
       </div>
