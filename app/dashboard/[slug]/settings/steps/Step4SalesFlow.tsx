@@ -1042,16 +1042,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           open={openSections.media}
           onToggle={() => toggle("media")}
           filled={showOpeningMediaPreview}
-        >
-        <div>
-          <div className="flex flex-row-reverse items-center gap-2 mb-2 flex-wrap justify-center">
-            <p className="text-sm font-medium text-zinc-700">{t.salesFlow.openingMedia}</p>
-            {planIsStarter ? (
+          titleAction={
+            planIsStarter ? (
               <span className="text-[11px] font-semibold text-amber-600 shrink-0" title={t.proAvailable}>
                 {t.proBadge}
               </span>
-            ) : null}
-          </div>
+            ) : null
+          }
+        >
+        <div>
           {!showOpeningMediaPreview ? (
             <button
               type="button"
