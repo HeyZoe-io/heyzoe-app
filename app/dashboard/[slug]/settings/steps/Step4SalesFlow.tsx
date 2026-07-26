@@ -17,6 +17,7 @@ import { WaButtonLabelInput, WA_BUTTON_LABEL_MAX_CHARS } from "@/components/sett
 import { Field, StepPanel, Textarea } from "../settings-ui";
 import {
   SalesPathSectionBlock,
+  SalesPathSectionRow,
   SalesPathStepShell,
   useSalesPathSections,
 } from "./sales-path-shell";
@@ -761,10 +762,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   );
   const scheduleBoardPlacement = resolveScheduleBoardPlacement(salesFlowConfig);
   const [draggingScheduleBoard, setDraggingScheduleBoard] = useState(false);
+  const draggingScheduleBoardRef = useRef(false);
   const [scheduleDropHover, setScheduleDropHover] = useState<ScheduleBoardPlacement | null>(null);
 
   const setScheduleBoardPlacement = (placement: ScheduleBoardPlacement) => {
     setSalesFlowConfig((c) => ({ ...c, schedule_board_placement: placement }));
+  };
+
+  const endScheduleBoardDrag = () => {
+    draggingScheduleBoardRef.current = false;
+    setDraggingScheduleBoard(false);
+    setScheduleDropHover(null);
   };
 
   type SalesSectionId =
@@ -865,94 +873,124 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
 
   const renderScheduleDropSlot = (placement: ScheduleBoardPlacement, label: string) => {
-    if (!draggingScheduleBoard) return null;
-    if (scheduleBoardPlacement === placement) return null;
+    // תמיד ב-DOM (בלי remount באמצע גרירה) — אחרת הדפדפן מבטל את ה-drag
+    if (scheduleBoardPlacement === placement) {
+      return (
+        <SalesPathSectionRow key={`schedule-drop-${placement}`}>
+          <div className="hidden" aria-hidden />
+        </SalesPathSectionRow>
+      );
+    }
+    const active = draggingScheduleBoard;
     const hovered = scheduleDropHover === placement;
     return (
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setScheduleDropHover(placement);
-        }}
-        onDragLeave={() => setScheduleDropHover((h) => (h === placement ? null : h))}
-        onDrop={(e) => {
-          e.preventDefault();
-          setScheduleBoardPlacement(placement);
-          setDraggingScheduleBoard(false);
-          setScheduleDropHover(null);
-        }}
-        className={cn(
-          "flex items-center justify-center rounded-xl border-2 border-dashed px-3 py-3 text-xs font-medium transition-colors",
-          hovered
-            ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
-            : "border-zinc-300 bg-zinc-50/80 text-zinc-500"
-        )}
-      >
-        {label}
-      </div>
+      <SalesPathSectionRow key={`schedule-drop-${placement}`}>
+        <div
+          onDragOver={(e) => {
+            if (!draggingScheduleBoardRef.current) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (!draggingScheduleBoard) setDraggingScheduleBoard(true);
+            setScheduleDropHover(placement);
+          }}
+          onDragLeave={() => setScheduleDropHover((h) => (h === placement ? null : h))}
+          onDrop={(e) => {
+            e.preventDefault();
+            const raw = e.dataTransfer.getData("text/plain");
+            if (raw && raw !== "schedule_board") return;
+            setScheduleBoardPlacement(placement);
+            endScheduleBoardDrag();
+          }}
+          className={cn(
+            "flex items-center justify-center rounded-xl border-2 border-dashed text-xs font-medium transition-[padding,opacity,colors,min-height] duration-150",
+            active
+              ? cn(
+                  "min-h-[2.75rem] px-3 py-3",
+                  hovered
+                    ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
+                    : "border-zinc-300 bg-zinc-50/80 text-zinc-500"
+                )
+              : // רצועה דקה תמיד פעילה לקליטת dragover בלי לבטל גרירה ב-re-render
+                "min-h-2 border-transparent p-0 text-transparent opacity-0"
+          )}
+          aria-hidden={!active}
+        >
+          {label}
+        </div>
+      </SalesPathSectionRow>
     );
   };
 
-  const renderScheduleBoardSection = () => (
-    <SalesPathSectionBlock
-      stepPrefix="sales"
-      id="schedule_board"
-      title={t.salesFlow.scheduleBoard}
-      open={openSections.schedule_board}
-      onToggle={() => toggle("schedule_board")}
-      filled={scheduleBoardConfigured}
-      leading={
-        <span
-          draggable
-          onDragStart={(e) => {
-            e.stopPropagation();
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", "schedule_board");
-            setDraggingScheduleBoard(true);
-          }}
-          onDragEnd={() => {
-            setDraggingScheduleBoard(false);
-            setScheduleDropHover(null);
-          }}
-          className="inline-flex cursor-grab touch-none items-center justify-center rounded p-1 text-zinc-300 hover:text-zinc-500 active:cursor-grabbing"
-          aria-label={t.salesFlow.dragScheduleBoard}
-          title={t.salesFlow.dragScheduleBoard}
-        >
-          <GripVertical className="h-4 w-4" />
-        </span>
-      }
+  const scheduleBoardDragHandle = (
+    <div
+      role="button"
+      tabIndex={0}
+      draggable
+      onDragStart={(e) => {
+        e.stopPropagation();
+        draggingScheduleBoardRef.current = true;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", "schedule_board");
+        // ויזואליה אחרי tick — בלי לבטל את ה-drag על ידי החלפת DOM של הידית
+        queueMicrotask(() => {
+          if (draggingScheduleBoardRef.current) setDraggingScheduleBoard(true);
+        });
+      }}
+      onDragEnd={() => endScheduleBoardDrag()}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+      }}
+      className="inline-flex h-8 w-8 shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-lg border border-zinc-200/80 bg-white text-zinc-400 shadow-sm hover:border-zinc-300 hover:text-zinc-600 active:cursor-grabbing"
+      aria-label={t.salesFlow.dragScheduleBoard}
+      title={t.salesFlow.dragScheduleBoard}
     >
-      <div className="space-y-3 text-right" dir={dashboardDir(lang)}>
-        <p className="text-[11px] leading-relaxed text-zinc-500 text-center">
-          {t.salesFlow.scheduleBoardPlacementHint}
-        </p>
-        <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
-          <p className="text-sm text-zinc-800">{t.salesFlow.scheduleBoardCaption}</p>
-        </div>
-        {String(scheduleScanImageUrl ?? "").trim() ? (
-          <div className="rounded-xl border border-zinc-100 bg-white p-3">
-            <p className="text-xs font-semibold text-zinc-700 text-center mb-2">{t.salesFlow.imageToSend}</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={scheduleScanImageUrl.trim()}
-              alt=""
-              className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
-            />
+      <GripVertical className="h-4 w-4 pointer-events-none" />
+    </div>
+  );
+
+  const renderScheduleBoardSection = () => (
+    <SalesPathSectionRow trail={scheduleBoardDragHandle}>
+      <SalesPathSectionBlock
+        stepPrefix="sales"
+        id="schedule_board"
+        title={t.salesFlow.scheduleBoard}
+        open={openSections.schedule_board}
+        onToggle={() => toggle("schedule_board")}
+        filled={scheduleBoardConfigured}
+      >
+        <div className="space-y-3 text-right" dir={dashboardDir(lang)}>
+          <p className="text-[11px] leading-relaxed text-zinc-500 text-center">
+            {t.salesFlow.scheduleBoardPlacementHint}
+          </p>
+          <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
+            <p className="text-sm text-zinc-800">{t.salesFlow.scheduleBoardCaption}</p>
           </div>
-        ) : String(scheduleBoardLink ?? "").trim() ? (
-          <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
-            {t.salesFlow.noImageLink}{" "}
-            <span dir="ltr" className="font-mono text-[10px] break-all">
-              {scheduleBoardLink.trim()}
-            </span>
-          </p>
-        ) : (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
-            {t.salesFlow.addScheduleInLinks}
-          </p>
-        )}
-      </div>
-    </SalesPathSectionBlock>
+          {String(scheduleScanImageUrl ?? "").trim() ? (
+            <div className="rounded-xl border border-zinc-100 bg-white p-3">
+              <p className="text-xs font-semibold text-zinc-700 text-center mb-2">{t.salesFlow.imageToSend}</p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={scheduleScanImageUrl.trim()}
+                alt=""
+                className="mx-auto max-h-40 w-full max-w-xs rounded-lg object-contain bg-zinc-50"
+              />
+            </div>
+          ) : String(scheduleBoardLink ?? "").trim() ? (
+            <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
+              {t.salesFlow.noImageLink}{" "}
+              <span dir="ltr" className="font-mono text-[10px] break-all">
+                {scheduleBoardLink.trim()}
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center">
+              {t.salesFlow.addScheduleInLinks}
+            </p>
+          )}
+        </div>
+      </SalesPathSectionBlock>
+    </SalesPathSectionRow>
   );
 
   return (
@@ -996,6 +1034,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             </button>
           </div>
         </div>
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="media"
@@ -1119,7 +1158,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           />
         </div>
         </SalesPathSectionBlock>
+        </SalesPathSectionRow>
 
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="opening"
@@ -1169,10 +1210,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             </Field>
           </div>
         </SalesPathSectionBlock>
+        </SalesPathSectionRow>
 
         {renderScheduleDropSlot("after_opening", t.salesFlow.scheduleBoardDropAfterOpening)}
         {scheduleBoardPlacement === "after_opening" ? renderScheduleBoardSection() : null}
 
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="warmup"
@@ -1286,10 +1329,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             )}
           </div>
         </SalesPathSectionBlock>
+        </SalesPathSectionRow>
 
         {renderScheduleDropSlot("before_service_pick", t.salesFlow.scheduleBoardDropBeforePick)}
         {scheduleBoardPlacement === "before_service_pick" ? renderScheduleBoardSection() : null}
 
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="service_pick"
@@ -1358,10 +1403,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             )}
           </div>
         </SalesPathSectionBlock>
+        </SalesPathSectionRow>
 
         {renderScheduleDropSlot("after_service_pick", t.salesFlow.scheduleBoardDropAfterPick)}
         {scheduleBoardPlacement === "after_service_pick" ? renderScheduleBoardSection() : null}
 
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
             stepPrefix="sales"
             id="schedule_selection"
@@ -1586,7 +1633,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               )}
             </div>
           </SalesPathSectionBlock>
+        </SalesPathSectionRow>
 
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="cta"
@@ -2248,7 +2297,9 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             )}
           </div>
         </SalesPathSectionBlock>
+        </SalesPathSectionRow>
 
+        <SalesPathSectionRow>
         <SalesPathSectionBlock
           stepPrefix="sales"
           id="after_trial"
@@ -2473,6 +2524,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             )}
           </div>
         </SalesPathSectionBlock>
+        </SalesPathSectionRow>
       </SalesPathStepShell>
     </StepPanel>
   );

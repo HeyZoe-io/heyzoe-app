@@ -107,6 +107,28 @@ export function SalesPathSectionBlock({
   );
 }
 
+/**
+ * שורת סשן עם עמודה קבועה מימין (ידית גרירה / ריפוד ריק)
+ * כדי שכותרות כל הסשנים יישרו לאותו קו.
+ */
+export function SalesPathSectionRow({
+  children,
+  trail,
+}: {
+  children: ReactNode;
+  /** תוכן בעמודה הקבועה מימין (למשל ידית גרירה) */
+  trail?: ReactNode;
+}) {
+  return (
+    <div className="flex w-full items-start gap-1.5" dir="ltr">
+      <div className="min-w-0 flex-1">{children}</div>
+      <div className="flex w-8 shrink-0 items-start justify-center pt-3.5">
+        {trail ?? <span className="block h-8 w-8" aria-hidden />}
+      </div>
+    </div>
+  );
+}
+
 export function useSalesPathSections<T extends string>(
   sections: SalesPathNavSection<T>[],
   initialOpen: Partial<Record<T, boolean>>
