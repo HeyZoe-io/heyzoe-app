@@ -1412,7 +1412,6 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
             stepPrefix="sales"
             id="schedule_selection"
             title={t.salesFlow.schedulePick}
-            hint={t.salesFlow.schedulePickHint}
             open={openSections.schedule_selection}
             onToggle={() => toggle("schedule_selection")}
             filled={
