@@ -68,15 +68,47 @@ async function writeIncomingAudit(input: {
 export async function POST(req: NextRequest) {
   const admin = createSupabaseAdminClient();
 
-  if (!verifyLeadsWebhookSecret(req)) {
-    await writeIncomingAudit({
-      admin,
-      body: null,
-      result: "unauthorized",
-      statusCode: 401,
-      errorDetail: "unauthorized",
-    });
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const providedSecret = req.headers.get("x-leads-secret")?.trim() ?? "";
+  type AuthPath = "token" | "legacy_slug";
+  let authPath: AuthPath | null = null;
+  let tokenBusiness: {
+    id: unknown;
+    slug: unknown;
+    lead_template_name?: string | null;
+  } | null = null;
+
+  // 1) Per-business token first (ignore business_slug when matched).
+  if (providedSecret) {
+    const { data: tokenRows, error: tokenLookupErr } = await admin
+      .from("businesses")
+      .select("id, slug, lead_template_name")
+      .eq("leads_webhook_secret", providedSecret)
+      .limit(2);
+
+    if (tokenLookupErr) {
+      console.error(
+        "[api/leads/incoming] token business lookup failed:",
+        tokenLookupErr
+      );
+    } else if (tokenRows?.length === 1) {
+      tokenBusiness = tokenRows[0];
+      authPath = "token";
+    }
+  }
+
+  // 2) Legacy global secret + business_slug (Sangha / Zapier).
+  if (!authPath) {
+    if (!verifyLeadsWebhookSecret(req)) {
+      await writeIncomingAudit({
+        admin,
+        body: null,
+        result: "unauthorized",
+        statusCode: 401,
+        errorDetail: "unauthorized",
+      });
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    authPath = "legacy_slug";
   }
 
   let body: IncomingLeadBody;
@@ -96,7 +128,7 @@ export async function POST(req: NextRequest) {
 
   const bodyRecord = body as Record<string, unknown>;
   const fullName = String(body.full_name ?? "").trim();
-  const businessSlug = String(body.business_slug ?? "").trim().toLowerCase();
+  let businessSlug = String(body.business_slug ?? "").trim().toLowerCase();
   const phoneNorm = normalizePhone(body.phone);
 
   if (!phoneNorm) {
@@ -109,43 +141,56 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ error: "invalid_phone" }, { status: 400 });
   }
-  if (!businessSlug) {
-    await writeIncomingAudit({
-      admin,
-      body: bodyRecord,
-      result: "error",
-      statusCode: 400,
-      errorDetail: "missing_business_slug",
-    });
-    return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
-  }
 
-  const { data: business, error: bizErr } = await admin
-    .from("businesses")
-    .select("id, slug, lead_template_name")
-    .eq("slug", businessSlug)
-    .maybeSingle();
+  let business: {
+    id: unknown;
+    slug: unknown;
+    lead_template_name?: string | null;
+  };
 
-  if (bizErr) {
-    console.error("[api/leads/incoming] business lookup failed:", bizErr);
-    await writeIncomingAudit({
-      admin,
-      body: bodyRecord,
-      result: "error",
-      statusCode: 500,
-      errorDetail: "business_lookup_failed",
-    });
-    return NextResponse.json({ error: "business_lookup_failed" }, { status: 500 });
-  }
-  if (!business?.id) {
-    await writeIncomingAudit({
-      admin,
-      body: bodyRecord,
-      result: "business_not_found",
-      statusCode: 404,
-      errorDetail: "business_not_found",
-    });
-    return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+  if (authPath === "token" && tokenBusiness) {
+    business = tokenBusiness;
+    businessSlug = String(tokenBusiness.slug ?? "").trim().toLowerCase();
+  } else {
+    if (!businessSlug) {
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "error",
+        statusCode: 400,
+        errorDetail: "missing_business_slug",
+      });
+      return NextResponse.json({ error: "missing_business_slug" }, { status: 400 });
+    }
+
+    const { data: slugBusiness, error: bizErr } = await admin
+      .from("businesses")
+      .select("id, slug, lead_template_name")
+      .eq("slug", businessSlug)
+      .maybeSingle();
+
+    if (bizErr) {
+      console.error("[api/leads/incoming] business lookup failed:", bizErr);
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "error",
+        statusCode: 500,
+        errorDetail: "business_lookup_failed",
+      });
+      return NextResponse.json({ error: "business_lookup_failed" }, { status: 500 });
+    }
+    if (!slugBusiness?.id) {
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "business_not_found",
+        statusCode: 404,
+        errorDetail: "business_not_found",
+      });
+      return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+    }
+    business = slugBusiness;
   }
 
   const businessId = Number(business.id);
@@ -212,6 +257,7 @@ export async function POST(req: NextRequest) {
     body: bodyRecord,
     result: "validated",
     statusCode: 200,
+    errorDetail: authPath,
   });
 
   const { error: upsertErr } = await admin.from("contacts").upsert(
