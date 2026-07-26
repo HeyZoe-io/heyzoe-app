@@ -369,23 +369,10 @@ export default function ConnectWhatsAppSection({
     return null;
   }
 
+  // Connected status is already shown via badges in WhatsAppNumberSection —
+  // avoid a duplicate "number connected" banner above the settings form.
   if (hasActiveChannel) {
-    return (
-      <section
-        dir={dir}
-        style={{ textAlign }}
-        className="mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4"
-      >
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-          <span className="text-sm font-semibold text-zinc-900">{t.connectedTitle}</span>
-          {channelData?.channel?.phone_display ? (
-            <span className="text-sm text-zinc-600" dir="ltr">
-              {channelData.channel.phone_display}
-            </span>
-          ) : null}
-        </div>
-      </section>
-    );
+    return null;
   }
 
   return (
