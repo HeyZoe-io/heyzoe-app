@@ -6446,6 +6446,7 @@ async function processIncoming(
           ""
         ).trim();
         const scheduleUrlFull = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
+        const scheduleBoardAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
         const csPhone = knowledge?.customerServicePhone?.trim() ?? "";
 
         const consumedSf = (k: string) => sfClickedCtaKinds.includes(k);
@@ -6457,7 +6458,9 @@ async function processIncoming(
         const trialCtaOn = Boolean(trialBtn && (trialBtn.trial_cta_delivery ?? "link") !== "none");
         const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
         const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
-        const wantsScheduleByIntent = scheduleCtaOn && isScheduleIntent(incomingResolved);
+        const wantsScheduleByIntent =
+          isScheduleIntent(incomingResolved) &&
+          (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage);
         const wantsTrialByFollow =
           trialCtaOn && Boolean(follow[0] && waLabelMatches(incomingResolved, follow[0]));
         const wantsScheduleByFollow =
@@ -6823,27 +6826,19 @@ async function processIncoming(
         }
 
         if (wantsSchedule) {
-          const imgConfigured = String(schedBtn?.schedule_cta_image_url ?? "").trim();
-          const canSendScheduleImage =
-            schedBtn?.schedule_cta_delivery === "image" &&
-            imgConfigured.length > 0 &&
-            !starterBlocksMedia;
-
-          if (canSendScheduleImage) {
-            const cap =
-              scheduleUrlFull.trim().length > 0
-                ? `צפייה במערכת השעות:\n${scheduleUrlFull.trim()}`
-                : undefined;
+          // תמונה מ־CTA או מטאב לינקים — תמיד מועדפת על לינק כשקיימת
+          if (scheduleBoardAssets.canSendScheduleImage && scheduleBoardAssets.scheduleImgUrl) {
+            const imgUrl = scheduleBoardAssets.scheduleImgUrl;
             await sendTrialPickMediaIfAllowed({
               blockMedia: starterBlocksMedia,
-              mediaUrl: imgConfigured,
+              mediaUrl: imgUrl,
               mediaType: "image",
               msg,
               accountSid,
               authToken,
               business_slug,
               sessionId,
-              caption: cap,
+              caption: SCHEDULE_BOARD_CAPTION,
             });
             sfClickedCtaKinds = await bumpSfConsumedCtaKind({
               supabase,
@@ -6856,15 +6851,16 @@ async function processIncoming(
             await logMessage({
               business_slug,
               role: "assistant",
-              content: cap ? `[media] ${imgConfigured}\n\n${cap}` : `[media] ${imgConfigured}`,
+              content: `[media] ${imgUrl}\n\n${SCHEDULE_BOARD_CAPTION}`,
               model_used: "sales_flow_schedule_image",
               session_id: sessionId,
             });
             return;
           }
 
-          if (scheduleUrlFull.trim().length > 0) {
-            const txt = `צפייה במערכת השעות:\n${scheduleUrlFull.trim()}`;
+          const linkToSend = (scheduleBoardAssets.link || scheduleUrlFull).trim();
+          if (linkToSend.length > 0) {
+            const txt = `צפייה במערכת השעות:\n${linkToSend}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send schedule link failed:", e)
             );

@@ -749,6 +749,12 @@ ${saleFlowExtra}`;
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה מהדשבורד):
 ${salesMeta || "- הודעת הפתיחה נשלחת אוטומטית מהמערכת — אל תחזירי אותה מחדש אלא אם התבקשת במפורש."}
 ${saleFlowExtra}
-- אם יש לינק מערכת שעות: ${knowledge?.schedulePublicUrl || knowledge?.arboxLink ? `הציעי רק את הקישור הזה כשמבקשים מערכת שעות / לוח שיעורים: ${(knowledge.schedulePublicUrl || knowledge.arboxLink || "").trim()} — אסור לשלוח קישור תשלום / הרשמה / סליקה במקום.` : "אין לינק - אל תמציאי."}${bookingTruthBlock}
+- אם יש תמונת מערכת שעות (schedule_scan / CTA): כשמבקשים מערכת שעות/לוח — אל תשלחי לינק; המערכת שולחת את התמונה אוטומטית. אם אין תמונה ויש לינק מערכת שעות: ${
+    knowledge?.scheduleScanImageUrl
+      ? "קיימת תמונה — אל תשלחי לינק למערכת שעות."
+      : knowledge?.schedulePublicUrl || knowledge?.arboxLink
+        ? `הציעי רק את הקישור הזה: ${(knowledge.schedulePublicUrl || knowledge.arboxLink || "").trim()} — אסור לשלוח קישור תשלום / הרשמה / סליקה במקום.`
+        : "אין לינק - אל תמציאי."
+  }${bookingTruthBlock}
 `;
 }
