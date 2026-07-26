@@ -54,7 +54,7 @@ export function SalesPathSectionBlock({
   stepPrefix: string;
   id: string;
   title: string;
-  hint?: string;
+  hint?: ReactNode;
   open: boolean;
   onToggle: () => void;
   filled?: boolean;

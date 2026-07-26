@@ -693,42 +693,44 @@ function WhatsAppNumberSection({
             <div className="mt-0.5 text-xs text-zinc-500">{tp.waNumberHint}</div>
           )}
         </div>
-        {badge ? (
-          badge
-        ) : status === "active" && isActiveLocally ? (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.statusConnected}
-          </span>
-        ) : status === "pending" ? (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 text-[11px] font-medium">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            {tp.statusProvisioning}
-          </span>
-        ) : status === "failed" && !showLocalConnectedNumber ? (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.statusFailed}
-          </span>
-        ) : showLocalConnectedNumber ? (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.statusConnected}
-          </span>
-        ) : (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.statusNotSet}
-          </span>
-        )}
       </div>
 
       <div className={`${compact ? "mt-2" : "mt-3"} flex flex-wrap items-center justify-between gap-2`}>
-        {zoeActivated ? (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.zoeRepliesActive}
-          </span>
-        ) : (
-          <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
-            {tp.zoeRepliesOff}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {zoeActivated ? (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+              {tp.zoeRepliesActive}
+            </span>
+          ) : (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
+              {tp.zoeRepliesOff}
+            </span>
+          )}
+          {badge ? (
+            badge
+          ) : status === "active" && isActiveLocally ? (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+              {tp.statusConnected}
+            </span>
+          ) : status === "pending" ? (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-1 text-[11px] font-medium">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              {tp.statusProvisioning}
+            </span>
+          ) : status === "failed" && !showLocalConnectedNumber ? (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
+              {tp.statusFailed}
+            </span>
+          ) : showLocalConnectedNumber ? (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
+              {tp.statusConnected}
+            </span>
+          ) : (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-zinc-50 text-zinc-600 border border-zinc-200 px-2.5 py-1 text-[11px] font-medium">
+              {tp.statusNotSet}
+            </span>
+          )}
+        </div>
         <Button
           type="button"
           variant={zoeActivated ? "outline" : "default"}

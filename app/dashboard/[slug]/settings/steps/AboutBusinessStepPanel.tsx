@@ -256,7 +256,12 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             stepPrefix="about"
             id="contact"
             title={t.about.phones}
-            hint={t.about.phonesHint}
+            hint={
+              <>
+                <strong className="font-semibold text-zinc-700">{t.about.phonesHintLead}</strong>
+                {t.about.phonesHintRest}
+              </>
+            }
             open={openSections.contact}
             onToggle={() => toggle("contact")}
             filled={sectionFilled.contact}
