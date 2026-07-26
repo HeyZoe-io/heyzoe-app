@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,6 +206,8 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     addFactLine,
   } = props;
   const t = dashboardSettingsT(lang);
+  const searchParams = useSearchParams();
+  const sectionParam = String(searchParams.get("section") ?? "").trim().toLowerCase();
   const sections = useMemo(
     () => [
       { id: "contact" as const, label: t.about.sections.contact.label, hint: t.about.sections.contact.hint },
@@ -220,12 +223,18 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
       contact: true,
       identity: true,
       location: false,
-      knowledge: false,
+      knowledge: sectionParam === "knowledge",
     });
 
   useEffect(() => {
     setStepPrefix("about");
   }, [setStepPrefix]);
+
+  useEffect(() => {
+    if (sectionParam !== "knowledge") return;
+    const tmr = window.setTimeout(() => scrollToSection("knowledge"), 80);
+    return () => window.clearTimeout(tmr);
+  }, [sectionParam, scrollToSection]);
 
   const sectionFilled = useMemo(
     () => ({

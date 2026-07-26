@@ -269,6 +269,7 @@ export default function ConversationsClient({
   }
 
   const phoneParam = (searchParams.get("phone") ?? "").trim();
+  const sessionParam = (searchParams.get("session") ?? "").trim();
   const normalizedFilter = useMemo(
     () => (phoneParam ? normalizePhoneForMatch(phoneParam) : ""),
     [phoneParam]
@@ -430,13 +431,21 @@ export default function ConversationsClient({
       const apply = () => setIsDesktop(mq?.matches ?? true);
       apply();
       mq?.addEventListener?.("change", apply);
-      if (mq?.matches && !selectedId) setSelectedId(initialSessions[0]?.session_id ?? null);
+      if (mq?.matches && !selectedId && !sessionParam) {
+        setSelectedId(initialSessions[0]?.session_id ?? null);
+      }
       return () => mq?.removeEventListener?.("change", apply);
     } catch {
       /* noop */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!sessionParam) return;
+    const exists = sessions.some((s) => s.session_id === sessionParam);
+    if (exists) setSelectedId(sessionParam);
+  }, [sessionParam, sessions]);
 
   useEffect(() => {
     setActionError(null);
@@ -453,11 +462,12 @@ export default function ConversationsClient({
   }, [messagesQuery.data, selectedId]);
 
   useEffect(() => {
+    if (sessionParam) return;
     if (!normalizedFilter) return;
     if (selectedId && visibleSessions.some((s) => s.session_id === selectedId)) return;
     setSelectedId(visibleSessions[0]?.session_id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [normalizedFilter, visibleSessions.length]);
+  }, [normalizedFilter, visibleSessions.length, sessionParam]);
 
   useEffect(() => {
     const el = document.getElementById("hz-convo-messages");

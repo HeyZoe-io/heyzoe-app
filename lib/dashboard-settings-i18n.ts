@@ -868,8 +868,15 @@ export function formatConcurrentEditorNames(names: string[], t: DashboardSetting
   return t.concurrentNamesList(cleaned.slice(0, -1).join(", "), cleaned[cleaned.length - 1]!);
 }
 
-export function settingsStepHref(base: string, step: number, lang: DashboardLang): string {
+export function settingsStepHref(
+  base: string,
+  step: number,
+  lang: DashboardLang,
+  opts?: { section?: string }
+): string {
   const q = new URLSearchParams({ step: String(step) });
   if (lang === "en") q.set("lang", "en");
+  const section = String(opts?.section ?? "").trim();
+  if (section) q.set("section", section);
   return `${base}?${q.toString()}`;
 }

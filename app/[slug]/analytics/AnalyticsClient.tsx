@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
@@ -16,9 +17,11 @@ import type { PremiumAnalyticsResult } from "@/lib/analytics-pro-metrics";
 import {
   dashboardDateLocale,
   dashboardDir,
+  dashboardHref,
   dashboardLangFromParam,
   dashboardTextAlign,
 } from "@/lib/dashboard-lang";
+import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -34,6 +37,15 @@ import {
 type RangeKey = "month" | "week" | "all";
 
 type AnalyticsPayload = AnalyticsClientPayload;
+
+type KnowledgeGapItem = {
+  id: string;
+  assistantMessageId: number;
+  sessionId: string;
+  question: string;
+  assistantSnippet: string;
+  createdAt: string;
+};
 
 const i18n = {
   he: {
@@ -69,6 +81,13 @@ const i18n = {
     training: "אימון",
     mentions: "אזכורים",
     noTrainingMatches: "אין עדיין התאמות לפי טקסט בטווח זה",
+    knowledgeGapsTitle: "מידע ששווה להוסיף",
+    knowledgeGapsSubtitle: "מצאנו מידע חסר שכדאי להוסיף לזואי",
+    customerQuestion: "שאלה מלקוח/ה:",
+    updateInfo: "עדכן מידע",
+    showConversation: "הצג שיחה",
+    markHandled: "טופל",
+    dismissFailed: "לא הצלחנו לסמן כטופל. נסו שוב.",
   },
   en: {
     loadError: "Could not load data. Try refreshing the page.",
@@ -103,6 +122,13 @@ const i18n = {
     training: "Training",
     mentions: "Mentions",
     noTrainingMatches: "No text matches in this range yet",
+    knowledgeGapsTitle: "Worth adding",
+    knowledgeGapsSubtitle: "We found missing info that should be added for Zoe",
+    customerQuestion: "Customer question:",
+    updateInfo: "Update info",
+    showConversation: "Show chat",
+    markHandled: "Done",
+    dismissFailed: "Couldn't mark as done. Try again.",
   },
 } as const;
 
@@ -169,6 +195,10 @@ export default function AnalyticsClient({
   const lastLoadedRangeRef = useRef<RangeKey>(cachedOnMount?.range ?? initialRange);
   const mountedRef = useRef(true);
   const inFlightRef = useRef<{ ac: AbortController | null; reqId: number }>({ ac: null, reqId: 0 });
+  const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGapItem[]>([]);
+  const [dismissingId, setDismissingId] = useState<number | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
+  const knowledgeHref = settingsStepHref(`/${slug}/settings`, 2, lang, { section: "knowledge" });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -181,6 +211,71 @@ export default function AnalyticsClient({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!onAnalyticsPage) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/analytics/knowledge-gaps?business_slug=${encodeURIComponent(slug)}`,
+          { method: "GET", signal: ac.signal }
+        );
+        const j = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          items?: KnowledgeGapItem[];
+        } | null;
+        if (!mountedRef.current || ac.signal.aborted) return;
+        if (!res.ok || !j?.ok || !Array.isArray(j.items)) {
+          setKnowledgeGaps([]);
+          return;
+        }
+        setKnowledgeGaps(
+          j.items.map((it) => ({
+            id: String(it.id ?? ""),
+            assistantMessageId: Number(it.assistantMessageId) || 0,
+            sessionId: String(it.sessionId ?? ""),
+            question: String(it.question ?? ""),
+            assistantSnippet: String(it.assistantSnippet ?? ""),
+            createdAt: String(it.createdAt ?? ""),
+          }))
+        );
+      } catch (e: unknown) {
+        if ((e as { name?: string })?.name === "AbortError") return;
+        console.error("[AnalyticsClient] knowledge-gaps load failed:", e);
+        if (mountedRef.current) setKnowledgeGaps([]);
+      }
+    })();
+    return () => ac.abort();
+  }, [onAnalyticsPage, slug]);
+
+  async function dismissGap(item: KnowledgeGapItem) {
+    if (!item.assistantMessageId || dismissingId != null) return;
+    setDismissError(null);
+    setDismissingId(item.assistantMessageId);
+    try {
+      const res = await fetch("/api/analytics/knowledge-gaps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          business_slug: slug,
+          assistant_message_id: item.assistantMessageId,
+        }),
+      });
+      const j = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!res.ok || !j?.ok) {
+        console.error("[AnalyticsClient] dismiss failed:", j?.error ?? res.status);
+        setDismissError(t.dismissFailed);
+        return;
+      }
+      setKnowledgeGaps((prev) => prev.filter((g) => g.assistantMessageId !== item.assistantMessageId));
+    } catch (e) {
+      console.error("[AnalyticsClient] dismiss failed:", e);
+      setDismissError(t.dismissFailed);
+    } finally {
+      setDismissingId(null);
+    }
+  }
 
   async function load(next: RangeKey) {
     try {
@@ -367,6 +462,64 @@ export default function AnalyticsClient({
           </div>
         </div>
       </div>
+
+      {knowledgeGaps.length > 0 ? (
+        <section className="hz-wave hz-wave-1.5 text-start" dir={dashboardDir(lang)}>
+          <div className="rounded-2xl border border-[#7133da]/20 bg-white/85 backdrop-blur p-4 sm:p-5 shadow-sm">
+            <div className="text-center">
+              <h2 className="text-base font-semibold text-zinc-900">{t.knowledgeGapsTitle}</h2>
+              <p className="mt-1 text-xs text-zinc-500">{t.knowledgeGapsSubtitle}</p>
+            </div>
+            {dismissError ? (
+              <p className="mt-3 text-center text-xs text-red-600">{dismissError}</p>
+            ) : null}
+            <ul className="mt-4 space-y-3">
+              {knowledgeGaps.map((gap) => (
+                <li
+                  key={gap.id}
+                  className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3 sm:p-3.5"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <p className={`min-w-0 flex-1 text-sm text-zinc-800 ${textAlign === "right" ? "text-right" : "text-left"}`}>
+                      <span className="font-medium text-zinc-600">{t.customerQuestion}</span>{" "}
+                      <span className="text-zinc-900">{gap.question}</span>
+                    </p>
+                    <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 sm:justify-end">
+                      <Link
+                        href={knowledgeHref}
+                        className="inline-flex h-9 items-center justify-center rounded-lg bg-[#7133da] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#5f28c0]"
+                      >
+                        {t.updateInfo}
+                      </Link>
+                      <Link
+                        href={dashboardHref(`/${slug}/conversations`, lang, {
+                          session: gap.sessionId,
+                        })}
+                        className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                      >
+                        {t.showConversation}
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void dismissGap(gap)}
+                        disabled={dismissingId === gap.assistantMessageId}
+                        className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
+                      >
+                        {dismissingId === gap.assistantMessageId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                        {t.markHandled}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ) : null}
 
       {isEmpty ? (
         <section className="hz-wave hz-wave-2">
