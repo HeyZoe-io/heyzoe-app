@@ -764,16 +764,34 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const [draggingScheduleBoard, setDraggingScheduleBoard] = useState(false);
   const draggingScheduleBoardRef = useRef(false);
   const [scheduleDropHover, setScheduleDropHover] = useState<ScheduleBoardPlacement | null>(null);
+  const scheduleDropHoverRef = useRef<ScheduleBoardPlacement | null>(null);
 
   const setScheduleBoardPlacement = (placement: ScheduleBoardPlacement) => {
     setSalesFlowConfig((c) => ({ ...c, schedule_board_placement: placement }));
   };
 
+  const setScheduleDropHoverBoth = (placement: ScheduleBoardPlacement | null) => {
+    scheduleDropHoverRef.current = placement;
+    setScheduleDropHover(placement);
+  };
+
   const endScheduleBoardDrag = () => {
     draggingScheduleBoardRef.current = false;
     setDraggingScheduleBoard(false);
-    setScheduleDropHover(null);
+    setScheduleDropHoverBoth(null);
   };
+
+  useEffect(() => {
+    if (!draggingScheduleBoard) return;
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "grabbing";
+    return () => {
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [draggingScheduleBoard]);
 
   type SalesSectionId =
     | "media"
@@ -873,27 +891,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
   const showOpeningMediaPreview = openingMediaConfigured && !String(mediaUploadError ?? "").trim();
 
   const renderScheduleDropSlot = (placement: ScheduleBoardPlacement, label: string) => {
-    // לא מרנדרים כלום כשלא בגרירה — אחרת space-y + שורת ריפוד יוצרים מרווחים ריקים
+    // רק בזמן גרירה (pointer) — לא תופס מקום רגיל; HTML5 DnD בוטל כי re-render מבטל drag
     if (scheduleBoardPlacement === placement) return null;
     if (!draggingScheduleBoard) return null;
     const hovered = scheduleDropHover === placement;
     return (
       <SalesPathSectionRow key={`schedule-drop-${placement}`} lang={lang}>
         <div
-          onDragOver={(e) => {
-            if (!draggingScheduleBoardRef.current) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-            setScheduleDropHover(placement);
-          }}
-          onDragLeave={() => setScheduleDropHover((h) => (h === placement ? null : h))}
-          onDrop={(e) => {
-            e.preventDefault();
-            const raw = e.dataTransfer.getData("text/plain");
-            if (raw && raw !== "schedule_board") return;
-            setScheduleBoardPlacement(placement);
-            endScheduleBoardDrag();
-          }}
+          data-schedule-drop={placement}
           className={cn(
             "flex min-h-[2.75rem] items-center justify-center rounded-xl border-2 border-dashed px-3 py-3 text-xs font-medium transition-colors",
             hovered
@@ -907,27 +912,71 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     );
   };
 
+  const updateScheduleDropHoverFromPoint = (clientX: number, clientY: number) => {
+    const el = document.elementFromPoint(clientX, clientY);
+    const zone = el?.closest("[data-schedule-drop]") as HTMLElement | null;
+    const raw = zone?.dataset.scheduleDrop;
+    if (raw === "after_opening" || raw === "before_service_pick" || raw === "after_service_pick") {
+      setScheduleDropHoverBoth(raw);
+    } else {
+      setScheduleDropHoverBoth(null);
+    }
+  };
+
   const scheduleBoardDragHandle = (
     <div
       role="button"
       tabIndex={0}
-      draggable
-      onDragStart={(e) => {
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
         e.stopPropagation();
+        const pointerId = e.pointerId;
         draggingScheduleBoardRef.current = true;
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", "schedule_board");
-        // ויזואליה אחרי tick — בלי לבטל את ה-drag על ידי החלפת DOM של הידית
-        queueMicrotask(() => {
-          if (draggingScheduleBoardRef.current) setDraggingScheduleBoard(true);
-        });
+        setScheduleDropHoverBoth(null);
+        setDraggingScheduleBoard(true);
+
+        const onMove = (ev: PointerEvent) => {
+          if (ev.pointerId !== pointerId || !draggingScheduleBoardRef.current) return;
+          updateScheduleDropHoverFromPoint(ev.clientX, ev.clientY);
+        };
+        const onUp = (ev: PointerEvent) => {
+          if (ev.pointerId !== pointerId) return;
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onUp);
+          if (!draggingScheduleBoardRef.current) return;
+          updateScheduleDropHoverFromPoint(ev.clientX, ev.clientY);
+          const target = scheduleDropHoverRef.current;
+          if (
+            target &&
+            (target === "after_opening" ||
+              target === "before_service_pick" ||
+              target === "after_service_pick")
+          ) {
+            setScheduleBoardPlacement(target);
+          }
+          endScheduleBoardDrag();
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
       }}
-      onDragEnd={() => endScheduleBoardDrag()}
       onKeyDown={(e) => {
         if (e.key !== "Enter" && e.key !== " ") return;
         e.preventDefault();
+        const order: ScheduleBoardPlacement[] = [
+          "after_opening",
+          "before_service_pick",
+          "after_service_pick",
+        ];
+        const idx = order.indexOf(scheduleBoardPlacement);
+        setScheduleBoardPlacement(order[(idx + 1) % order.length]!);
       }}
-      className="inline-flex h-8 w-8 shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-lg border border-zinc-200/80 bg-white text-zinc-400 shadow-sm hover:border-zinc-300 hover:text-zinc-600 active:cursor-grabbing"
+      className={cn(
+        "inline-flex h-8 w-8 shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-lg border border-zinc-200/80 bg-white text-zinc-400 shadow-sm hover:border-zinc-300 hover:text-zinc-600 active:cursor-grabbing",
+        draggingScheduleBoard && "cursor-grabbing border-[#7133da]/40 text-[#7133da] ring-2 ring-[#7133da]/20"
+      )}
       aria-label={t.salesFlow.dragScheduleBoard}
       title={t.salesFlow.dragScheduleBoard}
     >
