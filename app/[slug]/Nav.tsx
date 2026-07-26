@@ -19,6 +19,7 @@ const i18n = {
     conversations: "שיחות",
     leads: "לידים",
     analytics: "אנליטיקס",
+    templates: "טמפלייטים",
     logoAria: "HeyZoe — לדשבורד",
     navAria: "אזורי דשבורד",
     verifyBannerAria: "המספר בתהליך אימות — מעבר למסלול מכירה",
@@ -29,6 +30,7 @@ const i18n = {
     conversations: "Conversations",
     leads: "Leads",
     analytics: "Analytics",
+    templates: "Templates",
     logoAria: "HeyZoe — Dashboard",
     navAria: "Dashboard sections",
     verifyBannerAria: "Phone number verification in progress — go to Sales Path",
@@ -50,6 +52,7 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
     { href: dashboardHref(`${base}/conversations`, lang), label: t.conversations },
     { href: dashboardHref(`${base}/contacts`, lang), label: t.leads },
     { href: dashboardHref(`${base}/analytics`, lang), label: t.analytics },
+    { href: dashboardHref(`${base}/templates`, lang), label: t.templates },
   ];
 
   useEffect(() => {
