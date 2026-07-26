@@ -274,7 +274,7 @@ export default function TemplatesClient({
     setRefreshing(true);
     try {
       await reloadFromApi(true);
-      setSuccess("הרשימה עודכנה ממטא");
+      setSuccess("הרשימה סונכרנה מ-Meta");
     } catch (e) {
       setError(e instanceof Error ? e.message : "רענון נכשל");
     } finally {
