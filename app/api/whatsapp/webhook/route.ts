@@ -3923,6 +3923,212 @@ export function parseAccountUpdate(payload: unknown): AccountUpdateEvent | null 
   return null;
 }
 
+type MessageTemplateStatusUpdateEvent = {
+  waba_id: string;
+  event: string;
+  message_template_id: string;
+  message_template_name: string;
+  message_template_language: string;
+  value: Record<string, unknown>;
+};
+
+/**
+ * Parses Meta `message_template_status_update` webhook payloads.
+ * `entry.id` is the WABA ID; `value.event` is the new status (APPROVED / REJECTED / …).
+ */
+export function parseMessageTemplateStatusUpdate(
+  payload: unknown
+): MessageTemplateStatusUpdateEvent | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  if (root.object !== "whatsapp_business_account") return null;
+
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  for (const entry of entries) {
+    const ent = entry as Record<string, unknown>;
+    const waba_id = String(ent.id ?? "")
+      .trim()
+      .replace(/\s+/g, "");
+    const changes = Array.isArray(ent.changes) ? ent.changes : [];
+    for (const change of changes) {
+      const ch = change as Record<string, unknown>;
+      if (String(ch.field ?? "").trim() !== "message_template_status_update") continue;
+      const value = ch.value;
+      if (!value || typeof value !== "object") continue;
+      const v = value as Record<string, unknown>;
+      const event = String(v.event ?? "").trim();
+      if (!event) continue;
+      return {
+        waba_id,
+        event,
+        message_template_id: String(v.message_template_id ?? "").trim(),
+        message_template_name: String(v.message_template_name ?? "").trim(),
+        message_template_language: String(v.message_template_language ?? "").trim(),
+        value: v,
+      };
+    }
+  }
+  return null;
+}
+
+async function writeTemplateStatusAudit(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessSlug: string | null;
+  result: string;
+  statusCode: number;
+  errorDetail?: string | null;
+  rawBody: Record<string, unknown>;
+  externalIds?: Record<string, unknown> | null;
+}) {
+  try {
+    const { error } = await input.admin.from("webhook_audit").insert({
+      source: "wa_template_status",
+      business_slug: input.businessSlug,
+      phone: null,
+      full_name: null,
+      external_ids: input.externalIds ?? null,
+      result: input.result,
+      status_code: input.statusCode,
+      raw_body: input.rawBody,
+      error_detail: input.errorDetail ?? null,
+    });
+    if (error) {
+      console.error(
+        "[WA Webhook] template_status webhook_audit insert failed:",
+        error.message
+      );
+    }
+  } catch (e) {
+    console.error("[WA Webhook] template_status webhook_audit write failed:", e);
+  }
+}
+
+async function handleMessageTemplateStatusUpdate(
+  ev: MessageTemplateStatusUpdateEvent
+): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  const nowIso = new Date().toISOString();
+  const newStatus = ev.event;
+  let businessSlug: string | null = null;
+  let matched = 0;
+  let matchPath: "waba_template_id" | "name_language" | "none" = "none";
+
+  if (ev.message_template_id) {
+    const { data, error } = await admin
+      .from("whatsapp_templates")
+      .update({ status: newStatus, updated_at: nowIso })
+      .eq("waba_template_id", ev.message_template_id)
+      .select("id, business_id");
+    if (error) {
+      console.error(
+        "[WA Webhook] template_status update by waba_template_id failed:",
+        error.message
+      );
+      await writeTemplateStatusAudit({
+        admin,
+        businessSlug: null,
+        result: "error",
+        statusCode: 500,
+        errorDetail: error.message,
+        rawBody: ev.value,
+        externalIds: {
+          message_template_id: ev.message_template_id || null,
+          waba_id: ev.waba_id || null,
+        },
+      });
+      return;
+    }
+    matched = data?.length ?? 0;
+    if (matched > 0) {
+      matchPath = "waba_template_id";
+      const bizId = Number((data as { business_id?: number }[])?.[0]?.business_id);
+      if (Number.isFinite(bizId)) {
+        const { data: biz } = await admin
+          .from("businesses")
+          .select("slug")
+          .eq("id", bizId)
+          .maybeSingle();
+        businessSlug = String((biz as { slug?: string } | null)?.slug ?? "").trim() || null;
+      }
+    }
+  }
+
+  if (matched === 0 && ev.message_template_name && ev.message_template_language && ev.waba_id) {
+    const { data: biz, error: bizErr } = await admin
+      .from("businesses")
+      .select("id, slug")
+      .eq("waba_id", ev.waba_id)
+      .maybeSingle();
+    if (bizErr) {
+      console.error(
+        "[WA Webhook] template_status business lookup by waba_id failed:",
+        bizErr.message
+      );
+    } else if (biz?.id) {
+      businessSlug = String((biz as { slug?: string }).slug ?? "").trim() || null;
+      const { data, error } = await admin
+        .from("whatsapp_templates")
+        .update({ status: newStatus, updated_at: nowIso })
+        .eq("business_id", biz.id)
+        .eq("name", ev.message_template_name)
+        .eq("language", ev.message_template_language)
+        .select("id");
+      if (error) {
+        console.error(
+          "[WA Webhook] template_status update by name/language failed:",
+          error.message
+        );
+        await writeTemplateStatusAudit({
+          admin,
+          businessSlug,
+          result: "error",
+          statusCode: 500,
+          errorDetail: error.message,
+          rawBody: ev.value,
+          externalIds: {
+            message_template_id: ev.message_template_id || null,
+            waba_id: ev.waba_id || null,
+          },
+        });
+        return;
+      }
+      matched = data?.length ?? 0;
+      if (matched > 0) matchPath = "name_language";
+    }
+  } else if (matched === 0 && ev.waba_id) {
+    const { data: biz } = await admin
+      .from("businesses")
+      .select("slug")
+      .eq("waba_id", ev.waba_id)
+      .maybeSingle();
+    businessSlug = String((biz as { slug?: string } | null)?.slug ?? "").trim() || null;
+  }
+
+  console.info(
+    `[WA Webhook] message_template_status_update: event=${newStatus} match=${matchPath} rows=${matched}`,
+    {
+      message_template_id: ev.message_template_id || null,
+      name: ev.message_template_name || null,
+      language: ev.message_template_language || null,
+      waba_id: ev.waba_id || null,
+    }
+  );
+
+  await writeTemplateStatusAudit({
+    admin,
+    businessSlug,
+    result: matched > 0 ? "updated" : "no_match",
+    statusCode: 200,
+    errorDetail: `${newStatus}:${matchPath}`,
+    rawBody: ev.value,
+    externalIds: {
+      message_template_id: ev.message_template_id || null,
+      waba_id: ev.waba_id || null,
+      match_path: matchPath,
+    },
+  });
+}
+
 async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
   const wabaId = String(waba_id ?? "")
     .trim()
@@ -4170,6 +4376,16 @@ export async function POST(req: NextRequest) {
           console.info(`[WA Webhook] unhandled account_update event: ${accountUpdate.event}`);
         }
       }
+    }
+
+    // Template approval/rejection — DB update after ACK (do not block Meta 200).
+    const templateStatus = parseMessageTemplateStatusUpdate(metaPayload);
+    if (templateStatus) {
+      after(() =>
+        handleMessageTemplateStatusUpdate(templateStatus).catch((e) =>
+          console.error("[WA Webhook] handleMessageTemplateStatusUpdate error:", e)
+        )
+      );
     }
   } else {
     if (trimmedBody.startsWith("{")) {
