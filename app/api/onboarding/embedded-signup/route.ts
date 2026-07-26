@@ -131,13 +131,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let webhookSubscribed = false;
+  let webhookError: string | undefined;
   try {
     const systemToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim();
     if (systemToken && waba_id) {
       await subscribeWabaToAppWebhooks(waba_id, systemToken);
+      webhookSubscribed = true;
       console.log(`[embedded-signup] subscribed_apps success for waba_id=${waba_id}`);
+    } else {
+      webhookError = "missing_system_token";
     }
   } catch (e) {
+    webhookError = e instanceof Error ? e.message : String(e);
     console.error("[embedded-signup] subscribed_apps failed:", e);
     // לא לחסום את הflow - webhook הוא fallback
   }
@@ -225,5 +231,11 @@ export async function POST(req: NextRequest) {
   // `code` reserved for a later server exchange with Meta; not persisted here.
   void code;
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: true,
+    webhook: {
+      subscribed: webhookSubscribed,
+      ...(webhookError ? { error: webhookError } : {}),
+    },
+  });
 }

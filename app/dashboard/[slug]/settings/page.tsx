@@ -533,6 +533,15 @@ function WhatsAppNumberSection({
       pollRef.current = null;
     }
 
+    // No active channel — skip the internal round-trip and the live Meta Graph call
+    // entirely. Re-runs (and fires the check again) as soon as isActiveLocally flips
+    // true, since it's in the dependency array below.
+    if (!isActiveLocally) {
+      setMetaStatus(null);
+      setMetaChecked(false);
+      return;
+    }
+
     let cancelled = false;
     let intervalId: number | null = null;
     let shouldPoll = false;
@@ -589,7 +598,7 @@ function WhatsAppNumberSection({
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [fetchMetaStatus]);
+  }, [fetchMetaStatus, isActiveLocally]);
 
   const badge = useMemo(() => {
     if ((metaStatus === "CONNECTED" || showLocalConnectedNumber) && isActiveLocally) {

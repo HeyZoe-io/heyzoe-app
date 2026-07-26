@@ -73,6 +73,19 @@ export async function proxy(req: NextRequest) {
   if (pathname === "/") return NextResponse.next();
 
   if (pathname === "/dashboard/settings") return neutralNotFoundResponse();
+
+  // Orphaned route: no nav link points here anymore (app/[slug]/Nav.tsx links to
+  // /{slug}/settings, which renders both the connect-whatsapp flow and this page's
+  // content together). Redirect before the auth-cookie check below so an
+  // unauthenticated hit gets `next=/{slug}/settings` (the real destination) rather
+  // than looping through the orphaned path after login.
+  const dashboardSlugSettingsMatch = pathname.match(/^\/dashboard\/([^/]+)\/settings\/?$/);
+  if (dashboardSlugSettingsMatch) {
+    const url = req.nextUrl.clone();
+    url.pathname = `/${dashboardSlugSettingsMatch[1]}/settings`;
+    return NextResponse.redirect(url);
+  }
+
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
   const isOwnerAccountPath = pathname.startsWith("/account");

@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import SettingsClient from "../../dashboard/[slug]/settings/page";
+import ConnectWhatsAppSection from "./connect-whatsapp-section";
 
 const SETTINGS_PRESENCE_PREFIX = "settings";
 
@@ -146,10 +147,13 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
   }, [slug, t.otherUser, t.user]);
 
   return (
-    <SettingsClient
-      settingsPresenceLocked={settingsPresenceLocked}
-      settingsPresenceEditorName={settingsPresenceEditorName}
-      settingsPresenceConcurrentNames={settingsPresenceConcurrentNames}
-    />
+    <>
+      <ConnectWhatsAppSection slug={slug} lang={lang} />
+      <SettingsClient
+        settingsPresenceLocked={settingsPresenceLocked}
+        settingsPresenceEditorName={settingsPresenceEditorName}
+        settingsPresenceConcurrentNames={settingsPresenceConcurrentNames}
+      />
+    </>
   );
 }
