@@ -1565,9 +1565,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
                     <p className="mb-2 text-xs font-semibold text-zinc-700">{t.salesFlow.questionAndButtons}</p>
                     <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                      {firstTrialForTemplates.name.trim()
-                        ? t.salesFlow.trialScheduleQuestion(firstTrialForTemplates.name.trim())
-                        : t.salesFlow.trialScheduleQuestionFallback}
+                      {t.salesFlow.trialScheduleQuestion}
                     </div>
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
                       {t.salesFlow.schedulePickHint}
@@ -1597,9 +1595,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   <div className="rounded-xl border border-zinc-100 bg-white/80 p-3">
                     <p className="mb-2 text-xs font-semibold text-zinc-700">{t.salesFlow.questionAndButtons}</p>
                     <div className="whitespace-pre-wrap rounded-lg bg-zinc-50 px-3 py-2 text-sm leading-relaxed text-zinc-800">
-                      {firstWorkshopSvcForWarmup?.name?.trim()
-                        ? t.salesFlow.workshopScheduleQuestion(firstWorkshopSvcForWarmup.name.trim())
-                        : t.salesFlow.workshopScheduleQuestionFallback}
+                      {t.salesFlow.workshopScheduleQuestion}
                     </div>
                     <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 text-right">
                       {t.salesFlow.workshopScheduleSlotsHint}

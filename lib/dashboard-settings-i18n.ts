@@ -331,10 +331,10 @@ export const dashboardSettingsI18n = {
       questionN: (n: number) => `שאלה ${n}`,
       removeQuestion: "הסר שאלה",
       writeQuestion: "כתבו את השאלה כאן…",
-      trialScheduleQuestion: (name: string) => `מתי נוח לך להגיע ל${name}?`,
-      trialScheduleQuestionFallback: "מתי נוח לך להגיע ל[שם שיעור הניסיון]?",
-      workshopScheduleQuestion: (name: string) => `מתי נוח לך להגיע לסדנת ${name}?`,
-      workshopScheduleQuestionFallback: "מתי נוח לך להגיע ל[שם הסדנה]?",
+      trialScheduleQuestion: "מתי נוח לך להגיע ל{serviceName}?",
+      trialScheduleQuestionFallback: "מתי נוח לך להגיע ל{serviceName}?",
+      workshopScheduleQuestion: "מתי נוח לך להגיע לסדנת {serviceName}?",
+      workshopScheduleQuestionFallback: "מתי נוח לך להגיע לסדנת {serviceName}?",
       workshopScheduleSlotsHint:
         "כפתורי מועד לפי המועדים שהוגדרו במוצר «סדנה» בטאב «מוצרים»",
       workshopScheduleSlotsHintSuffix:
@@ -756,10 +756,10 @@ export const dashboardSettingsI18n = {
       questionN: (n: number) => `Question ${n}`,
       removeQuestion: "Remove question",
       writeQuestion: "Write your question here…",
-      trialScheduleQuestion: (name: string) => `When would you like to come to ${name}?`,
-      trialScheduleQuestionFallback: "When would you like to come to [trial class name]?",
-      workshopScheduleQuestion: (name: string) => `When would you like to come to workshop ${name}?`,
-      workshopScheduleQuestionFallback: "When would you like to come to [workshop name]?",
+      trialScheduleQuestion: "When would you like to come to {serviceName}?",
+      trialScheduleQuestionFallback: "When would you like to come to {serviceName}?",
+      workshopScheduleQuestion: "When would you like to come to workshop {serviceName}?",
+      workshopScheduleQuestionFallback: "When would you like to come to workshop {serviceName}?",
       workshopScheduleSlotsHint:
         "Time buttons based on slots defined for the «Workshop» product in Products",
       workshopScheduleSlotsHintSuffix:
