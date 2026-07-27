@@ -70,6 +70,21 @@ export function membershipsHumanContactButton(source?: SalesFlowCtaButton): Sale
   };
 }
 
+/** טווח מחירי מנויים/כרטיסיות מהשדות בדשבורד — לווטסאפ ולידע זואי */
+export function formatMembershipsPriceRangeLine(min?: string, max?: string): string {
+  const lo = String(min ?? "").trim();
+  const hi = String(max ?? "").trim();
+  if (lo && hi) return `בין ${lo} ₪ ל-${hi} ₪`;
+  if (lo) return `מ-${lo} ₪`;
+  if (hi) return `עד ${hi} ₪`;
+  return "";
+}
+
+export function membershipsPriceRangeWhatsAppText(rangeLine: string): string {
+  const r = rangeLine.trim();
+  return r ? `טווח מחירים למנויים/כרטיסיות: ${r}` : "";
+}
+
 export type SalesFlowCtaButton = {
   id: string;
   label: string;
@@ -3069,7 +3084,7 @@ export function formatSalesFlowForPrompt(
             : b.kind === "memberships"
                 ? (b.memberships_cta_delivery ?? "link") === "range"
                   ? `כשמשתמש בוחר: טווח מחירים שמור בהגדרות (בין ₪ ___ ל‑₪ ___); הניסוח בווטסאפ מתוך השדות — בלי טעות במספרים`
-                  : "בווטסאפ: קישור מטאב לינקים «קישור לדף מנויים וכרטיסיות»; אם אין קישור — אמרי שאין לך את המידע והפני לשירות לקוחות"
+                  : "בווטסאפ: קישור מטאב לינקים «קישור לדף מנויים וכרטיסיות»; אם אין קישור אבל יש טווח מחירים — הציגי את הטווח; אם אין גם קישור וגם טווח — אמרי שאין לך את המידע והפני לשירות לקוחות"
                 : "עקבי אחרי סוג הכפתור במסלול המכירה";
       return `  - "${b.label}" (${b.kind}): ${hint}`;
     })

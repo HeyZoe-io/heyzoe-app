@@ -79,6 +79,8 @@ import {
   DEFAULT_MULTI_SERVICE_QUESTION_TAIL,
   resolveScheduleBoardAssets,
   resolveScheduleBoardPlacement,
+  formatMembershipsPriceRangeLine,
+  membershipsPriceRangeWhatsAppText,
   SCHEDULE_BOARD_CAPTION,
   splitMultiServiceQuestionForWhatsApp,
   stripScheduleLineFromMultiServiceQuestion,
@@ -7128,18 +7130,16 @@ async function processIncoming(
           const mu = knowledge?.membershipsUrl?.trim() ?? "";
           const promo = knowledge?.promotionsText?.trim() ?? "";
           const promoIsMemberships = promo && /(מנוי|מנויים|כרטיסי(?:ה|ות)|חבילה)/u.test(promo);
+          const rangeLine = formatMembershipsPriceRangeLine(
+            memBtn?.memberships_price_range_min,
+            memBtn?.memberships_price_range_max
+          );
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
           if (memDelivery === "range") {
-            const lo = String(memBtn?.memberships_price_range_min ?? "").trim();
-            const hi = String(memBtn?.memberships_price_range_max ?? "").trim();
-            let rangeLine = "";
-            if (lo && hi) rangeLine = `בין ${lo} ₪ ל-${hi} ₪`;
-            else if (lo) rangeLine = `מ-${lo} ₪`;
-            else if (hi) rangeLine = `עד ${hi} ₪`;
-            const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
             const txt =
               rangeLine.trim().length > 0
-                ? `טווח מחירים למנויים/כרטיסיות: ${rangeLine}`
+                ? membershipsPriceRangeWhatsAppText(rangeLine)
                 : membershipsPricingMissingReply(contentLang, csPhone);
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send memberships range reply failed:", e)
@@ -7163,10 +7163,11 @@ async function processIncoming(
             return;
           }
 
-          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const txt = mu.length
             ? [`מחירי מנויים:`, mu, promoIsMemberships ? promo : ""].filter(Boolean).join("\n")
-            : membershipsPricingMissingReply(contentLang, csPhone);
+            : rangeLine.trim().length > 0
+              ? membershipsPriceRangeWhatsAppText(rangeLine)
+              : membershipsPricingMissingReply(contentLang, csPhone);
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send memberships reply failed:", e)
           );
@@ -7182,7 +7183,11 @@ async function processIncoming(
             business_slug,
             role: "assistant",
             content: txt,
-            model_used: mu.length ? "sales_flow_memberships_link" : "sales_flow_memberships_fallback",
+            model_used: mu.length
+              ? "sales_flow_memberships_link"
+              : rangeLine.trim().length > 0
+                ? "sales_flow_memberships_range"
+                : "sales_flow_memberships_fallback",
             session_id: sessionId,
           });
           return;

@@ -12,6 +12,7 @@ import {
   type OfferKind,
   type SalesFlowConfig,
   formatSalesFlowForPrompt,
+  formatMembershipsPriceRangeLine,
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
 } from "@/lib/sales-flow";
@@ -103,12 +104,14 @@ function formatMembershipsLinkLine(social: Record<string, unknown>): string {
     const membershipsButton = ctaButtons.find(
       (b) => b && typeof b === "object" && (b as Record<string, unknown>).kind === "memberships"
     ) as Record<string, unknown> | undefined;
-    if (membershipsButton?.memberships_cta_delivery === "range") {
-      const min = String(membershipsButton.memberships_price_range_min ?? "").trim();
-      const max = String(membershipsButton.memberships_price_range_max ?? "").trim();
-      if (min && max) {
+    if (membershipsButton) {
+      const rangeLine = formatMembershipsPriceRangeLine(
+        String(membershipsButton.memberships_price_range_min ?? ""),
+        String(membershipsButton.memberships_price_range_max ?? "")
+      );
+      if (rangeLine) {
         hasRange = true;
-        lines.push(`טווח מחירי מנויים: בין ${min} ₪ ל-${max} ₪`);
+        lines.push(`טווח מחירי מנויים: ${rangeLine}`);
       }
     }
   }
