@@ -304,10 +304,42 @@ export function resolveScheduleBoardAssets(input: {
   blockMedia?: boolean;
 }): ScheduleBoardAssets {
   const link = (input.schedulePublicUrl?.trim() || input.arboxLink?.trim() || "").trim();
-  const scheduleImgUrl =
-    String(input.scheduleCtaImageUrl ?? "").trim() || String(input.scheduleScanImageUrl ?? "").trim();
+  const scheduleImgUrl = resolveEffectiveScheduleCtaImageUrl(
+    input.scheduleCtaImageUrl,
+    input.scheduleScanImageUrl
+  );
   const canSendScheduleImage = scheduleImgUrl.length > 0 && !input.blockMedia;
   return { link, scheduleImgUrl, canSendScheduleImage };
+}
+
+/** תמונת מערכת שעות ל־CTA — מתוך הכפתור או מ־schedule_scan שהועלה בסשנים קודמים */
+export function resolveEffectiveScheduleCtaImageUrl(
+  scheduleCtaImageUrl?: string,
+  scheduleScanImageUrl?: string
+): string {
+  return String(scheduleCtaImageUrl ?? "").trim() || String(scheduleScanImageUrl ?? "").trim();
+}
+
+/** כשבוחרים «תמונה» ב־CTA בלי URL משלו — ממלאים מתמונת מערכת השעות השמורה */
+export function hydrateSalesFlowScheduleCtaFromScan(
+  config: SalesFlowConfig,
+  scheduleScanImageUrl?: string
+): SalesFlowConfig {
+  const scan = String(scheduleScanImageUrl ?? "").trim();
+  if (!scan) return config;
+  let changed = false;
+  const cta_buttons = config.cta_buttons.map((b) => {
+    if (b.kind !== "schedule") return b;
+    if ((b.schedule_cta_delivery ?? "link") !== "image") return b;
+    if (String(b.schedule_cta_image_url ?? "").trim()) return b;
+    changed = true;
+    return {
+      ...b,
+      schedule_cta_image_url: scan,
+      schedule_cta_image_type: "image" as const,
+    };
+  });
+  return changed ? { ...config, cta_buttons } : config;
 }
 
 export type MultiServiceWhatsAppSplit = {
@@ -807,7 +839,8 @@ export function salesFlowApplyLockedSubChoice(
   base: Pick<SalesFlowCtaButton, "id" | "label">,
   previous: SalesFlowCtaButton,
   lockedKind: Exclude<SalesFlowCtaButton["kind"], "address">,
-  sub: CtaSlotSubChoice
+  sub: CtaSlotSubChoice,
+  options?: { scheduleScanImageUrl?: string }
 ): SalesFlowCtaButton {
   if (lockedKind === "trial") {
     return { id: base.id, label: base.label, kind: "trial", trial_cta_delivery: "link" };
@@ -831,7 +864,7 @@ export function salesFlowApplyLockedSubChoice(
   }
   const ui: SalesFlowCtaTypeUiValue =
     sub === "image" ? "schedule:image" : sub === "none" ? "schedule:none" : "schedule:link";
-  return salesFlowCtaButtonFromTypeUiChoice(base, previous, ui);
+  return salesFlowCtaButtonFromTypeUiChoice(base, previous, ui, options);
 }
 
 /** בחירה יחידה בדשבורד («סוג») — מתאמה לערכים האחסוניים trial_cta_delivery / schedule_cta_delivery / וכו׳ */
@@ -869,7 +902,8 @@ export function getSalesFlowCtaTypeUiValue(b: SalesFlowCtaButton): SalesFlowCtaT
 export function salesFlowCtaButtonFromTypeUiChoice(
   base: Pick<SalesFlowCtaButton, "id" | "label">,
   previous: SalesFlowCtaButton,
-  uiRaw: string
+  uiRaw: string,
+  options?: { scheduleScanImageUrl?: string }
 ): SalesFlowCtaButton {
   const { id, label } = base;
   const ui = uiRaw.trim() as SalesFlowCtaTypeUiValue | string;
@@ -905,9 +939,12 @@ export function salesFlowCtaButtonFromTypeUiChoice(
   }
 
   const prevSch = previous.kind === "schedule" ? previous : undefined;
-  const keepImgUrl = () => String(prevSch?.schedule_cta_image_url ?? "").trim();
-  const keepImgType = (): "image" | "" =>
-    prevSch?.schedule_cta_image_type === "image" ? "image" : "";
+  const keepImgUrl = () =>
+    resolveEffectiveScheduleCtaImageUrl(
+      prevSch?.schedule_cta_image_url,
+      options?.scheduleScanImageUrl
+    );
+  const keepImgType = (): "image" | "" => (keepImgUrl() ? "image" : "");
 
   if (ui === "schedule:link") {
     return {
@@ -938,7 +975,7 @@ export function salesFlowCtaButtonFromTypeUiChoice(
       kind: "schedule",
       schedule_cta_delivery: "image",
       schedule_cta_image_url: keepImgUrl(),
-      schedule_cta_image_type: keepImgUrl() ? keepImgType() : "",
+      schedule_cta_image_type: keepImgUrl() ? keepImgType() || "image" : "",
     };
   }
 

@@ -305,8 +305,11 @@ export const dashboardSettingsI18n = {
       to: "ל־",
       number: "מספר",
       scheduleCtaImage: "תמונה לכפתור «צפייה במערכת השעות» ב-CTA",
+      scheduleCtaUsesExistingImage:
+        "משתמשים בתמונת מערכת השעות שכבר הועלתה (סשן מערכת שעות או טאב לינקים) — אין צורך להעלות שוב.",
       proScheduleImage: "⭐ Pro — העלאת תמונה למערכות שעות זמינה בחבילה המורחבת.",
       uploadImage: "העלה תמונה",
+      replaceImage: "החלף תמונה",
       removeImage: "הסר תמונה",
       workshopPurchase: "רכישת סדנה — אפשרות מסירה",
       contact: "יצירת קשר",
@@ -737,8 +740,11 @@ export const dashboardSettingsI18n = {
       to: "To:",
       number: "Number",
       scheduleCtaImage: "Image for «View schedule» CTA button",
+      scheduleCtaUsesExistingImage:
+        "Using the schedule image already uploaded (schedule board session or Links tab) — no need to upload again.",
       proScheduleImage: "⭐ Pro — schedule image upload available on expanded plan.",
       uploadImage: "Upload image",
+      replaceImage: "Replace image",
       removeImage: "Remove image",
       workshopPurchase: "Workshop purchase — delivery option",
       contact: "Contact",

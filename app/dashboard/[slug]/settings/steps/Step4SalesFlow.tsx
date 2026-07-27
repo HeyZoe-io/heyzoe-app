@@ -27,6 +27,7 @@ import {
   ctaSlotRoleLabel,
   salesFlowApplyLockedSubChoice,
   salesFlowSubChoiceForSlot,
+  resolveEffectiveScheduleCtaImageUrl,
   type CtaSlotSubChoice,
   type OfferKind,
   type SalesFlowConfig,
@@ -1868,7 +1869,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                 ...c,
                                 cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
                                   x.id === b.id
-                                    ? salesFlowApplyLockedSubChoice({ id: x.id, label: x.label }, x, locked, sub)
+                                    ? salesFlowApplyLockedSubChoice(
+                                        { id: x.id, label: x.label },
+                                        x,
+                                        locked,
+                                        sub,
+                                        { scheduleScanImageUrl }
+                                      )
                                     : x
                                 ),
                               }));
@@ -1951,58 +1958,80 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                             <p className="text-center text-[11px] font-medium text-zinc-700">
                               {t.salesFlow.scheduleCtaImage}
                             </p>
-                            {String(b.schedule_cta_image_url ?? "").trim() ? (
-                              <div className="mx-auto max-w-[200px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={(b.schedule_cta_image_url ?? "").trim()}
-                                  alt=""
-                                  className="block h-auto max-h-40 w-full object-cover"
-                                />
-                              </div>
-                            ) : null}
-                            <div className="flex flex-row-reverse flex-wrap justify-center gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 gap-1 text-xs"
-                                disabled={uploadingScheduleCtaMedia}
-                                onClick={() => {
-                                  if (planIsStarter) {
-                                    onStarterMediaBlocked?.();
-                                    return;
-                                  }
-                                  scheduleCtaMediaInputRef?.current?.click();
-                                }}
-                              >
-                                {uploadingScheduleCtaMedia ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Upload className="h-3.5 w-3.5" />
-                                )}
-                                {uploadingScheduleCtaMedia ? t.uploading : t.salesFlow.uploadImage}
-                              </Button>
-                              {String(b.schedule_cta_image_url ?? "").trim() ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 border-red-200 text-xs text-red-600 hover:bg-red-50"
-                                  onClick={() =>
-                                    setSalesFlowConfig((c) => ({
-                                      ...c,
-                                      cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
-                                        x.id === b.id
-                                          ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
-                                          : x
-                                      ),
-                                    }))
-                                  }
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                  {t.salesFlow.removeImage}
-                                </Button>
-                              ) : null}
-                            </div>
+                            {(() => {
+                              const ownCtaImg = String(b.schedule_cta_image_url ?? "").trim();
+                              const effectiveImg = resolveEffectiveScheduleCtaImageUrl(
+                                b.schedule_cta_image_url,
+                                scheduleScanImageUrl
+                              );
+                              const usesSharedScanOnly =
+                                !ownCtaImg && Boolean(String(scheduleScanImageUrl ?? "").trim());
+                              return (
+                                <>
+                                  {usesSharedScanOnly ? (
+                                    <p className="text-center text-[11px] leading-relaxed text-zinc-600">
+                                      {t.salesFlow.scheduleCtaUsesExistingImage}
+                                    </p>
+                                  ) : null}
+                                  {effectiveImg ? (
+                                    <div className="mx-auto max-w-[200px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={effectiveImg}
+                                        alt=""
+                                        className="block h-auto max-h-40 w-full object-cover"
+                                      />
+                                    </div>
+                                  ) : null}
+                                  <div className="flex flex-row-reverse flex-wrap justify-center gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 gap-1 text-xs"
+                                      disabled={uploadingScheduleCtaMedia}
+                                      onClick={() => {
+                                        if (planIsStarter) {
+                                          onStarterMediaBlocked?.();
+                                          return;
+                                        }
+                                        scheduleCtaMediaInputRef?.current?.click();
+                                      }}
+                                    >
+                                      {uploadingScheduleCtaMedia ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Upload className="h-3.5 w-3.5" />
+                                      )}
+                                      {uploadingScheduleCtaMedia
+                                        ? t.uploading
+                                        : effectiveImg
+                                          ? t.salesFlow.replaceImage
+                                          : t.salesFlow.uploadImage}
+                                    </Button>
+                                    {ownCtaImg ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-8 border-red-200 text-xs text-red-600 hover:bg-red-50"
+                                        onClick={() =>
+                                          setSalesFlowConfig((c) => ({
+                                            ...c,
+                                            cta_buttons: c.cta_buttons.map((x: SalesFlowCtaButton) =>
+                                              x.id === b.id
+                                                ? { ...x, schedule_cta_image_url: "", schedule_cta_image_type: "" }
+                                                : x
+                                            ),
+                                          }))
+                                        }
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                        {t.salesFlow.removeImage}
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>

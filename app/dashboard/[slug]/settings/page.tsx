@@ -32,6 +32,7 @@ import {
   formatServiceLevelsText,
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
+  hydrateSalesFlowScheduleCtaFromScan,
   serializeSalesFlowConfig,
   syncWelcomeFromSalesFlow,
   trialServicePhraseForAfterPick,
@@ -1428,6 +1429,11 @@ export default function SlugSettingsPage({
     lastTrialPromoAppliedRef.current = promoKey;
   }, [settingsHydrated, hasTrialOffers, promotions, slug]);
 
+  useEffect(() => {
+    if (!settingsHydrated) return;
+    setSalesFlowConfig((c) => hydrateSalesFlowScheduleCtaFromScan(c, scheduleScanImageUrl));
+  }, [settingsHydrated, scheduleScanImageUrl]);
+
   const [factAnswers, setFactAnswers] = useState<Record<string, string>>({});
   const [factQuestionIdx, setFactQuestionIdx] = useState(0);
   useEffect(() => {
@@ -1660,7 +1666,9 @@ export default function SlugSettingsPage({
               ? sl.arbox_schedule_url.trim()
               : ""
         );
-        setScheduleScanImageUrl(typeof sl.schedule_scan_image_url === "string" ? sl.schedule_scan_image_url.trim() : "");
+        const loadedScheduleScanImageUrl =
+          typeof sl.schedule_scan_image_url === "string" ? sl.schedule_scan_image_url.trim() : "";
+        setScheduleScanImageUrl(loadedScheduleScanImageUrl);
         setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
         setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
@@ -1708,7 +1716,14 @@ export default function SlugSettingsPage({
 
         if (hasSalesFlowSaved) {
           const parsed = parseSalesFlowFromSocial(sl.sales_flow);
-          if (parsed) setSalesFlowConfig({ ...parsed, greeting_extra_steps: [] });
+          if (parsed) {
+            setSalesFlowConfig(
+              hydrateSalesFlowScheduleCtaFromScan(
+                { ...parsed, greeting_extra_steps: [] },
+                loadedScheduleScanImageUrl
+              )
+            );
+          }
         } else {
           const def = defaultSalesFlowConfig(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
           if (loadedWelcomeIntro.trim()) def.greeting_body_override = loadedWelcomeIntro.trim();
