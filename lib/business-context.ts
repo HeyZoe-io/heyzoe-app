@@ -93,6 +93,7 @@ function formatMembershipsLinkLine(social: Record<string, unknown>): string {
     lines.push(`קישור לדף מנויים וכרטיסיות (להפניה כששואלים על מחירים): ${url}`);
   }
 
+  let hasRange = false;
   const salesFlow = social.sales_flow;
   const ctaButtons =
     salesFlow && typeof salesFlow === "object"
@@ -106,9 +107,16 @@ function formatMembershipsLinkLine(social: Record<string, unknown>): string {
       const min = String(membershipsButton.memberships_price_range_min ?? "").trim();
       const max = String(membershipsButton.memberships_price_range_max ?? "").trim();
       if (min && max) {
+        hasRange = true;
         lines.push(`טווח מחירי מנויים: בין ${min} ₪ ל-${max} ₪`);
       }
     }
+  }
+
+  if (!url && !hasRange) {
+    lines.push(
+      "אין קישור לדף מנויים וכרטיסיות ואין טווח מחירים שמור — אל תמציאי מחירים. אם אין מחירים גם ב־FAQ/עובדות: אמרי שאין לך את המידע והפני לשירות לקוחות (הציגי את מספר הטלפון אם מוגדר)."
+    );
   }
 
   return lines.join("\n");

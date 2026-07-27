@@ -157,6 +157,7 @@ import {
   ctaOpenQuestionNote,
   formatAddressReplyLines,
   instagramFollowLine,
+  membershipsPricingMissingReply,
   registeredFlowContinuationClosing,
   resolveBusinessContentLanguageFromKnowledge,
   trialAlreadyRegisteredSoftClosing,
@@ -7135,10 +7136,11 @@ async function processIncoming(
             if (lo && hi) rangeLine = `בין ${lo} ₪ ל-${hi} ₪`;
             else if (lo) rangeLine = `מ-${lo} ₪`;
             else if (hi) rangeLine = `עד ${hi} ₪`;
+            const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
             const txt =
               rangeLine.trim().length > 0
                 ? `טווח מחירים למנויים/כרטיסיות: ${rangeLine}`
-                : "לפרטים על טווח המחירים, צרו קשר ישירות עם הסטודיו 😊";
+                : membershipsPricingMissingReply(contentLang, csPhone);
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send memberships range reply failed:", e)
             );
@@ -7161,9 +7163,10 @@ async function processIncoming(
             return;
           }
 
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
           const txt = mu.length
             ? [`מחירי מנויים:`, mu, promoIsMemberships ? promo : ""].filter(Boolean).join("\n")
-            : "לפרטים על מחירי המנויים, צרו קשר ישירות עם הסטודיו 😊";
+            : membershipsPricingMissingReply(contentLang, csPhone);
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send memberships reply failed:", e)
           );

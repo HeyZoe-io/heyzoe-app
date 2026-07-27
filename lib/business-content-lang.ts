@@ -115,6 +115,24 @@ export function secondaryOfferPurchasePostCtaMessage(lang: BusinessContentLangua
     : "לאחר התשלום כתבו *נרשמתי* ואשלח לכם את כל הפרטים!";
 }
 
+/** כשאין קישור/טווח למחירי מנויים — חוסר מידע + הפניה לשירות לקוחות */
+export function membershipsPricingMissingReply(
+  lang: BusinessContentLanguage,
+  customerServicePhone = ""
+): string {
+  const phone = customerServicePhone.trim();
+  if (lang === "en") {
+    if (phone) {
+      return `I don't have the membership pricing details right now. Please contact customer service:\n${phone}`;
+    }
+    return "I don't have the membership pricing details right now. Please contact our customer service.";
+  }
+  if (phone) {
+    return `אין לי כרגע את המידע על מחירי המנויים. מוזמנים לפנות לשירות הלקוחות:\n${phone}`;
+  }
+  return "אין לי כרגע את המידע על מחירי המנויים. מוזמנים לפנות לשירות הלקוחות שלנו.";
+}
+
 export function addressOurPrefix(lang: BusinessContentLanguage): string {
   return lang === "en" ? "Our address:" : "הכתובת שלנו:";
 }
