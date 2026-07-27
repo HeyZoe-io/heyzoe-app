@@ -73,11 +73,14 @@ function extractLeadId(payload: unknown): string | null {
   return leadId || null;
 }
 
-async function arboxFetch(
-  path: string,
+/** GET/POST to Arbox public API (`api-key` header). `pathOrUrl` may be a path or absolute URL (pagination). */
+export async function arboxPublicFetch(
+  pathOrUrl: string,
   input: { apiKey: string; method?: string; body?: Record<string, unknown> }
 ): Promise<{ ok: boolean; status: number; json: unknown; rawText: string }> {
-  const url = `${ARBOX_API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = pathOrUrl.startsWith("http")
+    ? pathOrUrl
+    : `${ARBOX_API_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
   const res = await fetch(url, {
     method: input.method ?? "GET",
     headers: {
@@ -141,7 +144,7 @@ async function cacheArboxIds(input: {
 }
 
 async function fetchArboxLocations(apiKey: string): Promise<ArboxLocation[]> {
-  const res = await arboxFetch("/v3/locations", { apiKey });
+  const res = await arboxPublicFetch("/v3/locations", { apiKey });
   if (!res.ok) {
     console.error("[crm/arbox] locations fetch failed", {
       status: res.status,
@@ -206,7 +209,7 @@ async function searchArboxUserByPhone(input: {
   const trySearch = async (locationId?: number): Promise<string | null> => {
     const qs = new URLSearchParams({ type: "phone", value: phoneDisplay });
     if (locationId != null) qs.set("location_id", String(locationId));
-    const res = await arboxFetch(`/v3/users/searchUser?${qs.toString()}`, {
+    const res = await arboxPublicFetch(`/v3/users/searchUser?${qs.toString()}`, {
       apiKey: input.apiKey,
     });
 
@@ -260,7 +263,7 @@ async function createArboxLead(input: {
     hasComment: Boolean(input.noteText.trim()),
   });
 
-  const res = await arboxFetch("/v3/leads", {
+  const res = await arboxPublicFetch("/v3/leads", {
     apiKey: input.apiKey,
     method: "POST",
     body,
@@ -308,7 +311,7 @@ async function appendArboxNote(input: {
   const noteBody = { user_id: userIdNum, description };
 
   // לידים — עדיף leads/createNote; users/createNote מחזיר 500 לחלק מלידים חדשים.
-  const leadNoteRes = await arboxFetch("/v3/leads/createNote", {
+  const leadNoteRes = await arboxPublicFetch("/v3/leads/createNote", {
     apiKey: input.apiKey,
     method: "POST",
     body: noteBody,
@@ -321,7 +324,7 @@ async function appendArboxNote(input: {
     body: leadNoteRes.rawText.slice(0, 500),
   });
 
-  const userNoteRes = await arboxFetch("/v3/users/createNote", {
+  const userNoteRes = await arboxPublicFetch("/v3/users/createNote", {
     apiKey: input.apiKey,
     method: "POST",
     body: noteBody,
@@ -329,7 +332,7 @@ async function appendArboxNote(input: {
   if (userNoteRes.ok) return true;
 
   if (input.statusId != null) {
-    const statusRes = await arboxFetch("/v3/leads/updateStatus", {
+    const statusRes = await arboxPublicFetch("/v3/leads/updateStatus", {
       apiKey: input.apiKey,
       method: "POST",
       body: {
