@@ -95,7 +95,15 @@ export function trialAlreadyRegisteredSoftClosing(lang: BusinessContentLanguage)
     : "ואם יש שאלה נוספת — פשוט כתבו כאן.";
 }
 
-export function trialLinkPostCtaMessage(lang: BusinessContentLanguage): string {
+export function trialLinkPostCtaMessage(
+  lang: BusinessContentLanguage,
+  mode: "automatic" | "manual" = "manual"
+): string {
+  if (mode === "automatic") {
+    return lang === "en"
+      ? "After registering, I'll send the next steps 🎉"
+      : "לאחר ההרשמה אשלח הוראות המשך 🎉";
+  }
   return lang === "en"
     ? "After registering, please write me *I registered* and I'll send the next steps 🎉"
     : "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";

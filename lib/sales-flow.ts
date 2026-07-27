@@ -31,6 +31,15 @@ export type OfferKind = "trial" | "workshop" | "course";
 /** מיקום סשן מערכת שעות יחסית לפתיחה / בחירת מוצר */
 export type ScheduleBoardPlacement = "after_opening" | "before_service_pick" | "after_service_pick";
 
+/** אחרי לינק הרשמה ב-CTA — אוטומטי (CRM) או ידני («נרשמתי») */
+export type RegistrationConfirmationMode = "automatic" | "manual";
+
+export function resolveRegistrationConfirmationMode(
+  cfg: Pick<SalesFlowConfig, "registration_confirmation_mode"> | null | undefined
+): RegistrationConfirmationMode {
+  return cfg?.registration_confirmation_mode === "automatic" ? "automatic" : "manual";
+}
+
 export type ScheduleCtaDelivery = "link" | "image" | "none";
 /** בפועל אין «ללא» בדשבורד — לאימון ניסיון תמיד לינק; הערך none נותר למיגרציה מה־JSON */
 export type TrialCtaDelivery = "link" | "none";
@@ -153,6 +162,8 @@ export type SalesFlowConfig = {
    * ברירת מחדל: לפני בחירת מוצר (אחרי חימום) — התנהגות היסטורית.
    */
   schedule_board_placement?: ScheduleBoardPlacement;
+  /** ברירת מחדל: ידני — הליד כותב «נרשמתי» */
+  registration_confirmation_mode?: RegistrationConfirmationMode;
 };
 
 export function resolveScheduleBoardPlacement(
@@ -1748,6 +1759,8 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
           ? o.schedule_board_placement
           : undefined,
     }),
+    registration_confirmation_mode:
+      o.registration_confirmation_mode === "automatic" ? "automatic" : "manual",
   };
 
   // Migration: older defaults asked about "experience before"; replace with the new goals question,
@@ -1921,6 +1934,7 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
     warmup_style: c.warmup_style === "quiz" ? "quiz" : undefined,
     schedule_board_placement: resolveScheduleBoardPlacement(c),
+    registration_confirmation_mode: resolveRegistrationConfirmationMode(c),
   };
 }
 

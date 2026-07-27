@@ -343,6 +343,12 @@ export const dashboardSettingsI18n = {
         ". אם אין מועדים בלוח — שאלות תאריך ושעה חופשיות.",
       ctaWorkshopBodyHint:
         "מחיר הסדנה ({price}) יימשך אוטומטית מהשירותים שמסוג «סדנה» בטאב «מוצרים»",
+      registrationConfirmTitle: "אישור הרשמה",
+      registrationConfirmAria: "אישור הרשמה — אוטומטי או ידני",
+      registrationConfirmAutomatic: "אוטומטי",
+      registrationConfirmManual: "ידני",
+      registrationConfirmAutomaticHint: "קיימת אוטומציה לאישור הרשמה מה-CRM",
+      registrationConfirmManualHint: "הליד יתבקש לאשר שנרשם על ידי כתיבת «נרשמתי»",
     },
     followup: {
       title: "פולואפ",
@@ -770,6 +776,12 @@ export const dashboardSettingsI18n = {
         ". If no schedule slots exist, free date/time questions are used.",
       ctaWorkshopBodyHint:
         "Workshop price ({price}) is pulled automatically from «Workshop» products in Products",
+      registrationConfirmTitle: "Registration confirmation",
+      registrationConfirmAria: "Registration confirmation — automatic or manual",
+      registrationConfirmAutomatic: "Automatic",
+      registrationConfirmManual: "Manual",
+      registrationConfirmAutomaticHint: "Registration is confirmed automatically from the CRM",
+      registrationConfirmManualHint: 'The lead confirms registration by writing "I registered"',
     },
     followup: {
       title: "Follow-up",

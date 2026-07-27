@@ -10,6 +10,7 @@ import {
   Plus,
   ArrowLeft,
   GripVertical,
+  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ import {
   computeTrialPriceLabel,
   buildWarmupQuizContent,
   resolveScheduleBoardPlacement,
+  resolveRegistrationConfirmationMode,
 } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -185,6 +187,21 @@ function resolveScheduleOfferTab(
   if (hasTrial) return "trial";
   if (hasWorkshop) return "workshop";
   return "course";
+}
+
+function RegistrationConfirmOptionHint({ hint }: { hint: string }) {
+  return (
+    <span className="relative inline-flex shrink-0 align-middle group/hint">
+      <HelpCircle className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-max max-w-[240px] -translate-x-1/2 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[10px] font-normal leading-snug text-zinc-700 opacity-0 shadow-md transition-opacity group-hover/hint:opacity-100 group-focus-within/hint:opacity-100"
+      >
+        {hint}
+      </span>
+      <span className="sr-only">{hint}</span>
+    </span>
+  );
 }
 
 function WarmupButtonPairsEditor({
@@ -2323,6 +2340,50 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   })}
                 </div>
               </>
+            ) : null}
+            {hasAnyCtaOfferTab ? (
+              <div className="mt-1 space-y-2 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3 text-right">
+                <p className="text-xs font-semibold text-zinc-700">{t.salesFlow.registrationConfirmTitle}</p>
+                <div
+                  role="group"
+                  aria-label={t.salesFlow.registrationConfirmAria}
+                  className="flex w-full flex-wrap items-stretch justify-center gap-1 rounded-full border border-zinc-200 bg-white p-1"
+                >
+                  {(["automatic", "manual"] as const).map((mode) => {
+                    const active = resolveRegistrationConfirmationMode(salesFlowConfig) === mode;
+                    const label =
+                      mode === "automatic"
+                        ? t.salesFlow.registrationConfirmAutomatic
+                        : t.salesFlow.registrationConfirmManual;
+                    const hint =
+                      mode === "automatic"
+                        ? t.salesFlow.registrationConfirmAutomaticHint
+                        : t.salesFlow.registrationConfirmManualHint;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={active}
+                        className={cn(
+                          "inline-flex min-w-[7rem] flex-1 items-center justify-center gap-1 rounded-full px-3 py-2 text-xs font-semibold transition-colors",
+                          active
+                            ? "bg-[#7133da]/10 text-[#4b2a86] shadow-sm"
+                            : "text-zinc-600 hover:bg-zinc-50"
+                        )}
+                        onClick={() =>
+                          setSalesFlowConfig((c) => ({
+                            ...c,
+                            registration_confirmation_mode: mode,
+                          }))
+                        }
+                      >
+                        <span>{label}</span>
+                        <RegistrationConfirmOptionHint hint={hint} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ) : null}
               </>
             )}

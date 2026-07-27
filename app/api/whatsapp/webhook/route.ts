@@ -65,6 +65,7 @@ import {
   resolveTrialCtaBodyTemplate,
   resolveSfServicePriceDuration,
   resolveAfterRegistrationBodyTemplate,
+  resolveRegistrationConfirmationMode,
   isWarmupExperienceQuestion1Configured,
   buildWarmupExtraCleanStepsFromWb,
   resolveWarmupExperienceConfig,
@@ -6782,7 +6783,10 @@ async function processIncoming(
             }
           }
           const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
-          const postCtaHint = trialLinkPostCtaMessage(contentLang);
+          const postCtaHint = trialLinkPostCtaMessage(
+            contentLang,
+            resolveRegistrationConfirmationMode(knowledge.salesFlowConfig)
+          );
           const txt = `${trialSignupLinkIntro(contentLang)}\n${trialUrl}`;
           await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send trial link failed:", e)
