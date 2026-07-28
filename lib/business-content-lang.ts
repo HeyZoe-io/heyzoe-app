@@ -101,8 +101,8 @@ export function trialLinkPostCtaMessage(
 ): string {
   if (mode === "automatic") {
     return lang === "en"
-      ? "After registering, I'll send the next steps 🎉"
-      : "לאחר ההרשמה אשלח הוראות המשך 🎉";
+      ? "After registering, I'll send the next steps 🎉\nIt can take me up to 15 minutes to detect registration. Feel free to wait excitedly in the meantime!"
+      : "לאחר ההרשמה אשלח הוראות המשך 🎉\nלוקח לי עד 15 דקות לזהות הרשמה. אפשר בינתיים להמתין בהתרגשות!";
   }
   return lang === "en"
     ? "After registering, please write me *I registered* and I'll send the next steps 🎉"
