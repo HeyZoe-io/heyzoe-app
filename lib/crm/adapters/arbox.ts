@@ -299,7 +299,6 @@ async function appendArboxNote(input: {
   userId: string;
   kind: CrmEventKind;
   noteText: string;
-  statusId?: number | null;
 }): Promise<boolean> {
   const description = buildArboxNoteDescription(input.kind, input.noteText);
   const userIdNum = Number.parseInt(input.userId, 10);
@@ -330,24 +329,6 @@ async function appendArboxNote(input: {
     body: noteBody,
   });
   if (userNoteRes.ok) return true;
-
-  if (input.statusId != null) {
-    const statusRes = await arboxPublicFetch("/v3/leads/updateStatus", {
-      apiKey: input.apiKey,
-      method: "POST",
-      body: {
-        user_id: userIdNum,
-        status_id: input.statusId,
-        comment: description,
-      },
-    });
-    if (statusRes.ok) return true;
-    console.error("[crm/arbox] leads/updateStatus note fallback failed", {
-      status: statusRes.status,
-      userId: input.userId,
-      body: statusRes.rawText.slice(0, 500),
-    });
-  }
 
   console.error("[crm/arbox] create note failed", {
     status: userNoteRes.status,
@@ -401,7 +382,7 @@ export async function submitArboxCrmEvent(input: {
         fullName: input.fullName,
         sourceId,
         statusId,
-        noteText,
+        noteText: buildArboxNoteDescription(input.kind, noteText),
       });
       userId = created.userId;
       leadId = created.leadId;
@@ -424,22 +405,18 @@ export async function submitArboxCrmEvent(input: {
       createdLead,
     });
 
+    if (createdLead) {
+      return { ok: true };
+    }
+
     const noteOk = await appendArboxNote({
       apiKey,
       userId,
       kind: input.kind,
       noteText,
-      statusId,
     });
 
     if (!noteOk) {
-      if (createdLead) {
-        console.warn("[crm/arbox] note failed after lead create; lead exists without activity note", {
-          businessId: input.businessId,
-          phone: maskPhoneForLog(input.phone),
-          userId,
-        });
-      }
       return { ok: false, error: "note_create_failed" };
     }
     return { ok: true };

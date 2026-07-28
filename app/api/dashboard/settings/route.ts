@@ -150,15 +150,13 @@ export async function GET(req: NextRequest) {
       warmup_session_enabled: business.warmup_session_enabled !== false,
       crm_type: typeof (business as { crm_type?: unknown }).crm_type === "string" ? (business as { crm_type: string }).crm_type : "",
       crm_api_key: typeof (business as { crm_api_key?: unknown }).crm_api_key === "string" ? (business as { crm_api_key: string }).crm_api_key : "",
-      crm_box_id: typeof (business as { crm_box_id?: unknown }).crm_box_id === "string" ? (business as { crm_box_id: string }).crm_box_id : "",
-      crm_arbox_source_id:
-        typeof (business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id === "string"
-          ? (business as { crm_arbox_source_id: string }).crm_arbox_source_id
-          : "",
-      crm_arbox_status_id:
-        typeof (business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id === "string"
-          ? (business as { crm_arbox_status_id: string }).crm_arbox_status_id
-          : "",
+      crm_box_id: String((business as { crm_box_id?: unknown }).crm_box_id ?? "").trim(),
+      crm_arbox_source_id: String(
+        (business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id ?? ""
+      ).trim(),
+      crm_arbox_status_id: String(
+        (business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id ?? ""
+      ).trim(),
     },
     services: services ?? [],
     faqs: faqs ?? [],
