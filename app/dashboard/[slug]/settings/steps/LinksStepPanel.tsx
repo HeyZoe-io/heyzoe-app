@@ -50,6 +50,15 @@ export type LinksStepPanelProps = {
   setCrmArboxSourceId: (v: string) => void;
   crmArboxStatusId: string;
   setCrmArboxStatusId: (v: string) => void;
+  slug: string;
+  arboxTrialMembershipTypeIds: number[];
+  setArboxTrialMembershipTypeIds: React.Dispatch<React.SetStateAction<number[]>>;
+  arboxMembershipTypesFetchNonce: number;
+};
+
+type ArboxMembershipTypeRow = {
+  membership_type_id: number;
+  membership_type_name: string;
 };
 
 function CrmFieldHint({ text, lang, explainAria }: { text: string; lang: DashboardLang; explainAria: string }) {
@@ -129,8 +138,71 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setCrmArboxSourceId,
     crmArboxStatusId,
     setCrmArboxStatusId,
+    slug,
+    arboxTrialMembershipTypeIds,
+    setArboxTrialMembershipTypeIds,
+    arboxMembershipTypesFetchNonce,
   } = props;
   const t = dashboardSettingsT(lang);
+
+  const canLoadArboxMembershipTypes =
+    crmType === "arbox" && Boolean(crmApiKey.trim()) && Boolean(crmBoxId.trim());
+
+  const [arboxMembershipTypes, setArboxMembershipTypes] = useState<ArboxMembershipTypeRow[]>([]);
+  const [arboxMembershipTypesLoading, setArboxMembershipTypesLoading] = useState(false);
+  const [arboxMembershipTypesError, setArboxMembershipTypesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canLoadArboxMembershipTypes || !slug.trim()) {
+      setArboxMembershipTypes([]);
+      setArboxMembershipTypesError(null);
+      setArboxMembershipTypesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setArboxMembershipTypesLoading(true);
+    setArboxMembershipTypesError(null);
+
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/dashboard/arbox-membership-types?slug=${encodeURIComponent(slug.trim())}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          types?: ArboxMembershipTypeRow[];
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setArboxMembershipTypes([]);
+          setArboxMembershipTypesError(String(json.error ?? "fetch_failed"));
+          return;
+        }
+        setArboxMembershipTypes(Array.isArray(json.types) ? json.types : []);
+      } catch {
+        if (!cancelled) {
+          setArboxMembershipTypes([]);
+          setArboxMembershipTypesError("fetch_failed");
+        }
+      } finally {
+        if (!cancelled) setArboxMembershipTypesLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadArboxMembershipTypes, slug, arboxMembershipTypesFetchNonce]);
+
+  const toggleArboxTrialMembershipType = (id: number) => {
+    setArboxTrialMembershipTypeIds((prev) => {
+      const has = prev.includes(id);
+      const next = has ? prev.filter((x) => x !== id) : [...prev, id];
+      return next.sort((a, b) => a - b);
+    });
+  };
   const sections = useMemo(
     () => [
       { id: "website" as const, label: t.links.sections.website.label, hint: t.links.sections.website.hint },
@@ -419,6 +491,75 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                     placeholder="00000"
                     className={cnInputLtr()}
                   />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">
+                      {t.links.trialMembershipTypes}
+                    </span>
+                    <CrmFieldHint
+                      text={t.links.trialMembershipTypesHint}
+                      lang={lang}
+                      explainAria={t.explainAria}
+                    />
+                  </div>
+                  {!canLoadArboxMembershipTypes ? (
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {t.links.trialMembershipTypesCredentialsHint}
+                    </p>
+                  ) : arboxMembershipTypesLoading ? (
+                    <p className="flex items-center gap-2 text-[11px] text-zinc-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      {t.links.trialMembershipTypesLoading}
+                    </p>
+                  ) : arboxMembershipTypesError === "missing_crm_credentials" ? (
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {t.links.trialMembershipTypesCredentialsHint}
+                    </p>
+                  ) : arboxMembershipTypesError ? (
+                    <p className="text-[11px] leading-snug text-red-600">
+                      {t.links.trialMembershipTypesFetchError}
+                      {arboxMembershipTypesError !== "fetch_failed" &&
+                      arboxMembershipTypesError !== "arbox_membership_types_fetch_failed"
+                        ? ` (${arboxMembershipTypesError})`
+                        : null}
+                    </p>
+                  ) : arboxMembershipTypes.length === 0 ? (
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {t.links.trialMembershipTypesEmpty}
+                    </p>
+                  ) : (
+                    <ul
+                      className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2"
+                      dir={dashboardDir(lang)}
+                    >
+                      {arboxMembershipTypes.map((row) => {
+                        const id = row.membership_type_id;
+                        const checked = arboxTrialMembershipTypeIds.includes(id);
+                        const inputId = `arbox-trial-membership-${id}`;
+                        return (
+                          <li key={id}>
+                            <label
+                              htmlFor={inputId}
+                              className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                            >
+                              <input
+                                id={inputId}
+                                type="checkbox"
+                                className="mt-0.5 shrink-0"
+                                checked={checked}
+                                onChange={() => toggleArboxTrialMembershipType(id)}
+                              />
+                              <span
+                                className="text-[12px] leading-snug text-zinc-800"
+                                dir="ltr"
+                              >{`${id} - ${row.membership_type_name}`}</span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
               </div>
             ) : null}

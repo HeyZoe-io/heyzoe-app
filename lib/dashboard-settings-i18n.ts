@@ -89,6 +89,14 @@ export const dashboardSettingsI18n = {
       leadSourceHint: "צרו מקור לידים לזואי, על ידי הגדרות → לידים → יצירת מקור לידים חדש",
       apiKeySecure: "המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.",
       selectCrm: "בחרו תוכנת CRM כדי להזין מפתח API.",
+      trialMembershipTypes: "סוגי שיעור ניסיון",
+      trialMembershipTypesHint:
+        "בחרו בארבוקס אילו מוצרים (membership) נחשבים רישום לשיעור ניסיון — זואי תזהה מכירות שלהם בדוח המכירות.",
+      trialMembershipTypesCredentialsHint:
+        "הזינו מפתח API ומזהה סניף, שמרו את ההגדרות — ואז תיטען רשימת המוצרים מארבוקס (לפי המפתח השמור, לא מהטופס לפני השמירה).",
+      trialMembershipTypesLoading: "טוען מוצרים מארבוקס…",
+      trialMembershipTypesEmpty: "לא נמצאו מוצרים בארבוקס.",
+      trialMembershipTypesFetchError: "לא הצלחנו לטעון את רשימת המוצרים מארבוקס. בדקו את מפתח ה-API.",
       instagramLink: "לינק לאינסטגרם",
     },
     about: {
@@ -522,6 +530,14 @@ export const dashboardSettingsI18n = {
       leadSourceHint: "Create a Zoe lead source under Settings → Leads → Create new lead source",
       apiKeySecure: "The key is stored securely and used only to send updates from Zoe to your CRM.",
       selectCrm: "Select a CRM to enter an API key.",
+      trialMembershipTypes: "Trial lesson types",
+      trialMembershipTypesHint:
+        "Choose which Arbox membership products count as a trial registration — Zoe detects their sales in the sales report.",
+      trialMembershipTypesCredentialsHint:
+        "Enter your API key and branch ID, then save settings — the product list loads from stored credentials, not from the form before you save.",
+      trialMembershipTypesLoading: "Loading products from Arbox…",
+      trialMembershipTypesEmpty: "No products found in Arbox.",
+      trialMembershipTypesFetchError: "Could not load products from Arbox. Check your API key.",
       instagramLink: "Instagram link",
     },
     about: {

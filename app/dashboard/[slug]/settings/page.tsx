@@ -1243,6 +1243,8 @@ export default function SlugSettingsPage({
   const [crmBoxId, setCrmBoxId] = useState("");
   const [crmArboxSourceId, setCrmArboxSourceId] = useState("");
   const [crmArboxStatusId, setCrmArboxStatusId] = useState("");
+  const [arboxTrialMembershipTypeIds, setArboxTrialMembershipTypeIds] = useState<number[]>([]);
+  const [arboxMembershipTypesFetchNonce, setArboxMembershipTypesFetchNonce] = useState(0);
   const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
   const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
   const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
@@ -1751,6 +1753,16 @@ export default function SlugSettingsPage({
         setCrmBoxId(String((business as { crm_box_id?: unknown }).crm_box_id ?? ""));
         setCrmArboxSourceId(String((business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id ?? ""));
         setCrmArboxStatusId(String((business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id ?? ""));
+        const trialIdsRaw = (business as { arbox_trial_membership_type_ids?: unknown })
+          .arbox_trial_membership_type_ids;
+        setArboxTrialMembershipTypeIds(
+          Array.isArray(trialIdsRaw)
+            ? trialIdsRaw
+                .map((n) => Number(n))
+                .filter((n) => Number.isFinite(n) && n > 0)
+                .sort((a, b) => a - b)
+            : []
+        );
         setFacebookPixelId(String(business.facebook_pixel_id ?? ""));
         setConversionsApiToken(String(business.conversions_api_token ?? ""));
         setObjections(Array.isArray(sl.objections) ? (sl.objections as Objection[]) : []);
@@ -1857,6 +1869,7 @@ export default function SlugSettingsPage({
         crm_box_id: crmBoxId.trim(),
         crm_arbox_source_id: crmArboxSourceId.trim(),
         crm_arbox_status_id: crmArboxStatusId.trim(),
+        arbox_trial_membership_type_ids: arboxTrialMembershipTypeIds,
         social_links: {
           website_url: websiteUrl,
           instagram: instagramUrl.trim(),
@@ -1946,6 +1959,7 @@ export default function SlugSettingsPage({
       crmBoxId,
       crmArboxSourceId,
       crmArboxStatusId,
+      arboxTrialMembershipTypeIds,
       scheduleDirectRegistration,
       warmupSessionEnabled,
       objections,
@@ -2040,6 +2054,7 @@ export default function SlugSettingsPage({
       if (payloadSavedTrialsWereCleared(body)) clearTrialServicesStash(slug);
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
+      setArboxMembershipTypesFetchNonce((n) => n + 1);
       clearDirtyAfterSave();
       return true;
     } catch {
@@ -2865,6 +2880,10 @@ export default function SlugSettingsPage({
               setCrmArboxSourceId={setCrmArboxSourceId}
               crmArboxStatusId={crmArboxStatusId}
               setCrmArboxStatusId={setCrmArboxStatusId}
+              slug={slug}
+              arboxTrialMembershipTypeIds={arboxTrialMembershipTypeIds}
+              setArboxTrialMembershipTypeIds={setArboxTrialMembershipTypeIds}
+              arboxMembershipTypesFetchNonce={arboxMembershipTypesFetchNonce}
             />
           </StepPanel>
         )}

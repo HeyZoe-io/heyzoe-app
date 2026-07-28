@@ -157,6 +157,13 @@ export async function GET(req: NextRequest) {
       crm_arbox_status_id: String(
         (business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id ?? ""
       ).trim(),
+      arbox_trial_membership_type_ids: (() => {
+        const raw = (business as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids;
+        if (!Array.isArray(raw)) return [];
+        return raw
+          .map((n) => Number(n))
+          .filter((n) => Number.isFinite(n) && n > 0);
+      })(),
     },
     services: services ?? [],
     faqs: faqs ?? [],
@@ -280,6 +287,18 @@ export async function POST(req: NextRequest) {
         (existingForUser as { crm_arbox_status_id?: unknown } | null)?.crm_arbox_status_id ?? ""
       ).trim();
       return prev || null;
+    })(),
+    arbox_trial_membership_type_ids: (() => {
+      if (Array.isArray(business.arbox_trial_membership_type_ids)) {
+        return business.arbox_trial_membership_type_ids
+          .map((n) => Number(n))
+          .filter((n) => Number.isFinite(n) && n > 0);
+      }
+      const prev = (existingForUser as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids;
+      return Array.isArray(prev)
+        ? prev.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
     })(),
   };
 
