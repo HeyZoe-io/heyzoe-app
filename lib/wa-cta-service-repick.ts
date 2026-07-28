@@ -17,9 +17,10 @@ const SERVICE_REPICK_MENU_MODELS = new Set(["sales_flow_cta_repick_service_menu"
 const NEGATIVE_REPLY =
   /^(לא\b|לא[,.!?\s]|אין\s|לא\s+תודה|לא\s+כרגע|לא\s+מעוניין|לא\s+רוצ)/iu;
 
-/** תשובות «כן» לגשר repick — gated ב-shouldHandleCtaServiceRepickYes (cta + שאלת bridge). */
+/** תשובות «כן» לגשר repick — gated ב-shouldHandleCtaServiceRepickYes (cta + שאלת bridge).
+ * לא לכלול «רוצה אימון אחר» — זו בקשת החלפה מפורשת (isExplicitOtherServiceRequest), לא אישור גשר. */
 const AFFIRMATIVE_REPLY =
-  /^(כן\b|כן[,.!?\s]|בטח|יאללה|אשמח|בואו|בוא\b|אוקי|אוקיי|ok\b|yes\b|מעוניין|מעוניינת|רוצה\s+לשנות|רוצה\s+אימון\s+אחר)/iu;
+  /^(כן\b|כן[,.!?\s]|בטח|יאללה|אשמח|בואו|בוא\b|אוקי|אוקיי|ok\b|yes\b|מעוניין|מעוניינת|רוצה\s+לשנות)/iu;
 
 function normalizeServiceNameKey(name: string): string {
   return String(name ?? "")
@@ -194,7 +195,8 @@ export function resolveImplicitServiceSwitchFromFreeText(input: {
 export function isExplicitOtherServiceRequest(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t || t.length > 120) return false;
-  if (isAffirmativeServiceRepickYes(t) || NEGATIVE_REPLY.test(t)) return false;
+  if (NEGATIVE_REPLY.test(t)) return false;
+  // בדיקת דפוס לפני affirmative — «רוצה אימון אחר» הוא החלפה, לא «כן» לגשר.
   return (
     /(?:אפשר|אפשרי|רוצה|רוצים|לעבור|להחליף).{0,40}(?:אימון|שיעור)\s+אחר/u.test(t) ||
     /^(?:אימון|שיעור)\s+אחר/u.test(t) ||

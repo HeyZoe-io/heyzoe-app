@@ -4917,7 +4917,9 @@ async function processIncoming(
       !contactNotRelevantAt &&
       incomingText.length >= 4 &&
       incomingText.length <= 400 &&
-      !matchesNotRelevantKeyword(incomingTextRaw);
+      !matchesNotRelevantKeyword(incomingTextRaw) &&
+      // «רוצה אימון אחר» = חזרה לבחירת מוצר, לא סגירת ליד
+      !isExplicitOtherServiceRequest(incomingTextRaw);
 
     const optOutClaudeEligible =
       !optedInThisMessage &&
