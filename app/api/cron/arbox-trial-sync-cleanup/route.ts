@@ -21,7 +21,7 @@ function authorizeCron(req: NextRequest): boolean {
 }
 
 /**
- * מוחק שורות ישנות מ-arbox_trial_sync_log (מעל 90 יום).
+ * מוחק שורות ישנות מ-arbox_trial_sync_log לפי processed_at (מעל 90 יום).
  * Scheduling: external cron-job.org (not Vercel crons).
  */
 export async function GET(req: NextRequest) {
