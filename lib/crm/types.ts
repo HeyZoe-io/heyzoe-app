@@ -21,6 +21,17 @@ export function normalizeCrmType(raw: unknown): CrmType {
   return (CRM_TYPES as readonly string[]).includes(t) ? (t as CrmType) : "";
 }
 
+/** Arbox CRM connected: crm_type = arbox and a non-empty crm_api_key on businesses. */
+export function businessHasArboxConnection(
+  row: { crm_type?: unknown; crm_api_key?: unknown } | null | undefined
+): boolean {
+  if (!row) return false;
+  return (
+    normalizeCrmType(row.crm_type) === "arbox" &&
+    Boolean(String(row.crm_api_key ?? "").trim())
+  );
+}
+
 export type CrmEventKind =
   | "trial_registered"
   | "human_requested"

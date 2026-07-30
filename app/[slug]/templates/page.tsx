@@ -2,7 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
-import TemplatesClient, { type TemplateRow } from "./TemplatesClient";
+import { businessHasArboxConnection } from "@/lib/crm/types";
+import TemplatesClient, { type TemplateRow, type TriggerRow } from "./TemplatesClient";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -26,7 +27,8 @@ export default async function TemplatesPage({ params }: Props) {
 
   const businessId = access.business.id;
 
-  const [{ data: templates, error: tplErr }, { data: biz, error: bizErr }] = await Promise.all([
+  const [{ data: templates, error: tplErr }, { data: biz, error: bizErr }, { data: triggers, error: trigErr }] =
+    await Promise.all([
     admin
       .from("whatsapp_templates")
       .select(
@@ -36,9 +38,16 @@ export default async function TemplatesPage({ params }: Props) {
       .order("updated_at", { ascending: false }),
     admin
       .from("businesses")
-      .select("lead_template_name, leads_webhook_secret, waba_id")
+      .select("lead_template_name, leads_webhook_secret, waba_id, crm_type, crm_api_key")
       .eq("id", businessId)
       .maybeSingle(),
+    admin
+      .from("template_triggers")
+      .select(
+        "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at"
+      )
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: true }),
   ]);
 
   if (tplErr) {
@@ -46,6 +55,9 @@ export default async function TemplatesPage({ params }: Props) {
   }
   if (bizErr) {
     console.error("[templates/page] business meta failed:", bizErr.message);
+  }
+  if (trigErr) {
+    console.error("[templates/page] triggers list failed:", trigErr.message);
   }
 
   const leadTemplateName = String(
@@ -59,14 +71,19 @@ export default async function TemplatesPage({ params }: Props) {
       .trim()
       .replace(/\s+/g, "")
   );
+  const hasArbox = businessHasArboxConnection(
+    biz as { crm_type?: unknown; crm_api_key?: unknown } | null
+  );
 
   return (
     <TemplatesClient
       slug={access.business.slug || slug}
       initialTemplates={(templates ?? []) as TemplateRow[]}
       initialLeadTemplateName={leadTemplateName || null}
+      initialTriggers={(triggers ?? []) as TriggerRow[]}
       leadsWebhookSecret={leadsWebhookSecret}
       hasWaba={hasWaba}
+      hasArbox={hasArbox}
     />
   );
 }
