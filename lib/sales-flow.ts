@@ -207,7 +207,7 @@ export function normalizeWarmupButtonPairs(
   let repliesRaw = Array.isArray(repliesIn) ? repliesIn.map((x) => String(x ?? "")) : [];
   const fallback = String(fallbackReply ?? "").trim();
 
-  let options =
+  const options =
     optsRaw.length >= WARMUP_MIN_BUTTONS
       ? optsRaw.slice(0, WARMUP_MAX_BUTTONS)
       : [...optsRaw, ...Array(Math.max(0, WARMUP_MIN_BUTTONS - optsRaw.length)).fill("")];
@@ -2736,6 +2736,79 @@ export type AfterTrialScheduleFillInput = {
   courseSchedulePhrase?: string;
 };
 
+/** Tokens that expandAfterTrialRegistration / schedule fill may resolve to empty. */
+const AFTER_REG_STRIPPABLE_PLACEHOLDERS = [
+  ADDRESS_PLACEHOLDER,
+  DIRECTIONS_PLACEHOLDER,
+  INSTAGRAM_CTA_PLACEHOLDER,
+  REQUESTED_DATE_PLACEHOLDER,
+  REQUESTED_TIME_PLACEHOLDER,
+  COURSE_SCHEDULE_PLACEHOLDER,
+] as const;
+
+function afterRegPlaceholderResolvesEmpty(
+  token: string,
+  ctx: {
+    instagramUrl: string;
+    address: string;
+    directions: string;
+    scheduleSelection?: AfterTrialScheduleFillInput;
+  }
+): boolean {
+  switch (token) {
+    case ADDRESS_PLACEHOLDER:
+      return !ctx.address.trim();
+    case DIRECTIONS_PLACEHOLDER:
+      return !ctx.directions.trim();
+    case INSTAGRAM_CTA_PLACEHOLDER:
+      return !ctx.instagramUrl.trim();
+    case REQUESTED_DATE_PLACEHOLDER:
+      return !String(ctx.scheduleSelection?.requestedDate ?? "").trim();
+    case REQUESTED_TIME_PLACEHOLDER:
+      return !String(ctx.scheduleSelection?.requestedTime ?? "").trim();
+    case COURSE_SCHEDULE_PLACEHOLDER:
+      return !String(ctx.scheduleSelection?.courseSchedulePhrase ?? "").trim();
+    default:
+      return false;
+  }
+}
+
+/**
+ * Drop lines whose value after ":" is only placeholder(s) that will resolve empty
+ * (e.g. "כתובת: {business_address}" with no address). Keeps owner headers like
+ * "כתובת:" when the address is on the next line (no empty-resolving placeholder).
+ */
+function stripLinesWithUnresolvedEmptyPlaceholders(
+  body: string,
+  ctx: {
+    instagramUrl: string;
+    address: string;
+    directions: string;
+    scheduleSelection?: AfterTrialScheduleFillInput;
+  }
+): string {
+  return body
+    .split("\n")
+    .filter((line) => {
+      const emptyTokens = AFTER_REG_STRIPPABLE_PLACEHOLDERS.filter(
+        (token) => line.includes(token) && afterRegPlaceholderResolvesEmpty(token, ctx)
+      );
+      if (!emptyTokens.length) return true;
+
+      let residual = line;
+      for (const token of emptyTokens) {
+        residual = residual.replaceAll(token, "");
+      }
+      residual = residual.trim();
+      if (!residual) return false;
+
+      const ci = residual.lastIndexOf(":");
+      if (ci >= 0 && !residual.slice(ci + 1).trim()) return false;
+      return true;
+    })
+    .join("\n");
+}
+
 /**
  * מרחיב תבנית «אחרי הרשמה לאימון ניסיון» לפרומפט: ממלא את {instagram_cta}
  * במשפט + URL כשיש לינק אינסטגרם; אחרת מסיר את המציין בלי להשאיר שורות ריקות.
@@ -2896,7 +2969,7 @@ function fillAfterTrialServiceNamePlaceholders(body: string, serviceName: string
 
 function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialScheduleFillInput): string {
   const service = String(fill.serviceName ?? "").trim() || "האימון";
-  let t = fillAfterTrialServiceNamePlaceholders(body, service);
+  const t = fillAfterTrialServiceNamePlaceholders(body, service);
   const date = normalizeRequestedDateForTemplate(String(fill.requestedDate ?? "").trim());
   const time = String(fill.requestedTime ?? "").trim();
   const courseSched = String(fill.courseSchedulePhrase ?? "").trim();
@@ -2934,7 +3007,8 @@ function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialSchedu
 }
 
 /**
- * מכין את תבנית «אחרי הרשמה» לשליחה ללקוח בווטסאפ: אינסטגרם, הסרת הערות «מלאי», מילוי ____ בכתובת והגעה, השמטת שורות ריקות אחרי נקודתיים.
+ * מכין את תבנית «אחרי הרשמה» לשליחה ללקוח בווטסאפ: אינסטגרם, מילוי כתובת/הגעה,
+ * והסרת שורות שבהן placeholder נשאר ריק (לא כותרות בעלים שמסתיימות ב-«:»).
  */
 export function formatAfterTrialRegistrationForWhatsAppDelivery(
   body: string,
@@ -2944,7 +3018,14 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   scheduleSelection?: AfterTrialScheduleFillInput,
   language: BusinessContentLanguage = "he"
 ): string {
-  let s = expandAfterTrialRegistrationForPrompt(body.trim(), instagramUrl, address, directions, language);
+  const stripCtx = {
+    instagramUrl,
+    address,
+    directions,
+    scheduleSelection,
+  };
+  let s = stripLinesWithUnresolvedEmptyPlaceholders(body.trim(), stripCtx);
+  s = expandAfterTrialRegistrationForPrompt(s, instagramUrl, address, directions, language);
   s = fillAfterTrialSchedulePlaceholders(s, {
     requestedDate: scheduleSelection?.requestedDate,
     requestedTime: scheduleSelection?.requestedTime,
@@ -2955,12 +3036,6 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
   s = s
     .split("\n")
     .map((x) => x.trim())
-    .filter((line) => {
-      if (!line) return true;
-      const ci = line.lastIndexOf(":");
-      if (ci >= 0 && !line.slice(ci + 1).trim()) return false; // drop "label:" with nothing
-      return true;
-    })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
