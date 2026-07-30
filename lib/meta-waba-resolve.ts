@@ -30,6 +30,8 @@ export type MetaWabaPhoneNumber = {
   id: string;
   display_phone_number?: string;
   verified_name?: string;
+  /** Meta Cloud API phone status, e.g. CONNECTED / PENDING / DISCONNECTED. */
+  status?: string;
 };
 
 /**
@@ -54,7 +56,10 @@ export async function fetchPhoneNumbersForWaba(
   if (!waba) throw new Error("[fetchPhoneNumbersForWaba] missing wabaId");
   if (!accessToken) throw new Error("[fetchPhoneNumbersForWaba] missing token");
 
-  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(waba)}/phone_numbers`;
+  const fields = "id,display_phone_number,verified_name,status";
+  const url =
+    `https://graph.facebook.com/v21.0/${encodeURIComponent(waba)}/phone_numbers` +
+    `?fields=${encodeURIComponent(fields)}`;
   const res = await fetch(url, {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -89,10 +94,12 @@ export async function fetchPhoneNumbersForWaba(
       if (!id) return null;
       const display = String(r.display_phone_number ?? "").trim();
       const verified = String(r.verified_name ?? "").trim();
+      const status = String(r.status ?? "").trim();
       return {
         id,
         ...(display ? { display_phone_number: display } : {}),
         ...(verified ? { verified_name: verified } : {}),
+        ...(status ? { status } : {}),
       } satisfies MetaWabaPhoneNumber;
     })
     .filter((row): row is MetaWabaPhoneNumber => row !== null);

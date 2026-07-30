@@ -4158,57 +4158,44 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
     .toLowerCase();
   console.info(`[WA Webhook] business found: id=${businessId}, slug=${businessSlug}`);
 
-  const { data: channel, error: chErr } = await admin
-    .from("whatsapp_channels")
-    .select("phone_number_id, provisioning_status")
-    .eq("business_id", businessId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (chErr) {
-    console.error("[WA Webhook] PARTNER_ADDED channel lookup failed:", chErr.message);
-  }
-
-  if (channel?.phone_number_id) {
-    const { error: updErr } = await admin
-      .from("whatsapp_channels")
-      .update({ is_active: true, provisioning_status: "active" } as any)
-      .eq("business_id", businessId);
-    if (updErr) {
-      console.error("[WA Webhook] channel update failed:", updErr.message);
-    } else {
-      console.info("[WA Webhook] channel updated: provisioning_status=active");
-    }
-  } else if (systemToken) {
+  // Never blanket-activate all channels for the business (resurrects stale/test rows).
+  // Prefer Meta CONNECTED pnids only; without a system token, activate only the latest row by phone_number_id.
+  if (systemToken) {
     try {
       const numbers = await fetchPhoneNumbersForWaba(wabaId, systemToken);
-      console.info(
-        `[WA Webhook] self-healing: fetched phone_numbers for waba_id=${wabaId} (count=${numbers.length})`
+      const connected = numbers.filter(
+        (n) => String(n.status ?? "").trim().toUpperCase() === "CONNECTED"
       );
-      if (numbers.length === 0) {
+      console.info(
+        `[WA Webhook] self-healing: fetched phone_numbers for waba_id=${wabaId} (count=${numbers.length}, connected=${connected.length})`
+      );
+      if (connected.length === 0) {
         console.warn(
-          `[WA Webhook] self-healing: no phone numbers on WABA yet waba_id=${wabaId}; skipping channel insert`
+          `[WA Webhook] self-healing: no CONNECTED phone numbers on WABA waba_id=${wabaId}; skipping channel activate/upsert`
         );
       } else {
-        const first = numbers[0];
-        const { error: insErr } = await admin.from("whatsapp_channels").upsert(
-          {
-            business_id: businessId,
-            business_slug: businessSlug,
-            phone_number_id: first.id,
-            phone_display: first.display_phone_number ?? null,
-            is_active: true,
-            provisioning_status: "active",
-          } as any,
-          { onConflict: "phone_number_id" }
-        );
-        if (insErr) {
-          console.error("[WA Webhook] self-healing channel upsert failed:", insErr.message);
-        } else {
-          console.info(
-            `[WA Webhook] self-healing: upserted whatsapp_channels phone_number_id=${first.id}`
+        for (const num of connected) {
+          const { error: upsertErr } = await admin.from("whatsapp_channels").upsert(
+            {
+              business_id: businessId,
+              business_slug: businessSlug,
+              phone_number_id: num.id,
+              phone_display: num.display_phone_number ?? null,
+              is_active: true,
+              provisioning_status: "active",
+            } as any,
+            { onConflict: "phone_number_id" }
           );
+          if (upsertErr) {
+            console.error(
+              `[WA Webhook] self-healing channel upsert failed phone_number_id=${num.id}:`,
+              upsertErr.message
+            );
+          } else {
+            console.info(
+              `[WA Webhook] self-healing: upserted CONNECTED whatsapp_channels phone_number_id=${num.id}`
+            );
+          }
         }
       }
     } catch (e) {
@@ -4216,7 +4203,38 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
       console.error("[WA Webhook] self-healing fetchPhoneNumbersForWaba failed:", msg);
     }
   } else {
-    console.warn("[WA Webhook] self-healing skipped: WHATSAPP_SYSTEM_TOKEN missing");
+    const { data: channel, error: chErr } = await admin
+      .from("whatsapp_channels")
+      .select("phone_number_id")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (chErr) {
+      console.error("[WA Webhook] PARTNER_ADDED channel lookup failed:", chErr.message);
+    }
+
+    const phoneNumberId = String(
+      (channel as { phone_number_id?: string } | null)?.phone_number_id ?? ""
+    ).trim();
+    if (phoneNumberId) {
+      const { error: updErr } = await admin
+        .from("whatsapp_channels")
+        .update({ is_active: true, provisioning_status: "active" } as any)
+        .eq("phone_number_id", phoneNumberId);
+      if (updErr) {
+        console.error("[WA Webhook] channel update failed:", updErr.message);
+      } else {
+        console.info(
+          `[WA Webhook] channel updated (scoped): phone_number_id=${phoneNumberId} provisioning_status=active`
+        );
+      }
+    } else {
+      console.warn(
+        "[WA Webhook] self-healing skipped: WHATSAPP_SYSTEM_TOKEN missing and no existing channel"
+      );
+    }
   }
 
   const onboardingType = String((business as { onboarding_type?: unknown }).onboarding_type ?? "");
