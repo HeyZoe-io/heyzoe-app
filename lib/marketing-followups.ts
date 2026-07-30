@@ -166,8 +166,8 @@ async function sendMarketingFollowupWithHumanButton(
     });
     return;
   }
-  const fallback = `${body}\n1. ${MARKETING_HUMAN_AGENT_BTN_LABEL}`;
-  await sendMarketingWhatsApp(phone, fallback, { model_used: model });
+  console.warn("[marketing-followups] interactive failed; sending body only");
+  await sendMarketingWhatsApp(phone, body, { model_used: model });
 }
 
 export async function sendMarketingFollowupStage(

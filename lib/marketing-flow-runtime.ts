@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { stripTrailingFollowUpQuestion } from "@/lib/wa-split-answer";
+import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
 import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
@@ -242,8 +243,11 @@ async function sendMarketingFlowResumePrompt(phone: string): Promise<void> {
     });
     return;
   }
-  const fallback = `${MARKETING_FLOW_RESUME_PROMPT}\n1. ${MARKETING_FLOW_BTN_CONTINUE}\n2. ${MARKETING_FLOW_BTN_MORE_Q}`;
-  await sendMarketingWhatsApp(phone, fallback, { model_used: "marketing_flow_resume_prompt" });
+  // בלי תוויות כפתורים בגוף הטקסט — רק interactive או גוף השאלה בלבד
+  console.warn("[marketing-flow] resume prompt interactive failed; sending body only");
+  await sendMarketingWhatsApp(phone, MARKETING_FLOW_RESUME_PROMPT, {
+    model_used: "marketing_flow_resume_prompt",
+  });
 }
 
 async function resendMarketingFlowQuestionNode(phone: string, node: FlowNode): Promise<void> {
@@ -662,9 +666,8 @@ async function sendNodeChain(
 
 /**
  * Handle an inbound message on the marketing line.
- * - «היי» / «היי זואי» / «היי זואי!» בלבד → מאפס סשן ומתחיל פלואו (גם אחרי flow_completed)
- * - פנייה ראשונה עם שאלה או משפט נוסף → לא מתחיל פלואו (מעביר ל-AI)
- * - שאלה פתוחה באמצע פלואו → AI + «מה דעתך, אפשר להמשיך?» + כפתורים
+ * - מילות הפעלה כמו זואי עסק («היי», «הי», «אשמח לפרטים»…) + «היי זואי» → מאפס סשן ומתחיל פלואו
+ * - שאלה פתוחה באמצע פלואו → AI + «מה דעתך, אפשר להמשיך?» + כפתורים אמיתיים
  * - Flow completed → return false (caller should use Zoe AI)
  */
 export async function handleMarketingFlowInbound(
@@ -804,7 +807,7 @@ export async function handleMarketingFlowInbound(
     await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
     await sendMarketingWhatsApp(
       phone,
-      "עדכנו את הפלואו בשיווק. שלחו «היי זואי!» כדי להתחיל מחדש 🙂"
+      "עדכנו את הפלואו בשיווק. שלחו «היי», «אשמח לפרטים» או «היי זואי!» כדי להתחיל מחדש 🙂"
     );
     return { handled: true };
   }
@@ -990,7 +993,11 @@ function buildMarketingFlowKnowledgeLines(nodes: FlowNode[], edges: FlowEdge[]):
         const edgeLabels = outEdges.map((e) => decodeEdgeLabel(e.label).trim()).filter(Boolean);
         const opts = [...new Set([...buttons, ...edgeLabels])];
         if (text) push(`בפלואו נשאלת השאלה: ${text}`);
-        if (opts.length) push(`אפשרויות מענה בפלואו: ${opts.join(" | ")}`);
+        if (opts.length) {
+          push(
+            `אפשרויות מענה בפלואו (נשלחות ככפתורים אמיתיים בוואטסאפ — אל תכתבי אותן בגוף התשובה): ${opts.join(" | ")}`
+          );
+        }
         break;
       }
       case "media": {
@@ -1247,7 +1254,9 @@ async function isMarketingPostFlowAiContext(leadPhone: string): Promise<boolean>
 
 /** מסיר סגירות ישנות מתשובת AI — הסגירה והכפתורים נשלחים בהודעה נפרדת */
 function prepareMarketingPostFlowAiReply(text: string): string {
-  let s = fixNeutralLeadPluralAddressing(sanitizeZoeDashes(String(text ?? "").trim()));
+  const s = stripAssistantInteractiveButtonsLog(
+    fixNeutralLeadPluralAddressing(sanitizeZoeDashes(String(text ?? "").trim()))
+  );
 
   const lines = s.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   while (lines.length > 0) {
@@ -1285,13 +1294,10 @@ async function sendMarketingPostFlowActionMenu(phone: string): Promise<void> {
     });
     return;
   }
-  const fallback = [
-    MARKETING_POST_FLOW_CLOSING_LINE,
-    `1. ${MARKETING_POST_FLOW_BTN_CHECKOUT}`,
-    `2. ${MARKETING_POST_FLOW_BTN_MORE_Q}`,
-    `3. ${MARKETING_POST_FLOW_BTN_HUMAN}`,
-  ].join("\n");
-  await sendMarketingWhatsApp(phone, fallback, { model_used: "marketing_post_flow_menu" });
+  console.warn("[marketing-flow] post-flow menu interactive failed; sending body only");
+  await sendMarketingWhatsApp(phone, MARKETING_POST_FLOW_CLOSING_LINE, {
+    model_used: "marketing_post_flow_menu",
+  });
 }
 
 /** לחיצה על כפתורי תפריט אחרי סיום הפלואו */
@@ -1396,11 +1402,15 @@ export async function callMarketingAI(
 
   let chatHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
   if (leadPhone) {
-    chatHistory = await fetchRecentSessionMessages({
+    const rawHistory = await fetchRecentSessionMessages({
       business_slug: MARKETING_CONVERSATIONS_SLUG,
       session_id: marketingWaSessionId(leadPhone),
       limit: 10,
     });
+    chatHistory = rawHistory.map((m) => ({
+      role: m.role,
+      content: stripAssistantInteractiveButtonsLog(String(m.content ?? "")),
+    }));
     if (
       isNegativeFitnessScopeClarifyReply(userText) &&
       assistantAskedFitnessScopeClarify(chatHistory)
@@ -1508,7 +1518,7 @@ ${supportWaUrl}
         const postFlow = await isMarketingPostFlowAiContext(leadPhone);
         if (postFlow) out = prepareMarketingPostFlowAiReply(out);
       }
-      return sanitizeZoeDashes(out);
+      return stripAssistantInteractiveButtonsLog(sanitizeZoeDashes(out));
     } catch (e) {
       if (attempt === 0 && isRetryableClaudeError(e)) {
         await sleepMs(1500);

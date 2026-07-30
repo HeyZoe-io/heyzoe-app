@@ -2,6 +2,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { extractPhoneFromSessionId, sessionIdMatchesWaPhoneNumberIds } from "@/lib/conversations-sessions";
 import { logMessage } from "@/lib/analytics";
 import { normalizePhone } from "@/lib/phone-normalize";
+import {
+  isSalesFlowStartTrigger,
+  normalizeSalesFlowGreetingToken,
+} from "@/lib/sales-flow-start-triggers";
+import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import { sendMetaWhatsAppMessage, type MetaWhatsAppOutgoing } from "@/lib/whatsapp";
 
 /** Meta phone_number_id לקו שיווקי HeyZoe */
@@ -15,6 +20,16 @@ export const MARKETING_PHONE_WA_ME = "97233824981";
 /** טקסט מוכן מדף הנחיתה — מפעיל/מאפס את פלואו השיווק */
 export const MARKETING_FLOW_START_PREFILL = "היי זואי!";
 
+/** וריאציות ייחודיות לקו השיווק (מעבר ל־SALES_FLOW_START_TRIGGERS) */
+const MARKETING_EXTRA_START_TRIGGERS = new Set([
+  "היי זואי",
+  "הי זואי",
+  "היי zoe",
+  "הי zoe",
+  "hi zoe",
+  "hey zoe",
+]);
+
 /** נרמול טקסט נכנס לפלואו (מרכאות, רווחים, bidi) */
 export function normalizeMarketingInboundText(text: string): string {
   return String(text ?? "")
@@ -25,14 +40,15 @@ export function normalizeMarketingInboundText(text: string): string {
     .trim();
 }
 
-/** הודעה שמתחילה/מאפסת את פלואו השיווק — רק ברכה בלבד, בלי שאלה או משפט נוסף */
+/**
+ * הודעה שמתחילה/מאפסת את פלואו השיווק —
+ * אותן מילות הפעלה כמו זואי עסק + «היי זואי» / prefill מה־LP.
+ */
 export function isMarketingFlowStartMessage(text: string): boolean {
-  const n = normalizeMarketingInboundText(text).toLowerCase();
+  const n = normalizeMarketingInboundText(text);
   if (!n) return false;
-  // פסיק / נקודתיים / סימן שיש המשך אחרי הברכה
-  if (/[,،;:]/u.test(n)) return false;
-  const core = n.replace(/[!?.…]+$/gu, "").trim();
-  return core === "היי" || core === "היי זואי";
+  if (isSalesFlowStartTrigger(n)) return true;
+  return MARKETING_EXTRA_START_TRIGGERS.has(normalizeSalesFlowGreetingToken(n));
 }
 
 /** @deprecated use isMarketingFlowStartMessage */
@@ -148,8 +164,14 @@ export async function sendMarketingWhatsApp(
 ): Promise<void> {
   const phone = String(leadPhone ?? "").trim();
   if (!phone) return;
-  const payload: MetaWhatsAppOutgoing =
+  let payload: MetaWhatsAppOutgoing =
     typeof outgoing === "string" ? { type: "text", text: outgoing } : outgoing;
+  // לעולם לא לשלוח סמן לוג `[כפתורים:…]` בגוף טקסט ללקוח
+  if (payload.type === "text") {
+    const cleaned = stripAssistantInteractiveButtonsLog(payload.text);
+    if (!cleaned) return;
+    payload = { type: "text", text: cleaned };
+  }
   await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, payload);
   const text =
     payload.type === "text"

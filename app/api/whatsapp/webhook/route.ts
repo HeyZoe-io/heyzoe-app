@@ -96,6 +96,7 @@ import {
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
+import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import {
   assistantAwaitingServiceRepickPick,
   ensureCtaServiceRepickBridge,
@@ -198,14 +199,6 @@ function formatInteractiveConversationLog(
   ]
     .filter(Boolean)
     .join("\n\n");
-}
-
-/** מסיר שורת לוג פנימית שהמודל לעיתים מעתיק לתשובה ללקוח. */
-function stripAssistantInteractiveButtonsLog(text: string): string {
-  return String(text ?? "")
-    .replace(/\n?\[כפתורים:\s*[^\]]+\]\s*/gu, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function isWaInboundTextMessage(msg: WaIncomingMessage): msg is WaIncomingText {
