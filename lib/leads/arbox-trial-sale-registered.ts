@@ -1,4 +1,12 @@
 import { HEYZOE_SF_REGISTERED, logMessage } from "@/lib/analytics";
+import {
+  firstNameFromFullName,
+  formatLeadTemplateMessageContent,
+  leadTemplateUsesFirstName,
+  LEAD_TEMPLATE_MODEL,
+} from "@/lib/lead-template";
+import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -29,7 +37,9 @@ export type ArboxTrialSaleRegisteredResult =
         | "no_user_session"
         | "send_failed"
         | "throttled_2d"
-        | "template_not_configured";
+        | "template_not_configured"
+        | "no_matching_rule"
+        | "deferred";
       contact_created: boolean;
     }
   | { ok: false; error: string };
@@ -70,24 +80,164 @@ type ExistingContactRow = {
   arbox_trial_last_notified_at?: string | null;
 };
 
+function parseMembershipTypeId(raw: unknown): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return null;
+  return n;
+}
+
+type OpeningTemplateDispatch = "immediate" | "deferred" | "gated" | "no_rule";
+
+type OpeningTemplateResult =
+  | { outcome: "sent" }
+  | { outcome: "template_not_configured"; dispatch: OpeningTemplateDispatch }
+  | { outcome: "no_matching_rule"; dispatch: "no_rule" }
+  | { outcome: "deferred"; dispatch: "deferred" }
+  | { outcome: "send_failed"; dispatch: "immediate" };
+
 /**
- * Opening-template path for leads outside the Meta 24h window.
- * Not configured yet (no approved template / temp number) — one place to wire later.
+ * Out-of-window path: resolve template_triggers purchase rule → send when gated + delay_days=0.
+ * No-op until an approved template and WABA exist (same gate as before wiring the stub).
  */
 async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
   businessSlug: string;
   phone: string;
   saleId: number;
-}): Promise<"template_not_configured"> {
-  console.info(
-    "[leads/arbox-trial-sale-registered] would send opening template here (not configured yet)",
-    {
-      businessSlug: input.businessSlug,
-      phone: maskPhoneForLog(input.phone),
+  membershipTypeId: number | null;
+  phoneNumberId: string;
+  fullName: string | null;
+  sessionId: string | null;
+}): Promise<OpeningTemplateResult> {
+  const matchedRule = await resolvePurchaseTemplateTriggerForSale({
+    admin: input.admin,
+    businessId: input.businessId,
+    membershipTypeId: input.membershipTypeId,
+  });
+
+  const templateName = matchedRule?.template_name?.trim() || null;
+  let dispatch: OpeningTemplateDispatch = "no_rule";
+
+  if (!matchedRule || !templateName) {
+    console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
+      businessId: input.businessId,
       sale_id: input.saleId,
-    }
-  );
-  return "template_not_configured";
+      membership_type_id: input.membershipTypeId ?? "none",
+      matched_rule_id: matchedRule?.id ?? "none",
+      template_name: templateName ?? "none",
+      dispatch: "no_rule",
+    });
+    return { outcome: "no_matching_rule", dispatch: "no_rule" };
+  }
+
+  if (matchedRule.delay_days > 0) {
+    // TODO(Stage C): enqueue scheduled send using delay_days + delay_direction on matchedRule.
+    dispatch = "deferred";
+    console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
+      businessId: input.businessId,
+      sale_id: input.saleId,
+      membership_type_id: input.membershipTypeId ?? "none",
+      matched_rule_id: matchedRule.id,
+      template_name: templateName,
+      dispatch,
+      delay_days: matchedRule.delay_days,
+      delay_direction: matchedRule.delay_direction,
+    });
+    return { outcome: "deferred", dispatch };
+  }
+
+  const phoneNumberId = String(input.phoneNumberId ?? "").trim();
+  if (!phoneNumberId) {
+    dispatch = "gated";
+    console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
+      businessId: input.businessId,
+      sale_id: input.saleId,
+      membership_type_id: input.membershipTypeId ?? "none",
+      matched_rule_id: matchedRule.id,
+      template_name: templateName,
+      dispatch,
+      gate: "no_channel",
+    });
+    return { outcome: "template_not_configured", dispatch };
+  }
+
+  const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
+    input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
+    input.admin
+      .from("whatsapp_templates")
+      .select("id, status, language")
+      .eq("business_id", input.businessId)
+      .eq("name", templateName)
+      .eq("status", "APPROVED")
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+  if (!wabaId || !approvedTpl?.id) {
+    dispatch = "gated";
+    console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
+      businessId: input.businessId,
+      sale_id: input.saleId,
+      membership_type_id: input.membershipTypeId ?? "none",
+      matched_rule_id: matchedRule.id,
+      template_name: templateName,
+      dispatch,
+      gate: !wabaId ? "no_waba" : "template_not_approved",
+    });
+    return { outcome: "template_not_configured", dispatch };
+  }
+
+  dispatch = "immediate";
+  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const languageCode = String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+
+  const sendResult = await sendBusinessTemplate({
+    to: input.phone,
+    phoneNumberId,
+    templateName,
+    languageCode,
+    ...(leadTemplateUsesFirstName(templateName)
+      ? {
+          components: [
+            {
+              type: "body",
+              parameters: [{ type: "text", text: firstName }],
+            },
+          ],
+        }
+      : {}),
+  });
+
+  console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
+    businessId: input.businessId,
+    sale_id: input.saleId,
+    membership_type_id: input.membershipTypeId ?? "none",
+    matched_rule_id: matchedRule.id,
+    template_name: templateName,
+    dispatch,
+    send_ok: sendResult.ok,
+  });
+
+  if (!sendResult.ok) {
+    console.error("[leads/arbox-trial-sale-registered] template send failed:", sendResult.error);
+    return { outcome: "send_failed", dispatch };
+  }
+
+  if (input.sessionId) {
+    await logMessage({
+      business_slug: input.businessSlug,
+      role: "assistant",
+      content: formatLeadTemplateMessageContent(templateName, { firstName }),
+      model_used: LEAD_TEMPLATE_MODEL,
+      session_id: input.sessionId,
+    });
+  }
+
+  return { outcome: "sent" };
 }
 
 function isWithinTwoDayNotifyThrottle(lastNotifiedAtIso: string | null | undefined): boolean {
@@ -127,6 +277,7 @@ export async function handleArboxTrialSaleRegistered(input: {
   }
 
   const fullName = resolveReportFullName(input.row);
+  const membershipTypeId = parseMembershipTypeId(input.row.membership_type_id);
 
   // 1) Seen check — per sale
   const { data: existingSeen, error: seenErr } = await input.admin
@@ -362,19 +513,27 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "outside_24h_window"
     | "no_user_session"
     | "send_failed"
-    | "template_not_configured";
+    | "template_not_configured"
+    | "no_matching_rule"
+    | "deferred";
 
   if (waResult.sent) {
     whatsapp = "sent";
   } else if (waResult.reason === "send_failed") {
     whatsapp = "send_failed";
   } else {
-    // No open freeform window (or no channel) → template path (stub)
-    whatsapp = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+    const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+      admin: input.admin,
+      businessId,
       businessSlug,
       phone: canonicalPhone,
       saleId,
+      membershipTypeId,
+      phoneNumberId,
+      fullName,
+      sessionId,
     });
+    whatsapp = templateResult.outcome;
   }
 
   // 7) Throttle stamp only after a real notify (in-window send or out-of-window template no-op)

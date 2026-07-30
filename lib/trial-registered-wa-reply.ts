@@ -28,24 +28,55 @@ export type TrialRegisteredWaReplyResult =
   | { sent: true }
   | { sent: false; reason: "no_channel" | "outside_24h_window" | "no_user_session" | "send_failed" };
 
-async function fetchLatestUserMessageAt(input: {
+/** Map a messages.session_id back to one of the business's phone_number_ids. */
+function phoneNumberIdFromSessionId(
+  sessionId: string,
+  phoneNumberIds: string[]
+): string | null {
+  const sid = String(sessionId ?? "").trim();
+  if (!sid) return null;
+  for (const pid of phoneNumberIds) {
+    if (pid && sid.startsWith(`wa_${pid}_`)) return pid;
+  }
+  return null;
+}
+
+/**
+ * Latest inbound user message for this contact across ALL active WA channels.
+ * Returns created_at + the phone_number_id of the channel that owns that session.
+ */
+async function fetchLatestUserMessageAcrossChannels(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessSlug: string;
-  sessionIds: string[];
-}): Promise<string | null> {
-  const sessionIds = input.sessionIds.filter(Boolean);
+  phone: string;
+  phoneNumberIds: string[];
+}): Promise<{ createdAt: string; phoneNumberId: string; sessionId: string } | null> {
+  const phoneNumberIds = input.phoneNumberIds.map((p) => String(p ?? "").trim()).filter(Boolean);
+  if (!phoneNumberIds.length) return null;
+
+  const sessionIds = [
+    ...new Set(phoneNumberIds.flatMap((pid) => waSessionIdLookupVariants(pid, input.phone))),
+  ].filter(Boolean);
   if (!sessionIds.length) return null;
+
   const { data } = await input.admin
     .from("messages")
-    .select("created_at")
+    .select("created_at, session_id")
     .eq("business_slug", input.businessSlug)
     .in("session_id", sessionIds)
     .eq("role", "user")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const at = String((data as { created_at?: string } | null)?.created_at ?? "").trim();
-  return at || null;
+
+  const createdAt = String((data as { created_at?: string } | null)?.created_at ?? "").trim();
+  const sessionId = String((data as { session_id?: string } | null)?.session_id ?? "").trim();
+  if (!createdAt || !sessionId) return null;
+
+  const phoneNumberId = phoneNumberIdFromSessionId(sessionId, phoneNumberIds);
+  if (!phoneNumberId) return null;
+
+  return { createdAt, phoneNumberId, sessionId };
 }
 
 function isWithinWaUserSessionWindow(lastUserAtIso: string | null): boolean {
@@ -107,29 +138,35 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const businessId = Number(input.businessId);
   if (!businessSlug || !businessId) return { sent: false, reason: "no_channel" };
 
-  const { data: channel } = await input.admin
+  const { data: channels } = await input.admin
     .from("whatsapp_channels")
     .select("phone_number_id")
     .eq("business_id", businessId)
-    .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .eq("is_active", true);
 
-  const phoneNumberId = String((channel as { phone_number_id?: string } | null)?.phone_number_id ?? "").trim();
-  if (!phoneNumberId) return { sent: false, reason: "no_channel" };
+  const phoneNumberIds = [
+    ...new Set(
+      (channels ?? [])
+        .map((row) => String((row as { phone_number_id?: string }).phone_number_id ?? "").trim())
+        .filter(Boolean)
+    ),
+  ];
+  if (!phoneNumberIds.length) return { sent: false, reason: "no_channel" };
 
-  const sessionId = buildWaSessionId(phoneNumberId, input.phone);
-  const sessionIds = waSessionIdLookupVariants(phoneNumberId, input.phone);
-  const lastUserAtIso = await fetchLatestUserMessageAt({
+  const latestUser = await fetchLatestUserMessageAcrossChannels({
     admin: input.admin,
     businessSlug,
-    sessionIds,
+    phone: input.phone,
+    phoneNumberIds,
   });
-  if (!lastUserAtIso) return { sent: false, reason: "no_user_session" };
-  if (!isWithinWaUserSessionWindow(lastUserAtIso)) {
+  if (!latestUser) return { sent: false, reason: "no_user_session" };
+  if (!isWithinWaUserSessionWindow(latestUser.createdAt)) {
     return { sent: false, reason: "outside_24h_window" };
   }
+
+  // Send on the same channel where the contact actually conversed (not first-by-id).
+  const phoneNumberId = latestUser.phoneNumberId;
+  const sessionId = buildWaSessionId(phoneNumberId, input.phone) || latestUser.sessionId;
 
   const knowledge = await getBusinessKnowledgePack(businessSlug);
   if (!knowledge) return { sent: false, reason: "send_failed" };
