@@ -857,7 +857,31 @@ export async function handleMarketingFlowInbound(
     };
     if (profileName) sessionUpsert.full_name = profileName;
     if (resolvedCtwaClid) sessionUpsert.ctwa_clid = resolvedCtwaClid;
-    await admin.from("marketing_flow_sessions").upsert(sessionUpsert, { onConflict: "phone" });
+    const { error: upsertErr } = await admin
+      .from("marketing_flow_sessions")
+      .upsert(sessionUpsert, { onConflict: "phone" });
+    if (upsertErr) {
+      console.error("[marketing-flow] session upsert failed after start — lead will fall to post-flow AI on next message", {
+        phone,
+        nextNodeId,
+        waitingForAnswer,
+        error: upsertErr.message,
+      });
+      // ניסיון שני בלי שדות אופציונליים שעלולים לשבור סכמה ישנה
+      const minimal = {
+        phone,
+        current_node_id: nextNodeId,
+        flow_completed: !waitingForAnswer && !nextNodeId,
+        updated_at: nowIso,
+      };
+      const { error: retryErr } = await admin
+        .from("marketing_flow_sessions")
+        .upsert(minimal, { onConflict: "phone" });
+      if (retryErr) {
+        console.error("[marketing-flow] session upsert retry failed:", retryErr.message);
+        throw new Error(`marketing_flow_sessions upsert failed: ${retryErr.message}`);
+      }
+    }
 
     if (!session) {
       const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");
@@ -996,6 +1020,16 @@ export async function handleMarketingFlowInbound(
   }
 
   if (!nextNode) {
+    console.warn("[marketing-flow] matched answer but no next node — keeping session on question (not post-flow AI)", {
+      phone,
+      nodeId: currentNode.id,
+      nodeType: currentNode.type,
+      userText: userText.slice(0, 80),
+    });
+    // לא לסיים פלואו בשקט — משאירים על השאלה ועונים כשאלה פתוחה עם resume
+    if (currentNode.type === "question") {
+      return { handled: false, openQuestionInFlow: true };
+    }
     await persistMarketingFlowPosition({
       admin,
       sessionId: sess.id,
