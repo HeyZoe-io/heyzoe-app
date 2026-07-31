@@ -4519,7 +4519,11 @@ async function processIncoming(
 
       const { handleMarketingFlowInbound, answerOpenQuestionDuringMarketingFlow, deliverMarketingPostFlowAiResponse } =
         await import("@/lib/marketing-flow-runtime");
-      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text, { profileName, ctwaClid });
+      const flowResult = await handleMarketingFlowInbound(msg.from, msg.text, {
+        profileName,
+        ctwaClid,
+        metaInteractiveReplyId: msg.type === "text" ? msg.metaInteractiveReplyId : undefined,
+      });
       await applyMarketingInboundFollowupSideEffects(msg.from, msg.text);
       if (profileName) await touchMarketingLeadDisplayName(msg.from, profileName);
       if (!flowResult.handled) {

@@ -24,8 +24,10 @@ import { fetchRecentSessionMessages } from "@/lib/analytics";
 import {
   sendMetaWhatsAppMessage,
   buildMetaInteractivePayload,
+  resolveMetaInteractiveLabel,
   type MetaWhatsAppOutgoing,
 } from "@/lib/whatsapp";
+import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 
 import {
   getMarketingFlowCache,
@@ -175,6 +177,7 @@ async function tryRerouteFromLastAnsweredQuestion(input: {
   phone: string;
   nodes: FlowNode[];
   edges: FlowEdge[];
+  metaInteractiveReplyId?: string;
 }): Promise<MarketingFlowInboundResult | null> {
   const lastId = String(input.sess.last_question_node_id ?? "").trim();
   if (!lastId) return null;
@@ -182,16 +185,38 @@ async function tryRerouteFromLastAnsweredQuestion(input: {
 
   const lastQuestion = input.nodes.find((n) => n.id === lastId);
   if (!lastQuestion || lastQuestion.type !== "question") return null;
-  if (!matchesMarketingFlowQuestionAnswer(lastQuestion, input.edges, input.userText)) return null;
+  if (
+    !matchesMarketingFlowQuestionAnswer(
+      lastQuestion,
+      input.edges,
+      input.userText,
+      input.metaInteractiveReplyId
+    )
+  ) {
+    return null;
+  }
+
+  const options = getMarketingQuestionAnswerOptions(lastQuestion, input.edges);
+  const answeredText = resolveMarketingAnswerAgainstOptions(
+    input.userText,
+    input.metaInteractiveReplyId,
+    options
+  );
 
   await persistMarketingFlowQuestionAnswer({
     phone: input.phone,
     questionNode: lastQuestion,
-    userText: input.userText,
+    userText: answeredText,
     edges: input.edges,
   });
 
-  const nextNode = findNextNode(lastQuestion.id, input.edges, input.nodes, input.userText);
+  const nextNode = findNextNode(
+    lastQuestion.id,
+    input.edges,
+    input.nodes,
+    answeredText,
+    input.metaInteractiveReplyId
+  );
   if (!nextNode) {
     await persistMarketingFlowPosition({
       admin: input.admin,
@@ -350,16 +375,21 @@ function questionButtonsFromNode(node: FlowNode): string[] {
 }
 
 /** אינדקס כפתור (0-based) לפי תשובת הלקוח — טקסט כפתור או מספר 1/2/3 */
-function resolveQuestionButtonIndex(node: FlowNode, outEdges: FlowEdge[], userText: string): number | null {
+function resolveQuestionButtonIndex(
+  node: FlowNode,
+  outEdges: FlowEdge[],
+  userText: string,
+  metaInteractiveReplyId?: string
+): number | null {
   const buttons = questionButtonsFromNode(node);
   if (buttons.length === 0) return null;
 
-  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
+  const resolved = resolveMarketingAnswerAgainstOptions(userText, metaInteractiveReplyId, buttons);
+  const normalized = normalizeMarketingInboundText(resolved).toLowerCase();
   if (!normalized) return null;
 
   for (let i = 0; i < buttons.length; i++) {
-    const label = normalizeMarketingInboundText(buttons[i]).toLowerCase();
-    if (label && normalized === label) return i;
+    if (marketingLabelsEqual(resolved, buttons[i]!)) return i;
   }
 
   const numOnly = /^(\d+)\.?$/u.exec(normalized);
@@ -380,8 +410,7 @@ function resolveQuestionButtonIndex(node: FlowNode, outEdges: FlowEdge[], userTe
 
   for (const e of outEdges) {
     const { text, sourceHandle } = decodeEdgeMeta(e.label);
-    const edgeText = normalizeMarketingInboundText(text).toLowerCase();
-    if (!edgeText || edgeText !== normalized) continue;
+    if (!text || !marketingLabelsEqual(text, resolved)) continue;
     if (sourceHandle?.startsWith("btn-")) {
       const idx = Number.parseInt(sourceHandle.replace("btn-", ""), 10);
       if (idx >= 0 && idx < buttons.length) return idx;
@@ -391,8 +420,13 @@ function resolveQuestionButtonIndex(node: FlowNode, outEdges: FlowEdge[], userTe
   return null;
 }
 
-function findQuestionOutEdge(currentNode: FlowNode, outEdges: FlowEdge[], userText: string): FlowEdge | null {
-  const btnIndex = resolveQuestionButtonIndex(currentNode, outEdges, userText);
+function findQuestionOutEdge(
+  currentNode: FlowNode,
+  outEdges: FlowEdge[],
+  userText: string,
+  metaInteractiveReplyId?: string
+): FlowEdge | null {
+  const btnIndex = resolveQuestionButtonIndex(currentNode, outEdges, userText, metaInteractiveReplyId);
   const buttons = questionButtonsFromNode(currentNode);
 
   if (btnIndex !== null) {
@@ -408,11 +442,19 @@ function findQuestionOutEdge(currentNode: FlowNode, outEdges: FlowEdge[], userTe
     if (byCurrentButtonText) return byCurrentButtonText;
   }
 
-  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
+  const resolved = resolveMarketingAnswerAgainstOptions(
+    userText,
+    metaInteractiveReplyId,
+    [
+      ...buttons,
+      ...outEdges.map((e) => decodeEdgeMeta(e.label).text).filter(Boolean),
+    ]
+  );
+  const normalized = normalizeMarketingInboundText(resolved).toLowerCase();
   return (
     outEdges.find((e) => {
       const t = normalizeMarketingInboundText(decodeEdgeMeta(e.label).text).toLowerCase();
-      return t && t === normalized;
+      return t && (t === normalized || marketingLabelsEqual(decodeEdgeMeta(e.label).text, resolved));
     }) ?? null
   );
 }
@@ -429,22 +471,78 @@ function getMarketingQuestionAnswerOptions(currentNode: FlowNode, edges: FlowEdg
   return [...new Set([...buttons, ...edgeLabels])];
 }
 
+/** השוואת תוויות כפתור — כולל חיתוך Meta/WA (20–23 תווים) */
+function marketingLabelsEqual(a: string, b: string): boolean {
+  const na = normalizeMarketingInboundText(a).toLowerCase();
+  const nb = normalizeMarketingInboundText(b).toLowerCase();
+  if (na && nb && na === nb) return true;
+  const ta = normalizeMarketingInboundText(truncateWaButtonLabel(a)).toLowerCase();
+  const tb = normalizeMarketingInboundText(truncateWaButtonLabel(b)).toLowerCase();
+  return Boolean(ta && tb && ta === tb);
+}
+
+/**
+ * ממפה טקסט/id של כפתור Meta לתווית המלאה מהפלואו
+ * (כמו resolveWaMenuChoice בזואי עסק — מונע נפילה ל«שאלה פתוחה» אחרי חיתוך title).
+ */
+function resolveMarketingAnswerAgainstOptions(
+  userText: string,
+  metaInteractiveReplyId: string | undefined,
+  options: string[]
+): string {
+  if (!options.length) return userText;
+
+  if (metaInteractiveReplyId?.trim()) {
+    const fromMeta = resolveMetaInteractiveLabel(metaInteractiveReplyId, userText, options).trim();
+    const hit = options.find((o) => marketingLabelsEqual(fromMeta, o));
+    if (hit) return hit;
+  }
+
+  const exact = options.find((o) => marketingLabelsEqual(userText, o));
+  if (exact) return exact;
+
+  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
+  if (!normalized) return userText;
+
+  const numOnly = /^(\d+)\.?$/u.exec(normalized);
+  if (numOnly) {
+    const idx = Number(numOnly[1]);
+    if (idx >= 1 && idx <= options.length) return options[idx - 1]!;
+  }
+
+  // title מקוצר מ־Meta (עד ~20) מול תווית מלאה בפלואו
+  if (normalized.length >= 6 && normalized.length <= 24) {
+    const prefixHits = options.filter((o) => {
+      const label = normalizeMarketingInboundText(o).toLowerCase();
+      const trunc = normalizeMarketingInboundText(truncateWaButtonLabel(o)).toLowerCase();
+      return (
+        (label && label.startsWith(normalized)) ||
+        (trunc && trunc.startsWith(normalized)) ||
+        (label && normalized.startsWith(label)) ||
+        (trunc && normalized.startsWith(trunc))
+      );
+    });
+    if (prefixHits.length === 1) return prefixHits[0]!;
+  }
+
+  return userText;
+}
+
 /** תשובה שמתאימה לכפתור/אפשרות בנוד שאלה — אחרת שאלה פתוחה → AI */
 function matchesMarketingFlowQuestionAnswer(
   currentNode: FlowNode,
   edges: FlowEdge[],
-  userText: string
+  userText: string,
+  metaInteractiveReplyId?: string
 ): boolean {
   const options = getMarketingQuestionAnswerOptions(currentNode, edges);
   if (options.length === 0) return true;
 
-  const normalized = normalizeMarketingInboundText(userText).toLowerCase();
-  if (!normalized) return false;
+  const resolved = resolveMarketingAnswerAgainstOptions(userText, metaInteractiveReplyId, options);
+  if (options.some((o) => marketingLabelsEqual(resolved, o))) return true;
 
-  for (const opt of options) {
-    const label = normalizeMarketingInboundText(opt).toLowerCase();
-    if (label && normalized === label) return true;
-  }
+  const normalized = normalizeMarketingInboundText(resolved).toLowerCase();
+  if (!normalized) return false;
 
   const numOnly = /^(\d+)\.?$/u.exec(normalized);
   if (numOnly) {
@@ -498,7 +596,8 @@ function findNextNode(
   currentNodeId: string,
   edges: FlowEdge[],
   nodes: FlowNode[],
-  userText?: string
+  userText?: string,
+  metaInteractiveReplyId?: string
 ): FlowNode | null {
   const currentNode = nodes.find((n) => n.id === currentNodeId);
   const outEdges = edges.filter((e) => e.source_node_id === currentNodeId);
@@ -506,7 +605,7 @@ function findNextNode(
   if (outEdges.length === 0) return null;
 
   if (currentNode?.type === "question" && outEdges.length > 1 && userText) {
-    const matched = findQuestionOutEdge(currentNode, outEdges, userText);
+    const matched = findQuestionOutEdge(currentNode, outEdges, userText, metaInteractiveReplyId);
     if (matched) {
       return nodes.find((n) => n.id === matched.target_node_id) ?? null;
     }
@@ -673,8 +772,9 @@ async function sendNodeChain(
 export async function handleMarketingFlowInbound(
   phoneRaw: string,
   userText: string,
-  opts?: { profileName?: string; ctwaClid?: string | null }
+  opts?: { profileName?: string; ctwaClid?: string | null; metaInteractiveReplyId?: string }
 ): Promise<MarketingFlowInboundResult> {
+  const metaInteractiveReplyId = String(opts?.metaInteractiveReplyId ?? "").trim() || undefined;
   const { isHeyzoeOwnerOptInMessage, tryHandleHeyzoeOwnerOptIn } = await import(
     "@/lib/notifications/owner-opt-in"
   );
@@ -703,9 +803,27 @@ export async function handleMarketingFlowInbound(
     return { handled: false };
   }
 
-  const startFlowMessage = isMarketingFlowStartMessage(userText);
-
   const session = await loadMarketingFlowSession(admin, phone);
+  const sessEarly = session as Session | null;
+  const earlyCurrent =
+    sessEarly?.current_node_id && !sessEarly.flow_completed
+      ? nodes.find((n) => n.id === sessEarly.current_node_id)
+      : undefined;
+
+  // אל תאפס פלואו אם הלחיצה היא כפתור בשאלה הנוכחית (גם אם הטקסט הוא מילת הפעלה כמו «אשמח לפרטים»)
+  let startFlowMessage = isMarketingFlowStartMessage(userText);
+  if (
+    startFlowMessage &&
+    earlyCurrent?.type === "question" &&
+    matchesMarketingFlowQuestionAnswer(earlyCurrent, edges, userText, metaInteractiveReplyId)
+  ) {
+    startFlowMessage = false;
+    console.info("[marketing-flow] start-trigger ignored — matches current question button", {
+      phone,
+      nodeId: earlyCurrent.id,
+      text: userText.slice(0, 80),
+    });
+  }
 
   if (startFlowMessage) {
     const { data: existingCtwaRow } = await admin
@@ -795,8 +913,19 @@ export async function handleMarketingFlowInbound(
     return { handled: false, openQuestionInFlow: true };
   }
 
+  // אחרי שאלה פתוחה: לחיצה על כפתור של שאלת הפלואו = ממשיכים בפלואו (לא עוד AI)
   if (pauseState === "await_resume") {
-    return { handled: false, openQuestionInFlow: true };
+    const canAdvanceOnButton =
+      currentNode?.type === "question" &&
+      matchesMarketingFlowQuestionAnswer(currentNode, edges, userText, metaInteractiveReplyId);
+    if (!canAdvanceOnButton) {
+      return { handled: false, openQuestionInFlow: true };
+    }
+    await setMarketingOpenQPauseState(admin, phone, "none");
+    console.info("[marketing-flow] await_resume cleared — question button matched", {
+      phone,
+      nodeId: currentNode!.id,
+    });
   }
 
   if (!currentNode) {
@@ -816,7 +945,7 @@ export async function handleMarketingFlowInbound(
   let answeredQuestionId: string | null = null;
 
   if (currentNode.type === "question") {
-    if (!matchesMarketingFlowQuestionAnswer(currentNode, edges, userText)) {
+    if (!matchesMarketingFlowQuestionAnswer(currentNode, edges, userText, metaInteractiveReplyId)) {
       const rerouted = await tryRerouteFromLastAnsweredQuestion({
         admin,
         sess,
@@ -825,23 +954,31 @@ export async function handleMarketingFlowInbound(
         phone,
         nodes,
         edges,
+        metaInteractiveReplyId,
       });
       if (rerouted) return rerouted;
 
       console.info("[marketing-flow] open question during flow — AI + resume prompt", {
         phone,
         nodeId: currentNode.id,
+        text: userText.slice(0, 80),
       });
       return { handled: false, openQuestionInFlow: true };
     }
+    const options = getMarketingQuestionAnswerOptions(currentNode, edges);
+    const answeredText = resolveMarketingAnswerAgainstOptions(
+      userText,
+      metaInteractiveReplyId,
+      options
+    );
     answeredQuestionId = currentNode.id;
     await persistMarketingFlowQuestionAnswer({
       phone,
       questionNode: currentNode,
-      userText,
+      userText: answeredText,
       edges,
     });
-    nextNode = findNextNode(currentNode.id, edges, nodes, userText);
+    nextNode = findNextNode(currentNode.id, edges, nodes, answeredText, metaInteractiveReplyId);
   } else {
     const rerouted = await tryRerouteFromLastAnsweredQuestion({
       admin,
@@ -851,6 +988,7 @@ export async function handleMarketingFlowInbound(
       phone,
       nodes,
       edges,
+      metaInteractiveReplyId,
     });
     if (rerouted) return rerouted;
 

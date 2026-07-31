@@ -93,7 +93,10 @@ export async function POST(req: NextRequest) {
 
     const profileName = typeof msg.profileName === "string" ? msg.profileName.trim() : "";
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
-    const flowResult = await handleMarketingFlowInbound(phone, userText, { profileName });
+    const flowResult = await handleMarketingFlowInbound(phone, userText, {
+      profileName,
+      metaInteractiveReplyId: msg.metaInteractiveReplyId,
+    });
     await applyMarketingInboundFollowupSideEffects(phone, userText);
     if (profileName) await touchMarketingLeadDisplayName(phone, profileName);
 
