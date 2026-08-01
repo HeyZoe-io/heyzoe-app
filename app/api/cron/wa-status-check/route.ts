@@ -9,6 +9,7 @@ import {
   waNoResponseEligible,
 } from "@/lib/wa-no-response";
 import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -46,7 +47,6 @@ export async function GET(req: NextRequest) {
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
   const cutoffIso = new Date(now - WA_NO_RESPONSE_AFTER_MS).toISOString();
-  const channelByBusinessId = new Map<number, ChannelRow | null>();
 
   const statusSelect =
     "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at, source, wa_followup_stage, full_name";
@@ -136,18 +136,13 @@ export async function GET(req: NextRequest) {
     skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
   };
 
-  async function resolveChannel(businessId: number): Promise<ChannelRow | null> {
-    if (!channelByBusinessId.has(businessId)) {
-      const { data: channel } = await admin
-        .from("whatsapp_channels")
-        .select("phone_number_id, business_slug")
-        .eq("business_id", businessId)
-        .eq("is_active", true)
-        .limit(1)
-        .maybeSingle();
-      channelByBusinessId.set(businessId, (channel as ChannelRow | null) ?? null);
-    }
-    return channelByBusinessId.get(businessId) ?? null;
+  async function resolveChannel(businessId: number, contactPhone: string): Promise<ChannelRow | null> {
+    const resolved = await resolveSendChannelForContact(admin, businessId, contactPhone);
+    if (!resolved?.phoneNumberId || !resolved.businessSlug) return null;
+    return {
+      phone_number_id: resolved.phoneNumberId,
+      business_slug: resolved.businessSlug,
+    };
   }
 
   for (const row of contacts ?? []) {
@@ -183,7 +178,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      const channel = await resolveChannel(businessId);
+      const channel = await resolveChannel(businessId, phone);
       const phoneNumberId = String(channel?.phone_number_id ?? "").trim();
       const businessSlug = String(channel?.business_slug ?? "").trim().toLowerCase();
       if (!phoneNumberId || !businessSlug) {
@@ -298,7 +293,7 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        const channel = await resolveChannel(businessId);
+        const channel = await resolveChannel(businessId, phone);
         const phoneNumberId = String(channel?.phone_number_id ?? "").trim();
         const businessSlug = String(channel?.business_slug ?? "").trim().toLowerCase();
         if (!phoneNumberId || !businessSlug) {

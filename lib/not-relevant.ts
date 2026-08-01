@@ -9,6 +9,7 @@ import {
 } from "@/lib/claude";
 import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** כפתור והודעת המשך אחרי שאלה פתוחה מליד «לא רלוונטי». */
 export const NOT_RELEVANT_FLOW_RESTART_BUTTON = SALES_FLOW_START_BUTTON_LABEL_HE;
@@ -574,16 +575,8 @@ export async function markContactNotRelevantManually(input: {
   }
 
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
-  const { data: channel } = await input.admin
-    .from("whatsapp_channels")
-    .select("phone_number_id")
-    .eq("business_id", businessId)
-    .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  const phoneNumberId = String((channel as { phone_number_id?: string } | null)?.phone_number_id ?? "").trim();
+  const channel = await resolveSendChannelForContact(input.admin, businessId, input.phone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   const sessionId = phoneNumberId ? buildWaSessionId(phoneNumberId, input.phone) : null;
 
   const { logMessage } = await import("@/lib/analytics");

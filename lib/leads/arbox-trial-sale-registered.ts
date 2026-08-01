@@ -11,6 +11,7 @@ import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual"
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sendTrialRegisteredWhatsAppReplyIfInWindow } from "@/lib/trial-registered-wa-reply";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** One row from Arbox GET /v3/reports/salesReport `data[]`. */
 export type ArboxSalesReportRow = {
@@ -456,15 +457,8 @@ export async function handleArboxTrialSaleRegistered(input: {
     return { ok: false, error: "seen_upsert_failed" };
   }
 
-  const { data: channel } = await input.admin
-    .from("whatsapp_channels")
-    .select("phone_number_id")
-    .eq("business_id", businessId)
-    .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const phoneNumberId = String((channel as { phone_number_id?: string } | null)?.phone_number_id ?? "").trim();
+  const channel = await resolveSendChannelForContact(input.admin, businessId, canonicalPhone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   const sessionId =
     phoneNumberId && canonicalPhone ? buildWaSessionId(phoneNumberId, canonicalPhone) : null;
 

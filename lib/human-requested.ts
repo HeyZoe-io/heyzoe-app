@@ -1,4 +1,5 @@
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 export function buildHumanRequestedContactPatch(atIso: string): Record<string, unknown> {
   return {
@@ -137,16 +138,8 @@ export async function markContactHumanRequestedManually(input: {
   }
 
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
-  const { data: channel } = await input.admin
-    .from("whatsapp_channels")
-    .select("phone_number_id")
-    .eq("business_id", businessId)
-    .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  const phoneNumberId = String((channel as { phone_number_id?: string } | null)?.phone_number_id ?? "").trim();
+  const channel = await resolveSendChannelForContact(input.admin, businessId, input.phone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   const sessionId = phoneNumberId ? buildWaSessionId(phoneNumberId, input.phone) : null;
 
   const { logMessage } = await import("@/lib/analytics");

@@ -1,5 +1,6 @@
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** 26 שעות אחרי הודעת הליד האחרונה — ללא «נרשמתי» (trial_registered) */
 export const WA_NO_RESPONSE_AFTER_MS = 26 * 60 * 60 * 1000;
@@ -127,16 +128,8 @@ export async function markContactNoResponseManually(input: {
   }
 
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
-  const { data: channel } = await input.admin
-    .from("whatsapp_channels")
-    .select("phone_number_id")
-    .eq("business_id", businessId)
-    .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  const phoneNumberId = String((channel as { phone_number_id?: string } | null)?.phone_number_id ?? "").trim();
+  const channel = await resolveSendChannelForContact(input.admin, businessId, input.phone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   const sessionId = phoneNumberId ? buildWaSessionId(phoneNumberId, input.phone) : null;
 
   const { logMessage } = await import("@/lib/analytics");

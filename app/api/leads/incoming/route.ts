@@ -12,6 +12,7 @@ import { dispatchCrmEvent } from "@/lib/crm/dispatch";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 export const runtime = "nodejs";
 
@@ -218,15 +219,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no lead template configured" }, { status: 400 });
   }
 
-  const { data: channel, error: channelErr } = await admin
+  // Preserve pre-helper reason codes: DB failure → 500 channel_lookup_failed; empty → 404.
+  const { error: channelErr } = await admin
     .from("whatsapp_channels")
-    .select("phone_number_id")
+    .select("id")
     .eq("business_id", businessId)
     .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
+    .limit(1);
   if (channelErr) {
     console.error("[api/leads/incoming] whatsapp channel lookup failed:", channelErr);
     await writeIncomingAudit({
@@ -238,7 +237,9 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ error: "channel_lookup_failed" }, { status: 500 });
   }
-  if (!channel?.phone_number_id) {
+
+  const channel = await resolveSendChannelForContact(admin, businessId, phoneNorm);
+  if (!channel?.phoneNumberId) {
     await writeIncomingAudit({
       admin,
       body: bodyRecord,
@@ -249,7 +250,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "whatsapp_channel_not_found" }, { status: 404 });
   }
 
-  const phoneNumberId = String(channel.phone_number_id).trim();
+  const phoneNumberId = String(channel.phoneNumberId).trim();
   const nowIso = new Date().toISOString();
 
   await writeIncomingAudit({

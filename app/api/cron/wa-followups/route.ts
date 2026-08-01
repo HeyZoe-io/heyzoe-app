@@ -17,6 +17,7 @@ import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
 import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
 import { customerServicePhoneFromSocialLinks } from "@/lib/whatsapp-copy";
 import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -214,24 +215,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: message }, { status: 500 });
     }
     if (!contact) {
-      const { data: channel } = await admin
-        .from("whatsapp_channels")
-        .select("phone_number_id")
-        .eq("business_slug", debugSlug)
-        .eq("is_active", true)
+      const { data: bizForDebug } = await admin
+        .from("businesses")
+        .select("id")
+        .ilike("slug", debugSlug)
         .limit(1)
         .maybeSingle();
-      const sessionPhoneKey = buildWaSessionId(channel?.phone_number_id ?? "", debugPhone);
-      const sessionIds = channel?.phone_number_id
-        ? waSessionIdLookupVariants(channel.phone_number_id, debugPhone)
+      const debugBusinessId = Number((bizForDebug as { id?: unknown } | null)?.id);
+      const resolvedDebug =
+        Number.isFinite(debugBusinessId) && debugBusinessId > 0
+          ? await resolveSendChannelForContact(admin, debugBusinessId, debugPhone)
+          : null;
+      const sessionPhoneKey = buildWaSessionId(resolvedDebug?.phoneNumberId ?? "", debugPhone);
+      const sessionIds = resolvedDebug?.phoneNumberId
+        ? waSessionIdLookupVariants(resolvedDebug.phoneNumberId, debugPhone)
         : [];
       const sessionId = sessionPhoneKey || null;
       let messages_hint: Record<string, unknown> | null = null;
       if (sessionIds.length) {
+        const slugForMsgs = String(resolvedDebug?.businessSlug || debugSlug).trim().toLowerCase();
         const { data: lastUser } = await admin
           .from("messages")
           .select("created_at")
-          .eq("business_slug", debugSlug)
+          .eq("business_slug", slugForMsgs)
           .in("session_id", sessionIds)
           .eq("role", "user")
           .order("created_at", { ascending: false })
@@ -240,7 +246,7 @@ export async function GET(req: NextRequest) {
         const { data: lastAssist } = await admin
           .from("messages")
           .select("created_at, model_used")
-          .eq("business_slug", debugSlug)
+          .eq("business_slug", slugForMsgs)
           .in("session_id", sessionIds)
           .eq("role", "assistant")
           .order("created_at", { ascending: false })
@@ -443,14 +449,8 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      const { data: channel } = await admin
-        .from("whatsapp_channels")
-        .select("phone_number_id, business_slug, is_active")
-        .eq("business_id", businessId)
-        .eq("is_active", true)
-        .limit(1)
-        .maybeSingle();
-      if (!channel?.phone_number_id || !channel?.business_slug) {
+      const channel = await resolveSendChannelForContact(admin, businessId, phone);
+      if (!channel?.phoneNumberId || !channel?.businessSlug) {
         logWaFollowupSkip("no_active_channel", {
           contact_id: contactId,
           phone: maskPhone(phone),
@@ -476,8 +476,8 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const business_slug = String(channel.business_slug).trim().toLowerCase();
-      const phoneNumberId = String(channel.phone_number_id).trim();
+      const business_slug = String(channel.businessSlug).trim().toLowerCase();
+      const phoneNumberId = String(channel.phoneNumberId).trim();
       const sessionId = buildWaSessionId(phoneNumberId, phone);
       const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
 

@@ -1,5 +1,6 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const MS_20_MIN = 20 * 60 * 1000;
 const MS_2_H = 2 * 60 * 60 * 1000;
@@ -163,15 +164,25 @@ export async function evaluateBusinessWaFollowup(input: {
     };
   }
 
-  const { data: channel } = await input.admin
-    .from("whatsapp_channels")
-    .select("phone_number_id, business_slug, is_active")
-    .eq("business_slug", business_slug)
-    .eq("is_active", true)
+  const { data: bizRow } = await input.admin
+    .from("businesses")
+    .select("id")
+    .ilike("slug", business_slug)
     .limit(1)
     .maybeSingle();
+  const businessId = Number((bizRow as { id?: unknown } | null)?.id);
+  if (!Number.isFinite(businessId) || businessId <= 0) {
+    return {
+      skip_reason: "no_active_channel",
+      session_id: "",
+      business_slug,
+      detail: { phone, filtered_reason: "business_not_found" },
+    };
+  }
 
-  if (!channel?.phone_number_id) {
+  const channel = await resolveSendChannelForContact(input.admin, businessId, phone);
+
+  if (!channel?.phoneNumberId) {
     return {
       skip_reason: "no_active_channel",
       session_id: "",
@@ -180,7 +191,7 @@ export async function evaluateBusinessWaFollowup(input: {
     };
   }
 
-  const phoneNumberId = String(channel.phone_number_id).trim();
+  const phoneNumberId = String(channel.phoneNumberId).trim();
   const sessionId = buildWaSessionId(phoneNumberId, phone);
   const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
 
