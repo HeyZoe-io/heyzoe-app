@@ -9,7 +9,7 @@ import {
   sessionHasMarketingRegisteredMessage,
   type MarketingFlowSessionFollowupRow,
 } from "@/lib/marketing-followups";
-import { marketingWaSessionId } from "@/lib/marketing-whatsapp";
+import { isMarketingConversationPaused, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). הגדרה: GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
@@ -22,6 +22,7 @@ type MarketingFollowupSkipReason =
   | "time_window"
   | "missing_phone"
   | "registered"
+  | "paused"
   | "not_due_yet"
   | "all_followups_sent"
   | "no_user_message_at"
@@ -115,6 +116,16 @@ export async function GET(req: NextRequest) {
     const sessionId = marketingWaSessionId(phone);
 
     try {
+      if (await isMarketingConversationPaused(phone)) {
+        logMarketingFollowupSkip("paused", {
+          session_id: row.id,
+          phone: maskPhone(phone),
+          marketing_session_id: sessionId,
+        });
+        bumpSkip("paused");
+        continue;
+      }
+
       if (await sessionHasMarketingRegisteredMessage(sessionId)) {
         await admin
           .from("marketing_flow_sessions")

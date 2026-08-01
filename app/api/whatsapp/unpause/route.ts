@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
+import {
+  MARKETING_CONVERSATIONS_SLUG,
+  canonicalMarketingSessionId,
+  isMarketingConversationsSlug,
+  marketingSessionIdVariants,
+} from "@/lib/marketing-whatsapp";
 
 export const runtime = "nodejs";
 
@@ -19,13 +26,34 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const businessSlug =
       typeof body.business_slug === "string" ? body.business_slug.trim().toLowerCase() : "";
-    const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : "";
+    const sessionIdRaw = typeof body.session_id === "string" ? body.session_id.trim() : "";
 
-    if (!businessSlug || !sessionId) {
+    if (!businessSlug || !sessionIdRaw) {
       return NextResponse.json({ error: "missing business_slug_or_session_id" }, { status: 400 });
     }
 
     const admin = createSupabaseAdminClient();
+
+    if (isMarketingConversationsSlug(businessSlug)) {
+      if (!isAdminAllowedEmail(user.email ?? "")) {
+        return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      }
+      const variants = marketingSessionIdVariants(sessionIdRaw);
+      const sessionId = canonicalMarketingSessionId(sessionIdRaw);
+      const { error } = await admin
+        .from("paused_sessions")
+        .delete()
+        .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+        .in("session_id", variants.length ? variants : [sessionId]);
+
+      if (error) {
+        console.error("[api/whatsapp/unpause] marketing delete failed:", error.message);
+        return NextResponse.json({ error: "unpause_failed" }, { status: 500 });
+      }
+      console.info("[api/whatsapp/unpause] marketing session unpaused", { sessionId });
+      return NextResponse.json({ ok: true });
+    }
+
     const access = await assertBusinessAccess(admin, { id: user.id, email: user.email }, businessSlug);
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
@@ -34,11 +62,11 @@ export async function POST(req: NextRequest) {
     const businessId = access.business.id;
     const { extractPhoneFromSessionId } = await import("@/lib/conversations-sessions");
     const { setConversationBotPaused } = await import("@/lib/notifications/conversations");
-    const leadPhone = extractPhoneFromSessionId(sessionId) || sessionId;
+    const leadPhone = extractPhoneFromSessionId(sessionIdRaw) || sessionIdRaw;
     await setConversationBotPaused({
       businessId,
       phone: leadPhone,
-      sessionId,
+      sessionId: sessionIdRaw,
       paused: false,
     });
 
@@ -46,7 +74,7 @@ export async function POST(req: NextRequest) {
       .from("paused_sessions")
       .delete()
       .eq("business_slug", businessSlug)
-      .eq("session_id", sessionId);
+      .eq("session_id", sessionIdRaw);
 
     if (error) {
       console.error("[api/whatsapp/unpause] delete failed:", error.message);
@@ -59,4 +87,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "unpause_failed" }, { status: 500 });
   }
 }
-

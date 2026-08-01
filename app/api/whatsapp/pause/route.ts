@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
+import {
+  MARKETING_CONVERSATIONS_SLUG,
+  canonicalMarketingSessionId,
+  isMarketingConversationsSlug,
+} from "@/lib/marketing-whatsapp";
 
 export const runtime = "nodejs";
 
@@ -19,41 +25,64 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const businessSlug =
       typeof body.business_slug === "string" ? body.business_slug.trim().toLowerCase() : "";
-    const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : "";
+    const sessionIdRaw = typeof body.session_id === "string" ? body.session_id.trim() : "";
 
-    if (!businessSlug || !sessionId) {
+    if (!businessSlug || !sessionIdRaw) {
       return NextResponse.json({ error: "missing business_slug_or_session_id" }, { status: 400 });
     }
 
     const admin = createSupabaseAdminClient();
+
+    // Pause now persists until explicit unpause (app/api/whatsapp/unpause/route.ts deletes the
+    // row) rather than auto-expiring. `paused_until` is set far in the future so the webhook's
+    // `.gt("paused_until", nowIso)` check stays true indefinitely. This is unrelated to
+    // AUTO_UNPAUSE_MS in cron/owner-notifications, which only affects the separate
+    // conversations.bot_paused notification flag.
+    const until = new Date();
+    until.setFullYear(until.getFullYear() + 100);
+
+    // קו זואי אדמין (שיווק) — אין שורה ב-businesses; רק אדמין פלטפורמה
+    if (isMarketingConversationsSlug(businessSlug)) {
+      if (!isAdminAllowedEmail(user.email ?? "")) {
+        return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      }
+      const sessionId = canonicalMarketingSessionId(sessionIdRaw);
+      const { error } = await admin.from("paused_sessions").upsert(
+        {
+          business_slug: MARKETING_CONVERSATIONS_SLUG,
+          session_id: sessionId,
+          paused_until: until.toISOString(),
+        },
+        { onConflict: "business_slug,session_id" }
+      );
+      if (error) {
+        console.error("[api/whatsapp/pause] marketing upsert failed:", error.message);
+        return NextResponse.json({ error: "pause_failed" }, { status: 500 });
+      }
+      console.info("[api/whatsapp/pause] marketing session paused", { sessionId });
+      return NextResponse.json({ ok: true, paused_until: until.toISOString() });
+    }
+
     const access = await assertBusinessAccess(admin, { id: user.id, email: user.email }, businessSlug);
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
-    // Pause now persists until explicit unpause (app/api/whatsapp/unpause/route.ts deletes the
-    // row) rather than auto-expiring. `paused_until` is set far in the future so the webhook's
-    // `.gt("paused_until", nowIso)` check (app/api/whatsapp/webhook/route.ts) stays true
-    // indefinitely. This is unrelated to AUTO_UNPAUSE_MS in cron/owner-notifications, which only
-    // affects the separate conversations.bot_paused notification flag.
-    const until = new Date();
-    until.setFullYear(until.getFullYear() + 100);
-
     const businessId = access.business.id;
     const { extractPhoneFromSessionId } = await import("@/lib/conversations-sessions");
     const { setConversationBotPaused } = await import("@/lib/notifications/conversations");
-    const leadPhone = extractPhoneFromSessionId(sessionId) || sessionId;
+    const leadPhone = extractPhoneFromSessionId(sessionIdRaw) || sessionIdRaw;
     await setConversationBotPaused({
       businessId,
       phone: leadPhone,
-      sessionId,
+      sessionId: sessionIdRaw,
       paused: true,
     });
 
     const { error } = await admin.from("paused_sessions").upsert(
       {
         business_slug: businessSlug,
-        session_id: sessionId,
+        session_id: sessionIdRaw,
         paused_until: until.toISOString(),
       },
       {
@@ -71,4 +100,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "pause_failed" }, { status: 500 });
   }
 }
-

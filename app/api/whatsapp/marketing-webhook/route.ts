@@ -93,6 +93,15 @@ export async function POST(req: NextRequest) {
 
     const profileName = typeof msg.profileName === "string" ? msg.profileName.trim() : "";
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
+
+    const { isMarketingConversationPaused } = await import("@/lib/marketing-whatsapp");
+    if (await isMarketingConversationPaused(phone)) {
+      console.info("[marketing-webhook] session paused — skip auto-reply for:", phone);
+      await applyMarketingInboundFollowupSideEffects(phone, userText);
+      if (profileName) await touchMarketingLeadDisplayName(phone, profileName);
+      return NextResponse.json({ ok: true, paused: true });
+    }
+
     const flowResult = await handleMarketingFlowInbound(phone, userText, {
       profileName,
       metaInteractiveReplyId: msg.metaInteractiveReplyId,

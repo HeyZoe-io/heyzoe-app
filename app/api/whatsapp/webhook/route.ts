@@ -4517,6 +4517,14 @@ async function processIncoming(
           : "";
       await logMarketingWhatsAppMessage({ leadPhone: msg.from, role: "user", content: msg.text });
 
+      const { isMarketingConversationPaused } = await import("@/lib/marketing-whatsapp");
+      if (await isMarketingConversationPaused(msg.from)) {
+        console.info("[WA Webhook] Marketing session paused — skip auto-reply for:", msg.from);
+        await applyMarketingInboundFollowupSideEffects(msg.from, msg.text);
+        if (profileName) await touchMarketingLeadDisplayName(msg.from, profileName);
+        return;
+      }
+
       const { handleMarketingFlowInbound, answerOpenQuestionDuringMarketingFlow, deliverMarketingPostFlowAiResponse } =
         await import("@/lib/marketing-flow-runtime");
       const flowResult = await handleMarketingFlowInbound(msg.from, msg.text, {

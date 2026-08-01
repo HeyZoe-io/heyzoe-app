@@ -129,6 +129,29 @@ export function extractLeadPhoneFromMarketingSession(sessionId: string): string 
   return extractPhoneFromSessionId(sid);
 }
 
+/** האם השיחה בקו השיווק מושהית (עצור בוט) — לפי paused_sessions */
+export async function isMarketingConversationPaused(phoneOrSessionId: string): Promise<boolean> {
+  const canonical = canonicalMarketingSessionId(phoneOrSessionId);
+  if (!canonical || canonical.endsWith("_")) return false;
+
+  const admin = createSupabaseAdminClient();
+  const nowIso = new Date().toISOString();
+  const variants = marketingSessionIdVariants(phoneOrSessionId);
+  const { data, error } = await admin
+    .from("paused_sessions")
+    .select("session_id")
+    .ilike("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .gt("paused_until", nowIso)
+    .in("session_id", variants.length ? variants : [canonical])
+    .limit(1);
+
+  if (error) {
+    console.warn("[marketing-whatsapp] pause check failed:", error.message);
+    return false;
+  }
+  return (data ?? []).length > 0;
+}
+
 function formatMarketingPhoneDisplay(phone: string): string {
   const d = String(phone ?? "").replace(/\D/g, "");
   if (d.startsWith("972") && d.length >= 12) {
