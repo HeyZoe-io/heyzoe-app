@@ -6685,11 +6685,8 @@ async function processIncoming(
           numericScope
         );
 
-        const trialUrl = (
-          selectedService?.paymentLink?.trim() ||
-          salesFlowServices.map((s) => s.paymentLink?.trim()).find((u) => u && u.length > 0) ||
-          ""
-        ).trim();
+        // לינק הרשמה רק מהשירות האחרון שנבחר — בלי fallback למוצר אחר (קורס/ניסיון).
+        const trialUrl = (selectedService?.paymentLink?.trim() || "").trim();
         const scheduleUrlFull = (knowledge.schedulePublicUrl?.trim() || knowledge.arboxLink?.trim() || "").trim();
         const scheduleBoardAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
         const csPhone = knowledge?.customerServicePhone?.trim() ?? "";

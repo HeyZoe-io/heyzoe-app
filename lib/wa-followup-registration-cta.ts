@@ -103,21 +103,13 @@ export async function resolveWaFollowupRegistrationCta(input: {
     session_ids: input.session_ids,
   });
 
-  let selected: ServiceRow | null =
+  const selected: ServiceRow | null =
     (lastPickedName ? services.find((s) => s.name === lastPickedName) : null) ??
     (services.length === 1 ? services[0]! : null);
 
-  let offerKind = resolveServiceOfferKind(selected);
-  let url = paymentLinkFromService(selected);
-
-  if (!validHttp(url)) {
-    const withLink = services.find((s) => validHttp(paymentLinkFromService(s)));
-    if (withLink) {
-      if (!selected) selected = withLink;
-      url = paymentLinkFromService(withLink);
-      offerKind = resolveServiceOfferKind(selected ?? withLink);
-    }
-  }
+  // לינק הרשמה רק מהשירות האחרון שנבחר — בלי fallback ללינק של מוצר אחר.
+  const offerKind = resolveServiceOfferKind(selected);
+  const url = paymentLinkFromService(selected);
 
   if (!validHttp(url)) {
     const sl = asSocialRecord(input.social_links);
