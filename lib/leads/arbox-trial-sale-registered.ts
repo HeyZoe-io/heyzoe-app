@@ -6,6 +6,11 @@ import {
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import {
+  buildPurchaseScheduledDedupKey,
+  computeDueAt,
+  enqueueScheduledTemplateSend,
+} from "@/lib/scheduled-template-sends";
 import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -87,6 +92,21 @@ function parseMembershipTypeId(raw: unknown): number | null {
   return n;
 }
 
+/** Arbox salesReport `date` is day-only (YYYY-MM-DD); fall back to now. */
+function parseSaleEventDate(raw: unknown): Date {
+  const s = String(raw ?? "").trim();
+  if (!s) return new Date();
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (ymd) {
+    const y = Number(ymd[1]);
+    const m = Number(ymd[2]);
+    const d = Number(ymd[3]);
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  }
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
 type OpeningTemplateDispatch = "immediate" | "deferred" | "gated" | "no_rule";
 
 type OpeningTemplateResult =
@@ -94,11 +114,11 @@ type OpeningTemplateResult =
   | { outcome: "template_not_configured"; dispatch: OpeningTemplateDispatch }
   | { outcome: "no_matching_rule"; dispatch: "no_rule" }
   | { outcome: "deferred"; dispatch: "deferred" }
-  | { outcome: "send_failed"; dispatch: "immediate" };
+  | { outcome: "send_failed"; dispatch: OpeningTemplateDispatch };
 
 /**
- * Out-of-window path: resolve template_triggers purchase rule → send when gated + delay_days=0.
- * No-op until an approved template and WABA exist (same gate as before wiring the stub).
+ * Out-of-window path: resolve template_triggers purchase rule →
+ * delay_days=0 send immediately; delay_days>0 enqueue scheduled_template_sends.
  */
 async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -106,6 +126,7 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   businessSlug: string;
   phone: string;
   saleId: number;
+  saleDate: unknown;
   membershipTypeId: number | null;
   phoneNumberId: string;
   fullName: string | null;
@@ -133,8 +154,24 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   }
 
   if (matchedRule.delay_days > 0) {
-    // TODO(Stage C): enqueue scheduled send using delay_days + delay_direction on matchedRule.
     dispatch = "deferred";
+    const dueAt = computeDueAt(
+      {
+        delay_days: matchedRule.delay_days,
+        delay_direction: matchedRule.delay_direction,
+      },
+      parseSaleEventDate(input.saleDate)
+    );
+    const enqueueResult = await enqueueScheduledTemplateSend({
+      admin: input.admin,
+      businessId: input.businessId,
+      triggerId: matchedRule.id,
+      contactPhone: input.phone,
+      templateName,
+      dueAt,
+      dedupKey: buildPurchaseScheduledDedupKey(input.businessId, matchedRule.id, input.saleId),
+    });
+
     console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
       businessId: input.businessId,
       sale_id: input.saleId,
@@ -144,7 +181,15 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
       dispatch,
       delay_days: matchedRule.delay_days,
       delay_direction: matchedRule.delay_direction,
+      due_at: dueAt.toISOString(),
+      enqueue_ok: enqueueResult.ok,
+      enqueue_inserted: enqueueResult.ok ? enqueueResult.inserted : false,
+      enqueue_error: enqueueResult.ok ? undefined : enqueueResult.error,
     });
+
+    if (!enqueueResult.ok) {
+      return { outcome: "send_failed", dispatch: "deferred" };
+    }
     return { outcome: "deferred", dispatch };
   }
 
@@ -534,6 +579,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         businessSlug,
         phone: canonicalPhone,
         saleId,
+        saleDate: input.row.date,
         membershipTypeId,
         phoneNumberId,
         fullName,
@@ -549,6 +595,7 @@ export async function handleArboxTrialSaleRegistered(input: {
       businessSlug,
       phone: canonicalPhone,
       saleId,
+      saleDate: input.row.date,
       membershipTypeId,
       phoneNumberId,
       fullName,
