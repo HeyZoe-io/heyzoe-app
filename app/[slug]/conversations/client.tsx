@@ -9,6 +9,7 @@ import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
 import { uploadDashboardImageFile } from "@/lib/upload-dashboard-media-client";
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
+import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
@@ -654,10 +655,12 @@ export default function ConversationsClient({
   const showListPanel = isDesktop || !selectedId;
   const showChatPanel = isDesktop || Boolean(selectedId);
   const messagesLoading = Boolean(selectedId) && messagesQuery.isFetching && messagesQuery.data === undefined;
+  const showMarketingNotesPanel =
+    apiScope === "admin" && isMarketingConversationsSlug(slug) && Boolean(selected);
 
   return (
     <div dir={dashboardDir(lang)} className="flex h-[calc(100dvh-9.5rem)] min-h-[520px] flex-col">
-      {/* dir=rtl keeps chat list on the right and chat pane on the left (WhatsApp Web RTL) */}
+      {/* dir=rtl: list right, chat center, notes left (marketing admin) */}
       <div
         dir="rtl"
         className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-[#e9edef] bg-white shadow-[0_2px_8px_rgba(11,20,26,0.08)]"
@@ -945,6 +948,15 @@ export default function ConversationsClient({
               </div>
             )}
           </section>
+        ) : null}
+
+        {showMarketingNotesPanel && selected ? (
+          <MarketingConversationNotesPanel
+            key={selected.session_id}
+            phone={selected.phone}
+            sessionId={selected.session_id}
+            defaultConversationAt={selected.lastAt}
+          />
         ) : null}
       </div>
     </div>
