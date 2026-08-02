@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
@@ -58,33 +58,47 @@ export default function MarketingConversationNotesPanel({
   const [conversationAt, setConversationAt] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<MarketingNoteStatus>("in_process");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const loadGenRef = useRef(0);
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      const p = phone.trim();
-      const sid = sessionId.trim();
-      if (!p && !sid) return;
-      setLoading(true);
-      setError("");
-      setDirty(false);
+  useEffect(() => {
+    const ac = new AbortController();
+    const gen = ++loadGenRef.current;
+    const p = phone.trim();
+    const sid = sessionId.trim();
+
+    setLoading(true);
+    setError("");
+    setDirty(false);
+    setBusinessName("");
+    setLink("");
+    setNotes("");
+    setStatus("in_process");
+    setConversationAt("");
+
+    if (!p && !sid) {
+      setLoading(false);
+      return () => ac.abort();
+    }
+
+    void (async () => {
       try {
         const qs = new URLSearchParams();
         if (p) qs.set("phone", p);
         if (sid) qs.set("session_id", sid);
         const res = await fetch(`/api/admin/marketing/conversation-notes?${qs.toString()}`, {
           cache: "no-store",
-          signal,
+          signal: ac.signal,
         });
         const j = (await res.json().catch(() => ({}))) as {
           note?: NotePayload;
           error?: string;
-          exists?: boolean;
         };
+        if (ac.signal.aborted || gen !== loadGenRef.current) return;
         if (!res.ok) {
           setError(j.error?.trim() || `שגיאת טעינה (${res.status})`);
           return;
@@ -94,25 +108,21 @@ export default function MarketingConversationNotesPanel({
         setLink(note?.link ?? "");
         setNotes(note?.notes ?? "");
         setStatus(note?.status ?? "in_process");
-        // רק תאריך שנשמר במפורש — בלי ברירת מחדל מ־lastAt / היום
         setConversationAt(toDateInputValue(note?.conversation_at));
       } catch (e) {
-        if ((e as { name?: string })?.name === "AbortError") return;
+        if (ac.signal.aborted || (e as { name?: string })?.name === "AbortError") return;
+        if (gen !== loadGenRef.current) return;
         setError("בעיית רשת בטעינת הערות.");
       } finally {
-        setLoading(false);
+        if (gen === loadGenRef.current) setLoading(false);
       }
-    },
-    [phone, sessionId]
-  );
+    })();
 
-  useEffect(() => {
-    const ac = new AbortController();
-    void load(ac.signal);
     return () => ac.abort();
-  }, [load]);
+  }, [phone, sessionId]);
 
   async function save() {
+    if (loading || saving) return;
     setSaving(true);
     setError("");
     setSavedFlash(false);
@@ -310,12 +320,12 @@ export default function MarketingConversationNotesPanel({
             width: "100%",
             borderRadius: 10,
             border: "none",
-            background: dirty && !saving ? PURPLE : "#c4b5e0",
+            background: dirty && !saving && !loading ? PURPLE : "#c4b5e0",
             color: "#fff",
             fontSize: 14,
             fontWeight: 600,
             padding: "10px 14px",
-            cursor: dirty && !saving ? "pointer" : "default",
+            cursor: dirty && !saving && !loading ? "pointer" : "default",
             fontFamily: "inherit",
           }}
         >

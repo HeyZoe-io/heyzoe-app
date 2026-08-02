@@ -160,14 +160,41 @@ export async function PUT(req: NextRequest) {
   }
 
   const status: NoteStatus = isNoteStatus(body.status) ? body.status : "in_process";
-  const businessName = String(body.business_name ?? "").trim().slice(0, 200);
-  const link = normalizeLink(body.link);
-  const notes = String(body.notes ?? "").slice(0, 10000);
-  const conversationAt = toDateOnly(body.conversation_at);
+  let businessName = String(body.business_name ?? "").trim().slice(0, 200);
+  let link = normalizeLink(body.link);
+  let notes = String(body.notes ?? "").slice(0, 10000);
+  let conversationAt = toDateOnly(body.conversation_at);
   const canonicalSession = sessionId || canonicalMarketingSessionId(phone);
 
   try {
     const admin = createSupabaseAdminClient();
+
+    // מגן מפני דריסה בטעות: שמירה עם שדות תוכן ריקים לא מוחקת תוכן קיים
+    // (למשל race בטעינת הפאנל + לחיצה על סטטוס בלבד).
+    const { data: existing } = await admin
+      .from("marketing_conversation_notes")
+      .select(NOTE_SELECT)
+      .eq("phone", phone)
+      .maybeSingle();
+    if (existing) {
+      const hadContent = Boolean(
+        String(existing.business_name ?? "").trim() ||
+          String(existing.link ?? "").trim() ||
+          String(existing.notes ?? "").trim()
+      );
+      const incomingEmpty = !businessName && !link && !notes;
+      if (hadContent && incomingEmpty) {
+        console.warn(
+          "[marketing/conversation-notes] blocked empty wipe for phone=%s — preserving content",
+          phone
+        );
+        businessName = String(existing.business_name ?? "");
+        link = String(existing.link ?? "");
+        notes = String(existing.notes ?? "");
+        if (!conversationAt) conversationAt = toDateOnly(existing.conversation_at);
+      }
+    }
+
     const { data, error } = await admin
       .from("marketing_conversation_notes")
       .upsert(
