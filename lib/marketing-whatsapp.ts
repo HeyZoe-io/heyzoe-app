@@ -3,6 +3,11 @@ import { extractPhoneFromSessionId, sessionIdMatchesWaPhoneNumberIds } from "@/l
 import { logMessage } from "@/lib/analytics";
 import { normalizePhone } from "@/lib/phone-normalize";
 import {
+  coerceMarketingNoteStatus,
+  DEFAULT_MARKETING_NOTE_STATUS,
+  type MarketingNoteStatus,
+} from "@/lib/marketing-conversation-notes";
+import {
   isSalesFlowStartTrigger,
   normalizeSalesFlowGreetingToken,
 } from "@/lib/sales-flow-start-triggers";
@@ -221,6 +226,8 @@ export type MarketingSessionSummary = {
   phone: string;
   /** שם הליד מ-marketing_flow_sessions.full_name (WhatsApp ProfileName) */
   fullName?: string | null;
+  /** סטטוס CRM ידני מ-marketing_conversation_notes (ברירת מחדל: בתהליך) */
+  noteStatus?: MarketingNoteStatus;
 };
 
 type MarketingMessageRow = {
@@ -279,6 +286,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     { data: lineMessages, error: lineErr },
     { data: pausedRows },
     { data: flowSessions, error: flowErr },
+    { data: noteRows, error: notesErr },
   ] = await Promise.all([
     admin
       .from("messages")
@@ -304,11 +312,25 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       .select("phone, updated_at, created_at, full_name")
       .order("updated_at", { ascending: false })
       .limit(5000),
+    admin.from("marketing_conversation_notes").select("phone, status").limit(10_000),
   ]);
 
   if (slugErr) console.error("[marketing-whatsapp] slug messages:", slugErr.message);
   if (lineErr) console.error("[marketing-whatsapp] line messages:", lineErr.message);
   if (flowErr) console.error("[marketing-whatsapp] flow_sessions:", flowErr.message);
+  if (notesErr) console.error("[marketing-whatsapp] conversation_notes:", notesErr.message);
+
+  const noteStatusByPhoneKey = new Map<string, MarketingNoteStatus>();
+  for (const row of noteRows ?? []) {
+    const phoneRaw = String((row as { phone?: string }).phone ?? "").trim();
+    if (!phoneRaw) continue;
+    const status = coerceMarketingNoteStatus((row as { status?: string }).status);
+    const digits = marketingPhoneDigits(phoneRaw) || phoneRaw.replace(/\D/g, "");
+    if (digits) {
+      noteStatusByPhoneKey.set(digits, status);
+      if (digits.length >= 9) noteStatusByPhoneKey.set(digits.slice(-9), status);
+    }
+  }
 
   const seenMsgKeys = new Set<string>();
   const allMessages: MarketingMessageRow[] = [];
@@ -348,6 +370,21 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     }
   }
 
+  function resolveNoteStatus(phoneDisplay: string, sessionId: string): MarketingNoteStatus {
+    const fromSid = extractLeadPhoneFromMarketingSession(sessionId);
+    const candidates = [
+      marketingPhoneDigits(phoneDisplay),
+      marketingPhoneDigits(fromSid),
+      String(phoneDisplay ?? "").replace(/\D/g, ""),
+      String(fromSid ?? "").replace(/\D/g, ""),
+    ].filter(Boolean);
+    for (const c of candidates) {
+      const hit = noteStatusByPhoneKey.get(c) ?? (c.length >= 9 ? noteStatusByPhoneKey.get(c.slice(-9)) : undefined);
+      if (hit) return hit;
+    }
+    return DEFAULT_MARKETING_NOTE_STATUS;
+  }
+
   const sessions: MarketingSessionSummary[] = [...bySession.entries()].map(([sid, data]) => ({
     session_id: sid,
     lastAt: data.lastAt.toISOString(),
@@ -356,6 +393,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     isPaused: pausedCanonical.has(sid),
     phone: data.phone,
     fullName: nameBySid.get(sid) ?? null,
+    noteStatus: resolveNoteStatus(data.phone, sid),
   }));
 
   sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());

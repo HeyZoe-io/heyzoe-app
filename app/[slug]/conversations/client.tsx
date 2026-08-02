@@ -11,6 +11,11 @@ import { uploadDashboardImageFile } from "@/lib/upload-dashboard-media-client";
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
+import {
+  DEFAULT_MARKETING_NOTE_STATUS,
+  getMarketingNoteStatusMeta,
+  type MarketingNoteStatus,
+} from "@/lib/marketing-conversation-notes";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 import {
@@ -115,6 +120,8 @@ type SessionSummary = {
   /** טאב זואי אדמין — «כל השיחות» */
   source_slug?: string;
   source_name?: string;
+  /** פלואו שיווקי — סטטוס הערות CRM */
+  noteStatus?: MarketingNoteStatus | null;
 };
 
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -194,6 +201,17 @@ function SessionContactStatusDot({
     <span
       className={`inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${meta.badgeClass}`}
       title={meta.tooltip}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function MarketingNoteStatusBadge({ status }: { status?: MarketingNoteStatus | null }) {
+  const meta = getMarketingNoteStatusMeta(status ?? DEFAULT_MARKETING_NOTE_STATUS);
+  return (
+    <span
+      className={`inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${meta.badgeClass}`}
     >
       {meta.label}
     </span>
@@ -657,6 +675,15 @@ export default function ConversationsClient({
   const messagesLoading = Boolean(selectedId) && messagesQuery.isFetching && messagesQuery.data === undefined;
   const showMarketingNotesPanel =
     apiScope === "admin" && isMarketingConversationsSlug(slug) && Boolean(selected);
+  const showMarketingNoteStatus =
+    apiScope === "admin" && isMarketingConversationsSlug(slug);
+
+  function onMarketingNoteStatusSaved(sessionId: string, noteStatus: MarketingNoteStatus) {
+    setSessions((prev) =>
+      prev.map((s) => (s.session_id === sessionId ? { ...s, noteStatus } : s))
+    );
+    void queryClient.invalidateQueries({ queryKey: [queryScope, "conversations", slug] });
+  }
 
   return (
     <div dir={dashboardDir(lang)} className="flex h-[calc(100dvh-9.5rem)] min-h-[520px] flex-col">
@@ -731,7 +758,12 @@ export default function ConversationsClient({
                   >
                     <SessionAvatar session={s} />
                     <div className={`min-w-0 flex-1 ${textAlignClass}`}>
-                      <p className="truncate text-[17px] leading-tight text-[#111b21]">{title}</p>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="min-w-0 truncate text-[17px] leading-tight text-[#111b21]">{title}</p>
+                        {showMarketingNoteStatus ? (
+                          <MarketingNoteStatusBadge status={s.noteStatus} />
+                        ) : null}
+                      </div>
                       <p className="mt-0.5 truncate text-[14px] text-[#667781]">
                         {hasName ? (
                           <span dir="ltr" className="inline-block">
@@ -955,6 +987,7 @@ export default function ConversationsClient({
             key={selected.session_id}
             phone={selected.phone}
             sessionId={selected.session_id}
+            onStatusSaved={(noteStatus) => onMarketingNoteStatusSaved(selected.session_id, noteStatus)}
           />
         ) : null}
       </div>

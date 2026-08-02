@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  DEFAULT_MARKETING_NOTE_STATUS,
+  type MarketingNoteStatus,
+} from "@/lib/marketing-conversation-notes";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
 const DRAFT_PREFIX = "hz-marketing-notes-draft:";
 const AUTOSAVE_MS = 2500;
 
-export type MarketingNoteStatus =
-  | "in_process"
-  | "not_relevant"
-  | "registered"
-  | "no_response";
+export type { MarketingNoteStatus };
 
 type NotePayload = {
   phone: string;
@@ -95,15 +95,17 @@ function clearDraft(phone: string, sessionId: string): void {
 export default function MarketingConversationNotesPanel({
   phone,
   sessionId,
+  onStatusSaved,
 }: {
   phone: string;
   sessionId: string;
+  onStatusSaved?: (status: MarketingNoteStatus) => void;
 }) {
   const [businessName, setBusinessName] = useState("");
   const [link, setLink] = useState("");
   const [conversationAt, setConversationAt] = useState("");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState<MarketingNoteStatus>("in_process");
+  const [status, setStatus] = useState<MarketingNoteStatus>(DEFAULT_MARKETING_NOTE_STATUS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -134,7 +136,7 @@ export default function MarketingConversationNotesPanel({
     setBusinessName("");
     setLink("");
     setNotes("");
-    setStatus("in_process");
+    setStatus(DEFAULT_MARKETING_NOTE_STATUS);
     setConversationAt("");
 
     if (!p && !sid) {
@@ -164,7 +166,7 @@ export default function MarketingConversationNotesPanel({
         let nextBusiness = note?.business_name ?? "";
         let nextLink = note?.link ?? "";
         let nextNotes = note?.notes ?? "";
-        let nextStatus: MarketingNoteStatus = note?.status ?? "in_process";
+        let nextStatus: MarketingNoteStatus = note?.status ?? DEFAULT_MARKETING_NOTE_STATUS;
         let nextDate = toDateInputValue(note?.conversation_at);
 
         // אם יש טיוטה מקומית ארוכה יותר מהשרת — משחזרים אותה
@@ -259,16 +261,18 @@ export default function MarketingConversationNotesPanel({
         cur.status === snapshot.status &&
         cur.conversationAt === snapshot.conversationAt;
       if (unchanged) {
+        const savedStatus = j.note?.status ?? snapshot.status;
         if (!opts?.silent && j.note) {
           setBusinessName(j.note.business_name ?? "");
           setLink(j.note.link ?? "");
           setNotes(j.note.notes ?? "");
-          setStatus(j.note.status ?? "in_process");
+          setStatus(j.note.status ?? DEFAULT_MARKETING_NOTE_STATUS);
           setConversationAt(toDateInputValue(j.note.conversation_at));
         }
         setDirty(false);
         setDraftHint("");
         clearDraft(phone, sessionId);
+        onStatusSaved?.(savedStatus);
       }
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
