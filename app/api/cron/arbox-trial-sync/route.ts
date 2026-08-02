@@ -4,6 +4,7 @@ import {
   handleArboxTrialSaleRegistered,
   type ArboxSalesReportRow,
 } from "@/lib/leads/arbox-trial-sale-registered";
+import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -48,6 +49,7 @@ type BusinessRow = {
   arbox_last_sync_at: string | null;
   arbox_trial_membership_type_ids: number[];
   arbox_sales_sync_seeded: boolean;
+  arbox_credit_refusal_seeded: boolean;
 };
 
 type BusinessSummary = {
@@ -63,6 +65,7 @@ type BusinessSummary = {
   pages_fetched: number;
   cursor_advanced: boolean;
   fetch_error?: string;
+  credit_refusal?: Awaited<ReturnType<typeof syncArboxCreditRefusalsForBusiness>>;
 };
 
 function authorizeCron(req: NextRequest): boolean {
@@ -343,7 +346,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded"
+      "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -365,6 +368,8 @@ export async function GET(req: NextRequest) {
       (row as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids
     );
     const salesSyncSeeded = (row as { arbox_sales_sync_seeded?: unknown }).arbox_sales_sync_seeded === true;
+    const creditRefusalSeeded =
+      (row as { arbox_credit_refusal_seeded?: unknown }).arbox_credit_refusal_seeded === true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -374,6 +379,7 @@ export async function GET(req: NextRequest) {
       arbox_last_sync_at: arboxLastSyncAt,
       arbox_trial_membership_type_ids: trialIds,
       arbox_sales_sync_seeded: salesSyncSeeded,
+      arbox_credit_refusal_seeded: creditRefusalSeeded,
     });
   }
 
@@ -402,15 +408,12 @@ export async function GET(req: NextRequest) {
     if (purchaseSaleMembershipScopeIsEmpty(membershipScope)) {
       summary.skipped = true;
       console.info(
-        "[cron/arbox-trial-sync] skipped — no trial membership_type_ids and no enabled purchase product filters",
+        "[cron/arbox-trial-sync] skipped sales — no trial membership_type_ids and no enabled purchase product filters",
         {
           slug: business.slug,
         }
       );
-      summaries.push(summary);
-      continue;
-    }
-
+    } else {
     try {
       const { fromDate, toDate } = resolveReportDateRange({
         arboxLastSyncAt: business.arbox_last_sync_at,
@@ -428,10 +431,7 @@ export async function GET(req: NextRequest) {
 
       if (!report.ok) {
         summary.fetch_error = report.error;
-        summaries.push(summary);
-        continue;
-      }
-
+      } else {
       const relevantRows = filterSalesRowsForMembershipScope(report.rows, membershipScope);
       summary.fetched = relevantRows.length;
 
@@ -517,12 +517,47 @@ export async function GET(req: NextRequest) {
       } else {
         summary.cursor_advanced = true;
       }
+      }
     } catch (e) {
       summary.fetch_error = e instanceof Error ? e.message : String(e);
       console.error("[cron/arbox-trial-sync] business loop failed", {
         slug: business.slug,
         error: summary.fetch_error,
       });
+    }
+    }
+
+    // Separate step: credit_refusal via transactionsReport?status=FAIL (does not touch sales/purchase).
+    try {
+      summary.credit_refusal = await syncArboxCreditRefusalsForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        arboxLastSyncAt: business.arbox_last_sync_at,
+        creditRefusalSeeded: business.arbox_credit_refusal_seeded,
+        now,
+      });
+    } catch (e) {
+      console.error("[cron/arbox-trial-sync] credit_refusal step threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      summary.credit_refusal = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        processed: 0,
+        already: 0,
+        throttled: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        errors: 1,
+        fetch_error: e instanceof Error ? e.message : String(e),
+      };
     }
 
     summaries.push(summary);

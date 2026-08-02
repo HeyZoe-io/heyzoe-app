@@ -51,6 +51,15 @@ export function buildPurchaseScheduledDedupKey(
   return `purchase:${businessId}:${String(triggerId).trim()}:${saleId}`;
 }
 
+/** Credit-refusal enqueue key: same FAIL transaction cannot schedule twice. */
+export function buildCreditRefusalScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  transactionId: number
+): string {
+  return `credit_refusal:${businessId}:${String(triggerId).trim()}:${transactionId}`;
+}
+
 export function isDuePendingScheduledSend(
   row: { status: string; due_at: string },
   now: Date = new Date()

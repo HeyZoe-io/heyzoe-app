@@ -98,6 +98,45 @@ export async function loadEnabledPurchaseTemplateTriggers(
   return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
 }
 
+/** Enabled credit_refusal rules (no product_filter matching — pick newest). */
+export async function loadEnabledCreditRefusalTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "credit_refusal")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load credit_refusal rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickCreditRefusalTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  const withName = rules.filter((rule) => Boolean(rule.template_name?.trim()));
+  if (!withName.length) return null;
+  withName.sort((a, b) => ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a));
+  return withName[0] ?? null;
+}
+
+export async function resolveCreditRefusalTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledCreditRefusalTemplateTriggers(input.admin, input.businessId);
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
 export async function resolvePurchaseTemplateTriggerForSale(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
