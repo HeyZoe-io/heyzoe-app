@@ -133,9 +133,15 @@ export default function MarketingConversationNotesPanel({
           conversation_at: conversationAt || null,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string; note?: NotePayload };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+        note?: NotePayload;
+      };
       if (!res.ok) {
-        setError(j.error?.trim() || `שמירה נכשלה (${res.status})`);
+        const base = j.error?.trim() || `שמירה נכשלה (${res.status})`;
+        const detail = j.detail?.trim();
+        setError(detail ? `${base}: ${detail}` : base);
         return;
       }
       if (j.note) {
