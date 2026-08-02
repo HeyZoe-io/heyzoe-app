@@ -11,8 +11,11 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STATUSES = ["in_process", "not_relevant", "registered"] as const;
+const STATUSES = ["in_process", "not_relevant", "registered", "no_response"] as const;
 type NoteStatus = (typeof STATUSES)[number];
+
+const NOTE_SELECT =
+  "phone, session_id, business_name, link, notes, status, conversation_at, updated_at";
 
 function isNoteStatus(v: unknown): v is NoteStatus {
   return typeof v === "string" && (STATUSES as readonly string[]).includes(v);
@@ -44,6 +47,36 @@ function toDateOnly(value: unknown): string | null {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeLink(raw: unknown): string {
+  return String(raw ?? "").trim().slice(0, 2000);
+}
+
+function serializeNote(
+  data: {
+    phone?: string | null;
+    session_id?: string | null;
+    business_name?: string | null;
+    link?: string | null;
+    notes?: string | null;
+    status?: string | null;
+    conversation_at?: string | null;
+    updated_at?: string | null;
+  },
+  fallbackPhone: string,
+  fallbackStatus?: NoteStatus
+) {
+  return {
+    phone: String(data.phone ?? fallbackPhone),
+    session_id: String(data.session_id ?? ""),
+    business_name: String(data.business_name ?? ""),
+    link: String(data.link ?? ""),
+    notes: String(data.notes ?? ""),
+    status: isNoteStatus(data.status) ? data.status : (fallbackStatus ?? "in_process"),
+    conversation_at: toDateOnly(data.conversation_at),
+    updated_at: data.updated_at ? String(data.updated_at) : null,
+  };
+}
+
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -60,7 +93,7 @@ export async function GET(req: NextRequest) {
     const admin = createSupabaseAdminClient();
     const { data, error } = await admin
       .from("marketing_conversation_notes")
-      .select("phone, session_id, business_name, notes, status, conversation_at, updated_at")
+      .select(NOTE_SELECT)
       .eq("phone", phone)
       .maybeSingle();
 
@@ -76,6 +109,7 @@ export async function GET(req: NextRequest) {
           phone,
           session_id: sessionId || canonicalMarketingSessionId(phone),
           business_name: "",
+          link: "",
           notes: "",
           status: "in_process" as NoteStatus,
           conversation_at: null,
@@ -87,15 +121,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       phone,
-      note: {
-        phone: String(data.phone ?? phone),
-        session_id: String(data.session_id ?? ""),
-        business_name: String(data.business_name ?? ""),
-        notes: String(data.notes ?? ""),
-        status: isNoteStatus(data.status) ? data.status : "in_process",
-        conversation_at: toDateOnly(data.conversation_at),
-        updated_at: data.updated_at ? String(data.updated_at) : null,
-      },
+      note: serializeNote(data, phone),
       exists: true,
     });
   } catch (e) {
@@ -116,6 +142,7 @@ export async function PUT(req: NextRequest) {
     phone?: string;
     session_id?: string;
     business_name?: string;
+    link?: string;
     notes?: string;
     status?: string;
     conversation_at?: string | null;
@@ -134,6 +161,7 @@ export async function PUT(req: NextRequest) {
 
   const status: NoteStatus = isNoteStatus(body.status) ? body.status : "in_process";
   const businessName = String(body.business_name ?? "").trim().slice(0, 200);
+  const link = normalizeLink(body.link);
   const notes = String(body.notes ?? "").slice(0, 10000);
   const conversationAt = toDateOnly(body.conversation_at);
   const canonicalSession = sessionId || canonicalMarketingSessionId(phone);
@@ -147,6 +175,7 @@ export async function PUT(req: NextRequest) {
           phone,
           session_id: canonicalSession,
           business_name: businessName,
+          link,
           notes,
           status,
           conversation_at: conversationAt,
@@ -154,7 +183,7 @@ export async function PUT(req: NextRequest) {
         },
         { onConflict: "phone" }
       )
-      .select("phone, session_id, business_name, notes, status, conversation_at, updated_at")
+      .select(NOTE_SELECT)
       .single();
 
     if (error) {
@@ -164,15 +193,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      note: {
-        phone: String(data.phone ?? phone),
-        session_id: String(data.session_id ?? ""),
-        business_name: String(data.business_name ?? ""),
-        notes: String(data.notes ?? ""),
-        status: isNoteStatus(data.status) ? data.status : status,
-        conversation_at: toDateOnly(data.conversation_at),
-        updated_at: data.updated_at ? String(data.updated_at) : null,
-      },
+      note: serializeNote(data, phone, status),
     });
   } catch (e) {
     console.error("[marketing/conversation-notes] PUT exception:", e);

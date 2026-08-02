@@ -6,9 +6,10 @@ create table if not exists public.marketing_conversation_notes (
   phone text not null,
   session_id text not null default '',
   business_name text not null default '',
+  link text not null default '',
   notes text not null default '',
   status text not null default 'in_process'
-    check (status in ('in_process', 'not_relevant', 'registered')),
+    check (status in ('in_process', 'not_relevant', 'registered', 'no_response')),
   conversation_at date null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

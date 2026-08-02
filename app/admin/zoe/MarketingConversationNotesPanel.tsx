@@ -5,22 +5,33 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
 
-export type MarketingNoteStatus = "in_process" | "not_relevant" | "registered";
+export type MarketingNoteStatus =
+  | "in_process"
+  | "not_relevant"
+  | "registered"
+  | "no_response";
 
 type NotePayload = {
   phone: string;
   session_id: string;
   business_name: string;
+  link: string;
   notes: string;
   status: MarketingNoteStatus;
   conversation_at: string | null;
   updated_at: string | null;
 };
 
-const STATUS_OPTIONS: { value: MarketingNoteStatus; label: string; activeBg: string; activeFg: string }[] = [
+const STATUS_OPTIONS: {
+  value: MarketingNoteStatus;
+  label: string;
+  activeBg: string;
+  activeFg: string;
+}[] = [
   { value: "in_process", label: "בתהליך", activeBg: "#eef2ff", activeFg: "#3730a3" },
   { value: "not_relevant", label: "לא רלוונטי", activeBg: "#f3f4f6", activeFg: "#4b5563" },
   { value: "registered", label: "נרשם", activeBg: "#ecfdf5", activeFg: "#047857" },
+  { value: "no_response", label: "ללא מענה", activeBg: "#fff7ed", activeFg: "#c2410c" },
 ];
 
 function toDateInputValue(isoOrDate: string | null | undefined): string {
@@ -46,6 +57,7 @@ export default function MarketingConversationNotesPanel({
   defaultConversationAt?: string | null;
 }) {
   const [businessName, setBusinessName] = useState("");
+  const [link, setLink] = useState("");
   const [conversationAt, setConversationAt] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<MarketingNoteStatus>("in_process");
@@ -55,45 +67,47 @@ export default function MarketingConversationNotesPanel({
   const [savedFlash, setSavedFlash] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    const p = phone.trim();
-    const sid = sessionId.trim();
-    if (!p && !sid) return;
-    setLoading(true);
-    setError("");
-    setDirty(false);
-    try {
-      const qs = new URLSearchParams();
-      if (p) qs.set("phone", p);
-      if (sid) qs.set("session_id", sid);
-      const res = await fetch(`/api/admin/marketing/conversation-notes?${qs.toString()}`, {
-        cache: "no-store",
-        signal,
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        note?: NotePayload;
-        error?: string;
-        exists?: boolean;
-      };
-      if (!res.ok) {
-        setError(j.error?.trim() || `שגיאת טעינה (${res.status})`);
-        return;
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      const p = phone.trim();
+      const sid = sessionId.trim();
+      if (!p && !sid) return;
+      setLoading(true);
+      setError("");
+      setDirty(false);
+      try {
+        const qs = new URLSearchParams();
+        if (p) qs.set("phone", p);
+        if (sid) qs.set("session_id", sid);
+        const res = await fetch(`/api/admin/marketing/conversation-notes?${qs.toString()}`, {
+          cache: "no-store",
+          signal,
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          note?: NotePayload;
+          error?: string;
+          exists?: boolean;
+        };
+        if (!res.ok) {
+          setError(j.error?.trim() || `שגיאת טעינה (${res.status})`);
+          return;
+        }
+        const note = j.note;
+        setBusinessName(note?.business_name ?? "");
+        setLink(note?.link ?? "");
+        setNotes(note?.notes ?? "");
+        setStatus(note?.status ?? "in_process");
+        const loadedDate = toDateInputValue(note?.conversation_at);
+        setConversationAt(loadedDate || toDateInputValue(defaultConversationAt) || "");
+      } catch (e) {
+        if ((e as { name?: string })?.name === "AbortError") return;
+        setError("בעיית רשת בטעינת הערות.");
+      } finally {
+        setLoading(false);
       }
-      const note = j.note;
-      setBusinessName(note?.business_name ?? "");
-      setNotes(note?.notes ?? "");
-      setStatus(note?.status ?? "in_process");
-      const loadedDate = toDateInputValue(note?.conversation_at);
-      setConversationAt(
-        loadedDate || toDateInputValue(defaultConversationAt) || ""
-      );
-    } catch (e) {
-      if ((e as { name?: string })?.name === "AbortError") return;
-      setError("בעיית רשת בטעינת הערות.");
-    } finally {
-      setLoading(false);
-    }
-  }, [phone, sessionId, defaultConversationAt]);
+    },
+    [phone, sessionId, defaultConversationAt]
+  );
 
   useEffect(() => {
     const ac = new AbortController();
@@ -113,6 +127,7 @@ export default function MarketingConversationNotesPanel({
           phone,
           session_id: sessionId,
           business_name: businessName,
+          link,
           notes,
           status,
           conversation_at: conversationAt || null,
@@ -125,6 +140,7 @@ export default function MarketingConversationNotesPanel({
       }
       if (j.note) {
         setBusinessName(j.note.business_name ?? "");
+        setLink(j.note.link ?? "");
         setNotes(j.note.notes ?? "");
         setStatus(j.note.status ?? "in_process");
         setConversationAt(toDateInputValue(j.note.conversation_at));
@@ -185,6 +201,21 @@ export default function MarketingConversationNotesPanel({
                 }}
                 placeholder="שם העסק"
                 style={fieldStyle}
+              />
+            </label>
+
+            <label>
+              <span style={labelStyle}>לינק</span>
+              <input
+                type="url"
+                value={link}
+                onChange={(e) => {
+                  setLink(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="https://…"
+                dir="ltr"
+                style={{ ...fieldStyle, textAlign: "left" }}
               />
             </label>
 
