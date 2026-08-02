@@ -1,0 +1,130 @@
+import { NextRequest, NextResponse } from "next/server";
+import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
+import { resolveCronSecret } from "@/lib/server-env";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+/**
+ * Shared daily Arbox / Zoe-native trigger detection.
+ * Steps today: birthday. Later: expiring / attendance / Zoe-native (separate steps).
+ * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
+ * GET + Authorization: Bearer CRON_SECRET
+ */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function authorizeCron(req: NextRequest): boolean {
+  const secret = resolveCronSecret();
+  if (!secret) {
+    const isProd = process.env.NODE_ENV === "production";
+    if (isProd) return false;
+    console.warn(
+      "[cron/arbox-daily-triggers] CRON_SECRET not set — allowing request in dev only"
+    );
+    return true;
+  }
+  const auth = req.headers.get("authorization") ?? "";
+  return auth === `Bearer ${secret}`;
+}
+
+type BusinessRow = {
+  id: number;
+  slug: string;
+  crm_api_key: string;
+  crm_box_id: string;
+};
+
+export async function GET(req: NextRequest) {
+  if (!authorizeCron(req)) {
+    console.warn("[cron/arbox-daily-triggers] unauthorized");
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const admin = createSupabaseAdminClient();
+  const now = new Date();
+  const ranAt = now.toISOString();
+
+  const { data: businessRows, error: bizErr } = await admin
+    .from("businesses")
+    .select("id, slug, crm_api_key, crm_box_id")
+    .eq("crm_type", "arbox")
+    .not("crm_api_key", "is", null)
+    .not("crm_box_id", "is", null);
+
+  if (bizErr) {
+    console.error("[cron/arbox-daily-triggers] businesses query failed:", bizErr.message);
+    return NextResponse.json({ ok: false, error: "businesses_query_failed" }, { status: 500 });
+  }
+
+  const businesses: BusinessRow[] = [];
+  for (const row of businessRows ?? []) {
+    const id = Number((row as { id?: unknown }).id);
+    const slug = String((row as { slug?: unknown }).slug ?? "").trim().toLowerCase();
+    const apiKey = String((row as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+    const boxId = String((row as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
+    if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
+    businesses.push({ id, slug, crm_api_key: apiKey, crm_box_id: boxId });
+  }
+
+  const summaries: Array<{
+    business_id: number;
+    slug: string;
+    birthday?: Awaited<ReturnType<typeof syncArboxBirthdaysForBusiness>>;
+    // future: membership_expiring?: ...; trial_attended?: ...; zoe_native?: ...
+  }> = [];
+
+  for (const business of businesses) {
+    const entry: (typeof summaries)[number] = {
+      business_id: business.id,
+      slug: business.slug,
+    };
+
+    // --- Step: birthday ---
+    try {
+      entry.birthday = await syncArboxBirthdaysForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        now,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] birthday step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.birthday = {
+        fetched: 0,
+        pages_fetched: 0,
+        due_today: 0,
+        processed: 0,
+        dedup: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: membership_expiring (future) ---
+    // --- Step: sessions_expiring (future) ---
+    // --- Step: trial_attended (future) ---
+    // --- Step: zoe_native (future) ---
+
+    summaries.push(entry);
+  }
+
+  console.info("[cron/arbox-daily-triggers] done", {
+    ran_at: ranAt,
+    businesses: summaries.length,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    ran_at: ranAt,
+    businesses: summaries,
+  });
+}

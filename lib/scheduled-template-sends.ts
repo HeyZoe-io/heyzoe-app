@@ -60,6 +60,16 @@ export function buildCreditRefusalScheduledDedupKey(
   return `credit_refusal:${businessId}:${String(triggerId).trim()}:${transactionId}`;
 }
 
+/** Birthday enqueue key: once per business+trigger+user+celebration year. */
+export function buildBirthdayScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  birthdayYear: number
+): string {
+  return `birthday:${businessId}:${String(triggerId).trim()}:${userId}:${birthdayYear}`;
+}
+
 export function isDuePendingScheduledSend(
   row: { status: string; due_at: string },
   now: Date = new Date()

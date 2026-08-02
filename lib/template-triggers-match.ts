@@ -137,6 +137,42 @@ export async function resolveCreditRefusalTemplateTrigger(input: {
   return pickCreditRefusalTemplateTriggerRule(rules);
 }
 
+/** Enabled birthday rules — pick newest with a template name. */
+export async function loadEnabledBirthdayTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "birthday")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load birthday rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickBirthdayTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveBirthdayTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledBirthdayTemplateTriggers(input.admin, input.businessId);
+  return pickBirthdayTemplateTriggerRule(rules);
+}
+
 export async function resolvePurchaseTemplateTriggerForSale(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
