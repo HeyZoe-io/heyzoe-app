@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   DEFAULT_MARKETING_NOTE_STATUS,
+  MARKETING_NOTE_STATUS_OPTIONS,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
 
@@ -33,17 +34,7 @@ type DraftPayload = {
   savedAt: number;
 };
 
-const STATUS_OPTIONS: {
-  value: MarketingNoteStatus;
-  label: string;
-  activeBg: string;
-  activeFg: string;
-}[] = [
-  { value: "in_process", label: "בתהליך", activeBg: "#eef2ff", activeFg: "#3730a3" },
-  { value: "not_relevant", label: "לא רלוונטי", activeBg: "#f3f4f6", activeFg: "#4b5563" },
-  { value: "registered", label: "נרשם", activeBg: "#ecfdf5", activeFg: "#047857" },
-  { value: "no_response", label: "ללא מענה", activeBg: "#fff7ed", activeFg: "#c2410c" },
-];
+const STATUS_OPTIONS = MARKETING_NOTE_STATUS_OPTIONS;
 
 function toDateInputValue(isoOrDate: string | null | undefined): string {
   const raw = String(isoOrDate ?? "").trim();

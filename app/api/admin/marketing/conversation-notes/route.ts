@@ -4,6 +4,12 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { normalizePhone } from "@/lib/phone-normalize";
 import {
+  coerceMarketingNoteStatus,
+  DEFAULT_MARKETING_NOTE_STATUS,
+  isMarketingNoteStatus,
+  type MarketingNoteStatus,
+} from "@/lib/marketing-conversation-notes";
+import {
   canonicalMarketingSessionId,
   extractLeadPhoneFromMarketingSession,
 } from "@/lib/marketing-whatsapp";
@@ -11,15 +17,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STATUSES = ["in_process", "not_relevant", "registered", "no_response"] as const;
-type NoteStatus = (typeof STATUSES)[number];
+type NoteStatus = MarketingNoteStatus;
 
 const NOTE_SELECT =
   "phone, session_id, business_name, link, notes, status, conversation_at, updated_at";
-
-function isNoteStatus(v: unknown): v is NoteStatus {
-  return typeof v === "string" && (STATUSES as readonly string[]).includes(v);
-}
 
 async function requireAdmin(): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
@@ -71,7 +72,7 @@ function serializeNote(
     business_name: String(data.business_name ?? ""),
     link: String(data.link ?? ""),
     notes: String(data.notes ?? ""),
-    status: isNoteStatus(data.status) ? data.status : (fallbackStatus ?? "in_process"),
+    status: isMarketingNoteStatus(data.status) ? data.status : (fallbackStatus ?? DEFAULT_MARKETING_NOTE_STATUS),
     conversation_at: toDateOnly(data.conversation_at),
     updated_at: data.updated_at ? String(data.updated_at) : null,
   };
@@ -111,7 +112,7 @@ export async function GET(req: NextRequest) {
           business_name: "",
           link: "",
           notes: "",
-          status: "in_process" as NoteStatus,
+          status: DEFAULT_MARKETING_NOTE_STATUS,
           conversation_at: null,
           updated_at: null,
         },
@@ -159,7 +160,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "missing_phone" }, { status: 400 });
   }
 
-  const status: NoteStatus = isNoteStatus(body.status) ? body.status : "in_process";
+  const status: NoteStatus = coerceMarketingNoteStatus(body.status);
   let businessName = String(body.business_name ?? "").trim().slice(0, 200);
   let link = normalizeLink(body.link);
   let notes = String(body.notes ?? "").slice(0, 10000);
@@ -207,7 +208,7 @@ export async function PUT(req: NextRequest) {
           business_name: String(existing.business_name ?? ""),
           link: String(existing.link ?? ""),
           notes: prevNotes,
-          status: isNoteStatus(existing.status) ? existing.status : "in_process",
+          status: coerceMarketingNoteStatus(existing.status),
           conversation_at: toDateOnly(existing.conversation_at),
           saved_at: existing.updated_at || new Date().toISOString(),
         });

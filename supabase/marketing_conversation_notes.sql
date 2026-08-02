@@ -9,7 +9,7 @@ create table if not exists public.marketing_conversation_notes (
   link text not null default '',
   notes text not null default '',
   status text not null default 'in_process'
-    check (status in ('in_process', 'not_relevant', 'registered', 'no_response')),
+    check (status in ('in_process', 'not_relevant', 'registered', 'no_response', 'not_interested')),
   conversation_at date null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
