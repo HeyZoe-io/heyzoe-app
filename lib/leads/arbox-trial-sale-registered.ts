@@ -485,21 +485,23 @@ export async function handleArboxTrialSaleRegistered(input: {
     };
   }
 
-  // 6) Notify: in-window freeform, else opening-template stub
+  // 6) Notify: trial freeform only for trial memberships; else (and out-of-window) template path
   const { data: business } = await input.admin
     .from("businesses")
-    .select("plan")
+    .select("plan, arbox_trial_membership_type_ids")
     .eq("id", businessId)
     .maybeSingle();
 
-  const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
-    admin: input.admin,
-    businessId,
-    businessSlug,
-    phone: canonicalPhone,
-    instagramFollowPromptSent,
-    businessPlan: (business as { plan?: unknown } | null)?.plan,
-  });
+  const trialMembershipTypeIds = (() => {
+    const raw = (business as { arbox_trial_membership_type_ids?: unknown } | null)
+      ?.arbox_trial_membership_type_ids;
+    if (!Array.isArray(raw)) return [] as number[];
+    return raw
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  })();
+  const isTrialSale =
+    membershipTypeId != null && trialMembershipTypeIds.includes(membershipTypeId);
 
   let whatsapp:
     | "sent"
@@ -511,11 +513,36 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "no_matching_rule"
     | "deferred";
 
-  if (waResult.sent) {
-    whatsapp = "sent";
-  } else if (waResult.reason === "send_failed") {
-    whatsapp = "send_failed";
+  if (isTrialSale) {
+    const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
+      admin: input.admin,
+      businessId,
+      businessSlug,
+      phone: canonicalPhone,
+      instagramFollowPromptSent,
+      businessPlan: (business as { plan?: unknown } | null)?.plan,
+    });
+
+    if (waResult.sent) {
+      whatsapp = "sent";
+    } else if (waResult.reason === "send_failed") {
+      whatsapp = "send_failed";
+    } else {
+      const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+        admin: input.admin,
+        businessId,
+        businessSlug,
+        phone: canonicalPhone,
+        saleId,
+        membershipTypeId,
+        phoneNumberId,
+        fullName,
+        sessionId,
+      });
+      whatsapp = templateResult.outcome;
+    }
   } else {
+    // Non-trial purchase (membership/punch-card): template-only — skip trial freeform
     const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
       admin: input.admin,
       businessId,

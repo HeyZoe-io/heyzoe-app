@@ -7,6 +7,13 @@ import {
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  loadEnabledPurchaseTemplateTriggers,
+  purchaseSaleMembershipScopeIsEmpty,
+  resolvePurchaseSaleMembershipScope,
+  saleMembershipTypeInScope,
+  type PurchaseSaleMembershipScope,
+} from "@/lib/template-triggers-match";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -134,15 +141,12 @@ function saleMembershipTypeId(row: Record<string, unknown>): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function filterTrialSalesRows(
+/** Filter salesReport rows to the business purchase/trial membership scope (not fetch mechanics). */
+function filterSalesRowsForMembershipScope(
   rows: Record<string, unknown>[],
-  trialMembershipTypeIds: number[]
+  scope: PurchaseSaleMembershipScope
 ): Record<string, unknown>[] {
-  const allowed = new Set(trialMembershipTypeIds);
-  return rows.filter((row) => {
-    const id = saleMembershipTypeId(row);
-    return id != null && allowed.has(id);
-  });
+  return rows.filter((row) => saleMembershipTypeInScope(saleMembershipTypeId(row), scope));
 }
 
 function buildSalesReportPath(input: {
@@ -389,11 +393,20 @@ export async function GET(req: NextRequest) {
       cursor_advanced: false,
     };
 
-    if (!business.arbox_trial_membership_type_ids.length) {
+    const purchaseRules = await loadEnabledPurchaseTemplateTriggers(admin, business.id);
+    const membershipScope = resolvePurchaseSaleMembershipScope({
+      trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+      purchaseRules,
+    });
+
+    if (purchaseSaleMembershipScopeIsEmpty(membershipScope)) {
       summary.skipped = true;
-      console.info("[cron/arbox-trial-sync] skipped — no trial membership_type_ids configured", {
-        slug: business.slug,
-      });
+      console.info(
+        "[cron/arbox-trial-sync] skipped — no trial membership_type_ids and no enabled purchase product filters",
+        {
+          slug: business.slug,
+        }
+      );
       summaries.push(summary);
       continue;
     }
@@ -419,20 +432,21 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const trialRows = filterTrialSalesRows(report.rows, business.arbox_trial_membership_type_ids);
-      summary.fetched = trialRows.length;
+      const relevantRows = filterSalesRowsForMembershipScope(report.rows, membershipScope);
+      summary.fetched = relevantRows.length;
 
       if (!business.arbox_sales_sync_seeded) {
         console.info("[cron/arbox-trial-sync] first sales pass — seeding dedup without notify", {
           slug: business.slug,
-          trial_rows: trialRows.length,
+          relevant_rows: relevantRows.length,
+          scope_mode: membershipScope.mode,
         });
 
         const seedResult = await seedTrialSalesForBusiness({
           admin,
           businessId: business.id,
           businessSlug: business.slug,
-          trialRows,
+          trialRows: relevantRows,
           nowIso,
         });
         summary.seeded = seedResult.seeded;
@@ -452,7 +466,7 @@ export async function GET(req: NextRequest) {
           summary.fetch_error = "sales_sync_seeded_flag_failed";
         }
       } else {
-        for (const rawRow of trialRows) {
+        for (const rawRow of relevantRows) {
           try {
             const result = await handleArboxTrialSaleRegistered({
               admin,

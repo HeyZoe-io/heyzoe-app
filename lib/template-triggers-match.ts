@@ -113,3 +113,43 @@ export async function resolvePurchaseTemplateTriggerForSale(input: {
   }
   return pickPurchaseTemplateTriggerRule(rules, input.membershipTypeId);
 }
+
+/**
+ * Which salesReport membership_type_ids the cron should process for a business.
+ * Union of trial IDs + enabled purchase rules' product_filter; empty product_filter = catch-all (all sales).
+ */
+export type PurchaseSaleMembershipScope =
+  | { mode: "all" }
+  | { mode: "ids"; membershipTypeIds: number[] };
+
+export function resolvePurchaseSaleMembershipScope(input: {
+  trialMembershipTypeIds: number[];
+  purchaseRules: Array<{ product_filter: number[] | null }>;
+}): PurchaseSaleMembershipScope {
+  const hasCatchAll = input.purchaseRules.some((rule) => !(rule.product_filter?.length ?? 0));
+  if (hasCatchAll) return { mode: "all" };
+
+  const ids = new Set<number>();
+  for (const id of input.trialMembershipTypeIds) {
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  for (const rule of input.purchaseRules) {
+    for (const id of rule.product_filter ?? []) {
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+  }
+  return { mode: "ids", membershipTypeIds: [...ids].sort((a, b) => a - b) };
+}
+
+export function saleMembershipTypeInScope(
+  membershipTypeId: number | null,
+  scope: PurchaseSaleMembershipScope
+): boolean {
+  if (membershipTypeId == null) return false;
+  if (scope.mode === "all") return true;
+  return scope.membershipTypeIds.includes(membershipTypeId);
+}
+
+export function purchaseSaleMembershipScopeIsEmpty(scope: PurchaseSaleMembershipScope): boolean {
+  return scope.mode === "ids" && scope.membershipTypeIds.length === 0;
+}
