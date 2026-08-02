@@ -49,12 +49,9 @@ function toDateInputValue(isoOrDate: string | null | undefined): string {
 export default function MarketingConversationNotesPanel({
   phone,
   sessionId,
-  defaultConversationAt,
 }: {
   phone: string;
   sessionId: string;
-  /** תאריך ברירת מחדל מתאריך הפעילות האחרונה בשיחה */
-  defaultConversationAt?: string | null;
 }) {
   const [businessName, setBusinessName] = useState("");
   const [link, setLink] = useState("");
@@ -97,8 +94,8 @@ export default function MarketingConversationNotesPanel({
         setLink(note?.link ?? "");
         setNotes(note?.notes ?? "");
         setStatus(note?.status ?? "in_process");
-        const loadedDate = toDateInputValue(note?.conversation_at);
-        setConversationAt(loadedDate || toDateInputValue(defaultConversationAt) || "");
+        // רק תאריך שנשמר במפורש — בלי ברירת מחדל מ־lastAt / היום
+        setConversationAt(toDateInputValue(note?.conversation_at));
       } catch (e) {
         if ((e as { name?: string })?.name === "AbortError") return;
         setError("בעיית רשת בטעינת הערות.");
@@ -106,7 +103,7 @@ export default function MarketingConversationNotesPanel({
         setLoading(false);
       }
     },
-    [phone, sessionId, defaultConversationAt]
+    [phone, sessionId]
   );
 
   useEffect(() => {

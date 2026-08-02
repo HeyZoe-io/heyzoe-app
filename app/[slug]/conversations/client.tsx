@@ -955,7 +955,6 @@ export default function ConversationsClient({
             key={selected.session_id}
             phone={selected.phone}
             sessionId={selected.session_id}
-            defaultConversationAt={selected.lastAt}
           />
         ) : null}
       </div>
