@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
+import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps today: birthday. Later: expiring / attendance / Zoe-native (separate steps).
+ * Steps: birthday, membership_expiring. Later: sessions_expiring / attendance / Zoe-native.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -69,7 +70,8 @@ export async function GET(req: NextRequest) {
     business_id: number;
     slug: string;
     birthday?: Awaited<ReturnType<typeof syncArboxBirthdaysForBusiness>>;
-    // future: membership_expiring?: ...; trial_attended?: ...; zoe_native?: ...
+    membership_expiring?: Awaited<ReturnType<typeof syncArboxMembershipExpiringForBusiness>>;
+    // future: sessions_expiring?: ...; trial_attended?: ...; zoe_native?: ...
   }> = [];
 
   for (const business of businesses) {
@@ -109,7 +111,40 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // --- Step: membership_expiring (future) ---
+    // --- Step: membership_expiring ---
+    try {
+      entry.membership_expiring = await syncArboxMembershipExpiringForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        now,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] membership_expiring step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.membership_expiring = {
+        fetched: 0,
+        pages_fetched: 0,
+        processed: 0,
+        dedup: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        skipped_renewed: 0,
+        skipped_cancelled: 0,
+        skipped_past_due: 0,
+        skipped_expired_end: 0,
+        no_phone: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
     // --- Step: sessions_expiring (future) ---
     // --- Step: trial_attended (future) ---
     // --- Step: zoe_native (future) ---

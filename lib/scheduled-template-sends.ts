@@ -70,6 +70,16 @@ export function buildBirthdayScheduledDedupKey(
   return `birthday:${businessId}:${String(triggerId).trim()}:${userId}:${birthdayYear}`;
 }
 
+/** Membership-expiring enqueue key: once per business+trigger+membership instance+end_date. */
+export function buildMembershipExpiringScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  membershipUserId: number,
+  endDateYmd: string
+): string {
+  return `membership_expiring:${businessId}:${String(triggerId).trim()}:${membershipUserId}:${String(endDateYmd).trim()}`;
+}
+
 export function isDuePendingScheduledSend(
   row: { status: string; due_at: string },
   now: Date = new Date()
