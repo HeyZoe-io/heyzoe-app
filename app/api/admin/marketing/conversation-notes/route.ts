@@ -193,6 +193,28 @@ export async function PUT(req: NextRequest) {
         notes = String(existing.notes ?? "");
         if (!conversationAt) conversationAt = toDateOnly(existing.conversation_at);
       }
+
+      // שמירת גרסה קודמת לפני דריסה (אם היה תוכן שונה)
+      const prevNotes = String(existing.notes ?? "");
+      const contentChanging =
+        String(existing.business_name ?? "") !== businessName ||
+        String(existing.link ?? "") !== link ||
+        prevNotes !== notes;
+      if (hadContent && contentChanging) {
+        const { error: histErr } = await admin.from("marketing_conversation_notes_history").insert({
+          phone,
+          session_id: String(existing.session_id ?? canonicalSession),
+          business_name: String(existing.business_name ?? ""),
+          link: String(existing.link ?? ""),
+          notes: prevNotes,
+          status: isNoteStatus(existing.status) ? existing.status : "in_process",
+          conversation_at: toDateOnly(existing.conversation_at),
+          saved_at: existing.updated_at || new Date().toISOString(),
+        });
+        if (histErr) {
+          console.error("[marketing/conversation-notes] history insert failed:", histErr.message);
+        }
+      }
     }
 
     const { data, error } = await admin
@@ -216,6 +238,23 @@ export async function PUT(req: NextRequest) {
     if (error) {
       console.error("[marketing/conversation-notes] PUT failed:", error.message);
       return NextResponse.json({ error: "save_failed", detail: error.message }, { status: 500 });
+    }
+
+    // גם הגרסה החדשה נשמרת להיסטוריה (אם יש תוכן)
+    if (businessName || link || notes) {
+      const { error: histNewErr } = await admin.from("marketing_conversation_notes_history").insert({
+        phone,
+        session_id: canonicalSession,
+        business_name: businessName,
+        link,
+        notes,
+        status,
+        conversation_at: conversationAt,
+        saved_at: new Date().toISOString(),
+      });
+      if (histNewErr) {
+        console.error("[marketing/conversation-notes] history new insert failed:", histNewErr.message);
+      }
     }
 
     return NextResponse.json({

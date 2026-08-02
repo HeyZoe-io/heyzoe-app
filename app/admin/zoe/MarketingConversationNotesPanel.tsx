@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
+const DRAFT_PREFIX = "hz-marketing-notes-draft:";
+const AUTOSAVE_MS = 2500;
 
 export type MarketingNoteStatus =
   | "in_process"
@@ -20,6 +22,15 @@ type NotePayload = {
   status: MarketingNoteStatus;
   conversation_at: string | null;
   updated_at: string | null;
+};
+
+type DraftPayload = {
+  business_name: string;
+  link: string;
+  notes: string;
+  status: MarketingNoteStatus;
+  conversation_at: string;
+  savedAt: number;
 };
 
 const STATUS_OPTIONS: {
@@ -46,6 +57,41 @@ function toDateInputValue(isoOrDate: string | null | undefined): string {
   return `${y}-${m}-${day}`;
 }
 
+function draftKey(phone: string, sessionId: string): string {
+  return `${DRAFT_PREFIX}${phone.trim() || sessionId.trim()}`;
+}
+
+function readDraft(phone: string, sessionId: string): DraftPayload | null {
+  try {
+    const raw = localStorage.getItem(draftKey(phone, sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DraftPayload;
+    if (!parsed || typeof parsed.notes !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(phone: string, sessionId: string, draft: Omit<DraftPayload, "savedAt">): void {
+  try {
+    localStorage.setItem(
+      draftKey(phone, sessionId),
+      JSON.stringify({ ...draft, savedAt: Date.now() } satisfies DraftPayload)
+    );
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearDraft(phone: string, sessionId: string): void {
+  try {
+    localStorage.removeItem(draftKey(phone, sessionId));
+  } catch {
+    /* noop */
+  }
+}
+
 export default function MarketingConversationNotesPanel({
   phone,
   sessionId,
@@ -63,7 +109,17 @@ export default function MarketingConversationNotesPanel({
   const [error, setError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [draftHint, setDraftHint] = useState("");
   const loadGenRef = useRef(0);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const formRef = useRef({
+    businessName: "",
+    link: "",
+    notes: "",
+    status: "in_process" as MarketingNoteStatus,
+    conversationAt: "",
+  });
+  formRef.current = { businessName, link, notes, status, conversationAt };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -74,6 +130,7 @@ export default function MarketingConversationNotesPanel({
     setLoading(true);
     setError("");
     setDirty(false);
+    setDraftHint("");
     setBusinessName("");
     setLink("");
     setNotes("");
@@ -104,11 +161,29 @@ export default function MarketingConversationNotesPanel({
           return;
         }
         const note = j.note;
-        setBusinessName(note?.business_name ?? "");
-        setLink(note?.link ?? "");
-        setNotes(note?.notes ?? "");
-        setStatus(note?.status ?? "in_process");
-        setConversationAt(toDateInputValue(note?.conversation_at));
+        let nextBusiness = note?.business_name ?? "";
+        let nextLink = note?.link ?? "";
+        let nextNotes = note?.notes ?? "";
+        let nextStatus: MarketingNoteStatus = note?.status ?? "in_process";
+        let nextDate = toDateInputValue(note?.conversation_at);
+
+        // אם יש טיוטה מקומית ארוכה יותר מהשרת — משחזרים אותה
+        const draft = readDraft(p, sid);
+        if (draft && draft.notes.trim().length > nextNotes.trim().length) {
+          nextBusiness = draft.business_name || nextBusiness;
+          nextLink = draft.link || nextLink;
+          nextNotes = draft.notes;
+          nextStatus = draft.status || nextStatus;
+          nextDate = draft.conversation_at || nextDate;
+          setDraftHint("שוחזרה טיוטה מקומית שלא נשמרה לשרת — לחצו «שמירת הערות».");
+          setDirty(true);
+        }
+
+        setBusinessName(nextBusiness);
+        setLink(nextLink);
+        setNotes(nextNotes);
+        setStatus(nextStatus);
+        setConversationAt(nextDate);
       } catch (e) {
         if (ac.signal.aborted || (e as { name?: string })?.name === "AbortError") return;
         if (gen !== loadGenRef.current) return;
@@ -121,11 +196,36 @@ export default function MarketingConversationNotesPanel({
     return () => ac.abort();
   }, [phone, sessionId]);
 
-  async function save() {
+  // טיוטה מקומית + שמירה אוטומטית לשרת כשיש שינויים
+  useEffect(() => {
+    if (loading || !dirty) return;
+    writeDraft(phone, sessionId, {
+      business_name: businessName,
+      link,
+      notes,
+      status,
+      conversation_at: conversationAt,
+    });
+
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, AUTOSAVE_MS);
+
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessName, link, notes, status, conversationAt, dirty, loading, phone, sessionId]);
+
+  async function save(opts?: { silent?: boolean }) {
     if (loading || saving) return;
+    const snapshot = { ...formRef.current };
     setSaving(true);
-    setError("");
-    setSavedFlash(false);
+    if (!opts?.silent) {
+      setError("");
+      setSavedFlash(false);
+    }
     try {
       const res = await fetch("/api/admin/marketing/conversation-notes", {
         method: "PUT",
@@ -133,11 +233,11 @@ export default function MarketingConversationNotesPanel({
         body: JSON.stringify({
           phone,
           session_id: sessionId,
-          business_name: businessName,
-          link,
-          notes,
-          status,
-          conversation_at: conversationAt || null,
+          business_name: snapshot.businessName,
+          link: snapshot.link,
+          notes: snapshot.notes,
+          status: snapshot.status,
+          conversation_at: snapshot.conversationAt || null,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as {
@@ -151,14 +251,25 @@ export default function MarketingConversationNotesPanel({
         setError(detail ? `${base}: ${detail}` : base);
         return;
       }
-      if (j.note) {
-        setBusinessName(j.note.business_name ?? "");
-        setLink(j.note.link ?? "");
-        setNotes(j.note.notes ?? "");
-        setStatus(j.note.status ?? "in_process");
-        setConversationAt(toDateInputValue(j.note.conversation_at));
+      const cur = formRef.current;
+      const unchanged =
+        cur.businessName === snapshot.businessName &&
+        cur.link === snapshot.link &&
+        cur.notes === snapshot.notes &&
+        cur.status === snapshot.status &&
+        cur.conversationAt === snapshot.conversationAt;
+      if (unchanged) {
+        if (!opts?.silent && j.note) {
+          setBusinessName(j.note.business_name ?? "");
+          setLink(j.note.link ?? "");
+          setNotes(j.note.notes ?? "");
+          setStatus(j.note.status ?? "in_process");
+          setConversationAt(toDateInputValue(j.note.conversation_at));
+        }
+        setDirty(false);
+        setDraftHint("");
+        clearDraft(phone, sessionId);
       }
-      setDirty(false);
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
     } catch {
@@ -188,6 +299,11 @@ export default function MarketingConversationNotesPanel({
     textAlign: "right",
   };
 
+  function markDirty() {
+    setDirty(true);
+    setDraftHint("");
+  }
+
   return (
     <aside
       dir="rtl"
@@ -210,7 +326,7 @@ export default function MarketingConversationNotesPanel({
                 value={businessName}
                 onChange={(e) => {
                   setBusinessName(e.target.value);
-                  setDirty(true);
+                  markDirty();
                 }}
                 placeholder="שם העסק"
                 style={fieldStyle}
@@ -224,7 +340,7 @@ export default function MarketingConversationNotesPanel({
                 value={link}
                 onChange={(e) => {
                   setLink(e.target.value);
-                  setDirty(true);
+                  markDirty();
                 }}
                 placeholder="https://…"
                 dir="ltr"
@@ -239,7 +355,7 @@ export default function MarketingConversationNotesPanel({
                 value={conversationAt}
                 onChange={(e) => {
                   setConversationAt(e.target.value);
-                  setDirty(true);
+                  markDirty();
                 }}
                 style={{ ...fieldStyle, direction: "ltr", textAlign: "right" }}
               />
@@ -256,7 +372,7 @@ export default function MarketingConversationNotesPanel({
                       type="button"
                       onClick={() => {
                         setStatus(opt.value);
-                        setDirty(true);
+                        markDirty();
                       }}
                       style={{
                         borderRadius: 999,
@@ -285,7 +401,7 @@ export default function MarketingConversationNotesPanel({
                 value={notes}
                 onChange={(e) => {
                   setNotes(e.target.value);
-                  setDirty(true);
+                  markDirty();
                 }}
                 placeholder="כתבו הערות חופשיות…"
                 rows={8}
@@ -297,6 +413,10 @@ export default function MarketingConversationNotesPanel({
                 }}
               />
             </label>
+
+            {draftHint ? (
+              <p style={{ margin: 0, fontSize: 12, color: "#9a3412", textAlign: "right" }}>{draftHint}</p>
+            ) : null}
 
             {error ? (
               <p style={{ margin: 0, fontSize: 12, color: "#b42318", textAlign: "right" }} role="alert">
@@ -329,7 +449,7 @@ export default function MarketingConversationNotesPanel({
             fontFamily: "inherit",
           }}
         >
-          {saving ? "שומר…" : "שמירת הערות"}
+          {saving ? "שומר…" : dirty ? "שמירת הערות" : "נשמר"}
         </button>
       </footer>
     </aside>
