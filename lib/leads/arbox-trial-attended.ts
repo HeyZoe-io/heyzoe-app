@@ -9,6 +9,11 @@ import {
 import { arboxFlagYes } from "@/lib/leads/arbox-membership-expiring";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
+import {
+  buildTrialAttendedScheduledDedupKey,
+  computeDueAt,
+  enqueueScheduledTemplateSend,
+} from "@/lib/scheduled-template-sends";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveTrialAttendedTemplateTrigger,
@@ -18,51 +23,71 @@ import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const ISRAEL_TZ = "Asia/Jerusalem";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/** Arbox report date range must not exceed 31 days. */
+const MAX_REPORT_SPAN_DAYS = 30;
 const MAX_REPORT_PAGES = 20;
 
 /**
- * One row from Arbox GET /v3/reports/trialClassesReport.
- * Attendance = check_in Yes/No (string). status/status_id is lead-pipeline — do NOT use for attendance.
- * NOTE: no membership_type field — product_filter cannot split singles/couples; class_name may later.
+ * Lookback for late/batched attendance marking (Joe marks check_in after class day).
+ * Env: TRIAL_ATTENDED_LOOKBACK_DAYS (default 7, clamped 1..30).
  */
-export type ArboxTrialClassReportRow = {
+export function trialAttendedLookbackDays(): number {
+  const raw = Number.parseInt(String(process.env.TRIAL_ATTENDED_LOOKBACK_DAYS ?? "7"), 10);
+  if (!Number.isFinite(raw)) return 7;
+  return Math.min(MAX_REPORT_SPAN_DAYS, Math.max(1, Math.trunc(raw)));
+}
+
+/**
+ * One row from Arbox GET /v3/reports/bookingsReport.
+ * Attendance = check_in Yes/No (string). Live data: no membership_type_id — only membership_type_name.
+ */
+export type ArboxBookingReportRow = {
   user_id: unknown;
   phone?: unknown;
   full_name?: unknown;
   first_name?: unknown;
   last_name?: unknown;
   date?: unknown;
-  start_time?: unknown;
+  time?: unknown;
   class_name?: unknown;
   check_in?: unknown;
-  status?: unknown;
-  status_id?: unknown;
+  membership_type_name?: unknown;
+  /** Not present on live acrobyjoe bookingsReport; kept for defensive id match if API adds it. */
+  membership_type_id?: unknown;
 };
 
 export type TrialAttendedDispatch =
   | "immediate"
+  | "enqueued"
   | "gated"
   | "dedup"
   | "no_rule"
   | "not_attended"
+  | "skipped_non_trial"
   | "no_phone"
   | "send_failed";
 
 export type TrialAttendedSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
-  class_date?: string;
+  skip_reason?: "no_rule" | "missing_credentials" | "no_trial_scope";
+  lookback_from?: string;
+  lookback_to?: string;
   fetched: number;
   pages_fetched: number;
   attended: number;
+  trial_attended: number;
+  skipped_non_trial: number;
   processed: number;
   dedup: number;
   notified: number;
+  deferred: number;
   gated: number;
   not_attended: number;
   no_phone: number;
   errors: number;
   fetch_error?: string;
+  /** How trial membership was resolved for name matching. */
+  trial_match_mode?: "product_filter_names" | "business_trial_ids_names" | "name_fallback";
 };
 
 function maskPhoneForLog(phone: string): string {
@@ -81,30 +106,13 @@ export function formatDateYmdIsrael(d: Date): string {
 }
 
 /** Physical attendance: check_in string "Yes" (never truthiness — "No" is truthy). */
-export function isTrialClassAttended(checkIn: unknown): boolean {
+export function isBookingCheckedIn(checkIn: unknown): boolean {
   return arboxFlagYes(checkIn);
 }
 
-/**
- * Class calendar day that maps to "due today" for the rule.
- * after N → today - N (N=1 classic day-after); before N → today + N; 0 → today.
- */
-export function trialAttendedClassDateForRule(
-  rule: { delay_days: number; delay_direction?: string },
-  now: Date = new Date()
-): string {
-  const todayYmd = formatDateYmdIsrael(now);
-  const [y, m, d] = todayYmd.split("-").map((n) => Number(n));
-  const todayUtc = new Date(Date.UTC(y!, m! - 1, d!, 12, 0, 0));
-  const days = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
-  const direction = String(rule.delay_direction ?? "after").trim().toLowerCase() || "after";
-  // after: class was `days` ago; before: class is `days` ahead
-  const offsetMs = (direction === "before" ? days : -days) * MS_PER_DAY;
-  const target = new Date(todayUtc.getTime() + offsetMs);
-  const yy = target.getUTCFullYear();
-  const mm = String(target.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(target.getUTCDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
+/** @deprecated alias — attendance signal is bookingsReport.check_in */
+export function isTrialClassAttended(checkIn: unknown): boolean {
+  return isBookingCheckedIn(checkIn);
 }
 
 export function parseClassDateYmd(raw: unknown): string | null {
@@ -114,7 +122,54 @@ export function parseClassDateYmd(raw: unknown): string | null {
   return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
-export function buildTrialClassesReportPath(input: {
+/** Normalize membership type names for equality (tabs/spaces/case). */
+export function normalizeMembershipTypeName(raw: unknown): string {
+  return String(raw ?? "")
+    .replace(/\t/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * bookingsReport has membership_type_name only (no membership_type_id on live API).
+ * Match by name set resolved from trial type ids; optional id match if field appears.
+ */
+export function bookingMatchesTrialScope(
+  row: ArboxBookingReportRow,
+  scope: { trialTypeIds: number[]; trialTypeNamesNormalized: Set<string> }
+): boolean {
+  const idRaw = Number(row.membership_type_id);
+  if (Number.isFinite(idRaw) && idRaw > 0 && scope.trialTypeIds.includes(Math.trunc(idRaw))) {
+    return true;
+  }
+  const name = normalizeMembershipTypeName(row.membership_type_name);
+  if (!name) return false;
+  if (scope.trialTypeNamesNormalized.has(name)) return true;
+  return false;
+}
+
+/** Fallback when no trial ids configured: Hebrew/English trial name heuristic. */
+export function membershipTypeNameLooksLikeTrial(raw: unknown): boolean {
+  return /ניסיון|trial/i.test(String(raw ?? ""));
+}
+
+export function trialAttendedLookbackWindow(
+  now: Date = new Date(),
+  lookbackDays: number = trialAttendedLookbackDays()
+): { fromDate: string; toDate: string } {
+  const toDate = formatDateYmdIsrael(now);
+  const [y, m, d] = toDate.split("-").map((n) => Number(n));
+  const toUtc = new Date(Date.UTC(y!, m! - 1, d!, 12, 0, 0));
+  const days = Math.min(MAX_REPORT_SPAN_DAYS, Math.max(1, Math.trunc(lookbackDays)));
+  const fromUtc = new Date(toUtc.getTime() - (days - 1) * MS_PER_DAY);
+  const yy = fromUtc.getUTCFullYear();
+  const mm = String(fromUtc.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(fromUtc.getUTCDate()).padStart(2, "0");
+  return { fromDate: `${yy}-${mm}-${dd}`, toDate };
+}
+
+export function buildBookingsReportPath(input: {
   fromDate: string;
   toDate: string;
   locationId?: string;
@@ -126,44 +181,45 @@ export function buildTrialClassesReportPath(input: {
   });
   if (input.locationId) qs.set("location_id", input.locationId);
   if (input.page != null && input.page > 1) qs.set("page", String(input.page));
-  return `/v3/reports/trialClassesReport?${qs.toString()}`;
+  return `/v3/reports/bookingsReport?${qs.toString()}`;
 }
 
-async function fetchTrialClassRows(input: {
+async function fetchBookingRows(input: {
   apiKey: string;
-  classDate: string;
+  fromDate: string;
+  toDate: string;
   locationId: string;
 }): Promise<
-  | { ok: true; rows: ArboxTrialClassReportRow[]; pagesFetched: number }
+  | { ok: true; rows: ArboxBookingReportRow[]; pagesFetched: number }
   | { ok: false; error: string; pagesFetched: number }
 > {
-  const rows: ArboxTrialClassReportRow[] = [];
+  const rows: ArboxBookingReportRow[] = [];
   let pagesFetched = 0;
   let page = 1;
 
   while (pagesFetched < MAX_REPORT_PAGES) {
-    const path = buildTrialClassesReportPath({
-      fromDate: input.classDate,
-      toDate: input.classDate,
+    const path = buildBookingsReportPath({
+      fromDate: input.fromDate,
+      toDate: input.toDate,
       locationId: input.locationId,
       page,
     });
     const res = await arboxPublicFetch(path, { apiKey: input.apiKey, method: "GET" });
     pagesFetched += 1;
     if (!res.ok) {
-      console.error("[leads/arbox-trial-attended] trialClassesReport fetch failed", {
+      console.error("[leads/arbox-trial-attended] bookingsReport fetch failed", {
         status: res.status,
         body: res.rawText.slice(0, 500),
         page,
       });
-      return { ok: false, error: "arbox_trial_classes_report_fetch_failed", pagesFetched };
+      return { ok: false, error: "arbox_bookings_report_fetch_failed", pagesFetched };
     }
     const payload = res.json as {
       data?: Record<string, unknown>[];
       extra?: { pagination?: { next_page_url?: string | null } };
     } | null;
     const pageRows = Array.isArray(payload?.data) ? payload!.data! : [];
-    rows.push(...(pageRows as ArboxTrialClassReportRow[]));
+    rows.push(...(pageRows as ArboxBookingReportRow[]));
     const next = String(payload?.extra?.pagination?.next_page_url ?? "").trim();
     if (!next) break;
     page += 1;
@@ -172,7 +228,41 @@ async function fetchTrialClassRows(input: {
   return { ok: true, rows, pagesFetched };
 }
 
-function resolveReportFullName(row: ArboxTrialClassReportRow): string | null {
+async function fetchMembershipTypeNameById(
+  apiKey: string
+): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  const res = await arboxPublicFetch("/v3/membershipTypes", { apiKey, method: "GET" });
+  if (!res.ok) {
+    console.error("[leads/arbox-trial-attended] membershipTypes fetch failed", {
+      status: res.status,
+      body: res.rawText.slice(0, 300),
+    });
+    return map;
+  }
+  const payload = res.json as { data?: Record<string, unknown>[] } | null;
+  for (const row of payload?.data ?? []) {
+    const id = Number(row.membership_type_id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const name = String(row.membership_type_name ?? "").trim();
+    if (name) map.set(Math.trunc(id), name);
+  }
+  return map;
+}
+
+function parseIdList(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(
+      raw
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .map((n) => Math.trunc(n))
+    ),
+  ];
+}
+
+function resolveReportFullName(row: ArboxBookingReportRow): string | null {
   const full = String(row.full_name ?? "").trim();
   if (full) return full;
   const first = String(row.first_name ?? "").trim();
@@ -191,7 +281,7 @@ type ContactRow = {
 async function resolveOrCreateContact(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
-  row: ArboxTrialClassReportRow;
+  row: ArboxBookingReportRow;
 }): Promise<{ contact: ContactRow | null; phone: string | null }> {
   const arboxUserId = String(input.row.user_id ?? "").trim();
   const contactSelect = "id, phone, full_name, arbox_user_id";
@@ -261,16 +351,47 @@ async function resolveOrCreateContact(input: {
   return { contact: inserted as ContactRow, phone: phoneNorm };
 }
 
-async function sendTrialAttendedTemplate(input: {
+async function dispatchTrialAttendedTemplate(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  userId: number;
+  classDateYmd: string;
   rule: PurchaseTemplateTriggerRule;
+  now: Date;
 }): Promise<{ dispatch: TrialAttendedDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
+
+  const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
+
+  if (delayDays > 0) {
+    const dueAt = computeDueAt(
+      { delay_days: delayDays, delay_direction: "after" },
+      input.now
+    );
+    const enqueueResult = await enqueueScheduledTemplateSend({
+      admin: input.admin,
+      businessId: input.businessId,
+      triggerId: input.rule.id,
+      contactPhone: input.phone,
+      templateName,
+      dueAt,
+      dedupKey: buildTrialAttendedScheduledDedupKey(
+        input.businessId,
+        input.rule.id,
+        input.userId,
+        input.classDateYmd
+      ),
+    });
+    if (!enqueueResult.ok) {
+      console.error("[leads/arbox-trial-attended] enqueue failed:", enqueueResult.error);
+      return { dispatch: "send_failed", ok: false };
+    }
+    return { dispatch: "enqueued", ok: true };
+  }
 
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
@@ -331,9 +452,10 @@ async function sendTrialAttendedTemplate(input: {
 }
 
 /**
- * Daily trial_attended step for one Arbox business.
- * Fetches the single class_date that maps to due-today; attended = check_in Yes (string equality).
- * product_filter is catch-all (report has no membership_type; class_name may later split singles/couples).
+ * Daily trial_attended step: bookingsReport lookback + check_in Yes + trial membership.
+ * Fires on detection of Yes (late marking), not class_date+1.
+ * Trial match: bookingsReport has membership_type_name only → resolve names from product_filter /
+ * business trial ids via /v3/membershipTypes (defensive id match if API adds membership_type_id).
  */
 export async function syncArboxTrialAttendedForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -342,14 +464,18 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   apiKey: string;
   boxId: string;
   now?: Date;
+  lookbackDays?: number;
 }): Promise<TrialAttendedSyncSummary> {
   const summary: TrialAttendedSyncSummary = {
     fetched: 0,
     pages_fetched: 0,
     attended: 0,
+    trial_attended: 0,
+    skipped_non_trial: 0,
     processed: 0,
     dedup: 0,
     notified: 0,
+    deferred: 0,
     gated: 0,
     not_attended: 0,
     no_phone: 0,
@@ -361,6 +487,7 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const now = input.now ?? new Date();
+  const lookbackDays = input.lookbackDays ?? trialAttendedLookbackDays();
 
   if (!apiKey || !boxId) {
     summary.skipped = true;
@@ -380,12 +507,55 @@ export async function syncArboxTrialAttendedForBusiness(input: {
     return summary;
   }
 
-  const classDate = trialAttendedClassDateForRule(rule, now);
-  summary.class_date = classDate;
+  const { data: bizRow } = await input.admin
+    .from("businesses")
+    .select("arbox_trial_membership_type_ids")
+    .eq("id", businessId)
+    .maybeSingle();
+  const businessTrialIds = parseIdList(
+    (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+      ?.arbox_trial_membership_type_ids
+  );
+  const productFilterIds = parseIdList(rule.product_filter);
 
-  const report = await fetchTrialClassRows({
+  let trialTypeIds: number[];
+  let trialMatchMode: NonNullable<TrialAttendedSyncSummary["trial_match_mode"]>;
+  if (productFilterIds.length) {
+    trialTypeIds = productFilterIds;
+    trialMatchMode = "product_filter_names";
+  } else if (businessTrialIds.length) {
+    trialTypeIds = businessTrialIds;
+    trialMatchMode = "business_trial_ids_names";
+  } else {
+    trialTypeIds = [];
+    trialMatchMode = "name_fallback";
+  }
+  summary.trial_match_mode = trialMatchMode;
+
+  const nameById = trialTypeIds.length ? await fetchMembershipTypeNameById(apiKey) : new Map();
+  const trialTypeNamesNormalized = new Set<string>();
+  for (const id of trialTypeIds) {
+    const name = nameById.get(id);
+    if (name) trialTypeNamesNormalized.add(normalizeMembershipTypeName(name));
+  }
+
+  if (trialMatchMode !== "name_fallback" && !trialTypeNamesNormalized.size) {
+    console.warn(
+      "[leads/arbox-trial-attended] trial type names unresolved — falling back to name heuristic",
+      { businessId, trialTypeIds }
+    );
+    trialMatchMode = "name_fallback";
+    summary.trial_match_mode = trialMatchMode;
+  }
+
+  const window = trialAttendedLookbackWindow(now, lookbackDays);
+  summary.lookback_from = window.fromDate;
+  summary.lookback_to = window.toDate;
+
+  const report = await fetchBookingRows({
     apiKey,
-    classDate,
+    fromDate: window.fromDate,
+    toDate: window.toDate,
     locationId: boxId,
   });
   summary.pages_fetched = report.pagesFetched;
@@ -396,6 +566,8 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   }
   summary.fetched = report.rows.length;
 
+  const trialScope = { trialTypeIds, trialTypeNamesNormalized };
+
   for (const row of report.rows) {
     const userIdRaw = Number(row.user_id);
     if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) {
@@ -403,24 +575,40 @@ export async function syncArboxTrialAttendedForBusiness(input: {
       continue;
     }
     const userId = Math.trunc(userIdRaw);
-    const rowClassDate = parseClassDateYmd(row.date) ?? classDate;
+    const classDateYmd = parseClassDateYmd(row.date);
+    if (!classDateYmd) {
+      summary.errors += 1;
+      continue;
+    }
 
     const logBase = {
       businessId,
       user_id: userId,
-      class_date: rowClassDate,
+      class_date: classDateYmd,
+      membership_type_name: String(row.membership_type_name ?? "").trim() || null,
       contact: null as string | null,
     };
 
-    if (!isTrialClassAttended(row.check_in)) {
+    if (!isBookingCheckedIn(row.check_in)) {
       summary.not_attended += 1;
-      console.info("[leads/arbox-trial-attended] dispatch", {
-        ...logBase,
-        dispatch: "not_attended",
-      });
       continue;
     }
     summary.attended += 1;
+
+    const isTrial =
+      trialMatchMode === "name_fallback"
+        ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+        : bookingMatchesTrialScope(row, trialScope);
+
+    if (!isTrial) {
+      summary.skipped_non_trial += 1;
+      console.info("[leads/arbox-trial-attended] dispatch", {
+        ...logBase,
+        dispatch: "skipped_non_trial",
+      });
+      continue;
+    }
+    summary.trial_attended += 1;
 
     try {
       const { data: existingSeen } = await input.admin
@@ -428,7 +616,7 @@ export async function syncArboxTrialAttendedForBusiness(input: {
         .select("user_id")
         .eq("business_id", businessId)
         .eq("user_id", userId)
-        .eq("class_date", rowClassDate)
+        .eq("class_date", classDateYmd)
         .maybeSingle();
 
       if (existingSeen) {
@@ -456,17 +644,21 @@ export async function syncArboxTrialAttendedForBusiness(input: {
 
       logBase.contact = maskPhoneForLog(resolved.phone);
 
-      const send = await sendTrialAttendedTemplate({
+      const send = await dispatchTrialAttendedTemplate({
         admin: input.admin,
         businessId,
         businessSlug,
         phone: resolved.phone,
         fullName: resolveReportFullName(row) ?? resolved.contact.full_name ?? null,
+        userId,
+        classDateYmd,
         rule,
+        now,
       });
 
       summary.processed += 1;
       if (send.dispatch === "immediate") summary.notified += 1;
+      else if (send.dispatch === "enqueued") summary.deferred += 1;
       else if (send.dispatch === "gated") summary.gated += 1;
       else if (send.dispatch === "send_failed") summary.errors += 1;
 
@@ -475,12 +667,12 @@ export async function syncArboxTrialAttendedForBusiness(input: {
         dispatch: send.dispatch,
       });
 
-      if (send.ok && send.dispatch === "immediate") {
+      if (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued")) {
         const { error: logErr } = await input.admin.from("arbox_trial_attended_sync_log").upsert(
           {
             business_id: businessId,
             user_id: userId,
-            class_date: rowClassDate,
+            class_date: classDateYmd,
             contact_id: resolved.contact.id,
             processed_at: now.toISOString(),
           },
@@ -499,7 +691,7 @@ export async function syncArboxTrialAttendedForBusiness(input: {
       console.error("[leads/arbox-trial-attended] row threw", {
         businessId,
         user_id: userId,
-        class_date: rowClassDate,
+        class_date: classDateYmd,
         error: e instanceof Error ? e.message : String(e),
       });
     }

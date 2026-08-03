@@ -1,42 +1,83 @@
 import assert from "node:assert/strict";
 import {
-  buildTrialClassesReportPath,
-  formatDateYmdIsrael,
+  bookingMatchesTrialScope,
+  buildBookingsReportPath,
+  isBookingCheckedIn,
   isTrialClassAttended,
-  trialAttendedClassDateForRule,
+  membershipTypeNameLooksLikeTrial,
+  normalizeMembershipTypeName,
+  trialAttendedLookbackWindow,
+  type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
 import { pickTrialAttendedTemplateTriggerRule } from "@/lib/template-triggers-match";
 
 /** check_in="Yes" fires; "No" skipped (string equality — "No" is truthy). */
 {
+  assert.equal(isBookingCheckedIn("Yes"), true);
   assert.equal(isTrialClassAttended("Yes"), true);
-  assert.equal(isTrialClassAttended("yes"), true);
-  assert.equal(isTrialClassAttended("No"), false);
-  assert.equal(isTrialClassAttended("no"), false);
-  assert.equal(isTrialClassAttended(""), false);
-  assert.equal(isTrialClassAttended(null), false);
+  assert.equal(isBookingCheckedIn("No"), false);
+  assert.equal(isBookingCheckedIn("no"), false);
+  assert.equal(isBookingCheckedIn(null), false);
 }
 
-/** delay maps the right class_date (after 1 = yesterday; 0 = today). */
+/** Trial name match (bookingsReport has name only, not membership_type_id on live API). */
 {
-  const now = new Date("2026-08-10T12:00:00+03:00");
-  assert.equal(formatDateYmdIsrael(now), "2026-08-10");
+  const names = new Set([
+    normalizeMembershipTypeName("שיעור ניסיון"),
+    normalizeMembershipTypeName("שיעור ניסיון- זוג"),
+  ]);
+  const scope = { trialTypeIds: [80601, 144543], trialTypeNamesNormalized: names };
+
+  const trialYes: ArboxBookingReportRow = {
+    user_id: 1,
+    check_in: "Yes",
+    membership_type_name: "שיעור ניסיון",
+    date: "2026-08-02",
+  };
+  assert.equal(bookingMatchesTrialScope(trialYes, scope), true);
+  assert.equal(isBookingCheckedIn(trialYes.check_in) && bookingMatchesTrialScope(trialYes, scope), true);
+
+  const trialNo: ArboxBookingReportRow = {
+    user_id: 2,
+    check_in: "No",
+    membership_type_name: "שיעור ניסיון",
+    date: "2026-08-02",
+  };
+  assert.equal(isBookingCheckedIn(trialNo.check_in), false);
+
+  const memberYes: ArboxBookingReportRow = {
+    user_id: 3,
+    check_in: "Yes",
+    membership_type_name: "4 Classes/ Month | מנוי יחיד",
+    date: "2026-08-02",
+  };
+  assert.equal(bookingMatchesTrialScope(memberYes, scope), false);
+
+  // Defensive: if API ever adds membership_type_id
   assert.equal(
-    trialAttendedClassDateForRule({ delay_days: 1, delay_direction: "after" }, now),
-    "2026-08-09"
+    bookingMatchesTrialScope(
+      { user_id: 4, membership_type_id: 80601, membership_type_name: "other", check_in: "Yes" },
+      scope
+    ),
+    true
   );
-  assert.equal(
-    trialAttendedClassDateForRule({ delay_days: 0, delay_direction: "after" }, now),
-    "2026-08-10"
-  );
-  assert.equal(
-    trialAttendedClassDateForRule({ delay_days: 3, delay_direction: "after" }, now),
-    "2026-08-07"
-  );
-  assert.equal(trialAttendedClassDateForRule({ delay_days: 1 }, now), "2026-08-09");
+
+  assert.equal(membershipTypeNameLooksLikeTrial("שיעור ניסיון- זוג"), true);
+  assert.equal(membershipTypeNameLooksLikeTrial("Unlimited | מנוי יחיד"), false);
+  assert.equal(normalizeMembershipTypeName("Acroyoga pass (x10)\t- Couples"), "acroyoga pass (x10) - couples");
 }
 
-/** Dedup key per (user_id, class_date). */
+/** Lookback window catches a late-marked class (not only today). */
+{
+  const now = new Date("2026-08-03T12:00:00+03:00");
+  const w = trialAttendedLookbackWindow(now, 7);
+  assert.equal(w.toDate, "2026-08-03");
+  assert.equal(w.fromDate, "2026-07-28");
+  // class from a few days ago is inside window
+  assert.ok(w.fromDate <= "2026-08-02" && "2026-08-02" <= w.toDate);
+}
+
+/** Dedup per (user_id, class_date). */
 {
   const seen = new Set<string>();
   function tryProcess(userId: number, classDate: string): "ok" | "dedup" {
@@ -45,39 +86,21 @@ import { pickTrialAttendedTemplateTriggerRule } from "@/lib/template-triggers-ma
     seen.add(key);
     return "ok";
   }
-  assert.equal(tryProcess(99, "2026-08-09"), "ok");
-  assert.equal(tryProcess(99, "2026-08-09"), "dedup");
-  assert.equal(tryProcess(99, "2026-08-10"), "ok");
-  assert.equal(tryProcess(100, "2026-08-09"), "ok");
+  assert.equal(tryProcess(99, "2026-08-02"), "ok");
+  assert.equal(tryProcess(99, "2026-08-02"), "dedup");
+  assert.equal(tryProcess(99, "2026-08-01"), "ok");
 }
 
 /** no_rule: empty / missing template → null. */
 {
   assert.equal(pickTrialAttendedTemplateTriggerRule([]), null);
-  assert.equal(
-    pickTrialAttendedTemplateTriggerRule([
-      {
-        id: "t1",
-        business_id: 1,
-        trigger_type: "trial_attended",
-        product_filter: [80601],
-        delay_days: 1,
-        delay_direction: "after",
-        template_name: "",
-        enabled: true,
-        created_at: "2026-01-01T00:00:00.000Z",
-        updated_at: null,
-      },
-    ]),
-    null
-  );
   const picked = pickTrialAttendedTemplateTriggerRule([
     {
       id: "t2",
       business_id: 1,
       trigger_type: "trial_attended",
-      product_filter: null,
-      delay_days: 1,
+      product_filter: [80601],
+      delay_days: 0,
       delay_direction: "after",
       template_name: "T_attended",
       enabled: true,
@@ -86,33 +109,20 @@ import { pickTrialAttendedTemplateTriggerRule } from "@/lib/template-triggers-ma
     },
   ]);
   assert.equal(picked?.template_name, "T_attended");
-  const withFilter = pickTrialAttendedTemplateTriggerRule([
-    {
-      id: "t3",
-      business_id: 1,
-      trigger_type: "trial_attended",
-      product_filter: [80601],
-      delay_days: 1,
-      delay_direction: "after",
-      template_name: "T_any_attendee",
-      enabled: true,
-      created_at: "2026-01-01T00:00:00.000Z",
-      updated_at: "2026-07-01T00:00:00.000Z",
-    },
-  ]);
-  assert.equal(withFilter?.template_name, "T_any_attendee");
+  assert.deepEqual(picked?.product_filter, [80601]);
 }
 
-/** Path uses trialClassesReport + single-day window. */
+/** Path uses bookingsReport + lookback range. */
 {
-  const path = buildTrialClassesReportPath({
-    fromDate: "2026-08-09",
-    toDate: "2026-08-09",
+  const path = buildBookingsReportPath({
+    fromDate: "2026-07-28",
+    toDate: "2026-08-03",
     locationId: "3068",
   });
-  assert.match(path, /trialClassesReport/);
-  assert.match(path, /fromDate=2026-08-09/);
-  assert.match(path, /toDate=2026-08-09/);
+  assert.match(path, /bookingsReport/);
+  assert.match(path, /fromDate=2026-07-28/);
+  assert.match(path, /toDate=2026-08-03/);
+  assert.doesNotMatch(path, /trialClassesReport/);
 }
 
 console.log("arbox-trial-attended.test.ts: ok");

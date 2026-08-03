@@ -80,6 +80,16 @@ export function buildMembershipExpiringScheduledDedupKey(
   return `membership_expiring:${businessId}:${String(triggerId).trim()}:${membershipUserId}:${String(endDateYmd).trim()}`;
 }
 
+/** Trial-attended enqueue key: once per business+trigger+user+class_date. */
+export function buildTrialAttendedScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  classDateYmd: string
+): string {
+  return `trial_attended:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}`;
+}
+
 export function isDuePendingScheduledSend(
   row: { status: string; due_at: string },
   now: Date = new Date()

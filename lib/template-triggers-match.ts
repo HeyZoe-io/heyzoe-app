@@ -212,7 +212,10 @@ export async function resolveMembershipExpiringTemplateTrigger(input: {
   return pickMembershipExpiringTemplateTriggerRule(rules);
 }
 
-/** Enabled trial_attended rules — pick newest with a template name (product_filter ignored: report has no membership_type). */
+/** Enabled trial_attended rules — pick newest with a template name.
+ * product_filter (if set) scopes which trial membership types count; matching is by
+ * membership_type_name via /v3/membershipTypes (bookingsReport has no membership_type_id).
+ */
 export async function loadEnabledTrialAttendedTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
