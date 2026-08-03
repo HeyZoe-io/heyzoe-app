@@ -9,6 +9,7 @@ import {
   isMarketingNoteStatus,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
+import { markMarketingFollowupOptedOut } from "@/lib/marketing-followups";
 import {
   canonicalMarketingSessionId,
   extractLeadPhoneFromMarketingSession,
@@ -239,6 +240,15 @@ export async function PUT(req: NextRequest) {
     if (error) {
       console.error("[marketing/conversation-notes] PUT failed:", error.message);
       return NextResponse.json({ error: "save_failed", detail: error.message }, { status: 500 });
+    }
+
+    // סימון «לא רלוונטי» / «לא מעוניין» — עוצר פולואפים אוטומטיים של קו השיווק
+    if (status === "not_relevant" || status === "not_interested") {
+      try {
+        await markMarketingFollowupOptedOut(phone);
+      } catch (e) {
+        console.error("[marketing/conversation-notes] followup opt-out failed:", e);
+      }
     }
 
     // גם הגרסה החדשה נשמרת להיסטוריה (אם יש תוכן)
