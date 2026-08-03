@@ -33,6 +33,8 @@ const MARKETING_EXTRA_START_TRIGGERS = new Set([
   "הי zoe",
   "hi zoe",
   "hey zoe",
+  /** כפתור תפריט אחרי שאלת AI — מאפס ומתחיל פלואו */
+  "להתחיל שיחה",
 ]);
 
 /** נרמול טקסט נכנס לפלואו (מרכאות, רווחים, bidi) */
