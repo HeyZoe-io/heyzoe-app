@@ -44,6 +44,8 @@ import {
   buildWarmupQuizContent,
   resolveScheduleBoardPlacement,
   resolveRegistrationConfirmationMode,
+  resolveAfterRegistrationDirectionsMediaEnabled,
+  defaultAfterRegistrationDirectionsMediaCaption,
 } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -151,6 +153,8 @@ type Step4SalesFlowProps = {
   uid: () => string;
   businessName: string;
   addressText: string;
+  directionsMediaUrl?: string;
+  directionsMediaType?: "image" | "video" | "";
 };
 
 function resolveOfferTab(
@@ -568,6 +572,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     uid,
     businessName,
     addressText,
+    directionsMediaUrl = "",
+    directionsMediaType = "",
   } = props;
   const t = dashboardSettingsT(lang);
 
@@ -2643,6 +2649,105 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 ) : null}
               </>
             )}
+
+            <div className="space-y-3 border-t border-zinc-100 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2.5">
+                <div className="min-w-0 text-right">
+                  <p className="text-sm font-medium text-zinc-800">
+                    {t.salesFlow.directionsMediaAfterRegTitle}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                    {t.salesFlow.directionsMediaAfterRegHint}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={resolveAfterRegistrationDirectionsMediaEnabled(salesFlowConfig)}
+                  onClick={() =>
+                    setSalesFlowConfig((c) => ({
+                      ...c,
+                      after_registration_directions_media_enabled:
+                        !resolveAfterRegistrationDirectionsMediaEnabled(c),
+                    }))
+                  }
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    resolveAfterRegistrationDirectionsMediaEnabled(salesFlowConfig)
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-zinc-200 bg-white text-zinc-600"
+                  }`}
+                >
+                  <span>
+                    {resolveAfterRegistrationDirectionsMediaEnabled(salesFlowConfig)
+                      ? t.salesFlow.directionsMediaAfterRegOn
+                      : t.salesFlow.directionsMediaAfterRegOff}
+                  </span>
+                  <span
+                    className={`h-4 w-7 rounded-full p-0.5 transition-colors ${
+                      resolveAfterRegistrationDirectionsMediaEnabled(salesFlowConfig)
+                        ? "bg-emerald-500"
+                        : "bg-zinc-300"
+                    }`}
+                    aria-hidden
+                  >
+                    <span
+                      className={`block h-3 w-3 rounded-full bg-white transition-transform ${
+                        resolveAfterRegistrationDirectionsMediaEnabled(salesFlowConfig)
+                          ? "translate-x-0"
+                          : "-translate-x-3"
+                      }`}
+                    />
+                  </span>
+                </button>
+              </div>
+
+              {resolveAfterRegistrationDirectionsMediaEnabled(salesFlowConfig) ? (
+                <>
+                  {!directionsMediaUrl.trim() ? (
+                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-center leading-relaxed">
+                      {t.salesFlow.directionsMediaNoMediaNote}
+                    </p>
+                  ) : (
+                    <div className="overflow-hidden rounded-xl border border-zinc-100 bg-white">
+                      {directionsMediaType === "video" ? (
+                        <video
+                          src={videoUrlForPreview(directionsMediaUrl)}
+                          controls
+                          className="mx-auto block max-h-48 max-w-full"
+                        />
+                      ) : (
+                        <img
+                          src={directionsMediaUrl}
+                          alt={t.salesFlow.directionsMediaAfterRegTitle}
+                          className="mx-auto block max-h-48 max-w-full object-contain"
+                        />
+                      )}
+                    </div>
+                  )}
+                  <Field label={t.salesFlow.directionsMediaCaptionLabel} lang={lang}>
+                    <Textarea
+                      value={
+                        salesFlowConfig.after_registration_directions_media_caption ??
+                        defaultAfterRegistrationDirectionsMediaCaption(lang === "en" ? "en" : "he")
+                      }
+                      onChange={(v) =>
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          after_registration_directions_media_caption: v,
+                        }))
+                      }
+                      rows={6}
+                      placeholder={defaultAfterRegistrationDirectionsMediaCaption(
+                        lang === "en" ? "en" : "he"
+                      )}
+                    />
+                  </Field>
+                  <p className="text-[11px] text-zinc-500 text-center leading-relaxed">
+                    {t.salesFlow.directionsMediaCaptionHint}
+                  </p>
+                </>
+              ) : null}
+            </div>
           </div>
         </SalesPathSectionBlock>
         </SalesPathSectionRow>

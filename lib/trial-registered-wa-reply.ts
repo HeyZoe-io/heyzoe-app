@@ -6,8 +6,11 @@ import type { OfferKind } from "@/lib/sales-flow";
 import {
   adaptCourseAfterRegistrationBodyForDelivery,
   defaultSalesFlowConfig,
+  formatAfterRegistrationDirectionsMediaCaption,
   formatAfterTrialRegistrationForWhatsAppDelivery,
   resolveAfterRegistrationBodyTemplate,
+  resolveAfterRegistrationDirectionsMediaCaptionTemplate,
+  resolveAfterRegistrationDirectionsMediaEnabled,
 } from "@/lib/sales-flow";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -232,13 +235,20 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
 
   try {
     const directionsMediaUrl = knowledge.directionsMediaUrl?.trim() ?? "";
-    const directionsCaption = [
-      knowledge.addressText?.trim() ? `הכתובת שלנו:\n${knowledge.addressText.trim()}` : "",
-      knowledge.directionsText?.trim() ? `ככה מגיעים אלינו:\n${knowledge.directionsText.trim()}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    if (directionsMediaUrl && !starterBlocksMedia && !courseOnline) {
+    const sendDirectionsMedia =
+      Boolean(directionsMediaUrl) &&
+      resolveAfterRegistrationDirectionsMediaEnabled(sfCfg) &&
+      !starterBlocksMedia &&
+      !courseOnline;
+    const directionsCaption = sendDirectionsMedia
+      ? formatAfterRegistrationDirectionsMediaCaption(
+          resolveAfterRegistrationDirectionsMediaCaptionTemplate(sfCfg, regContentLang),
+          knowledge.addressText ?? "",
+          knowledge.directionsText ?? "",
+          regContentLang
+        )
+      : "";
+    if (sendDirectionsMedia) {
       await sendWhatsAppMediaMessage(
         phoneNumberId,
         input.phone,

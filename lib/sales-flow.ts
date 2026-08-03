@@ -4,6 +4,8 @@
 
 import { detectMessageLanguage } from "@/lib/language-detect";
 import {
+  addressDirectionsPrefix,
+  addressOurPrefix,
   instagramVisitInMeantimeLine,
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
@@ -38,6 +40,27 @@ export function resolveRegistrationConfirmationMode(
   cfg: Pick<SalesFlowConfig, "registration_confirmation_mode"> | null | undefined
 ): RegistrationConfirmationMode {
   return cfg?.registration_confirmation_mode === "automatic" ? "automatic" : "manual";
+}
+
+/** ברירת מחדל true — התנהגות היסטורית כשיש מדיית הגעה. */
+export function resolveAfterRegistrationDirectionsMediaEnabled(
+  cfg: Pick<SalesFlowConfig, "after_registration_directions_media_enabled"> | null | undefined
+): boolean {
+  return cfg?.after_registration_directions_media_enabled !== false;
+}
+
+export function defaultAfterRegistrationDirectionsMediaCaption(
+  language: BusinessContentLanguage = "he"
+): string {
+  return `${addressOurPrefix(language)}\n{business_address}\n\n${addressDirectionsPrefix(language)}\n{business_directions}`;
+}
+
+export function resolveAfterRegistrationDirectionsMediaCaptionTemplate(
+  cfg: Pick<SalesFlowConfig, "after_registration_directions_media_caption"> | null | undefined,
+  language: BusinessContentLanguage = "he"
+): string {
+  const raw = String(cfg?.after_registration_directions_media_caption ?? "").trim();
+  return raw || defaultAfterRegistrationDirectionsMediaCaption(language);
 }
 
 export type ScheduleCtaDelivery = "link" | "image" | "none";
@@ -166,6 +189,16 @@ export type SalesFlowConfig = {
   /** הודעה אחרי הרשמה — קורס */
   after_course_registration_body: string;
   after_course_registration_body_after_schedule: string;
+  /**
+   * שליחת מדיית הגעה (+כיתוב) בנוסף להודעת «אחרי הרשמה».
+   * ברירת מחדל: true (התנהגות היסטורית כשיש directions_media_url).
+   */
+  after_registration_directions_media_enabled?: boolean;
+  /**
+   * כיתוב להודעת מדיית ההגעה אחרי הרשמה.
+   * תומך ב־{business_address} / {business_directions}.
+   */
+  after_registration_directions_media_caption?: string;
   /** מיגרציה ממסלול ישן — דורס את הברכה המורכבת */
   greeting_body_override?: string;
   /** @deprecated נגזר מ־memberships_cta_delivery בכפתור המנויים; נשמר לתאימות לקוחות ישנים */
@@ -551,6 +584,12 @@ const FRIENDLY: SalesFlowConfig = {
 סופר מחכים לראותך. נתראה בקרוב!
 
 {instagram_cta}`,
+  after_registration_directions_media_enabled: true,
+  after_registration_directions_media_caption: `הכתובת שלנו:
+{business_address}
+
+ככה מגיעים אלינו:
+{business_directions}`,
 };
 
 const FORMAL: SalesFlowConfig = {
@@ -1799,6 +1838,12 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       typeof o.after_course_registration_body_after_schedule === "string"
         ? o.after_course_registration_body_after_schedule
         : base.after_course_registration_body_after_schedule,
+    after_registration_directions_media_enabled:
+      o.after_registration_directions_media_enabled === false ? false : true,
+    after_registration_directions_media_caption:
+      typeof o.after_registration_directions_media_caption === "string"
+        ? o.after_registration_directions_media_caption
+        : base.after_registration_directions_media_caption,
     greeting_body_override: migrateLegacyGreetingBodyOverride(o.greeting_body_override),
     /** ברירת מחדל true — לתאימות בלבד; בשימוש אפשרי עם applyLegacyMembershipsCheckbox */
     show_memberships_button: o.show_memberships_button === false ? false : true,
@@ -1983,6 +2028,11 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     after_workshop_registration_body_after_schedule: c.after_workshop_registration_body_after_schedule,
     after_course_registration_body: c.after_course_registration_body,
     after_course_registration_body_after_schedule: c.after_course_registration_body_after_schedule,
+    after_registration_directions_media_enabled:
+      c.after_registration_directions_media_enabled === false ? false : true,
+    after_registration_directions_media_caption:
+      String(c.after_registration_directions_media_caption ?? "").trim() ||
+      defaultAfterRegistrationDirectionsMediaCaption("he"),
     greeting_body_override: c.greeting_body_override?.trim() || undefined,
     warmup_style: c.warmup_style === "quiz" ? "quiz" : undefined,
     schedule_board_placement: resolveScheduleBoardPlacement(c),
@@ -3040,6 +3090,26 @@ export function formatAfterTrialRegistrationForWhatsAppDelivery(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return s;
+}
+
+/**
+ * כיתוב להודעת מדיית הגעה שנשלחת אחרי הרשמה (בנוסף לגוף «אחרי הרשמה»).
+ * ממלא {business_address} / {business_directions} ומסיר שורות placeholder ריקות.
+ */
+export function formatAfterRegistrationDirectionsMediaCaption(
+  template: string,
+  address: string,
+  directions: string,
+  language: BusinessContentLanguage = "he"
+): string {
+  return formatAfterTrialRegistrationForWhatsAppDelivery(
+    template,
+    "",
+    address,
+    directions,
+    undefined,
+    language
+  );
 }
 
 /** התאמת הודעת אחרי־הרשמה לקורס אונליין (עם/בלי תאריכים). */

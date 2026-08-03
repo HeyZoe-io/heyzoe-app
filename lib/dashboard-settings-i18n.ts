@@ -330,6 +330,16 @@ export const dashboardSettingsI18n = {
       afterRegTypeAria: "סוג מוצר אחרי הרשמה",
       autoFillDetails: "הפרטים ימולאו אוטומטית על פי בחירת הלקוח",
       waAutoFill: "בווטסאפ ימולאו אוטומטית שם המוצר, התאריך והשעה שהליד בחר בסשן «בחירת מועד»",
+      directionsMediaAfterRegTitle: "הודעת מדיה — כתובת והגעה",
+      directionsMediaAfterRegHint:
+        "הודעה נוספת עם תמונה/סרטון הגעה שנשלחת לפני הודעת «אחרי הרשמה» (כשיש מדיה מוגדרת בידע העסקי).",
+      directionsMediaAfterRegOn: "פועל",
+      directionsMediaAfterRegOff: "כבוי",
+      directionsMediaCaptionLabel: "כיתוב להודעת המדיה",
+      directionsMediaCaptionHint:
+        "אפשר להשתמש ב־{business_address} ו־{business_directions} — ימולאו אוטומטית מהידע העסקי.",
+      directionsMediaNoMediaNote:
+        "אין מדיה להנחיות הגעה. העלו תמונה או סרטון בטאב «ידע עסקי» ← מיקום / הגעה כדי שההודעה תישלח.",
       warmupButtons: "כפתורי תשובה",
       dragButton: (n: number) => `גרירה לשינוי מיקום כפתור ${n}`,
       dragOrder: "גררו לשינוי סדר",
@@ -774,6 +784,16 @@ export const dashboardSettingsI18n = {
       autoFillDetails: "Details auto-filled based on customer choice",
       waAutoFill:
         "WhatsApp will auto-fill product name, date and time the lead chose in Time selection",
+      directionsMediaAfterRegTitle: "Media message — address & directions",
+      directionsMediaAfterRegHint:
+        "Extra image/video directions message sent before the after-registration text (when directions media is set in business knowledge).",
+      directionsMediaAfterRegOn: "On",
+      directionsMediaAfterRegOff: "Off",
+      directionsMediaCaptionLabel: "Media message caption",
+      directionsMediaCaptionHint:
+        "You can use {business_address} and {business_directions} — filled automatically from business knowledge.",
+      directionsMediaNoMediaNote:
+        "No directions media yet. Upload an image or video in Business knowledge → Location / directions for this message to send.",
       warmupButtons: "Answer buttons",
       dragButton: (n: number) => `Drag to reorder button ${n}`,
       dragOrder: "Drag to reorder",

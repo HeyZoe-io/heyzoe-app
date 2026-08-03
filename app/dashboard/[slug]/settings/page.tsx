@@ -3013,6 +3013,8 @@ export default function SlugSettingsPage({
             uid={uid}
             businessName={name}
             addressText={address}
+            directionsMediaUrl={directionsMediaUrl}
+            directionsMediaType={directionsMediaType}
           />
         )}
 
