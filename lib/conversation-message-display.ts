@@ -100,11 +100,28 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
   let s = String(raw ?? "").replace(/\r\n/g, "\n").trim();
   if (!s) return { kind: "text", text: "" };
 
+  if (s.startsWith("[video]")) {
+    const caption = s.slice("[video]".length).trim();
+    return { kind: "media", url: "", caption: caption || undefined, isVideo: true };
+  }
+  if (s.startsWith("[image]")) {
+    const caption = s.slice("[image]".length).trim();
+    return { kind: "media", url: "", caption: caption || undefined, isVideo: false };
+  }
+
   if (s.startsWith("[media]")) {
     const rest = s.slice("[media]".length).trim();
     const nl = rest.indexOf("\n\n");
     const url = (nl >= 0 ? rest.slice(0, nl) : rest).trim();
     const caption = nl >= 0 ? rest.slice(nl + 2).trim() : "";
+    if (!/^https?:\/\//i.test(url) && /^(video|image)$/i.test(url)) {
+      return {
+        kind: "media",
+        url: "",
+        caption: caption || undefined,
+        isVideo: /^video$/i.test(url),
+      };
+    }
     const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(url) || rest.toLowerCase().includes("video");
     return { kind: "media", url, caption: caption || undefined, isVideo };
   }

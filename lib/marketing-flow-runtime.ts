@@ -660,24 +660,22 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
       const mediaUrl = String(data.mediaUrl ?? "").trim();
       const mediaKind = data.mediaKind === "video" ? "video" : "image";
       if (mediaUrl) {
-        const mediaOutgoing: MetaWhatsAppOutgoing = {
-          type: "interactive" as const,
-          interactive: {},
-        };
         try {
-          const metaToken = process.env.META_ACCESS_TOKEN?.trim() || process.env.WHATSAPP_SYSTEM_TOKEN?.trim() || "";
-          const url = `https://graph.facebook.com/v21.0/${MARKETING_WA_PHONE_NUMBER_ID}/messages`;
-          const body: Record<string, unknown> = {
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: phone.replace(/^\+/, ""),
-            type: mediaKind,
-            [mediaKind]: { link: mediaUrl, ...(text ? { caption: text } : {}) },
-          };
-          await fetch(url, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${metaToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+          const { sendWhatsAppMediaMessage } = await import("@/lib/whatsapp");
+          await sendWhatsAppMediaMessage(
+            MARKETING_WA_PHONE_NUMBER_ID,
+            phone.replace(/^\+/, ""),
+            mediaUrl,
+            "",
+            "",
+            text || undefined,
+            mediaKind
+          );
+          // לא שומרים את קובץ המדיה בלוג — רק סמן לתצוגה בדף שיחות
+          await logMarketingWhatsAppMessage({
+            leadPhone: phone,
+            role: "assistant",
+            content: mediaKind === "video" ? "[video]" : "[image]",
           });
         } catch (e) {
           console.error("[marketing-flow] media send error:", e);
@@ -686,10 +684,9 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
             await logMarketingWhatsAppMessage({
               leadPhone: phone,
               role: "assistant",
-              content: `[${mediaKind}]`,
+              content: mediaKind === "video" ? "[video]" : "[image]",
             });
         }
-        void mediaOutgoing;
       } else if (text) {
         await sendMarketingWhatsApp(phone, text);
       }

@@ -99,7 +99,11 @@ function MessageBody({ parsed }: { parsed: ParsedWaConversationMessage }) {
               <img src={parsed.url} alt="" className="max-h-56 w-full object-contain" />
             )}
           </div>
-        ) : null}
+        ) : (
+          <p className="whitespace-pre-wrap px-2.5 py-2 text-sm leading-snug text-[#54656f]">
+            {isVideo ? "🎥 נשלח סרטון" : "📷 נשלחה תמונה"}
+          </p>
+        )}
         {parsed.caption ? (
           <p className="whitespace-pre-wrap px-2.5 py-2 text-sm leading-snug">{parsed.caption}</p>
         ) : null}
