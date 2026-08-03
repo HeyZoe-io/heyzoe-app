@@ -212,6 +212,42 @@ export async function resolveMembershipExpiringTemplateTrigger(input: {
   return pickMembershipExpiringTemplateTriggerRule(rules);
 }
 
+/** Enabled trial_attended rules — pick newest with a template name (product_filter ignored: report has no membership_type). */
+export async function loadEnabledTrialAttendedTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "trial_attended")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load trial_attended rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickTrialAttendedTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveTrialAttendedTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledTrialAttendedTemplateTriggers(input.admin, input.businessId);
+  return pickTrialAttendedTemplateTriggerRule(rules);
+}
+
 export async function resolvePurchaseTemplateTriggerForSale(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
