@@ -19,6 +19,10 @@ export const MARKETING_HUMAN_AGENT_NOTIFY_PHONE = "972508318162";
 
 export const MARKETING_HUMAN_AGENT_TEMPLATE = "marketing_human_agent_request";
 
+/** סימון ב-messages שנשלחה התראת אדמין (מונע כפילות משרשרת נודים / retries) */
+export const MARKETING_HUMAN_AGENT_OWNER_NOTIFY_EVENT = "[heyzoe:marketing_human_agent_owner_notify]";
+export const MARKETING_HUMAN_AGENT_OWNER_NOTIFY_MODEL = "marketing_human_agent_owner_notify";
+
 /** נוד פלואו שיווקי (למשל נוד 8) — במקום טקסט חופשי שולחים template לבעלים + הודעת ליד קבועה */
 export const MARKETING_FLOW_NODE_HUMAN_AGENT_ACTION = "marketing_human_agent_request";
 
@@ -92,9 +96,50 @@ export async function recentAssistantSentMarketingHumanHandoff(phoneRaw: string)
   return false;
 }
 
+/** כבר נשלחה התראת אדמין לליד זה (event marker או model_used). */
+export async function recentMarketingHumanAgentOwnerNotified(phoneRaw: string): Promise<boolean> {
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) return false;
+  const admin = createSupabaseAdminClient();
+  const sessionId = marketingWaSessionId(phone);
+  const { data } = await admin
+    .from("messages")
+    .select("content, model_used")
+    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .eq("session_id", sessionId)
+    .in("role", ["event", "assistant"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  for (const row of data ?? []) {
+    const content = String((row as { content?: string }).content ?? "");
+    const model = String((row as { model_used?: string }).model_used ?? "");
+    if (content.includes(MARKETING_HUMAN_AGENT_OWNER_NOTIFY_EVENT)) return true;
+    if (/marketing_human_agent_owner_notify/i.test(model)) return true;
+  }
+  return false;
+}
+
+async function logMarketingHumanAgentOwnerNotifyClaim(phone: string): Promise<void> {
+  const { logMessage } = await import("@/lib/analytics");
+  await logMessage({
+    business_slug: MARKETING_CONVERSATIONS_SLUG,
+    role: "event",
+    content: MARKETING_HUMAN_AGENT_OWNER_NOTIFY_EVENT,
+    model_used: MARKETING_HUMAN_AGENT_OWNER_NOTIFY_MODEL,
+    session_id: marketingWaSessionId(phone),
+  });
+}
+
 export async function sendMarketingHumanAgentOwnerNotification(phoneRaw: string): Promise<void> {
   const phone = normalizePhone(phoneRaw);
   if (!phone) return;
+  if (await recentMarketingHumanAgentOwnerNotified(phone)) {
+    console.info("[marketing-human-agent] skip duplicate owner template for:", phone);
+    return;
+  }
+  // claim לפני שליחה — מונע כפילות בשרשרת נודים באותו request
+  await logMarketingHumanAgentOwnerNotifyClaim(phone);
   const display = formatLeadPhoneForTemplate(phone);
   const result = await sendOwnerNotification({
     ownerPhone: MARKETING_HUMAN_AGENT_NOTIFY_PHONE,
@@ -103,13 +148,13 @@ export async function sendMarketingHumanAgentOwnerNotification(phoneRaw: string)
     components: buildSinglePhoneWaParams(display),
   });
   if (!result.ok) {
-    console.warn("[marketing-human-agent] owner template failed:", result.error);
+    console.error("[marketing-human-agent] owner template failed:", result.error);
   } else {
     console.info("[marketing-human-agent] owner template sent for lead:", display);
   }
 }
 
-/** התראה + opt-out מפולואפים (בלי הודעה לליד). */
+/** התראה + opt-out מפולואפים (בלי הודעה לליד). Idempotent — template פעם אחת לליד. */
 export async function applyMarketingHumanAgentSideEffects(phoneRaw: string): Promise<void> {
   const phone = normalizePhone(phoneRaw);
   if (!phone) return;

@@ -620,8 +620,12 @@ function findNextNode(
 
 /**
  * Send the content of a node as a WhatsApp message.
+ * @returns humanHandoff — true אם הועבר לנציג (יש לעצור את שרשרת הנודים).
  */
-async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
+async function sendNodeMessage(
+  node: FlowNode,
+  phone: string
+): Promise<{ humanHandoff: boolean }> {
   const data = node.data;
   const text = String(data.text ?? "").trim();
 
@@ -629,13 +633,13 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
     await import("@/lib/marketing-human-agent");
   if (isMarketingHumanAgentHandoffFlowNode(node)) {
     await deliverMarketingHumanAgentHandoffFromFlowNode(phone);
-    return;
+    return { humanHandoff: true };
   }
 
   switch (node.type) {
     case "message":
     case "followup": {
-      if (!text) return;
+      if (!text) return { humanHandoff: false };
       await sendMarketingWhatsApp(phone, text);
       break;
     }
@@ -650,7 +654,7 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
             role: "assistant",
             content: text ? `${text}\n[כפתורים: ${buttons.join(" | ")}]` : `[כפתורים: ${buttons.join(" | ")}]`,
           });
-          return;
+          return { humanHandoff: false };
         }
       }
       if (text) await sendMarketingWhatsApp(phone, text);
@@ -713,6 +717,7 @@ async function sendNodeMessage(node: FlowNode, phone: string): Promise<void> {
       if (text) await sendMarketingWhatsApp(phone, text);
     }
   }
+  return { humanHandoff: false };
 }
 
 /**
@@ -739,7 +744,11 @@ async function sendNodeChain(
       console.info("[marketing-flow] delay node", current.id, "seconds:", sec);
       await sleepMs(sec * 1000);
     } else {
-      await sendNodeMessage(current, phone);
+      const { humanHandoff } = await sendNodeMessage(current, phone);
+      // אחרי העברה לנציג — לא ממשיכים לנודים הבאים (מונע התראת אדמין כפולה)
+      if (humanHandoff) {
+        return { lastSent: current, waitingForAnswer: false, nextNodeId: null };
+      }
     }
 
     if (current.type === "question") {
