@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
+import { syncArboxSessionsExpiringForBusiness } from "@/lib/leads/arbox-sessions-expiring";
 import { syncArboxTrialAttendedForBusiness } from "@/lib/leads/arbox-trial-attended";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps: birthday, membership_expiring, trial_attended. Later: sessions_expiring / Zoe-native.
+ * Steps: birthday, membership_expiring, trial_attended, sessions_expiring.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -73,7 +74,8 @@ export async function GET(req: NextRequest) {
     birthday?: Awaited<ReturnType<typeof syncArboxBirthdaysForBusiness>>;
     membership_expiring?: Awaited<ReturnType<typeof syncArboxMembershipExpiringForBusiness>>;
     trial_attended?: Awaited<ReturnType<typeof syncArboxTrialAttendedForBusiness>>;
-    // future: sessions_expiring?: ...; zoe_native?: ...
+    sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
+    // future: zoe_native?: ...
   }> = [];
 
   for (const business of businesses) {
@@ -181,7 +183,42 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // --- Step: sessions_expiring (future) ---
+    // --- Step: sessions_expiring ---
+    try {
+      entry.sessions_expiring = await syncArboxSessionsExpiringForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        now,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] sessions_expiring step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.sessions_expiring = {
+        fetched: 0,
+        pages_fetched: 0,
+        processed: 0,
+        dedup: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        skipped_renewed: 0,
+        skipped_cancelled: 0,
+        skipped_past_due: 0,
+        skipped_expired_end: 0,
+        skipped_no_end_date: 0,
+        skipped_outside_horizon: 0,
+        no_phone: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
     // --- Step: zoe_native (future) ---
 
     summaries.push(entry);

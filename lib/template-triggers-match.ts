@@ -212,6 +212,45 @@ export async function resolveMembershipExpiringTemplateTrigger(input: {
   return pickMembershipExpiringTemplateTriggerRule(rules);
 }
 
+/** Enabled sessions_expiring rules — pick newest with a template name. */
+export async function loadEnabledSessionsExpiringTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "sessions_expiring")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load sessions_expiring rules failed:",
+      error.message
+    );
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickSessionsExpiringTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveSessionsExpiringTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledSessionsExpiringTemplateTriggers(input.admin, input.businessId);
+  return pickSessionsExpiringTemplateTriggerRule(rules);
+}
+
 /** Enabled trial_attended rules — pick newest with a template name.
  * product_filter (if set) scopes which trial membership types count; matching is by
  * membership_type_name via /v3/membershipTypes (bookingsReport has no membership_type_id).

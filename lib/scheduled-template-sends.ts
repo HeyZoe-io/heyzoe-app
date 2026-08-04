@@ -80,6 +80,17 @@ export function buildMembershipExpiringScheduledDedupKey(
   return `membership_expiring:${businessId}:${String(triggerId).trim()}:${membershipUserId}:${String(endDateYmd).trim()}`;
 }
 
+/** Sessions-expiring enqueue key: once per business+trigger+user+start_date+end_date (pack identity). */
+export function buildSessionsExpiringScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  startDateYmd: string,
+  endDateYmd: string
+): string {
+  return `sessions_expiring:${businessId}:${String(triggerId).trim()}:${userId}:${String(startDateYmd).trim()}:${String(endDateYmd).trim()}`;
+}
+
 /** Trial-attended enqueue key: once per business+trigger+user+class_date. */
 export function buildTrialAttendedScheduledDedupKey(
   businessId: number,
