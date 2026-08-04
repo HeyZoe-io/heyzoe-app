@@ -2176,6 +2176,100 @@ section{padding:80px 6%;}
 
 /* PRICING */
 .pricing-section{background:white;padding:80px 6%;}
+
+/* Compact pricing + demo form (legacy pricing hidden) */
+.pricing-legacy{display:none!important;}
+.pricing-compact{
+  display:grid;grid-template-columns:1fr 1fr;gap:14px;
+  margin:0 auto 28px;max-width:640px;direction:rtl;text-align:right;
+}
+.pricing-compact-card{
+  margin:0;padding:18px 20px;border-radius:18px;
+  background:var(--bg);border:1.5px solid rgba(113,51,218,0.12);
+  box-shadow:0 8px 24px rgba(26,10,60,0.04);
+}
+.pricing-compact-card--pro{
+  background:var(--dark);border-color:rgba(113,51,218,0.45);
+}
+.pricing-compact-name{
+  font-family:'Fredoka',sans-serif;font-size:18px;font-weight:600;
+  color:var(--dark);margin:0 0 6px;
+}
+.pricing-compact-card--pro .pricing-compact-name{color:#fff;}
+.pricing-compact-price{
+  font-family:'Fredoka',sans-serif;font-size:clamp(28px,4vw,34px);font-weight:700;
+  color:var(--purple);line-height:1;margin:0 0 6px;
+}
+.pricing-compact-card--pro .pricing-compact-price{color:var(--pink);}
+.pricing-compact-meta{
+  font-family:'Heebo',sans-serif;font-size:14px;font-weight:500;
+  color:var(--muted);margin:0;line-height:1.45;
+}
+.pricing-compact-card--pro .pricing-compact-meta{color:rgba(255,255,255,0.72);}
+.pricing-compact-period{
+  font-size:12px;color:var(--muted);margin:0 0 8px;
+}
+.pricing-compact-card--pro .pricing-compact-period{color:rgba(255,255,255,0.5);}
+.lp-demo-form{
+  max-width:560px;margin:0 auto;text-align:right;direction:rtl;
+  background:rgba(245,243,255,0.65);
+  border:1px solid rgba(113,51,218,0.12);
+  border-radius:22px;padding:clamp(22px,3.5vw,28px);
+  box-shadow:0 12px 36px rgba(26,10,60,0.06);
+}
+.lp-demo-form-title{
+  font-family:'Fredoka',sans-serif;font-size:clamp(20px,3vw,24px);font-weight:600;
+  color:var(--dark);margin:0 0 6px;text-align:center;
+}
+.lp-demo-form-sub{
+  font-family:'Heebo',sans-serif;font-size:15px;color:var(--muted);
+  margin:0 auto 20px;text-align:center;line-height:1.55;max-width:28rem;
+}
+.lp-demo-fields{display:grid;gap:12px;}
+.lp-demo-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.lp-demo-field{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.lp-demo-field label{
+  font-family:'Heebo',sans-serif;font-size:13px;font-weight:600;color:var(--text);
+}
+.lp-demo-field input,
+.lp-demo-field select{
+  width:100%;box-sizing:border-box;
+  font-family:'Heebo',sans-serif;font-size:15px;
+  color:var(--dark);background:#fff;
+  border:1.5px solid rgba(113,51,218,0.16);
+  border-radius:12px;padding:11px 14px;
+  outline:none;transition:border-color 0.2s,box-shadow 0.2s;
+  -webkit-appearance:none;appearance:none;
+}
+.lp-demo-field select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237133da' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:left 14px center;padding-left:36px;
+}
+.lp-demo-field input:focus,
+.lp-demo-field select:focus{
+  border-color:rgba(113,51,218,0.45);
+  box-shadow:0 0 0 3px rgba(113,51,218,0.12);
+}
+.lp-demo-hp{position:absolute;left:-9999px;opacity:0;height:0;width:0;overflow:hidden;}
+.lp-demo-submit{
+  width:100%;margin-top:6px;padding:14px 18px;border:none;border-radius:30px;
+  font-family:'Fredoka',sans-serif;font-size:16px;font-weight:600;cursor:pointer;
+  color:#fff;background:linear-gradient(135deg,var(--purple),#a855f7);
+  transition:transform 0.2s,box-shadow 0.2s,opacity 0.2s;
+}
+.lp-demo-submit:hover{transform:translateY(-1px);box-shadow:0 10px 28px rgba(113,51,218,0.28);}
+.lp-demo-submit:disabled{opacity:0.65;cursor:wait;transform:none;box-shadow:none;}
+.lp-demo-msg{
+  font-family:'Heebo',sans-serif;font-size:14px;line-height:1.5;
+  margin:12px 0 0;min-height:1.2em;text-align:center;
+}
+.lp-demo-msg--ok{color:#15803d;}
+.lp-demo-msg--err{color:#b91c1c;}
+@media (max-width:680px){
+  .pricing-compact{grid-template-columns:1fr;}
+  .lp-demo-row{grid-template-columns:1fr;}
+}
+
 .pricing-inner{max-width:860px;margin:0 auto;text-align:center;}
 .trial-badge{
   display:inline-flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;
@@ -2892,47 +2986,119 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       <div class="section-tag tag-light">מחירים</div>
       <h2 class="section-title" style="color:var(--dark);">השקעה שמחזירה את עצמה</h2>
       <p class="section-sub" style="color:var(--muted);margin:0 auto 24px;">תמיכה בהקמה ללא עלות!</p>
-      <div class="trial-badge" id="promoBadge">ללא דמי הקמה, ללא התחייבות.</div>
     </div>
-    <div class="pricing-grid reveal">
-      <div class="pricing-card">
-        <div class="pricing-name">Starter</div>
-        <div class="pricing-trial" id="promoStarter">מחיר לכל החיים</div>
-        <div class="pricing-price-row">
-          <div class="pricing-price">₪349</div>
-          <div class="pricing-old">₪500</div>
-          <span class="pricing-vat">כולל מע״מ</span>
+
+    <div class="pricing-compact reveal" aria-label="חבילות">
+      <article class="pricing-compact-card">
+        <h3 class="pricing-compact-name">Starter</h3>
+        <p class="pricing-compact-price">₪349</p>
+        <p class="pricing-compact-period">לחודש · כולל מע״מ</p>
+        <p class="pricing-compact-meta">עד 100 לידים בחודש</p>
+      </article>
+      <article class="pricing-compact-card pricing-compact-card--pro">
+        <h3 class="pricing-compact-name">Pro</h3>
+        <p class="pricing-compact-price">₪499</p>
+        <p class="pricing-compact-period">לחודש · כולל מע״מ</p>
+        <p class="pricing-compact-meta">עד 500 לידים בחודש</p>
+      </article>
+    </div>
+
+    <form class="lp-demo-form reveal" id="lpDemoForm" novalidate>
+      <h3 class="lp-demo-form-title">בואו נקבע שיחה</h3>
+      <p class="lp-demo-form-sub">השאירו פרטים ונחזור אליכם ביום ובשעה שנוחים לכם</p>
+      <div class="lp-demo-fields">
+        <div class="lp-demo-field">
+          <label for="lpFullName">שם מלא</label>
+          <input id="lpFullName" name="full_name" type="text" autocomplete="name" required maxlength="80" placeholder="ישראל ישראלי">
         </div>
-        <div class="pricing-period">לחודש</div>
-        <ul class="pricing-features">
-          <li>ללא עלות הקמה</li>
-          <li>מספר ווטסאפ ייעודי</li>
-          <li>פלואו מכירה מלא</li>
-          <li>פולואפים אוטומטיים</li>
-          <li>עד 100 לידים בחודש</li>
-          <li>דשבורד ניהול</li>
-          <li>תמיכה בצ'אט</li>
-        </ul>
-        <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter - בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
+        <div class="lp-demo-row">
+          <div class="lp-demo-field">
+            <label for="lpPhone">טלפון</label>
+            <input id="lpPhone" name="phone" type="tel" autocomplete="tel" required maxlength="30" placeholder="050-0000000" inputmode="tel">
+          </div>
+          <div class="lp-demo-field">
+            <label for="lpEmail">מייל</label>
+            <input id="lpEmail" name="email" type="email" autocomplete="email" required maxlength="120" placeholder="name@studio.co.il" dir="ltr" style="text-align:left;">
+          </div>
+        </div>
+        <div class="lp-demo-field">
+          <label for="lpBusiness">שם העסק</label>
+          <input id="lpBusiness" name="business_name" type="text" autocomplete="organization" required maxlength="120" placeholder="שם הסטודיו / העסק">
+        </div>
+        <div class="lp-demo-row">
+          <div class="lp-demo-field">
+            <label for="lpDay">יום שנוח לשיחה</label>
+            <select id="lpDay" name="preferred_day" required>
+              <option value="" disabled selected>בחרו יום</option>
+              <option value="ראשון">ראשון</option>
+              <option value="שני">שני</option>
+              <option value="שלישי">שלישי</option>
+              <option value="רביעי">רביעי</option>
+              <option value="חמישי">חמישי</option>
+            </select>
+          </div>
+          <div class="lp-demo-field">
+            <label for="lpSlot">שעה שנוחה לשיחה</label>
+            <select id="lpSlot" name="preferred_slot" required>
+              <option value="" disabled selected>בחרו שעה</option>
+              <option value="10-12">10:00–12:00</option>
+              <option value="14-16">14:00–16:00</option>
+              <option value="16-18">16:00–18:00</option>
+            </select>
+          </div>
+        </div>
+        <div class="lp-demo-hp" aria-hidden="true">
+          <label for="lpWebsite">אתר</label>
+          <input id="lpWebsite" name="company_website" type="text" tabindex="-1" autocomplete="off">
+        </div>
+        <button type="submit" class="lp-demo-submit" id="lpDemoSubmit">שלחו פרטים</button>
+        <p class="lp-demo-msg" id="lpDemoMsg" role="status" aria-live="polite"></p>
       </div>
-      <div class="pricing-card featured">
-        <div class="pricing-badge">הכי פופולרי</div>
-        <div class="pricing-name">Pro</div>
-        <div class="pricing-trial" id="promoPro">מחיר לכל החיים</div>
-        <div class="pricing-price-row">
-          <div class="pricing-price" style="color:var(--pink);">₪499</div>
-          <div class="pricing-old">₪650</div>
-          <span class="pricing-vat">כולל מע״מ</span>
+    </form>
+
+    <!-- Legacy full pricing (kept hidden for restore / analytics refs) -->
+    <div class="pricing-legacy" hidden aria-hidden="true">
+      <div class="trial-badge" id="promoBadge">ללא דמי הקמה, ללא התחייבות.</div>
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <div class="pricing-name">Starter</div>
+          <div class="pricing-trial" id="promoStarter">מחיר לכל החיים</div>
+          <div class="pricing-price-row">
+            <div class="pricing-price">₪349</div>
+            <div class="pricing-old">₪500</div>
+            <span class="pricing-vat">כולל מע״מ</span>
+          </div>
+          <div class="pricing-period">לחודש</div>
+          <ul class="pricing-features">
+            <li>ללא עלות הקמה</li>
+            <li>מספר ווטסאפ ייעודי</li>
+            <li>פלואו מכירה מלא</li>
+            <li>פולואפים אוטומטיים</li>
+            <li>עד 100 לידים בחודש</li>
+            <li>דשבורד ניהול</li>
+            <li>תמיכה בצ'אט</li>
+          </ul>
+          <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter - בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
         </div>
-        <div class="pricing-period">לחודש</div>
-        <ul class="pricing-features">
-          <li>כל מה שב-Starter</li>
-          <li>שלבו תמונות וסרטונים בפלואו מכירה</li>
-          <li>עד 500 לידים בחודש</li>
-          <li>ליווי צמוד בהקמה</li>
-          <li>אנליטיקס מתקדם</li>
-        </ul>
-        <button class="pricing-btn pricing-btn-filled" data-hz-label="מחירים: Pro - קבלו את זואי" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
+        <div class="pricing-card featured">
+          <div class="pricing-badge">הכי פופולרי</div>
+          <div class="pricing-name">Pro</div>
+          <div class="pricing-trial" id="promoPro">מחיר לכל החיים</div>
+          <div class="pricing-price-row">
+            <div class="pricing-price" style="color:var(--pink);">₪499</div>
+            <div class="pricing-old">₪650</div>
+            <span class="pricing-vat">כולל מע״מ</span>
+          </div>
+          <div class="pricing-period">לחודש</div>
+          <ul class="pricing-features">
+            <li>כל מה שב-Starter</li>
+            <li>שלבו תמונות וסרטונים בפלואו מכירה</li>
+            <li>עד 500 לידים בחודש</li>
+            <li>ליווי צמוד בהקמה</li>
+            <li>אנליטיקס מתקדם</li>
+          </ul>
+          <button class="pricing-btn pricing-btn-filled" data-hz-label="מחירים: Pro - קבלו את זואי" onclick="location.href='/onboarding?plan=pro'">קבלו את זואי</button>
+        </div>
       </div>
     </div>
   </div>
@@ -3236,6 +3402,76 @@ try{
     }catch(e){}
   }, {capture:true});
 }catch(e){}
+
+
+// LP demo / call-request form
+(function(){
+  var form = document.getElementById('lpDemoForm');
+  if(!form) return;
+  var msg = document.getElementById('lpDemoMsg');
+  var btn = document.getElementById('lpDemoSubmit');
+  var ERR = {
+    missing_full_name: 'נא למלא שם מלא',
+    invalid_phone: 'נא להזין טלפון תקין',
+    invalid_email: 'נא להזין מייל תקין',
+    missing_business_name: 'נא למלא שם העסק',
+    invalid_day: 'נא לבחור יום לשיחה',
+    invalid_slot: 'נא לבחור שעה לשיחה',
+    email_failed: 'שליחה נכשלה — נסו שוב בעוד רגע',
+    request_failed: 'שליחה נכשלה — נסו שוב בעוד רגע'
+  };
+  function setMsg(text, ok){
+    if(!msg) return;
+    msg.textContent = text || '';
+    msg.className = 'lp-demo-msg' + (text ? (ok ? ' lp-demo-msg--ok' : ' lp-demo-msg--err') : '');
+  }
+  function clientValidate(data){
+    if(!data.full_name) return 'missing_full_name';
+    var digits = String(data.phone||'').replace(/\D/g,'');
+    if(digits.length < 9 || digits.length > 15) return 'invalid_phone';
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.email||''))) return 'invalid_email';
+    if(!data.business_name) return 'missing_business_name';
+    if(!data.preferred_day) return 'invalid_day';
+    if(!data.preferred_slot) return 'invalid_slot';
+    return null;
+  }
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    setMsg('', true);
+    var data = {
+      full_name: (form.full_name && form.full_name.value || '').trim(),
+      phone: (form.phone && form.phone.value || '').trim(),
+      email: (form.email && form.email.value || '').trim(),
+      business_name: (form.business_name && form.business_name.value || '').trim(),
+      preferred_day: (form.preferred_day && form.preferred_day.value || '').trim(),
+      preferred_slot: (form.preferred_slot && form.preferred_slot.value || '').trim(),
+      company_website: (form.company_website && form.company_website.value || '').trim()
+    };
+    var cerr = clientValidate(data);
+    if(cerr){ setMsg(ERR[cerr] || 'נא למלא את כל השדות', false); return; }
+    if(btn){ btn.disabled = true; btn.textContent = 'שולחים…'; }
+    fetch('/api/lp/demo-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(function(r){ return r.json().then(function(j){ return { status:r.status, j:j }; }); })
+      .then(function(res){
+        if(res.j && res.j.ok){
+          setMsg('תודה! קיבלנו את הפרטים ונחזור אליכם בהקדם 💜', true);
+          try{ if(typeof hzTrack==='function') hzTrack('cta_click', null, 'טופס שיחה — נשלח'); }catch(e){}
+          try{ if(typeof fbq==='function') fbq('trackCustom', 'cta_click', { label: 'טופס שיחה — נשלח' }); }catch(e){}
+          form.reset();
+          return;
+        }
+        var code = (res.j && res.j.error) || 'request_failed';
+        setMsg(ERR[code] || 'שליחה נכשלה — נסו שוב בעוד רגע', false);
+      })
+      .catch(function(){ setMsg(ERR.request_failed, false); })
+      .finally(function(){
+        if(btn){ btn.disabled = false; btn.textContent = 'שלחו פרטים'; }
+      });
+  });
+})();
 
 // Pricing section view (#pricing)
 try{
