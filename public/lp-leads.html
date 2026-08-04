@@ -1793,6 +1793,118 @@ section{padding:80px 6%;}
 .step-title-accent{color:#3b5bdb;}
 .step-desc{font-size:16px;color:var(--muted);line-height:1.65;}
 
+/* Proactive WhatsApp messages */
+.proactive-wa-section{
+  position:relative;overflow:hidden;
+  padding:clamp(64px,9vh,88px) 6%;
+  background:linear-gradient(165deg,#ecfdf5 0%,#e8f8ef 28%,#eef2ff 62%,#f3e8ff 100%);
+}
+.proactive-wa-section::before,
+.proactive-wa-section::after{
+  content:'';position:absolute;border-radius:50%;pointer-events:none;filter:blur(64px);
+}
+.proactive-wa-section::before{
+  width:min(480px,68vw);height:min(480px,68vw);
+  top:-20%;right:-10%;
+  background:radial-gradient(circle,rgba(37,211,102,0.2),transparent 70%);
+}
+.proactive-wa-section::after{
+  width:min(400px,58vw);height:min(400px,58vw);
+  bottom:-16%;left:-8%;
+  background:radial-gradient(circle,rgba(113,51,218,0.14),transparent 70%);
+}
+.proactive-wa-inner{
+  max-width:920px;margin:0 auto;text-align:center;
+  position:relative;z-index:1;
+}
+.proactive-wa-head{margin-bottom:clamp(28px,4.5vw,40px);}
+.proactive-wa-head .section-tag{
+  background:rgba(37,211,102,0.12);
+  color:#128C7E;
+  border:1px solid rgba(37,211,102,0.22);
+}
+.proactive-wa-head .section-title{
+  color:var(--dark);
+  font-size:clamp(28px,4.4vw,44px);
+  margin:0 0 14px;
+  line-height:1.22;
+}
+.proactive-wa-head .section-sub{
+  color:var(--text);
+  opacity:0.9;
+  margin:0 auto;
+  max-width:560px;
+  font-size:clamp(17px,2.2vw,20px);
+}
+.proactive-wa-grid{
+  list-style:none;margin:0;padding:0;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  text-align:right;direction:rtl;
+}
+.proactive-wa-item{
+  display:flex;align-items:flex-start;gap:14px;
+  margin:0;
+  padding:clamp(16px,2.4vw,20px) clamp(16px,2.6vw,22px);
+  border-radius:18px;
+  background:rgba(255,255,255,0.9);
+  border:1px solid rgba(113,51,218,0.1);
+  box-shadow:0 8px 28px rgba(26,10,60,0.05);
+  transition:transform 0.25s ease,box-shadow 0.25s ease,border-color 0.25s ease;
+}
+.proactive-wa-item:hover{
+  transform:translateY(-3px);
+  border-color:rgba(37,211,102,0.28);
+  box-shadow:0 14px 36px rgba(37,211,102,0.1);
+}
+.proactive-wa-item:last-child{
+  grid-column:1 / -1;
+  max-width:calc(50% - 7px);
+  margin-inline:auto;
+  width:100%;
+}
+.proactive-wa-icon{
+  flex-shrink:0;width:42px;height:42px;
+  border-radius:13px;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#25D366,#128C7E);
+  box-shadow:0 6px 16px rgba(37,211,102,0.28);
+  color:#fff;
+}
+.proactive-wa-icon svg{width:20px;height:20px;}
+.proactive-wa-icon--purple{
+  background:linear-gradient(145deg,#7133da,#a855f7);
+  box-shadow:0 6px 16px rgba(113,51,218,0.22);
+}
+.proactive-wa-text{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(15px,1.9vw,17px);font-weight:500;
+  color:var(--dark);line-height:1.55;margin:0;
+  padding-top:8px;
+}
+.proactive-wa-note{
+  font-family:'Heebo',sans-serif;
+  font-size:clamp(12px,1.5vw,13.5px);font-weight:400;
+  color:var(--muted);line-height:1.65;
+  margin:clamp(22px,3.5vw,32px) auto 0;
+  max-width:36rem;
+  opacity:0.85;
+}
+@media (max-width:680px){
+  .proactive-wa-section{padding:clamp(48px,8vh,64px) 6%;}
+  .proactive-wa-grid{grid-template-columns:1fr;}
+  .proactive-wa-item:last-child{
+    grid-column:auto;
+    max-width:none;
+    margin-inline:0;
+  }
+  .proactive-wa-head .section-title{font-size:clamp(24px,7vw,32px);}
+}
+@media (prefers-reduced-motion:reduce){
+  .proactive-wa-item:hover{transform:none;}
+}
+
 /* SAVINGS */
 .savings-section{
   background:linear-gradient(180deg,#fff 0%,var(--bg) 42%,#fff 100%);
@@ -2666,6 +2778,50 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div><div class="step-title">זואי יוצאת לדרך! 🚀</div><div class="step-desc">מהרגע הזה זואי עונה לכל ליד שמגיע - אתם חופשיים להתמקד באימונים.</div></div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- PROACTIVE WHATSAPP -->
+<section class="proactive-wa-section" id="proactive-wa">
+  <div class="proactive-wa-inner">
+    <div class="reveal proactive-wa-head">
+      <div class="section-tag">מעבר למכירה</div>
+      <h2 class="section-title">הודעות ווטסאפ יזומות ללידים ומנויים!</h2>
+      <p class="section-sub">מעבר לפלואו המכירה, זואי דואגת לתקשר על הדברים החשובים:</p>
+    </div>
+    <ul class="proactive-wa-grid">
+      <li class="proactive-wa-item reveal">
+        <span class="proactive-wa-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </span>
+        <p class="proactive-wa-text">הצעה לעשות מנוי אחרי נוכחות בשיעור ניסיון</p>
+      </li>
+      <li class="proactive-wa-item reveal">
+        <span class="proactive-wa-icon proactive-wa-icon--purple" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        </span>
+        <p class="proactive-wa-text">תזכורות לגבי פקיעת תוקף מנוי/כרטיסיה</p>
+      </li>
+      <li class="proactive-wa-item reveal">
+        <span class="proactive-wa-icon proactive-wa-icon--purple" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        </span>
+        <p class="proactive-wa-text">התראה על סירוב אשראי</p>
+      </li>
+      <li class="proactive-wa-item reveal">
+        <span class="proactive-wa-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+        </span>
+        <p class="proactive-wa-text">הודעת יום הולדת שמח</p>
+      </li>
+      <li class="proactive-wa-item reveal">
+        <span class="proactive-wa-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <p class="proactive-wa-text">הודעה אוטומטית למי שהשאיר פרטים באתר</p>
+      </li>
+    </ul>
+    <p class="proactive-wa-note reveal">יכולות אלו תלויות ב־CRM שלכם וכרוכות בתשלום ישיר למטא (0.13₪ להודעה)</p>
   </div>
 </section>
 
