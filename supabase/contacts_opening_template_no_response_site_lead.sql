@@ -1,8 +1,8 @@
--- אינדקס ל-cron/wa-status-check: לידי opening-template (meta_lead_ad + site_lead)
--- שלא ענו לטמפלייט תוך 6 שעות.
--- הרצה ב-Supabase אחרי deploy של wa_no_response_due_at ב-leads/incoming
--- (אם האינדקס כבר קיים עם meta_lead_ad בלבד — הריצו גם
--- contacts_opening_template_no_response_site_lead.sql)
+-- Extend partial index for template no-response cron to include site_lead
+-- (opening-template leads from website form webhook).
+-- Safe to re-run: drop + create.
+
+drop index if exists public.idx_contacts_meta_template_no_response_due;
 
 create index if not exists idx_contacts_meta_template_no_response_due
   on public.contacts (wa_no_response_due_at)

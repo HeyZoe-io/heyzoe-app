@@ -304,7 +304,7 @@ export async function loadBusinessConversationSessions(
             "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, human_requested_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
           )
           .eq("business_id", businessId)
-          .eq("source", "meta_lead_ad")
+          .in("source", ["meta_lead_ad", "site_lead"])
       : Promise.resolve({ data: [] as Record<string, unknown>[] }),
   ]);
   const pausedSet = new Set(

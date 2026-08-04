@@ -29,7 +29,8 @@ export type TriggerType =
   | "trial_attended"
   | "birthday"
   | "membership_expiring"
-  | "sessions_expiring";
+  | "sessions_expiring"
+  | "site_lead";
 
 export type DelayDirection = "after" | "before";
 
@@ -50,7 +51,17 @@ type ArboxMembershipTypeRow = {
   membership_type_name: string;
 };
 
+const ARBOX_TRIGGER_TYPES = new Set<TriggerType>([
+  "purchase",
+  "credit_refusal",
+  "trial_attended",
+  "birthday",
+  "membership_expiring",
+  "sessions_expiring",
+]);
+
 const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
+  { value: "site_lead", label: "ליד מאתר" },
   { value: "purchase", label: "רכישה" },
   { value: "credit_refusal", label: "סירוב אשראי" },
   { value: "trial_attended", label: "נכחות בשיעור ניסיון" },
@@ -58,6 +69,10 @@ const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "membership_expiring", label: "מנוי עומד לפוג" },
   { value: "sessions_expiring", label: "כרטיסייה עומדת לפוג" },
 ];
+
+function isArboxTriggerType(type: TriggerType): boolean {
+  return ARBOX_TRIGGER_TYPES.has(type);
+}
 
 function triggerTypeLabel(type: TriggerType): string {
   return TRIGGER_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
@@ -77,6 +92,9 @@ function formatDelayLabel(
   days: number,
   direction: DelayDirection
 ): string {
+  if (type === "site_lead") {
+    return days === 0 ? "מיידי" : `${days} ימים אחרי שליחת הטופס`;
+  }
   if (type === "birthday") {
     return days === 0 ? "ביום ההולדת" : `${days} ימים לפני יום ההולדת`;
   }
@@ -281,7 +299,9 @@ export default function TemplatesClient({
   const [triggerTogglingId, setTriggerTogglingId] = useState<number | null>(null);
   const [triggerDeletingId, setTriggerDeletingId] = useState<number | null>(null);
 
-  const [newTriggerType, setNewTriggerType] = useState<TriggerType>("purchase");
+  const [newTriggerType, setNewTriggerType] = useState<TriggerType>(
+    hasArbox ? "purchase" : "site_lead"
+  );
   const [newProductFilter, setNewProductFilter] = useState<number[]>([]);
   const [newDelayDays, setNewDelayDays] = useState(0);
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
@@ -297,6 +317,24 @@ export default function TemplatesClient({
     [templates]
   );
 
+  const creatableTriggerOptions = useMemo(
+    () =>
+      TRIGGER_TYPE_OPTIONS.filter(
+        (opt) => hasArbox || !isArboxTriggerType(opt.value)
+      ),
+    [hasArbox]
+  );
+
+  const enabledSiteLead = useMemo(
+    () => triggers.some((t) => t.trigger_type === "site_lead" && t.enabled),
+    [triggers]
+  );
+
+  const siteLeadWebhookUrl = useMemo(() => {
+    const token = leadsWebhookSecret || "<leads_webhook_secret>";
+    return `https://heyzoe.io/api/leads/incoming?token=${encodeURIComponent(token)}`;
+  }, [leadsWebhookSecret]);
+
   const arboxMembershipTypeNameById = useMemo(() => {
     const map = new Map<number, string>();
     for (const row of arboxMembershipTypes) {
@@ -306,7 +344,14 @@ export default function TemplatesClient({
   }, [arboxMembershipTypes]);
 
   const showNewProductFilter = showsProductFilter(newTriggerType);
-  const hideNewDelayDirection = newTriggerType === "birthday";
+  const hideNewDelayDirection =
+    newTriggerType === "birthday" || newTriggerType === "site_lead";
+
+  useEffect(() => {
+    if (!creatableTriggerOptions.some((o) => o.value === newTriggerType)) {
+      setNewTriggerType(creatableTriggerOptions[0]?.value ?? "site_lead");
+    }
+  }, [creatableTriggerOptions, newTriggerType]);
 
   useEffect(() => {
     setNewDelayDirection(defaultDelayDirection(newTriggerType));
@@ -825,13 +870,13 @@ export default function TemplatesClient({
                     <p className="text-xs text-zinc-600 break-all" dir="ltr">
                       טמפלייט: {trigger.template_name || "—"}
                     </p>
-                    {!hasArbox ? (
+                    {!hasArbox && isArboxTriggerType(trigger.trigger_type) ? (
                       <p className="text-xs text-zinc-500">
                         {trigger.enabled ? "פעיל" : "מושבת"}
                       </p>
                     ) : null}
                   </div>
-                  {hasArbox ? (
+                  {hasArbox || !isArboxTriggerType(trigger.trigger_type) ? (
                     <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                       <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
                         <input
@@ -865,9 +910,33 @@ export default function TemplatesClient({
           </ul>
         )}
 
+        {enabledSiteLead ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3 text-right">
+            <h3 className="text-sm font-semibold text-zinc-900">Webhook לטופס האתר (Elementor)</h3>
+            <p className="text-xs leading-relaxed text-zinc-700">
+              ב־Elementor Pro: עריכת הטופס → Actions After Submit → הוסיפו Webhook → הדביקו את
+              ה־URL למטה. הגדירו Custom ID לשדות:{" "}
+              <span dir="ltr" className="font-mono">
+                full_name
+              </span>{" "}
+              ו־
+              <span dir="ltr" className="font-mono">
+                phone
+              </span>
+              . אין צורך ב־Zapier או ב־header.
+            </p>
+            <CopyBlock label="Webhook URL" text={siteLeadWebhookUrl} />
+            {!leadsWebhookSecret ? (
+              <p className="text-xs text-amber-800">
+                חסר טוקן לעסק — פנו לתמיכה לפני חיבור הטופס.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {!hasArbox ? (
           <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
-            הטריגרים האוטומטיים מבוססים על נתוני Arbox.{" "}
+            טריגרים מבוססי Arbox (רכישה, יום הולדת וכו׳) דורשים חיבור CRM.{" "}
             <Link
               href={settingsStepHref(`/${encodeURIComponent(slug)}/settings`, 1, "he", {
                 section: "crm",
@@ -875,10 +944,11 @@ export default function TemplatesClient({
               className="font-medium text-[#7133da] hover:underline"
             >
               חברו את Arbox בהגדרות
-            </Link>{" "}
-            כדי להשתמש בהם.
+            </Link>
+            . טריגר «ליד מאתר» זמין תמיד.
           </p>
-        ) : (
+        ) : null}
+
         <form
           className="rounded-xl border border-dashed border-[#7133da]/30 bg-[#7133da]/[0.03] p-4 space-y-4"
           onSubmit={(e) => void onCreateTrigger(e)}
@@ -892,7 +962,7 @@ export default function TemplatesClient({
               onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
               className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
             >
-              {TRIGGER_TYPE_OPTIONS.map((opt) => (
+              {creatableTriggerOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -1029,7 +1099,6 @@ export default function TemplatesClient({
             </button>
           </div>
         </form>
-        )}
       </section>
 
       {showCreate && (

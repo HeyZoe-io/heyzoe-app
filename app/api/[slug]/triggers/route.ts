@@ -3,21 +3,15 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { businessHasArboxConnection } from "@/lib/crm/types";
+import {
+  isArboxDependentTriggerType,
+  isTriggerType,
+  type TriggerType,
+} from "@/lib/template-trigger-types";
 
 export const runtime = "nodejs";
 
 type RouteContext = { params: Promise<{ slug: string }> };
-
-const TRIGGER_TYPES = [
-  "purchase",
-  "credit_refusal",
-  "trial_attended",
-  "birthday",
-  "membership_expiring",
-  "sessions_expiring",
-] as const;
-
-type TriggerType = (typeof TRIGGER_TYPES)[number];
 
 const DELAY_DIRECTIONS = ["after", "before"] as const;
 
@@ -54,14 +48,6 @@ async function requireTriggersAccess(slug: string) {
     };
   }
   return { ok: true as const, admin, business: access.business };
-}
-
-function isTriggerType(value: string): value is TriggerType {
-  return (TRIGGER_TYPES as readonly string[]).includes(value);
-}
-
-function isArboxDependentTriggerType(value: TriggerType): boolean {
-  return (TRIGGER_TYPES as readonly TriggerType[]).includes(value);
 }
 
 async function loadBusinessHasArbox(
@@ -214,7 +200,10 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     }
   }
 
-  const delayDirection = String(body.delay_direction ?? "").trim();
+  let delayDirection = String(body.delay_direction ?? "").trim();
+  if (triggerType === "site_lead") {
+    delayDirection = "after";
+  }
   if (!isDelayDirection(delayDirection)) {
     return NextResponse.json({ error: "invalid_delay_direction" }, { status: 400 });
   }
@@ -224,9 +213,12 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: "invalid_delay_days" }, { status: 400 });
   }
 
-  const productFilter = parseProductFilter(body.product_filter);
+  let productFilter = parseProductFilter(body.product_filter);
   if (productFilter === "invalid") {
     return NextResponse.json({ error: "invalid_product_filter" }, { status: 400 });
+  }
+  if (triggerType === "site_lead") {
+    productFilter = null;
   }
 
   const templateNameRaw = body.template_name;
@@ -299,11 +291,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     if (!isTriggerType(triggerType)) {
       return NextResponse.json({ error: "invalid_trigger_type" }, { status: 400 });
     }
+    if (isArboxDependentTriggerType(triggerType)) {
+      const hasArbox = await loadBusinessHasArbox(admin, business.id);
+      if (!hasArbox) {
+        return NextResponse.json({ error: "arbox_not_connected" }, { status: 400 });
+      }
+    }
     patch.trigger_type = triggerType;
+    if (triggerType === "site_lead") {
+      patch.delay_direction = "after";
+      patch.product_filter = null;
+    }
   }
 
   if (body.delay_direction !== undefined) {
-    const delayDirection = String(body.delay_direction).trim();
+    let delayDirection = String(body.delay_direction).trim();
+    if (patch.trigger_type === "site_lead") {
+      delayDirection = "after";
+    }
     if (!isDelayDirection(delayDirection)) {
       return NextResponse.json({ error: "invalid_delay_direction" }, { status: 400 });
     }
@@ -323,7 +328,8 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     if (productFilter === "invalid") {
       return NextResponse.json({ error: "invalid_product_filter" }, { status: 400 });
     }
-    patch.product_filter = productFilter;
+    patch.product_filter =
+      patch.trigger_type === "site_lead" ? null : productFilter;
   }
 
   if (body.template_name !== undefined) {

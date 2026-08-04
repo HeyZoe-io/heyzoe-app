@@ -12,11 +12,24 @@ export function templateNoResponseDueAtIso(fromMs: number = Date.now()): string 
   return new Date(fromMs + TEMPLATE_NO_RESPONSE_AFTER_MS).toISOString();
 }
 
+/** Opening-template lead sources (Meta ads + site form webhook). */
+export const OPENING_TEMPLATE_LEAD_SOURCES = ["meta_lead_ad", "site_lead"] as const;
+
+export type OpeningTemplateLeadSource = (typeof OPENING_TEMPLATE_LEAD_SOURCES)[number];
+
+export function isOpeningTemplateLeadSource(source: unknown): boolean {
+  const s = String(source ?? "").trim();
+  return (OPENING_TEMPLATE_LEAD_SOURCES as readonly string[]).includes(s);
+}
+
 /** איפוס מצב ליד ל«טמפלייט» כששולחים טמפלייט פתיחה מחדש (כולל לידים שסומנו לא רלוונטי). */
-export function buildTemplateIncomingContactPatch(nowIso: string): Record<string, unknown> {
+export function buildTemplateIncomingContactPatch(
+  nowIso: string,
+  source: OpeningTemplateLeadSource = "meta_lead_ad"
+): Record<string, unknown> {
   return {
     ...salesFlowOpeningResetPatch(),
-    source: "meta_lead_ad",
+    source,
     not_relevant_at: null,
     not_relevant_reason: "",
     human_requested_at: null,
@@ -128,7 +141,7 @@ export function resolveLeadTemplateDisplayContent(
 
 /** ליד שקיבל טמפלייט ועדיין לא התחיל שיחה (לא ענה / לא התקדם בפלואו). */
 export function isLeadTemplateOnlyContact(input: ContactStatusInput): boolean {
-  if (String(input.source ?? "").trim() !== "meta_lead_ad") return false;
+  if (!isOpeningTemplateLeadSource(input.source)) return false;
   if (input.opted_out === true) return false;
   if (input.not_relevant_at) return false;
   if (input.human_requested_at) return false;

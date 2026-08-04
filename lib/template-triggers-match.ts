@@ -290,6 +290,42 @@ export async function resolveTrialAttendedTemplateTrigger(input: {
   return pickTrialAttendedTemplateTriggerRule(rules);
 }
 
+/** Enabled site_lead rules — pick newest with a template name (non-Arbox). */
+export async function loadEnabledSiteLeadTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "site_lead")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load site_lead rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickSiteLeadTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveSiteLeadTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledSiteLeadTemplateTriggers(input.admin, input.businessId);
+  return pickSiteLeadTemplateTriggerRule(rules);
+}
+
 export async function resolvePurchaseTemplateTriggerForSale(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;

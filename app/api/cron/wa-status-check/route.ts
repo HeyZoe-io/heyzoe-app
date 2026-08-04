@@ -247,7 +247,7 @@ export async function GET(req: NextRequest) {
   const { data: templateDueRows, error: templateErr } = await admin
     .from("contacts")
     .select(statusSelect)
-    .eq("source", "meta_lead_ad")
+    .in("source", ["meta_lead_ad", "site_lead"])
     .eq("session_phase", "opening")
     .or("wa_followup_stage.eq.0,wa_followup_stage.is.null")
     .or("opted_out.eq.false,opted_out.is.null")

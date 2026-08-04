@@ -101,6 +101,16 @@ export function buildTrialAttendedScheduledDedupKey(
   return `trial_attended:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}`;
 }
 
+/** Site-lead enqueue key: once per business+trigger+phone+calendar day (UTC ymd). */
+export function buildSiteLeadScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  phoneNorm: string,
+  eventDayYmd: string
+): string {
+  return `site_lead:${businessId}:${String(triggerId).trim()}:${String(phoneNorm).trim()}:${String(eventDayYmd).trim()}`;
+}
+
 export function isDuePendingScheduledSend(
   row: { status: string; due_at: string },
   now: Date = new Date()
