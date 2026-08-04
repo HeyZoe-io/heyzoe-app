@@ -7,6 +7,22 @@
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" href="/zoe-browser-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Heebo:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!-- Meta Pixel -->
+<script>
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '1533038311894259');
+fbq('track', 'PageView');
+</script>
+<noscript><img height="1" width="1" style="display:none"
+src="https://www.facebook.com/tr?id=1533038311894259&ev=PageView&noscript=1"
+/></noscript>
 <style>
 :root{
   --purple:#7133da;
@@ -154,5 +170,63 @@ h1{
       <p class="note">צוות HeyZoe</p>
     </div>
   </main>
+<script>
+(function(){
+  var DEDUP_KEY = 'hz_lp_lead_fired_v1';
+  try{
+    if(sessionStorage.getItem(DEDUP_KEY) === '1') return;
+    sessionStorage.setItem(DEDUP_KEY, '1');
+  }catch(e){}
+
+  function getSessionId(){
+    try{
+      var key='hz_lp_session_id';
+      var existing=sessionStorage.getItem(key);
+      if(existing) return existing;
+      var sid='lp_'+Math.random().toString(16).slice(2)+Date.now().toString(16);
+      sessionStorage.setItem(key,sid);
+      return sid;
+    }catch(e){
+      return 'lp_'+Math.random().toString(16).slice(2)+Date.now().toString(16);
+    }
+  }
+
+  function getSource(){
+    try{
+      var fromLp = (sessionStorage.getItem('hz_lp_source')||'').trim();
+      if(fromLp) return fromLp;
+      var fromUtm = (sessionStorage.getItem('hz_utm_source')||'').trim();
+      if(fromUtm) return fromUtm;
+      var u = new URL(window.location.href);
+      return (u.searchParams.get('utm_source')||'').trim() || null;
+    }catch(e){ return null; }
+  }
+
+  // HeyZoe analytics
+  try{
+    var payload = {
+      event_type: 'lead',
+      value: null,
+      label: 'lp_thankyou',
+      source: getSource(),
+      session_id: getSessionId()
+    };
+    var ok = false;
+    if(navigator.sendBeacon){
+      try{
+        ok = navigator.sendBeacon('/api/track', new Blob([JSON.stringify(payload)],{type:'application/json'}));
+      }catch(e){ ok = false; }
+    }
+    if(!ok){
+      fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true});
+    }
+  }catch(e){}
+
+  // Meta Pixel — standard Lead
+  try{
+    if(typeof fbq === 'function') fbq('track', 'Lead');
+  }catch(e){}
+})();
+</script>
 </body>
 </html>

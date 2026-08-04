@@ -18,6 +18,7 @@ export type LandingCampaignBreakdownRow = {
 
 export type LandingAnalyticsSnapshot = {
   pageviews: number;
+  leads: number;
   purchases: number;
   purchaseRevenue: number;
   avgDaysToPurchase: number;
@@ -166,6 +167,7 @@ export function buildLandingAnalyticsSnapshot(
   }
 
   const pageviews = countByType.get("pageview") ?? 0;
+  const leads = countByType.get("lead") ?? 0;
   const purchases = countByType.get("purchase") ?? 0;
 
   const deltasDays: number[] = [];
@@ -187,6 +189,7 @@ export function buildLandingAnalyticsSnapshot(
     "lp_scroll_75",
     "cta_click",
     "chat_open",
+    "lead",
     "checkout_start",
     "purchase",
   ] as const;
@@ -230,6 +233,7 @@ export function buildLandingAnalyticsSnapshot(
 
   return {
     pageviews,
+    leads,
     purchases,
     purchaseRevenue,
     avgDaysToPurchase,

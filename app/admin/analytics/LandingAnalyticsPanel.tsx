@@ -22,9 +22,10 @@ export default function LandingAnalyticsPanel({
 
   return (
     <>
-      <section style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+      <section style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
         {[
           { label: "צפיות בדף", value: String(data.pageviews) },
+          { label: "לידים (טופס)", value: String(data.leads) },
           { label: "רכישות", value: String(data.purchases) },
           { label: "הכנסה מרכישות", value: currencyIls(data.purchaseRevenue) },
           { label: "זמן ממוצע עד רכישה", value: `${data.avgDaysToPurchase.toFixed(1)} ימים` },
@@ -92,7 +93,7 @@ export default function LandingAnalyticsPanel({
       >
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400, color: "#1a0a3c" }}>Funnel</h2>
         <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
-          pageview → cta_click → chat_open → checkout_start → purchase (אחוזים מתוך pageview)
+          pageview → cta_click → chat_open → lead → checkout_start → purchase (אחוזים מתוך pageview)
         </p>
         <div style={{ display: "grid", gap: 10 }}>
           {data.funnelSteps.map((step, i) => {

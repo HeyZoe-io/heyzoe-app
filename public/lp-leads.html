@@ -3486,8 +3486,6 @@ try{
       .then(function(res){
         if(res.j && res.j.ok){
           clearInvalid();
-          try{ if(typeof hzTrack==='function') hzTrack('cta_click', null, 'טופס שיחה — נשלח'); }catch(e){}
-          try{ if(typeof fbq==='function') fbq('trackCustom', 'cta_click', { label: 'טופס שיחה — נשלח' }); }catch(e){}
           window.location.href = '/lp-leads/thankyou';
           return;
         }

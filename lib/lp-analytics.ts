@@ -21,6 +21,7 @@ export const LP_ANALYTICS_EVENT_TYPES = [
   "lp_pricing_view",
   "wa_lp_click",
   "wa_new_lead",
+  "lead",
 ] as const;
 
 export type LpAnalyticsEventType = (typeof LP_ANALYTICS_EVENT_TYPES)[number];
