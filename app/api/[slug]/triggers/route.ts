@@ -201,7 +201,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   let delayDirection = String(body.delay_direction ?? "").trim();
-  if (triggerType === "site_lead") {
+  if (triggerType === "site_lead" || triggerType === "no_response") {
     delayDirection = "after";
   }
   if (!isDelayDirection(delayDirection)) {
@@ -212,12 +212,15 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (delayDays === "invalid") {
     return NextResponse.json({ error: "invalid_delay_days" }, { status: 400 });
   }
+  if (triggerType === "no_response" && delayDays < 2) {
+    return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
+  }
 
   let productFilter = parseProductFilter(body.product_filter);
   if (productFilter === "invalid") {
     return NextResponse.json({ error: "invalid_product_filter" }, { status: 400 });
   }
-  if (triggerType === "site_lead") {
+  if (triggerType === "site_lead" || triggerType === "no_response") {
     productFilter = null;
   }
 
@@ -298,7 +301,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       }
     }
     patch.trigger_type = triggerType;
-    if (triggerType === "site_lead") {
+    if (triggerType === "site_lead" || triggerType === "no_response") {
       patch.delay_direction = "after";
       patch.product_filter = null;
     }
@@ -306,7 +309,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   if (body.delay_direction !== undefined) {
     let delayDirection = String(body.delay_direction).trim();
-    if (patch.trigger_type === "site_lead") {
+    if (patch.trigger_type === "site_lead" || patch.trigger_type === "no_response") {
       delayDirection = "after";
     }
     if (!isDelayDirection(delayDirection)) {
@@ -329,7 +332,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ error: "invalid_product_filter" }, { status: 400 });
     }
     patch.product_filter =
-      patch.trigger_type === "site_lead" ? null : productFilter;
+      patch.trigger_type === "site_lead" || patch.trigger_type === "no_response"
+        ? null
+        : productFilter;
   }
 
   if (body.template_name !== undefined) {
@@ -352,6 +357,29 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });
+  }
+
+  // Enforce no_response min delay against the effective type after patch.
+  if (patch.delay_days !== undefined || patch.trigger_type === "no_response") {
+    let effectiveType = patch.trigger_type != null ? String(patch.trigger_type) : null;
+    let effectiveDelay =
+      patch.delay_days !== undefined ? Number(patch.delay_days) : null;
+    if (effectiveType == null || effectiveDelay == null) {
+      const { data: existing } = await admin
+        .from("template_triggers")
+        .select("trigger_type, delay_days")
+        .eq("id", id)
+        .eq("business_id", business.id)
+        .maybeSingle();
+      if (!existing) {
+        return NextResponse.json({ error: "trigger_not_found" }, { status: 404 });
+      }
+      if (effectiveType == null) effectiveType = String(existing.trigger_type ?? "");
+      if (effectiveDelay == null) effectiveDelay = Number(existing.delay_days ?? 0);
+    }
+    if (effectiveType === "no_response" && (effectiveDelay ?? 0) < 2) {
+      return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
+    }
   }
 
   const { data: updated, error: updErr } = await admin

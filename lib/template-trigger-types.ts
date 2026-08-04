@@ -9,7 +9,7 @@ export const ARBOX_TRIGGER_TYPES = [
   "sessions_expiring",
 ] as const;
 
-export const NON_ARBOX_TRIGGER_TYPES = ["site_lead"] as const;
+export const NON_ARBOX_TRIGGER_TYPES = ["site_lead", "no_response"] as const;
 
 export const TRIGGER_TYPES = [...ARBOX_TRIGGER_TYPES, ...NON_ARBOX_TRIGGER_TYPES] as const;
 

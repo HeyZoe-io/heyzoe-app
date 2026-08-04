@@ -24,7 +24,8 @@ export type WaFollowupEvalResult = {
   next_stage?: number;
 };
 
-async function fetchLatestRealAssistantMessageAt(input: {
+/** Last assistant turn that is not our own WA follow-up (shared with >24h re-engage). */
+export async function fetchLatestRealAssistantMessageAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
   session_ids: string[];
@@ -48,7 +49,8 @@ async function fetchLatestRealAssistantMessageAt(input: {
   return null;
 }
 
-async function hasUserReplyAfter(input: {
+/** True when the lead replied after the given assistant timestamp. */
+export async function hasUserReplyAfter(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
   session_ids: string[];
@@ -68,7 +70,8 @@ async function hasUserReplyAfter(input: {
   return Boolean(data?.id);
 }
 
-async function fetchLatestUserMessageAt(input: {
+/** Latest inbound user message timestamp for the WA session variants. */
+export async function fetchLatestUserMessageAt(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
   session_ids: string[];

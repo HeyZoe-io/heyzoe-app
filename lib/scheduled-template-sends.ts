@@ -111,6 +111,20 @@ export function buildSiteLeadScheduledDedupKey(
   return `site_lead:${businessId}:${String(triggerId).trim()}:${String(phoneNorm).trim()}:${String(eventDayYmd).trim()}`;
 }
 
+/**
+ * No-response re-engage enqueue key.
+ * silenceEpisodeKey should identify the silence episode (typically last_user_at ISO / day).
+ * A new inbound after re-engage changes last_user_at → new key.
+ */
+export function buildNoResponseScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  phoneNorm: string,
+  silenceEpisodeKey: string
+): string {
+  return `no_response:${businessId}:${String(triggerId).trim()}:${String(phoneNorm).trim()}:${String(silenceEpisodeKey).trim()}`;
+}
+
 export function isDuePendingScheduledSend(
   row: { status: string; due_at: string },
   now: Date = new Date()

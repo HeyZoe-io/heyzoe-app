@@ -30,7 +30,8 @@ export type TriggerType =
   | "birthday"
   | "membership_expiring"
   | "sessions_expiring"
-  | "site_lead";
+  | "site_lead"
+  | "no_response";
 
 export type DelayDirection = "after" | "before";
 
@@ -62,6 +63,7 @@ const ARBOX_TRIGGER_TYPES = new Set<TriggerType>([
 
 const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "site_lead", label: "ליד מאתר" },
+  { value: "no_response", label: "חזרה אחרי שתיקה" },
   { value: "purchase", label: "רכישה" },
   { value: "credit_refusal", label: "סירוב אשראי" },
   { value: "trial_attended", label: "נכחות בשיעור ניסיון" },
@@ -83,6 +85,11 @@ function defaultDelayDirection(type: TriggerType): DelayDirection {
   return "after";
 }
 
+function defaultDelayDays(type: TriggerType): number {
+  if (type === "no_response") return 2;
+  return 0;
+}
+
 function showsProductFilter(type: TriggerType): boolean {
   return type === "purchase" || type === "trial_attended";
 }
@@ -92,6 +99,9 @@ function formatDelayLabel(
   days: number,
   direction: DelayDirection
 ): string {
+  if (type === "no_response") {
+    return `${Math.max(2, days)} ימי שתיקה`;
+  }
   if (type === "site_lead") {
     return days === 0 ? "מיידי" : `${days} ימים אחרי שליחת הטופס`;
   }
@@ -345,7 +355,10 @@ export default function TemplatesClient({
 
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const hideNewDelayDirection =
-    newTriggerType === "birthday" || newTriggerType === "site_lead";
+    newTriggerType === "birthday" ||
+    newTriggerType === "site_lead" ||
+    newTriggerType === "no_response";
+  const newDelayDaysMin = newTriggerType === "no_response" ? 2 : 0;
 
   useEffect(() => {
     if (!creatableTriggerOptions.some((o) => o.value === newTriggerType)) {
@@ -355,6 +368,7 @@ export default function TemplatesClient({
 
   useEffect(() => {
     setNewDelayDirection(defaultDelayDirection(newTriggerType));
+    setNewDelayDays(defaultDelayDays(newTriggerType));
     if (!showsProductFilter(newTriggerType)) {
       setNewProductFilter([]);
     }
@@ -441,7 +455,10 @@ export default function TemplatesClient({
         body: JSON.stringify({
           trigger_type: newTriggerType,
           product_filter: showNewProductFilter && newProductFilter.length > 0 ? newProductFilter : null,
-          delay_days: newDelayDays,
+          delay_days:
+            newTriggerType === "no_response"
+              ? Math.max(2, newDelayDays)
+              : newDelayDays,
           delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
           template_name: newTemplateName.trim() || null,
           enabled: newTriggerEnabled,
@@ -454,6 +471,9 @@ export default function TemplatesClient({
       if (!res.ok) {
         if (j.error === "template_not_approved") {
           throw new Error("אפשר לבחור רק טמפלייט שאושר במטא");
+        }
+        if (j.error === "min_delay_days") {
+          throw new Error("לחזרה אחרי שתיקה נדרשים לפחות 2 ימים");
         }
         if (j.error === "arbox_not_connected") {
           throw new Error("יש לחבר Arbox בהגדרות לפני יצירת טריגרים");
@@ -1039,12 +1059,19 @@ export default function TemplatesClient({
               <label className="text-sm font-medium text-zinc-800">ימים</label>
               <input
                 type="number"
-                min={0}
+                min={newDelayDaysMin}
                 step={1}
                 value={newDelayDays}
-                onChange={(e) => setNewDelayDays(Math.max(0, Number(e.target.value) || 0))}
+                onChange={(e) =>
+                  setNewDelayDays(
+                    Math.max(newDelayDaysMin, Number(e.target.value) || newDelayDaysMin)
+                  )
+                }
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
               />
+              {newTriggerType === "no_response" ? (
+                <p className="text-xs text-zinc-500">מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).</p>
+              ) : null}
             </div>
             {!hideNewDelayDirection ? (
               <div className="space-y-1.5">
