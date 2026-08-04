@@ -371,7 +371,10 @@ async function classifyOptOutWithClaude(input: { apiKey: string; text: string })
 const SALES_FLOW_START_INTENT_START = "START_SALES_FLOW";
 const SALES_FLOW_START_INTENT_NO = "NO";
 
-/** כוונה להתחיל פלואו מכירה (לא שאלה פתוחה ספציפית). */
+/**
+ * כוונה להתחיל פלואו מכירה מחדש (לא שאלה פתוחה).
+ * עניין בשיעור/סגנון/סוג אימון ספציפי = NO בכל שלב — גם אם לא קיים במערכת.
+ */
 async function classifySalesFlowStartIntentWithClaude(input: { apiKey: string; text: string }): Promise<boolean> {
   const apiKey = input.apiKey.trim();
   const text = input.text.trim();
@@ -386,12 +389,15 @@ async function classifySalesFlowStartIntentWithClaude(input: { apiKey: string; t
       messages: [
         {
           role: "user",
-          content: `האם המשפט מביע כוונה להתחיל שיחת מכירה / לקבל פרטים כלליים על הסטודיו, שיעורים או הצטרפות — ולא שאלה נקודתית על מחיר, מיקום או פרט יחיד?
+          content: `האם המשפט מביע כוונה כללית להתחיל שיחת מכירה / לקבל פרטים כלליים על הסטודיו או הצטרפות — בלי לנקוב בשיעור, סגנון או סוג אימון ספציפי?
 
 ענה רק "${SALES_FLOW_START_INTENT_START}" או "${SALES_FLOW_START_INTENT_NO}" (בדיוק, בלי טקסט נוסף).
 
+${SALES_FLOW_START_INTENT_START} = פתיחה כללית בלבד (פרטים על הסטודיו / בואו נתחיל / רוצה להצטרף בלי לציין מה).
+${SALES_FLOW_START_INTENT_NO} = שאלה או התעניינות בפרט ספציפי — כולל שיעור, סגנון יוגה/פילאטיס, סוג אימון, רמה, או כל נושא נקודתי (מחיר, מיקום, חניה). גם אם השיעור/סגנון לא בהכרח קיים אצלנו — עדיין ${SALES_FLOW_START_INTENT_NO}.
+
 דוגמאות ל-${SALES_FLOW_START_INTENT_START}: בואו נתחיל, אשמח לפרטים, היי אשמח לפרטים, רוצה להצטרף, מה יש אצלכם, ספרו לי עליכם, אשמח לשמוע פרטים
-דוגמאות ל-${SALES_FLOW_START_INTENT_NO}: מה המחיר בדיוק, איפה אתם, כמה עולה אימון ביום שלישי, האם יש חניה
+דוגמאות ל-${SALES_FLOW_START_INTENT_NO}: מה המחיר בדיוק, איפה אתם, כמה עולה אימון ביום שלישי, האם יש חניה, מתעניינת באיינגר יוגה, רוצה פילאטיס מכשירים, יש לכם ויניאסה?, מחפשת שיעור יוגה למתחילים, interested in iyengar yoga
 
 משפט: "${text}"`,
         },
