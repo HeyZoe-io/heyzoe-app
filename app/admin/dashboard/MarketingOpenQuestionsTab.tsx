@@ -15,7 +15,7 @@ function normalizeFactRows(arr: string[]): string[] {
 }
 
 function factPlaceholder(index: number): string {
-  if (index === 0) return "למשל: HeyZoe מחברת עוזרת וואטסאפ לעסקים קטנים";
+  if (index === 0) return "למשל: זואי מחוברת ישירות ל-CRM ודואגת שהלידים יירשמו וישלמו מראש";
   if (index === 1) return "למשל: תמיכה בעברית, מחירים החל מ־…";
   return "עובדה נוספת…";
 }
