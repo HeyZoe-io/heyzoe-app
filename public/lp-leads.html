@@ -2231,6 +2231,12 @@ section{padding:80px 6%;}
 .lp-demo-field label{
   font-family:'Heebo',sans-serif;font-size:13px;font-weight:600;color:var(--text);
 }
+.lp-demo-req{color:#b91c1c;font-weight:700;margin-inline-start:2px;}
+.lp-demo-field input.lp-demo-invalid,
+.lp-demo-field select.lp-demo-invalid{
+  border-color:rgba(185,28,28,0.55);
+  box-shadow:0 0 0 3px rgba(185,28,28,0.12);
+}
 .lp-demo-field input,
 .lp-demo-field select{
   width:100%;box-sizing:border-box;
@@ -3003,31 +3009,31 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
       </article>
     </div>
 
-    <form class="lp-demo-form reveal" id="lpDemoForm" novalidate>
+    <form class="lp-demo-form reveal" id="lpDemoForm">
       <h3 class="lp-demo-form-title">בואו נקבע שיחה</h3>
       <p class="lp-demo-form-sub">השאירו פרטים ונחזור אליכם ביום ובשעה שנוחים לכם</p>
       <div class="lp-demo-fields">
         <div class="lp-demo-field">
-          <label for="lpFullName">שם מלא</label>
+          <label for="lpFullName">שם מלא <span class="lp-demo-req" aria-hidden="true">*</span></label>
           <input id="lpFullName" name="full_name" type="text" autocomplete="name" required maxlength="80" placeholder="ישראל ישראלי">
         </div>
         <div class="lp-demo-row">
           <div class="lp-demo-field">
-            <label for="lpPhone">טלפון</label>
+            <label for="lpPhone">טלפון <span class="lp-demo-req" aria-hidden="true">*</span></label>
             <input id="lpPhone" name="phone" type="tel" autocomplete="tel" required maxlength="30" placeholder="050-0000000" inputmode="tel">
           </div>
           <div class="lp-demo-field">
-            <label for="lpEmail">מייל</label>
+            <label for="lpEmail">מייל <span class="lp-demo-req" aria-hidden="true">*</span></label>
             <input id="lpEmail" name="email" type="email" autocomplete="email" required maxlength="120" placeholder="name@studio.co.il" dir="ltr" style="text-align:left;">
           </div>
         </div>
         <div class="lp-demo-field">
-          <label for="lpBusiness">שם העסק</label>
+          <label for="lpBusiness">שם העסק <span class="lp-demo-req" aria-hidden="true">*</span></label>
           <input id="lpBusiness" name="business_name" type="text" autocomplete="organization" required maxlength="120" placeholder="שם הסטודיו / העסק">
         </div>
         <div class="lp-demo-row">
           <div class="lp-demo-field">
-            <label for="lpDay">יום שנוח לשיחה</label>
+            <label for="lpDay">יום שנוח לשיחה <span class="lp-demo-req" aria-hidden="true">*</span></label>
             <select id="lpDay" name="preferred_day" required>
               <option value="" disabled selected>בחרו יום</option>
               <option value="ראשון">ראשון</option>
@@ -3038,7 +3044,7 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
             </select>
           </div>
           <div class="lp-demo-field">
-            <label for="lpSlot">שעה שנוחה לשיחה</label>
+            <label for="lpSlot">שעה שנוחה לשיחה <span class="lp-demo-req" aria-hidden="true">*</span></label>
             <select id="lpSlot" name="preferred_slot" required>
               <option value="" disabled selected>בחרו שעה</option>
               <option value="10-12">10:00–12:00</option>
@@ -3410,6 +3416,7 @@ try{
   if(!form) return;
   var msg = document.getElementById('lpDemoMsg');
   var btn = document.getElementById('lpDemoSubmit');
+  var fields = ['full_name','phone','email','business_name','preferred_day','preferred_slot'];
   var ERR = {
     missing_full_name: 'נא למלא שם מלא',
     invalid_phone: 'נא להזין טלפון תקין',
@@ -3418,27 +3425,26 @@ try{
     invalid_day: 'נא לבחור יום לשיחה',
     invalid_slot: 'נא לבחור שעה לשיחה',
     email_failed: 'שליחה נכשלה — נסו שוב בעוד רגע',
-    request_failed: 'שליחה נכשלה — נסו שוב בעוד רגע'
+    request_failed: 'שליחה נכשלה — נסו שוב בעוד רגע',
+    missing_fields: 'נא למלא את כל השדות החובה'
   };
   function setMsg(text, ok){
     if(!msg) return;
     msg.textContent = text || '';
     msg.className = 'lp-demo-msg' + (text ? (ok ? ' lp-demo-msg--ok' : ' lp-demo-msg--err') : '');
   }
-  function clientValidate(data){
-    if(!data.full_name) return 'missing_full_name';
-    var digits = String(data.phone||'').replace(/\D/g,'');
-    if(digits.length < 9 || digits.length > 15) return 'invalid_phone';
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.email||''))) return 'invalid_email';
-    if(!data.business_name) return 'missing_business_name';
-    if(!data.preferred_day) return 'invalid_day';
-    if(!data.preferred_slot) return 'invalid_slot';
-    return null;
+  function clearInvalid(){
+    fields.forEach(function(name){
+      var el = form.elements[name];
+      if(el && el.classList) el.classList.remove('lp-demo-invalid');
+    });
   }
-  form.addEventListener('submit', function(e){
-    e.preventDefault();
-    setMsg('', true);
-    var data = {
+  function markInvalid(name){
+    var el = form.elements[name];
+    if(el && el.classList) el.classList.add('lp-demo-invalid');
+  }
+  function readData(){
+    return {
       full_name: (form.full_name && form.full_name.value || '').trim(),
       phone: (form.phone && form.phone.value || '').trim(),
       email: (form.email && form.email.value || '').trim(),
@@ -3447,8 +3453,30 @@ try{
       preferred_slot: (form.preferred_slot && form.preferred_slot.value || '').trim(),
       company_website: (form.company_website && form.company_website.value || '').trim()
     };
+  }
+  function clientValidate(data){
+    clearInvalid();
+    if(!data.full_name){ markInvalid('full_name'); return 'missing_full_name'; }
+    var digits = String(data.phone||'').replace(/\D/g,'');
+    if(digits.length < 9 || digits.length > 15){ markInvalid('phone'); return 'invalid_phone'; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.email||''))){ markInvalid('email'); return 'invalid_email'; }
+    if(!data.business_name){ markInvalid('business_name'); return 'missing_business_name'; }
+    if(!data.preferred_day){ markInvalid('preferred_day'); return 'invalid_day'; }
+    if(!data.preferred_slot){ markInvalid('preferred_slot'); return 'invalid_slot'; }
+    return null;
+  }
+  fields.forEach(function(name){
+    var el = form.elements[name];
+    if(!el) return;
+    el.addEventListener('input', function(){ el.classList.remove('lp-demo-invalid'); });
+    el.addEventListener('change', function(){ el.classList.remove('lp-demo-invalid'); });
+  });
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    setMsg('', true);
+    var data = readData();
     var cerr = clientValidate(data);
-    if(cerr){ setMsg(ERR[cerr] || 'נא למלא את כל השדות', false); return; }
+    if(cerr){ setMsg(ERR[cerr] || ERR.missing_fields, false); return; }
     if(btn){ btn.disabled = true; btn.textContent = 'שולחים…'; }
     fetch('/api/lp/demo-request', {
       method: 'POST',
@@ -3458,13 +3486,14 @@ try{
       .then(function(res){
         if(res.j && res.j.ok){
           setMsg('תודה! קיבלנו את הפרטים ונחזור אליכם בהקדם 💜', true);
+          clearInvalid();
           try{ if(typeof hzTrack==='function') hzTrack('cta_click', null, 'טופס שיחה — נשלח'); }catch(e){}
           try{ if(typeof fbq==='function') fbq('trackCustom', 'cta_click', { label: 'טופס שיחה — נשלח' }); }catch(e){}
           form.reset();
           return;
         }
         var code = (res.j && res.j.error) || 'request_failed';
-        setMsg(ERR[code] || 'שליחה נכשלה — נסו שוב בעוד רגע', false);
+        setMsg(ERR[code] || ERR.request_failed, false);
       })
       .catch(function(){ setMsg(ERR.request_failed, false); })
       .finally(function(){
