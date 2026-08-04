@@ -3485,11 +3485,10 @@ try{
     }).then(function(r){ return r.json().then(function(j){ return { status:r.status, j:j }; }); })
       .then(function(res){
         if(res.j && res.j.ok){
-          setMsg('תודה! קיבלנו את הפרטים ונחזור אליכם בהקדם 💜', true);
           clearInvalid();
           try{ if(typeof hzTrack==='function') hzTrack('cta_click', null, 'טופס שיחה — נשלח'); }catch(e){}
           try{ if(typeof fbq==='function') fbq('trackCustom', 'cta_click', { label: 'טופס שיחה — נשלח' }); }catch(e){}
-          form.reset();
+          window.location.href = '/lp-leads/thankyou';
           return;
         }
         var code = (res.j && res.j.error) || 'request_failed';
