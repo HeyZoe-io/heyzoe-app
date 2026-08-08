@@ -4,11 +4,15 @@ export const MARKETING_NOTE_STATUSES = [
   "registered",
   "no_response",
   "not_interested",
+  "requires_call",
 ] as const;
 
 export type MarketingNoteStatus = (typeof MARKETING_NOTE_STATUSES)[number];
 
 export const DEFAULT_MARKETING_NOTE_STATUS: MarketingNoteStatus = "in_process";
+
+/** סטטוס שמצמיד את השיחה לראש הרשימה */
+export const PINNED_MARKETING_NOTE_STATUS: MarketingNoteStatus = "requires_call";
 
 export function isMarketingNoteStatus(v: unknown): v is MarketingNoteStatus {
   return typeof v === "string" && (MARKETING_NOTE_STATUSES as readonly string[]).includes(v);
@@ -16,6 +20,29 @@ export function isMarketingNoteStatus(v: unknown): v is MarketingNoteStatus {
 
 export function coerceMarketingNoteStatus(v: unknown): MarketingNoteStatus {
   return isMarketingNoteStatus(v) ? v : DEFAULT_MARKETING_NOTE_STATUS;
+}
+
+export function isPinnedMarketingNoteStatus(status: MarketingNoteStatus | null | undefined): boolean {
+  return status === PINNED_MARKETING_NOTE_STATUS;
+}
+
+function sessionActivityMs(lastAt?: string | null): number {
+  const at = String(lastAt ?? "").trim();
+  if (!at) return 0;
+  const t = new Date(at).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** «דורש שיחה» קודם, אחר כך לפי פעילות אחרונה */
+export function sortSessionsWithPinnedRequiresCall<
+  T extends { lastAt?: string | null; noteStatus?: MarketingNoteStatus | null },
+>(sessions: T[]): T[] {
+  return [...sessions].sort((a, b) => {
+    const aPin = isPinnedMarketingNoteStatus(a.noteStatus) ? 1 : 0;
+    const bPin = isPinnedMarketingNoteStatus(b.noteStatus) ? 1 : 0;
+    if (aPin !== bPin) return bPin - aPin;
+    return sessionActivityMs(b.lastAt) - sessionActivityMs(a.lastAt);
+  });
 }
 
 /** תווית + צבעי badge לרשימת שיחות / פאנל הערות */
@@ -53,6 +80,13 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
         badgeClass: "bg-rose-50 text-rose-700",
         activeBg: "#fff1f2",
         activeFg: "#be123c",
+      };
+    case "requires_call":
+      return {
+        label: "דורש שיחה",
+        badgeClass: "bg-amber-50 text-amber-900",
+        activeBg: "#fffbeb",
+        activeFg: "#92400e",
       };
     case "in_process":
     default:

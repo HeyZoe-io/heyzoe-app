@@ -14,6 +14,7 @@ import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import {
   DEFAULT_MARKETING_NOTE_STATUS,
   getMarketingNoteStatusMeta,
+  sortSessionsWithPinnedRequiresCall,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
@@ -313,8 +314,11 @@ export default function ConversationsClient({
           return name.includes(q) || phone.includes(q);
         })
       : list;
-    return sortSessionsByRecentActivity(filtered);
-  }, [sessions, normalizedFilter, searchQuery]);
+    const pinRequiresCall = apiScope === "admin" && isMarketingConversationsSlug(slug);
+    return pinRequiresCall
+      ? sortSessionsWithPinnedRequiresCall(filtered)
+      : sortSessionsByRecentActivity(filtered);
+  }, [sessions, normalizedFilter, searchQuery, apiScope, slug]);
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
 
@@ -370,12 +374,13 @@ export default function ConversationsClient({
     // A background refetch (poll / window-focus) that comes back empty must not wipe an
     // already-populated list — treat that as a transient hiccup and keep showing what we had.
     // A real empty state still renders correctly on first load / when the slug itself changes.
-    setSessions((prev) =>
-      sessionsQuery.data.length > 0 || prev.length === 0
-        ? sortSessionsByRecentActivity(sessionsQuery.data)
-        : prev
-    );
-  }, [sessionsQuery.data]);
+    setSessions((prev) => {
+      if (!(sessionsQuery.data.length > 0 || prev.length === 0)) return prev;
+      return apiScope === "admin" && isMarketingConversationsSlug(slug)
+        ? sortSessionsWithPinnedRequiresCall(sessionsQuery.data)
+        : sortSessionsByRecentActivity(sessionsQuery.data);
+    });
+  }, [sessionsQuery.data, apiScope, slug]);
 
   const messagesQuery = useQuery({
     queryKey: [queryScope, "conversation_messages", messagesSlug, selectedId ?? ""],
@@ -679,9 +684,12 @@ export default function ConversationsClient({
     apiScope === "admin" && isMarketingConversationsSlug(slug);
 
   function onMarketingNoteStatusSaved(sessionId: string, noteStatus: MarketingNoteStatus) {
-    setSessions((prev) =>
-      prev.map((s) => (s.session_id === sessionId ? { ...s, noteStatus } : s))
-    );
+    setSessions((prev) => {
+      const next = prev.map((s) => (s.session_id === sessionId ? { ...s, noteStatus } : s));
+      return apiScope === "admin" && isMarketingConversationsSlug(slug)
+        ? sortSessionsWithPinnedRequiresCall(next)
+        : next;
+    });
     void queryClient.invalidateQueries({ queryKey: [queryScope, "conversations", slug] });
   }
 

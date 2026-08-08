@@ -5,6 +5,7 @@ import { normalizePhone } from "@/lib/phone-normalize";
 import {
   coerceMarketingNoteStatus,
   DEFAULT_MARKETING_NOTE_STATUS,
+  sortSessionsWithPinnedRequiresCall,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
 import {
@@ -398,6 +399,5 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     noteStatus: resolveNoteStatus(data.phone, sid),
   }));
 
-  sessions.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-  return sessions;
+  return sortSessionsWithPinnedRequiresCall(sessions);
 }
