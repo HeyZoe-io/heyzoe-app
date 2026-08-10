@@ -259,33 +259,7 @@ export async function PUT(req: NextRequest) {
     if (prevStatus !== status) {
       after(async () => {
         try {
-          const result = await syncContactToMetaAudience({ phone, status });
-          // TEMP debug — remove after Meta sync verification
-          const last4 = result.phoneForHash
-            ? result.phoneForHash.slice(-4)
-            : String(phone).replace(/\D/g, "").slice(-4) || "?";
-          if (result.reason === "null_status") {
-            console.log("[meta-audiences:temp] no-op (null status)", { last4, status });
-          } else if (result.reason === "same_bucket" || result.skipped) {
-            console.log("[meta-audiences:temp] skipped (same bucket)", {
-              last4,
-              phoneForHash: result.phoneForHash,
-              bucket: result.bucket,
-              status,
-            });
-          } else {
-            console.log("[meta-audiences:temp] sync result", {
-              last4,
-              phoneForHash: result.phoneForHash,
-              bucket: result.bucket,
-              status,
-              ok: result.ok,
-              reason: result.reason,
-              add: result.addMeta,
-              remove: result.removeMeta,
-              error: result.error,
-            });
-          }
+          await syncContactToMetaAudience({ phone, status });
         } catch (e) {
           console.error("[marketing/conversation-notes] meta audience sync failed:", e);
         }

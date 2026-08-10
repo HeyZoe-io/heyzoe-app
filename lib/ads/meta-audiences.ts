@@ -16,11 +16,6 @@ type SyncContactToMetaAudienceResult = {
   error?: string;
   bucket?: MetaAudienceBucket | null;
   skipped?: boolean;
-  /** Exact digits hashed for Meta (E.164 without +), when available. */
-  phoneForHash?: string;
-  reason?: "null_status" | "same_bucket" | "synced" | "add_failed" | "missing_phone" | "missing_credentials";
-  addMeta?: { num_received?: number; num_invalid_entries?: number };
-  removeMeta?: { num_received?: number; num_invalid_entries?: number };
 };
 
 function resolveMetaAdsAccessToken(): string {
@@ -47,16 +42,6 @@ function phoneDigitsForMetaHash(phone: string): string {
   const normalized = normalizePhone(phone);
   if (normalized) return normalized;
   return String(phone ?? "").replace(/\D/g, "");
-}
-
-function metaCounts(body: unknown): { num_received?: number; num_invalid_entries?: number } {
-  if (!body || typeof body !== "object") return {};
-  const b = body as { num_received?: unknown; num_invalid_entries?: unknown };
-  return {
-    num_received: typeof b.num_received === "number" ? b.num_received : undefined,
-    num_invalid_entries:
-      typeof b.num_invalid_entries === "number" ? b.num_invalid_entries : undefined,
-  };
 }
 
 function isMetaAudienceBucket(v: unknown): v is MetaAudienceBucket {
@@ -233,23 +218,17 @@ export async function syncContactToMetaAudience(
   if (!bucket) {
     // No Meta action for in_process / no_response / requires_call / etc.
     // Do not clear meta_audience_synced_as — leave prior audience membership as-is.
-    return { ok: true, bucket: null, reason: "null_status" };
+    return { ok: true, bucket: null };
   }
 
   const phoneDigits = phoneDigitsForMetaHash(input.phone);
   if (!phoneDigits) {
-    return { ok: false, error: "missing_phone", reason: "missing_phone" };
+    return { ok: false, error: "missing_phone" };
   }
 
   const current = await readSyncedAs(phoneDigits);
   if (current === bucket) {
-    return {
-      ok: true,
-      bucket,
-      skipped: true,
-      phoneForHash: phoneDigits,
-      reason: "same_bucket",
-    };
+    return { ok: true, bucket, skipped: true };
   }
 
   const accessToken = resolveMetaAdsAccessToken();
@@ -257,12 +236,7 @@ export async function syncContactToMetaAudience(
   const excludedId = resolveMetaAudienceIdExcluded();
   if (!accessToken || !relevantId || !excludedId) {
     console.error("[meta-audiences] missing credentials or audience ids");
-    return {
-      ok: false,
-      error: "missing_meta_ads_credentials",
-      phoneForHash: phoneDigits,
-      reason: "missing_credentials",
-    };
+    return { ok: false, error: "missing_meta_ads_credentials" };
   }
 
   const phoneHash = sha256Hex(phoneDigits);
@@ -277,14 +251,7 @@ export async function syncContactToMetaAudience(
   });
   if (!addResult.ok) {
     // Do not update meta_audience_synced_as — retry on next status save.
-    return {
-      ok: false,
-      error: addResult.error,
-      bucket,
-      phoneForHash: phoneDigits,
-      reason: "add_failed",
-      addMeta: metaCounts(addResult.body),
-    };
+    return { ok: false, error: addResult.error, bucket };
   }
 
   // Best-effort remove from the other audience. Failure is logged only; we still
@@ -304,12 +271,5 @@ export async function syncContactToMetaAudience(
   }
 
   await writeSyncedAs(phoneDigits, bucket);
-  return {
-    ok: true,
-    bucket,
-    phoneForHash: phoneDigits,
-    reason: "synced",
-    addMeta: metaCounts(addResult.body),
-    removeMeta: metaCounts(removeResult.body),
-  };
+  return { ok: true, bucket };
 }
