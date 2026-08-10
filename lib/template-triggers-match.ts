@@ -290,7 +290,10 @@ export async function resolveTrialAttendedTemplateTrigger(input: {
   return pickTrialAttendedTemplateTriggerRule(rules);
 }
 
-/** Enabled site_lead rules — pick newest with a template name (non-Arbox). */
+/**
+ * Enabled incoming_lead rules (plus legacy site_lead / campaign_lead) —
+ * pick newest with a template name. Shared by /api/leads/incoming.
+ */
 export async function loadEnabledSiteLeadTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
@@ -301,11 +304,14 @@ export async function loadEnabledSiteLeadTemplateTriggers(
       "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
     )
     .eq("business_id", businessId)
-    .eq("trigger_type", "site_lead")
+    .in("trigger_type", ["incoming_lead", "site_lead", "campaign_lead"])
     .eq("enabled", true);
 
   if (error) {
-    console.error("[template-triggers-match] load site_lead rules failed:", error.message);
+    console.error(
+      "[template-triggers-match] load incoming_lead rules failed:",
+      error.message
+    );
     return [];
   }
 

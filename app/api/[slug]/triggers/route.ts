@@ -4,10 +4,18 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import {
+  canonicalizeTriggerType,
+  INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
   isArboxDependentTriggerType,
+  isIncomingLeadTriggerType,
   isTriggerType,
   type TriggerType,
 } from "@/lib/template-trigger-types";
+
+/** incoming_lead (and legacy) / no_response: force after + no product_filter. */
+function forcesAfterNoProductFilter(triggerType: string): boolean {
+  return isIncomingLeadTriggerType(triggerType) || triggerType === "no_response";
+}
 
 export const runtime = "nodejs";
 
@@ -130,10 +138,11 @@ async function verifyApprovedTemplate(
 
 function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
   const productFilter = parseProductFilter(row.product_filter);
+  const rawType = String(row.trigger_type ?? "");
   return {
     id: Number(row.id),
     business_id: Number(row.business_id),
-    trigger_type: String(row.trigger_type) as TriggerType,
+    trigger_type: canonicalizeTriggerType(rawType) as TriggerType,
     product_filter: productFilter === "invalid" ? null : productFilter,
     delay_days: Number(row.delay_days ?? 0),
     delay_direction: String(row.delay_direction ?? "after") as DelayDirection,
@@ -141,6 +150,31 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
     enabled: Boolean(row.enabled),
     created_at: String(row.created_at ?? ""),
   };
+}
+
+/** At most one incoming_lead (incl. legacy site_lead/campaign_lead) row per business. */
+async function findExistingIncomingLeadRule(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  excludeId?: number
+): Promise<{ id: number } | null> {
+  let q = admin
+    .from("template_triggers")
+    .select("id")
+    .eq("business_id", businessId)
+    .in("trigger_type", [...INCOMING_LEAD_TRIGGER_TYPES_RESOLVE])
+    .limit(1);
+  if (excludeId != null && Number.isFinite(excludeId)) {
+    q = q.neq("id", excludeId);
+  }
+  const { data, error } = await q;
+  if (error) {
+    console.error("[api/triggers] incoming_lead uniqueness lookup failed:", error.message);
+    throw new Error("incoming_lead_lookup_failed");
+  }
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  if (!row?.id) return null;
+  return { id: Number(row.id) };
 }
 
 const TRIGGER_SELECT =
@@ -200,8 +234,22 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     }
   }
 
+  if (isIncomingLeadTriggerType(triggerType)) {
+    try {
+      const existing = await findExistingIncomingLeadRule(admin, business.id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "incoming_lead_exists", message: "כבר קיים טריגר ליד" },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "incoming_lead_lookup_failed" }, { status: 500 });
+    }
+  }
+
   let delayDirection = String(body.delay_direction ?? "").trim();
-  if (triggerType === "site_lead" || triggerType === "no_response") {
+  if (forcesAfterNoProductFilter(triggerType)) {
     delayDirection = "after";
   }
   if (!isDelayDirection(delayDirection)) {
@@ -220,7 +268,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (productFilter === "invalid") {
     return NextResponse.json({ error: "invalid_product_filter" }, { status: 400 });
   }
-  if (triggerType === "site_lead" || triggerType === "no_response") {
+  if (forcesAfterNoProductFilter(triggerType)) {
     productFilter = null;
   }
 
@@ -301,7 +349,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       }
     }
     patch.trigger_type = triggerType;
-    if (triggerType === "site_lead" || triggerType === "no_response") {
+    if (forcesAfterNoProductFilter(triggerType)) {
       patch.delay_direction = "after";
       patch.product_filter = null;
     }
@@ -309,7 +357,10 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   if (body.delay_direction !== undefined) {
     let delayDirection = String(body.delay_direction).trim();
-    if (patch.trigger_type === "site_lead" || patch.trigger_type === "no_response") {
+    if (
+      patch.trigger_type != null &&
+      forcesAfterNoProductFilter(String(patch.trigger_type))
+    ) {
       delayDirection = "after";
     }
     if (!isDelayDirection(delayDirection)) {
@@ -332,7 +383,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ error: "invalid_product_filter" }, { status: 400 });
     }
     patch.product_filter =
-      patch.trigger_type === "site_lead" || patch.trigger_type === "no_response"
+      patch.trigger_type != null && forcesAfterNoProductFilter(String(patch.trigger_type))
         ? null
         : productFilter;
   }
@@ -357,6 +408,21 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });
+  }
+
+  // Changing type → incoming_lead: still only one row allowed per business.
+  if (patch.trigger_type != null && isIncomingLeadTriggerType(String(patch.trigger_type))) {
+    try {
+      const existing = await findExistingIncomingLeadRule(admin, business.id, id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "incoming_lead_exists", message: "כבר קיים טריגר ליד" },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "incoming_lead_lookup_failed" }, { status: 500 });
+    }
   }
 
   // Enforce no_response min delay against the effective type after patch.

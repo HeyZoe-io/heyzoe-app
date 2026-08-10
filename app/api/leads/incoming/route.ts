@@ -249,6 +249,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no lead template configured" }, { status: 400 });
   }
 
+  // Matched incoming_lead rule → keep contact source "site_lead" so
+  // no-response / wa-status-check crons (meta_lead_ad + site_lead) stay intact.
+  // Fallback lead_template_name (no rule) → meta_lead_ad (Sanga / Zapier legacy).
   const contactSource: OpeningTemplateLeadSource = usingRule ? "site_lead" : "meta_lead_ad";
 
   // Preserve pre-helper reason codes: DB failure → 500 channel_lookup_failed; empty → 404.

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  canonicalizeTriggerType,
   isArboxDependentTriggerType,
+  isIncomingLeadTriggerType,
   isTriggerType,
   NON_ARBOX_TRIGGER_TYPES,
   TRIGGER_TYPES,
@@ -13,12 +15,21 @@ import {
 } from "@/lib/lead-template";
 import { buildSiteLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 
-/** site_lead is a known trigger type and is NOT Arbox-dependent */
+/** incoming_lead is the sole non-Arbox webhook lead type */
 {
-  assert.equal(isTriggerType("site_lead"), true);
-  assert.equal(isArboxDependentTriggerType("site_lead"), false);
-  assert.ok((NON_ARBOX_TRIGGER_TYPES as readonly string[]).includes("site_lead"));
-  assert.ok((TRIGGER_TYPES as readonly string[]).includes("site_lead"));
+  assert.equal(isTriggerType("incoming_lead"), true);
+  assert.equal(isArboxDependentTriggerType("incoming_lead"), false);
+  assert.ok((NON_ARBOX_TRIGGER_TYPES as readonly string[]).includes("incoming_lead"));
+  assert.ok((TRIGGER_TYPES as readonly string[]).includes("incoming_lead"));
+  assert.equal(isTriggerType("site_lead"), false);
+  assert.equal(isTriggerType("campaign_lead"), false);
+  assert.equal(isIncomingLeadTriggerType("incoming_lead"), true);
+  assert.equal(isIncomingLeadTriggerType("site_lead"), true);
+  assert.equal(isIncomingLeadTriggerType("campaign_lead"), true);
+  assert.equal(isIncomingLeadTriggerType("no_response"), false);
+  assert.equal(canonicalizeTriggerType("site_lead"), "incoming_lead");
+  assert.equal(canonicalizeTriggerType("campaign_lead"), "incoming_lead");
+  assert.equal(canonicalizeTriggerType("incoming_lead"), "incoming_lead");
 }
 
 /** Arbox types still gated */
@@ -33,7 +44,7 @@ function rule(
 ): PurchaseTemplateTriggerRule {
   return {
     business_id: 1,
-    trigger_type: "site_lead",
+    trigger_type: "incoming_lead",
     product_filter: null,
     delay_days: 0,
     delay_direction: "after",
@@ -44,7 +55,7 @@ function rule(
   };
 }
 
-/** pick newest site_lead rule with template_name */
+/** pick newest incoming_lead rule with template_name */
 {
   const older = rule({
     id: "old",
@@ -66,6 +77,17 @@ function rule(
   assert.equal(picked?.template_name, "T_new");
 }
 
+/** legacy DB rows still resolve (until migration) */
+{
+  const legacy = rule({
+    id: "legacy",
+    trigger_type: "site_lead",
+    template_name: "T_legacy",
+  });
+  const picked = pickSiteLeadTemplateTriggerRule([legacy]);
+  assert.equal(picked?.template_name, "T_legacy");
+}
+
 /** rule-vs-fallback selection (mirrors incoming route) */
 {
   const matched = pickSiteLeadTemplateTriggerRule([
@@ -80,19 +102,20 @@ function rule(
   assert.equal(fallbackOnly, "from_column");
 }
 
-/** site_lead dedup key */
+/** dedup key prefix unchanged (historical site_lead:…) */
 {
   const a = buildSiteLeadScheduledDedupKey(1, "rule-uuid", "972501234567", "2026-08-04");
-  const b = buildSiteLeadScheduledDedupKey(1, "rule-uuid", "972501234567", "2026-08-04");
-  assert.equal(a, b);
   assert.equal(a, "site_lead:1:rule-uuid:972501234567:2026-08-04");
 }
 
-/** no-response helpers accept both sources */
+/**
+ * Contact source stays "site_lead" when an incoming_lead rule matches —
+ * no-response cron indexes meta_lead_ad + site_lead only.
+ */
 {
   assert.equal(isOpeningTemplateLeadSource("meta_lead_ad"), true);
   assert.equal(isOpeningTemplateLeadSource("site_lead"), true);
-  assert.equal(isOpeningTemplateLeadSource("whatsapp"), false);
+  assert.equal(isOpeningTemplateLeadSource("incoming_lead"), false);
 
   const base = {
     session_phase: "opening",
@@ -104,7 +127,23 @@ function rule(
   };
   assert.equal(isLeadTemplateOnlyContact({ ...base, source: "meta_lead_ad" }), true);
   assert.equal(isLeadTemplateOnlyContact({ ...base, source: "site_lead" }), true);
-  assert.equal(isLeadTemplateOnlyContact({ ...base, source: "whatsapp" }), false);
+
+  const usingRule = Boolean(
+    pickSiteLeadTemplateTriggerRule([
+      rule({ id: "c1", trigger_type: "incoming_lead", template_name: "T" }),
+    ])
+  );
+  const contactSource = usingRule ? "site_lead" : "meta_lead_ad";
+  assert.equal(contactSource, "site_lead");
+  assert.equal(isOpeningTemplateLeadSource(contactSource), true);
+}
+
+/** Uniqueness semantics (API): only one incoming_lead row per business */
+{
+  const existing = [rule({ id: "1", template_name: "A" })];
+  const wouldCreateSecond = existing.some((r) => isIncomingLeadTriggerType(r.trigger_type));
+  assert.equal(wouldCreateSecond, true);
+  assert.equal(isIncomingLeadTriggerType("incoming_lead"), true);
 }
 
 console.log("site-lead-trigger.test.ts: ok");

@@ -30,7 +30,7 @@ export type TriggerType =
   | "birthday"
   | "membership_expiring"
   | "sessions_expiring"
-  | "site_lead"
+  | "incoming_lead"
   | "no_response";
 
 export type DelayDirection = "after" | "before";
@@ -62,7 +62,7 @@ const ARBOX_TRIGGER_TYPES = new Set<TriggerType>([
 ]);
 
 const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
-  { value: "site_lead", label: "ליד מאתר" },
+  { value: "incoming_lead", label: "ליד מאתר/קמפיין" },
   { value: "no_response", label: "חזרה אחרי שתיקה" },
   { value: "purchase", label: "רכישה" },
   { value: "credit_refusal", label: "סירוב אשראי" },
@@ -76,7 +76,12 @@ function isArboxTriggerType(type: TriggerType): boolean {
   return ARBOX_TRIGGER_TYPES.has(type);
 }
 
+function isIncomingLeadType(type: string): boolean {
+  return type === "incoming_lead" || type === "site_lead" || type === "campaign_lead";
+}
+
 function triggerTypeLabel(type: TriggerType): string {
+  if (isIncomingLeadType(type)) return "ליד מאתר/קמפיין";
   return TRIGGER_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
 }
 
@@ -102,8 +107,8 @@ function formatDelayLabel(
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;
   }
-  if (type === "site_lead") {
-    return days === 0 ? "מיידי" : `${days} ימים אחרי שליחת הטופס`;
+  if (isIncomingLeadType(type)) {
+    return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;
   }
   if (type === "birthday") {
     return days === 0 ? "ביום ההולדת" : `${days} ימים לפני יום ההולדת`;
@@ -310,7 +315,7 @@ export default function TemplatesClient({
   const [triggerDeletingId, setTriggerDeletingId] = useState<number | null>(null);
 
   const [newTriggerType, setNewTriggerType] = useState<TriggerType>(
-    hasArbox ? "purchase" : "site_lead"
+    hasArbox ? "purchase" : "incoming_lead"
   );
   const [newProductFilter, setNewProductFilter] = useState<number[]>([]);
   const [newDelayDays, setNewDelayDays] = useState(0);
@@ -327,20 +332,21 @@ export default function TemplatesClient({
     [templates]
   );
 
-  const creatableTriggerOptions = useMemo(
-    () =>
-      TRIGGER_TYPE_OPTIONS.filter(
-        (opt) => hasArbox || !isArboxTriggerType(opt.value)
-      ),
-    [hasArbox]
-  );
+  const creatableTriggerOptions = useMemo(() => {
+    const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
+    return TRIGGER_TYPE_OPTIONS.filter((opt) => {
+      if (!hasArbox && isArboxTriggerType(opt.value)) return false;
+      if (opt.value === "incoming_lead" && hasIncomingLead) return false;
+      return true;
+    });
+  }, [hasArbox, triggers]);
 
-  const enabledSiteLead = useMemo(
-    () => triggers.some((t) => t.trigger_type === "site_lead" && t.enabled),
+  const enabledIncomingLead = useMemo(
+    () => triggers.some((t) => isIncomingLeadType(t.trigger_type) && t.enabled),
     [triggers]
   );
 
-  const siteLeadWebhookUrl = useMemo(() => {
+  const incomingLeadWebhookUrl = useMemo(() => {
     const token = leadsWebhookSecret || "<leads_webhook_secret>";
     return `https://heyzoe.io/api/leads/incoming?token=${encodeURIComponent(token)}`;
   }, [leadsWebhookSecret]);
@@ -356,13 +362,13 @@ export default function TemplatesClient({
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const hideNewDelayDirection =
     newTriggerType === "birthday" ||
-    newTriggerType === "site_lead" ||
+    newTriggerType === "incoming_lead" ||
     newTriggerType === "no_response";
   const newDelayDaysMin = newTriggerType === "no_response" ? 2 : 0;
 
   useEffect(() => {
     if (!creatableTriggerOptions.some((o) => o.value === newTriggerType)) {
-      setNewTriggerType(creatableTriggerOptions[0]?.value ?? "site_lead");
+      setNewTriggerType(creatableTriggerOptions[0]?.value ?? "incoming_lead");
     }
   }, [creatableTriggerOptions, newTriggerType]);
 
@@ -477,6 +483,9 @@ export default function TemplatesClient({
         }
         if (j.error === "arbox_not_connected") {
           throw new Error("יש לחבר Arbox בהגדרות לפני יצירת טריגרים");
+        }
+        if (j.error === "incoming_lead_exists") {
+          throw new Error("כבר קיים טריגר ליד");
         }
         throw new Error(j.error || `http_${res.status}`);
       }
@@ -923,25 +932,30 @@ export default function TemplatesClient({
           </ul>
         )}
 
-        {enabledSiteLead ? (
+        {enabledIncomingLead ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3 text-right">
-            <h3 className="text-sm font-semibold text-zinc-900">Webhook לטופס האתר (Elementor)</h3>
+            <h3 className="text-sm font-semibold text-zinc-900">Webhook — ליד מאתר/קמפיין</h3>
             <p className="text-xs leading-relaxed text-zinc-700">
-              ב־Elementor Pro: עריכת הטופס → Actions After Submit → הוסיפו Webhook → הדביקו את
-              ה־URL למטה. הגדירו Custom ID לשדות:{" "}
+              לאתר עם טופס (Elementor): הדביקו את ה-URL ב-Actions → Webhook.
+            </p>
+            <p className="text-xs leading-relaxed text-zinc-700">
+              לקמפיין פייסבוק/גוגל: חברו דרך Zapier/Make — &apos;ליד חדש → POST ל-URL הזה&apos;.
+            </p>
+            <p className="text-xs leading-relaxed text-zinc-700">
+              שדות:{" "}
               <span dir="ltr" className="font-mono">
                 full_name
-              </span>{" "}
-              ו־
+              </span>
+              ,{" "}
               <span dir="ltr" className="font-mono">
                 phone
               </span>
-              . אין צורך ב־Zapier או ב־header.
+              .
             </p>
-            <CopyBlock label="Webhook URL" text={siteLeadWebhookUrl} />
+            <CopyBlock label="Webhook URL" text={incomingLeadWebhookUrl} />
             {!leadsWebhookSecret ? (
               <p className="text-xs text-amber-800">
-                חסר טוקן לעסק — פנו לתמיכה לפני חיבור הטופס.
+                חסר טוקן לעסק — פנו לתמיכה לפני חיבור הטופס או האוטומציה.
               </p>
             ) : null}
           </div>
@@ -958,7 +972,7 @@ export default function TemplatesClient({
             >
               חברו את Arbox בהגדרות
             </Link>
-            . טריגר «ליד מאתר» זמין תמיד.
+            . טריגר «ליד מאתר/קמפיין» זמין תמיד.
           </p>
         ) : null}
 

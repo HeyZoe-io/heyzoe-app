@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { businessHasArboxConnection } from "@/lib/crm/types";
+import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import TemplatesClient, { type TemplateRow, type TriggerRow } from "./TemplatesClient";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -75,12 +76,17 @@ export default async function TemplatesPage({ params }: Props) {
     biz as { crm_type?: unknown; crm_api_key?: unknown } | null
   );
 
+  const initialTriggers = ((triggers ?? []) as TriggerRow[]).map((row) => ({
+    ...row,
+    trigger_type: canonicalizeTriggerType(String(row.trigger_type)) as TriggerRow["trigger_type"],
+  }));
+
   return (
     <TemplatesClient
       slug={access.business.slug || slug}
       initialTemplates={(templates ?? []) as TemplateRow[]}
       initialLeadTemplateName={leadTemplateName || null}
-      initialTriggers={(triggers ?? []) as TriggerRow[]}
+      initialTriggers={initialTriggers}
       leadsWebhookSecret={leadsWebhookSecret}
       hasWaba={hasWaba}
       hasArbox={hasArbox}
