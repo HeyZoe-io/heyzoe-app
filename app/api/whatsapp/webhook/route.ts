@@ -94,13 +94,17 @@ import {
   shouldResetWaFollowupCycleOnInbound,
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
-import { applyCallScheduleCtaLabelOverride, uniqueDaysWithSlots } from "@/lib/call-schedule-slots";
+import {
+  applyCallScheduleCtaLabelOverride,
+  CALL_SCHEDULE_CTA_LABEL,
+  CALL_SCHEDULE_CTA_LABEL_LEGACY,
+  uniqueDaysWithSlots,
+} from "@/lib/call-schedule-slots";
 import {
   buildCallScheduleCompletedLeadMessage,
   buildCallScheduleDayQuestion,
   buildCallScheduleNoSlotsLeadMessage,
   buildCallScheduleTimeQuestion,
-  CALL_SCHEDULE_CTA_LABEL,
   dayButtonLabelsForSlots,
   fetchBusinessCallSlots,
   ownerSlotLine,
@@ -7003,7 +7007,9 @@ async function processIncoming(
           wantsTrialByFollow ||
           (trialCtaOn && trialBtn
             ? waLabelMatches(incomingResolved, trialBtn.label) ||
-              (callSchedulingOn && waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL))
+              (callSchedulingOn &&
+                (waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL) ||
+                  waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL_LEGACY)))
             : false);
         const wantsSchedule =
           wantsScheduleByIntent ||

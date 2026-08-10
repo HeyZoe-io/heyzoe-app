@@ -6,8 +6,16 @@
 
 import { HEBREW_DAY_OPTIONS } from "@/lib/product-schedule-slots";
 
-/** תווית כפתור CTA כשהטוגל פעיל */
-export const CALL_SCHEDULE_CTA_LABEL = "קביעת מועד לשיחה";
+/** תווית כפתור CTA כשמצב «שיחת מכירה» פעיל */
+export const CALL_SCHEDULE_CTA_LABEL = "שיחת מכירה";
+
+/** תווית ישנה — עדיין מזוהה בלחיצות לידים קיימות */
+export const CALL_SCHEDULE_CTA_LABEL_LEGACY = "קביעת מועד לשיחה";
+
+export function isCallScheduleCtaLabel(label: string): boolean {
+  const t = String(label ?? "").trim();
+  return t === CALL_SCHEDULE_CTA_LABEL || t === CALL_SCHEDULE_CTA_LABEL_LEGACY;
+}
 
 /** שבת — לא מוצעת לקביעת שיחה */
 export const CALL_SCHEDULE_SATURDAY_DOW = 6;
@@ -157,7 +165,7 @@ export function diffCallScheduleSlots(
   };
 }
 
-/** דורס תווית כפתור trial כשהטוגל פעיל */
+/** דורס תווית כפתור trial כשמצב «שיחת מכירה» פעיל */
 export function applyCallScheduleCtaLabelOverride<T extends { kind?: string; label: string }>(
   buttons: T[],
   enabled: boolean

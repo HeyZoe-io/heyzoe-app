@@ -55,6 +55,7 @@ import {
   CALL_SCHEDULE_DAY_OPTIONS,
   CALL_SCHEDULE_TIME_BLOCKS,
   callSlotKey,
+  isCallScheduleCtaLabel,
 } from "@/lib/call-schedule-slots";
 
 type ServiceItem = {
@@ -1874,9 +1875,48 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                         {ctaSlotRoleLabel(locked)}
                       </label>
                       {locked === "trial" ? (
-                        <p className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-center text-xs leading-relaxed text-zinc-600">
-                          {t.salesFlow.linkFromProducts}
-                        </p>
+                        <select
+                          dir={dashboardDir(lang)}
+                          className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                          aria-label={t.salesFlow.trialCtaMode}
+                          value={salesFlowCallSchedulingEnabled ? "sales_call" : "registration"}
+                          onChange={(e) => {
+                            const next = e.target.value === "sales_call";
+                            setSalesFlowCallSchedulingEnabled?.(next);
+                            if (next) {
+                              setSalesFlowConfig((c) => ({
+                                ...c,
+                                cta_buttons: c.cta_buttons.map((x) =>
+                                  x.kind === "trial" ? { ...x, label: CALL_SCHEDULE_CTA_LABEL } : x
+                                ),
+                                followup_after_next_class_options: [
+                                  CALL_SCHEDULE_CTA_LABEL,
+                                  c.followup_after_next_class_options[1] ?? "צפייה במערכת השעות",
+                                  c.followup_after_next_class_options[2] ?? "מחירי מנויים",
+                                ],
+                              }));
+                            } else {
+                              setSalesFlowConfig((c) => ({
+                                ...c,
+                                cta_buttons: c.cta_buttons.map((x) =>
+                                  x.kind === "trial" && isCallScheduleCtaLabel(x.label)
+                                    ? { ...x, label: "הרשמה לשיעור ניסיון" }
+                                    : x
+                                ),
+                                followup_after_next_class_options: [
+                                  isCallScheduleCtaLabel(c.followup_after_next_class_options[0] ?? "")
+                                    ? "הרשמה לשיעור ניסיון"
+                                    : c.followup_after_next_class_options[0],
+                                  c.followup_after_next_class_options[1] ?? "צפייה במערכת השעות",
+                                  c.followup_after_next_class_options[2] ?? "מחירי מנויים",
+                                ],
+                              }));
+                            }
+                          }}
+                        >
+                          <option value="registration">{t.salesFlow.trialCtaModeRegistration}</option>
+                          <option value="sales_call">{t.salesFlow.trialCtaModeSalesCall}</option>
+                        </select>
                       ) : (
                         <>
                           <select
@@ -2060,132 +2100,67 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                 );
               })}
             </div>
-            {ctaOfferTab === "trial" ? (
+            {ctaOfferTab === "trial" && salesFlowCallSchedulingEnabled ? (
               <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0 text-right">
-                    <p className="text-sm font-medium text-zinc-800">{t.salesFlow.callScheduleToggle}</p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                      {t.salesFlow.callScheduleToggleHint}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={salesFlowCallSchedulingEnabled}
-                    onClick={() => {
-                      const next = !salesFlowCallSchedulingEnabled;
-                      setSalesFlowCallSchedulingEnabled?.(next);
-                      if (next) {
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          cta_buttons: c.cta_buttons.map((b) =>
-                            b.kind === "trial" ? { ...b, label: CALL_SCHEDULE_CTA_LABEL } : b
-                          ),
-                          followup_after_next_class_options: [
-                            CALL_SCHEDULE_CTA_LABEL,
-                            c.followup_after_next_class_options[1] ?? "צפייה במערכת השעות",
-                            c.followup_after_next_class_options[2] ?? "מחירי מנויים",
-                          ],
-                        }));
-                      } else {
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          cta_buttons: c.cta_buttons.map((b) =>
-                            b.kind === "trial" && b.label === CALL_SCHEDULE_CTA_LABEL
-                              ? { ...b, label: "הרשמה לשיעור ניסיון" }
-                              : b
-                          ),
-                          followup_after_next_class_options: [
-                            c.followup_after_next_class_options[0] === CALL_SCHEDULE_CTA_LABEL
-                              ? "הרשמה לשיעור ניסיון"
-                              : c.followup_after_next_class_options[0],
-                            c.followup_after_next_class_options[1] ?? "צפייה במערכת השעות",
-                            c.followup_after_next_class_options[2] ?? "מחירי מנויים",
-                          ],
-                        }));
-                      }
-                    }}
-                    className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      salesFlowCallSchedulingEnabled
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-zinc-200 bg-white text-zinc-600"
-                    }`}
-                  >
-                    <span>
-                      {salesFlowCallSchedulingEnabled
-                        ? t.salesFlow.callScheduleOn
-                        : t.salesFlow.callScheduleOff}
-                    </span>
-                    <span
-                      className={`h-4 w-7 rounded-full p-0.5 transition-colors ${
-                        salesFlowCallSchedulingEnabled ? "bg-emerald-500" : "bg-zinc-300"
-                      }`}
-                      aria-hidden
-                    >
-                      <span
-                        className={`block h-3 w-3 rounded-full bg-white transition-transform ${
-                          salesFlowCallSchedulingEnabled ? "translate-x-0" : "-translate-x-3"
-                        }`}
-                      />
-                    </span>
-                  </button>
+                <div className="min-w-0 text-right">
+                  <p className="text-sm font-medium text-zinc-800">{t.salesFlow.trialCtaModeSalesCall}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                    {t.salesFlow.callScheduleToggleHint}
+                  </p>
                 </div>
-                {salesFlowCallSchedulingEnabled ? (
-                  <div className="space-y-3">
-                    <p className="text-[11px] leading-relaxed text-zinc-500">
-                      {t.salesFlow.callScheduleSlotsHint}
-                    </p>
-                    <div className="space-y-2">
-                      {CALL_SCHEDULE_DAY_OPTIONS.map((dayOpt) => {
-                        const dayIdx = dayOpt.day_of_week;
-                        const selectedBlocks = new Set(
-                          callScheduleSlots
-                            .filter((s) => s.day_of_week === dayIdx)
-                            .map((s) => s.time_block)
-                        );
-                        return (
-                          <div
-                            key={dayOpt.value}
-                            className="rounded-lg border border-zinc-200/80 bg-white/90 p-2.5"
-                          >
-                            <p className="mb-2 text-xs font-semibold text-zinc-700">יום {dayOpt.label}</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {CALL_SCHEDULE_TIME_BLOCKS.map((block) => {
-                                const on = selectedBlocks.has(block);
-                                return (
-                                  <button
-                                    key={block}
-                                    type="button"
-                                    aria-pressed={on}
-                                    className={cn(
-                                      "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors",
-                                      on
-                                        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                                        : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100"
-                                    )}
-                                    onClick={() => {
-                                      setCallScheduleSlots?.((prev) => {
-                                        const key = callSlotKey({ day_of_week: dayIdx, time_block: block });
-                                        const exists = prev.some((s) => callSlotKey(s) === key);
-                                        if (exists) {
-                                          return prev.filter((s) => callSlotKey(s) !== key);
-                                        }
-                                        return [...prev, { day_of_week: dayIdx, time_block: block }];
-                                      });
-                                    }}
-                                  >
-                                    {block}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                <div className="space-y-3">
+                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                    {t.salesFlow.callScheduleSlotsHint}
+                  </p>
+                  <div className="space-y-2">
+                    {CALL_SCHEDULE_DAY_OPTIONS.map((dayOpt) => {
+                      const dayIdx = dayOpt.day_of_week;
+                      const selectedBlocks = new Set(
+                        callScheduleSlots
+                          .filter((s) => s.day_of_week === dayIdx)
+                          .map((s) => s.time_block)
+                      );
+                      return (
+                        <div
+                          key={dayOpt.value}
+                          className="rounded-lg border border-zinc-200/80 bg-white/90 p-2.5"
+                        >
+                          <p className="mb-2 text-xs font-semibold text-zinc-700">יום {dayOpt.label}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {CALL_SCHEDULE_TIME_BLOCKS.map((block) => {
+                              const on = selectedBlocks.has(block);
+                              return (
+                                <button
+                                  key={block}
+                                  type="button"
+                                  aria-pressed={on}
+                                  className={cn(
+                                    "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors",
+                                    on
+                                      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                      : "border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100"
+                                  )}
+                                  onClick={() => {
+                                    setCallScheduleSlots?.((prev) => {
+                                      const key = callSlotKey({ day_of_week: dayIdx, time_block: block });
+                                      const exists = prev.some((s) => callSlotKey(s) === key);
+                                      if (exists) {
+                                        return prev.filter((s) => callSlotKey(s) !== key);
+                                      }
+                                      return [...prev, { day_of_week: dayIdx, time_block: block }];
+                                    });
+                                  }}
+                                >
+                                  {block}
+                                </button>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : null}
+                </div>
               </div>
             ) : null}
             <input
