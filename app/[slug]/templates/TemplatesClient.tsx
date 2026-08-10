@@ -715,11 +715,9 @@ export default function TemplatesClient({
       <header className="space-y-2 text-right">
         <h1 className="text-2xl font-semibold text-zinc-900 sm:text-3xl">טמפלייטים</h1>
         <p className="text-sm leading-relaxed text-zinc-600 sm:text-[15px]">
-          טמפלייטים הם הודעות מוכנות מראש שחייבות אישור של Meta כדי לשלוח בוואטסאפ{" "}
-          <strong className="font-medium text-zinc-800">מחוץ לחלון 24 השעות</strong> — כלומר
-          לחזור לליד שלא כתב ב־24 השעות האחרונות. כל טמפלייט עובר אישור במטא (לרוב דקות עד 24
-          שעות). שליחת טמפלייט שיווקי (Marketing) למספר ישראלי עולה כ־₪0.13 להודעה (תעריף לפי
-          מדינת הנמען, נתון לשינוי ע״י Meta).
+          טמפלייטים הם הודעות מוכנות מראש שחייבות אישור של Meta כדי לשלוח בוואטסאפ מחוץ לחלון 24
+          השעות. כל טמפלייט עובר אישור במטא (לרוב כמה דקות). שליחת טמפלייט שיווקי (Marketing)
+          למספר ישראלי עולה כ־₪0.13 להודעה (נתון לשינוי ע״י Meta).
         </p>
       </header>
 
@@ -847,13 +845,8 @@ export default function TemplatesClient({
       </section>
 
       <section className="rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="space-y-2 text-right">
+        <div className="text-right">
           <h2 className="text-base font-semibold text-zinc-900">טריגרים אוטומטיים</h2>
-          <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-[#7133da]/25 bg-[#7133da]/8 px-3 py-2.5">
-            שימו לב: הודעת לאחר הרשמה היא לא טמפלייט — היא חינמית וניתנת לעריכה מטאב &apos;שיחה&apos;
-            במסלול מכירה. הטמפלייט נשלח רק כשאין חלון שיחה פעיל של 24 שעות (למשל ליד שנרשם
-            ומעולם לא שוחח).
-          </p>
         </div>
 
         {triggers.length === 0 ? (
@@ -970,7 +963,7 @@ export default function TemplatesClient({
         ) : null}
 
         <form
-          className="rounded-xl border border-dashed border-[#7133da]/30 bg-[#7133da]/[0.03] p-4 space-y-4"
+          className="rounded-xl border border-zinc-200 bg-white p-4 space-y-4"
           onSubmit={(e) => void onCreateTrigger(e)}
         >
           <h3 className="text-sm font-semibold text-zinc-900 text-right">הוסף טריגר</h3>
