@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { isAdminAllowedEmail } from "@/lib/server-env";
@@ -14,6 +14,7 @@ import {
   canonicalMarketingSessionId,
   extractLeadPhoneFromMarketingSession,
 } from "@/lib/marketing-whatsapp";
+import { syncContactToMetaAudience } from "@/lib/ads/meta-audiences";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -249,6 +250,20 @@ export async function PUT(req: NextRequest) {
       } catch (e) {
         console.error("[marketing/conversation-notes] followup opt-out failed:", e);
       }
+    }
+
+    // Meta Custom Audiences — רק כשהסטטוס באמת השתנה; fire-and-forget (לא חוסם את תשובת ה-PUT)
+    const prevStatus = existing
+      ? coerceMarketingNoteStatus(existing.status)
+      : null;
+    if (prevStatus !== status) {
+      after(async () => {
+        try {
+          await syncContactToMetaAudience({ phone, status });
+        } catch (e) {
+          console.error("[marketing/conversation-notes] meta audience sync failed:", e);
+        }
+      });
     }
 
     // גם הגרסה החדשה נשמרת להיסטוריה (אם יש תוכן)
