@@ -1,12 +1,22 @@
 /**
  * קביעת מועד לשיחה (sales_flow_call_scheduling) —
- * day_of_week מיושר לאינדקס HEBREW_DAY_OPTIONS (0=ראשון … 6=שבת).
+ * day_of_week מיושר לאינדקס HEBREW_DAY_OPTIONS (0=ראשון … 5=שישי).
+ * שבת (6) אינה זמינה לקביעת שיחה.
  */
 
 import { HEBREW_DAY_OPTIONS } from "@/lib/product-schedule-slots";
 
 /** תווית כפתור CTA כשהטוגל פעיל */
 export const CALL_SCHEDULE_CTA_LABEL = "קביעת מועד לשיחה";
+
+/** שבת — לא מוצעת לקביעת שיחה */
+export const CALL_SCHEDULE_SATURDAY_DOW = 6;
+
+/** ימים זמינים לדשבורד / WA (ראשון–שישי) */
+export const CALL_SCHEDULE_DAY_OPTIONS: { day_of_week: number; value: string; label: string }[] =
+  HEBREW_DAY_OPTIONS.map((o, day_of_week) => ({ day_of_week, value: o.value, label: o.label })).filter(
+    (o) => o.day_of_week !== CALL_SCHEDULE_SATURDAY_DOW
+  );
 
 /** בלוקי שעתיים מותרים (CHECK על business_call_slots.time_block) */
 export const CALL_SCHEDULE_TIME_BLOCKS = [
@@ -26,7 +36,7 @@ export type BusinessCallSlotRow = {
   time_block: string;
 };
 
-/** 0 = ראשון (= HEBREW_DAY_OPTIONS[0]) … 6 = שבת */
+/** 0 = ראשון (= HEBREW_DAY_OPTIONS[0]) … 5 = שישי (שבת=6 אינה בשימוש) */
 export function hebrewDayLetterFromDow(dayOfWeek: number): string {
   const opt = HEBREW_DAY_OPTIONS[dayOfWeek];
   return opt?.value ?? "";
@@ -41,11 +51,12 @@ export function dayOfWeekFromHebrewLetter(letter: string): number | null {
   const t = String(letter ?? "").trim();
   if (!t) return null;
   const idx = HEBREW_DAY_OPTIONS.findIndex((o) => o.value === t || o.label === t);
-  return idx >= 0 ? idx : null;
+  return idx >= 0 && idx !== CALL_SCHEDULE_SATURDAY_DOW ? idx : null;
 }
 
 /** תווית כפתור יום בווטסאפ — «יום ראשון» */
 export function callScheduleDayButtonLabel(dayOfWeek: number): string {
+  if (!isValidCallScheduleDayOfWeek(dayOfWeek)) return "";
   const label = hebrewDayLabelFromDow(dayOfWeek);
   return label ? `יום ${label}` : "";
 }
@@ -53,24 +64,25 @@ export function callScheduleDayButtonLabel(dayOfWeek: number): string {
 export function dayOfWeekFromCallScheduleDayButtonLabel(text: string): number | null {
   const raw = String(text ?? "").trim();
   if (!raw) return null;
-  for (let i = 0; i < HEBREW_DAY_OPTIONS.length; i++) {
-    const label = callScheduleDayButtonLabel(i);
-    if (label && (raw === label || raw === HEBREW_DAY_OPTIONS[i]!.label || raw === HEBREW_DAY_OPTIONS[i]!.value)) {
-      return i;
+  for (const day of CALL_SCHEDULE_DAY_OPTIONS) {
+    const label = callScheduleDayButtonLabel(day.day_of_week);
+    if (label && (raw === label || raw === day.label || raw === day.value)) {
+      return day.day_of_week;
     }
   }
   const m = raw.match(/^יום\s+(.+)$/u);
   if (m) {
     const name = m[1]!.trim();
-    const idx = HEBREW_DAY_OPTIONS.findIndex((o) => o.label === name);
-    if (idx >= 0) return idx;
+    const hit = CALL_SCHEDULE_DAY_OPTIONS.find((o) => o.label === name);
+    if (hit) return hit.day_of_week;
   }
   return null;
 }
 
+/** ראשון–שישי בלבד (0–5); שבת נדחית */
 export function isValidCallScheduleDayOfWeek(n: unknown): n is number {
   const v = Number(n);
-  return Number.isInteger(v) && v >= 0 && v <= 6;
+  return Number.isInteger(v) && v >= 0 && v <= 5;
 }
 
 export function isValidCallScheduleTimeBlock(raw: unknown): raw is CallScheduleTimeBlock {
