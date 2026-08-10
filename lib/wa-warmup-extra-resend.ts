@@ -18,7 +18,15 @@ export function inferWarmupExtraStepIndex(input: {
   cleanStepsCount: number;
   lastIdxFromEvent: number | null;
   lastAssistModel: string | null;
-  sessionPhase?: "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
+  sessionPhase?:
+    | "opening"
+    | "warmup"
+    | "schedule_date"
+    | "schedule_time"
+    | "call_schedule_day"
+    | "call_schedule_time"
+    | "cta"
+    | "registered";
 }): number | null {
   if (input.lastIdxFromEvent != null) return input.lastIdxFromEvent;
   const canInferFromFlowStep =

@@ -53,6 +53,8 @@ export type BusinessKnowledgePack = {
   membershipsUrl: string;
   scheduleDirectRegistration: boolean;
   warmupSessionEnabled: boolean;
+  /** כשפעיל — כפתור trial מתחיל בחירת יום/בלוק לשיחה במקום לינק סליקה */
+  salesFlowCallSchedulingEnabled: boolean;
   openingMediaUrl: string;
   openingMediaType: "image" | "video" | "";
   servicesShortText: string;
@@ -183,7 +185,9 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const admin = createSupabaseAdminClient();
     const { data: business } = await admin
       .from("businesses")
-      .select("id, name, niche, cta_text, cta_link, social_links, bot_name, schedule_direct_registration, warmup_session_enabled")
+      .select(
+        "id, name, niche, cta_text, cta_link, social_links, bot_name, schedule_direct_registration, warmup_session_enabled, sales_flow_call_scheduling_enabled"
+      )
       .eq("slug", slug)
       .maybeSingle();
     if (!business) return null;
@@ -398,6 +402,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       membershipsUrl,
       scheduleDirectRegistration: (business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false,
       warmupSessionEnabled: (business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false,
+      salesFlowCallSchedulingEnabled:
+        (business as { sales_flow_call_scheduling_enabled?: boolean }).sales_flow_call_scheduling_enabled === true,
       openingMediaUrl,
       openingMediaType,
       servicesShortText,
@@ -562,7 +568,15 @@ const RESPONSE_SHAPE_BLOCK_WA_REGISTERED_OPEN = `
 
 /** הקשר לפרומפט וואטסאפ (שלב שיחה + סטטוס הרשמה לניסיון). */
 export type WhatsAppPromptContext = {
-  sessionPhase?: "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
+  sessionPhase?:
+    | "opening"
+    | "warmup"
+    | "schedule_date"
+    | "schedule_time"
+    | "call_schedule_day"
+    | "call_schedule_time"
+    | "cta"
+    | "registered";
   trialRegistered?: boolean;
   /** המערכת תשלח CTA / המשך פלואו / תפריט בנפרד — בלי שאלת המשך בגוף התשובה */
   suppressFollowUpQuestion?: boolean;

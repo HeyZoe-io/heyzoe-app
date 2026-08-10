@@ -20,6 +20,8 @@ export async function handleLeadHumanRequested(input: {
   nowIso: string;
   sessionId: string;
   fullName?: string | null;
+  /** מועד שיחה שנבחר (יום+בלוק) — נוסף למייל בעלים אם קיים */
+  callScheduleSlot?: string | null;
 }): Promise<{ already: boolean }> {
   const businessId = Number(input.businessId);
   const phoneVariants = contactPhoneLookupVariants(input.phone);
@@ -70,6 +72,7 @@ export async function handleLeadHumanRequested(input: {
     businessId,
     leadPhone: input.phone,
     requestedAtIso: input.nowIso,
+    callScheduleSlot: input.callScheduleSlot ?? null,
   }).catch((e) => console.error("[human-requested] owner notification failed:", e));
 
   try {

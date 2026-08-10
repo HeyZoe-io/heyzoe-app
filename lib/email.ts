@@ -426,10 +426,13 @@ export function humanRequestedOwnerEmail(input: {
   business_name: string;
   lead_phone: string;
   requested_at: string;
+  /** מועד שיחה שנבחר בפלואו (אופציונלי) */
+  call_schedule_slot?: string | null;
 }): EmailTemplateResult {
   const bn = String(input.business_name ?? "").trim() || "העסק שלך";
   const phone = String(input.lead_phone ?? "").trim() || "—";
   const at = String(input.requested_at ?? "").trim();
+  const slot = String(input.call_schedule_slot ?? "").trim();
   return {
     subject: `נדרש מענה אנושי — ${bn}`,
     htmlContent: [
@@ -439,6 +442,7 @@ export function humanRequestedOwnerEmail(input: {
         "",
         `הליד ${phone} ביקש לדבר עם נציג.`,
         ...(at ? ["בתאריך: " + at] : []),
+        ...(slot ? ["מועד שיחה שנבחר: " + slot] : []),
         "",
         "ניתן לנהל את השיחה בדשבורד.",
         "",

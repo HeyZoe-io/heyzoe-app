@@ -300,6 +300,12 @@ export const dashboardSettingsI18n = {
         "כדי לערוך הנעה לפעולה — הוסיפו מוצר מסוג שיעור ניסיון, סדנה או קורס בטאב «מוצרים» (שלב 3).",
       ctaTypeAria: "סוג סשן הנעה לפעולה",
       ctaBodyText: "טקסט הנעה לפעולה",
+      callScheduleToggle: "קביעת מועד לשיחה",
+      callScheduleToggleHint:
+        "במקום לינק סליקה — הליד בוחר יום ובלוק שעות, ונשלחת התראת «ביקש לדבר עם נציג» עם המועד.",
+      callScheduleOn: "פועל",
+      callScheduleOff: "כבוי",
+      callScheduleSlotsHint: "סמנו לכל יום את בלוקי השעות הזמינים לשיחה (רק ימים עם לפחות בלוק אחד יוצגו לליד).",
       button: (n: number) => `כפתור ${n}`,
       charsMax: (n: number) => `עד ${n} תווים`,
       linkFromProducts: "לינק מטאב «מוצרים»",
@@ -753,6 +759,13 @@ export const dashboardSettingsI18n = {
         "To edit CTA — add a trial, workshop, or course in Products (step 3).",
       ctaTypeAria: "CTA session type",
       ctaBodyText: "Call-to-action text",
+      callScheduleToggle: "Schedule a call",
+      callScheduleToggleHint:
+        "Instead of a payment link — the lead picks a day and time block, then you get a «requested human» alert with the slot.",
+      callScheduleOn: "On",
+      callScheduleOff: "Off",
+      callScheduleSlotsHint:
+        "For each day, select available 2-hour blocks (only days with at least one block are shown to the lead).",
       button: (n: number) => `Button ${n}`,
       charsMax: (n: number) => `Up to ${n} characters`,
       linkFromProducts: "Link from Products tab",

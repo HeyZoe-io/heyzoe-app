@@ -1248,6 +1248,10 @@ export default function SlugSettingsPage({
   const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
   const [scheduleDirectRegistration, setScheduleDirectRegistration] = useState(true);
   const [warmupSessionEnabled, setWarmupSessionEnabled] = useState(true);
+  const [salesFlowCallSchedulingEnabled, setSalesFlowCallSchedulingEnabled] = useState(false);
+  const [callScheduleSlots, setCallScheduleSlots] = useState<
+    Array<{ day_of_week: number; time_block: string }>
+  >([]);
   const [membershipsUrl, setMembershipsUrl] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
@@ -1673,6 +1677,28 @@ export default function SlugSettingsPage({
         setScheduleScanImageUrl(loadedScheduleScanImageUrl);
         setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
         setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
+        setSalesFlowCallSchedulingEnabled(
+          (business as { sales_flow_call_scheduling_enabled?: boolean }).sales_flow_call_scheduling_enabled === true
+        );
+        {
+          const rawSlots = Array.isArray((swrSettings as { call_slots?: unknown }).call_slots)
+            ? ((swrSettings as { call_slots: unknown[] }).call_slots)
+            : [];
+          setCallScheduleSlots(
+            rawSlots
+              .map((row) => {
+                if (!row || typeof row !== "object") return null;
+                const r = row as { day_of_week?: unknown; time_block?: unknown };
+                return {
+                  day_of_week: Number(r.day_of_week),
+                  time_block: String(r.time_block ?? "").trim(),
+                };
+              })
+              .filter((s): s is { day_of_week: number; time_block: string } =>
+                Boolean(s && Number.isInteger(s.day_of_week) && s.day_of_week >= 0 && s.day_of_week <= 6 && s.time_block)
+              )
+          );
+        }
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
         setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
         const fullWelcome = String(business.welcome_message ?? "");
@@ -1864,6 +1890,7 @@ export default function SlugSettingsPage({
         conversions_api_token: conversionsApiToken,
         schedule_direct_registration: scheduleDirectRegistration,
         warmup_session_enabled: warmupSessionEnabled,
+        sales_flow_call_scheduling_enabled: salesFlowCallSchedulingEnabled,
         crm_type: crmType,
         crm_api_key: crmApiKey.trim(),
         crm_box_id: crmBoxId.trim(),
@@ -1911,6 +1938,7 @@ export default function SlugSettingsPage({
         },
       },
       faqs: [] as unknown[],
+      call_slots: callScheduleSlots,
     };
     return servicesHydrated
       ? {
@@ -1962,6 +1990,8 @@ export default function SlugSettingsPage({
       arboxTrialMembershipTypeIds,
       scheduleDirectRegistration,
       warmupSessionEnabled,
+      salesFlowCallSchedulingEnabled,
+      callScheduleSlots,
       objections,
       waSalesFollowup1,
       waSalesFollowup2,
@@ -2982,6 +3012,10 @@ export default function SlugSettingsPage({
             setSalesFlowConfig={setSalesFlowConfig}
             scheduleDirectRegistration={scheduleDirectRegistration}
             setScheduleDirectRegistration={setScheduleDirectRegistration}
+            salesFlowCallSchedulingEnabled={salesFlowCallSchedulingEnabled}
+            setSalesFlowCallSchedulingEnabled={setSalesFlowCallSchedulingEnabled}
+            callScheduleSlots={callScheduleSlots}
+            setCallScheduleSlots={setCallScheduleSlots}
             scheduleScanImageUrl={scheduleScanImageUrl}
             scheduleBoardLink={(schedulePublicUrl.trim() || arboxLink.trim()).trim()}
             warmupSessionEnabled={warmupSessionEnabled}

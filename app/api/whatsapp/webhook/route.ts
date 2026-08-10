@@ -94,6 +94,22 @@ import {
   shouldResetWaFollowupCycleOnInbound,
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
+import { applyCallScheduleCtaLabelOverride, uniqueDaysWithSlots } from "@/lib/call-schedule-slots";
+import {
+  buildCallScheduleCompletedLeadMessage,
+  buildCallScheduleDayQuestion,
+  buildCallScheduleNoSlotsLeadMessage,
+  buildCallScheduleTimeQuestion,
+  CALL_SCHEDULE_CTA_LABEL,
+  dayButtonLabelsForSlots,
+  fetchBusinessCallSlots,
+  ownerSlotLine,
+  persistCallScheduleDay,
+  persistCallScheduleTimeComplete,
+  resolveCallScheduleDayChoice,
+  resolveCallScheduleTimeChoice,
+  timeButtonLabelsForDay,
+} from "@/lib/wa-call-schedule-flow";
 import {
   ensureRegisteredOpenQuestionClosing,
   stripMenuEchoFromAnswer,
@@ -500,7 +516,15 @@ function isAddressOrDirectionsIntent(text: string): boolean {
   );
 }
 
-type HeyzoeSessionPhase = "opening" | "warmup" | "schedule_date" | "schedule_time" | "cta" | "registered";
+type HeyzoeSessionPhase =
+  | "opening"
+  | "warmup"
+  | "schedule_date"
+  | "schedule_time"
+  | "call_schedule_day"
+  | "call_schedule_time"
+  | "cta"
+  | "registered";
 
 /** שלבים שאחרי תשובת Claude לטקסט חופשי שולחים מחדש את השאלה/תפריט הפתוח (לא CTA/registered). */
 const SALES_FLOW_FREE_TEXT_SPLIT_PHASES = new Set<HeyzoeSessionPhase>([
@@ -508,6 +532,8 @@ const SALES_FLOW_FREE_TEXT_SPLIT_PHASES = new Set<HeyzoeSessionPhase>([
   "warmup",
   "schedule_date",
   "schedule_time",
+  "call_schedule_day",
+  "call_schedule_time",
 ]);
 
 const WARMUP_EXTRA_MENU_MODELS = new Set([
@@ -550,6 +576,8 @@ function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
     s === "warmup" ||
     s === "schedule_date" ||
     s === "schedule_time" ||
+    s === "call_schedule_day" ||
+    s === "call_schedule_time" ||
     s === "cta" ||
     s === "registered" ||
     s === "opening"
@@ -563,6 +591,8 @@ const SALES_FLOW_DETERMINISTIC_PHASES = new Set<HeyzoeSessionPhase>([
   "warmup",
   "schedule_date",
   "schedule_time",
+  "call_schedule_day",
+  "call_schedule_time",
 ]);
 
 const CTA_MENU_SENT_MODELS = new Set([
@@ -791,6 +821,8 @@ const SALES_FLOW_CONTINUATION_PHASES = new Set<HeyzoeSessionPhase>([
   "warmup",
   "schedule_date",
   "schedule_time",
+  "call_schedule_day",
+  "call_schedule_time",
   "cta",
   "registered",
 ]);
@@ -2663,7 +2695,11 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     activeOfferKind === "trial"
       ? getEffectiveSalesFlowCtaButtons(ctaBank, sfEff)
       : getEffectiveSecondaryOfferCtaButtons(ctaBank, sfConsumedKinds ?? []);
-  const filtered = applyOnlineCourseCtaButtonLabels(filteredRaw, selectedService);
+  const filteredLabeled = applyOnlineCourseCtaButtonLabels(filteredRaw, selectedService);
+  const filtered = applyCallScheduleCtaLabelOverride(
+    filteredLabeled,
+    knowledge.salesFlowCallSchedulingEnabled === true && activeOfferKind === "trial"
+  );
 
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
 
@@ -3050,6 +3086,70 @@ async function sendFlowContinuation(input: {
         businessId,
         business_slug,
         sessionId,
+      });
+    }
+    return;
+  }
+
+  if (phase === "call_schedule_day" || phase === "call_schedule_time") {
+    if (!knowledge.salesFlowCallSchedulingEnabled) {
+      await sendSalesFlowCtaMenuWithPhaseUpdate({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered,
+        allowTrialCta,
+        sfConsumedKinds,
+        modelUsed: "flow_continuation_call_schedule_disabled",
+      });
+      return;
+    }
+    const slots = await fetchBusinessCallSlots({ admin: supabase, businessId });
+    if (phase === "call_schedule_day") {
+      const labels = dayButtonLabelsForSlots(slots);
+      const body = buildCallScheduleDayQuestion();
+      if (labels.length) {
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, labels, accountSid, authToken, {
+          footerHint: salesFlowMenuFooter(knowledge),
+          language: resolveBusinessContentLanguageFromKnowledge(knowledge),
+        }).catch((e) => console.error("[WA Webhook] resend call schedule day failed:", e));
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: formatInteractiveConversationLog(body, labels, salesFlowMenuFooter(knowledge)),
+          model_used: "flow_continuation_call_schedule_day",
+          session_id: sessionId,
+        });
+      }
+      return;
+    }
+    const phoneVariants = contactPhoneLookupVariants(msg.from);
+    const { data: dayRow } = await supabase
+      .from("contacts")
+      .select("call_schedule_day")
+      .eq("business_id", businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [msg.from])
+      .maybeSingle();
+    const dayOfWeek = Number((dayRow as { call_schedule_day?: unknown } | null)?.call_schedule_day);
+    const labels = timeButtonLabelsForDay(slots, dayOfWeek);
+    const body = buildCallScheduleTimeQuestion(dayOfWeek);
+    if (labels.length) {
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, labels, accountSid, authToken, {
+        footerHint: salesFlowMenuFooter(knowledge),
+        language: resolveBusinessContentLanguageFromKnowledge(knowledge),
+      }).catch((e) => console.error("[WA Webhook] resend call schedule time failed:", e));
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: formatInteractiveConversationLog(body, labels, salesFlowMenuFooter(knowledge)),
+        model_used: "flow_continuation_call_schedule_time",
+        session_id: sessionId,
       });
     }
     return;
@@ -5125,6 +5225,8 @@ async function processIncoming(
         contactSessionPhase === "warmup" ||
         contactSessionPhase === "schedule_date" ||
         contactSessionPhase === "schedule_time" ||
+        contactSessionPhase === "call_schedule_day" ||
+        contactSessionPhase === "call_schedule_time" ||
         contactSessionPhase === "cta")
     ) {
       const reactivated = await reactivateNotRelevantLead({
@@ -6219,6 +6321,166 @@ async function processIncoming(
     }
   }
 
+  // 1.45) Sales flow: קביעת מועד לשיחה (call_schedule_day / call_schedule_time)
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    knowledge.salesFlowCallSchedulingEnabled === true &&
+    (contactSessionPhase === "call_schedule_day" || contactSessionPhase === "call_schedule_time")
+  ) {
+    try {
+      if (
+        await trySendSalesFlowHumanAgentHandoff({
+          inboundText: msg.text.trim(),
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+        })
+      ) {
+        return;
+      }
+
+      const slots = await fetchBusinessCallSlots({ admin: supabase, businessId });
+      const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+      const menuFooter = salesFlowMenuFooter(knowledge);
+
+      if (contactSessionPhase === "call_schedule_day") {
+        const days = uniqueDaysWithSlots(slots);
+        const labels = dayButtonLabelsForSlots(slots);
+        const picked = resolveCallScheduleDayChoice(msg.text.trim(), msg.metaInteractiveReplyId, days);
+        if (picked == null) {
+          if (labels.length) {
+            const body = buildCallScheduleDayQuestion();
+            await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, labels, accountSid, authToken, {
+              footerHint: menuFooter,
+              language: contentLang,
+            }).catch((e) => console.error("[WA Webhook] call schedule day reask failed:", e));
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: formatInteractiveConversationLog(body, labels, menuFooter),
+              model_used: "sales_flow_call_schedule_day_invalid",
+              session_id: sessionId,
+            });
+          }
+          return;
+        }
+        await persistCallScheduleDay({
+          supabase,
+          businessId,
+          phone: msg.from,
+          dayOfWeek: picked,
+        });
+        contactSessionPhase = "call_schedule_time";
+        const timeLabels = timeButtonLabelsForDay(slots, picked);
+        const timeBody = buildCallScheduleTimeQuestion(picked);
+        if (!timeLabels.length) {
+          const txt = buildCallScheduleNoSlotsLeadMessage();
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] call schedule no time blocks failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_call_schedule_no_time_blocks",
+            session_id: sessionId,
+          });
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso: new Date().toISOString(),
+            sessionId,
+          });
+          return;
+        }
+        await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, timeBody, timeLabels, accountSid, authToken, {
+          footerHint: menuFooter,
+          language: contentLang,
+        }).catch((e) => console.error("[WA Webhook] call schedule time menu failed:", e));
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: formatInteractiveConversationLog(timeBody, timeLabels, menuFooter),
+          model_used: "sales_flow_call_schedule_time_question",
+          session_id: sessionId,
+        });
+        return;
+      }
+
+      // call_schedule_time
+      const phoneVariants = contactPhoneLookupVariants(msg.from);
+      const { data: dayRows } = await supabase
+        .from("contacts")
+        .select("call_schedule_day")
+        .eq("business_id", businessId)
+        .in("phone", phoneVariants.length ? phoneVariants : [msg.from])
+        .limit(1);
+      const dayOfWeek = Number(
+        (dayRows?.[0] as { call_schedule_day?: unknown } | undefined)?.call_schedule_day
+      );
+      const timeLabels = timeButtonLabelsForDay(slots, dayOfWeek);
+      const pickedBlock = resolveCallScheduleTimeChoice(msg.text.trim(), msg.metaInteractiveReplyId, timeLabels);
+      if (!pickedBlock) {
+        if (timeLabels.length) {
+          const body = buildCallScheduleTimeQuestion(dayOfWeek);
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, timeLabels, accountSid, authToken, {
+            footerHint: menuFooter,
+            language: contentLang,
+          }).catch((e) => console.error("[WA Webhook] call schedule time reask failed:", e));
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: formatInteractiveConversationLog(body, timeLabels, menuFooter),
+            model_used: "sales_flow_call_schedule_time_invalid",
+            session_id: sessionId,
+          });
+        }
+        return;
+      }
+      await persistCallScheduleTimeComplete({
+        supabase,
+        businessId,
+        phone: msg.from,
+        dayOfWeek,
+        timeBlock: pickedBlock,
+      });
+      contactSessionPhase = "cta";
+      const slotLine = ownerSlotLine(dayOfWeek, pickedBlock);
+      const leadTxt = buildCallScheduleCompletedLeadMessage(slotLine);
+      await sendWhatsAppMessage(msg.toNumber, msg.from, leadTxt, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] call schedule complete lead msg failed:", e)
+      );
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: leadTxt,
+        model_used: "sales_flow_call_schedule_complete",
+        session_id: sessionId,
+      });
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso: new Date().toISOString(),
+        sessionId,
+        callScheduleSlot: slotLine || null,
+      });
+      return;
+    } catch (e) {
+      console.warn("[WA Webhook] call schedule selection failed (continuing):", e);
+    }
+  }
+
   // 1.5) Sales flow: בחירת מועד ממערכת שעות (list_reply/כפתורים) + תאריך/שעה חופשיים
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
     try {
@@ -6666,9 +6928,11 @@ async function processIncoming(
           salesFlowServices.find((service) => service.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
 
         const activeOfferKind = selectedService?.offerKind ?? "trial";
-        const ctaBs = applyOnlineCourseCtaButtonLabels(
-          ctaButtonsForOfferKind(cfg, activeOfferKind),
-          selectedService
+        const callSchedulingOn =
+          knowledge.salesFlowCallSchedulingEnabled === true && activeOfferKind === "trial";
+        const ctaBs = applyCallScheduleCtaLabelOverride(
+          applyOnlineCourseCtaButtonLabels(ctaButtonsForOfferKind(cfg, activeOfferKind), selectedService),
+          callSchedulingOn
         );
 
         const sfEff: EffectiveSalesFlowCtaInput = {
@@ -6680,10 +6944,14 @@ async function processIncoming(
           activeOfferKind === "trial"
             ? getEffectiveSalesFlowCtaButtons(ctaBs, sfEff)
             : getEffectiveSecondaryOfferCtaButtons(ctaBs, sfClickedCtaKinds);
-        const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff, cfg.cta_buttons);
-        const unionLabels = [...ctaBs.map((b) => b.label.trim()), ...follow.map((x) => String(x ?? "").trim())].filter(
-          (l) => l.length > 0
+        const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff, cfg.cta_buttons).map(
+          (label, idx) => (callSchedulingOn && idx === 0 ? CALL_SCHEDULE_CTA_LABEL : label)
         );
+        const unionLabels = [
+          ...ctaBs.map((b) => b.label.trim()),
+          ...effFollowLabels.map((x) => String(x ?? "").trim()),
+          ...(callSchedulingOn ? [CALL_SCHEDULE_CTA_LABEL] : []),
+        ].filter((l) => l.length > 0);
 
         const fuOptsForNum = effFollowLabels;
         const ctaOptsForNum = effectiveCtas.map((b) => b.label.trim()).filter(Boolean).slice(0, 12);
@@ -6720,7 +6988,11 @@ async function processIncoming(
           isScheduleIntent(incomingResolved) &&
           (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage);
         const wantsTrialByFollow =
-          trialCtaOn && Boolean(follow[0] && waLabelMatches(incomingResolved, follow[0]));
+          trialCtaOn &&
+          Boolean(
+            (effFollowLabels[0] && waLabelMatches(incomingResolved, effFollowLabels[0])) ||
+              (follow[0] && waLabelMatches(incomingResolved, follow[0]))
+          );
         const wantsScheduleByFollow =
           scheduleCtaOn &&
           Boolean(follow[1] && waLabelMatches(incomingResolved, follow[1]) && !consumedSf("schedule"));
@@ -6729,7 +7001,10 @@ async function processIncoming(
           Boolean(follow[2] && waLabelMatches(incomingResolved, follow[2]) && !consumedSf("memberships"));
         const wantsTrial =
           wantsTrialByFollow ||
-          (trialCtaOn && trialBtn ? waLabelMatches(incomingResolved, trialBtn.label) : false);
+          (trialCtaOn && trialBtn
+            ? waLabelMatches(incomingResolved, trialBtn.label) ||
+              (callSchedulingOn && waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL))
+            : false);
         const wantsSchedule =
           wantsScheduleByIntent ||
           (!consumedSf("schedule") &&
@@ -6811,6 +7086,66 @@ async function processIncoming(
             if (igUp.error) console.warn("[WA Webhook] instagram_follow_prompt_sent (trial soft):", igUp.error.message);
             else contactInstagramFollowPromptSent = true;
           }
+          return;
+        }
+
+        // טוגל קביעת מועד לשיחה — במקום שליחת לינק סליקה
+        if (wantsTrial && callSchedulingOn) {
+          if (businessId) {
+            try {
+              const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+            } catch (e) {
+              console.warn("[WA Webhook] markRegistrationCtaClicked (call schedule) failed:", e);
+            }
+          }
+          const slots = await fetchBusinessCallSlots({ admin: supabase, businessId });
+          const days = uniqueDaysWithSlots(slots);
+          const labels = dayButtonLabelsForSlots(slots);
+          const contentLangCs = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const menuFooterCs = salesFlowMenuFooter(knowledge);
+          if (!days.length || !labels.length) {
+            const txt = buildCallScheduleNoSlotsLeadMessage();
+            await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] call schedule no days failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: txt,
+              model_used: "sales_flow_call_schedule_no_days",
+              session_id: sessionId,
+            });
+            const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+            await handleLeadHumanRequested({
+              supabase,
+              businessId: Number(businessId),
+              businessSlug: business_slug,
+              phone: msg.from,
+              nowIso: new Date().toISOString(),
+              sessionId,
+            });
+            return;
+          }
+          const body = buildCallScheduleDayQuestion();
+          await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, labels, accountSid, authToken, {
+            footerHint: menuFooterCs,
+            language: contentLangCs,
+          }).catch((e) => console.error("[WA Webhook] call schedule day menu failed:", e));
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: formatInteractiveConversationLog(body, labels, menuFooterCs),
+            model_used: "sales_flow_call_schedule_day_question",
+            session_id: sessionId,
+          });
+          await updateContactSessionPhase({
+            supabase,
+            businessId,
+            phone: msg.from,
+            phase: "call_schedule_day",
+          });
+          contactSessionPhase = "call_schedule_day";
           return;
         }
 
@@ -7557,19 +7892,27 @@ async function processIncoming(
   const sfAiOfferKind = sfAiSelected?.offerKind ?? "trial";
   const filteredCtaForAi =
     sfCfgForAi != null && sfAiEff != null
-      ? applyOnlineCourseCtaButtonLabels(
-          sfAiOfferKind === "trial"
-            ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff)
-            : getEffectiveSecondaryOfferCtaButtons(
-                ctaButtonsForOfferKind(sfCfgForAi, sfAiOfferKind),
-                sfClickedCtaKinds
-              ),
-          sfAiSelected
+      ? applyCallScheduleCtaLabelOverride(
+          applyOnlineCourseCtaButtonLabels(
+            sfAiOfferKind === "trial"
+              ? getEffectiveSalesFlowCtaButtons(sfCfgForAi.cta_buttons, sfAiEff)
+              : getEffectiveSecondaryOfferCtaButtons(
+                  ctaButtonsForOfferKind(sfCfgForAi, sfAiOfferKind),
+                  sfClickedCtaKinds
+                ),
+            sfAiSelected
+          ),
+          knowledge?.salesFlowCallSchedulingEnabled === true && sfAiOfferKind === "trial"
         )
       : [];
   const effectiveFollowLabelsForPred =
     sfCfgForAi != null && sfAiEff != null
-      ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff, sfCfgForAi.cta_buttons)
+      ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff, sfCfgForAi.cta_buttons).map(
+          (label, idx) =>
+            knowledge?.salesFlowCallSchedulingEnabled === true && sfAiOfferKind === "trial" && idx === 0
+              ? CALL_SCHEDULE_CTA_LABEL
+              : label
+        )
       : [];
   const ctaMenuLabelsForAi =
     contactSessionPhase === "cta"

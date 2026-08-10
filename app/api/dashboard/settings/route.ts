@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const [{ data: services }, { data: faqs }] = await Promise.all([
+  const [{ data: services }, { data: faqs }, { data: callSlotsRaw }] = await Promise.all([
     /** sort_order מהדשבורד; id כגיבוי לשורות ישנות */
     admin
       .from("services")
@@ -96,6 +96,10 @@ export async function GET(req: NextRequest) {
       .order("sort_order", { ascending: true })
       .order("id", { ascending: true }),
     admin.from("faqs").select("*").eq("business_id", business.id).order("sort_order", { ascending: true }),
+    admin
+      .from("business_call_slots")
+      .select("day_of_week, time_block")
+      .eq("business_id", business.id),
   ]);
 
   const socialRaw = business.social_links;
@@ -148,6 +152,9 @@ export async function GET(req: NextRequest) {
       conversions_api_token: typeof business.conversions_api_token === "string" ? business.conversions_api_token : "",
       schedule_direct_registration: business.schedule_direct_registration !== false,
       warmup_session_enabled: business.warmup_session_enabled !== false,
+      sales_flow_call_scheduling_enabled:
+        (business as { sales_flow_call_scheduling_enabled?: unknown }).sales_flow_call_scheduling_enabled ===
+        true,
       crm_type: typeof (business as { crm_type?: unknown }).crm_type === "string" ? (business as { crm_type: string }).crm_type : "",
       crm_api_key: typeof (business as { crm_api_key?: unknown }).crm_api_key === "string" ? (business as { crm_api_key: string }).crm_api_key : "",
       crm_box_id: String((business as { crm_box_id?: unknown }).crm_box_id ?? "").trim(),
@@ -167,6 +174,10 @@ export async function GET(req: NextRequest) {
     },
     services: services ?? [],
     faqs: faqs ?? [],
+    call_slots: (callSlotsRaw ?? []).map((r) => ({
+      day_of_week: Number((r as { day_of_week?: unknown }).day_of_week),
+      time_block: String((r as { time_block?: unknown }).time_block ?? ""),
+    })),
   });
 }
 
@@ -249,6 +260,7 @@ export async function POST(req: NextRequest) {
     conversions_api_token: String(business.conversions_api_token ?? ""),
     schedule_direct_registration: business.schedule_direct_registration !== false,
     warmup_session_enabled: business.warmup_session_enabled !== false,
+    sales_flow_call_scheduling_enabled: business.sales_flow_call_scheduling_enabled === true,
     crm_type: (() => {
       const t = String(business.crm_type ?? "").trim().toLowerCase();
       if (t) {
@@ -414,6 +426,54 @@ export async function POST(req: NextRequest) {
       .filter((f) => f.question && f.answer);
 
     if (faqsPayload.length) await admin.from("faqs").insert(faqsPayload);
+  }
+
+  // Call schedule slots — UPSERT diff only (never wipe-and-recreate).
+  if (Array.isArray(body.call_slots)) {
+    const { diffCallScheduleSlots, normalizeCallScheduleSlots } = await import("@/lib/call-schedule-slots");
+    const nextSlots = normalizeCallScheduleSlots(body.call_slots as Array<{ day_of_week?: unknown; time_block?: unknown }>);
+    const { data: existingRaw, error: existingErr } = await admin
+      .from("business_call_slots")
+      .select("day_of_week, time_block")
+      .eq("business_id", savedBiz.id);
+    if (existingErr) {
+      console.error("[api/dashboard/settings] call_slots fetch failed:", existingErr.message);
+      return NextResponse.json({ error: "call_slots_fetch_failed" }, { status: 400 });
+    }
+    const existingSlots = normalizeCallScheduleSlots(
+      (existingRaw ?? []) as Array<{ day_of_week?: unknown; time_block?: unknown }>
+    );
+    const { toInsert, toDelete } = diffCallScheduleSlots(existingSlots, nextSlots);
+
+    if (toDelete.length) {
+      // Delete by exact (day, block) pairs — only the removed rows.
+      for (const row of toDelete) {
+        const { error: delErr } = await admin
+          .from("business_call_slots")
+          .delete()
+          .eq("business_id", savedBiz.id)
+          .eq("day_of_week", row.day_of_week)
+          .eq("time_block", row.time_block);
+        if (delErr) {
+          console.error("[api/dashboard/settings] call_slots delete failed:", delErr.message);
+          return NextResponse.json({ error: "call_slots_delete_failed" }, { status: 400 });
+        }
+      }
+    }
+
+    if (toInsert.length) {
+      const { error: insErr } = await admin.from("business_call_slots").insert(
+        toInsert.map((s) => ({
+          business_id: savedBiz.id,
+          day_of_week: s.day_of_week,
+          time_block: s.time_block,
+        }))
+      );
+      if (insErr) {
+        console.error("[api/dashboard/settings] call_slots insert failed:", insErr.message);
+        return NextResponse.json({ error: "call_slots_insert_failed" }, { status: 400 });
+      }
+    }
   }
 
   return NextResponse.json({ ok: true, slug: savedBiz.slug });

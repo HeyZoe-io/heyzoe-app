@@ -164,6 +164,8 @@ export async function triggerHumanRequestedNotification(input: {
   businessId: number;
   leadPhone: string;
   requestedAtIso?: string;
+  /** מועד שיחה שנבחר בפלואו — לגוף המייל בלבד */
+  callScheduleSlot?: string | null;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   const requestedAtWa = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
@@ -178,6 +180,7 @@ export async function triggerHumanRequestedNotification(input: {
   });
 
   const requestedAt = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
+  const slot = String(input.callScheduleSlot ?? "").trim();
 
   await sendOwnerEmailIfEnabled({
     businessId: input.businessId,
@@ -187,6 +190,7 @@ export async function triggerHumanRequestedNotification(input: {
         business_name: businessName,
         lead_phone: phoneDisplay,
         requested_at: requestedAt,
+        call_schedule_slot: slot || null,
       }),
   });
 }
