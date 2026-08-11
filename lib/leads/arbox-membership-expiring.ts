@@ -371,6 +371,7 @@ async function dispatchMembershipExpiringTemplate(input: {
       .eq("business_id", input.businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
+      .eq("disabled", false)
       .limit(1)
       .maybeSingle(),
   ]);

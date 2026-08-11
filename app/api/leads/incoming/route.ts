@@ -377,6 +377,7 @@ export async function POST(req: NextRequest) {
         .eq("business_id", businessId)
         .eq("name", templateName)
         .eq("status", "APPROVED")
+        .eq("disabled", false)
         .limit(1)
         .maybeSingle(),
     ]);
@@ -475,12 +476,41 @@ export async function POST(req: NextRequest) {
   }
 
   // Fallback: businesses.lead_template_name (Sanga / Zapier) — legacy immediate send.
+  // Soft-disable only when we have a cached row; missing cache keeps legacy send behavior.
+  const { data: fallbackTpl } = await admin
+    .from("whatsapp_templates")
+    .select("id, status, disabled, language")
+    .eq("business_id", businessId)
+    .eq("name", templateName)
+    .limit(1)
+    .maybeSingle();
+
+  if (fallbackTpl && (fallbackTpl as { disabled?: boolean }).disabled === true) {
+    console.info("[api/leads/incoming] template trigger resolution", {
+      businessId,
+      matched_rule_id: "none",
+      template_name: templateName,
+      dispatch: "gated" satisfies DispatchOutcome,
+      gate: "template_disabled",
+      contact_source: contactSource,
+    });
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "validated",
+      statusCode: 200,
+      errorDetail: "gated:template_disabled",
+    });
+    return NextResponse.json({ ok: true, dispatch: "gated", gate: "template_disabled" });
+  }
+
   const firstName = firstNameFromFullName(fullName);
   const sendResult = await sendBusinessTemplate({
     to: phoneNorm,
     phoneNumberId,
     templateName,
-    languageCode: "he",
+    languageCode:
+      String((fallbackTpl as { language?: string } | null)?.language ?? "he").trim() || "he",
     ...(leadTemplateUsesFirstName(templateName)
       ? {
           components: [

@@ -163,6 +163,9 @@ export async function createWabaTemplate(
  * Pull Meta templates for a WABA and upsert into `whatsapp_templates`.
  * Conflict key: (business_id, name, language). Does not delete missing rows.
  * This is the only writer that syncs from a Meta list (no cron/polling).
+ *
+ * Intentionally omits `disabled` from the upsert payload so owner soft-disable
+ * is preserved across Meta refresh (our field, independent of Meta status).
  */
 export async function syncWabaTemplatesToDb(
   admin: SupabaseClient,

@@ -44,10 +44,11 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   const { data: tpl, error: tplErr } = await admin
     .from("whatsapp_templates")
-    .select("id, name, status")
+    .select("id, name, status, disabled")
     .eq("business_id", access.business.id)
     .eq("name", templateName)
     .eq("status", "APPROVED")
+    .eq("disabled", false)
     .limit(1)
     .maybeSingle();
 
@@ -56,16 +57,19 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: "template_lookup_failed" }, { status: 500 });
   }
   if (!tpl?.id) {
-    // Distinguish missing vs not approved for clearer client errors.
+    // Distinguish missing vs not approved / soft-disabled for clearer client errors.
     const { data: anyStatus } = await admin
       .from("whatsapp_templates")
-      .select("id, status")
+      .select("id, status, disabled")
       .eq("business_id", access.business.id)
       .eq("name", templateName)
       .limit(1)
       .maybeSingle();
     if (!anyStatus?.id) {
       return NextResponse.json({ error: "template_not_found" }, { status: 404 });
+    }
+    if ((anyStatus as { disabled?: boolean }).disabled === true) {
+      return NextResponse.json({ error: "template_disabled" }, { status: 400 });
     }
     return NextResponse.json({ error: "template_not_approved" }, { status: 400 });
   }

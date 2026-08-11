@@ -33,7 +33,7 @@ export default async function TemplatesPage({ params }: Props) {
     admin
       .from("whatsapp_templates")
       .select(
-        "id, business_id, waba_template_id, name, category, language, status, components, created_at, updated_at"
+        "id, business_id, waba_template_id, name, category, language, status, disabled, components, created_at, updated_at"
       )
       .eq("business_id", businessId)
       .order("updated_at", { ascending: false }),

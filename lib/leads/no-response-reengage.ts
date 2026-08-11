@@ -197,6 +197,7 @@ async function dispatchNoResponseTemplate(input: {
       .eq("business_id", input.businessId)
       .eq("name", input.templateName)
       .eq("status", "APPROVED")
+      .eq("disabled", false)
       .limit(1)
       .maybeSingle(),
   ]);

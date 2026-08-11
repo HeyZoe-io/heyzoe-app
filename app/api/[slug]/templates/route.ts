@@ -83,7 +83,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     admin
       .from("whatsapp_templates")
       .select(
-        "id, business_id, waba_template_id, name, category, language, status, components, created_at, updated_at"
+        "id, business_id, waba_template_id, name, category, language, status, disabled, components, created_at, updated_at"
       )
       .eq("business_id", businessId)
       .order("updated_at", { ascending: false }),
@@ -192,7 +192,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     .from("whatsapp_templates")
     .upsert(row, { onConflict: "business_id,name,language" })
     .select(
-      "id, business_id, waba_template_id, name, category, language, status, components, created_at, updated_at"
+      "id, business_id, waba_template_id, name, category, language, status, disabled, components, created_at, updated_at"
     )
     .maybeSingle();
 
@@ -202,4 +202,63 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   return NextResponse.json({ template: upserted ?? row });
+}
+
+/**
+ * PATCH /api/[slug]/templates — soft-disable / re-enable on our side only.
+ * Body: { id } or { name, language? } + { disabled: boolean }
+ * Never calls Meta; template stays APPROVED there.
+ */
+export async function PATCH(req: NextRequest, ctx: RouteContext) {
+  const { slug } = await ctx.params;
+  const gate = await requireTemplatesAccess(slug);
+  if (!gate.ok) return gate.response;
+  const { admin, business } = gate;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  if (typeof body.disabled !== "boolean") {
+    return NextResponse.json({ error: "missing_disabled" }, { status: 400 });
+  }
+
+  const id = String(body.id ?? "").trim();
+  const name = String(body.name ?? "").trim();
+  const language = String(body.language ?? "").trim();
+
+  let query = admin
+    .from("whatsapp_templates")
+    .update({
+      disabled: body.disabled,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("business_id", business.id);
+
+  if (id) {
+    query = query.eq("id", id);
+  } else if (name) {
+    query = query.eq("name", name);
+    if (language) query = query.eq("language", language);
+  } else {
+    return NextResponse.json({ error: "missing_template_ref" }, { status: 400 });
+  }
+
+  const { data: updatedRows, error: updErr } = await query.select(
+    "id, business_id, waba_template_id, name, category, language, status, disabled, components, created_at, updated_at"
+  );
+
+  if (updErr) {
+    console.error("[api/templates] PATCH disabled failed:", updErr.message);
+    return NextResponse.json({ error: "template_disable_failed" }, { status: 500 });
+  }
+  const updated = Array.isArray(updatedRows) ? updatedRows[0] : null;
+  if (!updated?.id) {
+    return NextResponse.json({ error: "template_not_found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ template: updated });
 }

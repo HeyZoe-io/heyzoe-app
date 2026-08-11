@@ -118,6 +118,7 @@ async function dispatchOneScheduledSend(
       .eq("business_id", businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
+      .eq("disabled", false)
       .limit(1)
       .maybeSingle(),
   ]);

@@ -18,6 +18,7 @@ export type TemplateRow = {
   category: string;
   language: string;
   status: string;
+  disabled?: boolean;
   components?: unknown;
   created_at?: string;
   updated_at?: string;
@@ -307,6 +308,7 @@ export default function TemplatesClient({
   const [triggers, setTriggers] = useState<TriggerRow[]>(initialTriggers);
   const [refreshing, setRefreshing] = useState(false);
   const [settingLead, setSettingLead] = useState<string | null>(null);
+  const [togglingDisabled, setTogglingDisabled] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -328,7 +330,10 @@ export default function TemplatesClient({
   const [arboxMembershipTypesError, setArboxMembershipTypesError] = useState<string | null>(null);
 
   const approvedTemplates = useMemo(
-    () => templates.filter((t) => String(t.status).toUpperCase() === "APPROVED"),
+    () =>
+      templates.filter(
+        (t) => String(t.status).toUpperCase() === "APPROVED" && t.disabled !== true
+      ),
     [templates]
   );
 
@@ -477,6 +482,9 @@ export default function TemplatesClient({
       if (!res.ok) {
         if (j.error === "template_not_approved") {
           throw new Error("אפשר לבחור רק טמפלייט שאושר במטא");
+        }
+        if (j.error === "template_disabled") {
+          throw new Error("הטמפלייט מושבת — בחרו טמפלייט פעיל או הפעילו מחדש");
         }
         if (j.error === "min_delay_days") {
           throw new Error("לחזרה אחרי שתיקה נדרשים לפחות 2 ימים");
@@ -648,6 +656,9 @@ export default function TemplatesClient({
         if (j.error === "template_not_approved") {
           throw new Error("אפשר להגדיר רק טמפלייט שאושר במטא");
         }
+        if (j.error === "template_disabled") {
+          throw new Error("הטמפלייט מושבת — הפעילו מחדש לפני הגדרה כטמפלייט פתיחה");
+        }
         throw new Error(j.error || `http_${res.status}`);
       }
       setLeadTemplateName(String(j.lead_template_name ?? templateName));
@@ -656,6 +667,70 @@ export default function TemplatesClient({
       setError(e instanceof Error ? e.message : "עדכון נכשל");
     } finally {
       setSettingLead(null);
+    }
+  }
+
+  function templateUsageWarning(templateName: string): string | null {
+    const asLead = leadTemplateName != null && leadTemplateName === templateName;
+    const activeTriggers = triggers.filter(
+      (t) => t.enabled && String(t.template_name ?? "").trim() === templateName
+    );
+    if (!asLead && activeTriggers.length === 0) return null;
+    const parts: string[] = [];
+    if (asLead) parts.push("טמפלייט הפתיחה ללידים");
+    if (activeTriggers.length > 0) {
+      parts.push(
+        activeTriggers.length === 1
+          ? "טריגר פעיל"
+          : `${activeTriggers.length} טריגרים פעילים`
+      );
+    }
+    return `טמפלייט זה בשימוש ב${parts.join(" ו־")} — השבתתו תמנע את שליחתו. להמשיך?`;
+  }
+
+  async function onToggleDisabled(t: TemplateRow) {
+    const nextDisabled = t.disabled !== true;
+    const rowKey = `${t.id ?? t.name}:${t.language}`;
+
+    if (nextDisabled) {
+      const warning = templateUsageWarning(t.name);
+      if (warning && !window.confirm(warning)) return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setTogglingDisabled(rowKey);
+    try {
+      const res = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(t.id ? { id: t.id } : { name: t.name, language: t.language }),
+          disabled: nextDisabled,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        template?: TemplateRow;
+      };
+      if (!res.ok) {
+        throw new Error(j.error || `http_${res.status}`);
+      }
+      const updated = j.template;
+      setTemplates((prev) =>
+        prev.map((row) => {
+          const same =
+            (t.id && row.id === t.id) ||
+            (!t.id && row.name === t.name && row.language === t.language);
+          if (!same) return row;
+          return updated ? { ...row, ...updated } : { ...row, disabled: nextDisabled };
+        })
+      );
+      setSuccess(nextDisabled ? "הטמפלייט הושבת (רק אצלנו)" : "הטמפלייט הופעל מחדש");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "עדכון השבתה נכשל");
+    } finally {
+      setTogglingDisabled(null);
     }
   }
 
@@ -798,11 +873,15 @@ export default function TemplatesClient({
           <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-100 overflow-hidden">
             {templates.map((t) => {
               const isApproved = String(t.status).toUpperCase() === "APPROVED";
+              const isDisabled = t.disabled === true;
               const isCurrent = leadTemplateName != null && leadTemplateName === t.name;
+              const toggleKey = `${t.id ?? t.name}:${t.language}`;
               return (
                 <li
                   key={`${t.name}:${t.language}:${t.id ?? t.waba_template_id ?? ""}`}
-                  className="flex flex-col gap-3 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
+                  className={`flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 ${
+                    isDisabled ? "bg-zinc-50" : "bg-white"
+                  }`}
                 >
                   <div className="space-y-1 text-right min-w-0">
                     <p className="font-medium text-zinc-900 break-all" dir="ltr">
@@ -816,12 +895,38 @@ export default function TemplatesClient({
                       >
                         {statusLabel(t.status)}
                       </span>
+                      {isDisabled ? (
+                        <span className="inline-flex rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-medium text-zinc-700">
+                          מושבת
+                        </span>
+                      ) : null}
                       <span>{t.category || "—"}</span>
                       <span>{t.language || "—"}</span>
                     </div>
                   </div>
-                  <div className="shrink-0">
-                    {isApproved ? (
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={togglingDisabled === toggleKey}
+                      onClick={() => void onToggleDisabled(t)}
+                      className={`rounded-xl border px-3 py-2 text-sm disabled:opacity-60 ${
+                        isDisabled
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      {togglingDisabled === toggleKey ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          מעדכן…
+                        </span>
+                      ) : isDisabled ? (
+                        "הפעל מחדש"
+                      ) : (
+                        "השבת"
+                      )}
+                    </button>
+                    {isApproved && !isDisabled ? (
                       isCurrent ? (
                         <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
                           <Check className="h-4 w-4" />
@@ -844,6 +949,10 @@ export default function TemplatesClient({
                           )}
                         </button>
                       )
+                    ) : isApproved && isDisabled && isCurrent ? (
+                      <span className="inline-flex items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+                        טמפלייט פתיחה (מושבת)
+                      </span>
                     ) : null}
                   </div>
                 </li>

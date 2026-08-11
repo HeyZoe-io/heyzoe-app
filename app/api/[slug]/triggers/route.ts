@@ -108,10 +108,11 @@ async function verifyApprovedTemplate(
 
   const { data: approved, error: lookupErr } = await admin
     .from("whatsapp_templates")
-    .select("id, name, status")
+    .select("id, name, status, disabled")
     .eq("business_id", businessId)
     .eq("name", name)
     .eq("status", "APPROVED")
+    .eq("disabled", false)
     .limit(1)
     .maybeSingle();
 
@@ -122,13 +123,16 @@ async function verifyApprovedTemplate(
   if (!approved?.id) {
     const { data: anyStatus } = await admin
       .from("whatsapp_templates")
-      .select("id, status")
+      .select("id, status, disabled")
       .eq("business_id", businessId)
       .eq("name", name)
       .limit(1)
       .maybeSingle();
     if (!anyStatus?.id) {
       return { ok: false, error: "template_not_found", status: 404 };
+    }
+    if ((anyStatus as { disabled?: boolean }).disabled === true) {
+      return { ok: false, error: "template_disabled", status: 400 };
     }
     return { ok: false, error: "template_not_approved", status: 400 };
   }
