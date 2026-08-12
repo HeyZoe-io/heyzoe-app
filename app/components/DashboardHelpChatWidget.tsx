@@ -68,7 +68,7 @@ export default function DashboardHelpChatWidget({ slug }: { slug: string }) {
     const el = listRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [rows.length, open]);
+  }, [rows.length, open, sending]);
 
   async function send() {
     const msg = text.trim();
@@ -182,6 +182,18 @@ export default function DashboardHelpChatWidget({ slug }: { slug: string }) {
                 </div>
               </div>
             ))}
+
+            {sending && (
+              <div className="flex justify-end" aria-live="polite" aria-label="זואי מקלידה">
+                <div className="max-w-[86%] rounded-2xl px-3 py-2.5 border text-white border-[rgba(113,51,218,0.18)] bg-[linear-gradient(135deg,#7133da,#ff92ff)]">
+                  <span className="flex gap-1" aria-hidden>
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/80 animate-bounce [animation-duration:900ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/80 animate-bounce [animation-delay:120ms] [animation-duration:900ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/80 animate-bounce [animation-delay:240ms] [animation-duration:900ms]" />
+                  </span>
+                </div>
+              </div>
+            )}
 
             {needsHuman && (
               <div className="mt-2 rounded-2xl border border-amber-200 bg-white p-3">
