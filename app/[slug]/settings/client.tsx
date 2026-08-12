@@ -10,6 +10,9 @@ import ConnectWhatsAppSection from "./connect-whatsapp-section";
 
 const SETTINGS_PRESENCE_PREFIX = "settings";
 
+/** TEMP: turn off exclusive-edit lock so two people can edit the same dashboard. Set back to true to restore. */
+const SETTINGS_PRESENCE_LOCK_ENABLED = false;
+
 type PresencePayload = {
   client_id?: string;
   user_id?: string;
@@ -99,11 +102,13 @@ export default function SettingsPresenceClient({ slug }: { slug: string }) {
         const currentEditor = pickEarliest(currentUserPresences);
         const otherEditor = pickEarliest(otherUserPresences);
         const concurrentNames = uniqueOtherEditorNames(otherUserPresences, t.otherUser);
-        const shouldLock = Boolean(
-          otherEditor &&
-            (!currentEditor ||
-              String(otherEditor.online_at ?? "").localeCompare(String(currentEditor.online_at ?? "")) <= 0)
-        );
+        const shouldLock =
+          SETTINGS_PRESENCE_LOCK_ENABLED &&
+          Boolean(
+            otherEditor &&
+              (!currentEditor ||
+                String(otherEditor.online_at ?? "").localeCompare(String(currentEditor.online_at ?? "")) <= 0)
+          );
 
         setSettingsPresenceLocked(shouldLock);
         setSettingsPresenceEditorName(shouldLock ? String(otherEditor?.name ?? t.otherUser).trim() : "");
