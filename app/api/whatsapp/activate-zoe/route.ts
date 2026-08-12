@@ -45,6 +45,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
+  if (body.activate === true) {
+    const businessId = Number(access.business.id);
+    let hasConnectedNumber = false;
+
+    {
+      const { data: bySlug } = await admin
+        .from("whatsapp_channels")
+        .select("id, phone_display")
+        .eq("business_slug", businessSlug)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (String((bySlug as { phone_display?: unknown } | null)?.phone_display ?? "").trim()) {
+        hasConnectedNumber = true;
+      }
+    }
+
+    if (!hasConnectedNumber && Number.isFinite(businessId) && businessId > 0) {
+      const { data: byId } = await admin
+        .from("whatsapp_channels")
+        .select("id, phone_display")
+        .eq("business_id", businessId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (String((byId as { phone_display?: unknown } | null)?.phone_display ?? "").trim()) {
+        hasConnectedNumber = true;
+      }
+    }
+
+    if (!hasConnectedNumber) {
+      console.warn("[api/whatsapp/activate-zoe] blocked: no connected WhatsApp number", {
+        business_id: businessId,
+        slug: businessSlug,
+      });
+      return NextResponse.json({ error: "no_whatsapp_number" }, { status: 400 });
+    }
+  }
+
   const { error: updateErr } = await admin
     .from("businesses")
     .update({ zoe_activated: body.activate })

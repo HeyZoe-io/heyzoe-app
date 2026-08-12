@@ -490,7 +490,7 @@ function WhatsAppNumberSection({
   const data = channelData?.channel ?? null;
   const zoeActivated = channelData?.zoe_activated ?? false;
   const [zoeToggling, setZoeToggling] = useState(false);
-  const [zoeToggleError, setZoeToggleError] = useState(false);
+  const [zoeToggleError, setZoeToggleError] = useState<string | null>(null);
   const status = data?.provisioning_status ?? null;
   const isActiveLocally = data?.is_active === true;
   const phoneDisplayRaw = String(data?.phone_display ?? "").trim();
@@ -667,7 +667,7 @@ function WhatsAppNumberSection({
 
   const toggleZoeActivated = useCallback(async () => {
     setZoeToggling(true);
-    setZoeToggleError(false);
+    setZoeToggleError(null);
     const nextActivate = !zoeActivated;
     try {
       const res = await fetch("/api/whatsapp/activate-zoe", {
@@ -675,18 +675,25 @@ function WhatsAppNumberSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_slug: slug, activate: nextActivate }),
       });
-      if (!res.ok) throw new Error(`request_failed (${res.status})`);
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        if (j?.error === "no_whatsapp_number") {
+          setZoeToggleError(tp.zoeActivateNoNumber);
+          return;
+        }
+        throw new Error(`request_failed (${res.status})`);
+      }
       await mutate(
         (prev) => ({ channel: prev?.channel ?? null, zoe_activated: nextActivate }),
         { revalidate: false }
       );
     } catch (e) {
       console.error("[settings] toggleZoeActivated failed:", e);
-      setZoeToggleError(true);
+      setZoeToggleError(tp.zoeToggleFailed);
     } finally {
       setZoeToggling(false);
     }
-  }, [slug, zoeActivated, mutate]);
+  }, [slug, zoeActivated, mutate, tp.zoeActivateNoNumber, tp.zoeToggleFailed]);
 
   return (
     <div
@@ -753,7 +760,7 @@ function WhatsAppNumberSection({
         </Button>
       </div>
       {zoeToggleError ? (
-        <div className="mt-1.5 text-[11px] text-rose-700 text-right">{tp.zoeToggleFailed}</div>
+        <div className="mt-1.5 text-[11px] text-rose-700 text-right">{zoeToggleError}</div>
       ) : null}
 
       {error ? (

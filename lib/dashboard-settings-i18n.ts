@@ -445,6 +445,7 @@ export const dashboardSettingsI18n = {
       activateZoeButton: "הפעילו את זואי",
       deactivateZoeButton: "כיבוי זואי",
       zoeToggleFailed: "הפעולה נכשלה, נסו שוב",
+      zoeActivateNoNumber: "אין מספר מחובר עדיין. חברו מספר WhatsApp לפני הפעלת זואי.",
       waConnected: "זואי מחוברת ועונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!",
       waPending:
         "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות - אין צורך בפעולה מצידך.",
@@ -909,6 +910,7 @@ export const dashboardSettingsI18n = {
       activateZoeButton: "Activate Zoe",
       deactivateZoeButton: "Turn Zoe off",
       zoeToggleFailed: "Action failed, try again",
+      zoeActivateNoNumber: "No WhatsApp number connected yet. Connect a number before activating Zoe.",
       waConnected: "Zoe is connected and replies on this number. Share it with your customers!",
       waPending:
         "Number pending WhatsApp approval. This may take up to 24 hours — no action needed.",
