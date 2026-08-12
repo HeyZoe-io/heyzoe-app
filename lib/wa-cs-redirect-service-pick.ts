@@ -1,4 +1,4 @@
-import { HEYZOE_SF_REGISTERED, logMessage } from "@/lib/analytics";
+import { logMessage } from "@/lib/analytics";
 import { salesFlowOpeningResetPatch } from "@/lib/wa-warmup-awaiting-idx";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { BusinessKnowledgePack } from "@/lib/business-context";
@@ -11,14 +11,22 @@ import {
 } from "@/lib/whatsapp";
 import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
 import { getZoeWhatsAppMenuFooter } from "@/lib/whatsapp-copy";
+import {
+  buildDefaultMultiServiceQuestion,
+  stripScheduleLineFromMultiServiceQuestion,
+} from "@/lib/sales-flow";
 
 export const CS_REDIRECT_SERVICE_PICK_BRIDGE =
   "ואם בכל זאת תרצו לשמוע על אחד מהאימונים שלנו, אני כאן בשביל זה.";
 
+/** ביטויי כוונת שירות לקוחות — לסריקה על הודעת הליד הנכנסת (לא על תשובת Claude). */
 const CS_REDIRECT_PHRASE =
   /שירות\s*(ה)?לקוחות|ליצור\s*קשר|להתקשר|מוזמנים\s*להתקשר|טלפון\s*שירות|נציג|מענה\s*אנושי|דברו\s*ישירות\s*עם\s*הצוות|נשמח\s*לעזור\s*ישירות/u;
 
-/** תשובה שהפנתה לשירות לקוחות (טלפון או ניסוח מקביל). */
+/**
+ * האם הליד מבקש שירות לקוחות / התקשרות (טלפון או ניסוח מקביל).
+ * יש להריץ על טקסט נכנס של הליד — לא על תשובת ה-AI (שם «ליצור קשר» נפוץ בתיאור תיאום מוצר).
+ */
 export function replyRefersToCustomerService(text: string, customerServicePhone: string): boolean {
   const raw = String(text ?? "").trim();
   if (!raw) return false;
@@ -45,12 +53,17 @@ export function appendCsRedirectServicePickBridge(text: string): string {
   return `${raw}\n\n${CS_REDIRECT_SERVICE_PICK_BRIDGE}`;
 }
 
-/** גוף מינימלי לתפריט Meta — בלי טקסט שאלת בחירת מוצר */
-const SERVICE_PICK_MENU_BODY_BUTTONS_ONLY = "\u200e";
-
 type ServiceRow = { name: string };
 
-/** גשר + כפתורי בחירת מוצר בלבד (בלי טקסט multi_service_question), והמשך פלואו משלב בחירת מוצר. */
+/** גוף תפריט בחירת מוצר — כמו sendOpeningServicePickMenu (multi_service_question). */
+function multiServiceQuestionMenuBody(knowledge: BusinessKnowledgePack): string {
+  const qRaw =
+    String(knowledge.salesFlowConfig?.multi_service_question ?? "").trim() ||
+    buildDefaultMultiServiceQuestion();
+  return stripScheduleLineFromMultiServiceQuestion(qRaw) || buildDefaultMultiServiceQuestion();
+}
+
+/** גשר (בהודעה קודמת) + כפתורי בחירת מוצר עם שאלת multi_service_question, והמשך פלואו משלב בחירת מוצר. */
 export async function offerServicePickAfterCustomerServiceRedirect(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: ServiceRow[];
@@ -61,16 +74,12 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
   businessId: string;
   business_slug: string;
   sessionId: string;
-  /** כשהגשר כבר נשלח בתוך הודעת ה-AI — שולחים רק כפתורים עם גוף מינימלי */
-  bridgeAlreadyInPriorMessage?: boolean;
 }): Promise<boolean> {
   if (!input.knowledge.salesFlowConfig) return false;
   const labels = input.salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
   if (labels.length < 2) return false;
 
-  const menuBody = input.bridgeAlreadyInPriorMessage
-    ? SERVICE_PICK_MENU_BODY_BUTTONS_ONLY
-    : CS_REDIRECT_SERVICE_PICK_BRIDGE;
+  const menuBody = multiServiceQuestionMenuBody(input.knowledge);
   const menuFooter = getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(input.knowledge));
 
   if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
@@ -109,7 +118,7 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
   return true;
 }
 
-/** הודעת שירות לקוחות + גשר + כפתורי בחירת מוצר (ללא multi_service_question). */
+/** הודעת שירות לקוחות + גשר + כפתורי בחירת מוצר (עם multi_service_question). */
 export async function sendCustomerServiceRedirectWithServicePickFollowUp(input: {
   csMessage: string;
   modelUsed: string;
@@ -153,7 +162,6 @@ export async function sendCustomerServiceRedirectWithServicePickFollowUp(input: 
     businessId: input.businessId,
     business_slug: input.business_slug,
     sessionId: input.sessionId,
-    bridgeAlreadyInPriorMessage: true,
   });
 }
 

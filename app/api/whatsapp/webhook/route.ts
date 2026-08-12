@@ -1189,8 +1189,8 @@ function shouldSkipSalesFlowPromptResend(input: {
   const inbound = String(input.inboundText ?? "").trim();
   if (inbound && userRequestedHumanAgent(inbound)) return true;
   const csPhone = input.knowledge.customerServicePhone?.trim() ?? "";
-  const replyForCs = String(input.aiReplyCoreClean ?? "").trim();
-  return Boolean(replyForCs && replyRefersToCustomerService(replyForCs, csPhone));
+  // CS intent = הודעת הליד (לא תשובת Claude — שם «ליצור קשר» נפוץ בתיאור מוצר)
+  return Boolean(inbound && replyRefersToCustomerService(inbound, csPhone));
 }
 
 async function trySendSalesFlowHumanAgentHandoff(input: {
@@ -8774,11 +8774,12 @@ async function processIncoming(
         !openingSkipFlowContinuation;
 
       const csPhoneForRedirect = knowledge?.customerServicePhone?.trim() ?? "";
+      // כוונת CS לפי הודעת הליד — לא לפי תשובת Claude (מניעת over-fire על «ליצור קשר» בתיאור מוצר)
       const shouldOfferServicePickAfterCs =
         Boolean(businessId) &&
         Boolean(knowledge?.salesFlowConfig) &&
         salesFlowServices.length > 1 &&
-        replyRefersToCustomerService(replyCoreClean, csPhoneForRedirect);
+        replyRefersToCustomerService(incomingRaw, csPhoneForRedirect);
 
       if (shouldOfferServicePickAfterCs && knowledge && businessId) {
         await sendCustomerServiceRedirectWithServicePickFollowUp({
