@@ -67,7 +67,7 @@ const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "no_response", label: "חזרה אחרי שתיקה" },
   { value: "purchase", label: "רכישה" },
   { value: "credit_refusal", label: "סירוב אשראי" },
-  { value: "trial_attended", label: "נכחות בשיעור ניסיון" },
+  { value: "trial_attended", label: "נוכחות בשיעור ניסיון" },
   { value: "birthday", label: "יום הולדת" },
   { value: "membership_expiring", label: "מנוי עומד לפוג" },
   { value: "sessions_expiring", label: "כרטיסייה עומדת לפוג" },
