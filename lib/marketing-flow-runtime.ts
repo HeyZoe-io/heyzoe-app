@@ -28,6 +28,7 @@ import {
   type MetaWhatsAppOutgoing,
 } from "@/lib/whatsapp";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
+import { inferMarketingFlowButtonFromFreeText } from "@/lib/marketing-flow-answer-infer";
 
 import {
   getMarketingFlowCache,
@@ -274,6 +275,75 @@ async function sendMarketingFlowResumePrompt(phone: string): Promise<void> {
 
 async function resendMarketingFlowQuestionNode(phone: string, node: FlowNode): Promise<void> {
   await sendNodeMessage(node, phone);
+}
+
+/** הודעת ליד אחרונה שאינה כפתור «להמשיך / עוד שאלה» — התשובה החופשית לפני ה-resume */
+async function loadLastNonResumeUserText(phone: string): Promise<string> {
+  const history = await fetchRecentSessionMessages({
+    business_slug: MARKETING_CONVERSATIONS_SLUG,
+    session_id: marketingWaSessionId(phone),
+    limit: 16,
+  });
+  for (let i = history.length - 1; i >= 0; i--) {
+    const row = history[i];
+    if (row?.role !== "user") continue;
+    const t = String(row.content ?? "").trim();
+    if (!t) continue;
+    if (isMarketingFlowContinueChoice(t) || isMarketingFlowMoreQuestionChoice(t)) continue;
+    return t;
+  }
+  return "";
+}
+
+async function applyMarketingFlowQuestionAnswer(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  sess: Session;
+  currentNode: FlowNode;
+  phone: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  answeredText: string;
+  metaInteractiveReplyId?: string;
+}): Promise<MarketingFlowInboundResult> {
+  await persistMarketingFlowQuestionAnswer({
+    phone: input.phone,
+    questionNode: input.currentNode,
+    userText: input.answeredText,
+    edges: input.edges,
+  });
+  const nextNode = findNextNode(
+    input.currentNode.id,
+    input.edges,
+    input.nodes,
+    input.answeredText,
+    input.metaInteractiveReplyId
+  );
+  if (!nextNode) {
+    console.warn("[marketing-flow] matched answer but no next node — keeping session on question (not post-flow AI)", {
+      phone: input.phone,
+      nodeId: input.currentNode.id,
+      nodeType: input.currentNode.type,
+      userText: input.answeredText.slice(0, 80),
+    });
+    return { handled: false, openQuestionInFlow: true };
+  }
+
+  const { waitingForAnswer, nextNodeId } = await sendNodeChain(
+    nextNode,
+    input.phone,
+    input.edges,
+    input.nodes
+  );
+
+  await persistMarketingFlowPosition({
+    admin: input.admin,
+    sessionId: input.sess.id,
+    nextNodeId,
+    waitingForAnswer,
+    lastQuestionNodeId: input.currentNode.id,
+  });
+
+  return { handled: true };
 }
 
 /** תשובת AI + «מה דעתך, אפשר להמשיך?» באמצע פלואו פעיל */
@@ -922,8 +992,44 @@ export async function handleMarketingFlowInbound(
   const currentNode = nodes.find((n) => n.id === sess.current_node_id);
 
   if (isMarketingFlowContinueChoice(userText) && currentNode) {
-    await resendMarketingFlowQuestionNode(phone, currentNode);
     await setMarketingOpenQPauseState(admin, phone, "none");
+
+    // אחרי שאלה פתוחה: אם הטקסט החופשי כבר ענה על שלב הפלואו — ממשיכים לשלב הבא, לא שולחים שוב את אותה שאלה
+    if (
+      (pauseState === "await_resume" || pauseState === "more_questions") &&
+      currentNode.type === "question"
+    ) {
+      const prior = await loadLastNonResumeUserText(phone);
+      const options = getMarketingQuestionAnswerOptions(currentNode, edges);
+      const inferred = prior
+        ? matchesMarketingFlowQuestionAnswer(currentNode, edges, prior)
+          ? resolveMarketingAnswerAgainstOptions(prior, undefined, options)
+          : inferMarketingFlowButtonFromFreeText({
+              questionText: String((currentNode.data as Record<string, unknown>)?.text ?? ""),
+              buttons: questionButtonsFromNode(currentNode),
+              userText: prior,
+            })
+        : null;
+      if (inferred) {
+        console.info("[marketing-flow] resume continue — advancing from inferred prior answer", {
+          phone,
+          nodeId: currentNode.id,
+          prior: prior.slice(0, 80),
+          inferred,
+        });
+        return applyMarketingFlowQuestionAnswer({
+          admin,
+          sess,
+          currentNode,
+          phone,
+          nodes,
+          edges,
+          answeredText: inferred,
+        });
+      }
+    }
+
+    await resendMarketingFlowQuestionNode(phone, currentNode);
     console.info("[marketing-flow] resume flow after open Q", { phone, nodeId: currentNode.id });
     return { handled: true };
   }
@@ -969,7 +1075,6 @@ export async function handleMarketingFlowInbound(
   }
 
   let nextNode: FlowNode | null;
-  let answeredQuestionId: string | null = null;
 
   if (currentNode.type === "question") {
     if (!matchesMarketingFlowQuestionAnswer(currentNode, edges, userText, metaInteractiveReplyId)) {
@@ -998,14 +1103,16 @@ export async function handleMarketingFlowInbound(
       metaInteractiveReplyId,
       options
     );
-    answeredQuestionId = currentNode.id;
-    await persistMarketingFlowQuestionAnswer({
+    return applyMarketingFlowQuestionAnswer({
+      admin,
+      sess,
+      currentNode,
       phone,
-      questionNode: currentNode,
-      userText: answeredText,
+      nodes,
       edges,
+      answeredText,
+      metaInteractiveReplyId,
     });
-    nextNode = findNextNode(currentNode.id, edges, nodes, answeredText, metaInteractiveReplyId);
   } else {
     const rerouted = await tryRerouteFromLastAnsweredQuestion({
       admin,
@@ -1038,7 +1145,6 @@ export async function handleMarketingFlowInbound(
       sessionId: sess.id,
       nextNodeId: null,
       waitingForAnswer: false,
-      ...(answeredQuestionId ? { lastQuestionNodeId: answeredQuestionId } : {}),
     });
     return { handled: false };
   }
@@ -1050,7 +1156,6 @@ export async function handleMarketingFlowInbound(
     sessionId: sess.id,
     nextNodeId,
     waitingForAnswer,
-    ...(answeredQuestionId ? { lastQuestionNodeId: answeredQuestionId } : {}),
   });
 
   return { handled: true };
