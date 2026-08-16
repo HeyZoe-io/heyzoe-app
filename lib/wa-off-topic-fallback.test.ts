@@ -16,8 +16,12 @@ assert.equal(
 );
 
 const rule = buildOffTopicStudioPromptRule("050-1111111");
+assert.match(rule, /קודם כל/);
+assert.match(rule, /על העסק/);
+assert.match(rule, /חוסר ידע רגיל/);
 assert.match(rule, /אל תשתפי פעולה/);
 assert.match(rule, /050-1111111/);
 assert.match(rule, /סימולציה/);
+assert.doesNotMatch(rule, /עני רק על נושאים/);
 
 console.log("wa-off-topic-fallback.test.ts: ok");
