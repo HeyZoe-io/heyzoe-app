@@ -117,6 +117,8 @@ import {
 } from "@/lib/wa-call-schedule-flow";
 import {
   ensureRegisteredOpenQuestionClosing,
+  ensureStandaloneOpenQuestionClosing,
+  isStandaloneWhatsAppOpenQuestion,
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
@@ -7998,7 +8000,8 @@ async function processIncoming(
     salesFlowServices.length > 1 &&
     !lastPickedServiceName &&
     !matched?.reply &&
-    !matchedPredefinedClosedLabel;
+    !matchedPredefinedClosedLabel &&
+    salesFlowStarted;
   const serviceSelectionLabels = shouldReaskServiceSelection
     ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
     : [];
@@ -8009,15 +8012,21 @@ async function processIncoming(
   // We send CTA menus deterministically; avoid appending a CTA prompt to free-text answers.
   const ctaPromptQuestion = "";
 
+  const registeredInCurrentFlow =
+    contactTrialRegistered === true || contactSessionPhase === "registered";
+  const standaloneHelpClosing = isStandaloneWhatsAppOpenQuestion({
+    sessionPhase: contactSessionPhase,
+    salesFlowStarted,
+    registered: registeredInCurrentFlow,
+  });
+
   const isSalesFlowOpenQuestionAi =
     msg.type === "text" &&
     Boolean(knowledge?.salesFlowConfig) &&
     Boolean(businessId) &&
     !matched?.reply &&
-    !matchedPredefinedClosedLabel;
-
-  const registeredInCurrentFlow =
-    contactTrialRegistered === true || contactSessionPhase === "registered";
+    !matchedPredefinedClosedLabel &&
+    !standaloneHelpClosing;
 
   const isFreeTextSalesFlowAi =
     isSalesFlowOpenQuestionAi && !registeredInCurrentFlow;
@@ -8410,11 +8419,12 @@ async function processIncoming(
         trialRegistered: contactTrialRegistered === true,
         suppressFollowUpQuestion: isSalesFlowOpenQuestionAi && !registeredInCurrentFlow,
         registeredOpenQuestionHelpClosing: isSalesFlowOpenQuestionAi && registeredInCurrentFlow,
+        standaloneHelpClosing,
         pendingWarmupExperienceResume,
         committedServiceName,
         committedScheduleDate: contactScheduleRequestedDate || undefined,
         committedScheduleTime: contactScheduleRequestedTime || undefined,
-        ctaMultiServiceRepick: salesFlowServices.length > 1,
+        ctaMultiServiceRepick: contactSessionPhase === "cta" && salesFlowServices.length > 1,
         scheduleInterestServiceName,
         pickedServiceScheduleLexicon,
       },
@@ -8664,6 +8674,9 @@ async function processIncoming(
 
   let replyText = replyCoreClean;
   replyText = softenWebsiteAttribution(replyText);
+  if (standaloneHelpClosing) {
+    replyText = ensureStandaloneOpenQuestionClosing(replyText);
+  }
   let assistantReplyLogged = false;
 
   // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
@@ -8673,8 +8686,10 @@ async function processIncoming(
       contactSessionPhase === "cta" &&
       !matched?.reply &&
       !matchedPredefinedClosedLabel;
-    const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
-    const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
+    const menuLabels =
+      standaloneHelpClosing ? [] : shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
+    const menuQuestion =
+      standaloneHelpClosing ? "" : shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
     const shouldShowFooter = Boolean(menuQuestion) || menuLabels.length > 0;
     if (!shouldSplitCtaAnswerAndMenu && menuQuestion && !hasLineNearEnd(replyText, menuQuestion)) {
       replyText += `\n\n${menuQuestion}`;
@@ -8712,8 +8727,10 @@ async function processIncoming(
         !matched?.reply &&
         !matchedPredefinedClosedLabel;
 
-      const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
-      const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
+      const menuLabels =
+        standaloneHelpClosing ? [] : shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
+      const menuQuestion =
+        standaloneHelpClosing ? "" : shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
       const ctaText =
         !shouldSplitCtaAnswerAndMenu &&
         !shouldReaskServiceSelection &&
@@ -8756,6 +8773,7 @@ async function processIncoming(
         Boolean(businessId) &&
         Boolean(knowledge?.salesFlowConfig) &&
         salesFlowServices.length > 1 &&
+        salesFlowStarted &&
         replyRefersToCustomerService(incomingRaw, csPhoneForRedirect);
 
       if (shouldOfferServicePickAfterCs && knowledge && businessId) {
@@ -8886,6 +8904,8 @@ async function processIncoming(
           }
         } else if (registeredInCurrentFlow) {
           body = ensureRegisteredOpenQuestionClosing(body);
+        } else if (standaloneHelpClosing) {
+          body = ensureStandaloneOpenQuestionClosing(body);
         }
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
           body += `\n\n${menuQuestion}`;

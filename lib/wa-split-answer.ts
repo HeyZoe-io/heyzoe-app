@@ -83,10 +83,32 @@ export function stripTrailingFollowUpQuestion(text: string): string {
 export const REGISTERED_OPEN_QUESTION_HELP_CLOSING =
   "יש עוד משהו שאני יכולה לעזור לך בו?";
 
+export const STANDALONE_OPEN_QUESTION_HELP_CLOSING =
+  "יש עוד משהו שאני יכולה לעזור לך איתו?";
+
+function ensureHelpClosing(text: string, closing: string): string {
+  const t = String(text ?? "").replace(/\r\n/g, "\n").trim();
+  if (!t) return closing;
+  if (/יש עוד משהו.*(עזור|לעזור)/iu.test(t)) return t;
+  return `${t}\n\n${closing}`;
+}
+
 /** אחרי «נרשמתי» — מוסיף שאלת סיום אם חסרה */
 export function ensureRegisteredOpenQuestionClosing(text: string): string {
-  const t = String(text ?? "").replace(/\r\n/g, "\n").trim();
-  if (!t) return REGISTERED_OPEN_QUESTION_HELP_CLOSING;
-  if (/יש עוד משהו.*(עזור|לעזור)/iu.test(t)) return t;
-  return `${t}\n\n${REGISTERED_OPEN_QUESTION_HELP_CLOSING}`;
+  return ensureHelpClosing(text, REGISTERED_OPEN_QUESTION_HELP_CLOSING);
+}
+
+/** שאלה רגילה מחוץ לפלואו מכירה — סיום ב«יש עוד משהו…» בלי תפריט אימונים */
+export function ensureStandaloneOpenQuestionClosing(text: string): string {
+  return ensureHelpClosing(text, STANDALONE_OPEN_QUESTION_HELP_CLOSING);
+}
+
+/** פלואו מכירה פעיל רק אחרי ברכת טריגר — לא מהודעה ראשונה חופשית בשלב opening. */
+export function isStandaloneWhatsAppOpenQuestion(input: {
+  sessionPhase: string;
+  salesFlowStarted: boolean;
+  registered: boolean;
+}): boolean {
+  if (input.registered) return false;
+  return input.sessionPhase === "opening" && !input.salesFlowStarted;
 }

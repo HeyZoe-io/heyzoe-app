@@ -494,6 +494,9 @@ function pickResponseShapeBlock(
   if (waCtx?.registeredOpenQuestionHelpClosing) {
     return RESPONSE_SHAPE_BLOCK_WA_REGISTERED_OPEN;
   }
+  if (waCtx?.standaloneHelpClosing) {
+    return RESPONSE_SHAPE_BLOCK_WA_STANDALONE_HELP;
+  }
   const postTrial = waCtx?.trialRegistered === true;
   const phase = waCtx?.sessionPhase;
   let id: "response_wa" | "response_wa_pre_cta" | "response_wa_post_trial" = "response_wa";
@@ -560,6 +563,13 @@ const RESPONSE_SHAPE_BLOCK_WA_POST_TRIAL = `
 2) אם מתאים — שאלה תפעולית אחת קצרה או הזמנה רכה לשאול עוד.
 3) בלי רשימות ממוספרות שמחקות כפתורי ווטסאפ. בלי Markdown.`;
 
+/** שאלה רגילה מחוץ למסלול מכירה — בלי תפריט אימונים */
+const RESPONSE_SHAPE_BLOCK_WA_STANDALONE_HELP = `
+מבנה תשובה - שאלה רגילה (הפלואו מכירה לא התחיל):
+1) מענה קצר וישיר מהידע בלבד.
+2) סיימי בשאלה אחת בלבד, בניסוח קרוב ל: «יש עוד משהו שאני יכולה לעזור לך איתו?» — לא שאלה שמקדמת CTA, לא בחירת אימון, ולא רשימות ממוספרות.
+בלי Markdown.`;
+
 /** שאלה פתוחה אחרי «נרשמתי» בריצה הנוכחית — סיום מותאם בלבד */
 const RESPONSE_SHAPE_BLOCK_WA_REGISTERED_OPEN = `
 מבנה תשובה - שאלה פתוחה אחרי שהלקוח כבר נרשם/שילם בריצה הזו:
@@ -583,6 +593,8 @@ export type WhatsAppPromptContext = {
   suppressFollowUpQuestion?: boolean;
   /** שאלה פתוחה אחרי «נרשמתי» — סיום ב«יש עוד משהו…» */
   registeredOpenQuestionHelpClosing?: boolean;
+  /** שאלה רגילה מחוץ לפלואו מכירה — סיום ב«יש עוד משהו…», בלי תפריט אימונים */
+  standaloneHelpClosing?: boolean;
   /** שאלת חימום עם כפתורים עדיין ממתינה — אל תחזרי עליה בטקסט */
   pendingWarmupExperienceResume?: boolean;
   /** שם שירות לשיבוץ (מ־fetchLastSfServiceEventName) — בשלב CTA בלבד */
@@ -665,6 +677,7 @@ export function buildSystemPrompt(
 
   const postTrial = waCtx?.trialRegistered === true;
   const registeredOpenQuestion = waCtx?.registeredOpenQuestionHelpClosing === true;
+  const standaloneHelpClosing = waCtx?.standaloneHelpClosing === true;
   const phase = waCtx?.sessionPhase;
   const waResponseShapeBlock = pickResponseShapeBlock(platform, isWhatsApp, waCtx);
   const legalRules = pickLegalRulesLines(platform);
@@ -705,6 +718,8 @@ export function buildSystemPrompt(
       ? "- הלקוח שאל שאלה פתוחה והמערכת שולחת אחרייך הודעת המשך/כפתורים בנפרד — עני רק על השאלה, בלי שאלת המשך ובלי רשימות ממוספרות."
       : registeredOpenQuestion
         ? "- הלקוח כבר נרשם בריצה הזו ושאל שאלה פתוחה — עני מהידע וסיימי ב«יש עוד משהו שאני יכולה לעזור לך בו?» (שאלה אחת בלבד)."
+        : standaloneHelpClosing
+          ? "- זו שאלה רגילה מחוץ למסלול מכירה — עני מהידע וסיימי ב«יש עוד משהו שאני יכולה לעזור לך איתו?» (שאלה אחת בלבד). אל תשלחי תפריט בחירת אימון ואל תזמיני לבחור אימון."
     : postTrial || (phase && phase !== "cta")
       ? "- שמרי על מבנה התשובה לפי בלוק «מבנה תשובה» למטה (בלי לדרוש רשימות ממוספרות שמחקות תפריט המערכת)."
       : "- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות). הקפידי על קצרנות בכל חלק."
