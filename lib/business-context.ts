@@ -24,6 +24,7 @@ import {
 } from "@/lib/product-schedule-slots";
 import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
 import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-fixes";
+import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 
@@ -718,6 +719,7 @@ export function buildSystemPrompt(
 - את מדברת רק עם לקוחות ולידים של העסק. את לא תמיכת מוצר ולא מדריכת מערכת.
 - אסור להזכיר ללקוח: HeyZoe, דשבורד, פלטפורמה, דף שיחות, כיבוי/הפעלה/עצירה של בוט, או איך בעל העסק מנהל אותך.
 - אם שואלים על הגדרות בוט, כיבוי, דשבורד או פלטפורמה — אל תסבירי ניווט במערכת. עני בקצרה שאת כאן לעזור לגבי השירותים של העסק. אם מוגדר טלפון שירות לקוחות — אפשר להציע אותו. בלי שמות מסכים ובלי הוראות לבעל העסק.
+${buildOffTopicStudioPromptRule(customerPhoneRaw)}
 ${identityBlock ? `\n${identityBlock}` : ""}
 
 סגנון דיבור שנבחר (תגיות): ${knowledge?.vibeText || "חם, מקצועי וקצר"}
