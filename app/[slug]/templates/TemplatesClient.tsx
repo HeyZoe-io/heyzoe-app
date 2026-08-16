@@ -1255,10 +1255,12 @@ export default function TemplatesClient({
                   const next = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
                   setName(next);
                 }}
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 text-left placeholder:text-zinc-400 placeholder:opacity-100 caret-zinc-900"
                 dir="ltr"
                 placeholder="lead_welcome"
                 autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 required
               />
               <p className="text-xs text-zinc-500">
