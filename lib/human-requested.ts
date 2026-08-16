@@ -41,15 +41,20 @@ export async function handleLeadHumanRequested(input: {
   }
 
   const patch = buildHumanRequestedContactPatch(input.nowIso);
-  const { error: updateErr } = await input.supabase
+  const { data: marked, error: updateErr } = await input.supabase
     .from("contacts")
     .update(patch)
     .eq("business_id", businessId)
-    .in("phone", phoneVariants);
+    .in("phone", phoneVariants)
+    .is("human_requested_at", null)
+    .select("id");
 
   if (updateErr) {
     console.error("[human-requested] contact update failed:", updateErr.message);
     return { already: false };
+  }
+  if (!marked?.length) {
+    return { already: true };
   }
 
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();

@@ -316,6 +316,19 @@ const LOCATION_HINTS = [
 export const NOT_RELEVANT_REPLY_MESSAGE =
   "אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 🙂";
 
+/** אחרי סימון, webhook-ים נוספים (wamid שונה) לא ישלחו שוב את הסגירה. */
+export const NOT_RELEVANT_GATING_REPLY_COOLDOWN_MS = 30 * 60 * 1000;
+
+/** false = הליד כבר קיבל את הודעת הסגירה לאחרונה (או סומן הרגע) — לא לשלוח שוב. */
+export function shouldSendNotRelevantGatingReply(
+  notRelevantAtIso: string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  const t = Date.parse(String(notRelevantAtIso ?? "").trim());
+  if (!Number.isFinite(t)) return true;
+  return now.getTime() - t >= NOT_RELEVANT_GATING_REPLY_COOLDOWN_MS;
+}
+
 export function normalizeNotRelevantToken(text: string): string {
   return text
     .trim()

@@ -300,6 +300,7 @@ import {
   matchesNotRelevantKeyword,
   NOT_RELEVANT_REPLY_MESSAGE,
   reactivateNotRelevantLead,
+  shouldSendNotRelevantGatingReply,
 } from "@/lib/not-relevant";
 import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
 import {
@@ -5099,56 +5100,94 @@ async function processIncoming(
 
   // 2) OPT-OUT DETECTION (only for text)
   if (msg.type === "text" && matchesAny(incomingText, OPT_OUT)) {
+    let claimedOptOut = !businessId;
     if (businessId) {
-      await supabase
+      const { data: markedOut, error: optOutErr } = await supabase
         .from("contacts")
         .update({ opted_out: true, opted_out_at: nowIso })
         .eq("business_id", businessId)
-        .eq("phone", msg.from);
+        .eq("phone", msg.from)
+        .or("opted_out.is.null,opted_out.eq.false")
+        .select("id");
+      if (optOutErr) {
+        console.error("[WA Webhook] opt-out mark failed:", optOutErr.message);
+        return;
+      }
+      claimedOptOut = Boolean(markedOut?.length);
     }
-    await sendWhatsAppMessage(
-      msg.toNumber,
-      msg.from,
-      "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
-      accountSid,
-      authToken
-    ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+    if (claimedOptOut) {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+    } else {
+      console.info("[WA Webhook] opt-out already marked — skip duplicate reply", {
+        business_slug,
+        phone: msg.from,
+      });
+    }
     return;
   }
 
   // 2.1) OPT-OUT (Claude) — applied after keyword check (classifiers may have run in parallel above).
   if (preLockOptOutClaudePositive && msg.type === "text" && businessId) {
-    await supabase
+    const { data: markedOut, error: optOutErr } = await supabase
       .from("contacts")
       .update({ opted_out: true, opted_out_at: nowIso })
       .eq("business_id", businessId)
-      .eq("phone", msg.from);
-    await sendWhatsAppMessage(
-      msg.toNumber,
-      msg.from,
-      "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
-      accountSid,
-      authToken
-    ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+      .eq("phone", msg.from)
+      .or("opted_out.is.null,opted_out.eq.false")
+      .select("id");
+    if (optOutErr) {
+      console.error("[WA Webhook] opt-out (Claude) mark failed:", optOutErr.message);
+      return;
+    }
+    if (markedOut?.length) {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+    } else {
+      console.info("[WA Webhook] opt-out already marked — skip duplicate reply", {
+        business_slug,
+        phone: msg.from,
+      });
+    }
     return;
   }
 
   // 3) OPT-IN DETECTION (for users who previously opted out)
   if (msg.type === "text" && contactOptedOut === true && matchesAny(incomingText, OPT_IN)) {
+    let claimedOptIn = !businessId;
     if (businessId) {
-      await supabase
+      const { data: markedIn, error: optInErr } = await supabase
         .from("contacts")
         .update({ opted_out: false, opted_in_at: nowIso, opted_out_at: null })
         .eq("business_id", businessId)
-        .eq("phone", msg.from);
+        .eq("phone", msg.from)
+        .eq("opted_out", true)
+        .select("id");
+      if (optInErr) {
+        console.error("[WA Webhook] opt-in mark failed:", optInErr.message);
+      } else {
+        claimedOptIn = Boolean(markedIn?.length);
+      }
     }
-    await sendWhatsAppMessage(
-      msg.toNumber,
-      msg.from,
-      "ברוך שובך! 🎉 נשמח לעדכן אותך שוב בהמשך",
-      accountSid,
-      authToken
-    ).catch((e) => console.error("[WA Webhook] Send opt-in reply failed:", e));
+    if (claimedOptIn) {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "ברוך שובך! 🎉 נשמח לעדכן אותך שוב בהמשך",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] Send opt-in reply failed:", e));
+    }
     // Continue to Zoe normally (don't early-return)
     contactOptedOut = false;
     optedInThisMessage = true;
@@ -5224,13 +5263,21 @@ async function processIncoming(
     }
 
     if (contactNotRelevantAt) {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        NOT_RELEVANT_REPLY_MESSAGE,
-        accountSid,
-        authToken
-      ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
+      if (shouldSendNotRelevantGatingReply(contactNotRelevantAt)) {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          NOT_RELEVANT_REPLY_MESSAGE,
+          accountSid,
+          authToken
+        ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
+      } else {
+        console.info("[WA Webhook] not-relevant gating — skip duplicate reply (recently marked)", {
+          business_slug,
+          session_id: earlySessionId,
+          not_relevant_at: contactNotRelevantAt,
+        });
+      }
       return;
     }
   }
