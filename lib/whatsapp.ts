@@ -369,6 +369,93 @@ export function parseMetaWebhook(payload: unknown): WaIncomingMessage | null {
   return null;
 }
 
+export type WaSmbMessageEcho = {
+  messageId: string;
+  phoneNumberId: string;
+  leadPhone: string;
+  text: string;
+  metaType: string;
+};
+
+function echoCaption(echo: Record<string, unknown>, type: string): string {
+  const block = echo[type];
+  if (!block || typeof block !== "object") return "";
+  return String((block as { caption?: unknown }).caption ?? "").trim();
+}
+
+function smbEchoDisplayText(echo: Record<string, unknown>): string {
+  const type = String(echo.type ?? "").trim();
+  if (type === "text") {
+    return String((echo.text as { body?: unknown } | undefined)?.body ?? "").trim();
+  }
+  if (type === "button") {
+    const btn = echo.button as Record<string, unknown> | undefined;
+    return String(btn?.text ?? btn?.payload ?? "").trim();
+  }
+  if (type === "interactive") {
+    const inter = echo.interactive as Record<string, unknown> | undefined;
+    const itype = String(inter?.type ?? "").trim();
+    if (itype === "button_reply") {
+      const br = inter?.button_reply as Record<string, unknown> | undefined;
+      return String(br?.title ?? br?.id ?? "").trim();
+    }
+    if (itype === "list_reply") {
+      const lr = inter?.list_reply as Record<string, unknown> | undefined;
+      return String(lr?.title ?? lr?.id ?? "").trim();
+    }
+  }
+  const caption = echoCaption(echo, type);
+  if (caption) return caption;
+  if (type === "image") return "[תמונה]";
+  if (type === "audio" || type === "voice") return "[הקלטה]";
+  if (type === "video") return "[וידאו]";
+  if (type === "sticker") return "[סטיקר]";
+  if (type === "document") return "[קובץ]";
+  if (type === "location") return "[מיקום]";
+  if (type === "contacts") return "[איש קשר]";
+  return type ? `[${type}]` : "[הודעה]";
+}
+
+/**
+ * Messages sent from the WhatsApp Business app (coexistence), not Cloud API.
+ * Meta field: `smb_message_echoes`.
+ */
+export function parseSmbMessageEchoes(payload: unknown): WaSmbMessageEcho[] {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload as Record<string, unknown>;
+  if (root.object !== "whatsapp_business_account") return [];
+  const out: WaSmbMessageEcho[] = [];
+  const entries = Array.isArray(root.entry) ? root.entry : [];
+  for (const entry of entries) {
+    const ent = entry as Record<string, unknown>;
+    const changes = Array.isArray(ent.changes) ? ent.changes : [];
+    for (const change of changes) {
+      const ch = change as Record<string, unknown>;
+      if (String(ch.field ?? "").trim() !== "smb_message_echoes") continue;
+      const value = ch.value;
+      if (!value || typeof value !== "object") continue;
+      const v = value as Record<string, unknown>;
+      const phoneNumberId = String(
+        (v.metadata as Record<string, unknown> | undefined)?.phone_number_id ?? ""
+      ).trim();
+      const echoes = Array.isArray(v.message_echoes) ? v.message_echoes : [];
+      for (const raw of echoes) {
+        if (!raw || typeof raw !== "object") continue;
+        const echo = raw as Record<string, unknown>;
+        const metaType = String(echo.type ?? "").trim();
+        if (metaType === "reaction") continue;
+        const leadPhone = normalizeMetaE164(String(echo.to ?? "").trim());
+        const messageId = String(echo.id ?? "").trim();
+        if (!phoneNumberId || !leadPhone || !messageId) continue;
+        const text = smbEchoDisplayText(echo);
+        if (!text) continue;
+        out.push({ messageId, phoneNumberId, leadPhone, text, metaType: metaType || "unknown" });
+      }
+    }
+  }
+  return out;
+}
+
 /** Why {@link parseMetaWebhook} returned null (for logs; avoids silent drops). */
 export function explainMetaWebhookSkip(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "payload is not a JSON object";
@@ -383,6 +470,7 @@ export function explainMetaWebhookSkip(payload: unknown): string {
   let sawValue = false;
   let messageCount = 0;
   let statusCount = 0;
+  let echoCount = 0;
   let sawAnyChange = false;
 
   for (const entry of entries) {
@@ -398,8 +486,10 @@ export function explainMetaWebhookSkip(payload: unknown): string {
       const v = value as Record<string, unknown>;
       const msgs = Array.isArray(v.messages) ? v.messages : [];
       const statuses = Array.isArray(v.statuses) ? v.statuses : [];
+      const echoes = Array.isArray(v.message_echoes) ? v.message_echoes : [];
       messageCount += msgs.length;
       statusCount += statuses.length;
+      echoCount += echoes.length;
       for (const rawMsg of msgs) {
         if (!rawMsg || typeof rawMsg !== "object") continue;
         const m = rawMsg as Record<string, unknown>;
@@ -427,6 +517,9 @@ export function explainMetaWebhookSkip(payload: unknown): string {
 
   if (!sawAnyChange) return "no changes in any entry";
   if (!sawValue) return "no change.value objects in payload";
+  if (messageCount === 0 && echoCount > 0) {
+    return `smb_message_echoes (${echoCount}) — handled separately from inbound messages`;
+  }
   if (messageCount === 0 && statusCount > 0) {
     return `status-only webhook (${statusCount} status(es), no messages — normal for delivery receipts)`;
   }

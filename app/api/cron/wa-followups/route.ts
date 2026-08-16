@@ -40,7 +40,8 @@ type WaFollowupSkipReason =
   | "over_24h"
   | "already_replied"
   | "not_due_yet"
-  | "send_failed";
+  | "send_failed"
+  | "session_paused";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -142,7 +143,7 @@ async function fetchLatestRealAssistantMessageAt(input: {
     .limit(40);
   for (const row of data ?? []) {
     const m = String((row as { model_used?: string | null }).model_used ?? "");
-    if (!m.startsWith("wa_followup_") && row.created_at) {
+    if (!m.startsWith("wa_followup_") && m !== "wa_business_app" && row.created_at) {
       return { created_at: String(row.created_at), model_used: m || null };
     }
   }
@@ -251,9 +252,10 @@ export async function GET(req: NextRequest) {
           .eq("role", "assistant")
           .order("created_at", { ascending: false })
           .limit(5);
-        const realAssist = (lastAssist ?? []).find(
-          (r) => !String((r as { model_used?: string }).model_used ?? "").startsWith("wa_followup_")
-        );
+        const realAssist = (lastAssist ?? []).find((r) => {
+          const m = String((r as { model_used?: string }).model_used ?? "");
+          return !m.startsWith("wa_followup_") && m !== "wa_business_app";
+        });
         messages_hint = {
           session_id: sessionId,
           session_id_variants: sessionIds,
@@ -480,6 +482,25 @@ export async function GET(req: NextRequest) {
       const phoneNumberId = String(channel.phoneNumberId).trim();
       const sessionId = buildWaSessionId(phoneNumberId, phone);
       const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
+
+      const { isWaFollowupBlockedByAppPause } = await import("@/lib/wa-app-echo-pause");
+      if (
+        await isWaFollowupBlockedByAppPause({
+          admin,
+          businessSlug: business_slug,
+          phoneNumberId,
+          phone,
+        })
+      ) {
+        logWaFollowupSkip("session_paused", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+        });
+        bumpSkip("session_paused");
+        continue;
+      }
 
       const lastAssist = await fetchLatestRealAssistantMessageAt({ admin, business_slug, session_ids: sessionIds });
       if (!lastAssist) {

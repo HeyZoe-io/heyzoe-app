@@ -181,3 +181,6 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
 
 /** model_used ב-messages — תשובת «סוג הודעה לא נתמך» מ-webhook. */
 export const WA_UNSUPPORTED_INBOUND_MODEL = "unsupported_inbound_type";
+
+/** model_used ב-messages — הודעה שנשלחה מאפליקציית WhatsApp Business (לא מזואי). */
+export const WA_BUSINESS_APP_ECHO_MODEL = "wa_business_app";

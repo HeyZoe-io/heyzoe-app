@@ -16,6 +16,7 @@ export type WaFollowupSkipReason =
   | "already_replied"
   | "not_due_yet"
   | "send_failed"
+  | "session_paused"
   | "eligible";
 
 export type WaFollowupEvalResult = {
@@ -42,7 +43,7 @@ export async function fetchLatestRealAssistantMessageAt(input: {
     .limit(40);
   for (const row of data ?? []) {
     const m = String((row as { model_used?: string | null }).model_used ?? "");
-    if (!m.startsWith("wa_followup_") && row.created_at) {
+    if (!m.startsWith("wa_followup_") && m !== "wa_business_app" && row.created_at) {
       return { created_at: String(row.created_at), model_used: m || null };
     }
   }
@@ -197,6 +198,23 @@ export async function evaluateBusinessWaFollowup(input: {
   const phoneNumberId = String(channel.phoneNumberId).trim();
   const sessionId = buildWaSessionId(phoneNumberId, phone);
   const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
+
+  const { isWaFollowupBlockedByAppPause } = await import("@/lib/wa-app-echo-pause");
+  if (
+    await isWaFollowupBlockedByAppPause({
+      admin: input.admin,
+      businessSlug: business_slug,
+      phoneNumberId,
+      phone,
+    })
+  ) {
+    return {
+      skip_reason: "session_paused",
+      session_id: sessionId,
+      business_slug,
+      detail: { contact_id: input.contact.id ?? null },
+    };
+  }
 
   const lastAssist = await fetchLatestRealAssistantMessageAt({
     admin: input.admin,

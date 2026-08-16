@@ -5,6 +5,7 @@ import {
   verifyTwilioSignature,
   parseTwilioWebhook,
   parseMetaWebhook,
+  parseSmbMessageEchoes,
   explainMetaWebhookSkip,
   sendWhatsAppMessage,
   sendWhatsAppTextOrMenu,
@@ -4489,8 +4490,22 @@ export async function POST(req: NextRequest) {
       }
     }
     msg = parseMetaWebhook(metaPayload);
+    const appEchoes = parseSmbMessageEchoes(metaPayload);
+    if (appEchoes.length) {
+      after(() =>
+        import("@/lib/wa-app-echo-pause")
+          .then(({ handleSmbMessageEchoes }) => handleSmbMessageEchoes(appEchoes))
+          .catch((e) => console.error("[WA Webhook] smb_message_echoes handler error:", e))
+      );
+    }
     if (!msg) {
-      console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
+      if (appEchoes.length) {
+        console.info("[WA Webhook] smb_message_echoes (no inbound message)", {
+          count: appEchoes.length,
+        });
+      } else {
+        console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
+      }
       const accountUpdate = parseAccountUpdate(metaPayload);
       if (accountUpdate) {
         console.info(

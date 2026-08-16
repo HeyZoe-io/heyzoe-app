@@ -4,6 +4,7 @@ import { CornerUpLeft } from "lucide-react";
 import {
   parseConversationMessageContent,
   WA_UNSUPPORTED_INBOUND_MODEL,
+  WA_BUSINESS_APP_ECHO_MODEL,
   type ParsedWaConversationMessage,
 } from "@/lib/conversation-message-display";
 import { dashboardDateLocale, type DashboardLang } from "@/lib/dashboard-lang";
@@ -12,10 +13,12 @@ const i18n = {
   he: {
     errorCode: "קוד שגיאה",
     unsupportedInbound: "תשובת מערכת — סוג הודעה נכנסת לא נתמך",
+    sentFromWhatsAppApp: "נשלח מאפליקציית WhatsApp",
   },
   en: {
     errorCode: "Error code",
     unsupportedInbound: "System reply — unsupported inbound message type",
+    sentFromWhatsAppApp: "Sent from the WhatsApp app",
   },
 } as const;
 
@@ -173,6 +176,9 @@ export function WaConversationMessage({
       ) : null}
       {from === "assistant" && modelUsed === WA_UNSUPPORTED_INBOUND_MODEL ? (
         <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.unsupportedInbound}</p>
+      ) : null}
+      {from === "assistant" && modelUsed === WA_BUSINESS_APP_ECHO_MODEL ? (
+        <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.sentFromWhatsAppApp}</p>
       ) : null}
     </div>
   );
