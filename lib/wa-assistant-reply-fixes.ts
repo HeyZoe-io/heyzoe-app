@@ -280,6 +280,29 @@ ${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בד
 ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכבר נבחר אימון — ניסוח כמו: «${scheduleExample}» (לא «את מעניינת ב… תוכלי לבחור מהזמנים»).` : ""}`;
 }
 
+/**
+ * Customer-facing replies must never explain HeyZoe dashboard / bot on-off / conversations page.
+ * Matches the leaked owner-support voice that accidentally went out to a lead.
+ */
+const CUSTOMER_PLATFORM_LEAK_RE =
+  /heyzoe|דף\s*השיחות|דשבורד|מסלול\s+מכירה|כיבוי(?:ים)?\s+(?:של\s+)?(?:ה)?בוט|לכבות\s+(?:את\s+)?(?:ה)?בוט|כיבוי\s+זואי|עצור\s+בוט|הפעל(?:ת|ו|י)?\s+(?:את\s+)?זואי|הגדרות\s+(?:של\s+)?(?:ה)?בוט|ניהול\s+(?:ה)?בוט/iu;
+
+const CUSTOMER_PLATFORM_LEAK_FALLBACK =
+  "אני כאן כדי לעזור לגבי השירותים שלנו. במה אפשר לעזור?";
+
+export function looksLikeCustomerFacingPlatformLeak(text: string): boolean {
+  return CUSTOMER_PLATFORM_LEAK_RE.test(String(text ?? ""));
+}
+
+function scrubCustomerFacingPlatformLeak(text: string): string {
+  const raw = String(text ?? "").trim();
+  if (!raw || !looksLikeCustomerFacingPlatformLeak(raw)) return raw;
+  console.error("[zoe] blocked customer-facing platform leak", {
+    preview: raw.slice(0, 180),
+  });
+  return CUSTOMER_PLATFORM_LEAK_FALLBACK;
+}
+
 /** post-process על תשובת split לפני שליחה ל-WhatsApp (אפס API). */
 export function applyKnownAssistantReplyFixes(
   text: string,
@@ -308,5 +331,6 @@ export function applyKnownAssistantReplyFixes(
     s = applyScheduleDayGarbleFixes(s, input.scheduleDayLabels!);
   }
 
-  return s.replace(/\n{3,}/g, "\n\n").trim();
+  s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
+  return s;
 }
