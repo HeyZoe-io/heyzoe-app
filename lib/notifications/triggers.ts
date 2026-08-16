@@ -29,7 +29,6 @@ import {
   buildHumanAgentRequestWaParams,
   buildLeadRegisteredWaParams,
   buildLeadRegisteredWithTimeWaParams,
-  buildNewLeadNotificationWaParams,
   buildSinglePhoneWaParams,
 } from "@/lib/notifications/owner-template-params";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
@@ -38,20 +37,6 @@ import {
   monitorWhatsappDiffersFromOwner,
 } from "@/lib/notifications/owner-notification-monitor";
 import { resolveWarmupSummaryForLeadRegistered } from "@/lib/notifications/warmup-summary";
-
-function formatTimeHe(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("he-IL", {
-      timeZone: "Asia/Jerusalem",
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
 
 async function sendOwnerWaMirrored(input: {
   businessId: number;
@@ -103,60 +88,6 @@ async function sendIfEnabled(input: {
 
   if (!result.ok) {
     console.warn("[notifications] send failed:", input.templateName, result.error);
-  }
-}
-
-export async function triggerNewLeadNotification(input: {
-  businessId: number;
-  businessName: string;
-  leadPhone: string;
-  atIso?: string;
-}): Promise<void> {
-  const templateName = "new_lead_notification";
-  const gate = await gateOwnerNotification(input.businessId, "new_lead");
-  console.info("[new_lead_notification] gateOwnerNotification result", {
-    businessId: input.businessId,
-    leadPhone: input.leadPhone,
-    allowed: gate.allowed,
-    reason: gate.reason ?? null,
-    hasOwnerPhone: Boolean(gate.ownerPhone),
-  });
-  if (!gate.allowed || !gate.ownerPhone) {
-    console.info("[new_lead_notification] skip send", {
-      businessId: input.businessId,
-      leadPhone: input.leadPhone,
-      reason: gate.reason ?? "no_owner_phone",
-    });
-    return;
-  }
-
-  console.info("[new_lead_notification] sending new_lead_notification", {
-    businessId: input.businessId,
-    leadPhone: input.leadPhone,
-    templateName,
-  });
-  const components = buildNewLeadNotificationWaParams({
-    businessName: input.businessName,
-    leadPhoneDisplay: formatLeadPhoneDisplay(input.leadPhone),
-    atHe: formatTimeHe(input.atIso ?? new Date().toISOString()),
-  });
-  const result = await sendOwnerWaMirrored({
-    businessId: input.businessId,
-    ownerPhone: gate.ownerPhone,
-    templateName,
-    components,
-  });
-  if (result.ok) {
-    console.info("[new_lead_notification] send ok", {
-      businessId: input.businessId,
-      leadPhone: input.leadPhone,
-    });
-  } else {
-    console.warn("[new_lead_notification] send failed", {
-      businessId: input.businessId,
-      leadPhone: input.leadPhone,
-      error: result.error,
-    });
   }
 }
 

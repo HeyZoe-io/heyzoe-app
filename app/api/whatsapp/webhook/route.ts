@@ -4794,7 +4794,6 @@ async function processIncoming(
   let contactInstagramFollowPromptSent = false;
   /** סוגי CTA שכבר צורכו (מערכת שעות / מנויים / כתובת) למעט ניסיון — מתאפס בברכה */
   let sfClickedCtaKinds: string[] = [];
-  let isFirstTimeContact = false;
   if (businessId) {
     try {
       // אותו פורמט כמו /api/leads/incoming (972...) — msg.from מ-Meta הוא +972...
@@ -4804,11 +4803,6 @@ async function processIncoming(
       const fullName =
         typeof (msg as any).profileName === "string" ? (msg as any).profileName.trim() : "";
 
-      console.info("[new_lead_notification] checking new lead notification", {
-        businessId,
-        business_slug,
-        phone: contactPhone,
-      });
       let priorContact: {
         id?: string | number;
         wa_followup_stage?: number | null;
@@ -4840,16 +4834,9 @@ async function processIncoming(
             .maybeSingle();
           if (!fallback.error) priorContact = fallback.data;
         }
-        isFirstTimeContact = !priorContact?.id;
       } catch {
-        isFirstTimeContact = false;
+        priorContact = null;
       }
-      console.info("[new_lead_notification] isFirstTimeContact result", {
-        businessId,
-        business_slug,
-        phone: contactPhone,
-        isFirstTimeContact,
-      });
 
       const upsertPayload: Record<string, unknown> = {
         phone: contactPhone,
@@ -5294,19 +5281,6 @@ async function processIncoming(
         phone: msg.from,
         sessionId,
       });
-      if (isFirstTimeContact) {
-        const bizName =
-          String((bizQuotaRow as { name?: string } | null)?.name ?? "").trim() ||
-          String(business_slug ?? "").trim();
-        const { triggerNewLeadNotification } = await import("@/lib/notifications/triggers");
-        void triggerNewLeadNotification({
-          businessId: Number(businessId),
-          businessName: bizName || "העסק שלך",
-          leadPhone: msg.from,
-        }).catch((e) =>
-          console.error("[new_lead_notification] trigger threw:", e)
-        );
-      }
       void conv;
     } catch (e) {
       console.warn("[WA Webhook] owner notifications setup failed:", e);
