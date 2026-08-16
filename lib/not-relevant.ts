@@ -380,7 +380,8 @@ export function matchesNotRelevantKeyword(text: string): boolean {
   if (!t) return false;
   if (NOT_RELEVANT_EXACT.has(t)) return true;
   if (t === "לא תודה" || t.startsWith("לא תודה ")) return true;
-  return NOT_RELEVANT_CONTAINS.some((phrase) => t === phrase || t.startsWith(`${phrase} `));
+  // «כרגע זה לא רלוונטי» / «אני לא מעוניינת» באמצע משפט — לא רק הודעה שמתחילה בביטוי.
+  return NOT_RELEVANT_CONTAINS.some((phrase) => t.includes(phrase));
 }
 
 function matchesLocationHint(text: string): boolean {
@@ -629,14 +630,18 @@ export async function handleLeadNotRelevant(input: {
     .update(patch)
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants)
+    .is("not_relevant_at", null)
     .select("id");
   if (markErr) {
     console.error("[not-relevant] mark update failed:", markErr.message);
-  } else if (!marked?.length) {
-    console.warn("[not-relevant] mark matched 0 rows", {
+    return;
+  }
+  if (!marked?.length) {
+    console.info("[not-relevant] already marked — skip duplicate reply", {
       businessId: input.businessId,
       phone: input.phone,
     });
+    return;
   }
 
   const { sendWhatsAppMessage } = await import("@/lib/whatsapp");
