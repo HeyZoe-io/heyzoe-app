@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { HEYZOE_SF_REGISTERED } from "@/lib/analytics";
 import { resolveCronSecret } from "@/lib/server-env";
 import { resolveDailySummaryCronPeriod } from "@/lib/israel-time";
 import { getNotificationSettings } from "@/lib/notifications/getNotificationSettings";
-import { triggerCtaNoSignupNotification, triggerDailySummaryNotification } from "@/lib/notifications/triggers";
+import { triggerDailySummaryNotification } from "@/lib/notifications/triggers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CTA_NO_SIGNUP_MS = 20 * 60 * 1000;
 const AUTO_UNPAUSE_MS = 15 * 60 * 1000;
 
 function israelNowParts() {
@@ -39,7 +37,6 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const now = Date.now();
   let autoUnpaused = 0;
-  let ctaSent = 0;
   let summariesSent = 0;
   let dailySummarySkipped: string | null = null;
 
@@ -61,49 +58,6 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/owner-notifications] auto-unpause failed:", unpauseErr.message);
   } else {
     autoUnpaused = unpauseRows?.length ?? 0;
-  }
-
-  // ── cta_no_signup (20 min, no "נרשמתי") ───────────────────────────────────
-  const ctaCutoff = new Date(now - CTA_NO_SIGNUP_MS).toISOString();
-  const { data: ctaRows } = await admin
-    .from("conversations")
-    .select("id, business_id, phone, session_id, cta_clicked_at")
-    .not("cta_clicked_at", "is", null)
-    .eq("cta_notification_sent", false)
-    .lte("cta_clicked_at", ctaCutoff)
-    .limit(200);
-
-  for (const row of ctaRows ?? []) {
-    const businessId = Number((row as { business_id?: number }).business_id);
-    const sessionId = String((row as { session_id?: string }).session_id ?? "").trim();
-    const phone = String((row as { phone?: string }).phone ?? "").trim();
-    const id = String((row as { id?: string }).id ?? "");
-    const ctaAt = String((row as { cta_clicked_at?: string }).cta_clicked_at ?? "");
-    if (!businessId || !sessionId || !id || !ctaAt) continue;
-
-    const { data: registeredEvent } = await admin
-      .from("messages")
-      .select("id")
-      .eq("session_id", sessionId)
-      .eq("role", "event")
-      .eq("content", HEYZOE_SF_REGISTERED)
-      .gte("created_at", ctaAt)
-      .limit(1)
-      .maybeSingle();
-
-    if (registeredEvent) continue;
-
-    const { data: contact } = await admin
-      .from("contacts")
-      .select("trial_registered")
-      .eq("business_id", businessId)
-      .eq("phone", phone)
-      .maybeSingle();
-
-    if ((contact as { trial_registered?: boolean } | null)?.trial_registered === true) continue;
-
-    await triggerCtaNoSignupNotification({ businessId, conversationId: id, leadPhone: phone });
-    ctaSent += 1;
   }
 
   // ── daily_summary (08:00 Israel) — WA + email per settings ────────────────
@@ -164,7 +118,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     autoUnpaused,
-    ctaSent,
     summariesSent,
     dailySummarySkipped,
     israelHour: hour,

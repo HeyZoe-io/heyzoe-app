@@ -3,7 +3,6 @@ import {
   humanRequestedOwnerEmail,
   leadRegisteredOwnerEmail,
 } from "@/lib/email";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { gateOwnerNotification } from "@/lib/notifications/owner-notification-gate";
 import {
   fetchIdleLeadsInWindow,
@@ -29,7 +28,6 @@ import {
   buildHumanAgentRequestWaParams,
   buildLeadRegisteredWaParams,
   buildLeadRegisteredWithTimeWaParams,
-  buildSinglePhoneWaParams,
 } from "@/lib/notifications/owner-template-params";
 import { sendOwnerNotification, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import {
@@ -199,54 +197,6 @@ export async function triggerLeadRegisteredNotification(input: {
             : undefined,
       }),
   });
-}
-
-export async function triggerBotPausedWaitingNotification(input: {
-  businessId: number;
-  conversationId: string;
-  leadPhone: string;
-}): Promise<void> {
-  const gate = await gateOwnerNotification(input.businessId, "bot_paused_waiting");
-  if (!gate.allowed || !gate.ownerPhone) return;
-
-  const result = await sendOwnerWaMirrored({
-    businessId: input.businessId,
-    ownerPhone: gate.ownerPhone,
-    templateName: "bot_paused_waiting",
-    components: buildSinglePhoneWaParams(formatLeadPhoneDisplay(input.leadPhone)),
-  });
-
-  if (result.ok) {
-    const admin = createSupabaseAdminClient();
-    await admin
-      .from("conversations")
-      .update({ paused_notification_sent: true, updated_at: new Date().toISOString() })
-      .eq("id", input.conversationId);
-  }
-}
-
-export async function triggerCtaNoSignupNotification(input: {
-  businessId: number;
-  conversationId: string;
-  leadPhone: string;
-}): Promise<void> {
-  const gate = await gateOwnerNotification(input.businessId, "cta_no_signup");
-  if (!gate.allowed || !gate.ownerPhone) return;
-
-  const result = await sendOwnerWaMirrored({
-    businessId: input.businessId,
-    ownerPhone: gate.ownerPhone,
-    templateName: "lead_cta_no_signup",
-    components: buildSinglePhoneWaParams(formatLeadPhoneDisplay(input.leadPhone)),
-  });
-
-  if (result.ok) {
-    const admin = createSupabaseAdminClient();
-    await admin
-      .from("conversations")
-      .update({ cta_notification_sent: true, updated_at: new Date().toISOString() })
-      .eq("id", input.conversationId);
-  }
 }
 
 export async function triggerDailySummaryNotification(input: {

@@ -137,7 +137,7 @@ async function pauseBusinessSessionForAppEcho(input: {
 /**
  * Coexistence: a human sent from the WhatsApp Business app to a lead.
  * Pause Zoe on that session for 5 hours. Does not touch marketing, and does not
- * set conversations.bot_paused (that flag notifies the owner and auto-clears at 15 min).
+ * set conversations.bot_paused (that flag auto-clears at 15 min).
  */
 export async function handleSmbMessageEchoes(echoes: WaSmbMessageEcho[]): Promise<void> {
   if (!echoes.length) return;
