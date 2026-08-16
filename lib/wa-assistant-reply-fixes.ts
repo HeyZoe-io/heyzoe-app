@@ -281,22 +281,64 @@ ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכ
 }
 
 /**
- * Customer-facing replies must never explain HeyZoe dashboard / bot on-off / conversations page.
- * Matches the leaked owner-support voice that accidentally went out to a lead.
+ * High-precision leak of HeyZoe *owner* UI / bot on-off instructions.
+ * Intentionally does NOT match customer-facing terms: מערכת שעות, לוח שיעורים,
+ * דשבורד (CRM/אפליקציה של העסק), מסלול מכירה, בוטיק, או השם זואי כנציגה.
+ * Hebrew `\b` is unreliable — require end/punctuation after «בוט» so «בוטיק» is kept.
  */
-const CUSTOMER_PLATFORM_LEAK_RE =
-  /heyzoe|דף\s*השיחות|דשבורד|מסלול\s+מכירה|כיבוי(?:ים)?\s+(?:של\s+)?(?:ה)?בוט|לכבות\s+(?:את\s+)?(?:ה)?בוט|כיבוי\s+זואי|עצור\s+בוט|הפעל(?:ת|ו|י)?\s+(?:את\s+)?זואי|הגדרות\s+(?:של\s+)?(?:ה)?בוט|ניהול\s+(?:ה)?בוט/iu;
+const BOT_WORD_END = String.raw`(?:ה)?בוט(?:ים)?(?=$|[\s.,!?…:;])`;
+const CUSTOMER_PLATFORM_LEAK_RE = new RegExp(
+  [
+    String.raw`heyzoe`,
+    String.raw`דף\s*השיחות`,
+    String.raw`כיבוי(?:ים)?\s+(?:של\s+)?${BOT_WORD_END}`,
+    String.raw`לכבות\s+(?:את\s+)?${BOT_WORD_END}`,
+    String.raw`כיבוי\s+זואי(?=$|[\s.,!?…:;])`,
+    String.raw`עצור\s+${BOT_WORD_END}`,
+    String.raw`הגדרות\s+(?:של\s+)?${BOT_WORD_END}`,
+    String.raw`ניהול\s+${BOT_WORD_END}`,
+  ].join("|"),
+  "iu"
+);
 
 const CUSTOMER_PLATFORM_LEAK_FALLBACK =
   "אני כאן כדי לעזור לגבי השירותים שלנו. במה אפשר לעזור?";
 
 export function looksLikeCustomerFacingPlatformLeak(text: string): boolean {
+  CUSTOMER_PLATFORM_LEAK_RE.lastIndex = 0;
   return CUSTOMER_PLATFORM_LEAK_RE.test(String(text ?? ""));
+}
+
+function stripPlatformLeakChunks(text: string): string {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const keptLines: string[] = [];
+  for (const line of lines) {
+    const chunks = line.split(/(?<=[.!?])\s+/u).filter((p) => p.trim());
+    const kept = chunks.filter((chunk) => !looksLikeCustomerFacingPlatformLeak(chunk));
+    if (kept.length) keptLines.push(kept.join(" ").trim());
+  }
+  return keptLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function isUsableCustomerReplyAfterLeakStrip(text: string): boolean {
+  const compact = String(text ?? "")
+    .replace(/[\s\p{Emoji_Presentation}\p{Extended_Pictographic}!.,?\-–—*]+/gu, "")
+    .trim();
+  if (compact.length < 18) return false;
+  if (/^(הבנתי|אוקיי|אוקסי|סבבה|תודה|נכון|אתהצודק|אתצודקת)+$/iu.test(compact)) return false;
+  return true;
 }
 
 function scrubCustomerFacingPlatformLeak(text: string): string {
   const raw = String(text ?? "").trim();
   if (!raw || !looksLikeCustomerFacingPlatformLeak(raw)) return raw;
+  const stripped = stripPlatformLeakChunks(raw);
+  if (stripped && isUsableCustomerReplyAfterLeakStrip(stripped)) {
+    console.error("[zoe] stripped customer-facing platform leak; kept remaining reply", {
+      preview: raw.slice(0, 180),
+    });
+    return stripped;
+  }
   console.error("[zoe] blocked customer-facing platform leak", {
     preview: raw.slice(0, 180),
   });
