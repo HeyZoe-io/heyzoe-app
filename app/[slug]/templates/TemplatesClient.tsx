@@ -81,6 +81,9 @@ function isIncomingLeadType(type: string): boolean {
   return type === "incoming_lead" || type === "site_lead" || type === "campaign_lead";
 }
 
+const FIELD_CLASS =
+  "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 caret-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]";
+
 function triggerTypeLabel(type: TriggerType): string {
   if (isIncomingLeadType(type)) return "ליד מאתר/קמפיין";
   return TRIGGER_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
@@ -249,7 +252,7 @@ function ModalShell({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="p-5" dir="rtl">
+          <div className="p-5 text-zinc-900" dir="rtl">
             {children}
           </div>
         </div>
@@ -1255,7 +1258,7 @@ export default function TemplatesClient({
                   const next = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
                   setName(next);
                 }}
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 text-left placeholder:text-zinc-400 placeholder:opacity-100 caret-zinc-900"
+                className={`${FIELD_CLASS} text-left`}
                 dir="ltr"
                 placeholder="lead_welcome"
                 autoComplete="off"
@@ -1303,7 +1306,7 @@ export default function TemplatesClient({
                 onChange={(e) => setBody(e.target.value)}
                 rows={4}
                 required
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                className={FIELD_CLASS}
                 placeholder={"היי {{1}}, תודה שהשארת פרטים — נשמח לחזור אליך!"}
               />
               <p className="text-xs text-zinc-500">
@@ -1316,7 +1319,7 @@ export default function TemplatesClient({
               <input
                 value={header}
                 onChange={(e) => setHeader(e.target.value)}
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                className={FIELD_CLASS}
               />
             </div>
 
@@ -1325,7 +1328,7 @@ export default function TemplatesClient({
               <input
                 value={footer}
                 onChange={(e) => setFooter(e.target.value)}
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                className={FIELD_CLASS}
               />
             </div>
 
@@ -1370,7 +1373,7 @@ export default function TemplatesClient({
                         )
                       }
                       placeholder="טקסט כפתור"
-                      className="flex-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                      className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]"
                     />
                   </div>
                   {b.kind === "URL" && (
@@ -1385,7 +1388,7 @@ export default function TemplatesClient({
                       }
                       placeholder="https://"
                       dir="ltr"
-                      className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-left"
+                      className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-left text-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]"
                     />
                   )}
                 </div>
