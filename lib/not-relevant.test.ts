@@ -13,8 +13,21 @@ assert.equal(
   true
 );
 assert.equal(matchesNotRelevantKeyword("אני לא מעוניינת יותר"), true);
+assert.equal(matchesNotRelevantKeyword("לא תודה"), true);
+assert.equal(matchesNotRelevantKeyword("אל תכתבי לי יותר"), true);
+assert.equal(matchesNotRelevantKeyword("תפסיקי לכתוב"), true);
+assert.equal(matchesNotRelevantKeyword("not interested"), true);
+
 assert.equal(matchesNotRelevantKeyword("האם זה רלוונטי למתחילים?"), false);
+assert.equal(matchesNotRelevantKeyword("האם זה לא רלוונטי למתחילים?"), false);
 assert.equal(matchesNotRelevantKeyword("היי, מתי יש שיעור?"), false);
+assert.equal(matchesNotRelevantKeyword("ביי"), false);
+assert.equal(matchesNotRelevantKeyword("בסדר"), false);
+assert.equal(matchesNotRelevantKeyword("אני מגיע לבד, זה בסדר?"), false);
+assert.equal(matchesNotRelevantKeyword("איך עובד השיעור מה עושים בו ?"), false);
+assert.equal(matchesNotRelevantKeyword("אפשר לשלם במזומן ?"), false);
+assert.equal(matchesNotRelevantKeyword("רחוק לי"), false);
+assert.equal(matchesNotRelevantKeyword("או פריפיט"), false);
 
 assert.equal(
   assistantReplyIndicatesLeadNotRelevant("אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 😊"),

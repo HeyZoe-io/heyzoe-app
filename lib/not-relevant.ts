@@ -285,12 +285,32 @@ const NOT_RELEVANT_EXACT = new Set([
   "לא רלוונטי",
   "לא מעוניין",
   "לא מעוניינת",
+  "לא מעוניינים",
   "לא תודה",
-  "ביי",
-  "בביי",
+  "אין לי עניין",
+  "לא מעניין אותי",
+  "not interested",
 ]);
 
-const NOT_RELEVANT_CONTAINS = ["לא רלוונטי", "לא מעוניין", "לא מעוניינת"];
+const NOT_RELEVANT_CONTAINS = ["לא רלוונטי", "לא מעוניין", "לא מעוניינת", "לא מעוניינים"];
+
+/** «אל תכתבי לי» / «תפסיקי לכתוב» — בקשה מפורשת לא להמשיך את השיחה. */
+const EXPLICIT_STOP_TALKING_RE = [
+  /אל\s+תכתב[יאם]?\s+לי/,
+  /אל\s+תשלח[יאם]?\s+לי/,
+  /אל\s+תפנ[הוי]\s+אל/,
+  /תפסיק[יאם]?\s+לכתוב/,
+  /תפסיק[יאם]?\s+לשלוח/,
+  /לא\s+רוצה\s+שתכתב/,
+  /לא\s+רוצה\s+שתשלח/,
+  /לא\s+נדבר/,
+  /אין\s+צורך\s+שנדבר/,
+  /לא\s+צריך\s+שתדבר/,
+  /לא\s+צריך\s+שתכתב/,
+  /don't\s+(?:text|message|contact)\s+me/,
+  /do\s+not\s+(?:text|message|contact)\s+me/,
+  /stop\s+(?:texting|messaging|writing|contacting)/,
+];
 
 /** סיבה מזוהה בוודאות — כרגע רק מיקום/מרחק */
 export const NOT_RELEVANT_REASON_LOCATION = "מיקום" as const;
@@ -347,54 +367,34 @@ export function assistantReplyIndicatesLeadNotRelevant(text: string): boolean {
   return false;
 }
 
-/** Claude — הליד לא מעוניין בשירות (לא opt-out מדיוור). */
+/**
+ * סימון «לא רלוונטי» — רק אמירה מפורשת (לא ניחוש של קלוד).
+ * נשמר כ-async לתאימות ל-webhook; לא קורא ל-API.
+ */
 export async function classifyNotRelevantIntentWithClaude(input: {
   apiKey: string;
   text: string;
 }): Promise<boolean> {
-  const apiKey = input.apiKey.trim();
-  const text = input.text.trim();
-  if (!apiKey || text.length < 4 || text.length > 400) return false;
-  if (matchesNotRelevantKeyword(text)) return true;
-
-  try {
-    const anthropic = new Anthropic({ apiKey });
-    const resp = await anthropic.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 8,
-      temperature: 0,
-      messages: [
-        {
-          role: "user",
-          content: `האם המשפט מביע שהשולח לא מעוניין להמשיך / שהשירות לא מתאים לו (למשל: רחוק מדי, לא בזמן, לא מחפש כרגע, לא רלוונטי) — ולא שאלה על העסק ולא בקשה להפסיק לקבל הודעות (opt-out)?
-בקשה להחליף אימון/שיעור/מוצר (למשל «רוצה אימון אחר», «שיעור אחר», «משהו אחר מהרשימה») = NO — זה המשך שיחה, לא חוסר עניין.
-ענה רק "YES" או "NO" (בדיוק, בלי טקסט נוסף).
-
-משפט: "${text}"`,
-        },
-      ],
-    });
-    const out = (resp.content ?? [])
-      .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
-      .join("\n")
-      .trim()
-      .toUpperCase();
-    if (out.startsWith("NO")) return false;
-    return out.startsWith("YES");
-  } catch (e) {
-    console.warn("[not-relevant] intent classify failed (continuing):", e);
-    return false;
-  }
+  void input.apiKey;
+  return matchesNotRelevantKeyword(input.text);
 }
 
-/** זיהוי מילות מפתח מפורשות — לפני opt-out / אוטומציה. */
+/** זיהוי מפורש: לא מעוניין / לא רלוונטי / אל תכתבי לי יותר. לא שאלות, לא «ביי», לא ניחוש. */
 export function matchesNotRelevantKeyword(text: string): boolean {
   const t = normalizeNotRelevantToken(text);
   if (!t) return false;
   if (NOT_RELEVANT_EXACT.has(t)) return true;
   if (t === "לא תודה" || t.startsWith("לא תודה ")) return true;
-  // «כרגע זה לא רלוונטי» / «אני לא מעוניינת» באמצע משפט — לא רק הודעה שמתחילה בביטוי.
-  return NOT_RELEVANT_CONTAINS.some((phrase) => t.includes(phrase));
+  if (EXPLICIT_STOP_TALKING_RE.some((re) => re.test(t))) return true;
+
+  const hasExplicitPhrase = NOT_RELEVANT_CONTAINS.some((phrase) => t.includes(phrase));
+  if (!hasExplicitPhrase) return false;
+
+  // «האם זה לא רלוונטי למתחילים?» — שאלה על המוצר, לא סגירת ליד.
+  // \b לא עובד על עברית (JS word chars הם ASCII).
+  if (/^(האם)(?:\s|$)/u.test(t) || /^(is this|is it)\b/u.test(t)) return false;
+
+  return true;
 }
 
 function matchesLocationHint(text: string): boolean {

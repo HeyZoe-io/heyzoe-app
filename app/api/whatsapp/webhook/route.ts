@@ -297,13 +297,20 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 import {
   assistantReplyIndicatesLeadNotRelevant,
-  classifyNotRelevantIntentWithClaude,
   handleLeadNotRelevant,
   matchesNotRelevantKeyword,
   NOT_RELEVANT_REPLY_MESSAGE,
   reactivateNotRelevantLead,
   shouldSendNotRelevantGatingReply,
 } from "@/lib/not-relevant";
+import { isAddressOrDirectionsIntent } from "@/lib/wa-address-intent";
+import {
+  coalesceTrailingUserMessages,
+  fetchLatestUserMessageCreatedAt,
+  fetchSessionUserMessagesAfter,
+  joinInboundUserTexts,
+  WA_INBOUND_PICKUP_MAX_DEPTH,
+} from "@/lib/wa-inbound-coalesce";
 import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
 import {
   acquireContactProcessingLock,
@@ -454,34 +461,6 @@ function findWaMenuOptionIndex(
   return idx;
 }
 
-function isAddressOrDirectionsIntent(text: string): boolean {
-  const normalized = normalizeGreetingToken(text);
-  return (
-    normalized.includes("מה הכתובת") ||
-    normalized.includes("כתובת") ||
-    normalized.includes("איפה זה") ||
-    normalized.includes("איפה אתם") ||
-    normalized.includes("איפה נמצא") ||
-    normalized.includes("מיקום") ||
-    normalized.includes("איך מגיעים") ||
-    normalized.includes("איך להגיע") ||
-    normalized.includes("הנחיות הגעה") ||
-    normalized.includes("דרכי הגעה") ||
-    normalized.includes("איך באים") ||
-    normalized.includes("איך מגיעה") ||
-    normalized.includes("whats the address") ||
-    normalized.includes("what is the address") ||
-    normalized.includes("where are you located") ||
-    normalized.includes("where are you") ||
-    normalized.includes("where is the studio") ||
-    normalized.includes("your address") ||
-    normalized.includes("your location") ||
-    normalized.includes("how do i get there") ||
-    normalized.includes("directions") ||
-    normalized.includes("how to get to you") ||
-    normalized.includes("where to find you")
-  );
-}
 
 type HeyzoeSessionPhase =
   | "opening"
@@ -4580,11 +4559,18 @@ export async function POST(req: NextRequest) {
 
 // ─── Core processing ──────────────────────────────────────────────────────────
 
+type ProcessIncomingOpts = {
+  skipUserLog?: boolean;
+  userMessagesThroughIso?: string;
+  pickupDepth?: number;
+};
+
 async function processIncoming(
   msg: WaIncomingMessage,
   accountSid: string,
   authToken: string,
-  ctwaClid: string | null
+  ctwaClid: string | null,
+  processOpts?: ProcessIncomingOpts
 ): Promise<void> {
   // Dedup + claim now happen in POST before this is scheduled via after() — see fast-ACK comment there.
 
@@ -4999,90 +4985,24 @@ async function processIncoming(
   let optedInThisMessage = false;
   const earlySessionId = buildWaSessionId(msg.toNumber, msg.from);
 
-  // 1.5) NOT RELEVANT — עצירת פלואו ופולואפים (נפרד מ-הסר)
-  if (msg.type === "text" && businessId && !contactNotRelevantAt && matchesNotRelevantKeyword(incomingTextRaw)) {
-    const fullName =
-      typeof (msg as { profileName?: string }).profileName === "string"
-        ? (msg as { profileName?: string }).profileName!.trim()
-        : "";
-    await handleLeadNotRelevant({
-      supabase,
-      businessId: Number(businessId),
-      businessSlug: business_slug,
-      phone: msg.from,
-      text: incomingTextRaw,
-      nowIso,
-      waFromNumber: msg.toNumber,
-      accountSid,
-      authToken,
-      sessionId: earlySessionId,
-      fullName: fullName || null,
-    });
-    return;
-  }
-
-  // 1.6) NOT RELEVANT (Claude) + 2.1) OPT-OUT (Claude) — skipped for Meta menu/button picks (deterministic).
-  // Free-text runs both when eligible (Promise.all); not-relevant result takes precedence over opt-out.
+  // OPT-OUT (Claude) — skipped for Meta menu/button picks. Not-relevant is keyword-only, after lock.
   let preLockOptOutClaudePositive = false;
   if (!isMetaInteractiveMenuReply(msg) && msg.type === "text") {
-    const notRelevantClaudeEligible =
-      Boolean(businessId) &&
-      !contactNotRelevantAt &&
-      incomingText.length >= 4 &&
-      incomingText.length <= 400 &&
-      !matchesNotRelevantKeyword(incomingTextRaw) &&
-      // «רוצה אימון אחר» = חזרה לבחירת מוצר, לא סגירת ליד
-      !isExplicitOtherServiceRequest(incomingTextRaw);
-
     const optOutClaudeEligible =
       !optedInThisMessage &&
       Boolean(businessId) &&
       incomingText.length >= 3 &&
       incomingText.length <= 300 &&
-      !matchesTrialRegisteredMessage(incomingTextRaw);
+      !matchesTrialRegisteredMessage(incomingTextRaw) &&
+      !matchesNotRelevantKeyword(incomingTextRaw);
 
-    if (notRelevantClaudeEligible || optOutClaudeEligible) {
+    if (optOutClaudeEligible) {
       const apiKey = resolveClaudeApiKey();
       if (apiKey) {
-        let isNotRelevant = false;
-        let wantsOptOut = false;
-
-        if (notRelevantClaudeEligible && optOutClaudeEligible) {
-          [isNotRelevant, wantsOptOut] = await Promise.all([
-            classifyNotRelevantIntentWithClaude({ apiKey, text: incomingTextRaw }),
-            classifyOptOutWithClaude({ apiKey, text: incomingTextRaw }),
-          ]);
-        } else if (notRelevantClaudeEligible) {
-          isNotRelevant = await classifyNotRelevantIntentWithClaude({
-            apiKey,
-            text: incomingTextRaw,
-          });
-        } else {
-          wantsOptOut = await classifyOptOutWithClaude({ apiKey, text: incomingTextRaw });
-        }
-
-        if (isNotRelevant && businessId) {
-          const fullName =
-            typeof (msg as { profileName?: string }).profileName === "string"
-              ? (msg as { profileName?: string }).profileName!.trim()
-              : "";
-          await handleLeadNotRelevant({
-            supabase,
-            businessId: Number(businessId),
-            businessSlug: business_slug,
-            phone: msg.from,
-            text: incomingTextRaw,
-            nowIso,
-            waFromNumber: msg.toNumber,
-            accountSid,
-            authToken,
-            sessionId: earlySessionId,
-            fullName: fullName || null,
-          });
-          return;
-        }
-
-        preLockOptOutClaudePositive = wantsOptOut;
+        preLockOptOutClaudePositive = await classifyOptOutWithClaude({
+          apiKey,
+          text: incomingTextRaw,
+        });
       }
     }
   }
@@ -5252,6 +5172,14 @@ async function processIncoming(
     }
 
     if (contactNotRelevantAt) {
+      if (msg.type === "text" && !processOpts?.skipUserLog) {
+        await logMessage({
+          business_slug,
+          role: "user",
+          content: msg.text,
+          session_id: earlySessionId,
+        });
+      }
       if (shouldSendNotRelevantGatingReply(contactNotRelevantAt)) {
         await sendWhatsAppMessage(
           msg.toNumber,
@@ -5382,19 +5310,26 @@ async function processIncoming(
   }
 
   // Log user message
-  await logMessage({
-    business_slug,
-    role: "user",
-    content: msg.text,
-    session_id: sessionId,
-  });
+  if (!processOpts?.skipUserLog) {
+    await logMessage({
+      business_slug,
+      role: "user",
+      content: msg.text,
+      session_id: sessionId,
+    });
+  }
+
+  let processedUserThroughIso =
+    String(processOpts?.userMessagesThroughIso ?? "").trim() ||
+    (await fetchLatestUserMessageCreatedAt({ businessSlug: business_slug, sessionId })) ||
+    new Date().toISOString();
 
   let contactProcessingClaimedUntil: string | null = null;
   if (contactId != null) {
     const lock = await acquireContactProcessingLock(contactId);
     if (!lock.acquired) {
       console.info(
-        `[WA Webhook] Contact ${contactId} already processing — message logged, skipping duplicate handler`,
+        `[WA Webhook] Contact ${contactId} already processing — message logged, holder will pick up`,
         { business_slug, sessionId, messageId: msg.messageId }
       );
       return;
@@ -5409,6 +5344,51 @@ async function processIncoming(
   }
 
   try {
+  if (msg.type === "text" && !isMetaInteractiveMenuReply(msg)) {
+    const coalesced = await coalesceTrailingUserMessages({
+      businessSlug: business_slug,
+      sessionId,
+      baseText: msg.text,
+      afterIso: processedUserThroughIso,
+    });
+    if (coalesced.extraCount > 0) {
+      msg.text = coalesced.text;
+      processedUserThroughIso = coalesced.throughIso;
+      console.info("[WA Webhook] coalesced trailing inbound", {
+        business_slug,
+        sessionId,
+        extraCount: coalesced.extraCount,
+      });
+    }
+  }
+
+  // NOT RELEVANT — רק אחרי נעילה, ורק אמירה מפורשת (לא ניחוש Claude).
+  if (
+    msg.type === "text" &&
+    businessId &&
+    !contactNotRelevantAt &&
+    matchesNotRelevantKeyword(msg.text)
+  ) {
+    const fullName =
+      typeof (msg as { profileName?: string }).profileName === "string"
+        ? (msg as { profileName?: string }).profileName!.trim()
+        : "";
+    await handleLeadNotRelevant({
+      supabase,
+      businessId: Number(businessId),
+      businessSlug: business_slug,
+      phone: msg.from,
+      text: msg.text,
+      nowIso,
+      waFromNumber: msg.toNumber,
+      accountSid,
+      authToken,
+      sessionId,
+      fullName: fullName || null,
+    });
+    return;
+  }
+
   // Check if this session is currently paused (manual takeover by human).
   try {
     const nowIso = new Date().toISOString();
@@ -8579,7 +8559,7 @@ async function processIncoming(
       businessId: Number(businessId),
       businessSlug: business_slug,
       phone: msg.from,
-      text: incomingTextRaw,
+      text: msg.type === "text" ? msg.text : incomingTextRaw,
       nowIso,
       waFromNumber: msg.toNumber,
       accountSid,
@@ -8964,6 +8944,34 @@ async function processIncoming(
   } finally {
     if (contactId != null && contactProcessingClaimedUntil) {
       await releaseContactProcessingLock(contactId, contactProcessingClaimedUntil);
+    }
+    const depth = processOpts?.pickupDepth ?? 0;
+    if (msg.type === "text" && depth < WA_INBOUND_PICKUP_MAX_DEPTH) {
+      const pending = await fetchSessionUserMessagesAfter({
+        businessSlug: business_slug,
+        sessionId,
+        afterIso: processedUserThroughIso,
+      });
+      if (pending.length) {
+        const combined = joinInboundUserTexts("", pending);
+        const throughIso = pending[pending.length - 1]!.created_at;
+        console.info("[WA Webhook] picking up inbound queued while processing", {
+          business_slug,
+          sessionId,
+          pendingCount: pending.length,
+        });
+        await processIncoming(
+          { ...msg, text: combined, messageId: `${msg.messageId}:pickup${depth + 1}` },
+          accountSid,
+          authToken,
+          ctwaClid,
+          {
+            skipUserLog: true,
+            userMessagesThroughIso: throughIso,
+            pickupDepth: depth + 1,
+          }
+        );
+      }
     }
   }
 }
