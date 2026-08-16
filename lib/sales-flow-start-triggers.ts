@@ -10,7 +10,7 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
     .replace(/\s+/g, " ");
 }
 
-/** איפוס והפעלת פלואו מכירה — הודעות קצרות (הקלדה או לחיצה על כפתור טמפלייט/quick-reply). */
+/** איפוס והפעלת פלואו מכירה — הודעות קצרות (הקלדה או לחיצה על כפתור טמפלייט/quick-reply). רק אלה מתחילים פלואו; הודעה ראשונה אחרת (למשל «תודה») לא. */
 export const SALES_FLOW_START_TRIGGERS = new Set([
   "שלום",
   "היי",

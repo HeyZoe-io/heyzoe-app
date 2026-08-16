@@ -259,6 +259,7 @@ import {
 import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
+  fetchLastSalesFlowGreetingResetAt,
   fetchLastSfServiceEventName,
   fetchLastSfWarmupExtraIndex,
   fetchRecentSessionMessages,
@@ -389,52 +390,10 @@ async function classifyOptOutWithClaude(input: { apiKey: string; text: string })
   }
 }
 
-const SALES_FLOW_START_INTENT_START = "START_SALES_FLOW";
-const SALES_FLOW_START_INTENT_NO = "NO";
-
-/**
- * כוונה להתחיל פלואו מכירה מחדש (לא שאלה פתוחה).
- * עניין בשיעור/סגנון/סוג אימון ספציפי = NO בכל שלב — גם אם לא קיים במערכת.
- */
-async function classifySalesFlowStartIntentWithClaude(input: { apiKey: string; text: string }): Promise<boolean> {
-  const apiKey = input.apiKey.trim();
-  const text = input.text.trim();
-  if (!apiKey || !text) return false;
-  if (text.length > 800) return false;
-  try {
-    const anthropic = new Anthropic({ apiKey });
-    const resp = await anthropic.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 16,
-      temperature: 0,
-      messages: [
-        {
-          role: "user",
-          content: `האם המשפט מביע כוונה כללית להתחיל שיחת מכירה / לקבל פרטים כלליים על הסטודיו או הצטרפות — בלי לנקוב בשיעור, סגנון או סוג אימון ספציפי?
-
-ענה רק "${SALES_FLOW_START_INTENT_START}" או "${SALES_FLOW_START_INTENT_NO}" (בדיוק, בלי טקסט נוסף).
-
-${SALES_FLOW_START_INTENT_START} = פתיחה כללית בלבד (פרטים על הסטודיו / בואו נתחיל / רוצה להצטרף בלי לציין מה).
-${SALES_FLOW_START_INTENT_NO} = שאלה או התעניינות בפרט ספציפי — כולל שיעור, סגנון יוגה/פילאטיס, סוג אימון, רמה, או כל נושא נקודתי (מחיר, מיקום, חניה). גם אם השיעור/סגנון לא בהכרח קיים אצלנו — עדיין ${SALES_FLOW_START_INTENT_NO}.
-
-דוגמאות ל-${SALES_FLOW_START_INTENT_START}: בואו נתחיל, אשמח לפרטים, היי אשמח לפרטים, רוצה להצטרף, מה יש אצלכם, ספרו לי עליכם, אשמח לשמוע פרטים
-דוגמאות ל-${SALES_FLOW_START_INTENT_NO}: מה המחיר בדיוק, איפה אתם, כמה עולה אימון ביום שלישי, האם יש חניה, מתעניינת באיינגר יוגה, רוצה פילאטיס מכשירים, יש לכם ויניאסה?, מחפשת שיעור יוגה למתחילים, interested in iyengar yoga
-
-משפט: "${text}"`,
-        },
-      ],
-    });
-    const out = (resp.content ?? [])
-      .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
-      .join("\n")
-      .trim()
-      .toUpperCase();
-    if (out.includes(SALES_FLOW_START_INTENT_NO)) return false;
-    return out.includes(SALES_FLOW_START_INTENT_START);
-  } catch (e) {
-    console.warn("[WA Webhook] sales-flow start intent classify failed (continuing):", e);
-    return false;
-  }
+/** פלואו מכירה התחיל רק אחרי ברכת טריגר («היי» / default_opening היסטורי) — לא מהודעה ראשונה חופשית. */
+async function sessionHasSalesFlowGreeting(business_slug: string, session_id: string): Promise<boolean> {
+  const at = await fetchLastSalesFlowGreetingResetAt({ business_slug, session_id });
+  return Boolean(at);
 }
 
 function normalizeGreetingToken(s: string): string {
@@ -719,7 +678,7 @@ type RestartSalesFlowFromGreetingResult = {
   allowTrialCtaThisSession: boolean;
 };
 
-/** איפוס + פתיחה + המשך פלואו מכירה (כמו טריגר «היי» / כוונת התחלה). */
+/** איפוס + פתיחה + המשך פלואו מכירה (רק טריגר מילות פתיחה שהוגדרו). */
 async function restartSalesFlowFromGreeting(input: {
   knowledge: BusinessKnowledgePack | null;
   salesFlowServices: SfServiceRow[];
@@ -2979,6 +2938,13 @@ async function sendFlowContinuation(input: {
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
+  if (phase === "opening" && !(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
+    console.info("[WA Webhook] skip opening flow continuation — sales flow not started", {
+      business_slug,
+      session_id: sessionId,
+    });
+    return;
+  }
   const menuFooter = salesFlowMenuFooter(knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
@@ -3572,6 +3538,9 @@ async function resendUnansweredSalesFlowPrompt(
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
+  if (phase === "opening" && !(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
+    return;
+  }
   const menuFooter = salesFlowMenuFooter(knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
@@ -3823,6 +3792,9 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
   const cfg = input.knowledge.salesFlowConfig;
   if (!cfg || !input.businessId) return false;
   if (!SALES_FLOW_DETERMINISTIC_PHASES.has(input.phase)) return false;
+  if (input.phase === "opening" && !(await sessionHasSalesFlowGreeting(input.business_slug, input.sessionId))) {
+    return false;
+  }
 
   const step = Number.isFinite(input.flowStep) ? input.flowStep : 0;
   const flowBase = {
@@ -5195,24 +5167,9 @@ async function processIncoming(
   }
 
   if (contactNotRelevantAt) {
-    // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו («אשמח לפרטים» וכו׳) או הביע כוונה
-    // להתחיל פלואו מחדש — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
-    let wantsFlowRestart = isSalesFlowStartInbound(msg);
-    if (
-      !wantsFlowRestart &&
-      msg.type === "text" &&
-      businessId &&
-      incomingText.length >= 3 &&
-      incomingText.length <= 300
-    ) {
-      const apiKey = resolveClaudeApiKey();
-      if (apiKey) {
-        wantsFlowRestart = await classifySalesFlowStartIntentWithClaude({
-          apiKey,
-          text: incomingTextRaw,
-        });
-      }
-    }
+    // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו שהוגדרה («היי» / «אשמח לפרטים» וכו׳)
+    // — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
+    const wantsFlowRestart = isSalesFlowStartInbound(msg);
 
     if (wantsFlowRestart && businessId) {
       const reactivated = await reactivateNotRelevantLead({
@@ -5229,7 +5186,7 @@ async function processIncoming(
           session_id: earlySessionId,
         });
         contactNotRelevantAt = null;
-        // ממשיכים — הברכה/כוונת הפתיחה יזוהו בהמשך ויאתחלו את פלואו המכירה.
+        // ממשיכים — מילת הפתיחה תזוהה בהמשך ותאתחל את פלואו המכירה.
       }
     }
 
@@ -5323,21 +5280,6 @@ async function processIncoming(
     } catch (e) {
       console.warn("[WA Webhook] human_requested handling failed:", e);
     }
-  }
-
-  // Detect "new lead" (first inbound user message in this session).
-  // Important: the business may have sent outbound messages (assistant/event logs) before a user ever replies.
-  let isNewLead = false;
-  try {
-    const { count } = await supabase
-      .from("messages")
-      .select("id", { count: "exact", head: true } as any)
-      .eq("business_slug", business_slug)
-      .eq("session_id", sessionId)
-      .eq("role", "user");
-    isNewLead = (count ?? 0) === 0;
-  } catch (e) {
-    console.warn("[WA Webhook] new-lead check failed (continuing):", e);
   }
 
   const knowledge = await getBusinessKnowledgePack(business_slug);
@@ -5923,34 +5865,9 @@ async function processIncoming(
     }
   };
 
-  // New lead flow: optional media first, then a default opening message (no AI)
-  // If the user just opted back in, continue to Zoe instead of stopping on default opening.
-  if (isNewLead && !optedInThisMessage) {
-    const restartState = await restartSalesFlowFromGreeting({
-      knowledge,
-      salesFlowServices,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      business_slug,
-      sessionId,
-      blockTrialPickMedia: starterBlocksMedia,
-      sendOpeningMediaIfConfigured,
-      logModelUsed: "default_opening",
-    });
-    if (restartState.ranContinuation) {
-      contactSessionPhase = restartState.contactSessionPhase;
-      contactFlowStep = restartState.contactFlowStep;
-      sfClickedCtaKinds = restartState.sfClickedCtaKinds;
-      contactInstagramFollowPromptSent = restartState.contactInstagramFollowPromptSent;
-      contactTrialRegistered = restartState.contactTrialRegistered;
-      contactTrialRegisteredAt = restartState.contactTrialRegisteredAt;
-      allowTrialCtaThisSession = restartState.allowTrialCtaThisSession;
-    }
-    return;
-  }
+  // פלואו מכירה מתחיל רק ממילות הפתיחה שהוגדרו — לא מכל הודעה ראשונה (למשל «תודה»).
+  const salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+  const openingFlowActive = contactSessionPhase !== "opening" || salesFlowStarted;
 
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
@@ -6088,7 +6005,7 @@ async function processIncoming(
   // מספר אחרי תפריט repick — רק awaiting-pick
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
     const awaitingServicePickForNumeric =
-      isSalesFlowMultiServicePickPhase(contactSessionPhase) ||
+      (isSalesFlowMultiServicePickPhase(contactSessionPhase) && salesFlowStarted) ||
       (contactSessionPhase === "cta" &&
         (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId })));
     if (awaitingServicePickForNumeric && isNumericServicePickReply(msg.text.trim())) {
@@ -6113,7 +6030,8 @@ async function processIncoming(
     knowledge?.salesFlowConfig &&
     businessId &&
     salesFlowServices.length > 1 &&
-    isSalesFlowMultiServicePickPhase(contactSessionPhase)
+    isSalesFlowMultiServicePickPhase(contactSessionPhase) &&
+    salesFlowStarted
   ) {
     try {
       const named = salesFlowServices;
@@ -6246,7 +6164,13 @@ async function processIncoming(
 
   // Global escape hatch: "בחירת אימון אחר" should always route back to service selection menu,
   // even if session_phase drifted and would otherwise fall into the open-ended AI path.
-  if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
+  if (
+    msg.type === "text" &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    salesFlowServices.length > 1 &&
+    openingFlowActive
+  ) {
     const label = SCHEDULE_PICK_CHANGE_SERVICE_LABEL;
     const incomingResolved =
       msg.metaInteractiveReplyId?.trim()
@@ -6288,7 +6212,7 @@ async function processIncoming(
     isSalesFlowFreeTextInbound(msg)
   ) {
     const awaitingServicePickForImplicit =
-      isSalesFlowMultiServicePickPhase(contactSessionPhase) ||
+      (isSalesFlowMultiServicePickPhase(contactSessionPhase) && salesFlowStarted) ||
       (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId }));
     if (awaitingServicePickForImplicit) {
       const lastPickedForRepick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
@@ -8056,11 +7980,11 @@ async function processIncoming(
   const isWarmupSkipIntent =
     msg.type === "text" &&
     !registeredInCurrentFlow &&
-    (contactSessionPhase === "opening" || contactSessionPhase === "warmup") &&
+    (contactSessionPhase === "warmup" || (contactSessionPhase === "opening" && salesFlowStarted)) &&
     isWarmupSkipIntentText(incomingRaw, contactSessionPhase);
 
   const joinSignupRecovery: JoinSignupRecoveryAction =
-    matched || matchedPredefinedClosedLabel
+    matched || matchedPredefinedClosedLabel || (contactSessionPhase === "opening" && !salesFlowStarted)
       ? "none"
       : await resolveJoinSignupRecoveryAction({
           business_slug,
@@ -8402,49 +8326,6 @@ async function processIncoming(
         logModelUsed: "interactive_reply_claude_leak_guard",
       });
       return;
-    }
-
-    if (
-      isFreeTextSalesFlowAi &&
-      knowledge?.salesFlowConfig &&
-      businessId &&
-      (contactSessionPhase === "opening" || contactSessionPhase === "registered")
-    ) {
-      const wantsFlowStart = await classifySalesFlowStartIntentWithClaude({
-        apiKey: claudeApiKey,
-        text: msg.text,
-      });
-      if (wantsFlowStart) {
-        const restartState = await restartSalesFlowFromGreeting({
-          knowledge,
-          salesFlowServices,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          blockTrialPickMedia: starterBlocksMedia,
-          sendOpeningMediaIfConfigured,
-          logModelUsed: "greeting",
-        });
-        if (restartState.ranContinuation) {
-          console.info("[WA Webhook] Sales-flow start intent → greeting restart", {
-            business_slug,
-            session_id: sessionId,
-            prior_phase: contactSessionPhase,
-          });
-          allowTrialCtaThisSession = restartState.allowTrialCtaThisSession;
-          contactSessionPhase = restartState.contactSessionPhase;
-          contactFlowStep = restartState.contactFlowStep;
-          sfClickedCtaKinds = restartState.sfClickedCtaKinds;
-          contactInstagramFollowPromptSent = restartState.contactInstagramFollowPromptSent;
-          contactTrialRegistered = restartState.contactTrialRegistered;
-          contactTrialRegisteredAt = restartState.contactTrialRegisteredAt;
-        }
-        return;
-      }
     }
 
     // Any free-form question → Claude/Gemini (עם היסטוריית סשן כדי להמשיך פלואו מכירה)
@@ -8805,7 +8686,7 @@ async function processIncoming(
 
       let openingSkipFlowContinuation = false;
       if (contactSessionPhase === "opening") {
-        if (isExplicitOtherServiceRequest(incomingRaw)) {
+        if (!salesFlowStarted || isExplicitOtherServiceRequest(incomingRaw)) {
           openingSkipFlowContinuation = true;
         } else {
           const [lastModel, lastContent] = await Promise.all([

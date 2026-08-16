@@ -20,7 +20,7 @@ export const HEYZOE_SF_CTA_REACHED = "[heyzoe:sf_cta_reached]";
 /** הלקוח סימן שנרשם לאימון ניסיון (נרשמתי). */
 export const HEYZOE_SF_REGISTERED = "[heyzoe:sf_registered]";
 
-/** איפוס מסלול מכירה — «היי» / ליד חדש; אירועים לפני זה לא סופרים לבחירת שירות/חימום. */
+/** איפוס מסלול מכירה — «היי» / פתיחה היסטורית (default_opening); אירועים לפני זה לא סופרים לבחירת שירות/חימום. */
 export const SALES_FLOW_GREETING_RESET_MODELS = ["greeting", "default_opening"] as const;
 
 export async function fetchLastSalesFlowGreetingResetAt(input: {
