@@ -5328,8 +5328,42 @@ async function processIncoming(
   const knowledge = await getBusinessKnowledgePack(business_slug);
   const salesFlowServices = knowledge?.salesFlowServices ?? [];
 
-  // Handle unsupported message types
+  // Handle unsupported message types (voice note, image, sticker, …).
+  // This block returns before the text-path gates below — apply the same silence
+  // rules here (zoe_activated, paused_sessions, human_requested).
   if (msg.type === "unsupported") {
+    if (zoeActivated !== true) {
+      console.info(
+        `[WA Webhook] unsupported inbound — Zoe not activated for ${business_slug}; skipping auto-reply.`,
+        { sessionId, from: msg.from, metaInboundType: msg.metaInboundType ?? null }
+      );
+      return;
+    }
+    try {
+      const { data: pausedUnsupported } = await supabase
+        .from("paused_sessions")
+        .select("id")
+        .eq("business_slug", business_slug)
+        .eq("session_id", sessionId)
+        .gt("paused_until", nowIso)
+        .maybeSingle();
+      if (pausedUnsupported) {
+        console.info(
+          `[WA Webhook] unsupported inbound — session ${sessionId} paused; skipping auto-reply.`
+        );
+        return;
+      }
+    } catch (e) {
+      console.error("[WA Webhook] pause-check failed for unsupported inbound (continuing):", e);
+    }
+    if (contactHumanRequestedAt) {
+      console.info("[WA Webhook] unsupported inbound — human_requested; skipping auto-reply", {
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+
     let sendFailed = false;
     try {
       await sendWhatsAppMessage(
