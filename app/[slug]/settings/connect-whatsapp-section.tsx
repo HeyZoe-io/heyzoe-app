@@ -98,37 +98,7 @@ function parseWaEmbeddedSignupMessage(raw: unknown): WaEmbeddedSignupMessage | n
 
 type FacebookConfig = { appId?: string; configId?: string };
 
-/** Loads the FB JS SDK + calls FB.init, only once, resolving when window.FB is ready. */
-function ensureFbSdkLoaded(appId: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.FB) {
-      resolve();
-      return;
-    }
-    window.fbAsyncInit = () => {
-      try {
-        window.FB?.init({ appId, cookie: true, xfbml: true, version: "v21.0" });
-        resolve();
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error("fb_init_failed"));
-      }
-    };
-    if (document.getElementById("facebook-jssdk")) {
-      // Script tag already present from an earlier attempt in this session;
-      // fbAsyncInit above will fire once it (or a prior load) completes.
-      return;
-    }
-    const s = document.createElement("script");
-    s.id = "facebook-jssdk";
-    s.async = true;
-    s.crossOrigin = "anonymous";
-    s.src = "https://connect.facebook.net/en_US/sdk.js";
-    s.onerror = () => reject(new Error("sdk_load_failed"));
-    document.body.appendChild(s);
-  });
-}
-
-type ConnectState = "idle" | "loading_sdk" | "awaiting_login" | "submitting" | "success" | "error";
+type ConnectState = "idle" | "awaiting_login" | "submitting" | "success" | "error";
 
 const i18n = {
   he: {
@@ -146,6 +116,9 @@ const i18n = {
     error_no_waba: "לא התקבל מזהה WABA מהתחברות פייסבוק. נסו שוב או בדקו את הגדרות אפליקציית מטא.",
     error_cancelled: "החיבור בוטל.",
     error_fb_load: "טעינת פייסבוק נכשלה. נסו שוב.",
+    error_popup:
+      "חלון פייסבוק לא נפתח. אפשרו פופאפ לדפדפן, או פתחו את הדשבורד בכרטיסייה רגילה (לא מתוך וואטסאפ/אינסטגרם) ונסו שוב.",
+    sdkNotReady: "טוענים את פייסבוק… נסו שוב בעוד רגע.",
     error_server: (status: number) => `שגיאת שרת (${status})`,
     error_network: "בעיית רשת בשמירה.",
     statusLoadFailed: "טעינת סטטוס החיבור נכשלה.",
@@ -165,6 +138,9 @@ const i18n = {
     error_no_waba: "WABA ID not received from Facebook login. Try again or check your Meta app settings.",
     error_cancelled: "Connection cancelled.",
     error_fb_load: "Failed to load Facebook. Try again.",
+    error_popup:
+      "The Facebook window did not open. Allow pop-ups, or open the dashboard in a regular browser tab (not in-app WhatsApp/Instagram) and try again.",
+    sdkNotReady: "Loading Facebook… try again in a moment.",
     error_server: (status: number) => `Server error (${status})`,
     error_network: "Network error while saving.",
     statusLoadFailed: "Failed to load connection status.",
@@ -196,6 +172,7 @@ export default function ConnectWhatsAppSection({
 
   const [state, setState] = useState<ConnectState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [sdkReady, setSdkReady] = useState(false);
   const [webhookSubscribed, setWebhookSubscribed] = useState(false);
   const [webhookError, setWebhookError] = useState<string | null>(null);
 
@@ -282,10 +259,78 @@ export default function ConnectWhatsAppSection({
     return () => window.removeEventListener("message", onMessage);
   }, [submitEmbeddedFinish, t.error_cancelled]);
 
+  // Preload FB SDK on mount so FB.login stays inside the click gesture (popups).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cfgRes = await fetch("/api/onboarding/facebook-config", { cache: "no-store" });
+        const cfg = (await cfgRes.json()) as FacebookConfig;
+        if (cancelled) return;
+        const appId = String(cfg.appId ?? "").trim();
+        if (!appId) {
+          setErrorMsg(t.missingAppId);
+          return;
+        }
+        fbAppIdRef.current = appId;
+        fbConfigIdRef.current = String(cfg.configId ?? "").trim();
+
+        window.fbAsyncInit = () => {
+          if (cancelled) return;
+          try {
+            window.FB?.init({ appId, cookie: true, xfbml: true, version: "v21.0" });
+            setSdkReady(true);
+          } catch {
+            setState("error");
+            setErrorMsg(t.error_fb_load);
+          }
+        };
+
+        if (document.getElementById("facebook-jssdk")) {
+          if (window.FB) {
+            window.fbAsyncInit();
+            return;
+          }
+          const poll = window.setInterval(() => {
+            if (cancelled) {
+              window.clearInterval(poll);
+              return;
+            }
+            if (window.FB) {
+              window.clearInterval(poll);
+              window.fbAsyncInit?.();
+            }
+          }, 200);
+          return;
+        }
+        const s = document.createElement("script");
+        s.id = "facebook-jssdk";
+        s.async = true;
+        s.crossOrigin = "anonymous";
+        s.src = "https://connect.facebook.net/en_US/sdk.js";
+        s.onerror = () => {
+          if (!cancelled) {
+            setState("error");
+            setErrorMsg(t.error_fb_load);
+          }
+        };
+        document.body.appendChild(s);
+      } catch {
+        if (!cancelled) {
+          setState("error");
+          setErrorMsg(t.error_fb_load);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [t.error_fb_load, t.missingAppId]);
+
   const launchLogin = useCallback(() => {
     if (!window.FB?.login) {
       setState("error");
-      setErrorMsg(t.error_fb_load);
+      setErrorMsg(sdkReady ? t.error_fb_load : t.sdkNotReady);
       return;
     }
     setState("awaiting_login");
@@ -300,7 +345,8 @@ export default function ConnectWhatsAppSection({
 
     window.FB.login((resp: FbLoginResponse & { code?: string; waba_id?: string }) => {
       if (resp.status === "unknown") {
-        setState("idle");
+        setState("error");
+        setErrorMsg(t.error_popup);
         return;
       }
       const ar = resp.authResponse;
@@ -311,31 +357,12 @@ export default function ConnectWhatsAppSection({
       if (!waba_id) return; // postMessage (WA_EMBEDDED_SIGNUP) may still deliver it
       void submitEmbeddedFinish(waba_id, undefined, code || undefined);
     }, loginOpts);
-  }, [submitEmbeddedFinish, t.error_fb_load]);
+  }, [sdkReady, submitEmbeddedFinish, t.error_fb_load, t.error_popup, t.sdkNotReady]);
 
-  const handleConnectClick = useCallback(async () => {
+  const handleConnectClick = useCallback(() => {
     setErrorMsg(null);
-    setState("loading_sdk");
-    try {
-      if (!fbAppIdRef.current) {
-        const cfgRes = await fetch("/api/onboarding/facebook-config", { cache: "no-store" });
-        const cfg = (await cfgRes.json()) as FacebookConfig;
-        const appId = String(cfg.appId ?? "").trim();
-        if (!appId) {
-          setState("error");
-          setErrorMsg(t.missingAppId);
-          return;
-        }
-        fbAppIdRef.current = appId;
-        fbConfigIdRef.current = String(cfg.configId ?? "").trim();
-      }
-      await ensureFbSdkLoaded(fbAppIdRef.current);
-      launchLogin();
-    } catch {
-      setState("error");
-      setErrorMsg(t.error_fb_load);
-    }
-  }, [launchLogin, t.error_fb_load, t.missingAppId]);
+    launchLogin();
+  }, [launchLogin]);
 
   const hasActiveChannel = channelData?.channel?.is_active === true;
 
@@ -382,14 +409,12 @@ export default function ConnectWhatsAppSection({
         <p className="mt-1 text-xs leading-5 text-zinc-500">{t.description}</p>
         <button
           type="button"
-          disabled={state === "loading_sdk" || state === "awaiting_login" || state === "submitting"}
-          onClick={() => void handleConnectClick()}
+          disabled={state === "awaiting_login" || state === "submitting"}
+          onClick={handleConnectClick}
           className="mt-3 w-full rounded-full border border-[rgba(113,51,218,0.25)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:cursor-wait disabled:opacity-70"
           style={{ background: "linear-gradient(135deg,#7133da,#ff92ff)" }}
         >
-          {state === "loading_sdk" || state === "awaiting_login" || state === "submitting"
-            ? t.connecting
-            : t.connect}
+          {state === "awaiting_login" || state === "submitting" ? t.connecting : t.connect}
         </button>
         {state === "error" && errorMsg ? (
           <p className="mt-2 text-xs text-rose-700" role="alert">
