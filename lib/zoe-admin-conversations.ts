@@ -77,14 +77,16 @@ export async function loadAllZoeAdminConversationSessions(
       .limit(5000),
   ]);
 
-  const pausedBySlug = new Map<string, Set<string>>();
+  const pausedUntilBySlug = new Map<string, Map<string, string>>();
   for (const p of pausedRows ?? []) {
     const bs = String((p as { business_slug?: string }).business_slug ?? "").trim().toLowerCase();
     const sid = String((p as { session_id?: string }).session_id ?? "");
-    if (!bs || !sid) continue;
-    const set = pausedBySlug.get(bs) ?? new Set<string>();
-    set.add(sid);
-    pausedBySlug.set(bs, set);
+    const until = String((p as { paused_until?: string }).paused_until ?? "").trim();
+    if (!bs || !sid || !until) continue;
+    const set = pausedUntilBySlug.get(bs) ?? new Map<string, string>();
+    const prev = set.get(sid);
+    if (!prev || until > prev) set.set(sid, until);
+    pausedUntilBySlug.set(bs, set);
   }
 
   const bySlugSession = new Map<string, SessionSummary[]>();
@@ -100,7 +102,7 @@ export async function loadAllZoeAdminConversationSessions(
 
   for (const bs of slugList) {
     const slugMsgs = msgsBySlug.get(bs) ?? [];
-    const pausedForSlug = pausedBySlug.get(bs) ?? new Set<string>();
+    const pausedForSlug = pausedUntilBySlug.get(bs) ?? new Map<string, string>();
     const sessions = aggregateSessionsFromMessages(slugMsgs, pausedForSlug);
     bySlugSession.set(bs, sessions);
   }
@@ -121,13 +123,15 @@ export async function loadAllZoeAdminConversationSessions(
     const sid = marketingWaSessionId(phone);
     if (marketingSid.has(sid)) continue;
     const at = new Date(String((s as { updated_at?: string }).updated_at ?? (s as { created_at?: string }).created_at ?? ""));
+    const pausedUntil = (pausedUntilBySlug.get(MARKETING_CONVERSATIONS_SLUG) ?? new Map()).get(sid) ?? null;
     const list = bySlugSession.get(MARKETING_CONVERSATIONS_SLUG) ?? [];
     list.push({
       session_id: sid,
       lastAt: at.toISOString(),
       count: 0,
       isOpen: false,
-      isPaused: (pausedBySlug.get(MARKETING_CONVERSATIONS_SLUG) ?? new Set()).has(sid),
+      isPaused: Boolean(pausedUntil),
+      pausedUntil,
       phone: formatPhoneDisplay(phone) || phone,
     });
     bySlugSession.set(MARKETING_CONVERSATIONS_SLUG, list);

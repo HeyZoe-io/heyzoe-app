@@ -22,6 +22,8 @@ export type SessionSummary = {
   count: number;
   isOpen: boolean;
   isPaused: boolean;
+  /** ISO — from paused_sessions.paused_until when the session is currently paused. */
+  pausedUntil?: string | null;
   phone: string;
   /** שם הליד מ-contacts.full_name */
   fullName?: string | null;
@@ -124,6 +126,22 @@ export function sessionIdMatchesWaPhoneNumberIds(sessionId: string, phoneNumberI
   return ids.some((pid) => sid.startsWith(buildWaSessionPrefix(pid)));
 }
 
+function pausedUntilBySessionFromRows(
+  rows: { session_id?: string; paused_until?: string }[] | null | undefined,
+  keepSessionId?: (sessionId: string) => boolean
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const p of rows ?? []) {
+    const sid = String((p as { session_id?: string }).session_id ?? "").trim();
+    const until = String((p as { paused_until?: string }).paused_until ?? "").trim();
+    if (!sid || !until) continue;
+    if (keepSessionId && !keepSessionId(sid)) continue;
+    const prev = map.get(sid);
+    if (!prev || until > prev) map.set(sid, until);
+  }
+  return map;
+}
+
 /** מזהי Meta phone_number_id של עסק מ-whatsapp_channels */
 export async function resolveBusinessWaPhoneNumberIds(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -167,7 +185,7 @@ export async function resolveBusinessSlugVariants(
 
 export function aggregateSessionsFromMessages(
   messages: { session_id?: string | null; role?: string | null; created_at?: string | null }[],
-  pausedSet: Set<string>
+  pausedUntilBySession: Map<string, string> = new Map()
 ): SessionSummary[] {
   const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean }>();
 
@@ -188,12 +206,14 @@ export function aggregateSessionsFromMessages(
 
   const sessions: SessionSummary[] = [...bySession.entries()].map(([sid, data]) => {
     const isOpen = data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000;
+    const pausedUntil = pausedUntilBySession.get(sid) ?? null;
     return {
       session_id: sid,
       lastAt: data.lastAt.toISOString(),
       count: data.count,
       isOpen,
-      isPaused: pausedSet.has(sid),
+      isPaused: Boolean(pausedUntil),
+      pausedUntil,
       phone: extractPhoneFromSessionId(sid),
     };
   });
@@ -208,7 +228,10 @@ type RpcSessionRow = {
   last_role: string | null;
 };
 
-function mapRpcRowsToSessions(rows: RpcSessionRow[], pausedSet: Set<string>): SessionSummary[] {
+function mapRpcRowsToSessions(
+  rows: RpcSessionRow[],
+  pausedUntilBySession: Map<string, string>
+): SessionSummary[] {
   const sessions: SessionSummary[] = [];
   for (const r of rows) {
     const sid = String(r.session_id ?? "");
@@ -217,12 +240,14 @@ function mapRpcRowsToSessions(rows: RpcSessionRow[], pausedSet: Set<string>): Se
     if (Number.isNaN(at.getTime())) continue;
     const lastFromUser = String(r.last_role ?? "") === "user";
     const isOpen = lastFromUser && Date.now() - at.getTime() < 24 * 60 * 60 * 1000;
+    const pausedUntil = pausedUntilBySession.get(sid) ?? null;
     sessions.push({
       session_id: sid,
       lastAt: at.toISOString(),
       count: Number(r.msg_count ?? 0),
       isOpen,
-      isPaused: pausedSet.has(sid),
+      isPaused: Boolean(pausedUntil),
+      pausedUntil,
       phone: extractPhoneFromSessionId(sid),
     });
   }
@@ -232,7 +257,8 @@ function mapRpcRowsToSessions(rows: RpcSessionRow[], pausedSet: Set<string>): Se
 function appendTemplateOnlySessions(
   sessions: SessionSummary[],
   contacts: Record<string, unknown>[],
-  phoneNumberIds: string[]
+  phoneNumberIds: string[],
+  pausedUntilBySession: Map<string, string>
 ): SessionSummary[] {
   const primaryPid = String(phoneNumberIds[0] ?? "").trim();
   if (!primaryPid) return sessions;
@@ -254,12 +280,14 @@ function appendTemplateOnlySessions(
       leadConversationAt(row as Parameters<typeof leadConversationAt>[0]) ??
       new Date().toISOString();
     const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
+    const pausedUntil = pausedUntilBySession.get(sessionId) ?? null;
     extra.push({
       session_id: sessionId,
       lastAt,
       count: 1,
       isOpen: false,
-      isPaused: false,
+      isPaused: Boolean(pausedUntil),
+      pausedUntil,
       phone: extractPhoneFromSessionId(sessionId) || key,
       fullName: fullName || null,
       contactStatus: "template",
@@ -307,16 +335,17 @@ export async function loadBusinessConversationSessions(
           .in("source", ["meta_lead_ad", "site_lead"])
       : Promise.resolve({ data: [] as Record<string, unknown>[] }),
   ]);
-  const pausedSet = new Set(
-    (pausedRows ?? [])
-      .filter((p) =>
-        sessionIdMatchesWaPhoneNumberIds(String((p as { session_id?: string }).session_id ?? ""), phoneNumberIds)
-      )
-      .map((p) => String((p as { session_id?: string }).session_id ?? ""))
+  const pausedUntilBySession = pausedUntilBySessionFromRows(pausedRows as { session_id?: string; paused_until?: string }[] | null, (sid) =>
+    sessionIdMatchesWaPhoneNumberIds(sid, phoneNumberIds)
   );
   if (rpcError) console.warn("[conversations-sessions] rpc:", rpcError.message);
-  let sessions = mapRpcRowsToSessions((rpcRows ?? []) as RpcSessionRow[], pausedSet);
-  sessions = appendTemplateOnlySessions(sessions, (templateContacts ?? []) as Record<string, unknown>[], phoneNumberIds);
+  let sessions = mapRpcRowsToSessions((rpcRows ?? []) as RpcSessionRow[], pausedUntilBySession);
+  sessions = appendTemplateOnlySessions(
+    sessions,
+    (templateContacts ?? []) as Record<string, unknown>[],
+    phoneNumberIds,
+    pausedUntilBySession
+  );
 
   if (!Number.isFinite(businessId) || businessId <= 0) return sessions;
 

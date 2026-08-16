@@ -226,6 +226,7 @@ export type MarketingSessionSummary = {
   count: number;
   isOpen: boolean;
   isPaused: boolean;
+  pausedUntil?: string | null;
   phone: string;
   /** שם הליד מ-marketing_flow_sessions.full_name (WhatsApp ProfileName) */
   fullName?: string | null;
@@ -340,11 +341,14 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
   mergeMarketingMessageRows(allMessages, seenMsgKeys, slugMessages);
   mergeMarketingMessageRows(allMessages, seenMsgKeys, lineMessages);
 
-  const pausedCanonical = new Set<string>();
+  const pausedUntilByCanonical = new Map<string, string>();
   for (const p of pausedRows ?? []) {
     const rawSid = String((p as { session_id?: string }).session_id ?? "").trim();
-    if (!rawSid) continue;
-    pausedCanonical.add(canonicalMarketingSessionId(rawSid));
+    const until = String((p as { paused_until?: string }).paused_until ?? "").trim();
+    if (!rawSid || !until) continue;
+    const sid = canonicalMarketingSessionId(rawSid);
+    const prev = pausedUntilByCanonical.get(sid);
+    if (!prev || until > prev) pausedUntilByCanonical.set(sid, until);
   }
 
   const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>();
@@ -393,7 +397,8 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     lastAt: data.lastAt.toISOString(),
     count: data.count,
     isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
-    isPaused: pausedCanonical.has(sid),
+    isPaused: pausedUntilByCanonical.has(sid),
+    pausedUntil: pausedUntilByCanonical.get(sid) ?? null,
     phone: data.phone,
     fullName: nameBySid.get(sid) ?? null,
     noteStatus: resolveNoteStatus(data.phone, sid),

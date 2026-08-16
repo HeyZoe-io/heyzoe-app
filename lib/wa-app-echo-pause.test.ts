@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { parseSmbMessageEchoes } from "@/lib/whatsapp";
-import { nextPausedUntilForAppEcho, WA_BUSINESS_APP_PAUSE_MS } from "@/lib/wa-app-echo-pause";
+import {
+  formatAppEchoPauseRemaining,
+  isAppEchoAutoPause,
+  nextPausedUntilForAppEcho,
+  WA_BUSINESS_APP_PAUSE_MS,
+} from "@/lib/wa-app-echo-pause";
 
 const payload = {
   object: "whatsapp_business_account",
@@ -51,5 +56,11 @@ assert.equal(nextPausedUntilForAppEcho(new Date(now.getTime() + 60 * 60 * 1000).
 
 const manual = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 365 * 50).toISOString();
 assert.equal(nextPausedUntilForAppEcho(manual, now), manual);
+
+assert.equal(isAppEchoAutoPause(fiveH, now), true);
+assert.equal(isAppEchoAutoPause(manual, now), false);
+assert.equal(isAppEchoAutoPause(null, now), false);
+assert.equal(formatAppEchoPauseRemaining(fiveH, "he", now), "עוד 5 שע׳");
+assert.equal(formatAppEchoPauseRemaining(fiveH, "en", now), "5h left");
 
 console.log("wa-app-echo-pause.test.ts: ok");

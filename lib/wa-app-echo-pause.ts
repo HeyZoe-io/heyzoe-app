@@ -13,6 +13,46 @@ export const WA_BUSINESS_APP_ECHO_MODEL = "wa_business_app";
 /** Per-lead silence after a human send from the phone app. No cron — paused_until expires. */
 export const WA_BUSINESS_APP_PAUSE_MS = 5 * 60 * 60 * 1000;
 
+/** Dashboard pause is ~100 years. Anything within this window is the 5h app-echo pause. */
+export const WA_APP_ECHO_PAUSE_DISPLAY_MAX_MS = 12 * 60 * 60 * 1000;
+
+export function remainingAppEchoPauseMs(
+  pausedUntilIso: string | null | undefined,
+  now: Date = new Date()
+): number {
+  const until = pausedUntilIso ? new Date(pausedUntilIso).getTime() : NaN;
+  if (!Number.isFinite(until)) return 0;
+  return Math.max(0, until - now.getTime());
+}
+
+/** True when this pause is the auto 5h WhatsApp-app silence (not dashboard «עצור בוט»). */
+export function isAppEchoAutoPause(
+  pausedUntilIso: string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  const remaining = remainingAppEchoPauseMs(pausedUntilIso, now);
+  return remaining > 0 && remaining <= WA_APP_ECHO_PAUSE_DISPLAY_MAX_MS;
+}
+
+export function formatAppEchoPauseRemaining(
+  pausedUntilIso: string,
+  lang: "he" | "en",
+  now: Date = new Date()
+): string {
+  const remaining = remainingAppEchoPauseMs(pausedUntilIso, now);
+  const totalMin = Math.max(1, Math.ceil(remaining / 60_000));
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (lang === "en") {
+    if (hours <= 0) return `${mins}m left`;
+    if (mins === 0) return `${hours}h left`;
+    return `${hours}h ${mins}m left`;
+  }
+  if (hours <= 0) return `עוד ${mins} דק׳`;
+  if (mins === 0) return `עוד ${hours} שע׳`;
+  return `עוד ${hours} שע׳ ${mins} דק׳`;
+}
+
 /**
  * Dashboard "עצור בוט" sets paused_until ~100 years out. Never shorten that.
  * Otherwise refresh to now + 5h on every app send.

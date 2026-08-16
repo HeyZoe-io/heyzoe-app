@@ -19,6 +19,7 @@ import {
 } from "@/lib/marketing-conversation-notes";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
+import { isAppEchoAutoPause, formatAppEchoPauseRemaining } from "@/lib/wa-app-echo-pause";
 import {
   dashboardDateLocale,
   dashboardDir,
@@ -36,6 +37,7 @@ const i18n = {
     unavailable: "לא זמין",
     messagesMeta: (count: number, date: string) => `${count} הודעות · ${date}`,
     botPaused: "בוט מושהה",
+    autoPausedApp: "הושהה אוטומטית — שיחה באפליקציה",
     emptyFilter: "אין שיחות שתואמות למסנן זה.",
     emptyAdmin: "אין שיחות מתועדות במערכת.",
     emptyMarketing: "אין עדיין שיחות בקו זואי שיווק.",
@@ -72,6 +74,7 @@ const i18n = {
     unavailable: "Unavailable",
     messagesMeta: (count: number, date: string) => `${count} messages · ${date}`,
     botPaused: "Bot Paused",
+    autoPausedApp: "Auto-paused — WhatsApp app chat",
     emptyFilter: "No conversations match this filter.",
     emptyAdmin: "No conversations recorded in the system.",
     emptyMarketing: "No conversations yet on the Zoe Marketing line.",
@@ -115,6 +118,7 @@ type SessionSummary = {
   count: number;
   isOpen: boolean;
   isPaused: boolean;
+  pausedUntil?: string | null;
   phone: string;
   fullName?: string | null;
   contactStatus?: ContactStatusKey | null;
@@ -219,6 +223,51 @@ function MarketingNoteStatusBadge({ status }: { status?: MarketingNoteStatus | n
   );
 }
 
+function useNowDate(intervalMs = 30_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+function SessionPauseBadge({
+  isPaused,
+  pausedUntil,
+  now,
+  lang,
+  botPausedLabel,
+  autoPausedLabel,
+  compact,
+}: {
+  isPaused: boolean;
+  pausedUntil?: string | null;
+  now: Date;
+  lang: DashboardLang;
+  botPausedLabel: string;
+  autoPausedLabel: string;
+  compact?: boolean;
+}) {
+  if (!isPaused) return null;
+  if (pausedUntil && new Date(pausedUntil).getTime() <= now.getTime()) return null;
+  const auto = isAppEchoAutoPause(pausedUntil, now);
+  if (auto && pausedUntil) {
+    const remaining = formatAppEchoPauseRemaining(pausedUntil, lang, now);
+    return (
+      <span
+        className={`font-medium leading-tight text-amber-700 ${compact ? "max-w-[8.75rem] text-end text-[10px]" : "text-[12px]"}`}
+      >
+        <span className="block">{autoPausedLabel}</span>
+        <span className={`block font-normal text-amber-600 ${compact ? "text-[10px]" : "text-[11px]"}`}>{remaining}</span>
+      </span>
+    );
+  }
+  return (
+    <span className={`font-medium text-amber-700 ${compact ? "text-[10px]" : "text-[12px]"}`}>{botPausedLabel}</span>
+  );
+}
+
 export default function ConversationsClient({
   slug,
   initialSessions,
@@ -252,6 +301,7 @@ export default function ConversationsClient({
   const [isDesktop, setIsDesktop] = useState(true);
   const [lastMessagePreview, setLastMessagePreview] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  const now = useNowDate();
 
   const clearPendingImage = useCallback(() => {
     setPendingImagePreviewUrl((prev) => {
@@ -526,11 +576,15 @@ export default function ConversationsClient({
       }
       setSessions((prev) =>
         prev.map((s) =>
-          s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s
+          s.session_id === sessionId
+            ? { ...s, isPaused: nextPaused, pausedUntil: null }
+            : s
         )
       );
       queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
-        (prev ?? []).map((s) => (s.session_id === sessionId ? { ...s, isPaused: nextPaused } : s))
+        (prev ?? []).map((s) =>
+          s.session_id === sessionId ? { ...s, isPaused: nextPaused, pausedUntil: null } : s
+        )
       );
     } finally {
       setPausing(null);
@@ -792,7 +846,15 @@ export default function ConversationsClient({
                       <span className="text-[12px] text-[#667781]">{formatListTime(s.lastAt)}</span>
                       <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
                       {s.isPaused ? (
-                        <span className="text-[10px] font-medium text-amber-700">{t.botPaused}</span>
+                        <SessionPauseBadge
+                          isPaused={s.isPaused}
+                          pausedUntil={s.pausedUntil}
+                          now={now}
+                          lang={lang}
+                          botPausedLabel={t.botPaused}
+                          autoPausedLabel={t.autoPausedApp}
+                          compact
+                        />
                       ) : null}
                     </div>
                   </button>
@@ -809,7 +871,7 @@ export default function ConversationsClient({
           <section dir={dashboardDir(lang)} className="flex min-w-0 flex-1 flex-col bg-[#f0f2f5]">
             {selected ? (
               <>
-                <header className="flex h-[59px] shrink-0 items-center justify-between gap-3 border-b border-[#e9edef] bg-[#f0f2f5] px-3 md:px-4">
+                <header className="flex min-h-[59px] shrink-0 items-center justify-between gap-3 border-b border-[#e9edef] bg-[#f0f2f5] px-3 py-1.5 md:px-4">
                   <div className="flex min-w-0 items-center gap-3">
                     {!isDesktop ? (
                       <button
@@ -833,6 +895,16 @@ export default function ConversationsClient({
                           t.messagesMeta(selected.count, formatDmy(selected.lastAt))
                         )}
                       </p>
+                      {selected.isPaused ? (
+                        <SessionPauseBadge
+                          isPaused={selected.isPaused}
+                          pausedUntil={selected.pausedUntil}
+                          now={now}
+                          lang={lang}
+                          botPausedLabel={t.botPaused}
+                          autoPausedLabel={t.autoPausedApp}
+                        />
+                      ) : null}
                     </div>
                   </div>
                   <button
