@@ -58,6 +58,8 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/לא\s+יש\s+לי\s+את/giu, "אין לי את")
     .replace(/לא\s+יש\s+לי\b/giu, "אין לי")
     .replace(/לא\s+יש\s+מידע/giu, "אין לי מידע")
+    .replace(/לתקשרי/gu, "ליצור קשר")
+    .replace(/להתקשרי/gu, "להתקשר")
     .replace(/נירשמ/gu, "נרשמ")
     .replace(/נרישמ/gu, "נרשמ")
     .replace(/מצליחה\s+בחיפוש/giu, "בהצלחה בחיפוש");

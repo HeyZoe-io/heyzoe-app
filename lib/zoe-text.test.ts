@@ -20,4 +20,14 @@ assert.equal(
   "אין לי את הפרטים על רמות"
 );
 
+assert.equal(
+  sanitizeZoeOutboundLanguage("אני ממליצה לתקשרי עם שירות הלקוחות שלנו בטלפון"),
+  "אני ממליצה ליצור קשר עם שירות הלקוחות שלנו בטלפון"
+);
+
+assert.equal(
+  sanitizeZoeOutboundLanguage("מוזמנים להתקשרי אלינו"),
+  "מוזמנים להתקשר אלינו"
+);
+
 console.log("zoe-text.test.ts: ok");
