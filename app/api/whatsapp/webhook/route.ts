@@ -398,7 +398,7 @@ async function classifyOptOutWithClaude(input: { apiKey: string; text: string })
   }
 }
 
-/** פלואו מכירה התחיל רק אחרי ברכת טריגר («היי») — לא משאלה פתוחה / default_opening בטעות. */
+/** פלואו מכירה התחיל רק אחרי ברכת טריגר («אשמח לפרטים» / «בואו נתחיל») — לא משאלה פתוחה / default_opening בטעות. */
 async function sessionHasSalesFlowGreeting(business_slug: string, session_id: string): Promise<boolean> {
   return fetchSessionHasSalesFlowGreeting({ business_slug, session_id });
 }
@@ -5113,7 +5113,7 @@ async function processIncoming(
   }
 
   if (contactNotRelevantAt) {
-    // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו שהוגדרה («היי» / «אשמח לפרטים» וכו׳)
+    // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו שהוגדרה («אשמח לפרטים» / «בואו נתחיל» וכו׳)
     // — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
     const wantsFlowRestart = isSalesFlowStartInbound(msg);
 
@@ -5824,7 +5824,7 @@ async function processIncoming(
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
     if (isSalesFlowStartInbound(msg)) {
-      // «היי» / «בואו נתחיל» / «אשמח לשמוע פרטים» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
+      // «אשמח לפרטים» / «בואו נתחיל» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({
         knowledge,
         salesFlowServices,

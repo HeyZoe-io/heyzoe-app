@@ -27,7 +27,7 @@ const { businessId: BUSINESS_ID, phoneNumberId: PHONE_NUMBER_ID } = await resolv
 const SESSION_ID = `wa_${PHONE_NUMBER_ID}_${PHONE}`;
 
 const STEPS = [
-  { label: "0: היי", text: "היי" },
+  { label: "0: בואו נתחיל", text: "בואו נתחיל" },
   { label: "1: W0", text: "רוגע והורדת מתח" },
   { label: "2: W1", text: "נשימה, רגיעה ושקט" },
   { label: "3: W2", text: "גב/צוואר/כתפיים" },

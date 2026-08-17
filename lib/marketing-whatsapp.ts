@@ -26,8 +26,15 @@ export const MARKETING_PHONE_WA_ME = "97233824981";
 /** טקסט מוכן מדף הנחיתה — מפעיל/מאפס את פלואו השיווק */
 export const MARKETING_FLOW_START_PREFILL = "היי זואי!";
 
-/** וריאציות ייחודיות לקו השיווק (מעבר ל־SALES_FLOW_START_TRIGGERS) */
+/** וריאציות ייחודיות לקו השיווק (מעבר ל־SALES_FLOW_START_TRIGGERS) — כולל ברכות קצרות שזואי עסק כבר לא מתחילה מהן */
 const MARKETING_EXTRA_START_TRIGGERS = new Set([
+  "היי",
+  "הי",
+  "שלום",
+  "אהלן",
+  "hello",
+  "hi",
+  "hey",
   "היי זואי",
   "הי זואי",
   "היי zoe",

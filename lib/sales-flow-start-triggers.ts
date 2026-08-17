@@ -10,45 +10,44 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
     .replace(/\s+/g, " ");
 }
 
-/** איפוס והפעלת פלואו מכירה — הודעות קצרות (הקלדה או לחיצה על כפתור טמפלייט/quick-reply). רק אלה מתחילים פלואו; הודעה ראשונה אחרת (למשל «תודה») לא. */
+/**
+ * איפוס והפעלת פלואו מכירה — בקשת פרטים / «בואו נתחיל» (הקלדה או כפתור).
+ * «היי» / «שלום» לבד לא מתחילים פלואו אצל זואי עסק.
+ */
 export const SALES_FLOW_START_TRIGGERS = new Set([
-  "שלום",
-  "היי",
-  "הי",
-  "אהלן",
-  "hello",
-  "hi",
   SALES_FLOW_START_BUTTON_LABEL_HE,
   "בוא נתחיל",
-  "נתחיל",
+  "אשמח לפרטים",
+  "אשמח לשמוע פרטים",
+  "אפשר פרטים",
+  "אשמח למידע",
+  // English button + details (normalized: apostrophes stripped → i'd → id)
   "lets start",
   "let us start",
-  "אשמח לשמוע פרטים",
-  "היי אשמח לשמוע פרטים",
-  "הי אשמח לשמוע פרטים",
-  "אשמח לפרטים",
-  "היי אשמח לפרטים",
-  "הי אשמח לפרטים",
-  // English (normalized: apostrophes stripped → i'd → id)
   "id like details",
   "i would like details",
-  "id like more info",
-  "tell me more",
-  "more info",
-  "more details",
-  "info please",
-  "details please",
-  "more info please",
-  "looking for info",
 ]);
 
+/** ברכות קצרות שאפשר להסיר מתחילת המשפט אם אחריהן נשאר טריגר («היי אשמח לפרטים»). */
+const LEADING_CASUAL_GREETING_PREFIXES = ["היי ", "הי ", "שלום ", "אהלן ", "hello ", "hi ", "hey "] as const;
+
+function stripLeadingCasualGreeting(normalized: string): string {
+  for (const prefix of LEADING_CASUAL_GREETING_PREFIXES) {
+    if (normalized.startsWith(prefix)) return normalized.slice(prefix.length).trim();
+  }
+  return normalized;
+}
+
 export function isSalesFlowStartTrigger(text: string): boolean {
-  return SALES_FLOW_START_TRIGGERS.has(normalizeSalesFlowGreetingToken(text));
+  const normalized = normalizeSalesFlowGreetingToken(text);
+  if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
+  const withoutGreeting = stripLeadingCasualGreeting(normalized);
+  return withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting);
 }
 
 /**
  * האם סמן ברכה ב־messages נחשב לפתיחת פלואו מכירה.
- * `greeting` = טריגר מפורש. `default_opening` היסטורי נספר רק אם ההודעה שלפניו הייתה טריגר («היי» וכו׳).
+ * `greeting` = טריגר מפורש. `default_opening` היסטורי נספר רק אם ההודעה שלפניו הייתה טריגר («אשמח לפרטים» וכו׳).
  */
 export function salesFlowGreetingMarkerCountsAsStarted(input: {
   modelUsed: string;

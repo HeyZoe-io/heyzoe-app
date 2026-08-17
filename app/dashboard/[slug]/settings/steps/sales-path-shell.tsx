@@ -43,6 +43,7 @@ export function SalesPathSectionBlock({
   id,
   title,
   hint,
+  hintClassName,
   open,
   onToggle,
   filled,
@@ -55,6 +56,7 @@ export function SalesPathSectionBlock({
   id: string;
   title: string;
   hint?: ReactNode;
+  hintClassName?: string;
   open: boolean;
   onToggle: () => void;
   filled?: boolean;
@@ -93,7 +95,9 @@ export function SalesPathSectionBlock({
                 </span>
               ) : null}
             </div>
-            {hint ? <p className="mt-0.5 text-xs text-zinc-500 ps-3.5">{hint}</p> : null}
+            {hint ? (
+              <p className={cn("mt-0.5 ps-3.5 text-xs text-zinc-500", hintClassName)}>{hint}</p>
+            ) : null}
           </div>
           <ChevronDown
             className={cn("h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-200", open && "rotate-180")}
