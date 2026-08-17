@@ -290,6 +290,42 @@ export async function resolveTrialAttendedTemplateTrigger(input: {
   return pickTrialAttendedTemplateTriggerRule(rules);
 }
 
+/** Enabled arbox_new_lead rules — pick newest with a template name. */
+export async function loadEnabledArboxNewLeadTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "arbox_new_lead")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load arbox_new_lead rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickArboxNewLeadTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveArboxNewLeadTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledArboxNewLeadTemplateTriggers(input.admin, input.businessId);
+  return pickArboxNewLeadTemplateTriggerRule(rules);
+}
+
 /**
  * Enabled incoming_lead rules (plus legacy site_lead / campaign_lead) —
  * pick newest with a template name. Shared by /api/leads/incoming.

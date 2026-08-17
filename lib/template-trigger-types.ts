@@ -7,6 +7,7 @@ export const ARBOX_TRIGGER_TYPES = [
   "birthday",
   "membership_expiring",
   "sessions_expiring",
+  "arbox_new_lead",
 ] as const;
 
 export const NON_ARBOX_TRIGGER_TYPES = ["incoming_lead", "no_response"] as const;

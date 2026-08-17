@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildArboxNewLeadScheduledDedupKey,
   buildPurchaseScheduledDedupKey,
   computeDueAt,
   decideScheduledSendAfterMeta,
@@ -38,6 +39,14 @@ const eventDate = new Date("2026-08-01T12:00:00.000Z");
   assert.equal(a, b);
   assert.equal(a, "purchase:1:rule-uuid:94530126");
   assert.notEqual(a, c);
+}
+
+/** arbox_new_lead dedup_key is per Arbox user_id */
+{
+  assert.equal(
+    buildArboxNewLeadScheduledDedupKey(1, "rule-uuid", 11049159),
+    "arbox_new_lead:1:rule-uuid:11049159"
+  );
 }
 
 /** enqueue idempotency semantics: unique dedup_key means second insert is a no-op */

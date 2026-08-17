@@ -5,6 +5,7 @@ import {
   type ArboxSalesReportRow,
 } from "@/lib/leads/arbox-trial-sale-registered";
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
+import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -50,6 +51,7 @@ type BusinessRow = {
   arbox_trial_membership_type_ids: number[];
   arbox_sales_sync_seeded: boolean;
   arbox_credit_refusal_seeded: boolean;
+  arbox_leads_seeded: boolean;
 };
 
 type BusinessSummary = {
@@ -66,6 +68,7 @@ type BusinessSummary = {
   cursor_advanced: boolean;
   fetch_error?: string;
   credit_refusal?: Awaited<ReturnType<typeof syncArboxCreditRefusalsForBusiness>>;
+  new_lead?: Awaited<ReturnType<typeof syncArboxNewLeadsForBusiness>>;
 };
 
 function authorizeCron(req: NextRequest): boolean {
@@ -346,7 +349,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded"
+      "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -370,6 +373,7 @@ export async function GET(req: NextRequest) {
     const salesSyncSeeded = (row as { arbox_sales_sync_seeded?: unknown }).arbox_sales_sync_seeded === true;
     const creditRefusalSeeded =
       (row as { arbox_credit_refusal_seeded?: unknown }).arbox_credit_refusal_seeded === true;
+    const leadsSeeded = (row as { arbox_leads_seeded?: unknown }).arbox_leads_seeded === true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -380,6 +384,7 @@ export async function GET(req: NextRequest) {
       arbox_trial_membership_type_ids: trialIds,
       arbox_sales_sync_seeded: salesSyncSeeded,
       arbox_credit_refusal_seeded: creditRefusalSeeded,
+      arbox_leads_seeded: leadsSeeded,
     });
   }
 
@@ -551,6 +556,38 @@ export async function GET(req: NextRequest) {
         processed: 0,
         already: 0,
         throttled: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        errors: 1,
+        fetch_error: e instanceof Error ? e.message : String(e),
+      };
+    }
+
+    // Separate step: arbox_new_lead via allLeadsReport (no Arbox call unless an enabled rule exists).
+    try {
+      summary.new_lead = await syncArboxNewLeadsForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        arboxLastSyncAt: business.arbox_last_sync_at,
+        leadsSeeded: business.arbox_leads_seeded,
+        now,
+      });
+    } catch (e) {
+      console.error("[cron/arbox-trial-sync] arbox_new_lead step threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      summary.new_lead = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        processed: 0,
+        already: 0,
         notified: 0,
         deferred: 0,
         gated: 0,

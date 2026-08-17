@@ -31,6 +31,7 @@ export type TriggerType =
   | "birthday"
   | "membership_expiring"
   | "sessions_expiring"
+  | "arbox_new_lead"
   | "incoming_lead"
   | "no_response";
 
@@ -60,10 +61,12 @@ const ARBOX_TRIGGER_TYPES = new Set<TriggerType>([
   "birthday",
   "membership_expiring",
   "sessions_expiring",
+  "arbox_new_lead",
 ]);
 
 const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "incoming_lead", label: "ליד מאתר/קמפיין" },
+  { value: "arbox_new_lead", label: "ליד חדש מארבוקס" },
   { value: "no_response", label: "חזרה אחרי שתיקה" },
   { value: "purchase", label: "רכישה" },
   { value: "credit_refusal", label: "סירוב אשראי" },
@@ -111,7 +114,7 @@ function formatDelayLabel(
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;
   }
-  if (isIncomingLeadType(type)) {
+  if (isIncomingLeadType(type) || type === "arbox_new_lead") {
     return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;
   }
   if (type === "birthday") {
@@ -371,6 +374,7 @@ export default function TemplatesClient({
   const hideNewDelayDirection =
     newTriggerType === "birthday" ||
     newTriggerType === "incoming_lead" ||
+    newTriggerType === "arbox_new_lead" ||
     newTriggerType === "no_response";
   const newDelayDaysMin = newTriggerType === "no_response" ? 2 : 0;
 

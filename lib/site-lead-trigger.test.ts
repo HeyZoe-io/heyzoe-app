@@ -36,6 +36,8 @@ import { buildSiteLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 {
   assert.equal(isArboxDependentTriggerType("purchase"), true);
   assert.equal(isArboxDependentTriggerType("birthday"), true);
+  assert.equal(isArboxDependentTriggerType("arbox_new_lead"), true);
+  assert.equal(isTriggerType("arbox_new_lead"), true);
 }
 
 function rule(

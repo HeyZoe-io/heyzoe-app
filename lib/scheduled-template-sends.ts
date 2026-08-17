@@ -101,6 +101,15 @@ export function buildTrialAttendedScheduledDedupKey(
   return `trial_attended:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}`;
 }
 
+/** Arbox new-lead enqueue key: once per business+trigger+Arbox user_id (allLeadsReport). */
+export function buildArboxNewLeadScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  leadId: number
+): string {
+  return `arbox_new_lead:${businessId}:${String(triggerId).trim()}:${leadId}`;
+}
+
 /** Site-lead enqueue key: once per business+trigger+phone+calendar day (UTC ymd). */
 export function buildSiteLeadScheduledDedupKey(
   businessId: number,

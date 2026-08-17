@@ -12,9 +12,13 @@ import {
   type TriggerType,
 } from "@/lib/template-trigger-types";
 
-/** incoming_lead (and legacy) / no_response: force after + no product_filter. */
+/** incoming_lead (and legacy) / no_response / arbox_new_lead: force after + no product_filter. */
 function forcesAfterNoProductFilter(triggerType: string): boolean {
-  return isIncomingLeadTriggerType(triggerType) || triggerType === "no_response";
+  return (
+    isIncomingLeadTriggerType(triggerType) ||
+    triggerType === "no_response" ||
+    triggerType === "arbox_new_lead"
+  );
 }
 
 export const runtime = "nodejs";
