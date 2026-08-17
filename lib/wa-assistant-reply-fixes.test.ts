@@ -47,4 +47,43 @@ assert.doesNotMatch(mixedFixed, /דף השיחות|לכבות בוט/);
 const normal = applyKnownAssistantReplyFixes("השיעורים אצלנו קטנים ואינטימיים, ויש יחס אישי.", { knowledge });
 assert.match(normal, /השיעורים אצלנו/);
 
+const pregnancyTypos =
+  "חשוב שהתרגול יתאים לבדיוק לשלב הזה שלך. זה קצת כיוון אחר מאיינגר וויניאסה שאתם מכירות. במוקד - הרצפה האגן. שתוכלי להגידה לה על ההריון וליוודע איך היא עובדת עם הרמה שלך וההשתנויות הזו. היא יוכלה לתת לך התאמות או משהו שיותר מתוקף לך כרגע. תוכלי להתקשר ולתאם קצר, או לשאול על יוגה בהריון בחוקי שלנו.";
+const pregnancyFixed = applyKnownAssistantReplyFixes(pregnancyTypos, { knowledge });
+assert.match(pregnancyFixed, /יתאים בדיוק לשלב/);
+assert.doesNotMatch(pregnancyFixed, /לבדיוק/);
+assert.match(pregnancyFixed, /שאתם מכירים/);
+assert.doesNotMatch(pregnancyFixed, /מכירות/);
+assert.match(pregnancyFixed, /רצפת האגן/);
+assert.match(pregnancyFixed, /להגיד לה/);
+assert.match(pregnancyFixed, /ולוודא איך/);
+assert.match(pregnancyFixed, /השינויים האלה/);
+assert.match(pregnancyFixed, /היא יכולה לתת/);
+assert.match(pregnancyFixed, /יותר מתאים לך/);
+assert.match(pregnancyFixed, /ולתאם בקצרה/);
+assert.match(pregnancyFixed, /בחוג שלנו/);
+
+const illness = applyKnownAssistantReplyFixes(
+  "אני מבינה שזה מתסכל, בטח קשה לעמוד בצד. אבל החלמה טובה היא ההשקעה הטובה ביותר שלך כרגע",
+  { knowledge }
+);
+assert.equal(illness, "מצטערת לשמוע, מאחלת החלמה מהירה!");
+
+const freeze = applyKnownAssistantReplyFixes(
+  "לגבי החיובים - הטוב שיש לנו מדיניות גמישה. ניתן להקפיא את המנוי שלך עד 14 ימים על כל חצי שנה.",
+  { knowledge }
+);
+assert.equal(freeze, "ניתן להקפיא את המנוי שלך עד 14 ימים על כל חצי שנה.");
+
+const mixedIllness = applyKnownAssistantReplyFixes(
+  "אני מבינה שזה מתסכל, בטח קשה לעמוד בצד. ניתן להקפיא את המנוי עד 14 ימים.",
+  { knowledge }
+);
+assert.match(mixedIllness, /מצטערת לשמוע, מאחלת החלמה מהירה!/);
+assert.match(mixedIllness, /ניתן להקפיא את המנוי עד 14 ימים/);
+assert.doesNotMatch(mixedIllness, /מתסכל|לעמוד בצד/);
+
+const keepInvestment = applyKnownAssistantReplyFixes("זו ההשקעה הטובה ביותר בסטודיו.", { knowledge });
+assert.equal(keepInvestment, "זו ההשקעה הטובה ביותר בסטודיו.");
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

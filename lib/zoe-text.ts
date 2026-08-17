@@ -49,6 +49,11 @@ function fixBodiesPhrasing(text: string): string {
   return s;
 }
 
+/** גבול מילה עברי — `\b` לא עובד על אותיות עבריות ב-JS. */
+function hebWord(word: string): RegExp {
+  return new RegExp(`(?<![\\u0590-\\u05FF])${word}(?![\\u0590-\\u05FF])`, "gu");
+}
+
 /** תיקוני עברית גלובליים — regex בלבד, ללא API (מיקרו-שניות). */
 function applyGlobalHebrewLanguageFixes(text: string): string {
   return String(text ?? "")
@@ -62,7 +67,20 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/להתקשרי/gu, "להתקשר")
     .replace(/נירשמ/gu, "נרשמ")
     .replace(/נרישמ/gu, "נרשמ")
-    .replace(/מצליחה\s+בחיפוש/giu, "בהצלחה בחיפוש");
+    .replace(/מצליחה\s+בחיפוש/giu, "בהצלחה בחיפוש")
+    .replace(hebWord("לבדיוק"), "בדיוק")
+    .replace(/להגידה\s+לה/gu, "להגיד לה")
+    .replace(hebWord("להגידה"), "להגיד")
+    .replace(/וליי?וודע/gu, "ולוודא")
+    .replace(/ליי?וודע/gu, "לוודא")
+    .replace(hebWord("יוכלה"), "יכולה")
+    .replace(/יותר\s+מתוקף\s+לך/gu, "יותר מתאים לך")
+    .replace(hebWord("מתוקף\\s+לך"), "מתאים לך")
+    .replace(/בחוקי\s+שלנו/gu, "בחוג שלנו")
+    .replace(/הרצפה\s+האגן/gu, "רצפת האגן")
+    .replace(/ההשתנויות\s+הזו/gu, "השינויים האלה")
+    .replace(/ולתאם\s+קצר/gu, "ולתאם בקצרה")
+    .replace(/לתאם\s+קצר/gu, "לתאם בקצרה");
 }
 
 /**
