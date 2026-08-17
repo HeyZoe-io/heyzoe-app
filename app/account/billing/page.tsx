@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PLAN_PRICE_PRO_ILS, PLAN_PRICE_STARTER_ILS } from "@/lib/plan-prices";
 import { promoVatAndMonthLine } from "@/lib/promo-month";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import {
@@ -433,7 +434,7 @@ export default function AccountBillingPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <PlanCard
           title="Starter"
-          price="₪349 / חודש"
+          price={`₪${PLAN_PRICE_STARTER_ILS} / חודש`}
           priceCompare="₪500"
           priceNote={promoPriceNote}
           bullets={[
@@ -452,7 +453,7 @@ export default function AccountBillingPage() {
         />
         <PlanCard
           title="Pro"
-          price="₪499 / חודש"
+          price={`₪${PLAN_PRICE_PRO_ILS} / חודש`}
           priceCompare="₪650"
           priceNote={promoPriceNote}
           bullets={[

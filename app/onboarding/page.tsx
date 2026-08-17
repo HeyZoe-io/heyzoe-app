@@ -3,6 +3,7 @@
 import { type CSSProperties, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { planPriceIls } from "@/lib/plan-prices";
 
 type Plan = "starter" | "pro";
 type Step = 1 | 2 | 3;
@@ -563,7 +564,7 @@ function OnboardingContent() {
 
       // Track checkout_start and set plan value so /onboarding/success can emit "purchase".
       try {
-        const value = selectedPlan === "pro" ? 499 : 349;
+        const value = planPriceIls(selectedPlan);
         sessionStorage.setItem("hz_lp_plan", selectedPlan);
         sessionStorage.setItem("hz_lp_plan_value", String(value));
         if (!sessionStorage.getItem("hz_lp_source")) sessionStorage.setItem("hz_lp_source", "onboarding");

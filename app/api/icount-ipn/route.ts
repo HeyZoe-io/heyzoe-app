@@ -14,6 +14,7 @@ import {
   marketingWaSessionId,
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
+import { planPriceIls } from "@/lib/plan-prices";
 
 export const runtime = "nodejs";
 
@@ -498,7 +499,7 @@ export async function POST(req: NextRequest) {
         const paidPlan = (String(custom || sessionRow?.plan || "").trim().toLowerCase() === "pro")
           ? "premium"
           : "basic";
-        const paidPlanPrice = paidPlan === "premium" ? 499 : 349;
+        const paidPlanPrice = planPriceIls(paidPlan);
         // Reactivation flow: mark existing business as active + update plan tier.
         const { data: biz } = await admin
           .from("businesses")
@@ -639,7 +640,7 @@ export async function POST(req: NextRequest) {
           const slug = await ensureUniqueSlug(admin, baseSlug);
           const plan =
             (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
-          const plan_price = plan === "premium" ? 499 : 349;
+          const plan_price = planPriceIls(plan);
 
           console.info("[api/icount-ipn] existing_user_creating_business:", { email, slug, plan });
 
@@ -749,7 +750,7 @@ export async function POST(req: NextRequest) {
 
     const plan =
       (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
-    const plan_price = plan === "premium" ? 499 : 349;
+    const plan_price = planPriceIls(plan);
 
     console.info("[api/icount-ipn] creating_business:", { email, slug, plan });
 

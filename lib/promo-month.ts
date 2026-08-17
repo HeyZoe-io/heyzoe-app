@@ -35,7 +35,7 @@ export function promoMonthExclaim(date: Date = new Date()): string {
   return `מבצע חודש ${hebrewMonthName(date)}!`;
 }
 
-/** שורה לתצוגה ליד מחירים: כולל מע״מ + שם מבצע החודש */
+/** שורה לתצוגה ליד מחירים: פלוס מע״מ + שם מבצע החודש */
 export function promoVatAndMonthLine(date: Date = new Date()): string {
-  return `כולל מע״מ · מבצע חודש ${hebrewMonthName(date)}!`;
+  return `פלוס מע״מ · מבצע חודש ${hebrewMonthName(date)}!`;
 }

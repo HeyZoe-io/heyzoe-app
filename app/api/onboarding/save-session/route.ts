@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { encryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
+import { planPriceIls } from "@/lib/plan-prices";
 
 export const runtime = "nodejs";
 
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
         phone: String(phone ?? "").trim(),
         fbp: cleanUtm(fbp),
         fbc: cleanUtm(fbc),
-        value: resolvedPlan === "pro" ? 499 : 349,
+        value: planPriceIls(resolvedPlan),
         currency: "ILS",
       });
     } catch (e) {
