@@ -13,6 +13,7 @@ import {
   resolveWaSalesFollowupTemplates,
   resolveWaSalesFollowupEnabled,
   resolveWaFollowupSendPlan,
+  isWaSalesFollowupStageEnabled,
   stripPhonePlaceholderClauseWhenEmpty,
   WA_FOLLOWUP_MS_20_MIN,
   WA_FOLLOWUP_MS_2_H,
@@ -588,7 +589,7 @@ export async function GET(req: NextRequest) {
       const enabled = resolveWaSalesFollowupEnabled(socialLinks);
       const plan = resolveWaFollowupSendPlan({ stageCurrent, elapsedMs, enabled });
 
-      if (plan.sendStage < 1) {
+      if (plan.sendStage === 0) {
         if (plan.advanceToStage > stageCurrent) {
           await admin.from("contacts").update({ wa_followup_stage: plan.advanceToStage }).eq("id", contactId);
           if (plan.advanceToStage === 3) {
@@ -627,6 +628,18 @@ export async function GET(req: NextRequest) {
       }
 
       const nextStage = plan.sendStage;
+      if (!isWaSalesFollowupStageEnabled(enabled, nextStage)) {
+        console.error("[cron/wa-followups] refused send of disabled stage", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          next_stage: nextStage,
+          enabled,
+        });
+        bumpSkip("stage_disabled");
+        continue;
+      }
+
       const businessName = String((bizRow as { name?: string } | null)?.name ?? "").trim() || business_slug;
       const botName = String((bizRow as { bot_name?: string } | null)?.bot_name ?? "").trim() || "זואי";
       // מספר שירות הלקוחות של העסק (טאב «על העסק») — לא מספר הוואטסאפ של זואי (phone_display)
