@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   canonicalizeTriggerType,
   isArboxDependentTriggerType,
+  isCreatableTriggerType,
   isIncomingLeadTriggerType,
   isTriggerType,
   NON_ARBOX_TRIGGER_TYPES,
@@ -38,6 +39,15 @@ import { buildSiteLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
   assert.equal(isArboxDependentTriggerType("birthday"), true);
   assert.equal(isArboxDependentTriggerType("arbox_new_lead"), true);
   assert.equal(isTriggerType("arbox_new_lead"), true);
+}
+
+/** Non-Arbox businesses: arbox_new_lead (and other Arbox types) are not creatable. */
+{
+  assert.equal(isCreatableTriggerType("arbox_new_lead", false), false);
+  assert.equal(isCreatableTriggerType("purchase", false), false);
+  assert.equal(isCreatableTriggerType("incoming_lead", false), true);
+  assert.equal(isCreatableTriggerType("no_response", false), true);
+  assert.equal(isCreatableTriggerType("arbox_new_lead", true), true);
 }
 
 function rule(

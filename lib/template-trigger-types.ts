@@ -41,6 +41,13 @@ export function isArboxDependentTriggerType(value: TriggerType): boolean {
   return (ARBOX_TRIGGER_TYPES as readonly string[]).includes(value);
 }
 
+/** Dropdown/create: Arbox-native types (incl. arbox_new_lead) only when CRM=arbox. */
+export function isCreatableTriggerType(value: string, hasArbox: boolean): boolean {
+  if (!isTriggerType(value)) return false;
+  if (!hasArbox && isArboxDependentTriggerType(value)) return false;
+  return true;
+}
+
 /** True for canonical incoming_lead and legacy site_lead / campaign_lead. */
 export function isIncomingLeadTriggerType(value: string): boolean {
   return (INCOMING_LEAD_TRIGGER_TYPES_RESOLVE as readonly string[]).includes(value);

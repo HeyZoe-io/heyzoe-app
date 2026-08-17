@@ -9,6 +9,7 @@ import {
   DASHBOARD_SETTINGS_SHELL,
 } from "@/app/dashboard/[slug]/settings/settings-ui";
 import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
+import { isArboxDependentTriggerType, isCreatableTriggerType } from "@/lib/template-trigger-types";
 
 export type TemplateRow = {
   id?: string;
@@ -54,16 +55,6 @@ type ArboxMembershipTypeRow = {
   membership_type_name: string;
 };
 
-const ARBOX_TRIGGER_TYPES = new Set<TriggerType>([
-  "purchase",
-  "credit_refusal",
-  "trial_attended",
-  "birthday",
-  "membership_expiring",
-  "sessions_expiring",
-  "arbox_new_lead",
-]);
-
 const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "incoming_lead", label: "ליד מאתר/קמפיין" },
   { value: "arbox_new_lead", label: "ליד חדש מארבוקס" },
@@ -77,7 +68,7 @@ const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
 ];
 
 function isArboxTriggerType(type: TriggerType): boolean {
-  return ARBOX_TRIGGER_TYPES.has(type);
+  return isArboxDependentTriggerType(type);
 }
 
 function isIncomingLeadType(type: string): boolean {
@@ -346,7 +337,7 @@ export default function TemplatesClient({
   const creatableTriggerOptions = useMemo(() => {
     const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
     return TRIGGER_TYPE_OPTIONS.filter((opt) => {
-      if (!hasArbox && isArboxTriggerType(opt.value)) return false;
+      if (!isCreatableTriggerType(opt.value, hasArbox)) return false;
       if (opt.value === "incoming_lead" && hasIncomingLead) return false;
       return true;
     });
