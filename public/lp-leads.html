@@ -2968,9 +2968,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="pricing-name">Starter</div>
         <div class="pricing-trial" id="promoStarter">מחיר לכל החיים</div>
         <div class="pricing-price-row">
-          <div class="pricing-price">₪349</div>
+          <div class="pricing-price">₪299</div>
           <div class="pricing-old">₪500</div>
-          <span class="pricing-vat">כולל מע״מ</span>
+          <span class="pricing-vat">פלוס מע״מ</span>
         </div>
         <div class="pricing-period">לחודש</div>
         <ul class="pricing-features">
@@ -2989,9 +2989,9 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         <div class="pricing-name">Pro</div>
         <div class="pricing-trial" id="promoPro">מחיר לכל החיים</div>
         <div class="pricing-price-row">
-          <div class="pricing-price" style="color:var(--pink);">₪499</div>
+          <div class="pricing-price" style="color:var(--pink);">₪429</div>
           <div class="pricing-old">₪650</div>
-          <span class="pricing-vat">כולל מע״מ</span>
+          <span class="pricing-vat">פלוס מע״מ</span>
         </div>
         <div class="pricing-period">לחודש</div>
         <ul class="pricing-features">
@@ -3511,7 +3511,7 @@ try{
         // infer plan + value from text
         var href=String(btn.getAttribute('onclick')||'');
         var plan=/plan=pro/.test(href)?'pro':/plan=starter/.test(href)?'starter':null;
-        var value = plan==='pro'?499:plan==='starter'?349:null;
+        var value = plan==='pro'?429:plan==='starter'?299:null;
         if(plan) sessionStorage.setItem('hz_lp_plan', plan);
         if(value) sessionStorage.setItem('hz_lp_plan_value', String(value));
         var src=hzUtmSource(); if(src) sessionStorage.setItem('hz_lp_source', src);
@@ -4113,21 +4113,21 @@ const zoeBrain = [
   {keys:['מי את','מה את','איך את','מה זואי','מה זה','ספר','ספרי'],
    ans:'אני זואי - בוטית המכירות של HeyZoe 😊 יודעת שאני רק בוט, אבל אני גאה בזה. אני חרוצה, תמיד זמינה, ואף פעם לא עונה "עוד רגע". כל המהות שלי היא לסגור עסקאות בשביל הסטודיו שלכם. מה תרצה לדעת?'},
   {keys:['מחיר','עולה','עלות','כמה','תשלום','חבילה'],
-   ans:'במבצע חודש '+promoMonth+': Starter 349 שח לחודש (במקום 500), Pro 499 (במקום 650) - כולל מע״מ. וספוילר - אני שווה את זה 😎'},
+   ans:'במבצע חודש '+promoMonth+': Starter 299 שח לחודש (במקום 500), Pro 429 (במקום 650) - פלוס מע״מ. וספוילר - אני שווה את זה 😎'},
   {keys:['הקמ','מורכב','קשה','טכנולוגי','מסובך','זמן','דקות'],
    ans:'15 דקות. ממש. מזינים לינק לאתר, אני סורקת הכל לבד, אתם בודקים - וסיימנו. אין IT, אין מפתחים, אין דרמות. הדרמות תשמרו לשיעור הזומבה 💃'},
   {keys:['ספקנ','לא בטוח','אולי','חושש','פחד','סיכון','כדאי','אולי כדא'],
-   ans:'מובן לגמרי. אבל תחשוב על זה - מבצע חודש '+promoMonth+', מחירים כוללים מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
+   ans:'מובן לגמרי. אבל תחשוב על זה - מבצע חודש '+promoMonth+', מחירים פלוס מע״מ, ואפשר לבטל בכל עת. גרוע שיקרה? שתגלה שאני חוסכת לך 3-5 שעות ביום. בואו ננסה 🤝'},
   {keys:['שיחות','מגבל','לידים','100','500'],
    ans:'Starter עד 100 לידים בחודש, Pro עד 500. זה הרבה לידים שמטופלים בלי שתזיז אצבע 😄'},
   {keys:['ארבוקס','בוסטאפ','מערכת','תוכנה','כלי'],
    ans:'אני עובדת עם כל מערכת - ארבוקס, בוסטאפ, כל דבר. כל עוד יש לינק לסליקה ומערכת שעות, אני מחוברת 🔗'},
   {keys:['מאי','מבצע','חודש','מחיר'],
-   ans:'יש מבצע חודש '+promoMonth+': Starter ב־349 שח לחודש (במקום 500), Pro ב־499 (במקום 650) - הכול כולל מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
+   ans:'יש מבצע חודש '+promoMonth+': Starter ב־299 שח לחודש (במקום 500), Pro ב־429 (במקום 650) - פלוס מע״מ. נרשמים ומתחילים, ואני כאן לכל שאלה 🤍'},
   {keys:['ביטול','לבטל','חוזה','קשור','כלוא'],
    ans:'ניתן לבטל בכל עת, אין חוזים ואין קנסות. אנחנו מאמינים שאם אתם נשארים, זה כי אני שווה את זה 😄'},
   {keys:['עייפ','נמאס','לחוץ','שחיקה','לא יכול'],
-   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע חודש '+promoMonth+' המחירים כוללים מע״מ - בוא נסגור את זה 💪'},
+   ans:'זה בדיוק למה אני כאן! תן לי לטפל בלידים שלך ואתה תתמקד באימונים. במבצע חודש '+promoMonth+' המחירים פלוס מע״מ - בוא נסגור את זה 💪'},
 ];
 
 let botCount = 0;
