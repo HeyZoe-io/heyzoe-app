@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { parseOwnerDashboardPath, preferredDashboardHref } from "@/lib/dashboard-owner-path";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,16 +60,33 @@ export default function DashboardLoginPage() {
     if (msg && !message) setMessage(msg);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function fetchLiteSlug(slugFilter?: string): Promise<string> {
+    const url = slugFilter
+      ? `/api/dashboard/settings?lite=1&slug=${encodeURIComponent(slugFilter)}`
+      : "/api/dashboard/settings?lite=1";
+    const res = await fetch(url, { method: "GET" });
+    const j = (await res.json().catch(() => ({}))) as { business?: { slug?: unknown } };
+    return j?.business && typeof j.business.slug === "string" ? String(j.business.slug).trim() : "";
+  }
+
   async function redirectAfterLogin() {
+    const parsedNext = nextPath ? parseOwnerDashboardPath(nextPath) : null;
+    if (parsedNext) {
+      const allowedSlug = await fetchLiteSlug(parsedNext.slug);
+      if (allowedSlug && allowedSlug.toLowerCase() === parsedNext.slug) {
+        window.location.href = nextPath;
+        return;
+      }
+      const ownSlug = await fetchLiteSlug();
+      window.location.href = ownSlug ? preferredDashboardHref(ownSlug, parsedNext.rest) : "/register";
+      return;
+    }
     if (nextPath) {
       window.location.href = nextPath;
       return;
     }
     // Use lite payload to avoid fetching large settings blobs during login redirects.
-    const res = await fetch("/api/dashboard/settings?lite=1", { method: "GET" });
-    const j = await res.json().catch(() => ({}));
-    const slug =
-      j?.business && typeof j.business.slug === "string" ? String(j.business.slug).trim() : "";
+    const slug = await fetchLiteSlug();
     window.location.href = slug ? `/${encodeURIComponent(slug)}/analytics` : "/register";
   }
 

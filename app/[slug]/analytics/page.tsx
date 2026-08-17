@@ -1,7 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 import AnalyticsClient from "./AnalyticsClient";
 
 export const maxDuration = 60;
@@ -26,13 +26,15 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
   if (!user.user) redirect("/dashboard/login");
 
   const admin = createSupabaseAdminClient();
-  const access = await assertBusinessAccess(admin, { id: user.user.id, email: user.user.email }, slug);
-  if (!access.ok) {
-    if (access.status === 404) notFound();
-    redirect(`/${slug}/conversations`);
-  }
+  const rangeQs = range === "month" ? "" : `?range=${range}`;
+  const access = await requireDashboardSlugAccess(
+    admin,
+    { id: user.user.id, email: user.user.email },
+    slug,
+    `/analytics${rangeQs}`
+  );
 
-  const planIsPremium = String(access.business.plan ?? "").trim().toLowerCase() === "premium";
+  const planIsPremium = String(access.plan ?? "").trim().toLowerCase() === "premium";
 
   return <AnalyticsClient slug={slug} planIsPremium={planIsPremium} initialRange={range} />;
 }

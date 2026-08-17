@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 
 import SettingsPresenceClient from "./client";
 
@@ -35,6 +37,16 @@ export default async function SettingsPage({ params, searchParams }: Props) {
     const returnTo = `/${encodeURIComponent(slug)}/settings${queryFromSearchParams(sp)}`;
     redirect(`/dashboard/login?next=${encodeURIComponent(returnTo)}`);
   }
+
+  const sp = await searchParams;
+  const admin = createSupabaseAdminClient();
+  await requireDashboardSlugAccess(
+    admin,
+    { id: user.user.id, email: user.user.email },
+    slug,
+    `/settings${queryFromSearchParams(sp)}`
+  );
+
   return <SettingsPresenceClient slug={slug} />;
 }
 

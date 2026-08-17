@@ -140,3 +140,13 @@ export function pickFirstBusiness(accessible: DashboardBizRow[]): DashboardBizRo
       new Date(String(a.created_at ?? 0)).getTime() - new Date(String(b.created_at ?? 0)).getTime()
   )[0];
 }
+
+/** עסק מועדף ללוגין/הפניה: בבעלות פעיל, אחר כך בבעלות, אחר כך כל נגיש */
+export function pickPreferredBusiness(
+  accessible: DashboardBizRow[],
+  userId: string
+): DashboardBizRow | null {
+  const owned = accessible.filter((b) => String(b.user_id ?? "") === String(userId));
+  const ownedActive = owned.filter((b) => Boolean((b as { is_active?: unknown }).is_active));
+  return pickFirstBusiness(ownedActive.length ? ownedActive : owned.length ? owned : accessible);
+}

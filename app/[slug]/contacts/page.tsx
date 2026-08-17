@@ -1,7 +1,8 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 import { loadLeadsForBusiness } from "@/lib/leads-data";
 import ContactsClient from "./client";
 
@@ -17,13 +18,12 @@ export default async function ContactsPage({ params }: Props) {
   if (!user.user) redirect("/dashboard/login");
 
   const admin = createSupabaseAdminClient();
-  const { data: biz } = await admin
-    .from("businesses")
-    .select("id, slug, user_id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (!biz) notFound();
+  const biz = await requireDashboardSlugAccess(
+    admin,
+    { id: user.user.id, email: user.user.email },
+    slug,
+    "/contacts"
+  );
 
   const isOwner = String(biz.user_id) === user.user.id;
   const isAdminViewer = isAdminAllowedEmail(user.user.email ?? "");

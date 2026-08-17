@@ -1,13 +1,8 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import {
-  loadAccessibleBusinesses,
-  normDashboardSlug,
-  pickBusinessBySlug,
-  type DashboardBizRow,
-} from "@/lib/dashboard-business-access";
-import { isAdminAllowedEmail } from "@/lib/server-env";
+import { normDashboardSlug } from "@/lib/dashboard-business-access";
+import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 import { loadBusinessConversationSessions } from "@/lib/conversations-sessions";
 import ConversationsClient from "./client";
 
@@ -29,14 +24,17 @@ export default async function ConversationsPage({ params }: Props) {
   const { data: user } = await supabase.auth.getUser();
   if (!user.user) redirect("/dashboard/login");
 
+  const admin = createSupabaseAdminClient();
+  await requireDashboardSlugAccess(
+    admin,
+    { id: user.user.id, email: user.user.email },
+    slug,
+    "/conversations"
+  );
+
   // Server-side initial load for fast first paint and resilience.
   let initialSessions: SessionSummary[] = [];
   try {
-    const admin = createSupabaseAdminClient();
-    const accessible = await loadAccessibleBusinesses(admin, user.user.id, { adminAll: isAdminAllowedEmail(user.user.email ?? "") });
-    const business = pickBusinessBySlug(accessible, normDashboardSlug(slug)) as DashboardBizRow | null;
-    if (!business) notFound();
-
     initialSessions = await loadBusinessConversationSessions(admin, normDashboardSlug(slug));
   } catch {
     // If server-side preload fails, client-side query will still attempt to load.
@@ -45,4 +43,3 @@ export default async function ConversationsPage({ params }: Props) {
 
   return <ConversationsClient slug={slug} initialSessions={initialSessions} />;
 }
-

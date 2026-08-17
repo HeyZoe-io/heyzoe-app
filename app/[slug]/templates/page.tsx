@@ -1,7 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import TemplatesClient, { type TemplateRow, type TriggerRow } from "./TemplatesClient";
@@ -16,17 +16,14 @@ export default async function TemplatesPage({ params }: Props) {
   if (!user.user) redirect("/dashboard/login");
 
   const admin = createSupabaseAdminClient();
-  const access = await assertBusinessAccess(
+  const access = await requireDashboardSlugAccess(
     admin,
     { id: user.user.id, email: user.user.email },
-    slug
+    slug,
+    "/templates"
   );
-  if (!access.ok) {
-    if (access.status === 404) notFound();
-    redirect(`/${slug}/conversations`);
-  }
 
-  const businessId = access.business.id;
+  const businessId = access.id;
 
   const [{ data: templates, error: tplErr }, { data: biz, error: bizErr }, { data: triggers, error: trigErr }] =
     await Promise.all([
@@ -83,7 +80,7 @@ export default async function TemplatesPage({ params }: Props) {
 
   return (
     <TemplatesClient
-      slug={access.business.slug || slug}
+      slug={access.slug || slug}
       initialTemplates={(templates ?? []) as TemplateRow[]}
       initialLeadTemplateName={leadTemplateName || null}
       initialTriggers={initialTriggers}

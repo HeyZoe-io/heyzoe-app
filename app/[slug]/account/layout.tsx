@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveAccountBusinessForUserBySlug } from "@/lib/account/resolve-business";
+import { redirectToPreferredDashboardSlug } from "@/lib/dashboard-slug-guard";
 import SlugDashboardNav from "@/app/[slug]/Nav";
 import AccountSidebar from "./AccountSidebar";
 
@@ -22,7 +24,10 @@ export default async function SlugAccountLayout({ children, params }: Props) {
   const ctx = await resolveAccountBusinessForUserBySlug(data.user.id, slug, {
     userEmail: data.user.email,
   });
-  if (!ctx || ctx.slug.toLowerCase() !== slug) redirect("/dashboard/login");
+  if (!ctx || ctx.slug.toLowerCase() !== slug) {
+    const admin = createSupabaseAdminClient();
+    await redirectToPreferredDashboardSlug(admin, { id: data.user.id, email: data.user.email }, "/analytics");
+  }
 
   return (
     <main className="min-h-screen bg-[#f5f3ff] px-4 py-6" dir="rtl">

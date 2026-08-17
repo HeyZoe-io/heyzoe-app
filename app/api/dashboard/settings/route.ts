@@ -7,7 +7,7 @@ import {
   loadAccessibleBusinesses,
   normDashboardSlug,
   pickBusinessBySlug,
-  pickFirstBusiness,
+  pickPreferredBusiness,
   type DashboardBizRow,
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
@@ -61,14 +61,7 @@ export async function GET(req: NextRequest) {
   const accessible = await loadAccessibleBusinesses(admin, user.id, { adminAll: isAdminAllowedEmail(user.email ?? "") });
   const business = slugFilter
     ? pickBusinessBySlug(accessible, slugFilter)
-    : (() => {
-        // Prefer owned businesses when no slug is provided.
-        // This prevents flapping between "member" businesses and the user's own business,
-        // which can cause subscription UI to flicker.
-        const owned = accessible.filter((b) => String(b.user_id ?? "") === String(user.id));
-        const ownedActive = owned.filter((b) => Boolean((b as any)?.is_active));
-        return pickFirstBusiness(ownedActive.length ? ownedActive : owned.length ? owned : accessible);
-      })();
+    : pickPreferredBusiness(accessible, user.id);
 
   if (!business) return NextResponse.json({ business: null, services: [], faqs: [] });
 
