@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 
 import SettingsPresenceClient from "./client";
@@ -47,6 +48,11 @@ export default async function SettingsPage({ params, searchParams }: Props) {
     `/settings${queryFromSearchParams(sp)}`
   );
 
-  return <SettingsPresenceClient slug={slug} />;
+  return (
+    <SettingsPresenceClient
+      slug={slug}
+      isAdmin={isAdminAllowedEmail(user.user.email ?? "")}
+    />
+  );
 }
 

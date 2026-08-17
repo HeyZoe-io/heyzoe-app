@@ -61,7 +61,7 @@ import {
   StepPanel,
 } from "./settings-ui";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
-import { dashboardSettingsT, formatConcurrentEditorNames } from "@/lib/dashboard-settings-i18n";
+import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import {
   useRegisterSettingsUnsaved,
   useSettingsUnsaved,
@@ -1167,11 +1167,9 @@ function InstagramGlyph({ className }: { className?: string }) {
 export default function SlugSettingsPage({
   settingsPresenceLocked = false,
   settingsPresenceEditorName = "",
-  settingsPresenceConcurrentNames = [],
 }: {
   settingsPresenceLocked?: boolean;
   settingsPresenceEditorName?: string;
-  settingsPresenceConcurrentNames?: string[];
 } = {}) {
   const { slug } = useParams() as { slug: string };
   const router = useRouter();
@@ -2820,7 +2818,6 @@ export default function SlugSettingsPage({
 
   const isFirst = step === 1;
   const isLast  = step === STEPS.length;
-  const concurrentEditorsLabel = formatConcurrentEditorNames(settingsPresenceConcurrentNames, t);
 
   function nextStep() {
     setStep((s) => Math.min(STEPS.length, s + 1));
@@ -2844,13 +2841,6 @@ export default function SlugSettingsPage({
                 {t.presenceEditor(settingsPresenceEditorName)}
               </span>
             ) : null}
-          </div>
-        ) : settingsPresenceConcurrentNames.length > 0 ? (
-          <div
-            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right text-sm font-medium text-amber-800"
-            role="status"
-          >
-            {t.presenceConcurrent(concurrentEditorsLabel)}
           </div>
         ) : null}
 

@@ -50,6 +50,9 @@ export const dashboardSettingsI18n = {
     presenceEditor: (name: string) => `עורך כרגע: ${name}`,
     presenceConcurrent: (names: string) =>
       `${names} עורכ/ים גם כרגע את ההגדרות. שימו לב — שינויים עלולים להידרס.`,
+    presencePopup: (name: string) =>
+      `לידיעתך, הדשבורד נמצא בעריכה על ידי המשתמש (${name}). כדאי להתעדכן כדי לא להתנגש אחד בשני :)`,
+    presencePopupOk: "הבנתי",
     concurrentNamesAnd: (a: string, b: string) => `${a} ו${b}`,
     concurrentNamesList: (list: string, last: string) => `${list} ו${last}`,
     links: {
@@ -515,6 +518,9 @@ export const dashboardSettingsI18n = {
     presenceEditor: (name: string) => `Currently editing: ${name}`,
     presenceConcurrent: (names: string) =>
       `${names} are also editing settings. Note — changes may be overwritten.`,
+    presencePopup: (name: string) =>
+      `Heads up: the dashboard is being edited by ${name}. Refresh so you don't overwrite each other :)`,
+    presencePopupOk: "Got it",
     concurrentNamesAnd: (a: string, b: string) => `${a} and ${b}`,
     concurrentNamesList: (list: string, last: string) => `${list}, and ${last}`,
     links: {
