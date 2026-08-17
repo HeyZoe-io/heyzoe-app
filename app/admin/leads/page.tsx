@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { loadMarketingAdminLeads } from "@/lib/leads-data";
 import { AdminNav } from "@/app/admin/AdminNav";
-import ContactsClient from "@/app/[slug]/contacts/client";
+import AdminLeadsPipelineClient from "@/app/admin/leads/AdminLeadsPipelineClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export default async function AdminLeadsPage() {
         padding: "28px 18px 48px",
       }}
     >
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1600, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -42,13 +42,13 @@ export default async function AdminLeadsPage() {
           <div style={{ textAlign: "right" }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 400, color: "#1a0a3c" }}>לידים</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>
-              לידים מקו זואי אדמין (שיווק) — פילטרים, סטטוסים וייצוא
+              פייפליין לידים מקו זואי אדמין — לפי סטטוס, כולל פולואפ אנושי
             </p>
           </div>
           <AdminNav active="leads" />
         </header>
 
-        <ContactsClient initialContacts={rows} marketingAdminMode />
+        <AdminLeadsPipelineClient initialContacts={rows} />
       </div>
     </main>
   );

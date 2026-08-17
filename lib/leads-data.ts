@@ -50,6 +50,18 @@ function mapWaStage(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function toDateOnly(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 const LEAD_CONTACT_SELECT_BASE =
   "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at";
 
@@ -65,6 +77,8 @@ function mapContactRow(row: Record<string, unknown>, extras?: Partial<LeadRow>):
     not_relevant_at: row.not_relevant_at as string | null,
     not_relevant_reason: row.not_relevant_reason as string | null,
     human_requested_at: (row.human_requested_at as string | null) ?? null,
+    human_followup_at: (row.human_followup_at as string | null) ?? null,
+    next_call_at: (row.next_call_at as string | null) ?? null,
     session_phase: row.session_phase as string | null,
     trial_registered: row.trial_registered as boolean | null,
     wa_no_response_at: row.wa_no_response_at as string | null,
@@ -184,28 +198,50 @@ async function loadMarketingRegisteredPhoneKeys(
 export async function loadMarketingAdminLeads(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<LeadRow[]> {
-  const [{ data: sessions, error }, registeredKeys] = await Promise.all([
-    admin
-      .from("marketing_flow_sessions")
-      .select(
-        `
+  const marketingSelectWithPipeline = `
+        phone, full_name, created_at, updated_at, last_user_message_at,
+        flow_completed, current_node_id,
+        followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at,
+        human_followup_at, next_call_at
+      `;
+  const marketingSelectLegacy = `
         phone, full_name, created_at, updated_at, last_user_message_at,
         flow_completed, current_node_id,
         followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at
-      `
-      )
+      `;
+
+  const [{ data: sessions, error }, registeredKeys] = await Promise.all([
+    admin
+      .from("marketing_flow_sessions")
+      .select(marketingSelectWithPipeline)
       .order("last_user_message_at", { ascending: false, nullsFirst: false })
       .order("updated_at", { ascending: false })
       .limit(ADMIN_LEADS_LIMIT),
     loadMarketingRegisteredPhoneKeys(admin),
   ]);
 
+  let sessionRows: Record<string, unknown>[] | null = (sessions ?? null) as Record<string, unknown>[] | null;
   if (error) {
-    console.warn("[leads-data] marketing_flow_sessions load:", error.message);
-    return [];
+    if (/human_followup_at|next_call_at|column/i.test(String(error.message ?? ""))) {
+      console.warn("[leads-data] marketing pipeline columns missing — fallback select");
+      const fallback = await admin
+        .from("marketing_flow_sessions")
+        .select(marketingSelectLegacy)
+        .order("last_user_message_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
+        .limit(ADMIN_LEADS_LIMIT);
+      if (fallback.error) {
+        console.warn("[leads-data] marketing_flow_sessions load:", fallback.error.message);
+        return [];
+      }
+      sessionRows = (fallback.data ?? []) as Record<string, unknown>[];
+    } else {
+      console.warn("[leads-data] marketing_flow_sessions load:", error.message);
+      return [];
+    }
   }
 
-  const rows = (sessions ?? []).map((row) => {
+  const rows = (sessionRows ?? []).map((row) => {
     const s = row as Record<string, unknown>;
     const phone = String(s.phone ?? "").trim();
     const key = phoneKey(phone);
@@ -225,10 +261,12 @@ export async function loadMarketingAdminLeads(
       full_name: (s.full_name as string | null) ?? null,
       source: "זואי אדמין",
       created_at: s.created_at as string | null,
-      opted_out: false,
+      opted_out: Boolean(s.followup_opted_out),
       not_relevant_at: null,
       not_relevant_reason: null,
       human_requested_at: null,
+      human_followup_at: (s.human_followup_at as string | null) ?? null,
+      next_call_at: toDateOnly(s.next_call_at),
       session_phase: deriveMarketingSessionPhase(
         {
           flow_completed: s.flow_completed as boolean | null,

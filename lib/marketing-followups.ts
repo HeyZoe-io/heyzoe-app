@@ -33,6 +33,7 @@ export type MarketingFlowSessionFollowupRow = {
   followup_3_sent_at: string | null;
   followup_opted_out: boolean | null;
   flow_completed: boolean;
+  human_followup_at?: string | null;
 };
 
 /** עדכון שם פרופיל וואטסאפ לסשן שיווקי קיים */

@@ -27,7 +27,8 @@ type MarketingFollowupSkipReason =
   | "all_followups_sent"
   | "no_user_message_at"
   | "invalid_timestamp"
-  | "send_failed";
+  | "send_failed"
+  | "human_followup";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -75,21 +76,42 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const nowMs = now.getTime();
 
-  const { data: rows, error } = await admin
+  let rows: MarketingFlowSessionFollowupRow[] | null = null;
+  const withHuman = await admin
     .from("marketing_flow_sessions")
     .select(
-      "id, phone, last_user_message_at, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, followup_opted_out, flow_completed"
+      "id, phone, last_user_message_at, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, followup_opted_out, flow_completed, human_followup_at"
     )
     .eq("flow_completed", false)
     .eq("followup_opted_out", false)
+    .is("human_followup_at", null)
     .not("last_user_message_at", "is", null)
     .limit(BATCH);
 
-  if (error) {
-    if (/last_user_message_at|followup_|column/i.test(String(error.message ?? ""))) {
-      return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
+  if (!withHuman.error) {
+    rows = (withHuman.data ?? []) as MarketingFlowSessionFollowupRow[];
+  } else if (/human_followup_at|column/i.test(String(withHuman.error.message ?? ""))) {
+    const fallback = await admin
+      .from("marketing_flow_sessions")
+      .select(
+        "id, phone, last_user_message_at, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, followup_opted_out, flow_completed"
+      )
+      .eq("flow_completed", false)
+      .eq("followup_opted_out", false)
+      .not("last_user_message_at", "is", null)
+      .limit(BATCH);
+    if (fallback.error) {
+      if (/last_user_message_at|followup_|column/i.test(String(fallback.error.message ?? ""))) {
+        return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
+      }
+      console.error("[cron/marketing-followups] query:", fallback.error);
+      return NextResponse.json({ error: "query_failed" }, { status: 500 });
     }
-    console.error("[cron/marketing-followups] query:", error);
+    rows = (fallback.data ?? []) as MarketingFlowSessionFollowupRow[];
+  } else if (/last_user_message_at|followup_|column/i.test(String(withHuman.error.message ?? ""))) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
+  } else {
+    console.error("[cron/marketing-followups] query:", withHuman.error);
     return NextResponse.json({ error: "query_failed" }, { status: 500 });
   }
 
@@ -116,6 +138,16 @@ export async function GET(req: NextRequest) {
     const sessionId = marketingWaSessionId(phone);
 
     try {
+      if (row.human_followup_at) {
+        logMarketingFollowupSkip("human_followup", {
+          session_id: row.id,
+          phone: maskPhone(phone),
+          marketing_session_id: sessionId,
+        });
+        bumpSkip("human_followup");
+        continue;
+      }
+
       if (await isMarketingConversationPaused(phone)) {
         logMarketingFollowupSkip("paused", {
           session_id: row.id,

@@ -7,6 +7,7 @@ export type ContactStatusKey =
   | "not_relevant"
   | "human_requested"
   | "registered"
+  | "human_followup"
   | "no_response"
   | "followup"
   | "template"
@@ -16,6 +17,7 @@ export type ContactStatusInput = {
   opted_out?: boolean | null;
   not_relevant_at?: string | null;
   human_requested_at?: string | null;
+  human_followup_at?: string | null;
   trial_registered?: boolean | null;
   session_phase?: string | null;
   source?: string | null;
@@ -30,6 +32,7 @@ export function computeContactStatus(input: ContactStatusInput): ContactStatusKe
   if (input.opted_out === true) return "opted_out";
   if (input.not_relevant_at) return "not_relevant";
   if (input.trial_registered === true || input.session_phase === "registered") return "registered";
+  if (input.human_followup_at) return "human_followup";
   if (input.human_requested_at) return "human_requested";
   if (input.wa_no_response_at) return "no_response";
 
@@ -66,6 +69,11 @@ const CONTACT_STATUS_META_HE: Record<ContactStatusKey, ContactStatusMeta> = {
     label: "פולואפ",
     tooltip: "3 הודעות ב-24 שעות",
     badgeClass: "border-amber-200 bg-amber-50 text-amber-900",
+  },
+  human_followup: {
+    label: "פולואפ אנושי",
+    tooltip: "מעקב ידני — תאריך לשיחה הבאה",
+    badgeClass: "border-cyan-200 bg-cyan-50 text-cyan-900",
   },
   template: {
     label: "טמפלייט",
@@ -111,6 +119,11 @@ const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
     label: "Follow-up",
     tooltip: "3 messages within 24 hours",
     badgeClass: "border-amber-200 bg-amber-50 text-amber-900",
+  },
+  human_followup: {
+    label: "Human follow-up",
+    tooltip: "Manual follow-up — next call date",
+    badgeClass: "border-cyan-200 bg-cyan-50 text-cyan-900",
   },
   template: {
     label: "Template",
@@ -167,6 +180,20 @@ export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
   "human_requested",
   "registered",
   "opted_out",
+];
+
+/** סדר עמודות בפייפליין לידים של זואי אדמין */
+export const MARKETING_PIPELINE_STATUS_ORDER: Array<ContactStatusKey | "none"> = [
+  "template",
+  "active",
+  "followup",
+  "human_followup",
+  "no_response",
+  "human_requested",
+  "registered",
+  "not_relevant",
+  "opted_out",
+  "none",
 ];
 
 export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";
