@@ -53,3 +53,73 @@ export function resolveWaSalesFollowupTemplates(social: unknown): {
     t3: pick("wa_sales_followup_3", WA_SALES_FOLLOWUP_3_DEFAULT),
   };
 }
+
+/** ברירת מחדל: פעיל. רק `false` מפורש מכבה (עסקים קיימים בלי השדה ממשיכים לשלוח). */
+export function socialFlagEnabled(value: unknown): boolean {
+  return value !== false;
+}
+
+export type WaSalesFollowupEnabled = {
+  e1: boolean;
+  e2: boolean;
+  e3: boolean;
+};
+
+export function resolveWaSalesFollowupEnabled(social: unknown): WaSalesFollowupEnabled {
+  const sl = asSocialRecord(social);
+  return {
+    e1: socialFlagEnabled(sl.wa_sales_followup_1_enabled),
+    e2: socialFlagEnabled(sl.wa_sales_followup_2_enabled),
+    e3: socialFlagEnabled(sl.wa_sales_followup_3_enabled),
+  };
+}
+
+export function isWaSalesFollowupStageEnabled(
+  enabled: WaSalesFollowupEnabled,
+  stage: 1 | 2 | 3
+): boolean {
+  return stage === 1 ? enabled.e1 : stage === 2 ? enabled.e2 : enabled.e3;
+}
+
+export const WA_FOLLOWUP_MS_20_MIN = 20 * 60 * 1000;
+export const WA_FOLLOWUP_MS_2_H = 2 * 60 * 60 * 1000;
+export const WA_FOLLOWUP_MS_23_H = 23 * 60 * 60 * 1000;
+
+export function nextDueWaFollowupStage(stageCurrent: number, elapsedMs: number): 0 | 1 | 2 | 3 {
+  if (stageCurrent < 1 && elapsedMs >= WA_FOLLOWUP_MS_20_MIN) return 1;
+  if (stageCurrent < 2 && elapsedMs >= WA_FOLLOWUP_MS_2_H) return 2;
+  if (stageCurrent < 3 && elapsedMs >= WA_FOLLOWUP_MS_23_H) return 3;
+  return 0;
+}
+
+export type WaFollowupSendPlan = {
+  /** 0 = אין הודעה לשלוח עכשיו */
+  sendStage: 0 | 1 | 2 | 3;
+  /** שלב לשמור ב־contacts גם אם דילגנו על שלבים כבויים בלי לשלוח */
+  advanceToStage: number;
+};
+
+/**
+ * מדלג על שלבים כבויים (בלי לשלוח) ומחזיר את השלב הבא שפעיל ושהגיע זמנו.
+ * אם כל השלבים המגיעים כבויים — advanceToStage מתקדם כדי לא להיתקע על אותו שלב.
+ */
+export function resolveWaFollowupSendPlan(input: {
+  stageCurrent: number;
+  elapsedMs: number;
+  enabled: WaSalesFollowupEnabled;
+}): WaFollowupSendPlan {
+  let stage = Number(input.stageCurrent ?? 0) || 0;
+  if (stage < 0) stage = 0;
+  if (stage > 3) stage = 3;
+  let advanced = stage;
+  while (true) {
+    const next = nextDueWaFollowupStage(stage, input.elapsedMs);
+    if (next === 0) return { sendStage: 0, advanceToStage: advanced };
+    if (!isWaSalesFollowupStageEnabled(input.enabled, next)) {
+      stage = next;
+      advanced = next;
+      continue;
+    }
+    return { sendStage: next, advanceToStage: next };
+  }
+}

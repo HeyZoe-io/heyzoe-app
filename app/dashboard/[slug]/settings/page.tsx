@@ -16,6 +16,7 @@ import {
   WA_SALES_FOLLOWUP_1_DEFAULT,
   WA_SALES_FOLLOWUP_2_DEFAULT,
   WA_SALES_FOLLOWUP_3_DEFAULT,
+  socialFlagEnabled,
 } from "@/lib/wa-sales-followup-defaults";
 import {
   type OfferKind,
@@ -1306,6 +1307,9 @@ export default function SlugSettingsPage({
   const [waSalesFollowup1, setWaSalesFollowup1] = useState("");
   const [waSalesFollowup2, setWaSalesFollowup2] = useState("");
   const [waSalesFollowup3, setWaSalesFollowup3] = useState("");
+  const [waSalesFollowup1Enabled, setWaSalesFollowup1Enabled] = useState(true);
+  const [waSalesFollowup2Enabled, setWaSalesFollowup2Enabled] = useState(true);
+  const [waSalesFollowup3Enabled, setWaSalesFollowup3Enabled] = useState(true);
 
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop
@@ -1815,6 +1819,9 @@ export default function SlugSettingsPage({
             ? sl.wa_sales_followup_3.trim()
             : WA_SALES_FOLLOWUP_3_DEFAULT
         );
+        setWaSalesFollowup1Enabled(socialFlagEnabled(sl.wa_sales_followup_1_enabled));
+        setWaSalesFollowup2Enabled(socialFlagEnabled(sl.wa_sales_followup_2_enabled));
+        setWaSalesFollowup3Enabled(socialFlagEnabled(sl.wa_sales_followup_3_enabled));
 
         if (Array.isArray(svcs)) {
           const rowsRaw = svcs as Record<string, unknown>[];
@@ -1934,6 +1941,9 @@ export default function SlugSettingsPage({
           wa_sales_followup_1: waSalesFollowup1.trim(),
           wa_sales_followup_2: waSalesFollowup2.trim(),
           wa_sales_followup_3: waSalesFollowup3.trim(),
+          wa_sales_followup_1_enabled: waSalesFollowup1Enabled,
+          wa_sales_followup_2_enabled: waSalesFollowup2Enabled,
+          wa_sales_followup_3_enabled: waSalesFollowup3Enabled,
           followup_after_registration: "",
           followup_after_hour_no_registration: "",
           followup_day_after_trial: "",
@@ -2003,6 +2013,9 @@ export default function SlugSettingsPage({
       waSalesFollowup1,
       waSalesFollowup2,
       waSalesFollowup3,
+      waSalesFollowup1Enabled,
+      waSalesFollowup2Enabled,
+      waSalesFollowup3Enabled,
       membershipsUrl,
       scheduleScanImageUrl,
       servicesHydrated,
@@ -3070,6 +3083,12 @@ export default function SlugSettingsPage({
               setWaSalesFollowup2={setWaSalesFollowup2}
               waSalesFollowup3={waSalesFollowup3}
               setWaSalesFollowup3={setWaSalesFollowup3}
+              waSalesFollowup1Enabled={waSalesFollowup1Enabled}
+              setWaSalesFollowup1Enabled={setWaSalesFollowup1Enabled}
+              waSalesFollowup2Enabled={waSalesFollowup2Enabled}
+              setWaSalesFollowup2Enabled={setWaSalesFollowup2Enabled}
+              waSalesFollowup3Enabled={waSalesFollowup3Enabled}
+              setWaSalesFollowup3Enabled={setWaSalesFollowup3Enabled}
               busyAction={busyAction}
               onApplyDefaults={() => runBusy("followup:defaults", applyWaSalesFollowupDefaults)}
             />

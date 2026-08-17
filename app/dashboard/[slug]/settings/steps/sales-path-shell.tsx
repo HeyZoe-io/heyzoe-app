@@ -28,7 +28,7 @@ export function SalesPathFieldLabel({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
       <div>
         <span className="text-[13px] font-medium text-zinc-800">{children}</span>
         {hint ? <p className="mt-0.5 text-[11px] text-zinc-400">{hint}</p> : null}

@@ -1,10 +1,13 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
-
-const MS_20_MIN = 20 * 60 * 1000;
-const MS_2_H = 2 * 60 * 60 * 1000;
-const MS_23_H = 23 * 60 * 60 * 1000;
+import {
+  resolveWaFollowupSendPlan,
+  resolveWaSalesFollowupEnabled,
+  WA_FOLLOWUP_MS_20_MIN,
+  WA_FOLLOWUP_MS_2_H,
+  WA_FOLLOWUP_MS_23_H,
+} from "@/lib/wa-sales-followup-defaults";
 
 export type WaFollowupSkipReason =
   | "time_window"
@@ -17,6 +20,7 @@ export type WaFollowupSkipReason =
   | "not_due_yet"
   | "send_failed"
   | "session_paused"
+  | "stage_disabled"
   | "eligible";
 
 export type WaFollowupEvalResult = {
@@ -99,7 +103,7 @@ function notDueYetDetail(stageCurrent: number, elapsedMs: number): Record<string
       wa_followup_stage: stageCurrent,
       detail: "waiting_20m",
       elapsed_ms: elapsedMs,
-      need_ms: Math.max(0, MS_20_MIN - elapsedMs),
+      need_ms: Math.max(0, WA_FOLLOWUP_MS_20_MIN - elapsedMs),
     };
   }
   if (stageCurrent < 2) {
@@ -107,14 +111,14 @@ function notDueYetDetail(stageCurrent: number, elapsedMs: number): Record<string
       wa_followup_stage: stageCurrent,
       detail: "waiting_2h",
       elapsed_ms: elapsedMs,
-      need_ms: Math.max(0, MS_2_H - elapsedMs),
+      need_ms: Math.max(0, WA_FOLLOWUP_MS_2_H - elapsedMs),
     };
   }
   return {
     wa_followup_stage: stageCurrent,
     detail: "waiting_23h",
     elapsed_ms: elapsedMs,
-    need_ms: Math.max(0, MS_23_H - elapsedMs),
+    need_ms: Math.max(0, WA_FOLLOWUP_MS_23_H - elapsedMs),
   };
 }
 
@@ -170,7 +174,7 @@ export async function evaluateBusinessWaFollowup(input: {
 
   const { data: bizRow } = await input.admin
     .from("businesses")
-    .select("id")
+    .select("id, social_links")
     .ilike("slug", business_slug)
     .limit(1)
     .maybeSingle();
@@ -272,16 +276,25 @@ export async function evaluateBusinessWaFollowup(input: {
 
   const elapsedMs = Date.now() - new Date(lastAssist.created_at).getTime();
   const stageCurrent = Number(input.contact.wa_followup_stage ?? 0) || 0;
-  const nextStage =
-    stageCurrent < 1 && elapsedMs >= MS_20_MIN
-      ? 1
-      : stageCurrent < 2 && elapsedMs >= MS_2_H
-        ? 2
-        : stageCurrent < 3 && elapsedMs >= MS_23_H
-          ? 3
-          : 0;
+  const enabled = resolveWaSalesFollowupEnabled((bizRow as { social_links?: unknown } | null)?.social_links);
+  const plan = resolveWaFollowupSendPlan({ stageCurrent, elapsedMs, enabled });
 
-  if (nextStage < 1) {
+  if (plan.sendStage < 1) {
+    if (plan.advanceToStage > stageCurrent) {
+      return {
+        skip_reason: "stage_disabled",
+        session_id: sessionId,
+        business_slug,
+        next_stage: plan.advanceToStage,
+        detail: {
+          last_assistant_at: lastAssist.created_at,
+          elapsed_ms: elapsedMs,
+          wa_followup_stage: stageCurrent,
+          advance_to_stage: plan.advanceToStage,
+          enabled,
+        },
+      };
+    }
     return {
       skip_reason: "not_due_yet",
       session_id: sessionId,
@@ -298,11 +311,12 @@ export async function evaluateBusinessWaFollowup(input: {
     skip_reason: "eligible",
     session_id: sessionId,
     business_slug,
-    next_stage: nextStage,
+    next_stage: plan.sendStage,
     detail: {
       last_assistant_at: lastAssist.created_at,
       elapsed_ms: elapsedMs,
       wa_followup_stage: stageCurrent,
+      enabled,
     },
   };
 }

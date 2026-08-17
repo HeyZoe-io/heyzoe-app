@@ -11,7 +11,12 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import {
   resolveWaSalesFollowupTemplates,
+  resolveWaSalesFollowupEnabled,
+  resolveWaFollowupSendPlan,
   stripPhonePlaceholderClauseWhenEmpty,
+  WA_FOLLOWUP_MS_20_MIN,
+  WA_FOLLOWUP_MS_2_H,
+  WA_FOLLOWUP_MS_23_H,
 } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
 import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
@@ -26,10 +31,6 @@ export const dynamic = "force-dynamic";
 const BATCH = 200;
 const FOLLOWUP_FOOTER = "\n\n_לביטול קבלת הודעות שלח *הסר*_";
 
-const MS_20_MIN = 20 * 60 * 1000;
-const MS_2_H = 2 * 60 * 60 * 1000;
-const MS_23_H = 23 * 60 * 60 * 1000;
-
 type WaFollowupSkipReason =
   | "time_window"
   | "invalid_contact"
@@ -41,7 +42,8 @@ type WaFollowupSkipReason =
   | "already_replied"
   | "not_due_yet"
   | "send_failed"
-  | "session_paused";
+  | "session_paused"
+  | "stage_disabled";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -106,7 +108,7 @@ function notDueYetDetail(stageCurrent: number, elapsedMs: number): Record<string
       wa_followup_stage: stageCurrent,
       detail: "waiting_20m",
       elapsed_ms: elapsedMs,
-      need_ms: Math.max(0, MS_20_MIN - elapsedMs),
+      need_ms: Math.max(0, WA_FOLLOWUP_MS_20_MIN - elapsedMs),
     };
   }
   if (stageCurrent < 2) {
@@ -114,14 +116,14 @@ function notDueYetDetail(stageCurrent: number, elapsedMs: number): Record<string
       wa_followup_stage: stageCurrent,
       detail: "waiting_2h",
       elapsed_ms: elapsedMs,
-      need_ms: Math.max(0, MS_2_H - elapsedMs),
+      need_ms: Math.max(0, WA_FOLLOWUP_MS_2_H - elapsedMs),
     };
   }
   return {
     wa_followup_stage: stageCurrent,
     detail: "waiting_23h",
     elapsed_ms: elapsedMs,
-    need_ms: Math.max(0, MS_23_H - elapsedMs),
+    need_ms: Math.max(0, WA_FOLLOWUP_MS_23_H - elapsedMs),
   };
 }
 
@@ -332,7 +334,7 @@ export async function GET(req: NextRequest) {
 
   const nowIso = new Date().toISOString();
   const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const cutoff20mIso = new Date(Date.now() - MS_20_MIN).toISOString();
+  const cutoff20mIso = new Date(Date.now() - WA_FOLLOWUP_MS_20_MIN).toISOString();
 
   const followupSelect =
     "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase";
@@ -464,7 +466,7 @@ export async function GET(req: NextRequest) {
 
       const { data: bizRow } = await admin
         .from("businesses")
-        .select("is_active")
+        .select("is_active, name, bot_name, social_links")
         .eq("id", businessId)
         .maybeSingle();
       if (!isBusinessSubscriptionActive((bizRow ?? {}) as { is_active?: boolean | null })) {
@@ -582,16 +584,35 @@ export async function GET(req: NextRequest) {
       }
 
       const stageCurrent = Number((c as { wa_followup_stage?: number | null }).wa_followup_stage ?? 0) || 0;
-      const nextStage =
-        stageCurrent < 1 && elapsedMs >= MS_20_MIN
-          ? 1
-          : stageCurrent < 2 && elapsedMs >= MS_2_H
-            ? 2
-            : stageCurrent < 3 && elapsedMs >= MS_23_H
-              ? 3
-              : 0;
+      const socialLinks = (bizRow as { social_links?: unknown } | null)?.social_links;
+      const enabled = resolveWaSalesFollowupEnabled(socialLinks);
+      const plan = resolveWaFollowupSendPlan({ stageCurrent, elapsedMs, enabled });
 
-      if (nextStage < 1) {
+      if (plan.sendStage < 1) {
+        if (plan.advanceToStage > stageCurrent) {
+          await admin.from("contacts").update({ wa_followup_stage: plan.advanceToStage }).eq("id", contactId);
+          if (plan.advanceToStage === 3) {
+            const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
+            void dispatchCrmEvent({
+              businessId: Number(businessId),
+              leadPhone: phone,
+              kind: "no_response",
+              fullName: String((c as { full_name?: string | null }).full_name ?? "").trim() || null,
+              eventAtIso: new Date().toISOString(),
+            });
+          }
+          logWaFollowupSkip("stage_disabled", {
+            contact_id: contactId,
+            phone: maskPhone(phone),
+            business_slug,
+            session_id: sessionId,
+            wa_followup_stage: stageCurrent,
+            advance_to_stage: plan.advanceToStage,
+            enabled,
+          });
+          bumpSkip("stage_disabled");
+          continue;
+        }
         logWaFollowupSkip("not_due_yet", {
           contact_id: contactId,
           phone: maskPhone(phone),
@@ -605,15 +626,11 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const { data: biz } = await admin
-        .from("businesses")
-        .select("name, bot_name, social_links")
-        .eq("id", businessId)
-        .maybeSingle();
-      const businessName = String((biz as { name?: string }).name ?? "").trim() || business_slug;
-      const botName = String((biz as { bot_name?: string }).bot_name ?? "").trim() || "זואי";
+      const nextStage = plan.sendStage;
+      const businessName = String((bizRow as { name?: string } | null)?.name ?? "").trim() || business_slug;
+      const botName = String((bizRow as { bot_name?: string } | null)?.bot_name ?? "").trim() || "זואי";
       // מספר שירות הלקוחות של העסק (טאב «על העסק») — לא מספר הוואטסאפ של זואי (phone_display)
-      const csPhone = customerServicePhoneFromSocialLinks((biz as { social_links?: unknown }).social_links);
+      const csPhone = customerServicePhoneFromSocialLinks(socialLinks);
 
       const vars = {
         bot_name: botName,
@@ -622,7 +639,7 @@ export async function GET(req: NextRequest) {
         service_phone_note: csPhone ? `\n\nניתן גם להתקשר ל:${csPhone}` : "",
       };
 
-      const { t1, t2, t3 } = resolveWaSalesFollowupTemplates((biz as { social_links?: unknown }).social_links);
+      const { t1, t2, t3 } = resolveWaSalesFollowupTemplates(socialLinks);
       let chosenTemplate = nextStage === 1 ? t1 : nextStage === 2 ? t2 : t3;
       // אין מספר שירות לקוחות → להשמיט את פסוקית הטלפון במקום משפט קטוע
       if (!csPhone) chosenTemplate = stripPhonePlaceholderClauseWhenEmpty(chosenTemplate);
@@ -634,7 +651,7 @@ export async function GET(req: NextRequest) {
         businessId: Number(businessId),
         business_slug,
         session_ids: sessionIds,
-        social_links: (biz as { social_links?: unknown }).social_links,
+        social_links: socialLinks,
         session_phase: sessionPhase || null,
       });
 

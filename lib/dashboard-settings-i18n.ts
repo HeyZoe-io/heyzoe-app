@@ -391,6 +391,10 @@ export const dashboardSettingsI18n = {
       msg1: "הודעה ראשונה (~20 דקות אחרי תשובת הבוט)",
       msg2: "הודעה שנייה (~שעתיים)",
       msg3: "הודעה שלישית (~23 שעות)",
+      enabledOn: "On",
+      enabledOff: "Off",
+      enabledAria: (n: number) => `הפעלת פולואפ ${n}`,
+      disabledHint: "הודעה זו לא תישלח",
     },
     page: {
       unauthorized: "נדרשת התחברות מחדש.",
@@ -856,6 +860,10 @@ export const dashboardSettingsI18n = {
       msg1: "First message (~20 min after bot reply)",
       msg2: "Second message (~2 hours)",
       msg3: "Third message (~23 hours)",
+      enabledOn: "On",
+      enabledOff: "Off",
+      enabledAria: (n: number) => `Enable follow-up ${n}`,
+      disabledHint: "This message will not be sent",
     },
     page: {
       unauthorized: "Please sign in again.",
