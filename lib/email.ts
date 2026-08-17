@@ -298,6 +298,36 @@ export function starterQuota100Email(displayName: string, billingUrl: string): E
   };
 }
 
+/** פנימי — לקוח Starter הגיע ל-80 / 95 / 100 שיחות */
+export function starterQuotaOpsEmail(
+  businessName: string,
+  businessSlug: string,
+  monthlyCount: number,
+  threshold: 80 | 95 | 100
+): EmailTemplateResult {
+  const bn = String(businessName ?? "").trim() || businessSlug;
+  const slug = String(businessSlug ?? "").trim();
+  const count = String(monthlyCount);
+  const subject =
+    threshold >= 100
+      ? `התראה: לקוח Starter הגיע למכסה — ${bn}`
+      : `התראה: לקוח Starter ב-${threshold}/100 שיחות — ${bn}`;
+  return {
+    subject,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        `לקוח ${bn} (${slug}) הגיע ל-${count} שיחות החודש מתוך 100 (Starter).`,
+        "",
+        threshold >= 100
+          ? "זואי אמורה להפסיק לענות ללידים חדשים עד תחילת החודש הבא."
+          : "זואי עדיין עונה. כדאי לוודא שהלקוח יודע על המכסה / שדרוג ל-Pro.",
+      ])}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
 /** פנימי — בסיום תקופת הגישה לאחר ביטול (close-expired-subscriptions): תזכורת לנתק WhatsApp Manager במטא */
 export function adminWhatsAppManagerDisconnectReminderEmail(
   businessName: string,

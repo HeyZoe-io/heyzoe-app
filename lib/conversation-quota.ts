@@ -6,9 +6,11 @@ import {
   starterQuota100Email,
   starterQuota80Email,
   starterQuota95Email,
+  starterQuotaOpsEmail,
   proQuota450OpsEmail,
 } from "@/lib/email";
 import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
+import { normalizePhone } from "@/lib/phone-normalize";
 
 export const STARTER_MONTHLY_CONTACT_LIMIT = 100;
 
@@ -62,9 +64,65 @@ type BizQuotaRow = {
   cancellation_effective_at?: unknown;
 };
 
+type StarterQuotaWaTemplate = "quota_warning_80" | "quota_warning_95" | "quota_limit_reached";
+
+function resolveOpsAlertEmail(): string {
+  return (process.env.SUBSCRIPTION_OPS_ALERT_EMAIL?.trim() || "liornativ@hotmail.com").toLowerCase();
+}
+
+function resolveOpsAlertWhatsApp(): string | null {
+  return normalizePhone(process.env.OWNER_NOTIFICATION_MONITOR_WHATSAPP ?? "0508318162");
+}
+
+async function notifyStarterQuotaOps(input: {
+  businessName: string;
+  businessSlug: string;
+  monthlyCount: number;
+  threshold: 80 | 95 | 100;
+  waTemplate: StarterQuotaWaTemplate;
+  ownerEmail: string;
+  ownerPhone: string;
+}): Promise<boolean> {
+  let ok = false;
+  const opsEmail = resolveOpsAlertEmail();
+  if (opsEmail && opsEmail !== input.ownerEmail) {
+    const tpl = starterQuotaOpsEmail(
+      input.businessName,
+      input.businessSlug,
+      input.monthlyCount,
+      input.threshold
+    );
+    const r = await sendEmail({ to: opsEmail, subject: tpl.subject, htmlContent: tpl.htmlContent });
+    if (r.ok) {
+      ok = true;
+      console.info("[conversation-quota] sent starter ops email:", input.threshold, input.businessSlug);
+    } else {
+      console.warn("[conversation-quota] starter ops email failed:", input.threshold, r.error);
+    }
+  }
+
+  const opsWa = resolveOpsAlertWhatsApp();
+  const ownerWa = normalizePhone(input.ownerPhone) ?? String(input.ownerPhone ?? "").replace(/\D/g, "");
+  if (opsWa && opsWa !== ownerWa) {
+    const r = await sendOwnerNotification({
+      ownerPhone: opsWa,
+      templateName: input.waTemplate,
+      components: [],
+    });
+    if (r.ok) {
+      ok = true;
+      console.info("[conversation-quota] sent starter ops WA:", input.waTemplate, input.businessSlug);
+    } else {
+      console.warn("[conversation-quota] starter ops WA failed:", input.waTemplate, r.error);
+    }
+  }
+
+  return ok;
+}
+
 async function sendStarterQuotaOwnerWhatsApp(
   bizRow: BizQuotaRow,
-  templateName: "quota_warning_80" | "quota_warning_95" | "quota_limit_reached"
+  templateName: StarterQuotaWaTemplate
 ): Promise<boolean> {
   if (!isBusinessEligibleForOwnerNotifications(bizRow)) return false;
   if (bizRow.owner_whatsapp_opted_in !== true) return false;
@@ -229,6 +287,14 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
   const ownerNotificationsEligible = isBusinessEligibleForOwnerNotifications(bizRow);
 
   if (starter) {
+    const ownerPhone = String(bizRow.owner_whatsapp_phone ?? "").trim();
+    const opsBase = {
+      businessName: displayName,
+      businessSlug: billingSlug,
+      monthlyCount,
+      ownerEmail: bizEmail,
+      ownerPhone,
+    };
     try {
       if (monthlyCount >= 80 && !bizRow.quota_warning_20_sent_at) {
         let sent = false;
@@ -241,6 +307,11 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
           }
         }
         if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_warning_80")) sent = true;
+        if (
+          await notifyStarterQuotaOps({ ...opsBase, threshold: 80, waTemplate: "quota_warning_80" })
+        ) {
+          sent = true;
+        }
         if (sent) await markQuotaWarningSent(admin, bizRow.id, "quota_warning_20_sent_at");
       }
       if (monthlyCount >= 95 && !bizRow.quota_warning_5_sent_at) {
@@ -254,6 +325,11 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
           }
         }
         if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_warning_95")) sent = true;
+        if (
+          await notifyStarterQuotaOps({ ...opsBase, threshold: 95, waTemplate: "quota_warning_95" })
+        ) {
+          sent = true;
+        }
         if (sent) await markQuotaWarningSent(admin, bizRow.id, "quota_warning_5_sent_at");
       }
       if (monthlyCount >= 100 && !bizRow.quota_limit_sent_at) {
@@ -267,6 +343,15 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
           }
         }
         if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_limit_reached")) sent = true;
+        if (
+          await notifyStarterQuotaOps({
+            ...opsBase,
+            threshold: 100,
+            waTemplate: "quota_limit_reached",
+          })
+        ) {
+          sent = true;
+        }
         if (sent) await markQuotaWarningSent(admin, bizRow.id, "quota_limit_sent_at");
       }
     } catch (e) {
