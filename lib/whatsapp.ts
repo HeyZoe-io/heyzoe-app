@@ -127,7 +127,7 @@ export type WaIncomingUnsupported = {
   metaInboundType?: string;
 };
 
-/** תשובה אוטומטית כשסוג הודעה נכנסת לא נתמך — נרשמת ב-messages לתצוגה בדשבורד. */
+/** טקסט ישן — לא נשלח יותר (הודעות לא-טקסט נרשמות בלי תשובה אוטומטית). */
 export const WA_UNSUPPORTED_INBOUND_REPLY =
   "שלום! אני מטפלת בהודעות טקסט בלבד. שלחו לי שאלה בכתב ואשמח לעזור 😊";
 

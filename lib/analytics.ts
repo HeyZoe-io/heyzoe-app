@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { salesFlowGreetingMarkerCountsAsStarted } from "@/lib/sales-flow-start-triggers";
 
 export type MessageRole = "user" | "assistant" | "event" | "system";
 
@@ -23,6 +24,10 @@ export const HEYZOE_SF_REGISTERED = "[heyzoe:sf_registered]";
 /** איפוס מסלול מכירה — «היי» / פתיחה היסטורית (default_opening); אירועים לפני זה לא סופרים לבחירת שירות/חימום. */
 export const SALES_FLOW_GREETING_RESET_MODELS = ["greeting", "default_opening"] as const;
 
+function sessionIdList(session_id: string | string[]): string[] {
+  return (Array.isArray(session_id) ? session_id : [session_id]).map((id) => String(id ?? "").trim()).filter(Boolean);
+}
+
 export async function fetchLastSalesFlowGreetingResetAt(input: {
   business_slug: string;
   session_id: string;
@@ -44,6 +49,83 @@ export async function fetchLastSalesFlowGreetingResetAt(input: {
   } catch {
     return null;
   }
+}
+
+async function fetchLastSalesFlowGreetingMarker(input: {
+  business_slug: string;
+  session_id: string | string[];
+}): Promise<{ created_at: string; model_used: string } | null> {
+  const sessionIds = sessionIdList(input.session_id);
+  if (!sessionIds.length) return null;
+  try {
+    const supabase = createSupabaseAdminClient();
+    let q = supabase
+      .from("messages")
+      .select("created_at, model_used")
+      .eq("business_slug", input.business_slug)
+      .eq("role", "assistant")
+      .in("model_used", [...SALES_FLOW_GREETING_RESET_MODELS])
+      .order("created_at", { ascending: false })
+      .limit(1);
+    q = sessionIds.length === 1 ? q.eq("session_id", sessionIds[0]!) : q.in("session_id", sessionIds);
+    const { data, error } = await q.maybeSingle();
+    if (error || !data?.created_at) return null;
+    return {
+      created_at: String(data.created_at),
+      model_used: String((data as { model_used?: string | null }).model_used ?? "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchUserMessageBefore(input: {
+  business_slug: string;
+  session_id: string | string[];
+  beforeIso: string;
+}): Promise<string | null> {
+  const sessionIds = sessionIdList(input.session_id);
+  if (!sessionIds.length || !input.beforeIso) return null;
+  try {
+    const supabase = createSupabaseAdminClient();
+    let q = supabase
+      .from("messages")
+      .select("content")
+      .eq("business_slug", input.business_slug)
+      .eq("role", "user")
+      .lt("created_at", input.beforeIso)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    q = sessionIds.length === 1 ? q.eq("session_id", sessionIds[0]!) : q.in("session_id", sessionIds);
+    const { data, error } = await q.maybeSingle();
+    if (error || data == null) return null;
+    const content = String((data as { content?: unknown }).content ?? "").trim();
+    return content || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * פלואו מכירה התחיל רק מטריגר («היי») או מ־default_opening היסטורי שאחרי טריגר.
+ * שאלה פתוחה (למשל «יש איפה לשים אופניים?») לא נחשבת לפתיחת פלואו — גם אם נשלחה ברכת default_opening ישנה.
+ */
+export async function sessionHasSalesFlowGreeting(input: {
+  business_slug: string;
+  session_id: string | string[];
+}): Promise<boolean> {
+  const marker = await fetchLastSalesFlowGreetingMarker(input);
+  if (!marker) return false;
+  if (marker.model_used === "greeting") return true;
+  const precedingUserText = await fetchUserMessageBefore({
+    business_slug: input.business_slug,
+    session_id: input.session_id,
+    beforeIso: marker.created_at,
+  });
+  return salesFlowGreetingMarkerCountsAsStarted({
+    modelUsed: marker.model_used,
+    precedingUserText,
+  });
 }
 
 export async function fetchLastAssistantModelUsed(input: {

@@ -1,6 +1,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { sessionHasSalesFlowGreeting } from "@/lib/analytics";
 import {
   resolveWaFollowupSendPlan,
   resolveWaSalesFollowupEnabled,
@@ -21,6 +22,7 @@ export type WaFollowupSkipReason =
   | "send_failed"
   | "session_paused"
   | "stage_disabled"
+  | "sales_flow_not_started"
   | "eligible";
 
 export type WaFollowupEvalResult = {
@@ -202,6 +204,20 @@ export async function evaluateBusinessWaFollowup(input: {
   const phoneNumberId = String(channel.phoneNumberId).trim();
   const sessionId = buildWaSessionId(phoneNumberId, phone);
   const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
+
+  if (
+    !(await sessionHasSalesFlowGreeting({
+      business_slug,
+      session_id: sessionIds.length ? sessionIds : sessionId,
+    }))
+  ) {
+    return {
+      skip_reason: "sales_flow_not_started",
+      session_id: sessionId,
+      business_slug,
+      detail: { contact_id: input.contact.id ?? null },
+    };
+  }
 
   const { isWaFollowupBlockedByAppPause } = await import("@/lib/wa-app-echo-pause");
   if (

@@ -29,6 +29,15 @@ assert.equal(
     salesFlowStarted: false,
     registered: false,
   }),
+  true
+);
+
+assert.equal(
+  isStandaloneWhatsAppOpenQuestion({
+    sessionPhase: "warmup",
+    salesFlowStarted: true,
+    registered: false,
+  }),
   false
 );
 

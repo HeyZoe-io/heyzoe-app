@@ -23,8 +23,6 @@ import {
   resolveMetaAccessToken,
   type WaIncomingMessage,
   type WaIncomingText,
-  WA_UNSUPPORTED_INBOUND_MODEL,
-  WA_UNSUPPORTED_INBOUND_REPLY,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
 import { type SfServiceRow } from "@/lib/sf-service-rows";
@@ -261,7 +259,7 @@ import {
 import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
-  fetchLastSalesFlowGreetingResetAt,
+  sessionHasSalesFlowGreeting as fetchSessionHasSalesFlowGreeting,
   fetchLastSfServiceEventName,
   fetchLastSfWarmupExtraIndex,
   fetchRecentSessionMessages,
@@ -400,10 +398,9 @@ async function classifyOptOutWithClaude(input: { apiKey: string; text: string })
   }
 }
 
-/** פלואו מכירה התחיל רק אחרי ברכת טריגר («היי» / default_opening היסטורי) — לא מהודעה ראשונה חופשית. */
+/** פלואו מכירה התחיל רק אחרי ברכת טריגר («היי») — לא משאלה פתוחה / default_opening בטעות. */
 async function sessionHasSalesFlowGreeting(business_slug: string, session_id: string): Promise<boolean> {
-  const at = await fetchLastSalesFlowGreetingResetAt({ business_slug, session_id });
-  return Boolean(at);
+  return fetchSessionHasSalesFlowGreeting({ business_slug, session_id });
 }
 
 function normalizeGreetingToken(s: string): string {
@@ -2920,10 +2917,11 @@ async function sendFlowContinuation(input: {
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
-  if (phase === "opening" && !(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
-    console.info("[WA Webhook] skip opening flow continuation — sales flow not started", {
+  if (!(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
+    console.info("[WA Webhook] skip flow continuation — sales flow not started", {
       business_slug,
       session_id: sessionId,
+      phase,
     });
     return;
   }
@@ -3520,7 +3518,7 @@ async function resendUnansweredSalesFlowPrompt(
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
-  if (phase === "opening" && !(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
+  if (!(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
     return;
   }
   const menuFooter = salesFlowMenuFooter(knowledge);
@@ -3774,7 +3772,7 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
   const cfg = input.knowledge.salesFlowConfig;
   if (!cfg || !input.businessId) return false;
   if (!SALES_FLOW_DETERMINISTIC_PHASES.has(input.phase)) return false;
-  if (input.phase === "opening" && !(await sessionHasSalesFlowGreeting(input.business_slug, input.sessionId))) {
+  if (!(await sessionHasSalesFlowGreeting(input.business_slug, input.sessionId))) {
     return false;
   }
 
@@ -5237,74 +5235,24 @@ async function processIncoming(
   const salesFlowServices = knowledge?.salesFlowServices ?? [];
 
   // Handle unsupported message types (voice note, image, sticker, …).
-  // This block returns before the text-path gates below — apply the same silence
-  // rules here (zoe_activated, paused_sessions, human_requested).
+  // Log for the dashboard; do not auto-reply (no canned "text only" message).
   if (msg.type === "unsupported") {
-    if (zoeActivated !== true) {
-      console.info(
-        `[WA Webhook] unsupported inbound — Zoe not activated for ${business_slug}; skipping auto-reply.`,
-        { sessionId, from: msg.from, metaInboundType: msg.metaInboundType ?? null }
-      );
-      return;
-    }
-    try {
-      const { data: pausedUnsupported } = await supabase
-        .from("paused_sessions")
-        .select("id")
-        .eq("business_slug", business_slug)
-        .eq("session_id", sessionId)
-        .gt("paused_until", nowIso)
-        .maybeSingle();
-      if (pausedUnsupported) {
-        console.info(
-          `[WA Webhook] unsupported inbound — session ${sessionId} paused; skipping auto-reply.`
-        );
-        return;
-      }
-    } catch (e) {
-      console.error("[WA Webhook] pause-check failed for unsupported inbound (continuing):", e);
-    }
-    if (contactHumanRequestedAt) {
-      console.info("[WA Webhook] unsupported inbound — human_requested; skipping auto-reply", {
-        business_slug,
-        sessionId,
-      });
-      return;
-    }
-
-    let sendFailed = false;
-    try {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        WA_UNSUPPORTED_INBOUND_REPLY,
-        accountSid,
-        authToken
-      );
-    } catch (e) {
-      sendFailed = true;
-      console.error("[WA Webhook] Send unsupported reply failed:", e);
-    }
-
     try {
       await logMessage({
         business_slug,
-        role: "assistant",
-        content: WA_UNSUPPORTED_INBOUND_REPLY,
-        model_used: WA_UNSUPPORTED_INBOUND_MODEL,
+        role: "user",
+        content: `[unsupported] ${msg.metaInboundType ?? "unknown"}`,
         session_id: sessionId,
-        error_code: sendFailed ? "unsupported_reply_send_failed" : null,
       });
     } catch (e) {
-      console.error("[WA Webhook] Log unsupported reply failed:", e);
+      console.error("[WA Webhook] Log unsupported inbound failed:", e);
     }
 
-    console.warn("[WA Webhook] unsupported inbound message type", {
+    console.info("[WA Webhook] unsupported inbound — no auto-reply", {
       business_slug,
       sessionId,
       from: msg.from,
       metaInboundType: msg.metaInboundType ?? null,
-      sendFailed,
     });
     return;
   }
@@ -5870,7 +5818,7 @@ async function processIncoming(
 
   // פלואו מכירה מתחיל רק ממילות הפתיחה שהוגדרו — לא מכל הודעה ראשונה (למשל «תודה»).
   const salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
-  const openingFlowActive = contactSessionPhase !== "opening" || salesFlowStarted;
+  const openingFlowActive = salesFlowStarted;
 
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
@@ -5913,6 +5861,7 @@ async function processIncoming(
     knowledge?.salesFlowConfig &&
     knowledge.warmupSessionEnabled !== false &&
     businessId &&
+    salesFlowStarted &&
     inWarmupMenuPickContext
   ) {
     try {
@@ -7990,11 +7939,12 @@ async function processIncoming(
   const isWarmupSkipIntent =
     msg.type === "text" &&
     !registeredInCurrentFlow &&
-    (contactSessionPhase === "warmup" || (contactSessionPhase === "opening" && salesFlowStarted)) &&
+    salesFlowStarted &&
+    (contactSessionPhase === "warmup" || contactSessionPhase === "opening") &&
     isWarmupSkipIntentText(incomingRaw, contactSessionPhase);
 
   const joinSignupRecovery: JoinSignupRecoveryAction =
-    matched || matchedPredefinedClosedLabel || (contactSessionPhase === "opening" && !salesFlowStarted)
+    matched || matchedPredefinedClosedLabel || !salesFlowStarted
       ? "none"
       : await resolveJoinSignupRecoveryAction({
           business_slug,
@@ -8702,9 +8652,9 @@ async function processIncoming(
 
       const isFreeTextSalesFlowContinuation = isFreeTextSalesFlowAi && !isFallbackErrorReply;
 
-      let openingSkipFlowContinuation = false;
-      if (contactSessionPhase === "opening") {
-        if (!salesFlowStarted || isExplicitOtherServiceRequest(incomingRaw)) {
+      let openingSkipFlowContinuation = !salesFlowStarted;
+      if (!openingSkipFlowContinuation && contactSessionPhase === "opening") {
+        if (isExplicitOtherServiceRequest(incomingRaw)) {
           openingSkipFlowContinuation = true;
         } else {
           const [lastModel, lastContent] = await Promise.all([

@@ -44,7 +44,8 @@ type WaFollowupSkipReason =
   | "not_due_yet"
   | "send_failed"
   | "session_paused"
-  | "stage_disabled";
+  | "stage_disabled"
+  | "sales_flow_not_started";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();

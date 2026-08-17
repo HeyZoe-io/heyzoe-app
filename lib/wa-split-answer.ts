@@ -103,12 +103,12 @@ export function ensureStandaloneOpenQuestionClosing(text: string): string {
   return ensureHelpClosing(text, STANDALONE_OPEN_QUESTION_HELP_CLOSING);
 }
 
-/** פלואו מכירה פעיל רק אחרי ברכת טריגר — לא מהודעה ראשונה חופשית בשלב opening. */
+/** שאלה פתוחה מחוץ לפלואו — גם אם session_phase נשאר warmup/cta מפתיחה שגויה. */
 export function isStandaloneWhatsAppOpenQuestion(input: {
   sessionPhase: string;
   salesFlowStarted: boolean;
   registered: boolean;
 }): boolean {
   if (input.registered) return false;
-  return input.sessionPhase === "opening" && !input.salesFlowStarted;
+  return !input.salesFlowStarted;
 }

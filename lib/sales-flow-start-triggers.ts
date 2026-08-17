@@ -45,3 +45,17 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
 export function isSalesFlowStartTrigger(text: string): boolean {
   return SALES_FLOW_START_TRIGGERS.has(normalizeSalesFlowGreetingToken(text));
 }
+
+/**
+ * האם סמן ברכה ב־messages נחשב לפתיחת פלואו מכירה.
+ * `greeting` = טריגר מפורש. `default_opening` היסטורי נספר רק אם ההודעה שלפניו הייתה טריגר («היי» וכו׳).
+ */
+export function salesFlowGreetingMarkerCountsAsStarted(input: {
+  modelUsed: string;
+  precedingUserText: string | null;
+}): boolean {
+  const modelUsed = String(input.modelUsed ?? "").trim();
+  if (modelUsed === "greeting") return true;
+  if (modelUsed !== "default_opening") return false;
+  return isSalesFlowStartTrigger(input.precedingUserText ?? "");
+}
