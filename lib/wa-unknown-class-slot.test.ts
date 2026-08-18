@@ -13,6 +13,7 @@ function svc(name: string, slots: { day: string; time: string }[]): SfServiceRow
     benefit: "",
     priceText: "80",
     durationText: "55",
+    descriptionText: "",
     paymentLink: "",
     levelsEnabled: false,
     levels: [],

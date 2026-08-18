@@ -17,6 +17,8 @@ export type SfServiceRow = {
   benefit: string;
   priceText: string;
   durationText: string;
+  /** תיאור מוצר (לכיסוי שאלות מדיניות — לא מקוצר). */
+  descriptionText: string;
   paymentLink: string;
   levelsEnabled: boolean;
   levels: string[];
@@ -91,6 +93,7 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
       benefit: String(meta.benefit_line ?? "").trim(),
       priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
       durationText: String(meta.duration ?? "").trim(),
+      descriptionText: String(meta.description_text ?? meta.description ?? "").trim(),
       paymentLink: String(meta.payment_link ?? "").trim(),
       levelsEnabled: meta.levels_enabled === true,
       levels: Array.isArray(meta.levels)
@@ -126,11 +129,16 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
   } catch {
     const raw = String(s.description ?? "");
     const fb = fallbackTrialPickFromRawDescription(raw);
+    const looksLikeMeta =
+      raw.trim().startsWith("{") ||
+      raw.trim().startsWith("__META__:") ||
+      raw.includes('"description_text"');
     return {
       name,
       benefit: "",
       priceText: String(s.price_text ?? "").trim(),
       durationText: "",
+      descriptionText: looksLikeMeta ? "" : raw.trim(),
       paymentLink: "",
       levelsEnabled: false,
       levels: [],

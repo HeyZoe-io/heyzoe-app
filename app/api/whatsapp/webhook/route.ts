@@ -184,6 +184,7 @@ import {
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
+  sfServiceOfferPolicyBlob,
   shouldHandoffUnknownIntroPackSplit,
 } from "@/lib/wa-unknown-offer-policy";
 import {
@@ -5751,7 +5752,7 @@ async function processIncoming(
     }
   }
 
-  // חריג לחבילת היכרות («אפשר אחד?») בלי עובדה מפורשת — לא מנחשים כן/לא
+  // חריג לחבילת היכרות («אפשר אחד?») בלי תשובה במוצרים/עובדות — לא מנחשים כן/לא
   if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
     const offerPolicyBlobs = [
       ...(knowledge.traits ?? []),
@@ -5759,7 +5760,7 @@ async function processIncoming(
       knowledge.servicesText,
       knowledge.promotionsText,
       knowledge.membershipsAndCardsText,
-      ...salesFlowServices.map((s) => `${s.name} ${s.priceText} ${s.benefit}`),
+      ...salesFlowServices.map(sfServiceOfferPolicyBlob),
     ];
     if (shouldHandoffUnknownIntroPackSplit({ text: msg.text.trim(), knowledgeBlobs: offerPolicyBlobs })) {
       try {
