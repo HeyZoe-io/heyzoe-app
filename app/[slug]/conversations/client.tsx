@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, ImagePlus, MoreVertical, Search, Send, X } from "lucide-react";
@@ -9,7 +9,11 @@ import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
 import { foldConversationReactions } from "@/lib/wa-inbound-reaction";
 import { uploadDashboardImageFile } from "@/lib/upload-dashboard-media-client";
-import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
+import {
+  conversationDayKey,
+  WaConversationDaySeparator,
+  WaConversationMessage,
+} from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import {
@@ -450,6 +454,19 @@ export default function ConversationsClient({
     () => foldConversationReactions(messagesQuery.data ?? []),
     [messagesQuery.data]
   );
+
+  const displayMessagesWithDays = useMemo(() => {
+    let prevDay = "";
+    return displayMessages.map((m) => {
+      if (String(m.role ?? "").trim() === "event") {
+        return { message: m, showDay: false };
+      }
+      const day = conversationDayKey(m.created_at);
+      const showDay = Boolean(day) && day !== prevDay;
+      if (day) prevDay = day;
+      return { message: m, showDay };
+    });
+  }, [displayMessages]);
 
   const prefetchedSessionsRef = useRef(new Set<string>());
 
@@ -966,17 +983,19 @@ export default function ConversationsClient({
                       </div>
                     </div>
                   ) : (
-                    displayMessages.map((m, idx) => (
-                      <WaConversationMessage
-                        key={`${m.created_at}-${idx}`}
-                        role={m.role}
-                        content={m.content}
-                        createdAt={m.created_at}
-                        errorCode={m.error_code}
-                        modelUsed={m.model_used}
-                        lang={lang}
-                        reactionEmoji={m.reactionEmoji}
-                      />
+                    displayMessagesWithDays.map(({ message: m, showDay }, idx) => (
+                      <Fragment key={`${m.created_at}-${idx}`}>
+                        {showDay ? <WaConversationDaySeparator iso={m.created_at} lang={lang} /> : null}
+                        <WaConversationMessage
+                          role={m.role}
+                          content={m.content}
+                          createdAt={m.created_at}
+                          errorCode={m.error_code}
+                          modelUsed={m.model_used}
+                          lang={lang}
+                          reactionEmoji={m.reactionEmoji}
+                        />
+                      </Fragment>
                     ))
                   )}
                 </div>

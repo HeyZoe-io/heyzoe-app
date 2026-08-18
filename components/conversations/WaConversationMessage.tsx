@@ -22,10 +22,70 @@ const i18n = {
   },
 } as const;
 
+const IL_TZ = "Asia/Jerusalem";
+
 function formatTime(iso: string, lang: DashboardLang): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return new Intl.DateTimeFormat(dashboardDateLocale(lang), { hour: "2-digit", minute: "2-digit" }).format(d);
+}
+
+/** YYYY-MM-DD לפי לוח ישראל — לקיבוץ הודעות לפי יום */
+export function conversationDayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: IL_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value ?? "";
+  const m = parts.find((p) => p.type === "month")?.value ?? "";
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  if (!y || !m || !day) return "";
+  return `${y}-${m}-${day}`;
+}
+
+function addCalendarDays(ymd: string, delta: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const utc = new Date(Date.UTC(y, m - 1, d + delta));
+  return `${utc.getUTCFullYear()}-${String(utc.getUTCMonth() + 1).padStart(2, "0")}-${String(utc.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function formatConversationDayLabel(iso: string, lang: DashboardLang): string {
+  const key = conversationDayKey(iso);
+  if (!key) return "";
+  const today = conversationDayKey(new Date().toISOString());
+  if (key === today) return lang === "he" ? "היום" : "Today";
+  if (key === addCalendarDays(today, -1)) return lang === "he" ? "אתמול" : "Yesterday";
+  const d = new Date(iso);
+  const sameYear = key.slice(0, 4) === today.slice(0, 4);
+  return new Intl.DateTimeFormat(dashboardDateLocale(lang), {
+    timeZone: IL_TZ,
+    day: "numeric",
+    month: "long",
+    ...(sameYear ? {} : { year: "numeric" }),
+  }).format(d);
+}
+
+export function WaConversationDaySeparator({
+  iso,
+  lang = "he",
+}: {
+  iso: string;
+  lang?: DashboardLang;
+}) {
+  const label = formatConversationDayLabel(iso, lang);
+  if (!label) return null;
+  return (
+    <div className="mb-2 flex justify-center py-1" role="separator">
+      <span className="rounded-[7.5px] bg-[#e1f2fb] px-3 py-[5px] text-[12.5px] font-medium leading-none text-[#54656f] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
+        {label}
+      </span>
+    </div>
+  );
 }
 
 function WaReplyButton({ label, url }: { label: string; url?: string }) {
