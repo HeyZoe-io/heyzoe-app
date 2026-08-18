@@ -3,6 +3,7 @@
  */
 
 import { CTA_SERVICE_REPICK_BRIDGE_QUESTION } from "@/lib/wa-cta-service-repick";
+import { SCHEDULE_WHEN_CONVENIENT_QUESTION } from "@/lib/wa-outbound-registration-guard";
 
 export function normalizeLineForMenuEcho(s: string): string {
   return String(s ?? "")
@@ -46,6 +47,7 @@ export function looksLikeFollowUpQuestion(chunk: string): boolean {
   const t = String(chunk ?? "").trim();
   if (!t) return false;
   if (t.includes(CTA_SERVICE_REPICK_BRIDGE_QUESTION)) return false;
+  if (t.includes(SCHEDULE_WHEN_CONVENIENT_QUESTION) || /מתי נוח ל(?:ך|כם) להגיע/u.test(t)) return false;
   if (t.length > 200) return false;
   if (/\?\s*$/.test(t)) return true;
   return /^(מה|איך|האם|מי|איפה|מתי|למה|רוצה|רוצים|רוצה ל|יש לך|יש לכם|ספר|ספרי|ספרו|איך ה|נשמע לך|מה דעתך|מה עוד|אפשר ל|רוצה ש)/iu.test(

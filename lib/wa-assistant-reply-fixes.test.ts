@@ -101,4 +101,18 @@ const lateCheer = applyKnownAssistantReplyFixes(
 assert.match(lateCheer, /אנחנו כאן/);
 assert.doesNotMatch(lateCheer, /בטוח שזה יעבוד|קח את הזמן|עד עכשיו/);
 
+const prematureReg = applyKnownAssistantReplyFixes(
+  "מושלם! יום שני 18:00 זה שיעור מעולה 🙂 עכשיו בואו נרשום אתכם. הרישום והתשלום נעשים דרך לינק מאובטח כאן: https://plando.co.il/self_services/embed_store/20951 כל הכבוד! נרשמתם בהצלחה 🎉 זה קורה בכתובת: הרצל 1",
+  { knowledge }
+);
+assert.match(prematureReg, /plando\.co\.il/);
+assert.doesNotMatch(prematureReg, /נרשמתם בהצלחה|זה קורה בכתובת/);
+
+const timesListed = applyKnownAssistantReplyFixes(
+  "בשיעורים אצלנו למדים את הבסיס. יום ראשון 08:30\nיום שני 18:00",
+  { knowledge }
+);
+assert.match(timesListed, /לומדים/);
+assert.match(timesListed, /מתי נוח לך להגיע\?/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

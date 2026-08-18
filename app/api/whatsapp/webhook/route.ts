@@ -135,7 +135,7 @@ import {
   isExplicitOtherServiceRequest,
   isNumericServicePickReply,
   isPhaseAgnosticExplicitServiceSwitch,
-  exactTypedCatalogServiceName,
+  exactTypedCatalogSwitchTarget,
   replyContainsServiceRepickBridge,
   resolveImplicitServiceSwitchFromFreeText,
   withServiceRepickAckPrefix,
@@ -6388,21 +6388,14 @@ async function processIncoming(
         session_id: sessionId,
       });
       if (businessId && knowledge?.salesFlowConfig) {
-        await updateContactSessionPhase({
-          supabase,
-          businessId,
-          phone: msg.from,
-          phase: "opening",
-        });
         await resetContactSalesFlowStateForGreeting({
           supabase,
           businessId,
           phone: msg.from,
         });
-        await sendFlowContinuation({
-          phase: "opening",
-          contact: { flow_step: 0 },
+        await advanceAfterWarmupSessionComplete({
           knowledge,
+          salesFlowServices,
           msg,
           accountSid,
           authToken,
@@ -6410,10 +6403,9 @@ async function processIncoming(
           businessId,
           business_slug,
           sessionId,
-          salesFlowServices,
+          blockTrialPickMedia: starterBlocksMedia,
           trialRegistered: false,
           allowTrialCta: true,
-          blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: [],
           instagramFollowPromptSent: false,
         });
@@ -6572,19 +6564,23 @@ async function processIncoming(
       session_id: sessionId,
     });
     const serviceNamesForSwitch = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
-    const exactTypedName = exactTypedCatalogServiceName(msg.text.trim(), serviceNamesForSwitch);
     const lastPickedName = String(lastPickedForExplicitSwitch ?? "").trim();
-    if (exactTypedName && !lastPickedName) {
+    const exactSwitchTarget = exactTypedCatalogSwitchTarget(
+      msg.text.trim(),
+      lastPickedForExplicitSwitch,
+      serviceNamesForSwitch
+    );
+    if (exactSwitchTarget) {
       contactSessionPhase = await commitImplicitServiceSwitch({
         knowledge,
         salesFlowServices,
-        serviceName: exactTypedName,
+        serviceName: exactSwitchTarget,
         msg,
         supabase,
         businessId,
         sessionId,
         business_slug,
-        logModelUsed: "sf_service_explicit_switch",
+        logModelUsed: lastPickedName ? "sf_service_implicit_switch" : "sf_service_explicit_switch",
       });
       contactFlowStep = 0;
       contactScheduleRequestedDate = "";
@@ -9261,6 +9257,7 @@ async function processIncoming(
         Boolean((lastPickedServiceName ?? "").trim()),
       selectedServiceName: lastPickedServiceName ?? "",
       scheduleDayLabels: pickedServiceScheduleDayLabels,
+      trialRegistered: contactTrialRegistered === true,
     }
   );
 

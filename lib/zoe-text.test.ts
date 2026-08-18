@@ -71,6 +71,14 @@ assert.equal(
 );
 
 assert.equal(
+  sanitizeZoeOutboundLanguage("בשיעורים אצלנו למדים את עקרונות הבסיס"),
+  "בשיעורים אצלנו לומדים את עקרונות הבסיס"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("המורים מלמדים בסבלנות"),
+  "המורים מלמדים בסבלנות"
+);
+assert.equal(
   sanitizeZoeOutboundLanguage("בהחלמה מהירה!"),
   "החלמה מהירה!"
 );

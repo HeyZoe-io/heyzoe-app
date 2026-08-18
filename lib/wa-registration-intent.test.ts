@@ -11,8 +11,16 @@ assert.equal(matchesRegistrationIntentPhrase("אשמח להחליף שיעור")
 assert.equal(matchesRegistrationIntentPhrase("אני מנסה להירשם לשיעור"), true);
 assert.equal(matchesRegistrationIntentPhrase("מנסה להירשם לשיעור"), true);
 assert.equal(matchesRegistrationIntentPhrase("רוצה להירשם מחר"), true);
+assert.equal(
+  matchesRegistrationIntentPhrase("היי הייתי שמח להירשם לשיעור מתחילים אני ובת הזוג שלי"),
+  true
+);
+assert.equal(matchesRegistrationIntentPhrase("הייתי שמח להירשם לשיעור מתחילים"), true);
+assert.equal(matchesRegistrationIntentPhrase("אשמח להירשם לשיעור"), true);
+assert.equal(matchesRegistrationIntentPhrase("נשמח להירשם"), true);
 
 assert.equal(matchesRegistrationIntentPhrase("כמה עולה השיעור?"), false);
+assert.equal(matchesRegistrationIntentPhrase("אפשר להירשם רק לשיעור ניסיון 1?"), false);
 assert.equal(matchesRegistrationIntentPhrase("מה הכתובת"), false);
 assert.equal(matchesRegistrationIntentPhrase(""), false);
 

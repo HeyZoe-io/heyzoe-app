@@ -26,6 +26,8 @@ export function matchesRegistrationIntentPhrase(raw: string): boolean {
   if (!t || t.length > 400) return false;
 
   if (/(?:רוצה|רוצים|מעוניין|מעוניינת).{0,40}(?:להצטרף|להירשם|להרשם)/u.test(t)) return true;
+  if (/(?:הייתי|היינו)\s+שמח(?:ה|ים)?\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
+  if (/(?:אשמח|נשמח)\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
   if (/אשמח\s+להחליף\s+שיעור/u.test(t)) return true;
   if (/(?:אני\s+)?מנסה\s+להירשם(?:\s+לשיעור)?/u.test(t)) return true;
   if (/(?:אני\s+)?מנסים\s+להירשם(?:\s+לשיעור)?/u.test(t)) return true;
