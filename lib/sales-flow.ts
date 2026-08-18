@@ -15,6 +15,7 @@ import {
   type ProductDescriptionFillInput,
 } from "@/lib/product-description-template";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
+import { matchesClassRescheduleUpdate } from "@/lib/wa-class-reschedule";
 
 export type SalesFlowExtraStep = {
   id: string;
@@ -2957,6 +2958,7 @@ function matchesRegisteredPhraseCore(t: string): boolean {
 export function matchesTrialAlreadyRegisteredMessage(raw: string): boolean {
   const t = normalizeTrialRegisteredText(raw);
   if (!t) return false;
+  if (matchesClassRescheduleUpdate(raw)) return false;
   return (
     /\b(?:i\s+)?already\s+(?:registered|signed\s+up)\b/.test(t) ||
     /\bi\s+(?:registered|signed\s+up)\b/.test(t) ||

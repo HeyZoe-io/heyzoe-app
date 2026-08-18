@@ -117,6 +117,7 @@ import {
   ensureRegisteredOpenQuestionClosing,
   ensureStandaloneOpenQuestionClosing,
   isStandaloneWhatsAppOpenQuestion,
+  looksLikeLeadQuestion,
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
@@ -163,6 +164,10 @@ import {
 } from "@/lib/sales-flow-inbound";
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
+import {
+  buildClassRescheduleTeamHandoffReply,
+  matchesClassRescheduleUpdate,
+} from "@/lib/wa-class-reschedule";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
@@ -5439,6 +5444,37 @@ async function processIncoming(
     return;
   }
 
+  // דחיית/החלפת שיעור — תודה + העברה לצוות (התראת «ביקש נציג»), לא ack של הרשמה לניסיון
+  if (msg.type === "text" && businessId && knowledge && matchesClassRescheduleUpdate(msg.text.trim())) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] class-reschedule human_requested failed:", e);
+    }
+    const handoffTxt = buildClassRescheduleTeamHandoffReply(knowledge.botName);
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send class-reschedule team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: handoffTxt,
+      model_used: "class_reschedule_team_handoff",
+      session_id: sessionId,
+    });
+    return;
+  }
+
   // Trial registration keyword → update contact + send after-trial template (no Claude)
   if (msg.type === "text" && businessId && knowledge) {
     const rawTrimmed = msg.text.trim();
@@ -5507,8 +5543,7 @@ async function processIncoming(
             });
           }
 
-          const ackTxt =
-            "מעולה, תודה שעדכנת אותי. לא אשלח עוד הודעות הרשמה לשיעור ניסיון. אם יש עוד משהו שתרצו לדעת - כתבו לי כאן ואשמח לעזור 🙂";
+          const ackTxt = "מעולה, תודה שעדכנת אותי 🙂";
           await sendWhatsAppMessage(msg.toNumber, msg.from, ackTxt, accountSid, authToken).catch((e) =>
             console.error("[WA Webhook] Send trial already-registered ack failed:", e)
           );
@@ -8576,8 +8611,10 @@ async function processIncoming(
 
   let replyText = replyCoreClean;
   replyText = softenWebsiteAttribution(replyText);
-  if (standaloneHelpClosing) {
+  if (standaloneHelpClosing && looksLikeLeadQuestion(incomingRaw)) {
     replyText = ensureStandaloneOpenQuestionClosing(replyText);
+  } else if (standaloneHelpClosing) {
+    replyText = stripTrailingFollowUpQuestion(replyText);
   }
   let assistantReplyLogged = false;
 
@@ -8805,9 +8842,17 @@ async function processIncoming(
             body = ensureCtaServiceRepickBridge(body);
           }
         } else if (registeredInCurrentFlow) {
-          body = ensureRegisteredOpenQuestionClosing(body);
+          if (looksLikeLeadQuestion(incomingRaw)) {
+            body = ensureRegisteredOpenQuestionClosing(body);
+          } else {
+            body = stripTrailingFollowUpQuestion(body);
+          }
         } else if (standaloneHelpClosing) {
-          body = ensureStandaloneOpenQuestionClosing(body);
+          if (looksLikeLeadQuestion(incomingRaw)) {
+            body = ensureStandaloneOpenQuestionClosing(body);
+          } else {
+            body = stripTrailingFollowUpQuestion(body);
+          }
         }
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
           body += `\n\n${menuQuestion}`;

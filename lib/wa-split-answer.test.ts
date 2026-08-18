@@ -3,6 +3,7 @@ import {
   STANDALONE_OPEN_QUESTION_HELP_CLOSING,
   ensureStandaloneOpenQuestionClosing,
   isStandaloneWhatsAppOpenQuestion,
+  looksLikeLeadQuestion,
 } from "@/lib/wa-split-answer";
 
 assert.equal(
@@ -54,5 +55,16 @@ assert.equal(
   ),
   "אין לי את הפרטים על מדיניות הביטול. יש עוד משהו שאני יכולה לעזור לך איתו?"
 );
+
+assert.equal(looksLikeLeadQuestion("מה מדיניות הביטול?"), true);
+assert.equal(looksLikeLeadQuestion("איך מגיעים לסטודיו"), true);
+assert.equal(looksLikeLeadQuestion("What time is the class?"), true);
+assert.equal(
+  looksLikeLeadQuestion(
+    "לא לכעוס אבל דחיתי לחמישי כי שכחתי שיש לי תור לרופא אבל כבר נרשמתי לחמישי"
+  ),
+  false
+);
+assert.equal(looksLikeLeadQuestion("כבר נרשמתי"), false);
 
 console.log("wa-split-answer.test.ts: ok");

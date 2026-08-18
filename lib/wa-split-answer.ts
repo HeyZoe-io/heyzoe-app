@@ -93,6 +93,27 @@ function ensureHelpClosing(text: string, closing: string): string {
   return `${t}\n\n${closing}`;
 }
 
+/** האם הליד שאל שאלה — לא עובדה/עדכון. שאלת הסגירה «יש עוד משהו» רק אז. */
+export function looksLikeLeadQuestion(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t) return false;
+  if (/[?؟]/.test(t)) return true;
+  const first = t.split(/[\n.!…]/)[0]?.trim() ?? t;
+  if (
+    /^(מה|איך|האם|מי|איפה|מתי|למה|מדוע|כמה|אפשר|תוכלו|תוכל|היכן)(?:\s|$)/u.test(first)
+  ) {
+    return true;
+  }
+  if (
+    /^(what|how|when|where|why|who|can\s+i|do\s+you|is\s+there|are\s+there|could\s+you)\b/i.test(
+      first
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** אחרי «נרשמתי» — מוסיף שאלת סיום אם חסרה */
 export function ensureRegisteredOpenQuestionClosing(text: string): string {
   return ensureHelpClosing(text, REGISTERED_OPEN_QUESTION_HELP_CLOSING);
