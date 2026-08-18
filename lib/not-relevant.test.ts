@@ -14,6 +14,9 @@ assert.equal(
 );
 assert.equal(matchesNotRelevantKeyword("אני לא מעוניינת יותר"), true);
 assert.equal(matchesNotRelevantKeyword("לא תודה"), true);
+assert.equal(matchesNotRelevantKeyword("לא. תודה."), true);
+assert.equal(matchesNotRelevantKeyword("לא, תודה"), true);
+assert.equal(matchesNotRelevantKeyword("לא. תודה, מתי השיעור?"), false);
 assert.equal(matchesNotRelevantKeyword("אל תכתבי לי יותר"), true);
 assert.equal(matchesNotRelevantKeyword("תפסיקי לכתוב"), true);
 assert.equal(matchesNotRelevantKeyword("not interested"), true);

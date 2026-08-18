@@ -115,4 +115,11 @@ const timesListed = applyKnownAssistantReplyFixes(
 assert.match(timesListed, /לומדים/);
 assert.match(timesListed, /מתי נוח לך להגיע\?/);
 
+const fakeSchedule = applyKnownAssistantReplyFixes(
+  "מערכת השעות: [תמונה של לוח השיעורים תישלח כאן] לגבי תיאום הגעה - כשתלחצי על הרשמה.",
+  { knowledge }
+);
+assert.doesNotMatch(fakeSchedule, /תישלח כאן|\[תמונה/);
+assert.match(fakeSchedule, /תיאום הגעה/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

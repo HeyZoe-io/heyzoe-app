@@ -423,6 +423,14 @@ function stripPolicyFluffPreamble(text: string): string {
   return s.replace(/\s{2,}/g, " ").replace(/\s+([.,!?])/g, "$1").trim();
 }
 
+function stripFakeScheduleImagePlaceholders(text: string): string {
+  let s = String(text ?? "");
+  s = s.replace(/מערכת השעות:\s*\[[^\]]{0,80}\]/giu, "");
+  s = s.replace(/\[[^\]]{0,80}תישלח[^\]]{0,40}\]/giu, "");
+  s = s.replace(/תמונה של לוח השיעורים תישלח כאן/giu, "");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** post-process על תשובת split לפני שליחה ל-WhatsApp (אפס API). */
 export function applyKnownAssistantReplyFixes(
   text: string,
@@ -454,6 +462,7 @@ export function applyKnownAssistantReplyFixes(
     s = applyScheduleDayGarbleFixes(s, input.scheduleDayLabels!);
   }
 
+  s = stripFakeScheduleImagePlaceholders(s);
   s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
   if (input.trialRegistered !== true) {
     s = stripPrematureAfterRegistration(s);

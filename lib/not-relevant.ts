@@ -353,6 +353,7 @@ export function normalizeNotRelevantToken(text: string): string {
   return text
     .trim()
     .toLowerCase()
+    .replace(/לא\s*[,.]+\s*תודה/gu, "לא תודה")
     .replace(/[!.,?;:~'"`\-]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
