@@ -16,6 +16,7 @@ import {
 } from "@/lib/product-description-template";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 import { matchesClassRescheduleUpdate } from "@/lib/wa-class-reschedule";
+import { stripUnresolvedLeadPlaceholders } from "@/lib/zoe-text";
 
 export type SalesFlowExtraStep = {
   id: string;
@@ -1307,6 +1308,25 @@ export function fillAfterCourseCyclePickTemplate(
   return template.replace(/\{serviceName\}/g, name).replace(/\{requested_date\}/g, date);
 }
 
+/** מוצר בלי לוח שבועי — לא אוספים מועד ולא ממלאים יום/שעה בהרשמה. קורס עם תאריכים נשאר לפי בחירת מחזור. */
+export function shouldIncludeScheduleInRegistration(input: {
+  offerKind: OfferKind;
+  requestedDate?: string | null;
+  requestedTime?: string | null;
+  scheduleSlotCount: number;
+  courseDatesEnabled?: boolean;
+}): boolean {
+  const date = String(input.requestedDate ?? "").trim();
+  const time = String(input.requestedTime ?? "").trim();
+  if (input.offerKind === "course") {
+    if (input.courseDatesEnabled === false) return false;
+    return Boolean(date);
+  }
+  if (input.scheduleSlotCount <= 0) return false;
+  if (input.offerKind === "workshop") return Boolean(date || time);
+  return Boolean(date && time);
+}
+
 export function fillAfterScheduleSelectionTemplate(
   template: string,
   serviceName: string,
@@ -2336,7 +2356,14 @@ export function fillAfterExperienceTemplate(
   } else {
     s = s.replace(/\{serviceName\}/g, "");
   }
-  return s;
+  return stripUnresolvedLeadPlaceholders(s);
+}
+
+/** תשובת כפתור בחימום — ממלאת {serviceName} אם יש אימון; לא משאירה סוגריים טכניים לליד. */
+export function fillWarmupScriptedReply(template: string, serviceName?: string): string {
+  return stripUnresolvedLeadPlaceholders(
+    fillAfterExperienceTemplate(template, false, [], serviceName)
+  );
 }
 
 export function syncWelcomeFromSalesFlow(

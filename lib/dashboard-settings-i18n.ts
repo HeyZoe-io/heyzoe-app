@@ -170,6 +170,7 @@ export const dashboardSettingsI18n = {
       scanScheduleDirect:
         "כש״הרשמה ישירות מהמערכת״ מופעלת — אין צורך במועדי לוח. כבו את האפשרות בטאב «לינקים» כדי לסרוק מועדים.",
       productList: "רשימת מוצרים",
+      productListWhatsAppCap: "עד 10 מוצרים (תקנון ווטסאפ)*",
       items: (n: number) => `${n} פריטים`,
       openProduct: "פתח פרטי מוצר",
       closeProduct: "סגור פרטי מוצר",
@@ -207,6 +208,9 @@ export const dashboardSettingsI18n = {
       startDate: "תאריך התחלה",
       endDate: "תאריך סיום",
       deleteSlot: "מחק מועד",
+      clearWeeklySlots: "מחק מועדי לוח",
+      weeklySlotsOffHint:
+        "בלי מועדי לוח — זואי תדלג על בחירת מועד ותעבור לשלב הבא. אישור ההרשמה לא יכלול יום ושעה.",
       addSlot: "הוסף מועד",
       addCycle: "הוסף מחזור",
       weeklySlots: "מועדי לוח (שבועי)",
@@ -639,6 +643,7 @@ export const dashboardSettingsI18n = {
       scanScheduleDirect:
         "When direct registration is on, schedule times aren't needed. Turn it off in Links to scan times.",
       productList: "Product list",
+      productListWhatsAppCap: "Up to 10 products (WhatsApp policy)*",
       items: (n: number) => `${n} items`,
       openProduct: "Open product details",
       closeProduct: "Close product details",
@@ -677,6 +682,9 @@ export const dashboardSettingsI18n = {
       startDate: "Start date",
       endDate: "End date",
       deleteSlot: "Delete slot",
+      clearWeeklySlots: "Clear schedule times",
+      weeklySlotsOffHint:
+        "No schedule times — Zoe skips the slot picker and continues. Registration confirmation won't include day and time.",
       addSlot: "Add slot",
       addCycle: "Add cycle",
       weeklySlots: "Schedule times (weekly)",

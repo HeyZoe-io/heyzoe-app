@@ -20,7 +20,7 @@ import {
   SalesPathStepShell,
   useSalesPathSections,
 } from "./sales-path-shell";
-import { TRIAL_SERVICE_NAME_MAX_CHARS } from "@/lib/trial-service";
+import { TRIAL_SERVICE_NAME_MAX_CHARS, WA_MAX_PRODUCTS } from "@/lib/trial-service";
 import { type OfferKind } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT, type DashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -566,6 +566,9 @@ export default function Step3Trial(props: {
             </div>
           </div>
           <div className="space-y-3 border-t border-zinc-100 px-4 pb-4 pt-3">
+            <p className="text-[11px] font-medium leading-snug text-zinc-500" dir={dashboardDir(lang)}>
+              {t.products.productListWhatsAppCap}
+            </p>
             <div className="space-y-2">
         {services.map((s, i) => {
           const productOpen = isProductOpen(s);
@@ -1157,9 +1160,30 @@ export default function Step3Trial(props: {
               </div>
               ) : scheduleDirectRegistration === false ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir={dashboardDir(lang)}>
-                <SalesPathFieldLabel>{t.products.weeklySlots}</SalesPathFieldLabel>
+                <SalesPathFieldLabel
+                  action={
+                    (s.schedule_slots ?? []).length > 0 ? (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                        aria-label={t.products.clearWeeklySlots}
+                        onClick={() => {
+                          const arr = [...services];
+                          arr[i] = { ...s, schedule_slots: [] };
+                          setServices(arr);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null
+                  }
+                >
+                  {t.products.weeklySlots}
+                </SalesPathFieldLabel>
                 <p className="text-[11px] text-zinc-500 leading-snug">
-                  {t.products.weeklySlotsHint}
+                  {(s.schedule_slots ?? []).length > 0
+                    ? t.products.weeklySlotsHint
+                    : t.products.weeklySlotsOffHint}
                 </p>
                 <div
                   className="grid grid-cols-1 gap-2 sm:grid-cols-2"
@@ -1309,34 +1333,40 @@ export default function Step3Trial(props: {
 
             <Button
               variant="outline"
+              disabled={services.length >= WA_MAX_PRODUCTS}
               onClick={() => {
+                if (services.length >= WA_MAX_PRODUCTS) return;
                 const newUiId = uid();
-                setServices((sv) => [
-                  ...sv,
-                  {
-                    ui_id: newUiId,
-                    name: "",
-                    price_text: "",
-                    duration: "",
-                    payment_link: "",
-                    service_slug: "",
-                    location_text: address,
-                    description: "",
-                    levels_enabled: false,
-                    levels: [],
-                    offer_kind: "trial",
-                    course_start_date: "",
-                    course_end_date: "",
-                    course_sessions_count: "",
-                    benefit_line: "",
-                    trial_pick_media_url: "",
-                    trial_pick_media_type: "",
-                    schedule_slots: [],
-                    course_cycles: [],
-                    location_mode: "location",
-                    course_dates_enabled: true,
-                  },
-                ]);
+                setServices((sv) =>
+                  sv.length >= WA_MAX_PRODUCTS
+                    ? sv
+                    : [
+                        ...sv,
+                        {
+                          ui_id: newUiId,
+                          name: "",
+                          price_text: "",
+                          duration: "",
+                          payment_link: "",
+                          service_slug: "",
+                          location_text: address,
+                          description: "",
+                          levels_enabled: false,
+                          levels: [],
+                          offer_kind: "trial",
+                          course_start_date: "",
+                          course_end_date: "",
+                          course_sessions_count: "",
+                          benefit_line: "",
+                          trial_pick_media_url: "",
+                          trial_pick_media_type: "",
+                          schedule_slots: [],
+                          course_cycles: [],
+                          location_mode: "location",
+                          course_dates_enabled: true,
+                        },
+                      ]
+                );
               }}
               className="w-full gap-2"
             >

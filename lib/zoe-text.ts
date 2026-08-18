@@ -83,6 +83,24 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/לתאם\s+קצר/gu, "לתאם בקצרה");
 }
 
+const LEAD_PLACEHOLDER_TOKEN_RE = /\{[A-Za-z][A-Za-z0-9_]*\}/g;
+const LEAD_FRIENDLY_PLACEHOLDERS = ["(שם האימון)", "(שם המוצר)"];
+
+/**
+ * סוגריים של משתני תבנית ({serviceName}, (שם האימון)…) — אף פעם לא לליד.
+ * שם שיעור אמיתי לא נמחק כאן; רק טוקנים טכניים שלא מולאו.
+ */
+export function stripUnresolvedLeadPlaceholders(text: string): string {
+  let s = String(text ?? "");
+  for (const token of LEAD_FRIENDLY_PLACEHOLDERS) {
+    if (s.includes(token)) s = s.split(token).join("");
+  }
+  s = s.replace(LEAD_PLACEHOLDER_TOKEN_RE, "");
+  s = s.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,!?])/g, "$1");
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
 /**
  * שער שפה לכל הודעות זואי — דטרמיניסטי, ללא עיכוב (regex בלבד).
  * לא מזהה «משפטים לא הגיוניים» סמנטית; רק דפוסי שגיאה ידועים.
@@ -91,6 +109,7 @@ export function sanitizeZoeOutboundLanguage(text: string): string {
   let s = normalizeArabicScriptInHebrew(String(text ?? ""));
   s = applyGlobalHebrewLanguageFixes(s);
   s = fixBodiesPhrasing(s);
+  s = stripUnresolvedLeadPlaceholders(s);
   return s;
 }
 

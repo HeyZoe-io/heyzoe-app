@@ -50,4 +50,24 @@ assert.equal(
   "במוקד - רצפת האגן, הנשימה. בחוג שלנו. ולוודא את השינויים האלה, ולתאם בקצרה"
 );
 
+assert.equal(
+  sanitizeZoeOutboundLanguage("יש לנו אימונים Strength טהורים עם תוכנית."),
+  "יש לנו אימונים Strength טהורים עם תוכנית."
+);
+
+assert.equal(
+  sanitizeZoeOutboundLanguage("יש לנו אימונים {serviceName} טהורים עם תוכנית."),
+  "יש לנו אימונים טהורים עם תוכנית."
+);
+
+assert.equal(
+  sanitizeZoeOutboundLanguage("מושלם (שם האימון) אצלנו. (שם המוצר)"),
+  "מושלם אצלנו."
+);
+
+assert.equal(
+  sanitizeZoeOutboundLanguage("נשמח (אופציונלי) אם תאשרי."),
+  "נשמח (אופציונלי) אם תאשרי."
+);
+
 console.log("zoe-text.test.ts: ok");

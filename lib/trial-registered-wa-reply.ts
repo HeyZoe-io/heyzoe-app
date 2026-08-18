@@ -11,6 +11,7 @@ import {
   resolveAfterRegistrationBodyTemplate,
   resolveAfterRegistrationDirectionsMediaCaptionTemplate,
   resolveAfterRegistrationDirectionsMediaEnabled,
+  shouldIncludeScheduleInRegistration,
 } from "@/lib/sales-flow";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -141,8 +142,15 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     selectedService?.name?.trim() || selectedServiceName.trim();
 
   const courseDatesOff = regOfferKind === "course" && selectedService?.courseDatesEnabled === false;
+  const includeScheduleInReg = shouldIncludeScheduleInRegistration({
+    offerKind: regOfferKind,
+    requestedDate,
+    requestedTime,
+    scheduleSlotCount: selectedService?.scheduleSlots?.length ?? 0,
+    courseDatesEnabled: selectedService?.courseDatesEnabled,
+  });
   const useScheduleRegistrationTemplate =
-    knowledge.scheduleDirectRegistration === false && !courseDatesOff && hasScheduleSelection;
+    knowledge.scheduleDirectRegistration === false && includeScheduleInReg;
   const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
 
   let bodyTemplate = resolveAfterRegistrationBodyTemplate(
@@ -168,9 +176,10 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     bodyTemplate.includes("{requested_time}") ||
     bodyTemplate.includes("{course_schedule}");
   if (
-    hasCourseCycleDate ||
-    hasWorkshopSchedulePick ||
-    (!useScheduleRegistrationTemplate && hasScheduleSelection && templateWantsScheduleFields)
+    includeScheduleInReg &&
+    (hasCourseCycleDate ||
+      hasWorkshopSchedulePick ||
+      (!useScheduleRegistrationTemplate && hasScheduleSelection && templateWantsScheduleFields))
   ) {
     const scheduleBody = resolveAfterRegistrationBodyTemplate(sfCfg, regOfferKind, true).trim();
     if (scheduleBody) bodyTemplate = scheduleBody;
@@ -211,8 +220,8 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     courseOnline ? "" : knowledge.directionsText ?? "",
     shouldFillSchedule
       ? {
-          requestedDate: courseHasDates || regOfferKind !== "course" ? requestedDate : "",
-          requestedTime: courseHasDates || regOfferKind !== "course" ? requestedTime : "",
+          requestedDate: includeScheduleInReg ? requestedDate : "",
+          requestedTime: includeScheduleInReg ? requestedTime : "",
           serviceName,
           offerKind: regOfferKind,
           courseSchedulePhrase: undefined,

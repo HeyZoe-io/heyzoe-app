@@ -46,6 +46,7 @@ import {
   defaultSalesFlowConfig,
   appendTrialPromotionToCtaBody,
   fillAfterExperienceTemplate,
+  fillWarmupScriptedReply,
   fillAfterServicePickTemplate,
   fillCtaBodyTemplate,
   fillOfferKindCtaBody,
@@ -75,6 +76,7 @@ import {
   resolveWarmupExperienceReply,
   fillAfterCourseCyclePickTemplate,
   fillAfterScheduleSelectionTemplate,
+  shouldIncludeScheduleInRegistration,
   resolveAfterScheduleSelectionTemplate,
   resolveCourseCyclePickQuestion,
   buildDefaultMultiServiceQuestion,
@@ -1120,7 +1122,9 @@ function shouldCollectCourseCycleStartPick(
 function shouldCollectScheduleSelection(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): boolean {
   if (courseSkipsScheduleCollection(service)) return false;
   if (shouldCollectCourseCycleStartPick(knowledge, service)) return false;
-  return knowledge.scheduleDirectRegistration === false && !isCourseWithDefinedDates(service);
+  if (knowledge.scheduleDirectRegistration !== false) return false;
+  if (isCourseWithDefinedDates(service)) return false;
+  return (service?.scheduleSlots?.length ?? 0) > 0;
 }
 
 function needsAnyScheduleCollection(
@@ -1931,7 +1935,12 @@ async function executeWarmupExtraPickAt(input: {
   const picked = opts[input.pickedIdx];
   if (!picked) return { handled: false };
 
-  const replyRaw = String(current?.replies?.[input.pickedIdx] ?? "").trim();
+  const warmupServiceName =
+    input.salesFlowServices.length === 1 ? input.salesFlowServices[0]?.name?.trim() || undefined : undefined;
+  const replyRaw = fillWarmupScriptedReply(
+    String(current?.replies?.[input.pickedIdx] ?? ""),
+    warmupServiceName
+  );
   const menuFooter = salesFlowMenuFooter(input.knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const nextIdx = input.lastIdx + 1;
@@ -2735,50 +2744,19 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (shouldCollectScheduleSelection(knowledge, selectedService)) {
     const scheduleState = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
-    const slots = selectedService?.scheduleSlots ?? [];
-    if (slots.length > 0) {
-      if (!scheduleState.requestedDate || !scheduleState.requestedTime) {
-        await sendScheduleSlotPickMenu({
-          knowledge,
-          selectedService,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-        });
-        return;
-      }
-    } else {
-      if (!scheduleState.requestedDate) {
-        await sendScheduleSelectionDateQuestion({
-          knowledge,
-          selectedService,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-        });
-        return;
-      }
-      if (!scheduleState.requestedTime) {
-        await sendScheduleSelectionTimeQuestion({
-          selectedService,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-        });
-        return;
-      }
+    if (!scheduleState.requestedDate || !scheduleState.requestedTime) {
+      await sendScheduleSlotPickMenu({
+        knowledge,
+        selectedService,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
     }
   }
 
@@ -5881,10 +5859,17 @@ async function processIncoming(
         const serviceName =
           selectedService?.name?.trim() || selectedServiceName.trim();
 
+        const includeScheduleInReg = shouldIncludeScheduleInRegistration({
+          offerKind: regOfferKind,
+          requestedDate,
+          requestedTime,
+          scheduleSlotCount: selectedService?.scheduleSlots?.length ?? 0,
+          courseDatesEnabled: selectedService?.courseDatesEnabled,
+        });
+
         const useScheduleRegistrationTemplate =
           knowledge.scheduleDirectRegistration === false &&
-          !(regOfferKind === "course" && selectedService?.courseDatesEnabled === false) &&
-          hasScheduleSelection;
+          includeScheduleInReg;
 
         let bodyTemplate = resolveAfterRegistrationBodyTemplate(
           sfCfg,
@@ -5909,11 +5894,12 @@ async function processIncoming(
           bodyTemplate.includes("{requested_time}") ||
           bodyTemplate.includes("{course_schedule}");
         if (
-          hasCourseCycleDate ||
-          hasWorkshopSchedulePick ||
-          (!useScheduleRegistrationTemplate &&
-            hasScheduleSelection &&
-            templateWantsScheduleFields)
+          includeScheduleInReg &&
+          (hasCourseCycleDate ||
+            hasWorkshopSchedulePick ||
+            (!useScheduleRegistrationTemplate &&
+              hasScheduleSelection &&
+              templateWantsScheduleFields))
         ) {
           const scheduleBody = resolveAfterRegistrationBodyTemplate(sfCfg, regOfferKind, true).trim();
           if (scheduleBody) bodyTemplate = scheduleBody;
@@ -5958,11 +5944,11 @@ async function processIncoming(
           courseOnline ? "" : knowledge.directionsText ?? "",
           shouldFillSchedule
             ? {
-                requestedDate: courseHasDates ? requestedDate : "",
-                requestedTime: courseHasDates ? requestedTime : "",
+                requestedDate: includeScheduleInReg ? requestedDate : "",
+                requestedTime: includeScheduleInReg ? requestedTime : "",
                 serviceName,
                 offerKind: regOfferKind,
-                courseSchedulePhrase: courseSchedForReg,
+                courseSchedulePhrase: includeScheduleInReg ? courseSchedForReg : "",
               }
             : undefined,
           regContentLang
@@ -6016,8 +6002,8 @@ async function processIncoming(
               sessionId,
               registeredAtIso: nowIso,
               scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
-              requestedDate,
-              requestedTime,
+              requestedDate: includeScheduleInReg ? requestedDate : "",
+              requestedTime: includeScheduleInReg ? requestedTime : "",
               warmupSummaryPrecomputed,
             });
             const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
