@@ -896,9 +896,6 @@ export default function Step3Trial(props: {
                 rows={4}
                 className={SALES_PATH_TEXTAREA}
               />
-              <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-500">
-                {t.products.generateDescriptionHint}
-              </p>
             </div>
 
             {s.offer_kind === "course" ? (
@@ -1160,26 +1157,21 @@ export default function Step3Trial(props: {
               </div>
               ) : scheduleDirectRegistration === false ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir={dashboardDir(lang)}>
-                <SalesPathFieldLabel
-                  action={
-                    (s.schedule_slots ?? []).length > 0 ? (
-                      <button
-                        type="button"
-                        className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500"
-                        aria-label={t.products.clearWeeklySlots}
-                        onClick={() => {
-                          const arr = [...services];
-                          arr[i] = { ...s, schedule_slots: [] };
-                          setServices(arr);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null
-                  }
-                >
-                  {t.products.weeklySlots}
-                </SalesPathFieldLabel>
+                <div className="mb-1.5 flex items-center gap-1">
+                  <span className="text-[13px] font-medium text-zinc-800">{t.products.weeklySlots}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+                    aria-label={t.products.clearWeeklySlots}
+                    onClick={() => {
+                      const arr = [...services];
+                      arr[i] = { ...s, schedule_slots: [] };
+                      setServices(arr);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
                 <p className="text-[11px] text-zinc-500 leading-snug">
                   {(s.schedule_slots ?? []).length > 0
                     ? t.products.weeklySlotsHint
