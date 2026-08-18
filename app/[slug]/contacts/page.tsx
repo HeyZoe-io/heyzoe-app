@@ -3,7 +3,6 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
-import { loadLeadsForBusiness } from "@/lib/leads-data";
 import ContactsClient from "./client";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -38,7 +37,5 @@ export default async function ContactsPage({ params }: Props) {
     if (!allowed) redirect(`/${slug}/conversations`);
   }
 
-  const rows = await loadLeadsForBusiness(admin, biz.id);
-
-  return <ContactsClient businessSlug={slug} initialContacts={rows} />;
+  return <ContactsClient businessSlug={slug} initialContacts={[]} />;
 }

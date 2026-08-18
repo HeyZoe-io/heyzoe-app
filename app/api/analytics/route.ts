@@ -101,55 +101,34 @@ export async function GET(req: NextRequest) {
 
   const isPremiumBiz = dbPlanIsPremium(biz.plan);
 
-  // Metrics: prefer DB-side aggregation (fast, no large payloads).
-  // Fallback to the old JS aggregation if RPC isn't deployed yet.
-  let totalChats = 0;
-  let newLeads = 0;
-  try {
-    const { data: rpcData, error: rpcErr } = await admin.rpc("analytics_metrics_v1", {
-      p_business_slug: businessSlug,
-      p_start_iso: startIso,
-    });
-    if (rpcErr) throw rpcErr;
-    const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-    totalChats = Number((row as any)?.total_chats ?? 0) || 0;
-    newLeads = Number((row as any)?.new_leads ?? 0) || 0;
-  } catch {
-    const msgQuery = admin
-      .from("messages")
-      .select("session_id, created_at")
-      .eq("business_slug", businessSlug);
-    const { data: messages } = startIso ? await msgQuery.gte("created_at", startIso) : await msgQuery;
-
-    const seenSessions = new Set<string>();
-    const firstMessageAtBySession = new Map<string, string>();
-    for (const m of messages ?? []) {
-      const sid = (m as any).session_id ? String((m as any).session_id) : "";
-      const at = (m as any).created_at ? String((m as any).created_at) : "";
-      if (!sid) continue;
-      seenSessions.add(sid);
-      const prev = firstMessageAtBySession.get(sid);
-      if (!prev || (at && at < prev)) firstMessageAtBySession.set(sid, at);
+  // Lite counts only — indexed HEAD queries. Do NOT call analytics_metrics_v1:
+  // that RPC groups the full messages history (504 on Limitless-scale studios).
+  async function countHead(
+    run: PromiseLike<{ count: number | null; error: { message: string } | null }>
+  ): Promise<number> {
+    const { count, error } = await run;
+    if (error) {
+      console.warn("[api/analytics] count:", error.message);
+      return 0;
     }
-    totalChats = seenSessions.size;
-    newLeads =
-      startIso
-        ? Array.from(firstMessageAtBySession.values()).filter((at) => at && at >= startIso).length
-        : totalChats;
+    return Number(count ?? 0) || 0;
   }
 
-  const convQuery = admin
+  let leadsQ = admin
     .from("contacts")
-    .select("phone, trial_registered_at")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", biz.id);
+  if (startIso) leadsQ = leadsQ.gte("created_at", startIso);
+
+  let convQ = admin
+    .from("contacts")
+    .select("id", { count: "exact", head: true })
     .eq("business_id", biz.id)
     .eq("trial_registered", true);
-  const { data: convRows } = startIso ? await convQuery.gte("trial_registered_at", startIso) : await convQuery;
-  const convertedPhones = new Set<string>();
-  for (const r of convRows ?? []) {
-    const p = String((r as any).phone ?? "").trim();
-    if (p) convertedPhones.add(p);
-  }
-  const converted = convertedPhones.size;
+  if (startIso) convQ = convQ.gte("trial_registered_at", startIso);
+
+  const [newLeads, converted] = await Promise.all([countHead(leadsQ), countHead(convQ)]);
+  const totalChats = newLeads;
   const conversionRate = totalChats ? Math.round((converted / totalChats) * 100) : 0;
 
   const suggestions = lite

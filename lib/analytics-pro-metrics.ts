@@ -104,7 +104,11 @@ export async function computePremiumAnalytics(input: {
   /** ── לידים לפי יום ── */
   const contactRows: { created_at: string }[] = [];
   const PAGE = 1000;
-  for (let off = 0; ; off += PAGE) {
+  const MAX_CONTACT_PAGES = 4;
+  const MAX_MSG_PAGES = 3;
+  const MAX_FOLLOW_PAGES = 4;
+  for (let page = 0; page < MAX_CONTACT_PAGES; page += 1) {
+    const off = page * PAGE;
     let qc = admin.from("contacts").select("created_at").eq("business_id", businessId).order("created_at", {
       ascending: true,
     });
@@ -154,13 +158,14 @@ export async function computePremiumAnalytics(input: {
   const MAX_USER_CHARS = 900_000;
   let userChars = 0;
 
-  for (let off = 0; ; off += PAGE) {
+  for (let page = 0; page < MAX_MSG_PAGES; page += 1) {
+    const off = page * PAGE;
     let qm = admin
       .from("messages")
       .select("created_at, content, session_id")
       .eq("business_slug", businessSlug)
       .eq("role", "user")
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false });
     if (msgStartIso) qm = qm.gte("created_at", msgStartIso);
     const { data, error } = await qm.range(off, off + PAGE - 1);
     if (error) {
@@ -194,7 +199,8 @@ export async function computePremiumAnalytics(input: {
     wa_followup_2_sent_at: string | null;
     wa_followup_3_sent_at: string | null;
   }[] = [];
-  for (let off = 0; ; off += PAGE) {
+  for (let page = 0; page < MAX_FOLLOW_PAGES; page += 1) {
+    const off = page * PAGE;
     const { data, error } = await admin
       .from("contacts")
       .select("phone, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at")

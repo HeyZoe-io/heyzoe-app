@@ -289,12 +289,19 @@ export default function AnalyticsClient({
 
     setLoading(true);
     try {
-      const ext = planIsPremium ? "&extended=1" : "";
       const res = await fetch(
-        `/api/analytics?business_slug=${encodeURIComponent(slug)}&range=${encodeURIComponent(next)}&lite=1${ext}`,
+        `/api/analytics?business_slug=${encodeURIComponent(slug)}&range=${encodeURIComponent(next)}&lite=1`,
         { method: "GET", signal: ac.signal }
       );
-      const j = (await res.json().catch(() => null)) as any;
+      const j = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        range?: string;
+        newLeads?: number;
+        converted?: number;
+        conversionRate?: number;
+        totalChats?: number;
+        suggestions?: unknown[];
+      } | null;
       if (!res.ok || !j?.ok) return;
 
       if (!mountedRef.current) return;
@@ -308,40 +315,60 @@ export default function AnalyticsClient({
         totalChats: Number(j.totalChats ?? 0) || 0,
         suggestions:
           Array.isArray(j.suggestions) && j.suggestions.length
-            ? j.suggestions.map((x: any) => String(x ?? ""))
+            ? j.suggestions.map((x) => String(x ?? ""))
             : (data?.suggestions ?? []),
       };
 
-      let nextPremium: PremiumAnalyticsResult | null = null;
-      if (planIsPremium && j?.pro === true && Array.isArray(j.leadsByDay) && Array.isArray(j.inboundMessagesByHour)) {
-        nextPremium = {
-          leadsByDay: j.leadsByDay.map((row: any) => ({
-            date: String(row?.date ?? ""),
-            count: Number(row?.count ?? 0) || 0,
-          })),
-          inboundMessagesByHour: [...(j.inboundMessagesByHour as number[])],
-          followupReturnCount: Number(j.followupReturnCount ?? 0) || 0,
-          popularTrainings: Array.isArray(j.popularTrainings)
-            ? j.popularTrainings.map((r: any) => ({
-                name: String(r?.name ?? ""),
-                count: Number(r?.count ?? 0) || 0,
-              }))
-            : [],
-        };
-      }
-
       setData(payload);
+      setPremium(null);
+      setAnalyticsClientCache(slug, {
+        data: payload,
+        premium: null,
+        range: payload.range,
+      });
+      updateUrlRange(slug, payload.range);
+      lastLoadedRangeRef.current = payload.range;
+      if (mountedRef.current && reqId === inFlightRef.current.reqId) setLoading(false);
+
+      if (!planIsPremium) return;
+
+      const extRes = await fetch(
+        `/api/analytics?business_slug=${encodeURIComponent(slug)}&range=${encodeURIComponent(payload.range)}&lite=1&extended=1`,
+        { method: "GET", signal: ac.signal }
+      );
+      const ext = (await extRes.json().catch(() => null)) as {
+        pro?: boolean;
+        leadsByDay?: { date?: string; count?: number }[];
+        inboundMessagesByHour?: number[];
+        followupReturnCount?: number;
+        popularTrainings?: { name?: string; count?: number }[];
+      } | null;
+      if (!mountedRef.current || reqId !== inFlightRef.current.reqId) return;
+      if (!extRes.ok || ext?.pro !== true) return;
+      if (!Array.isArray(ext.leadsByDay) || !Array.isArray(ext.inboundMessagesByHour)) return;
+
+      const nextPremium: PremiumAnalyticsResult = {
+        leadsByDay: ext.leadsByDay.map((row) => ({
+          date: String(row?.date ?? ""),
+          count: Number(row?.count ?? 0) || 0,
+        })),
+        inboundMessagesByHour: [...ext.inboundMessagesByHour],
+        followupReturnCount: Number(ext.followupReturnCount ?? 0) || 0,
+        popularTrainings: Array.isArray(ext.popularTrainings)
+          ? ext.popularTrainings.map((r) => ({
+              name: String(r?.name ?? ""),
+              count: Number(r?.count ?? 0) || 0,
+            }))
+          : [],
+      };
       setPremium(nextPremium);
       setAnalyticsClientCache(slug, {
         data: payload,
         premium: nextPremium,
         range: payload.range,
       });
-
-      updateUrlRange(slug, payload.range);
-      lastLoadedRangeRef.current = payload.range;
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
+    } catch (e: unknown) {
+      if ((e as { name?: string } | null)?.name === "AbortError") return;
     } finally {
       if (ac.signal.aborted) return;
       if (mountedRef.current && reqId === inFlightRef.current.reqId) setLoading(false);

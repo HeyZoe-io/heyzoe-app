@@ -48,7 +48,6 @@ const TEMPLATE_CONTACTS_CAP = 400;
 const SESSION_LIST_CAP = 500;
 const FALLBACK_MESSAGE_PAGE = 1000;
 const FALLBACK_MESSAGE_PAGES = 4;
-const RPC_TIMEOUT_MS = 3500;
 
 function mergeContactMetaRow(
   map: Map<string, ContactPhoneMeta>,
@@ -270,39 +269,6 @@ export function aggregateSessionsFromMessages(
   return sortSessionsByRecentActivity(sessions);
 }
 
-type RpcSessionRow = {
-  session_id: string | null;
-  last_at: string | null;
-  msg_count: number | null;
-  last_role: string | null;
-};
-
-function mapRpcRowsToSessions(
-  rows: RpcSessionRow[],
-  pausedUntilBySession: Map<string, string>
-): SessionSummary[] {
-  const sessions: SessionSummary[] = [];
-  for (const r of rows) {
-    const sid = String(r.session_id ?? "");
-    if (!sid) continue;
-    const at = new Date(String(r.last_at ?? ""));
-    if (Number.isNaN(at.getTime())) continue;
-    const lastFromUser = String(r.last_role ?? "") === "user";
-    const isOpen = lastFromUser && Date.now() - at.getTime() < 24 * 60 * 60 * 1000;
-    const pausedUntil = pausedUntilBySession.get(sid) ?? null;
-    sessions.push({
-      session_id: sid,
-      lastAt: at.toISOString(),
-      count: Number(r.msg_count ?? 0),
-      isOpen,
-      isPaused: Boolean(pausedUntil),
-      pausedUntil,
-      phone: extractPhoneFromSessionId(sid),
-    });
-  }
-  return sortSessionsByRecentActivity(sessions);
-}
-
 function appendTemplateOnlySessions(
   sessions: SessionSummary[],
   contacts: Record<string, unknown>[],
@@ -358,24 +324,17 @@ export async function loadBusinessConversationSessions(
   const phoneNumberIds = await resolveBusinessWaPhoneNumberIds(admin, slug);
   if (!phoneNumberIds.length) return [];
 
-  const waSessionPrefixes = phoneNumberIds.map((pid) => buildWaSessionPrefix(pid));
-
   const norm = String(slug ?? "").trim().toLowerCase();
   const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
   const businessId = Number((biz as { id?: number } | null)?.id ?? 0);
 
-  const [{ data: pausedRows }, rpcResult, { data: templateContacts }] = await Promise.all([
+  const [{ data: pausedRows }, recentMessages, { data: templateContacts }] = await Promise.all([
     admin
       .from("paused_sessions")
       .select("session_id, paused_until, business_slug")
       .in("business_slug", slugVariants)
       .gt("paused_until", new Date().toISOString()),
-    admin
-      .rpc("dashboard_session_summaries", {
-        slug_variants: slugVariants,
-        wa_session_prefixes: waSessionPrefixes,
-      })
-      .abortSignal(AbortSignal.timeout(RPC_TIMEOUT_MS)),
+    fetchRecentMessagesForSessions(admin, slugVariants, phoneNumberIds),
     Number.isFinite(businessId) && businessId > 0
       ? admin
           .from("contacts")
@@ -391,19 +350,7 @@ export async function loadBusinessConversationSessions(
   const pausedUntilBySession = pausedUntilBySessionFromRows(pausedRows as { session_id?: string; paused_until?: string }[] | null, (sid) =>
     sessionIdMatchesWaPhoneNumberIds(sid, phoneNumberIds)
   );
-  const rpcError = rpcResult.error;
-  const rpcRows = rpcResult.data;
-  let sessions: SessionSummary[];
-  if (rpcError) {
-    console.warn("[conversations-sessions] rpc:", rpcError.message);
-    const recent = await fetchRecentMessagesForSessions(admin, slugVariants, phoneNumberIds);
-    sessions = aggregateSessionsFromMessages(recent, pausedUntilBySession).slice(0, SESSION_LIST_CAP);
-  } else {
-    sessions = mapRpcRowsToSessions((rpcRows ?? []) as RpcSessionRow[], pausedUntilBySession).slice(
-      0,
-      SESSION_LIST_CAP
-    );
-  }
+  let sessions = aggregateSessionsFromMessages(recentMessages, pausedUntilBySession).slice(0, SESSION_LIST_CAP);
   sessions = appendTemplateOnlySessions(
     sessions,
     (templateContacts ?? []) as Record<string, unknown>[],

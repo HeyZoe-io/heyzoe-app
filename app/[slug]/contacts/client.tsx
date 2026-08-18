@@ -450,6 +450,9 @@ export default function ContactsClient({
   const [singleMsg, setSingleMsg] = useState("");
   const [answersContact, setAnswersContact] = useState<Contact | null>(null);
   const [contacts, setContacts] = useState(initialContacts);
+  const [listLoading, setListLoading] = useState(
+    () => initialContacts.length === 0 && !adminMode && !marketingAdminMode && Boolean(businessSlug)
+  );
   const [statusMenuKey, setStatusMenuKey] = useState<string | null>(null);
   const [statusUpdatingKey, setStatusUpdatingKey] = useState<string | null>(null);
   const [statusPendingConfirm, setStatusPendingConfirm] = useState<{
@@ -464,6 +467,27 @@ export default function ContactsClient({
   useEffect(() => {
     setContacts(initialContacts);
   }, [initialContacts]);
+
+  useEffect(() => {
+    if (adminMode || marketingAdminMode) return;
+    if (!businessSlug || initialContacts.length > 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/dashboard/contacts?slug=${encodeURIComponent(businessSlug)}`);
+        const j = (await res.json().catch(() => null)) as { contacts?: Contact[] } | null;
+        if (cancelled) return;
+        if (res.ok && Array.isArray(j?.contacts)) setContacts(j.contacts);
+      } catch (e) {
+        console.error("[ContactsClient] load failed:", e);
+      } finally {
+        if (!cancelled) setListLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adminMode, marketingAdminMode, businessSlug, initialContacts.length]);
 
   const filteredContacts = useMemo(() => {
     return contacts.filter((c) => {
@@ -798,8 +822,9 @@ export default function ContactsClient({
     exportContactsToExcel(selectedContacts, showBusinessColumn);
   }
 
-  const emptyListMsg =
-    contacts.length > 0
+  const emptyListMsg = listLoading
+    ? "טוען לידים…"
+    : contacts.length > 0
       ? "אין לידים בטווח התאריכים שנבחר — נסו להרחיב את הטווח או לאפס סינון."
       : "אין לידים לעסק הזה עדיין.";
   const embeddedAdmin = adminMode || marketingAdminMode;
@@ -809,7 +834,9 @@ export default function ContactsClient({
       <div className={embeddedAdmin ? undefined : "hz-wave hz-wave-1"}>
         <h1 className="text-2xl font-semibold text-zinc-900 text-right">לידים</h1>
         <p className="text-sm text-zinc-600 text-right">
-          {contacts.length > stats.total ? (
+          {listLoading ? (
+            "טוען…"
+          ) : contacts.length > stats.total ? (
             <>
               מוצגים {stats.total} מתוך {contacts.length} לידים ({stats.active} בתהליך מכירה)
             </>
