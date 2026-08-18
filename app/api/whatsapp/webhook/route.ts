@@ -182,6 +182,11 @@ import {
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 import {
+  UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
+  UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
+  shouldHandoffUnknownIntroPackSplit,
+} from "@/lib/wa-unknown-offer-policy";
+import {
   matchesRunningLateStatusUpdate,
   RUNNING_LATE_ACK_MESSAGE,
 } from "@/lib/wa-running-late";
@@ -5713,6 +5718,52 @@ async function processIncoming(
         role: "assistant",
         content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
         model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
+  }
+
+  // חריג לחבילת היכרות («אפשר אחד?») בלי עובדה מפורשת — לא מנחשים כן/לא
+  if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
+    const offerPolicyBlobs = [
+      ...(knowledge.traits ?? []),
+      knowledge.faqsText,
+      knowledge.servicesText,
+      knowledge.promotionsText,
+      knowledge.membershipsAndCardsText,
+      ...salesFlowServices.map((s) => `${s.name} ${s.priceText} ${s.benefit}`),
+    ];
+    if (shouldHandoffUnknownIntroPackSplit({ text: msg.text.trim(), knowledgeBlobs: offerPolicyBlobs })) {
+      try {
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        await handleLeadHumanRequested({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] unknown-offer-policy human_requested failed:", e);
+      }
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send unknown-offer-policy team handoff failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
+        model_used: UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
         session_id: sessionId,
       });
       return;
