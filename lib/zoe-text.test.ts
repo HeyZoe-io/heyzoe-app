@@ -70,4 +70,13 @@ assert.equal(
   "נשמח (אופציונלי) אם תאשרי."
 );
 
+assert.equal(
+  sanitizeZoeOutboundLanguage("בהחלמה מהירה!"),
+  "החלמה מהירה!"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("מצטערת לשמוע, מאחלת בהחלמה מהירה!"),
+  "מצטערת לשמוע, מאחלת החלמה מהירה!"
+);
+
 console.log("zoe-text.test.ts: ok");

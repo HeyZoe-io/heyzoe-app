@@ -80,7 +80,9 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/הרצפה\s+האגן/gu, "רצפת האגן")
     .replace(/ההשתנויות\s+הזו/gu, "השינויים האלה")
     .replace(/ולתאם\s+קצר/gu, "ולתאם בקצרה")
-    .replace(/לתאם\s+קצר/gu, "לתאם בקצרה");
+    .replace(/לתאם\s+קצר/gu, "לתאם בקצרה")
+    .replace(/(מאחל(?:ת|ים)?\s+)בהחלמה/gu, "$1החלמה")
+    .replace(/בהחלמה\s+מהירה/gu, "החלמה מהירה");
 }
 
 const LEAD_PLACEHOLDER_TOKEN_RE = /\{[A-Za-z][A-Za-z0-9_]*\}/g;
