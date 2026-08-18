@@ -22,11 +22,14 @@ export function isSameWhatsAppPeer(a: string, b: string): boolean {
  */
 export function shouldSkipStudioAutoReplyPeer(
   from: string,
-  channelPhoneDisplay?: string | null
+  channelPhoneDisplay?: string | null,
+  ownerWhatsappPhone?: string | null
 ): boolean {
   if (isZoeAdminWhatsAppPhone(from)) return true;
   const display = String(channelPhoneDisplay ?? "").trim();
   if (display && isSameWhatsAppPeer(from, display)) return true;
+  const owner = String(ownerWhatsappPhone ?? "").trim();
+  if (owner && isSameWhatsAppPeer(from, owner)) return true;
   return false;
 }
 

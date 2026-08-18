@@ -15,6 +15,7 @@ assert.equal(shouldSkipStudioAutoReplyPeer("97233824981", null), true);
 assert.equal(shouldSkipStudioAutoReplyPeer("0559902641", "+972 55-990-2641"), true);
 assert.equal(shouldSkipStudioAutoReplyPeer("0559902641", "+972 3 382 3805"), false);
 assert.equal(shouldSkipStudioAutoReplyPeer("972559902641", null), false);
+assert.equal(shouldSkipStudioAutoReplyPeer("0559902641", "+972 3 382 3805", "972559902641"), true);
 
 assert.equal(sessionAssistantFloodReachedFromCount(WA_SESSION_FLOOD_MAX_ASSISTANT - 1), false);
 assert.equal(sessionAssistantFloodReachedFromCount(WA_SESSION_FLOOD_MAX_ASSISTANT), true);

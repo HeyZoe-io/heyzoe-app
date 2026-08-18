@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { assertWhatsAppOutboundAllowed } from "@/lib/wa-send-guard";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,7 @@ async function sendMetaWhatsAppText(params: {
   body: string;
   accessToken: string;
 }): Promise<void> {
+  assertWhatsAppOutboundAllowed({ fromPhoneNumberId: params.phoneNumberId, to: params.to });
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(params.phoneNumberId)}/messages`;
   const res = await fetch(url, {
     method: "POST",

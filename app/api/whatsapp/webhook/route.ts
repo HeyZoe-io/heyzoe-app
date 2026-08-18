@@ -4996,6 +4996,20 @@ async function processIncoming(
   }
   const starterBlocksMedia = planIsStarter(bizQuotaRow?.plan);
 
+  if (
+    shouldSkipStudioAutoReplyPeer(
+      msg.from,
+      (channel as { phone_display?: string | null }).phone_display,
+      typeof bizQuotaRow?.owner_whatsapp_phone === "string" ? bizQuotaRow.owner_whatsapp_phone : null
+    )
+  ) {
+    console.info("[WA Webhook] skip auto-reply — inbound from owner WhatsApp number", {
+      business_slug,
+      from: msg.from,
+    });
+    return;
+  }
+
   // ── SAVE CONTACT (upsert) + OPT-IN/OPT-OUT gating ───────────────────────────
   // Always try to save/update the contact on any inbound message.
   // If contact is opted out, we may early-return before reaching any automated flow.
