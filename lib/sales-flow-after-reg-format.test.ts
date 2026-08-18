@@ -91,4 +91,32 @@ const withFilledAddress = formatAfterTrialRegistrationForWhatsAppDelivery(
 );
 assert.ok(withFilledAddress.includes("כתובת: רוטשילד 122"));
 
+const limitlessIncomplete = formatAfterTrialRegistrationForWhatsAppDelivery(
+  `כל הכבוד! נרשמת בהצלחה 🎉
+
+מתרגשות לראותך בקרוב ב{serviceName} ביום {requested_date} בשעה {requested_time}
+זה קורה בכתובת: {business_address}
+
+סופר מחכים לראותך. נתראה בקרוב!`,
+  "",
+  "בן עטר 31 תל אביב",
+  "",
+  { serviceName: "אימוני כוח", requestedDate: "", requestedTime: "" },
+  "he"
+);
+assert.match(limitlessIncomplete, /מתרגשות לראותך בקרוב!/);
+assert.doesNotMatch(limitlessIncomplete, /אימוני כוח/);
+assert.doesNotMatch(limitlessIncomplete, /ביום\s+בשעה/);
+assert.match(limitlessIncomplete, /בן עטר 31 תל אביב/);
+
+const knownClassWithSlot = formatAfterTrialRegistrationForWhatsAppDelivery(
+  `מתרגשות לראותך בקרוב ב{serviceName} ביום {requested_date} בשעה {requested_time}`,
+  "",
+  "",
+  "",
+  { serviceName: "רפורמר", requestedDate: "רביעי", requestedTime: "18:00" },
+  "he"
+);
+assert.match(knownClassWithSlot, /מתרגשות לראותך בקרוב ברפורמר ביום רביעי בשעה 18:00/);
+
 console.log("sales-flow-after-reg-format.test.ts: ok");

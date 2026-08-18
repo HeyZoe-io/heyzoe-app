@@ -3017,12 +3017,37 @@ function fillAfterTrialServiceNamePlaceholders(body: string, serviceName: string
     .replaceAll(SERVICE_NAME_FRIENDLY_PLACEHOLDER, service);
 }
 
+function isGenericAfterRegServiceName(name: string): boolean {
+  const s = name.trim();
+  return !s || /^(האימון|הסדנה|הקורס)$/u.test(s);
+}
+
+/** בלי מועד ודאי — «מתרגשות לראותך בקרוב באימוני כוח ביום  בשעה» → «מתרגשות לראותך בקרוב!» */
+function collapseIncompleteSeeYouSoonLine(line: string): string {
+  const m = line.match(/^(.*?)(מתרגש(?:ים|ות)\s+לראותך\s+בקרוב)(.*)$/u);
+  if (!m) return line;
+  const [, before, prefix, rest] = m;
+  const incomplete =
+    rest.includes(REQUESTED_DATE_PLACEHOLDER) ||
+    rest.includes(REQUESTED_TIME_PLACEHOLDER) ||
+    /ב(?:יום|תאריך)\s+בשעה/u.test(rest) ||
+    /ב(?:יום|תאריך)\s*$/u.test(rest.trim()) ||
+    /בשעה\s*$/u.test(rest.trim());
+  if (!incomplete) return line;
+  return `${before}${prefix}!`;
+}
+
 function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialScheduleFillInput): string {
-  const service = String(fill.serviceName ?? "").trim() || "האימון";
-  const t = fillAfterTrialServiceNamePlaceholders(body, service);
+  const rawService = String(fill.serviceName ?? "").trim();
+  const genericService = isGenericAfterRegServiceName(rawService);
+  let t = genericService
+    ? body.replaceAll(SERVICE_NAME_PLACEHOLDER, "").replaceAll(SERVICE_NAME_FRIENDLY_PLACEHOLDER, "")
+    : fillAfterTrialServiceNamePlaceholders(body, rawService);
+  t = t.replace(/\s+ב\s+ב(?:יום|תאריך)/gu, " ביום");
   const date = normalizeRequestedDateForTemplate(String(fill.requestedDate ?? "").trim());
   const time = String(fill.requestedTime ?? "").trim();
   const courseSched = String(fill.courseSchedulePhrase ?? "").trim();
+  const service = genericService ? "האימון" : rawService;
 
   if (fill.offerKind === "course" && date) {
     const courseSchedSuffix = courseSched
@@ -3043,6 +3068,11 @@ function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialSchedu
       .replaceAll(REQUESTED_TIME_PLACEHOLDER, time)
       .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, "");
   }
+
+  t = t
+    .split("\n")
+    .map(collapseIncompleteSeeYouSoonLine)
+    .join("\n");
   return t
     .replace(
       /מתרגשים לראותך בקרוב ב[^\n]*?\s*בתאריך \{requested_date\} בשעה \{requested_time\}/gu,
@@ -3053,7 +3083,9 @@ function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialSchedu
       "מתרגשים לראותך בקרוב!"
     )
     .replaceAll(REQUESTED_DATE_PLACEHOLDER, "")
-    .replaceAll(REQUESTED_TIME_PLACEHOLDER, "");
+    .replaceAll(REQUESTED_TIME_PLACEHOLDER, "")
+    .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, "")
+    .replace(/[^\S\n]+ביום[^\S\n]+בשעה[^\S\n]*/gu, " ");
 }
 
 /**

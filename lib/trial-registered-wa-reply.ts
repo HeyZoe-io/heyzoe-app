@@ -129,21 +129,20 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
         ? knowledge.openingServices[0]!.name
         : ((await fetchLastSfServiceEventName({ business_slug: businessSlug, session_id: sessionId })) ??
           "");
-  const selectedService =
-    salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+  const selectedService = selectedServiceName
+    ? salesFlowServices.find((s) => s.name === selectedServiceName) ?? null
+    : null;
   const regOfferKind: OfferKind =
     selectedService?.offerKind ??
     knowledge.openingServices.find((s) => s.name === selectedServiceName)?.offer_kind ??
     knowledge.openingServices[0]?.offer_kind ??
     "trial";
-  const regServiceFallback =
-    regOfferKind === "workshop" ? "הסדנה" : regOfferKind === "course" ? "הקורס" : "האימון";
   const serviceName =
-    selectedService?.name?.trim() || selectedServiceName.trim() || regServiceFallback;
+    selectedService?.name?.trim() || selectedServiceName.trim();
 
   const courseDatesOff = regOfferKind === "course" && selectedService?.courseDatesEnabled === false;
   const useScheduleRegistrationTemplate =
-    knowledge.scheduleDirectRegistration === false && !courseDatesOff;
+    knowledge.scheduleDirectRegistration === false && !courseDatesOff && hasScheduleSelection;
   const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
 
   let bodyTemplate = resolveAfterRegistrationBodyTemplate(

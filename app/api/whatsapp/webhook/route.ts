@@ -5536,19 +5536,17 @@ async function processIncoming(
           salesFlowServices.length === 1
             ? salesFlowServices[0]!.name
             : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
-        const selectedService =
-          salesFlowServices.find((service) => service.name === selectedServiceName) ??
-          salesFlowServices[0] ??
-          null;
+        const selectedService = selectedServiceName
+          ? salesFlowServices.find((service) => service.name === selectedServiceName) ?? null
+          : null;
         const regOfferKind = selectedService?.offerKind ?? "trial";
-        const regServiceFallback =
-          regOfferKind === "workshop" ? "הסדנה" : regOfferKind === "course" ? "הקורס" : "האימון";
         const serviceName =
-          selectedService?.name?.trim() || selectedServiceName.trim() || regServiceFallback;
+          selectedService?.name?.trim() || selectedServiceName.trim();
 
         const useScheduleRegistrationTemplate =
           knowledge.scheduleDirectRegistration === false &&
-          !(regOfferKind === "course" && selectedService?.courseDatesEnabled === false);
+          !(regOfferKind === "course" && selectedService?.courseDatesEnabled === false) &&
+          hasScheduleSelection;
 
         let bodyTemplate = resolveAfterRegistrationBodyTemplate(
           sfCfg,
