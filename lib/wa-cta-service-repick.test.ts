@@ -62,6 +62,18 @@ assert.equal(
   true
 );
 assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("אפשר פילאטיס?", "אימון אישי", limitless),
+  true
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("אפשר לי פילאטיס", "אימון אישי", limitless),
+  true
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("אפשר לשלם בביט?", "אימון אישי", limitless),
+  false
+);
+assert.equal(
   isPhaseAgnosticExplicitServiceSwitch("אני רוצה לנסות פילאטיס", "אימון אישי", limitless),
   false
 );

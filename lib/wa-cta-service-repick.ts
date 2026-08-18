@@ -51,6 +51,9 @@ const PARTIAL_AMBIGUITY_SKIP_TOKENS = new Set([
   "מפגש",
   "מפגשים",
   "לאחר",
+  "אפשר",
+  "אפשרי",
+  "ניתן",
 ]);
 
 function splitCatalogTokens(key: string): string[] {
@@ -227,7 +230,7 @@ function isDefinitionalCatalogQuestion(text: string): boolean {
 }
 
 /**
- * שאלת זמינות/עניין על משפחה («יש פילאטיס?», «יש לכם יוגה», «פילאטיס?») —
+ * שאלת זמינות/עניין על משפחה («יש פילאטיס?», «אפשר פילאטיס?», «פילאטיס?») —
  * בלי פועל החלפה כמו «רוצה לנסות».
  */
 function hasCatalogFamilyAvailabilityOrInterestIntent(text: string): boolean {
@@ -240,6 +243,12 @@ function hasCatalogFamilyAvailabilityOrInterestIntent(text: string): boolean {
     return true;
   }
   if (/(?:עושים|מציעים|מלמדים)\s+\S/u.test(t)) return true;
+  if (
+    /(?:^|[\s,])(?:אפשר|אפשרי|ניתן)(?:\s+(?:לנסות|לעשות|לקחת|לי|לנו|גם|אצלכם|אצלכן))?/u.test(t) &&
+    !/(?:אפשר|אפשרי|ניתן).{0,28}(?:רק\s+)?(?:אחד|אחת|בודד)/u.test(t)
+  ) {
+    return true;
+  }
   const toks = inboundSignificantTokens(t);
   return toks.length === 1 && t.length <= 48;
 }
