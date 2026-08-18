@@ -514,7 +514,10 @@ async function sendArboxNewLeadTemplate(input: {
   await logMessage({
     business_slug: input.businessSlug,
     role: "assistant",
-    content: formatLeadTemplateMessageContent(templateName, { firstName }),
+    content: formatLeadTemplateMessageContent(templateName, {
+      firstName,
+      components: (approvedTpl as { components?: unknown }).components,
+    }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId,
   });

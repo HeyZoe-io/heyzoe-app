@@ -51,6 +51,65 @@ type LeadTemplatePreview = {
   footer?: string;
 };
 
+export type LeadTemplateRenderOpts = {
+  firstName?: string;
+  components?: unknown;
+  componentsByName?: Record<string, unknown>;
+};
+
+/** Build a dashboard preview from stored Meta template components. */
+export function previewFromWhatsappTemplateComponents(
+  components: unknown
+): LeadTemplatePreview | null {
+  if (!Array.isArray(components)) return null;
+  let header: string | undefined;
+  let body = "";
+  let footer: string | undefined;
+  const buttons: string[] = [];
+  for (const raw of components) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as { type?: unknown; text?: unknown; buttons?: unknown };
+    const type = String(c.type ?? "").toUpperCase();
+    if (type === "HEADER") {
+      const t = String(c.text ?? "").trim();
+      if (t) header = t;
+    } else if (type === "BODY") {
+      const t = String(c.text ?? "");
+      if (t.trim()) body = t;
+    } else if (type === "FOOTER") {
+      const t = String(c.text ?? "").trim();
+      if (t) footer = t;
+    } else if (type === "BUTTONS" && Array.isArray(c.buttons)) {
+      for (const b of c.buttons) {
+        if (!b || typeof b !== "object") continue;
+        const label = String((b as { text?: unknown }).text ?? "").trim();
+        if (label) buttons.push(label);
+      }
+    }
+  }
+  if (!body.trim()) return null;
+  return {
+    ...(header ? { header } : {}),
+    body,
+    ...(buttons.length ? { buttons } : {}),
+    ...(footer ? { footer } : {}),
+  };
+}
+
+function renderPreviewText(preview: LeadTemplatePreview, firstName: string): string {
+  const lines: string[] = [];
+  if (preview.header?.trim()) lines.push(preview.header.trim());
+  lines.push(preview.body.replace(/\{\{1\}\}/g, firstName));
+  if (preview.footer?.trim()) lines.push(preview.footer.trim());
+
+  let text = lines.join("\n\n");
+  for (const btn of preview.buttons ?? []) {
+    const label = String(btn ?? "").trim();
+    if (label) text += `\n\n[כפתור: ${label}]`;
+  }
+  return text;
+}
+
 /** תצוגה בדשבורד — טקסט הטמפלייט כפי שנשלח ב-Meta (לא שליפה בזמן אמת). */
 const LEAD_TEMPLATE_REGISTRY: Record<string, LeadTemplatePreview> = {
   sangha_lead_welcome: {
@@ -93,32 +152,25 @@ export function firstNameFromFullName(fullName: string): string {
 
 export function renderLeadTemplateMessageContent(
   templateName: string,
-  opts?: { firstName?: string }
+  opts?: LeadTemplateRenderOpts
 ): string {
   const key = String(templateName ?? "").trim() || "lead_welcome";
-  const preview = LEAD_TEMPLATE_REGISTRY[key];
+  const firstName = String(opts?.firstName ?? "").trim() || "שלום";
+  const preview =
+    LEAD_TEMPLATE_REGISTRY[key] ??
+    previewFromWhatsappTemplateComponents(
+      opts?.components ?? opts?.componentsByName?.[key]
+    );
   if (!preview) {
     return `נשלח טמפלייט פתיחה (${key})`;
   }
-
-  const firstName = String(opts?.firstName ?? "").trim() || "שלום";
-  const lines: string[] = [];
-  if (preview.header?.trim()) lines.push(preview.header.trim());
-  lines.push(preview.body.replace(/\{\{1\}\}/g, firstName));
-  if (preview.footer?.trim()) lines.push(preview.footer.trim());
-
-  let text = lines.join("\n\n");
-  for (const btn of preview.buttons ?? []) {
-    const label = String(btn ?? "").trim();
-    if (label) text += `\n\n[כפתור: ${label}]`;
-  }
-  return text;
+  return renderPreviewText(preview, firstName);
 }
 
 /** @deprecated Use renderLeadTemplateMessageContent — kept for call sites. */
 export function formatLeadTemplateMessageContent(
   templateName: string,
-  opts?: { firstName?: string }
+  opts?: LeadTemplateRenderOpts
 ): string {
   return renderLeadTemplateMessageContent(templateName, opts);
 }
@@ -128,15 +180,21 @@ export function leadTemplatePlaceholderNeedsEnrichment(content: string): boolean
   return LEAD_TEMPLATE_PLACEHOLDER_RE.test(String(content ?? "").trim());
 }
 
+export function leadTemplateNameFromPlaceholder(content: string): string | null {
+  const m = String(content ?? "").trim().match(LEAD_TEMPLATE_PLACEHOLDER_RE);
+  const name = String(m?.[1] ?? "").trim();
+  return name || null;
+}
+
 /** משדרג רשומות ישנות «נשלח טמפלייט…» לטקסט מלא לתצוגה בדשבורד. */
 export function resolveLeadTemplateDisplayContent(
   content: string,
-  opts?: { firstName?: string }
+  opts?: LeadTemplateRenderOpts
 ): string {
   const raw = String(content ?? "").trim();
-  const m = raw.match(LEAD_TEMPLATE_PLACEHOLDER_RE);
-  if (!m) return raw;
-  return renderLeadTemplateMessageContent(m[1]!, opts);
+  const name = leadTemplateNameFromPlaceholder(raw);
+  if (!name) return raw;
+  return renderLeadTemplateMessageContent(name, opts);
 }
 
 /** ליד שקיבל טמפלייט ועדיין לא התחיל שיחה (לא ענה / לא התקדם בפלואו). */

@@ -2,6 +2,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { computeContactStatus } from "@/lib/contact-status";
 import {
   firstNameFromFullName,
+  leadTemplateNameFromPlaceholder,
   leadTemplatePlaceholderNeedsEnrichment,
   renderLeadTemplateMessageContent,
   resolveLeadTemplateDisplayContent,
@@ -60,9 +61,39 @@ export async function enrichLeadTemplateMessagesForDisplay(input: {
   }
 
   const firstName = await loadContactFirstNameForSession(input);
+  const names = [
+    ...new Set(
+      input.messages
+        .map((m) => leadTemplateNameFromPlaceholder(m.content))
+        .filter((n): n is string => Boolean(n))
+    ),
+  ];
+
+  const componentsByName: Record<string, unknown> = {};
+  if (names.length) {
+    const { data: biz } = await input.admin
+      .from("businesses")
+      .select("id")
+      .ilike("slug", String(input.slug ?? "").trim().toLowerCase())
+      .maybeSingle();
+    const businessId = Number((biz as { id?: number } | null)?.id ?? 0);
+    if (Number.isFinite(businessId) && businessId > 0) {
+      const { data: tpls } = await input.admin
+        .from("whatsapp_templates")
+        .select("name, components")
+        .eq("business_id", businessId)
+        .in("name", names);
+      for (const row of tpls ?? []) {
+        const name = String((row as { name?: unknown }).name ?? "").trim();
+        if (!name) continue;
+        componentsByName[name] = (row as { components?: unknown }).components;
+      }
+    }
+  }
+
   return input.messages.map((m) => ({
     ...m,
-    content: resolveLeadTemplateDisplayContent(m.content, { firstName }),
+    content: resolveLeadTemplateDisplayContent(m.content, { firstName, componentsByName }),
   }));
 }
 
@@ -110,10 +141,22 @@ export async function appendLeadTemplateMessageFallback(input: {
   const createdAt = String((contact as { created_at?: string | null }).created_at ?? new Date().toISOString());
   const firstName = firstNameFromFullName(String((contact as { full_name?: string | null }).full_name ?? ""));
 
+  let components: unknown;
+  if (templateName) {
+    const { data: tpl } = await input.admin
+      .from("whatsapp_templates")
+      .select("components")
+      .eq("business_id", businessId)
+      .eq("name", templateName)
+      .limit(1)
+      .maybeSingle();
+    components = (tpl as { components?: unknown } | null)?.components;
+  }
+
   return [
     {
       role: "assistant",
-      content: renderLeadTemplateMessageContent(templateName, { firstName }),
+      content: renderLeadTemplateMessageContent(templateName, { firstName, components }),
       created_at: createdAt,
       error_code: null,
     },
