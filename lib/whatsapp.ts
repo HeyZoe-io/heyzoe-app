@@ -128,6 +128,8 @@ export type WaIncomingUnsupported = {
   metaInboundType?: string;
   /** Meta reaction emoji when metaInboundType is "reaction". */
   reactionEmoji?: string;
+  /** Text Meta sometimes includes even when type is unsupported / template. */
+  previewText?: string;
 };
 
 /** טקסט ישן — לא נשלח יותר (הודעות לא-טקסט נרשמות בלי תשובה אוטומטית). */
@@ -348,14 +350,42 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
     };
   }
 
+  const previewText = metaInboundPreviewText(m);
+  const unsupportedKind = metaUnsupportedKind(m, type);
   return {
     type: "unsupported",
     messageId,
     from,
     toNumber: phoneNumberId,
     profileName: profileName || undefined,
-    metaInboundType: type || undefined,
+    metaInboundType: unsupportedKind || type || undefined,
+    previewText: previewText || undefined,
   };
+}
+
+function metaInboundPreviewText(m: Record<string, unknown>): string {
+  const text = String((m.text as Record<string, unknown> | undefined)?.body ?? "").trim();
+  if (text) return text;
+  const btn = m.button as Record<string, unknown> | undefined;
+  const buttonText = String(btn?.text ?? btn?.payload ?? "").trim();
+  if (buttonText) return buttonText;
+  for (const key of ["image", "video", "document", "audio"] as const) {
+    const block = m[key];
+    if (!block || typeof block !== "object") continue;
+    const caption = String((block as { caption?: unknown }).caption ?? "").trim();
+    if (caption) return caption;
+  }
+  return "";
+}
+
+function metaUnsupportedKind(m: Record<string, unknown>, type: string): string {
+  const nested = m.unsupported;
+  if (nested && typeof nested === "object") {
+    const nestedType = String((nested as { type?: unknown }).type ?? "").trim();
+    if (nestedType) return nestedType;
+  }
+  if (type === "template" || type === "hsm") return "template";
+  return type || "unsupported";
 }
 
 /**

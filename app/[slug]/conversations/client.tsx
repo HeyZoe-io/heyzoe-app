@@ -183,6 +183,7 @@ function messagePreviewText(content: string): string {
     if (emoji && quoted) return `${emoji} ${quoted}`;
     return emoji || quoted || "הגיבה";
   }
+  if (parsed.kind === "unsupported") return parsed.title;
   return "";
 }
 

@@ -5,6 +5,7 @@ import {
   parseConversationMessageContent,
   WA_UNSUPPORTED_INBOUND_MODEL,
   WA_BUSINESS_APP_ECHO_MODEL,
+  WA_ZOE_ADMIN_TEMPLATE_MODEL,
   type ParsedWaConversationMessage,
 } from "@/lib/conversation-message-display";
 import { dashboardDateLocale, type DashboardLang } from "@/lib/dashboard-lang";
@@ -14,11 +15,13 @@ const i18n = {
     errorCode: "קוד שגיאה",
     unsupportedInbound: "תשובת מערכת — סוג הודעה נכנסת לא נתמך",
     sentFromWhatsAppApp: "נשלח מאפליקציית WhatsApp",
+    sentFromZoeAdmin: "נשלח ממספר זואי",
   },
   en: {
     errorCode: "Error code",
     unsupportedInbound: "System reply — unsupported inbound message type",
     sentFromWhatsAppApp: "Sent from the WhatsApp app",
+    sentFromZoeAdmin: "Sent from the Zoe admin number",
   },
 } as const;
 
@@ -218,6 +221,17 @@ function MessageBody({ parsed }: { parsed: ParsedWaConversationMessage }) {
     );
   }
 
+  if (parsed.kind === "unsupported") {
+    return (
+      <div className="px-2.5 py-2">
+        <p className="text-sm leading-snug text-[#54656f]">{parsed.title}</p>
+        {parsed.detail ? (
+          <p className="mt-0.5 text-[11px] leading-snug text-[#8696a0]">{parsed.detail}</p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <p className="whitespace-pre-wrap px-2.5 py-2 text-sm leading-snug">{parsed.text}</p>
   );
@@ -263,6 +277,9 @@ export function WaConversationMessage({
       ) : null}
       {from === "assistant" && modelUsed === WA_BUSINESS_APP_ECHO_MODEL ? (
         <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.sentFromWhatsAppApp}</p>
+      ) : null}
+      {modelUsed === WA_ZOE_ADMIN_TEMPLATE_MODEL ? (
+        <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.sentFromZoeAdmin}</p>
       ) : null}
     </div>
   );

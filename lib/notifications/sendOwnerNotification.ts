@@ -62,6 +62,16 @@ export async function sendOwnerNotification(input: {
       console.error("[sendOwnerNotification] Meta error:", res.status, errText);
       return { ok: false, error: errText || `http_${res.status}` };
     }
+    try {
+      const { logZoeAdminTemplateToConversations } = await import("@/lib/wa-zoe-admin-template-log");
+      await logZoeAdminTemplateToConversations({
+        toPhone: to,
+        templateName,
+        sendComponents: input.components,
+      });
+    } catch (e) {
+      console.error("[sendOwnerNotification] conversation log failed:", e);
+    }
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

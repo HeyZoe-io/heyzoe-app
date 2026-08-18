@@ -208,6 +208,11 @@ import {
   formatWaReactionLogContent,
   WA_INBOUND_REACTION_MODEL,
 } from "@/lib/wa-inbound-reaction";
+import {
+  formatWaUnsupportedLogContent,
+  isZoeAdminWhatsAppPhone,
+  WA_ZOE_ADMIN_TEMPLATE_MODEL,
+} from "@/lib/wa-inbound-unsupported";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import {
   pickUnclearIntentReply,
@@ -4825,7 +4830,7 @@ async function processIncoming(
   // Route: look up business by Twilio/Meta "To" number (גם ערוץ כבוי — לתגובת מנוי לא פעיל)
   const { data: channel } = await supabase
     .from("whatsapp_channels")
-    .select("business_slug, business_id, phone_number_id, is_active")
+    .select("business_slug, business_id, phone_number_id, phone_display, is_active")
     .eq("phone_number_id", msg.toNumber)
     .maybeSingle();
 
@@ -5429,10 +5434,32 @@ async function processIncoming(
           });
         }
       } else {
+        const preview = String(msg.previewText ?? "").trim();
+        let recovered = preview;
+        const fromZoeAdmin = isZoeAdminWhatsAppPhone(msg.from);
+        if (fromZoeAdmin) {
+          const { recentZoeAdminTemplateAlreadyLogged, fetchRecentZoeAdminOutboundToPhone } =
+            await import("@/lib/wa-zoe-admin-template-log");
+          if (await recentZoeAdminTemplateAlreadyLogged({ businessSlug: business_slug, sessionId })) {
+            console.info("[WA Webhook] skip duplicate zoe-admin template inbound", {
+              business_slug,
+              sessionId,
+              from: msg.from,
+            });
+            return;
+          }
+          if (!recovered) {
+            const studioPhone = String(
+              (channel as { phone_display?: string | null }).phone_display ?? ""
+            ).trim();
+            recovered = await fetchRecentZoeAdminOutboundToPhone(studioPhone);
+          }
+        }
         await logMessage({
           business_slug,
           role: "user",
-          content: `[unsupported] ${msg.metaInboundType ?? "unknown"}`,
+          content: recovered || formatWaUnsupportedLogContent(msg.metaInboundType ?? "unknown"),
+          model_used: recovered ? WA_ZOE_ADMIN_TEMPLATE_MODEL : null,
           session_id: sessionId,
         });
       }

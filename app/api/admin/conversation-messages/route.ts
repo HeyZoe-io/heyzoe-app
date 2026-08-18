@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { appendLeadTemplateMessageFallback } from "@/lib/conversation-template-messages";
+import { hydrateUnsupportedZoeAdminMessages } from "@/lib/wa-zoe-admin-template-log";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 import {
   isMarketingConversationsSlug,
@@ -68,6 +69,12 @@ export async function GET(req: NextRequest) {
 
   if (!isMarketingConversationsSlug(slug)) {
     out = await appendLeadTemplateMessageFallback({
+      admin,
+      slug,
+      sessionId,
+      messages: out,
+    });
+    out = await hydrateUnsupportedZoeAdminMessages({
       admin,
       slug,
       sessionId,

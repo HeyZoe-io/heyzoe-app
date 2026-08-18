@@ -9,6 +9,7 @@ import {
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { appendLeadTemplateMessageFallback } from "@/lib/conversation-template-messages";
+import { hydrateUnsupportedZoeAdminMessages } from "@/lib/wa-zoe-admin-template-log";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 
 export const runtime = "nodejs";
@@ -60,6 +61,12 @@ export async function GET(req: NextRequest) {
   }));
 
   out = await appendLeadTemplateMessageFallback({
+    admin,
+    slug,
+    sessionId,
+    messages: out,
+  });
+  out = await hydrateUnsupportedZoeAdminMessages({
     admin,
     slug,
     sessionId,

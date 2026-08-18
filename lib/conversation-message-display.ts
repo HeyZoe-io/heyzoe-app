@@ -1,6 +1,11 @@
 import { HEYZOE_MARKETING_CTA_SENT } from "@/lib/lp-analytics";
 import { getZoeWhatsAppMenuFooter } from "@/lib/whatsapp-copy";
 import { parseWaReactionLogContent } from "@/lib/wa-inbound-reaction";
+import {
+  hebrewUnsupportedInboundLabel,
+  parseWaUnsupportedKind,
+  WA_ZOE_ADMIN_TEMPLATE_MODEL as WA_ZOE_ADMIN_TEMPLATE_MODEL_VALUE,
+} from "@/lib/wa-inbound-unsupported";
 
 export type WaConversationButton = { label: string; url?: string };
 
@@ -13,7 +18,8 @@ export type ParsedWaConversationMessage =
       footerHint?: string;
     }
   | { kind: "media"; url: string; caption?: string; isVideo?: boolean }
-  | { kind: "reaction"; emoji: string; quoted: string };
+  | { kind: "reaction"; emoji: string; quoted: string }
+  | { kind: "unsupported"; title: string; detail: string };
 
 function parseNumberedTail(lines: string[]): { bodyLines: string[]; chips: string[] } {
   const body = [...lines];
@@ -105,6 +111,12 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
   const reaction = parseWaReactionLogContent(s);
   if (reaction) return { kind: "reaction", emoji: reaction.emoji, quoted: reaction.quoted };
 
+  const unsupportedKind = parseWaUnsupportedKind(s);
+  if (unsupportedKind != null) {
+    const label = hebrewUnsupportedInboundLabel(unsupportedKind);
+    return { kind: "unsupported", title: label.title, detail: label.detail };
+  }
+
   if (s.startsWith("[video]")) {
     const caption = s.slice("[video]".length).trim();
     return { kind: "media", url: "", caption: caption || undefined, isVideo: true };
@@ -189,3 +201,6 @@ export const WA_UNSUPPORTED_INBOUND_MODEL = "unsupported_inbound_type";
 
 /** model_used ב-messages — הודעה שנשלחה מאפליקציית WhatsApp Business (לא מזואי). */
 export const WA_BUSINESS_APP_ECHO_MODEL = "wa_business_app";
+
+/** model_used — טמפלייט שנשלח ממספר זואי אדמין (שוחזר כי Meta לא מעבירה גוף WABA→WABA). */
+export const WA_ZOE_ADMIN_TEMPLATE_MODEL = WA_ZOE_ADMIN_TEMPLATE_MODEL_VALUE;
