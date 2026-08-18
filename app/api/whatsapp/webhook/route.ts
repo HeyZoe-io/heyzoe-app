@@ -231,6 +231,7 @@ import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
   salesFlowOpeningResetPatch,
+  salesFlowServiceSwitchResetPatch,
   withWarmupExtraAwaitingOff,
   WARMUP_EXTRA_AWAITING_OFF,
 } from "@/lib/wa-warmup-awaiting-idx";
@@ -366,11 +367,12 @@ import {
   shouldSendNotRelevantGatingReply,
 } from "@/lib/not-relevant";
 import { matchesSelfReportedRegistered } from "@/lib/self-reported-registered";
-import { FULL_SALES_FLOW_CTA_SENT_MARKER } from "@/lib/wa-cta-frequency";
+import { FULL_SALES_FLOW_CTA_SENT_MARKER, resolveSalesFlowCtaDeliveryMode } from "@/lib/wa-cta-frequency";
 import {
   SALES_FLOW_CTA_COMPACT_MODEL,
   SALES_FLOW_CTA_HAVE_A_QUESTION_MODEL,
   buildCompactCtaMenuLabels,
+  ctaCompactFollowupBody,
   ctaHaveAQuestionReply,
   isCtaHaveAQuestionMessage,
 } from "@/lib/wa-cta-compact";
@@ -743,25 +745,30 @@ async function resetContactSalesFlowStateForGreeting(input: {
   }
 }
 
-async function bumpContactFreeTextRepliesSinceCta(input: {
+async function fetchContactFreeTextRepliesSinceCta(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
   phone: string;
-  current: number;
-}): Promise<number> {
-  const next = Math.max(0, Math.trunc(Number.isFinite(input.current) ? input.current : 0)) + 1;
+}): Promise<number | null> {
   const phoneVariants = contactPhoneLookupVariants(input.phone);
   try {
-    const { error } = await input.supabase
+    const { data, error } = await input.supabase
       .from("contacts")
-      .update({ free_text_replies_since_cta: next })
+      .select("free_text_replies_since_cta")
       .eq("business_id", input.businessId)
-      .in("phone", phoneVariants.length ? phoneVariants : [input.phone]);
-    if (error) console.warn("[WA Webhook] free_text_replies_since_cta bump failed:", error.message);
+      .in("phone", phoneVariants.length ? phoneVariants : [input.phone])
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.warn("[WA Webhook] free_text_replies_since_cta select:", error.message);
+      return null;
+    }
+    const n = Number((data as { free_text_replies_since_cta?: unknown } | null)?.free_text_replies_since_cta);
+    return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
   } catch (e) {
-    console.warn("[WA Webhook] free_text_replies_since_cta bump threw:", e);
+    console.warn("[WA Webhook] free_text_replies_since_cta select threw:", e);
+    return null;
   }
-  return next;
 }
 
 async function markContactFullCtaSent(input: {
@@ -2388,14 +2395,7 @@ async function commitImplicitServiceSwitch(input: {
   const phoneVariants = contactPhoneLookupVariants(input.msg.from);
   await input.supabase
     .from("contacts")
-    .update(
-      withWarmupExtraAwaitingOff({
-        session_phase: nextPhase,
-        flow_step: 0,
-        sf_requested_date: null,
-        sf_requested_time: null,
-      })
-    )
+    .update(salesFlowServiceSwitchResetPatch(nextPhase))
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
   await logMessage({
@@ -2681,8 +2681,6 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   extraBodyLines?: string[];
   modelUsed: string;
   blockMedia?: boolean;
-  /** Cap resends after Claude answers. Leave false for flow-progression (first CTA after service pick). When true, skip sending — compact buttons are attached to the AI answer. */
-  applyFreeTextFrequencyCap?: boolean;
 }): Promise<void> {
   const {
     knowledge,
@@ -2700,7 +2698,6 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     extraBodyLines,
     modelUsed,
     blockMedia = false,
-    applyFreeTextFrequencyCap = false,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -2830,13 +2827,36 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (!ctaBody) return;
 
-  if (applyFreeTextFrequencyCap) {
-    // Free-text in CTA phase attaches compact buttons to the AI answer — never resend the full CTA session.
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+  const fullCtaFlag = await fetchContactFreeTextRepliesSinceCta({
+    supabase,
+    businessId,
+    phone: msg.from,
+  });
+  if (resolveSalesFlowCtaDeliveryMode(fullCtaFlag) === "compact") {
+    const compactLabels = buildCompactCtaMenuLabels(filtered, contentLang);
+    const compactBody = ctaCompactFollowupBody(contentLang);
+    if (compactLabels.length >= 1) {
+      await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, compactBody, compactLabels, accountSid, authToken, {
+        footerHint: "",
+        language: contentLang,
+      }).catch((e) => console.error("[WA Webhook] sendSalesFlowCtaMenu compact failed:", e));
+    } else {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, compactBody, accountSid, authToken).catch((e) =>
+        console.error("[WA Webhook] sendSalesFlowCtaMenu compact plain failed:", e)
+      );
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: formatInteractiveConversationLog(compactBody, compactLabels, ""),
+      model_used: SALES_FLOW_CTA_COMPACT_MODEL,
+      session_id: sessionId,
+    });
     await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "cta" });
     return;
   }
 
-  const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
   const menuFooter = getZoeWhatsAppMenuFooter(contentLang);
 
   if (ctaLabels.length >= 1) {
@@ -8829,7 +8849,7 @@ async function processIncoming(
     });
     return;
   } else if (joinSignupRecovery === "cta_menu" && knowledge?.salesFlowConfig && businessId) {
-    // רק אחרי נפילה ל-AI חופשי בסשן CTA, ובלי תפריט CTA שכבר נשלח בהודעה הקודמת.
+    // Same full-vs-compact helper as every other CTA send (flag 1 → compact, not a second full session).
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
       msg,
@@ -9422,21 +9442,6 @@ async function processIncoming(
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
-  if (
-    didCallClaude &&
-    !isFallbackErrorReply &&
-    isFreeTextSalesFlowAi &&
-    businessId &&
-    contactSessionPhase !== "cta"
-  ) {
-    await bumpContactFreeTextRepliesSinceCta({
-      supabase,
-      businessId,
-      phone: msg.from,
-      current: contactFreeTextRepliesSinceCta,
-    });
-  }
-
   try {
     if (isFallbackErrorReply) {
       await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
@@ -9517,7 +9522,7 @@ async function processIncoming(
         contactSessionPhase = "opening";
         contactFlowStep = 0;
       } else if (shouldSplitCtaAnswerAndMenu) {
-        // CTA phase + free-text: answer with register + "יש לי שאלה" on the same message (no full CTA session).
+        // CTA phase + free-text: compact 2 buttons on the answer, or full session if flag is still 0.
         let answerOnly = stripTrailingFollowUpQuestion(
           stripSalesFlowCtaHookFromAnswer(
             softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean))
@@ -9526,9 +9531,11 @@ async function processIncoming(
         if (needsCtaRepickBridge) {
           answerOnly = ensureCtaServiceRepickBridge(answerOnly);
         }
-        const compactLabels = needsCtaRepickBridge
-          ? []
-          : buildCompactCtaMenuLabels(filteredCtaForAi, aiMenuContentLang);
+        const ctaMode = resolveSalesFlowCtaDeliveryMode(contactFreeTextRepliesSinceCta);
+        const compactLabels =
+          !needsCtaRepickBridge && ctaMode === "compact"
+            ? buildCompactCtaMenuLabels(filteredCtaForAi, aiMenuContentLang)
+            : [];
         try {
           if (compactLabels.length > 0) {
             await sendWhatsAppTextOrMenu(
@@ -9558,6 +9565,28 @@ async function processIncoming(
           error_code: replyErrorCode,
         });
         assistantReplyLogged = true;
+        if (
+          businessId &&
+          knowledge?.salesFlowConfig &&
+          !needsCtaRepickBridge &&
+          ctaMode === "full"
+        ) {
+          await sendSalesFlowCtaMenuWithPhaseUpdate({
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            sfConsumedKinds: sfClickedCtaKinds,
+            modelUsed: "sales_flow_cta",
+          });
+        }
       } else if (shouldSplitFreeTextAnswerAndResendPrompt) {
         // opening / warmup / schedule + free-text question:
         // 1) answer only

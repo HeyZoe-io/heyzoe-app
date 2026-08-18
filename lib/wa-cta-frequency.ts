@@ -1,11 +1,11 @@
 /**
- * 0 = full sales-flow CTA not yet sent this run (new flow / back to product pick).
- * >= 1 = full CTA already sent — follow-up free-text gets the compact register + question menu.
+ * contacts.free_text_replies_since_cta is a 0/1 flag (name is historical):
+ * 0 = full sales-flow CTA not yet sent this run (new flow / product pick / switch).
+ * >= 1 = full CTA already sent — later answers get compact register + question buttons.
  */
 export const FULL_SALES_FLOW_CTA_SENT_MARKER = 1;
 
-/** @deprecated Compact follow-up replaced the every-3 full CTA resend. */
-export const CTA_FREE_TEXT_REPLIES_BEFORE_RESEND = 3;
+export type SalesFlowCtaDeliveryMode = "full" | "compact";
 
 export function hasSentFullSalesFlowCta(count: number | null | undefined): boolean {
   if (count == null) return true;
@@ -13,15 +13,18 @@ export function hasSentFullSalesFlowCta(count: number | null | undefined): boole
   return n >= FULL_SALES_FLOW_CTA_SENT_MARKER;
 }
 
-/**
- * Uncapped first CTA (service pick / new flow) still sends when count is 0.
- * Free-text after that uses the compact menu instead of another full CTA session.
- */
-export function shouldSendFullSalesFlowCtaMenu(count: number | null | undefined): boolean {
-  return !hasSentFullSalesFlowCta(count === undefined ? 0 : count);
+/** Shared full-vs-compact decision for every CTA send path. null (unreadable) → compact (fail closed). */
+export function resolveSalesFlowCtaDeliveryMode(
+  fullCtaAlreadySentFlag: number | null | undefined
+): SalesFlowCtaDeliveryMode {
+  return hasSentFullSalesFlowCta(fullCtaAlreadySentFlag) ? "compact" : "full";
 }
 
-/** @deprecated Use hasSentFullSalesFlowCta — extra full CTAs are no longer resent on a 3-count. */
+export function shouldSendFullSalesFlowCtaMenu(count: number | null | undefined): boolean {
+  return resolveSalesFlowCtaDeliveryMode(count === undefined ? 0 : count) === "full";
+}
+
+/** @deprecated Use resolveSalesFlowCtaDeliveryMode. */
 export function shouldSendSalesFlowCtaForFreeTextCount(count: number | null | undefined): boolean {
   if (count == null) return false;
   return shouldSendFullSalesFlowCtaMenu(count);
