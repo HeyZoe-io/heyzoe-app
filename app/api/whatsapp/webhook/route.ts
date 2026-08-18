@@ -138,7 +138,7 @@ import {
   exactTypedCatalogServiceName,
   replyContainsServiceRepickBridge,
   resolveImplicitServiceSwitchFromFreeText,
-  SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
+  withServiceRepickAckPrefix,
   isAmbiguousPartialCatalogServiceSwitch,
   shouldHandleCtaServiceRepickYes,
 } from "@/lib/wa-cta-service-repick";
@@ -2280,6 +2280,8 @@ async function sendOpeningServicePickMenu(input: {
   modelUsed?: string;
   /** מערכת שעות כבר נשלחה (אחרי חימום) */
   skipScheduleBoard?: boolean;
+  /** בקשת אימון אחר — שורת אישור מעל טקסט בחירת המוצר מהדשבורד, באותה הודעה. */
+  prependOtherServiceAck?: boolean;
 }): Promise<boolean> {
   const cfg = input.knowledge.salesFlowConfig;
   if (!cfg) return false;
@@ -2304,10 +2306,14 @@ async function sendOpeningServicePickMenu(input: {
     }
   }
   const split = splitMultiServiceQuestionForWhatsApp(qRaw, assets);
-  const body =
+  const menuOnly =
     split.menuBody.trim() ||
     stripScheduleLineFromMultiServiceQuestion(qRaw) ||
     DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
+  const body = input.prependOtherServiceAck ? withServiceRepickAckPrefix(menuOnly) : menuOnly;
+  const logBody = input.prependOtherServiceAck
+    ? withServiceRepickAckPrefix(split.logBody)
+    : split.logBody;
   const modelUsed = input.modelUsed ?? "flow_continuation_opening_service_pick";
   const menuFooter = salesFlowMenuFooter(input.knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
@@ -2326,14 +2332,14 @@ async function sendOpeningServicePickMenu(input: {
   await logMessage({
     business_slug: input.business_slug,
     role: "assistant",
-    content: formatInteractiveConversationLog(split.logBody, labels, menuFooter),
+    content: formatInteractiveConversationLog(logBody, labels, menuFooter),
     model_used: modelUsed,
     session_id: input.sessionId,
   });
   return true;
 }
 
-/** טקסט חופשי — אימון אחר ממה שנבחר בכפתורים: הודעת אישור + תפריט; איפוס מועד; בחירה חדשה מעדכנת event לדיווח. */
+/** טקסט חופשי — אימון אחר ממה שנבחר בכפתורים: אישור + תפריט באותה הודעה; איפוס מועד. */
 async function sendSalesFlowServiceRepickAckAndMenu(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -2347,21 +2353,6 @@ async function sendSalesFlowServiceRepickAckAndMenu(input: {
   blockMedia?: boolean;
   logModelUsed: string;
 }): Promise<void> {
-  await sendWhatsAppMessage(
-    input.msg.toNumber,
-    input.msg.from,
-    SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
-    input.accountSid,
-    input.authToken
-  ).catch((e) => console.error("[WA Webhook] Send service-repick ack failed:", e));
-  await logMessage({
-    business_slug: input.business_slug,
-    role: "assistant",
-    content: SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
-    model_used: "sales_flow_service_repick_ack",
-    session_id: input.sessionId,
-  });
-
   const phoneVariants = contactPhoneLookupVariants(input.msg.from);
   await input.supabase
     .from("contacts")
@@ -2379,6 +2370,7 @@ async function sendSalesFlowServiceRepickAckAndMenu(input: {
     sessionId: input.sessionId,
     blockMedia: input.blockMedia,
     skipScheduleBoard: true,
+    prependOtherServiceAck: true,
     modelUsed: input.logModelUsed,
   });
 }
@@ -6682,6 +6674,7 @@ async function processIncoming(
         sessionId,
         blockMedia: starterBlocksMedia,
         skipScheduleBoard: true,
+        prependOtherServiceAck: true,
         modelUsed: "flow_continuation_opening_service_pick",
       });
       contactSessionPhase = "opening";
@@ -6888,6 +6881,7 @@ async function processIncoming(
         sessionId,
         blockMedia: starterBlocksMedia,
         skipScheduleBoard: true,
+        prependOtherServiceAck: true,
       });
       return;
     }
@@ -7209,6 +7203,7 @@ async function processIncoming(
               sessionId,
               blockMedia: starterBlocksMedia,
               skipScheduleBoard: true,
+              prependOtherServiceAck: true,
             });
             return;
           }
@@ -7349,6 +7344,7 @@ async function processIncoming(
             sessionId,
             blockMedia: starterBlocksMedia,
             skipScheduleBoard: true,
+            prependOtherServiceAck: true,
           });
           return;
           }
@@ -8859,6 +8855,7 @@ async function processIncoming(
       sessionId,
       blockMedia: starterBlocksMedia,
       skipScheduleBoard: true,
+      prependOtherServiceAck: true,
       modelUsed: "sales_flow_cta_repick_service_menu",
     });
     return;

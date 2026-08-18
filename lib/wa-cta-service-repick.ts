@@ -7,7 +7,16 @@ import type { OfferKind } from "@/lib/sales-flow";
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
   "תרצו שנבחר יחד אימון אחר מהרשימה?";
 export const SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE =
-  "אוקיי, אני מבינה שיש אימון אחר שמעניין אותך. אני שולחת לך שוב את הרשימה לבחור ממנה";
+  "אני מבינה שמעניין אותך אימון אחר, אין בעיה";
+
+/** שורת אישור + טקסט בחירת מוצר מהדשבורד — הודעה אחת. */
+export function withServiceRepickAckPrefix(menuBody: string): string {
+  const body = String(menuBody ?? "").trim();
+  const ack = SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE;
+  if (!body) return ack;
+  if (body.startsWith(ack)) return body;
+  return `${ack}\n${body}`;
+}
 
 /** תפריט repick אחרי CTA בלבד — לא תפריט בחירת אימון רגיל אחרי חימום (`flow_continuation_opening_service_pick`). */
 const SERVICE_REPICK_MENU_MODELS = new Set(["sales_flow_cta_repick_service_menu"]);

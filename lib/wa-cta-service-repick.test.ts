@@ -4,6 +4,8 @@ import {
   isPhaseAgnosticExplicitServiceSwitch,
   isAmbiguousPartialCatalogServiceSwitch,
   findAmbiguousPartialCatalogMatches,
+  withServiceRepickAckPrefix,
+  SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
 } from "@/lib/wa-cta-service-repick";
 
 const names = ["אקרו יוגה - סדנת היכרות", "אקרו יוגה - לזוג", "אקרו יוגה"];
@@ -119,5 +121,17 @@ assert.equal(
   isAmbiguousPartialCatalogServiceSwitch("רוצה לעבור לפילאטיס מכשירים", "אימון אישי", limitless),
   false
 );
+
+{
+  const dashboard = "אשמח להבין ראשית איזה אימון מעניין אותך?";
+  assert.equal(
+    withServiceRepickAckPrefix(dashboard),
+    `${SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE}\n${dashboard}`
+  );
+  assert.equal(
+    withServiceRepickAckPrefix(`${SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE}\n${dashboard}`),
+    `${SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE}\n${dashboard}`
+  );
+}
 
 console.log("wa-cta-service-repick.test.ts: ok");
