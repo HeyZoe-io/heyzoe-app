@@ -4,6 +4,7 @@ import {
   whatsappMediaMaxBytes,
 } from "@/lib/whatsapp-media-limits";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
+import { WA_MAX_PRODUCTS } from "@/lib/trial-service";
 import {
   metaCtaClickHereLabel,
   metaListSectionTitle,
@@ -194,7 +195,7 @@ const META_LIST_ROW_TITLE_MAX = 24;
 const META_LIST_SECTION_TITLE_MAX = 24;
 const META_LIST_ACTION_BUTTON_MAX = 20;
 const META_INTERACTIVE_BODY_MAX = 1024;
-const META_LIST_ROWS_MAX = 10;
+const META_LIST_ROWS_MAX = WA_MAX_PRODUCTS;
 const META_INTERACTIVE_FOOTER_MAX = 60;
 
 function truncateMetaByCodePoints(s: string, maxChars: number): string {

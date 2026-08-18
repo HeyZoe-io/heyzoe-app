@@ -25,7 +25,6 @@ import {
   composeGreeting,
   defaultSalesFlowConfig,
   defaultCtaCourseOnlineBody,
-  fillAfterExperienceTemplate,
   ctaTemplateForEditor,
   storeCourseCtaBodyFromDisplay,
   storeTrialCtaBodyFromDisplay,
@@ -39,7 +38,7 @@ import {
   trialServicePhraseForAfterPick,
   patchWarmupRegenerationForOfferKind,
 } from "@/lib/sales-flow";
-import { truncateTrialServiceName } from "@/lib/trial-service";
+import { truncateTrialServiceName, WA_MAX_PRODUCTS } from "@/lib/trial-service";
 import {
   createEmptyCourseCycle,
   migrateLegacyCourseToCycles,
@@ -1014,6 +1013,7 @@ function mergeTrialServicesWithScannedProducts(
   const addedFromScanKeys = new Set<string>();
 
   for (const raw of slice) {
+    if (existing.length + appended.length >= WA_MAX_PRODUCTS) break;
     const k = trialServiceMatchKey(String(raw.name ?? ""));
     if (k && existingKeys.has(k)) continue;
     if (k && addedFromScanKeys.has(k)) continue;
@@ -1032,33 +1032,29 @@ function experienceQuestionForDisplay(stored: string, serviceName: string): stri
   return stored.replace(/\{serviceName\}/g, token || (serviceName.trim() ? serviceName : "האימון"));
 }
 
-/** שמירה מהשדה — מחזירה תבנית עם {serviceName} כשמתאים */
-function experienceQuestionToStore(typed: string, serviceName: string): string {
+/** שמירה מהשדה — מחזירה תבנית עם {serviceName} רק מטוקן מפורש, לא משם שיעור */
+function experienceQuestionToStore(typed: string, _serviceName: string): string {
+  void _serviceName;
   if (typed.includes("(שם האימון)")) return typed.split("(שם האימון)").join("{serviceName}");
-  if (!serviceName.trim()) return typed;
-  if (!typed.includes(serviceName)) return typed;
-  return typed.split(serviceName).join("{serviceName}");
+  return typed;
 }
 
 function afterExperienceForDisplay(stored: string, service: ServiceItem | null): string {
-  const displayName = service?.name?.trim() || "(שם המוצר)";
-  return fillAfterExperienceTemplate(
-    stored,
-    service?.levels_enabled ?? false,
-    service?.levels ?? [],
-    displayName
-  );
+  let s = String(stored ?? "").replace(/\{serviceName\}/g, "(שם האימון)");
+  if (!service) return s;
+  const resolved = formatServiceLevelsText(service.levels_enabled, service.levels);
+  if (resolved) s = s.split("{levelsText}").join(resolved);
+  return s;
 }
 
 function afterExperienceToStore(typed: string, service: ServiceItem | null): string {
-  if (!service) return typed;
   let s = typed;
-  const resolved = formatServiceLevelsText(service.levels_enabled, service.levels);
-  if (resolved && s.includes(resolved)) s = s.split(resolved).join("{levelsText}");
-  const sn = service.name?.trim() ?? "";
+  if (service) {
+    const resolved = formatServiceLevelsText(service.levels_enabled, service.levels);
+    if (resolved && s.includes(resolved)) s = s.split(resolved).join("{levelsText}");
+  }
   if (s.includes("(שם המוצר)")) s = s.split("(שם המוצר)").join("{serviceName}");
   if (s.includes("(שם האימון)")) s = s.split("(שם האימון)").join("{serviceName}");
-  if (sn && s.includes(sn)) s = s.split(sn).join("{serviceName}");
   return s;
 }
 

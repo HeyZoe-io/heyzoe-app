@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
-import { truncateTrialServiceName } from "@/lib/trial-service";
+import { truncateTrialServiceName, capWhatsAppProducts } from "@/lib/trial-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
@@ -336,7 +336,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (shouldReplaceServices) {
-    const namedRows = services.filter((s) => String(s.name ?? "").trim());
+    const { data: existingServices } = await admin
+      .from("services")
+      .select("id, service_slug")
+      .eq("business_id", savedBiz.id);
+
+    const namedRows = capWhatsAppProducts(
+      services.filter((s) => String(s.name ?? "").trim()),
+      (existingServices ?? []).length
+    );
     const usedServiceSlugs = new Set<string>();
     const servicesPayload = namedRows.map((s, index) => {
       const name = truncateTrialServiceName(String(s.name ?? ""));
@@ -358,11 +366,6 @@ export async function POST(req: NextRequest) {
         sort_order: index,
       };
     });
-
-    const { data: existingServices } = await admin
-      .from("services")
-      .select("id, service_slug")
-      .eq("business_id", savedBiz.id);
 
     if (servicesPayload.length) {
       const { data } = await admin
