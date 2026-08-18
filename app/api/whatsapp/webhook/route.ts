@@ -5602,36 +5602,26 @@ async function processIncoming(
     }
   }
 
-  // בקשת נציג — הודעת «אין בעיה» פעם אחת, אחר כך שקט (ללא פלואו / AI / resend).
-  // מילת פתיחת פלואו («אשמח לפרטים») מחזירה את זואי, כמו ליד «לא רלוונטי».
-  if (contactHumanRequestedAt) {
-    if (isSalesFlowStartInbound(msg) && businessId) {
-      try {
-        const { reactivateHumanRequestedLead } = await import("@/lib/human-requested");
-        const reactivated = await reactivateHumanRequestedLead({
-          supabase,
-          businessId: Number(businessId),
-          phone: msg.from,
-          contactId,
-        });
-        if (reactivated) {
-          console.info("[WA Webhook] human_requested lead reactivated via flow-start trigger", {
-            business_slug,
-            session_id: sessionId,
-          });
-          contactHumanRequestedAt = null;
-        }
-      } catch (e) {
-        console.error("[WA Webhook] human_requested reactivate failed:", e);
-      }
-    }
-    if (contactHumanRequestedAt) {
-      console.info("[WA Webhook] human_requested — skipping auto-reply", {
-        business_slug,
-        sessionId,
-        human_requested_at: contactHumanRequestedAt,
+  // בקשת נציג — הודעת «אין בעיה» פעם אחת. זואי ממשיכה לענות על שאלות;
+  // מילת פתיחה («אשמח לפרטים») מפעילה מחדש את פלואו המכירה.
+  if (contactHumanRequestedAt && isSalesFlowStartInbound(msg) && businessId) {
+    try {
+      const { reactivateHumanRequestedLead } = await import("@/lib/human-requested");
+      const reactivated = await reactivateHumanRequestedLead({
+        supabase,
+        businessId: Number(businessId),
+        phone: msg.from,
+        contactId,
       });
-      return;
+      if (reactivated) {
+        console.info("[WA Webhook] human_requested lead reactivated via flow-start trigger", {
+          business_slug,
+          session_id: sessionId,
+        });
+        contactHumanRequestedAt = null;
+      }
+    } catch (e) {
+      console.error("[WA Webhook] human_requested reactivate failed:", e);
     }
   }
   if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
@@ -8490,7 +8480,8 @@ async function processIncoming(
     !lastPickedServiceName &&
     !matched?.reply &&
     !matchedPredefinedClosedLabel &&
-    salesFlowStarted;
+    salesFlowStarted &&
+    !contactHumanRequestedAt;
   const serviceSelectionLabels = shouldReaskServiceSelection
     ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
     : [];
@@ -8502,7 +8493,9 @@ async function processIncoming(
   const ctaPromptQuestion = "";
 
   const registeredInCurrentFlow =
-    contactTrialRegistered === true || contactSessionPhase === "registered";
+    contactTrialRegistered === true ||
+    contactSessionPhase === "registered" ||
+    Boolean(contactHumanRequestedAt);
   const standaloneHelpClosing = isStandaloneWhatsAppOpenQuestion({
     sessionPhase: contactSessionPhase,
     salesFlowStarted,
@@ -9242,6 +9235,7 @@ async function processIncoming(
     const shouldSplitCtaAnswerAndMenu =
       !shouldReaskServiceSelection &&
       contactSessionPhase === "cta" &&
+      !registeredInCurrentFlow &&
       !matched?.reply &&
       !matchedPredefinedClosedLabel;
     const menuLabels =
@@ -9296,6 +9290,7 @@ async function processIncoming(
       const shouldSplitCtaAnswerAndMenu =
         !shouldReaskServiceSelection &&
         contactSessionPhase === "cta" &&
+        !registeredInCurrentFlow &&
         !matched?.reply &&
         !matchedPredefinedClosedLabel;
 
