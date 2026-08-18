@@ -294,6 +294,8 @@ export function isAmbiguousPartialCatalogServiceSwitch(
   if (!t || !last || t.length > 400 || isNumericServicePickReply(t)) return false;
   if (isCatalogSpecificKnowledgeQuestion(t)) return false;
   if (isPhaseAgnosticExplicitServiceSwitch(t, last, serviceNames)) return false;
+  // Exact single catalog name is a direct switch, not an ambiguous family token (פילאטיס).
+  if (exactTypedCatalogServiceName(t, serviceNames)) return false;
   return mentionsOtherCatalogService(t, last, serviceNames);
 }
 
@@ -315,6 +317,22 @@ export function exactTypedCatalogServiceName(
   const unique = [...new Set(hits)];
   if (unique.length !== 1) return null;
   return unique[0]!;
+}
+
+/**
+ * Exact closed catalog name to commit via implicit switch.
+ * Same product as last pick → null (already on it). Different product, or no last pick → that name.
+ */
+export function exactTypedCatalogSwitchTarget(
+  text: string,
+  lastPickedServiceName: string | null,
+  serviceNames: string[]
+): string | null {
+  const exact = exactTypedCatalogServiceName(text, serviceNames);
+  if (!exact) return null;
+  const lastKey = normalizeServiceNameKey(lastPickedServiceName ?? "");
+  if (lastKey && lastKey === normalizeServiceNameKey(exact)) return null;
+  return exact;
 }
 
 /**

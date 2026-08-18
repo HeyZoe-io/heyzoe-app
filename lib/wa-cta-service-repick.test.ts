@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   exactTypedCatalogServiceName,
+  exactTypedCatalogSwitchTarget,
   isPhaseAgnosticExplicitServiceSwitch,
   isAmbiguousPartialCatalogServiceSwitch,
   findAmbiguousPartialCatalogMatches,
@@ -81,7 +82,8 @@ assert.equal(
 );
 assert.equal(
   isAmbiguousPartialCatalogServiceSwitch("עיסוי רפואי", "אימון אישי", limitless),
-  true
+  false,
+  "exact closed catalog name is a direct switch, not an ambiguous menu reopen"
 );
 assert.equal(
   isAmbiguousPartialCatalogServiceSwitch("יש אצלכם עיסוי רפואי?", "אימון אישי", limitless),
@@ -133,5 +135,31 @@ assert.equal(
     `${SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE}\n${dashboard}`
   );
 }
+
+assert.equal(
+  exactTypedCatalogSwitchTarget("אקרו יוגה - לזוג", "אקרו יוגה - סדנת היכרות", names),
+  "אקרו יוגה - לזוג"
+);
+assert.equal(exactTypedCatalogSwitchTarget("אקרו יוגה - לזוג", "אקרו יוגה - לזוג", names), null);
+assert.equal(exactTypedCatalogSwitchTarget("אקרו יוגה - לזוג", null, names), "אקרו יוגה - לזוג");
+assert.equal(exactTypedCatalogSwitchTarget("אקרו יוגה - לזוג בבקשה", "אקרו יוגה", names), null);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("אקרו יוגה - לזוג", "אקרו יוגה - סדנת היכרות", names),
+  false,
+  "exact sibling acro name is not an ambiguous family token"
+);
+
+const joe = [
+  "קורס אקרויוגה אונליין",
+  "סדנאות ואירועים מיוחדים",
+  "עמידות ידיים / גמישות",
+  "אקרו יוגה - ליחיד",
+  "אקרו יוגה - לזוג",
+  "שיעור אקרו אישי (1 - 1)",
+];
+assert.equal(exactTypedCatalogServiceName("אקרו יוגה - לזוג", joe), "אקרו יוגה - לזוג");
+assert.equal(exactTypedCatalogSwitchTarget("אקרו יוגה - לזוג", "אקרו יוגה - ליחיד", joe), "אקרו יוגה - לזוג");
+assert.equal(isAmbiguousPartialCatalogServiceSwitch("אקרו יוגה - לזוג", "אקרו יוגה - ליחיד", joe), false);
+assert.equal(isAmbiguousPartialCatalogServiceSwitch("פילאטיס", "אימון אישי", limitless), true);
 
 console.log("wa-cta-service-repick.test.ts: ok");
