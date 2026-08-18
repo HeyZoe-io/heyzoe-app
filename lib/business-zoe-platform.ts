@@ -135,6 +135,20 @@ export function migrateLegacyCategoriesToDisplay(categories: ZoePlatformCategory
   };
 }
 
+/** שורת מרכאות ישנה ב־DB — מחליפים לכלל «ציטוט במלואו» בלי לדרוש שמירה מחדש באדמין. */
+function upgradeQuotedFactsGuidelineLines(lines: string[]): string[] {
+  const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("עובדות עם מרכאות"));
+  if (!replacement) return lines;
+  return lines.map((line) => {
+    const t = line.trim();
+    if (!t.includes("עובדות עם מרכאות") || !t.includes("רק את מה שבתוך המרכאות")) return line;
+    return replacement;
+  });
+}
+
 /** ממזג שמור ב-DB עם ברירת מחדל (פורמט 4 קטגוריות) */
 export function mergeWithDefaultZoePlatform(stored: ZoePlatformGuidelines | null): ZoePlatformGuidelines {
   const defaults = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories;
@@ -149,7 +163,7 @@ export function mergeWithDefaultZoePlatform(stored: ZoePlatformGuidelines | null
     const s = byId.get(def.id);
     if (!s) return def;
     if (!def.sections?.length) {
-      return { ...def, ...s, lines: s.lines.length ? s.lines : def.lines };
+      return { ...def, ...s, lines: s.lines.length ? upgradeQuotedFactsGuidelineLines(s.lines) : def.lines };
     }
     const defSecs = def.sections ?? [];
     const sSecs = s.sections ?? [];
@@ -159,7 +173,9 @@ export function mergeWithDefaultZoePlatform(stored: ZoePlatformGuidelines | null
       ...s,
       sections: defSecs.map((ds) => {
         const ov = sByKey.get(ds.key);
-        return ov && ov.lines.length ? { ...ds, ...ov, lines: ov.lines } : ds;
+        return ov && ov.lines.length
+          ? { ...ds, ...ov, lines: upgradeQuotedFactsGuidelineLines(ov.lines) }
+          : ds;
       }),
     };
   });
