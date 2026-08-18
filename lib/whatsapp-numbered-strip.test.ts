@@ -25,4 +25,25 @@ const ctaBody = "עכשיו רק נותר לשריין את מקומך.\nלשמ�
 assert.equal(stripNumberedChoiceLinesAnywhere(ctaBody), ctaBody);
 assert.equal(stripInlineNumberedChoiceListTail(ctaBody), ctaBody);
 
+const compactLabels = ["הרשמה לשיעור ניסיון", "יש לי שאלה"];
+const yogaAnswer = "תלבשו בגדי יוגה! לגברים - בגדים לא צמודים לגוף.";
+assert.equal(stripNumberedChoiceLinesAnywhere(yogaAnswer, compactLabels), yogaAnswer);
+assert.equal(
+  stripNumberedChoiceLinesAnywhere(`${yogaAnswer}\n1. הרשמה לשיעור ניסיון\n2. יש לי שאלה`, compactLabels).includes(
+    "1. הרשמה"
+  ),
+  false
+);
+assert.match(
+  stripNumberedChoiceLinesAnywhere(`${yogaAnswer}\n1. הרשמה לשיעור ניסיון\n2. יש לי שאלה`, compactLabels),
+  /תלבשו בגדי יוגה/
+);
+
+assert.equal(stripNumberedChoiceLinesAnywhere("מה הצעד הבא?", compactLabels), "מה הצעד הבא?");
+assert.equal(stripNumberedChoiceLinesAnywhere("מה הצעד הבא?", ["הרשמה לשיעור ניסיון"]), "מה הצעד הבא?");
+assert.equal(
+  stripNumberedChoiceLinesAnywhere("תלבשו בגדי יוגה!\nמה הצעד הבא?", compactLabels).includes("מה הצעד הבא"),
+  false
+);
+
 console.log("whatsapp-numbered-strip.test.ts: ok");

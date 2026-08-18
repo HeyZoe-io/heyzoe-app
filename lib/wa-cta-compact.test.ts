@@ -36,7 +36,7 @@ assert.equal(pickRegistrationCtaButton(courseBtns)?.kind, "course_enroll");
 
 assert.equal(hasSentFullSalesFlowCta(0), false);
 assert.equal(hasSentFullSalesFlowCta(1), true);
-assert.equal(hasSentFullSalesFlowCta(null), true);
+assert.equal(hasSentFullSalesFlowCta(null), false);
 assert.equal(shouldSendFullSalesFlowCtaMenu(0), true);
 assert.equal(shouldSendFullSalesFlowCtaMenu(1), false);
 

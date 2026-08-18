@@ -22,3 +22,14 @@ export function salesFlowOpeningResetPatch() {
     free_text_replies_since_cta: 0,
   });
 }
+
+/** Implicit/explicit product switch — same CTA-flag reset as returning to product pick. */
+export function salesFlowServiceSwitchResetPatch(nextPhase: string) {
+  return withWarmupExtraAwaitingOff({
+    session_phase: nextPhase,
+    flow_step: 0,
+    sf_requested_date: null,
+    sf_requested_time: null,
+    free_text_replies_since_cta: 0,
+  });
+}

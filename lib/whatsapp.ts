@@ -702,7 +702,12 @@ export function stripNumberedChoiceLinesAnywhere(
       }
     }
     if (/^בחרו (אחת|אחד) מהאפשרויות:$/u.test(t)) continue;
-    if (/^מה הצעד הבא\??$/u.test(t)) continue;
+    // Drop echoed menu prompts from AI answers, but keep a sole «מה הצעד הבא?» body
+    // (compact CTA follow-up uses that exact line as the interactive message).
+    if (/^מה הצעד הבא\??$/u.test(t)) {
+      const contentLineCount = lines.map((l) => String(l ?? "").trim()).filter(Boolean).length;
+      if (contentLineCount > 1) continue;
+    }
     out.push(line);
   }
   const joined = out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
