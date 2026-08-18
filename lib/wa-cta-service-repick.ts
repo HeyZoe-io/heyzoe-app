@@ -169,6 +169,26 @@ export function isPhaseAgnosticExplicitServiceSwitch(
 }
 
 /**
+ * Typed (not a button) free text that is exactly a catalog service name
+ * after trim/whitespace-normalization. Longer sentences still need a verb
+ * via isPhaseAgnosticExplicitServiceSwitch. Webhook commits this name
+ * (does not open the repick menu) so CTA pricing follows the named service.
+ */
+export function exactTypedCatalogServiceName(
+  text: string,
+  serviceNames: string[]
+): string | null {
+  const t = normalizeServiceNameKey(text);
+  if (!t || t.length > 120) return null;
+  const hits = serviceNames
+    .map((name) => String(name ?? "").trim())
+    .filter((name) => name && normalizeServiceNameKey(name) === t);
+  const unique = [...new Set(hits)];
+  if (unique.length !== 1) return null;
+  return unique[0]!;
+}
+
+/**
  * מעבר שקט/מחדש — רק כשממתינים לבחירת שירות מהתפריט.
  * רק התאמת שם מלא/חד-משמעי; בלי טוקן חלקי / offer-kind.
  */

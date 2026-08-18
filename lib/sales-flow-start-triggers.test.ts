@@ -43,5 +43,12 @@ assert.equal(
   }),
   false
 );
+assert.equal(
+  salesFlowGreetingMarkerCountsAsStarted({
+    modelUsed: "registration_intent_no_member",
+    precedingUserText: "רוצה להצטרף בשבת לפוואר אנד הייט",
+  }),
+  true
+);
 
 console.log("sales-flow-start-triggers.test.ts: ok");

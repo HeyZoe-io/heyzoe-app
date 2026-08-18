@@ -54,7 +54,7 @@ export function salesFlowGreetingMarkerCountsAsStarted(input: {
   precedingUserText: string | null;
 }): boolean {
   const modelUsed = String(input.modelUsed ?? "").trim();
-  if (modelUsed === "greeting") return true;
+  if (modelUsed === "greeting" || modelUsed === "registration_intent_no_member") return true;
   if (modelUsed !== "default_opening") return false;
   return isSalesFlowStartTrigger(input.precedingUserText ?? "");
 }

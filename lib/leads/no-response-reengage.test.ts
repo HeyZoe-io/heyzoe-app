@@ -21,6 +21,10 @@ import {
   assert.equal(waNoResponseEligible({ not_relevant_at: "2026-01-01T00:00:00.000Z" }), false);
   assert.equal(waNoResponseEligible({ human_requested_at: "2026-01-01T00:00:00.000Z" }), false);
   assert.equal(waNoResponseEligible({ trial_registered: true }), false);
+  assert.equal(
+    waNoResponseEligible({ self_reported_registered_at: "2026-08-17T10:00:00.000Z" }),
+    false
+  );
   assert.equal(waNoResponseEligible({ session_phase: "registered" }), false);
   assert.equal(waNoResponseEligible({ session_phase: "cta", trial_registered: false }), true);
 }

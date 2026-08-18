@@ -73,7 +73,7 @@ function maskPhone(phone: string): string {
 }
 
 const CONTACT_DEBUG_SELECT =
-  "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered";
+  "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered, self_reported_registered_at";
 
 async function findContactByPhone(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -294,6 +294,7 @@ export async function GET(req: NextRequest) {
         wa_followup_stage?: number | null;
         opted_out?: boolean | null;
         trial_registered?: boolean | null;
+        self_reported_registered_at?: string | null;
       },
     });
     if (evalResult.skip_reason !== "eligible") {
@@ -313,6 +314,7 @@ export async function GET(req: NextRequest) {
       business_slug: debugSlug,
       contact_id: contact.id,
       trial_registered: contact.trial_registered ?? null,
+      self_reported_registered_at: contact.self_reported_registered_at ?? null,
       opted_out: contact.opted_out ?? null,
       phone_lookup_variants: phoneLookupVariants,
       wa_followup_stage: contact.wa_followup_stage,
@@ -339,6 +341,8 @@ export async function GET(req: NextRequest) {
   const cutoff20mIso = new Date(Date.now() - WA_FOLLOWUP_MS_20_MIN).toISOString();
 
   const followupSelect =
+    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, self_reported_registered_at";
+  const followupSelectNoSelfReported =
     "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase";
 
   let contacts: any[] | null = null;
@@ -350,6 +354,7 @@ export async function GET(req: NextRequest) {
     .is("not_relevant_at", null)
     .is("human_requested_at", null)
     .or("trial_registered.eq.false,trial_registered.is.null")
+    .is("self_reported_registered_at", null)
     .lt("wa_followup_stage", 3)
     .not("wa_next_followup_at", "is", null)
     .lte("wa_next_followup_at", nowIso)
@@ -359,8 +364,29 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     const msg = String(error.message ?? "");
-    // Back-compat: if due-at columns are not deployed yet, fall back to last_contact_at window.
-    if (/wa_next_followup_at|column/i.test(msg)) {
+    if (/self_reported_registered_at/i.test(msg)) {
+      console.warn(
+        "[cron/wa-followups] self_reported_registered_at missing — run supabase/contacts_cta_frequency_and_self_reported.sql"
+      );
+      const retry = await admin
+        .from("contacts")
+        .select(followupSelectNoSelfReported)
+        .eq("source", "whatsapp")
+        .or("opted_out.eq.false,opted_out.is.null")
+        .is("not_relevant_at", null)
+        .is("human_requested_at", null)
+        .or("trial_registered.eq.false,trial_registered.is.null")
+        .lt("wa_followup_stage", 3)
+        .not("wa_next_followup_at", "is", null)
+        .lte("wa_next_followup_at", nowIso)
+        .gte("wa_next_followup_at", cutoff24hIso)
+        .limit(BATCH);
+      if (retry.error) {
+        console.error("[cron/wa-followups] contacts query (no self_reported):", retry.error);
+        return NextResponse.json({ error: "query_failed" }, { status: 500 });
+      }
+      contacts = (retry.data as any[] | null) ?? null;
+    } else if (/wa_next_followup_at|column/i.test(msg)) {
       const { data: legacy, error: legacyErr } = await admin
         .from("contacts")
         .select(followupSelect)
@@ -369,6 +395,7 @@ export async function GET(req: NextRequest) {
         .is("not_relevant_at", null)
     .is("human_requested_at", null)
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("self_reported_registered_at", null)
         .lt("wa_followup_stage", 3)
         .not("last_contact_at", "is", null)
         .lt("last_contact_at", cutoff20mIso)
@@ -396,6 +423,7 @@ export async function GET(req: NextRequest) {
         .is("not_relevant_at", null)
     .is("human_requested_at", null)
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("self_reported_registered_at", null)
         .lt("wa_followup_stage", 3)
         .is("wa_next_followup_at", null)
         .is("wa_no_response_at", null)

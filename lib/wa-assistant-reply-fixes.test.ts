@@ -86,4 +86,19 @@ assert.doesNotMatch(mixedIllness, /מתסכל|לעמוד בצד/);
 const keepInvestment = applyKnownAssistantReplyFixes("זו ההשקעה הטובה ביותר בסטודיו.", { knowledge });
 assert.equal(keepInvestment, "זו ההשקעה הטובה ביותר בסטודיו.");
 
+const weekendIntent = applyKnownAssistantReplyFixes(
+  "מושלם! אנחנו פה גם בסופ״ש. אל תתנגדי לעצמך - בואי תרשמי לשיעור שמתאים לך 🙂",
+  { knowledge }
+);
+assert.match(weekendIntent, /מושלם/);
+assert.match(weekendIntent, /סופ/);
+assert.doesNotMatch(weekendIntent, /תתנגדי|תרשמי/);
+
+const lateCheer = applyKnownAssistantReplyFixes(
+  "אין בעיה בכלל! 🙂 אנחנו כאן, קח את הזמן שצריך. נראה אותך בעוד 10 דקות, בטוח שזה יעבוד. עד עכשיו!",
+  { knowledge }
+);
+assert.match(lateCheer, /אנחנו כאן/);
+assert.doesNotMatch(lateCheer, /בטוח שזה יעבוד|קח את הזמן|עד עכשיו/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

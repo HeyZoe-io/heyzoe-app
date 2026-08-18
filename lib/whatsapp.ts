@@ -587,11 +587,44 @@ function waNormLabelStrip(s: string): string {
 }
 
 /**
+ * Strips a numbered choice list that starts mid-line after sentence punctuation
+ * (e.g. «לשמור לך מקום? 1. הרשמה…») and any following «2. …» lines.
+ * Used for standalone-help only — not globally on all WhatsApp bodies.
+ */
+export function stripInlineNumberedChoiceListTail(text: string): string {
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  let strippingFollowOn = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (strippingFollowOn) {
+      if (!t) continue;
+      if (/^\d{1,2}$/.test(t) || /^\d+\.\s+\S/.test(t)) continue;
+      strippingFollowOn = false;
+    }
+    const mid = line.match(/^(.*[?!.…:])\s+\d{1,2}\.\s+\S/);
+    if (mid) {
+      const kept = (mid[1] ?? "").trimEnd();
+      if (kept) out.push(kept);
+      strippingFollowOn = true;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
  * Removes numbered "menu echo" lines from assistant text before sending to WhatsApp.
  * If `candidates` is non-empty, only removes numbered lines whose item text matches a known label.
  * If `candidates` is empty/omitted, removes any line matching `^\d+\.\s+...` (assistant must not send numbered choice lists to WA).
+ * Pass `{ includeMidline: true }` only on standalone-help bodies (not global menu sends).
  */
-export function stripNumberedChoiceLinesAnywhere(text: string, candidates?: string[]): string {
+export function stripNumberedChoiceLinesAnywhere(
+  text: string,
+  candidates?: string[],
+  opts?: { includeMidline?: boolean }
+): string {
   const normalizedCandidates = (candidates ?? [])
     .map((x) => String(x ?? "").trim())
     .filter(Boolean)
@@ -641,7 +674,8 @@ export function stripNumberedChoiceLinesAnywhere(text: string, candidates?: stri
     if (/^מה הצעד הבא\??$/u.test(t)) continue;
     out.push(line);
   }
-  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const joined = out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return opts?.includeMidline ? stripInlineNumberedChoiceListTail(joined) : joined;
 }
 
 /** עטיפת טקסט לכיוון RTL בבועת ווטסאפ (אין API רשמי ליישור — רק בידי). */

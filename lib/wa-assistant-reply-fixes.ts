@@ -279,6 +279,8 @@ export function buildWaSpellingAndPhrasingPromptRule(
 - ${addressingHint}
 - אל תזמיני לבחירת אימון/שיעור ואל תפרטי רשימת אימונים — המערכת שולחת תפריט/שאלה בנפרד מיד אחרייך.
 - בלי להתפלסף: תשובות קצרות ולעניין. אם הליד לא מרגיש טוב - רק «מצטערת לשמוע, מאחלת החלמה מהירה!» (אסור «אני מבינה שזה מתסכל» / «קשה לעמוד בצד» / «ההשקעה הטובה ביותר»). עובדה מהידע: ישר «ניתן להקפיא…» בלי «הטוב שיש לנו מדיניות גמישה».
+- אם הליד משתף כוונה/עדכון בלי שאלה («אנסה להגיע בסופ״ש») - אישור קצר וחם בלבד. אסור שיעורי חיים («אל תתנגדי לעצמך») ואסור «בואי תרשמי» - המערכת שולחת CTA בנפרד.
+- איחור / בדרך לשיעור: רק «בסדר גמור אנחנו כאן.» אסור «בטוח שזה יעבוד», אסור «קח את הזמן».
 ${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון.` : ""}
 ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכבר נבחר אימון — ניסוח כמו: «${scheduleExample}» (לא «את מעניינת ב… תוכלי לבחור מהזמנים»).` : ""}`;
 }
@@ -374,7 +376,38 @@ function applyIllnessPhilosophyFix(text: string): string {
   return `${ILLNESS_GET_WELL} ${s}`.trim();
 }
 
-/** «הטוב שיש לנו מדיניות גמישה» / «לגבי החיובים -» → ישר לעובדה. */
+/** שיעור-חיים / דחיפה להרשמה אחרי «אנסה להגיע» — לא תבנית; Claude ממציא. */
+const COACHING_SELF_RE =
+  /אל\s+תתנגד(?:י|ו)?\s+לעצמ(?:ך|כם)|אל\s+תוות(?:ר|רי|רו)\s+על\s+עצמ(?:ך|כם)|תסמכ(?:י|ו)?\s+על\s+עצמ(?:ך|כם)|זה\s+הזמן\s+להשקיע\s+בעצמ(?:ך|כם)/iu;
+const UNSOLICITED_REGISTER_PUSH_RE =
+  /בואי\s+תרשמ(?:י)?|בואו\s+תרשמ(?:ו)?|יאללה\s+תרשמ(?:י|ו)/iu;
+
+const CHEERLEADING_RE =
+  /בטוח\s+שזה\s+יעבוד|קח(?:י|ו)?\s+את\s+הזמן\s+שצריך|נראה\s+אותך\s+בעוד|עד\s+עכשיו!?/iu;
+
+export function stripCoachingAndUnsolicitedRegisterPush(text: string): string {
+  let s = String(text ?? "").trim();
+  if (!s) return s;
+  if (!COACHING_SELF_RE.test(s) && !UNSOLICITED_REGISTER_PUSH_RE.test(s) && !CHEERLEADING_RE.test(s)) {
+    return s;
+  }
+  const before = s;
+  s = s.replace(/אל\s+תתנגד(?:י|ו)?\s+לעצמ(?:ך|כם)\s*[-–—,:]?\s*/giu, "");
+  s = s.replace(/אל\s+תוות(?:ר|רי|רו)\s+על\s+עצמ(?:ך|כם)\s*[-–—,:]?\s*/giu, "");
+  s = s.replace(/תסמכ(?:י|ו)?\s+על\s+עצמ(?:ך|כם)\s*[-–—,.]?\s*/giu, "");
+  s = s.replace(/זה\s+הזמן\s+להשקיע\s+בעצמ(?:ך|כם)\s*[-–—,.]?\s*/giu, "");
+  s = s.replace(/(?:יאללה\s*,?\s*)?בואי\s+תרשמ(?:י)?[^.!?\n]*/giu, "");
+  s = s.replace(/(?:יאללה\s*,?\s*)?בואו\s+תרשמ(?:ו)?[^.!?\n]*/giu, "");
+  s = s.replace(/בטוח\s+שזה\s+יעבוד[^.!?\n]*/giu, "");
+  s = s.replace(/קח(?:י|ו)?\s+את\s+הזמן\s+שצריך[^.!?\n]*/giu, "");
+  s = s.replace(/נראה\s+אותך\s+בעוד[^.!?\n]*/giu, "");
+  s = s.replace(/עד\s+עכשיו!?/giu, "");
+  s = s.replace(/[-–—:]\s*$/gu, "");
+  s = s.replace(/[.,]\s*[.,]/g, ".");
+  s = s.replace(/\s{2,}/g, " ").replace(/\s+([.,!?])/g, "$1").trim();
+  return s || before;
+}
+
 function stripPolicyFluffPreamble(text: string): string {
   let s = String(text ?? "");
   s = s.replace(/לגבי\s+החיובים\s*[-–—:]\s*/giu, "");
@@ -395,6 +428,7 @@ export function applyKnownAssistantReplyFixes(
   s = applyLocationFarClosingFix(s);
   s = applyIllnessPhilosophyFix(s);
   s = stripPolicyFluffPreamble(s);
+  s = stripCoachingAndUnsolicitedRegisterPush(s);
   if (resolveWaReplyAddressingMode(input.knowledge) !== "feminine") {
     s = fixNeutralLeadPluralAddressing(s);
   }

@@ -10,6 +10,7 @@ export type WaNoResponseContactGate = {
   not_relevant_at?: string | null;
   human_requested_at?: string | null;
   trial_registered?: boolean | null;
+  self_reported_registered_at?: string | null;
   session_phase?: string | null;
 };
 
@@ -18,6 +19,7 @@ export function waNoResponseEligible(contact: WaNoResponseContactGate): boolean 
   if (contact.not_relevant_at) return false;
   if (contact.human_requested_at) return false;
   if (contact.trial_registered === true) return false;
+  if (String(contact.self_reported_registered_at ?? "").trim()) return false;
   if (String(contact.session_phase ?? "").trim() === "registered") return false;
   return true;
 }

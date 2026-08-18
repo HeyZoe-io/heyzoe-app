@@ -1224,6 +1224,11 @@ function applyTrialCtaLiteralFallbacks(text: string, priceText: string, duration
   return s;
 }
 
+/** Multi-service CTA with no [heyzoe:sf_service] pick — do not silently use the first catalog row. */
+export function isSfServiceUnsetForCta(selectedServiceName: string, serviceCount: number): boolean {
+  return serviceCount > 1 && !String(selectedServiceName ?? "").trim();
+}
+
 export function resolveSfServicePriceDuration(
   selected: { priceText?: string; durationText?: string } | null | undefined,
   all: Array<{ priceText?: string; durationText?: string }>
@@ -1232,9 +1237,12 @@ export function resolveSfServicePriceDuration(
     priceText: String(s?.priceText ?? "").trim(),
     durationText: String(s?.durationText ?? "").trim(),
   });
+  if (!selected) {
+    return { priceText: "", durationText: "" };
+  }
   let { priceText, durationText } = from(selected);
   if (priceText && durationText) return { priceText, durationText };
-  const candidates = [...(selected ? [selected] : []), ...all];
+  const candidates = [selected, ...all];
   for (const row of candidates) {
     const p = String(row.priceText ?? "").trim();
     const d = String(row.durationText ?? "").trim();
@@ -3340,7 +3348,7 @@ export function formatSalesFlowForPrompt(
 - שלוש אפשרויות בשאלת סשן החימום (שיעור ניסיון / סדנה / קורס לפי סוג השירות שנבחר): תמיד שורה לכל אפשרות בלי מספור, כמו כפתורים.
 - אחרי לחיצה על כפתור בסשן חימום — המערכת שולחת **אוטומטית** את התשובה המוגדרת לכפתור (מהדשבורד); אל תחליפי בניסוח AI חופשי ואל תפרזרי מענה כללי במקום.
 - אם יש רק שירות אחד בפלואו - דלגי על שאלת בחירה בין מוצרים (אחרי מערכת השעות).
-- אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude), ואז חזרי מיד לשאלה הבאה בפלואו עם אותן אפשרויות בחירה.
+- אם הלקוח כותב בצ׳אט חופשי באמצע הפלואו: עני בקצרה מהידע (Claude). אם זו כוונה/עדכון בלי שאלה — אישור קצר בלבד, בלי שיעור חיים ובלי «בואי תרשמי». המערכת מחזירה את השאלה/CTA בנפרד (אל תוסיפי אותם בגוף התשובה).
 - משלב "הנעה לפעולה" ואילך: בכל תשובה הוסיפי את כפתורי ההנעה של **אותו סוג שירות** (שיעור ניסיון / סדנה / קורס לפי מה שנבחר בתפריט השירותים).
 - אם הלקוח בחר שירות שאינו שיעור ניסיון — השתמשי רק בכפתורים ובגוף ה-CTA המתאימים לסוג (סדנה או קורס), לא בכפתורי מערכת שעות/מנויים של שיעור הניסיון.
 ${workshopPromptBlock}${coursePromptBlock}

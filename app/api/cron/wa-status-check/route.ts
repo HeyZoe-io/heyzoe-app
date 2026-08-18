@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
   const cutoffIso = new Date(now - WA_NO_RESPONSE_AFTER_MS).toISOString();
 
   const statusSelect =
+    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, self_reported_registered_at, opted_out, last_contact_at, source, wa_followup_stage, full_name";
+  const statusSelectNoSelfReported =
     "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at, source, wa_followup_stage, full_name";
 
   let contacts: any[] | null = null;
@@ -60,6 +62,7 @@ export async function GET(req: NextRequest) {
     .is("not_relevant_at", null)
     .is("human_requested_at", null)
     .or("trial_registered.eq.false,trial_registered.is.null")
+    .is("self_reported_registered_at", null)
     .is("wa_no_response_at", null)
     .not("wa_no_response_due_at", "is", null)
     .lt("wa_no_response_due_at", nowIso)
@@ -67,12 +70,34 @@ export async function GET(req: NextRequest) {
   contacts = (contactsData as any[] | null) ?? null;
 
   if (error) {
-    if (/wa_no_response_at|column/i.test(String(error.message ?? ""))) {
-      return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
-    }
     const msg = String(error.message ?? "");
-    // Back-compat: if due-at column is not deployed yet, fall back to last_contact_at cutoff.
-    if (/wa_no_response_due_at|column/i.test(msg)) {
+    if (/self_reported_registered_at/i.test(msg)) {
+      console.warn(
+        "[cron/wa-status-check] self_reported_registered_at missing — run supabase/contacts_cta_frequency_and_self_reported.sql"
+      );
+      const retry = await admin
+        .from("contacts")
+        .select(statusSelectNoSelfReported)
+        .eq("source", "whatsapp")
+        .or("opted_out.eq.false,opted_out.is.null")
+        .is("not_relevant_at", null)
+        .is("human_requested_at", null)
+        .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("wa_no_response_at", null)
+        .not("wa_no_response_due_at", "is", null)
+        .lt("wa_no_response_due_at", nowIso)
+        .limit(BATCH);
+      if (retry.error) {
+        if (/wa_no_response_at|column/i.test(String(retry.error.message ?? ""))) {
+          return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
+        }
+        console.error("[cron/wa-status-check] contacts query (no self_reported):", retry.error);
+        return NextResponse.json({ error: "query_failed" }, { status: 500 });
+      }
+      contacts = (retry.data as any[] | null) ?? null;
+    } else if (/wa_no_response_at|column/i.test(msg)) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
+    } else if (/wa_no_response_due_at/i.test(msg)) {
       const { data: legacy, error: legacyErr } = await admin
         .from("contacts")
         .select("id, phone, business_id, session_phase, trial_registered, opted_out, last_contact_at")
@@ -106,6 +131,7 @@ export async function GET(req: NextRequest) {
         .is("not_relevant_at", null)
     .is("human_requested_at", null)
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("self_reported_registered_at", null)
         .is("wa_no_response_at", null)
         .is("wa_no_response_due_at", null)
         .not("last_contact_at", "is", null)
@@ -153,6 +179,7 @@ export async function GET(req: NextRequest) {
       business_id?: number | null;
       session_phase?: string | null;
       trial_registered?: boolean | null;
+      self_reported_registered_at?: string | null;
       opted_out?: boolean | null;
       last_contact_at?: string | null;
       wa_followup_stage?: number | null;
@@ -172,7 +199,9 @@ export async function GET(req: NextRequest) {
           ? "opted_out"
           : contact.trial_registered === true
             ? "trial_registered"
-            : "registered"
+            : String(contact.self_reported_registered_at ?? "").trim()
+              ? "self_reported_registered"
+              : "registered"
       );
       continue;
     }
@@ -254,6 +283,7 @@ export async function GET(req: NextRequest) {
     .is("not_relevant_at", null)
     .is("human_requested_at", null)
     .or("trial_registered.eq.false,trial_registered.is.null")
+    .is("self_reported_registered_at", null)
     .is("wa_no_response_at", null)
     .not("wa_no_response_due_at", "is", null)
     .lt("wa_no_response_due_at", nowIso)
@@ -270,6 +300,7 @@ export async function GET(req: NextRequest) {
         business_id?: number | null;
         session_phase?: string | null;
         trial_registered?: boolean | null;
+        self_reported_registered_at?: string | null;
         opted_out?: boolean | null;
         wa_followup_stage?: number | null;
         source?: string | null;

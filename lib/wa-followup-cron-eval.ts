@@ -136,6 +136,7 @@ export async function evaluateBusinessWaFollowup(input: {
     not_relevant_at?: string | null;
     human_requested_at?: string | null;
     trial_registered?: boolean | null;
+    self_reported_registered_at?: string | null;
   };
 }): Promise<WaFollowupEvalResult & { session_id: string; business_slug: string }> {
   const business_slug = input.business_slug.trim().toLowerCase();
@@ -171,6 +172,14 @@ export async function evaluateBusinessWaFollowup(input: {
       session_id: "",
       business_slug,
       detail: { filtered_reason: "trial_registered" },
+    };
+  }
+  if (String(input.contact.self_reported_registered_at ?? "").trim()) {
+    return {
+      skip_reason: "invalid_contact",
+      session_id: "",
+      business_slug,
+      detail: { filtered_reason: "self_reported_registered" },
     };
   }
 

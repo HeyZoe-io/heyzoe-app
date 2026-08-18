@@ -64,6 +64,7 @@ import {
   offerKindFromServiceMeta,
   resolveTrialCtaBodyTemplate,
   resolveSfServicePriceDuration,
+  isSfServiceUnsetForCta,
   resolveAfterRegistrationBodyTemplate,
   resolveAfterRegistrationDirectionsMediaEnabled,
   resolveAfterRegistrationDirectionsMediaCaptionTemplate,
@@ -130,6 +131,7 @@ import {
   isExplicitOtherServiceRequest,
   isNumericServicePickReply,
   isPhaseAgnosticExplicitServiceSwitch,
+  exactTypedCatalogServiceName,
   replyContainsServiceRepickBridge,
   resolveImplicitServiceSwitchFromFreeText,
   SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
@@ -168,6 +170,26 @@ import {
   buildClassRescheduleTeamHandoffReply,
   matchesClassRescheduleUpdate,
 } from "@/lib/wa-class-reschedule";
+import {
+  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+  UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+  assistantReplyIsUnknownClassSlotHandoff,
+  shouldHandoffUnknownClassSlot,
+} from "@/lib/wa-unknown-class-slot";
+import {
+  matchesRunningLateStatusUpdate,
+  RUNNING_LATE_ACK_MESSAGE,
+} from "@/lib/wa-running-late";
+import {
+  classifyRegistrationIntentMembershipReply,
+  matchesRegistrationIntentPhrase,
+  REGISTRATION_INTENT_CLARIFY_MODEL,
+  REGISTRATION_INTENT_CLARIFY_QUESTION,
+  REGISTRATION_INTENT_HAS_MEMBER_MODEL,
+  REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+  REGISTRATION_INTENT_NO_MEMBER_MODEL,
+  REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+} from "@/lib/wa-registration-intent";
 import {
   fetchLastQuoteableSessionMessage,
   formatWaReactionLogContent,
@@ -319,6 +341,11 @@ import {
   reactivateNotRelevantLead,
   shouldSendNotRelevantGatingReply,
 } from "@/lib/not-relevant";
+import { matchesSelfReportedRegistered } from "@/lib/self-reported-registered";
+import {
+  CTA_FREE_TEXT_REPLIES_BEFORE_RESEND,
+  shouldSendSalesFlowCtaForFreeTextCount,
+} from "@/lib/wa-cta-frequency";
 import { isAddressOrDirectionsIntent } from "@/lib/wa-address-intent";
 import {
   coalesceTrailingUserMessages,
@@ -655,12 +682,101 @@ async function resetContactSalesFlowStateForGreeting(input: {
         warmup_extra_awaiting_idx: WARMUP_EXTRA_AWAITING_OFF,
         trial_registered: false,
         trial_registered_at: null,
+        free_text_replies_since_cta: 0,
       })
       .eq("business_id", businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [phone]);
-    if (error) console.warn("[WA Webhook] sales flow greeting reset failed:", error.message);
+    if (error) {
+      if (/free_text_replies_since_cta/i.test(String(error.message ?? ""))) {
+        const { error: fallbackErr } = await supabase
+          .from("contacts")
+          .update({
+            sf_clicked_cta_kinds: [],
+            sf_requested_date: null,
+            sf_requested_time: null,
+            instagram_follow_prompt_sent: false,
+            flow_step: 0,
+            warmup_extra_awaiting_idx: WARMUP_EXTRA_AWAITING_OFF,
+            trial_registered: false,
+            trial_registered_at: null,
+          })
+          .eq("business_id", businessId)
+          .in("phone", phoneVariants.length ? phoneVariants : [phone]);
+        if (fallbackErr) console.warn("[WA Webhook] sales flow greeting reset failed:", fallbackErr.message);
+      } else {
+        console.warn("[WA Webhook] sales flow greeting reset failed:", error.message);
+      }
+    }
   } catch (e) {
     console.warn("[WA Webhook] sales flow greeting reset threw:", e);
+  }
+}
+
+async function fetchContactFreeTextRepliesSinceCta(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  phone: string;
+}): Promise<number> {
+  const phoneVariants = contactPhoneLookupVariants(input.phone);
+  try {
+    const { data, error } = await input.supabase
+      .from("contacts")
+      .select("free_text_replies_since_cta")
+      .eq("business_id", input.businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [input.phone])
+      .maybeSingle();
+    if (error) {
+      if (!/free_text_replies_since_cta/i.test(String(error.message ?? ""))) {
+        console.warn("[WA Webhook] free_text_replies_since_cta select:", error.message);
+      }
+      return 0;
+    }
+    const n = Number((data as { free_text_replies_since_cta?: unknown } | null)?.free_text_replies_since_cta);
+    return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+  } catch (e) {
+    console.warn("[WA Webhook] free_text_replies_since_cta select threw:", e);
+    return 0;
+  }
+}
+
+async function bumpContactFreeTextRepliesSinceCta(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  phone: string;
+  current: number;
+}): Promise<number> {
+  const next = Math.max(0, Math.trunc(Number.isFinite(input.current) ? input.current : 0)) + 1;
+  const phoneVariants = contactPhoneLookupVariants(input.phone);
+  try {
+    const { error } = await input.supabase
+      .from("contacts")
+      .update({ free_text_replies_since_cta: next })
+      .eq("business_id", input.businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [input.phone]);
+    if (error) console.warn("[WA Webhook] free_text_replies_since_cta bump failed:", error.message);
+  } catch (e) {
+    console.warn("[WA Webhook] free_text_replies_since_cta bump threw:", e);
+  }
+  return next;
+}
+
+async function resetContactFreeTextRepliesSinceCta(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  phone: string;
+}): Promise<void> {
+  const phoneVariants = contactPhoneLookupVariants(input.phone);
+  try {
+    const { error } = await input.supabase
+      .from("contacts")
+      .update({ free_text_replies_since_cta: 0 })
+      .eq("business_id", input.businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [input.phone]);
+    if (error && !/free_text_replies_since_cta/i.test(String(error.message ?? ""))) {
+      console.warn("[WA Webhook] free_text_replies_since_cta reset failed:", error.message);
+    }
+  } catch (e) {
+    console.warn("[WA Webhook] free_text_replies_since_cta reset threw:", e);
   }
 }
 
@@ -2241,6 +2357,7 @@ async function commitImplicitServiceSwitch(input: {
   businessId: string;
   business_slug: string;
   sessionId: string;
+  logModelUsed?: string;
 }): Promise<HeyzoeSessionPhase> {
   const picked =
     input.salesFlowServices.find((s) => s.name === input.serviceName) ??
@@ -2264,7 +2381,7 @@ async function commitImplicitServiceSwitch(input: {
     business_slug: input.business_slug,
     role: "event",
     content: `${HEYZOE_SF_SERVICE_PREFIX}${input.serviceName}`,
-    model_used: "sf_service_implicit_switch",
+    model_used: input.logModelUsed ?? "sf_service_implicit_switch",
     session_id: input.sessionId,
   });
   return nextPhase;
@@ -2543,6 +2660,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   extraBodyLines?: string[];
   modelUsed: string;
   blockMedia?: boolean;
+  /** Cap resends after Claude answers. Leave false for flow-progression (first CTA after service pick). */
+  applyFreeTextFrequencyCap?: boolean;
 }): Promise<void> {
   const {
     knowledge,
@@ -2560,6 +2679,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     extraBodyLines,
     modelUsed,
     blockMedia = false,
+    applyFreeTextFrequencyCap = false,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -2574,8 +2694,25 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     salesFlowServices.length === 1
       ? salesFlowServices[0]!.name
       : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+  if (isSfServiceUnsetForCta(selectedServiceName, salesFlowServices.length)) {
+    await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "opening" });
+    const sentPick = await sendOpeningServicePickMenu({
+      knowledge,
+      salesFlowServices,
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+      blockMedia,
+      skipScheduleBoard: true,
+      modelUsed: "flow_continuation_opening_service_pick",
+    });
+    if (sentPick) return;
+  }
   const selectedService =
-    salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
+    salesFlowServices.find((s) => s.name === selectedServiceName) ??
+    (salesFlowServices.length === 1 ? salesFlowServices[0] ?? null : null);
 
   if (shouldCollectCourseCycleStartPick(knowledge, selectedService)) {
     const scheduleState = await fetchContactScheduleSelectionState({ supabase, businessId, phone: msg.from });
@@ -2701,6 +2838,21 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   if (!ctaBody) return;
 
+  if (applyFreeTextFrequencyCap) {
+    const n = await fetchContactFreeTextRepliesSinceCta({ supabase, businessId, phone: msg.from });
+    if (!shouldSendSalesFlowCtaForFreeTextCount(n)) {
+      console.info("[WA Webhook] CTA skipped (free-text frequency cap)", {
+        n,
+        threshold: CTA_FREE_TEXT_REPLIES_BEFORE_RESEND,
+        business_slug,
+        sessionId,
+      });
+      // Still move phase to cta so schedule→cta does not stall; do not log sf_cta_reached (CTA not sent).
+      await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "cta" });
+      return;
+    }
+  }
+
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
   const menuFooter = getZoeWhatsAppMenuFooter(contentLang);
 
@@ -2722,6 +2874,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     model_used: modelUsed,
     session_id: sessionId,
   });
+
+  await resetContactFreeTextRepliesSinceCta({ supabase, businessId, phone: msg.from });
 
   // One-time CTA note per "flow run" (resets on greeting/opening).
   // We persist the marker in messages to avoid adding more DB columns.
@@ -3125,6 +3279,8 @@ async function sendFlowContinuation(input: {
   }
 
   if (phase === "cta") {
+    // Flow-progression / recovery resend — do not apply the free-text CTA cap here
+    // (count may be 1–2 after warmup AI; a literal >=3 guard would block the first CTA).
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
       msg,
@@ -4782,6 +4938,7 @@ async function processIncoming(
   let contactNotRelevantAt: string | null = null;
   let contactHumanRequestedAt: string | null = null;
   let contactClaudeCount: number | null = null;
+  let contactFreeTextRepliesSinceCta = 0;
   let contactTrialRegistered: boolean | null = null;
   let contactTrialRegisteredAt: string | null = null;
   // Persisted registration blocks trial CTA even if the flow is reset later.
@@ -4889,6 +5046,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
+            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, id, starter_quota_notice_month",
@@ -4929,6 +5087,8 @@ async function processIncoming(
           : null;
       const cc = (contactRow as any)?.claude_message_count;
       contactClaudeCount = typeof cc === "number" && Number.isFinite(cc) ? cc : null;
+      const ftCta = Number((contactRow as any)?.free_text_replies_since_cta);
+      contactFreeTextRepliesSinceCta = Number.isFinite(ftCta) ? Math.max(0, Math.trunc(ftCta)) : 0;
       contactTrialRegistered =
         typeof (contactRow as any)?.trial_registered === "boolean"
           ? (contactRow as any).trial_registered
@@ -5511,6 +5671,113 @@ async function processIncoming(
     return;
   }
 
+  // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות
+  if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
+    const lastPickedForSlot =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+    if (
+      shouldHandoffUnknownClassSlot({
+        text: msg.text.trim(),
+        services: salesFlowServices,
+        committedServiceName: lastPickedForSlot,
+        sessionPhase: contactSessionPhase,
+      })
+    ) {
+      try {
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        await handleLeadHumanRequested({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] unknown-class-slot human_requested failed:", e);
+      }
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send unknown-class-slot team handoff failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+        model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
+  }
+
+  // מאחרת / בדרך לשיעור — אישור קצר, בלי Claude ובלי CTA
+  if (
+    msg.type === "text" &&
+    isSalesFlowFreeTextInbound(msg) &&
+    matchesRunningLateStatusUpdate(msg.text)
+  ) {
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        RUNNING_LATE_ACK_MESSAGE,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send running-late ack failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: RUNNING_LATE_ACK_MESSAGE,
+      model_used: "running_late_ack",
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  // Self-reported registration (keyword) — suppress follow-ups; does not set trial_registered.
+  if (
+    msg.type === "text" &&
+    businessId &&
+    isSalesFlowFreeTextInbound(msg) &&
+    matchesSelfReportedRegistered(msg.text)
+  ) {
+    try {
+      const { data: markedSelf, error: selfErr } = await supabase
+        .from("contacts")
+        .update({ self_reported_registered_at: nowIso })
+        .eq("business_id", businessId)
+        .in("phone", contactPhoneLookupVariants(msg.from))
+        .is("self_reported_registered_at", null)
+        .select("id");
+      if (selfErr) {
+        console.warn("[WA Webhook] self_reported_registered_at update:", selfErr.message);
+      } else if (markedSelf?.length) {
+        await logMessage({
+          business_slug,
+          role: "event",
+          content: "[heyzoe:self_reported_registered]",
+          model_used: "self_reported_registered",
+          session_id: sessionId,
+        }).catch((e) => console.error("[WA Webhook] self_reported_registered log failed:", e));
+      }
+    } catch (e) {
+      console.warn("[WA Webhook] self_reported_registered_at threw:", e);
+    }
+  }
+
   // Trial registration keyword → update contact + send after-trial template (no Claude)
   if (msg.type === "text" && businessId && knowledge) {
     const rawTrimmed = msg.text.trim();
@@ -5921,8 +6188,123 @@ async function processIncoming(
     }
   }
 
-  // 0.5) חימום — בחירות תפריט (כולל list_reply / button_reply; inbound תמיד type:"text")
   const lastAssistForWarmupPriority = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+
+  // 0.2) Registration-intent yes/no — must run before standalone-help / Claude.
+  // Precedence: after greeting trigger (0), before warmup (0.5) and before
+  // isStandaloneWhatsAppOpenQuestion. sessionHasSalesFlowGreeting already ran above.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    lastAssistForWarmupPriority === REGISTRATION_INTENT_CLARIFY_MODEL
+  ) {
+    const yn = classifyRegistrationIntentMembershipReply(msg.text);
+    if (yn === "yes") {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send registration-intent has-membership failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+        model_used: REGISTRATION_INTENT_HAS_MEMBER_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
+    if (yn === "no") {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send registration-intent no-membership failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+        model_used: REGISTRATION_INTENT_NO_MEMBER_MODEL,
+        session_id: sessionId,
+      });
+      if (businessId && knowledge?.salesFlowConfig) {
+        await updateContactSessionPhase({
+          supabase,
+          businessId,
+          phone: msg.from,
+          phase: "opening",
+        });
+        await resetContactSalesFlowStateForGreeting({
+          supabase,
+          businessId,
+          phone: msg.from,
+        });
+        await sendFlowContinuation({
+          phase: "opening",
+          contact: { flow_step: 0 },
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices,
+          trialRegistered: false,
+          allowTrialCta: true,
+          blockTrialPickMedia: starterBlocksMedia,
+          sfConsumedKinds: [],
+          instagramFollowPromptSent: false,
+        });
+      }
+      return;
+    }
+    // unclear — fall through to current behavior, no loop
+  }
+
+  // 0.3) Ambiguous registration-intent (pre-greeting) — before standalone-help.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    !salesFlowStarted &&
+    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    contactSessionPhase !== "registered" &&
+    contactTrialRegistered !== true &&
+    matchesRegistrationIntentPhrase(msg.text)
+  ) {
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        REGISTRATION_INTENT_CLARIFY_QUESTION,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send registration-intent clarify failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: REGISTRATION_INTENT_CLARIFY_QUESTION,
+      model_used: REGISTRATION_INTENT_CLARIFY_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  // 0.5) חימום — בחירות תפריט (כולל list_reply / button_reply; inbound תמיד type:"text")
   const inWarmupMenuPickContext =
     contactSessionPhase === "warmup" || isWarmupExtraMenuModel(lastAssistForWarmupPriority);
   if (
@@ -5995,6 +6377,58 @@ async function processIncoming(
       session_id: sessionId,
     });
     const serviceNamesForSwitch = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
+    const exactTypedName = exactTypedCatalogServiceName(msg.text.trim(), serviceNamesForSwitch);
+    if (exactTypedName) {
+      contactSessionPhase = await commitImplicitServiceSwitch({
+        knowledge,
+        salesFlowServices,
+        serviceName: exactTypedName,
+        msg,
+        supabase,
+        businessId,
+        sessionId,
+        business_slug,
+        logModelUsed: "sf_service_explicit_switch",
+      });
+      contactFlowStep = 0;
+      contactScheduleRequestedDate = "";
+      contactScheduleRequestedTime = "";
+      {
+        const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+          knowledge,
+          supabase,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          when: "after_service_pick",
+        });
+        if (scheduleAfterPick === "image") {
+          await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+        }
+      }
+      await sendFlowContinuation({
+        phase: contactSessionPhase,
+        contact: { flow_step: 0 },
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        salesFlowServices,
+        trialRegistered: contactTrialRegistered,
+        allowTrialCta: allowTrialCtaThisSession,
+        blockTrialPickMedia: starterBlocksMedia,
+        sfConsumedKinds: sfClickedCtaKinds,
+        instagramFollowPromptSent: contactInstagramFollowPromptSent,
+      });
+      return;
+    }
     if (
       isPhaseAgnosticExplicitServiceSwitch(
         msg.text.trim(),
@@ -7444,13 +7878,6 @@ async function processIncoming(
               previous: sfClickedCtaKinds,
             });
             if (!wantsScheduleByIntent) await sendPostLinkMenu();
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: `[media] ${imgUrl}\n\n${SCHEDULE_BOARD_CAPTION}`,
-              model_used: "sales_flow_schedule_image",
-              session_id: sessionId,
-            });
             return;
           }
 
@@ -8549,9 +8976,12 @@ async function processIncoming(
 
   const shouldStripModelNumberedChoices =
     !isFallbackErrorReply && (contactTrialRegistered === true || stripCandidates.length > 0);
-  const replyCoreForMenu = shouldStripModelNumberedChoices
+  let replyCoreForMenu = shouldStripModelNumberedChoices
     ? stripNumberedChoiceLinesAnywhere(stripTrailingNumberedChoiceLines(replyCore), stripCandidates)
     : replyCore;
+  if (!isFallbackErrorReply && standaloneHelpClosing) {
+    replyCoreForMenu = stripNumberedChoiceLinesAnywhere(replyCoreForMenu, undefined, { includeMidline: true });
+  }
   const replyCoreClean = applyKnownAssistantReplyFixes(
     stripAssistantInteractiveButtonsLog(stripZoeMenuFooterFromText(replyCoreForMenu)),
     {
@@ -8588,6 +9018,46 @@ async function processIncoming(
       authToken,
       sessionId: sessionId,
       fullName: fullName || null,
+    });
+    return;
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    assistantReplyIsUnknownClassSlotHandoff(replyCoreClean) &&
+    businessId
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] unknown-class-slot (claude) human_requested failed:", e);
+    }
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send unknown-class-slot (claude) team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+      model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+      session_id: sessionId,
     });
     return;
   }
@@ -8731,6 +9201,20 @@ async function processIncoming(
     replyText = dedupeConsecutiveDuplicateLines(replyText);
   }
 
+  if (
+    didCallClaude &&
+    !isFallbackErrorReply &&
+    isFreeTextSalesFlowAi &&
+    businessId
+  ) {
+    await bumpContactFreeTextRepliesSinceCta({
+      supabase,
+      businessId,
+      phone: msg.from,
+      current: contactFreeTextRepliesSinceCta,
+    });
+  }
+
   try {
     if (isFallbackErrorReply) {
       await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
@@ -8846,6 +9330,7 @@ async function processIncoming(
             allowTrialCta: allowTrialCtaThisSession,
             sfConsumedKinds: sfClickedCtaKinds,
             modelUsed: "sales_flow_cta",
+            applyFreeTextFrequencyCap: true,
           });
         }
       } else if (shouldSplitFreeTextAnswerAndResendPrompt) {
@@ -8936,7 +9421,9 @@ async function processIncoming(
           body += `\n\n${ctaText}: ${ctaLink}`;
         }
         body = dedupeConsecutiveDuplicateLines(body);
-        const bodyForWA = stripNumberedChoiceLinesAnywhere(body, menuLabels);
+        const bodyForWA = stripNumberedChoiceLinesAnywhere(body, menuLabels, {
+          includeMidline: standaloneHelpClosing,
+        });
         if (/\n\s*\d+\.\s+\S/m.test(bodyForWA)) {
           console.error("[WA Webhook] INVARIANT_VIOLATION: numbered choice lines would be sent to WhatsApp", {
             business_slug,

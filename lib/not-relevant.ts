@@ -667,6 +667,13 @@ export async function handleLeadNotRelevant(input: {
   ).catch((e) => console.error("[not-relevant] reply send failed:", e));
 
   const { logMessage } = await import("@/lib/analytics");
+  await logMessage({
+    business_slug: input.businessSlug,
+    role: "assistant",
+    content: NOT_RELEVANT_REPLY_MESSAGE,
+    model_used: "not_relevant_reply",
+    session_id: input.sessionId,
+  }).catch((e) => console.error("[not-relevant] reply log failed:", e));
   const reasonSuffix = reason ? ` — ${reason}` : "";
   await logMessage({
     business_slug: input.businessSlug,
