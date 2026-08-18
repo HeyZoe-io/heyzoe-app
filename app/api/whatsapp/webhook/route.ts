@@ -168,6 +168,11 @@ import {
   buildClassRescheduleTeamHandoffReply,
   matchesClassRescheduleUpdate,
 } from "@/lib/wa-class-reschedule";
+import {
+  fetchLastQuoteableSessionMessage,
+  formatWaReactionLogContent,
+  WA_INBOUND_REACTION_MODEL,
+} from "@/lib/wa-inbound-reaction";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
@@ -5243,12 +5248,35 @@ async function processIncoming(
   // Log for the dashboard; do not auto-reply (no canned "text only" message).
   if (msg.type === "unsupported") {
     try {
-      await logMessage({
-        business_slug,
-        role: "user",
-        content: `[unsupported] ${msg.metaInboundType ?? "unknown"}`,
-        session_id: sessionId,
-      });
+      if (msg.metaInboundType === "reaction") {
+        const emoji = String(msg.reactionEmoji ?? "").trim();
+        if (!emoji) {
+          console.info("[WA Webhook] reaction removed — skip log", {
+            business_slug,
+            sessionId,
+            from: msg.from,
+          });
+        } else {
+          const quoted = await fetchLastQuoteableSessionMessage({
+            businessSlug: business_slug,
+            sessionId,
+          });
+          await logMessage({
+            business_slug,
+            role: "user",
+            content: formatWaReactionLogContent(emoji, quoted),
+            model_used: WA_INBOUND_REACTION_MODEL,
+            session_id: sessionId,
+          });
+        }
+      } else {
+        await logMessage({
+          business_slug,
+          role: "user",
+          content: `[unsupported] ${msg.metaInboundType ?? "unknown"}`,
+          session_id: sessionId,
+        });
+      }
     } catch (e) {
       console.error("[WA Webhook] Log unsupported inbound failed:", e);
     }

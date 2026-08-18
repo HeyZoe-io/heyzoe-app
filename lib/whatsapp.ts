@@ -125,6 +125,8 @@ export type WaIncomingUnsupported = {
   profileName?: string;
   /** Meta message type when not mapped to text (e.g. audio, sticker). */
   metaInboundType?: string;
+  /** Meta reaction emoji when metaInboundType is "reaction". */
+  reactionEmoji?: string;
 };
 
 /** טקסט ישן — לא נשלח יותר (הודעות לא-טקסט נרשמות בלי תשובה אוטומטית). */
@@ -328,6 +330,20 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
       text,
       profileName: profileName || undefined,
       metaInteractiveReplyKind: "button_reply",
+    };
+  }
+
+  if (type === "reaction") {
+    const reaction = m.reaction as Record<string, unknown> | undefined;
+    const emoji = String(reaction?.emoji ?? "").trim();
+    return {
+      type: "unsupported",
+      messageId,
+      from,
+      toNumber: phoneNumberId,
+      profileName: profileName || undefined,
+      metaInboundType: "reaction",
+      reactionEmoji: emoji || undefined,
     };
   }
 

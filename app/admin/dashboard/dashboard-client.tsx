@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { foldConversationReactions } from "@/lib/wa-inbound-reaction";
 
 type DashboardPayload = {
   range: { from: string; to: string };
@@ -455,8 +456,9 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                     <p className="rounded-md bg-white/80 px-2 py-1 text-xs text-zinc-500 font-mono">
                                       {selectedSessionBySlug[b.slug]}
                                     </p>
-                                    {(messagesByKey[`${b.slug}::${selectedSessionBySlug[b.slug]}`] ?? []).map(
-                                      (m, idx) => (
+                                    {foldConversationReactions(
+                                      messagesByKey[`${b.slug}::${selectedSessionBySlug[b.slug]}`] ?? []
+                                    ).map((m, idx) => (
                                         <WaConversationMessage
                                           key={`${m.created_at}-${idx}`}
                                           role={m.role}
@@ -464,9 +466,9 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                           createdAt={m.created_at}
                                           errorCode={m.error_code}
                                           modelUsed={m.model_used}
+                                          reactionEmoji={m.reactionEmoji}
                                         />
-                                      )
-                                    )}
+                                      ))}
                                   </div>
                                 ) : (
                                   <p className="text-sm text-zinc-500 text-right">בחר/י שיחה כדי לראות הודעות.</p>

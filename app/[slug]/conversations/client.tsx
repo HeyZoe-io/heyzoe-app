@@ -7,6 +7,7 @@ import { ArrowRight, ImagePlus, MoreVertical, Search, Send, X } from "lucide-rea
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
 import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
+import { foldConversationReactions } from "@/lib/wa-inbound-reaction";
 import { uploadDashboardImageFile } from "@/lib/upload-dashboard-media-client";
 import { WaConversationMessage } from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
@@ -172,6 +173,12 @@ function messagePreviewText(content: string): string {
   if (parsed.kind === "text") return parsed.text.trim();
   if (parsed.kind === "interactive") return parsed.text.trim() || parsed.buttons[0]?.label || "";
   if (parsed.kind === "media") return parsed.caption?.trim() || (parsed.isVideo ? "🎥 וידאו" : "📷 תמונה");
+  if (parsed.kind === "reaction") {
+    const emoji = parsed.emoji.trim();
+    const quoted = parsed.quoted.trim();
+    if (emoji && quoted) return `${emoji} ${quoted}`;
+    return emoji || quoted || "הגיבה";
+  }
   return "";
 }
 
@@ -438,6 +445,11 @@ export default function ConversationsClient({
     queryFn: ({ signal }) => fetchConversationMessages(messagesSlug, selectedId ?? "", signal),
     staleTime: MESSAGES_STALE_MS,
   });
+
+  const displayMessages = useMemo(
+    () => foldConversationReactions(messagesQuery.data ?? []),
+    [messagesQuery.data]
+  );
 
   const prefetchedSessionsRef = useRef(new Set<string>());
 
@@ -954,7 +966,7 @@ export default function ConversationsClient({
                       </div>
                     </div>
                   ) : (
-                    (messagesQuery.data ?? []).map((m, idx) => (
+                    displayMessages.map((m, idx) => (
                       <WaConversationMessage
                         key={`${m.created_at}-${idx}`}
                         role={m.role}
@@ -963,6 +975,7 @@ export default function ConversationsClient({
                         errorCode={m.error_code}
                         modelUsed={m.model_used}
                         lang={lang}
+                        reactionEmoji={m.reactionEmoji}
                       />
                     ))
                   )}

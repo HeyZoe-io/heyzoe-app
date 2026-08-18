@@ -56,11 +56,13 @@ function BubbleShell({
   children,
   time,
   interactive,
+  reactionEmoji,
 }: {
   from: "user" | "assistant";
   children: React.ReactNode;
   time?: string;
   interactive?: boolean;
+  reactionEmoji?: string;
 }) {
   const outgoing = from === "assistant";
   const greenText = outgoing && !interactive;
@@ -71,12 +73,19 @@ function BubbleShell({
     : "rounded-lg rounded-br-none bg-white text-[#111b21]";
   return (
     <div className={`flex w-full ${outgoing ? "justify-start" : "justify-end"}`} dir="rtl">
-      <div dir="rtl" className={`max-w-[min(100%,320px)] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${bubbleClass}`}>
+      <div dir="rtl" className={`relative max-w-[min(100%,320px)] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${bubbleClass}`}>
         {children}
         {time ? (
           <div className="flex items-end justify-end gap-1 px-2 pb-1 pt-0 text-[11px] leading-none text-[#667781]">
             <span>{time}</span>
           </div>
+        ) : null}
+        {reactionEmoji ? (
+          <span
+            className={`absolute ${outgoing ? "left-1" : "right-1"} -bottom-2 rounded-full bg-white px-1 text-[15px] leading-none shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]`}
+          >
+            {reactionEmoji}
+          </span>
         ) : null}
       </div>
     </div>
@@ -136,6 +145,19 @@ function MessageBody({ parsed }: { parsed: ParsedWaConversationMessage }) {
     );
   }
 
+  if (parsed.kind === "reaction") {
+    return (
+      <div className="px-2.5 py-2">
+        {parsed.quoted ? (
+          <p className="mb-1 whitespace-pre-wrap border-r-2 border-[#d1d7db] pr-2 text-[13px] leading-snug text-[#667781]">
+            {parsed.quoted}
+          </p>
+        ) : null}
+        <p className="text-[22px] leading-none">{parsed.emoji || "♡"}</p>
+      </div>
+    );
+  }
+
   return (
     <p className="whitespace-pre-wrap px-2.5 py-2 text-sm leading-snug">{parsed.text}</p>
   );
@@ -148,6 +170,7 @@ export function WaConversationMessage({
   errorCode,
   modelUsed,
   lang = "he",
+  reactionEmoji,
 }: {
   role: string;
   content: string;
@@ -155,6 +178,7 @@ export function WaConversationMessage({
   errorCode?: string | null;
   modelUsed?: string | null;
   lang?: DashboardLang;
+  reactionEmoji?: string;
 }) {
   if (role === "event") return null;
 
@@ -165,8 +189,8 @@ export function WaConversationMessage({
   const interactive = parsed.kind === "interactive" || parsed.kind === "media";
 
   return (
-    <div className="mb-2">
-      <BubbleShell from={from} time={time} interactive={interactive}>
+    <div className={`mb-2 ${reactionEmoji ? "mb-4" : ""}`}>
+      <BubbleShell from={from} time={time} interactive={interactive} reactionEmoji={reactionEmoji}>
         <MessageBody parsed={parsed} />
       </BubbleShell>
       {from === "assistant" && errorCode ? (

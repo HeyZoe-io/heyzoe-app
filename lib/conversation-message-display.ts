@@ -1,5 +1,6 @@
 import { HEYZOE_MARKETING_CTA_SENT } from "@/lib/lp-analytics";
 import { getZoeWhatsAppMenuFooter } from "@/lib/whatsapp-copy";
+import { parseWaReactionLogContent } from "@/lib/wa-inbound-reaction";
 
 export type WaConversationButton = { label: string; url?: string };
 
@@ -11,7 +12,8 @@ export type ParsedWaConversationMessage =
       buttons: WaConversationButton[];
       footerHint?: string;
     }
-  | { kind: "media"; url: string; caption?: string; isVideo?: boolean };
+  | { kind: "media"; url: string; caption?: string; isVideo?: boolean }
+  | { kind: "reaction"; emoji: string; quoted: string };
 
 function parseNumberedTail(lines: string[]): { bodyLines: string[]; chips: string[] } {
   const body = [...lines];
@@ -99,6 +101,9 @@ function parsePlainButtonsSection(text: string): { text: string; buttons: WaConv
 export function parseConversationMessageContent(raw: string): ParsedWaConversationMessage {
   let s = String(raw ?? "").replace(/\r\n/g, "\n").trim();
   if (!s) return { kind: "text", text: "" };
+
+  const reaction = parseWaReactionLogContent(s);
+  if (reaction) return { kind: "reaction", emoji: reaction.emoji, quoted: reaction.quoted };
 
   if (s.startsWith("[video]")) {
     const caption = s.slice("[video]".length).trim();

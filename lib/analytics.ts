@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { salesFlowGreetingMarkerCountsAsStarted } from "@/lib/sales-flow-start-triggers";
+import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
 
 export type MessageRole = "user" | "assistant" | "event" | "system";
 
@@ -253,7 +254,7 @@ export async function fetchRecentSessionMessages(input: {
     for (const row of [...data].reverse()) {
       if (row.role !== "user" && row.role !== "assistant") continue;
       const c = String(row.content ?? "").trim();
-      if (!c || c.startsWith("[media]")) continue;
+      if (!c || c.startsWith("[media]") || c.startsWith("[unsupported]") || isWaReactionLogContent(c)) continue;
       out.push({ role: row.role, content: c.slice(0, 12_000) });
     }
     return out;
