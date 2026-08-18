@@ -91,29 +91,49 @@ function mapContactRow(row: Record<string, unknown>, extras?: Partial<LeadRow>):
   };
 }
 
+const CONTACTS_PAGE = 1000;
+const CONTACTS_CAP = 4000;
+
+async function fetchPagedContactRows(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  columns: string
+): Promise<{ rows: Record<string, unknown>[]; error: { message?: string } | null }> {
+  const rows: Record<string, unknown>[] = [];
+  for (let off = 0; off < CONTACTS_CAP; off += CONTACTS_PAGE) {
+    const { data, error } = await admin
+      .from("contacts")
+      .select(columns)
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false })
+      .range(off, off + CONTACTS_PAGE - 1);
+    if (error) return { rows, error };
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
+    rows.push(...batch);
+    if (batch.length < CONTACTS_PAGE) break;
+  }
+  return { rows, error: null };
+}
+
 async function fetchBusinessContactRows(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
 ): Promise<Record<string, unknown>[]> {
   const withHuman = `${LEAD_CONTACT_SELECT_BASE}, human_requested_at`;
-  const { data, error } = await admin.from("contacts").select(withHuman).eq("business_id", businessId);
+  const primary = await fetchPagedContactRows(admin, businessId, withHuman);
+  if (!primary.error) return primary.rows;
 
-  if (!error) return (data ?? []) as Record<string, unknown>[];
-
-  if (/human_requested_at|column/i.test(String(error.message ?? ""))) {
+  if (/human_requested_at|column/i.test(String(primary.error.message ?? ""))) {
     console.warn("[leads-data] human_requested_at missing — fallback select without column");
-    const { data: legacy, error: legacyErr } = await admin
-      .from("contacts")
-      .select(LEAD_CONTACT_SELECT_BASE)
-      .eq("business_id", businessId);
-    if (legacyErr) {
-      console.error("[leads-data] contacts load failed:", legacyErr.message);
+    const legacy = await fetchPagedContactRows(admin, businessId, LEAD_CONTACT_SELECT_BASE);
+    if (legacy.error) {
+      console.error("[leads-data] contacts load failed:", legacy.error.message);
       return [];
     }
-    return (legacy ?? []) as Record<string, unknown>[];
+    return legacy.rows;
   }
 
-  console.error("[leads-data] contacts load failed:", error.message);
+  console.error("[leads-data] contacts load failed:", primary.error.message);
   return [];
 }
 
@@ -123,10 +143,21 @@ export async function loadLeadsForBusiness(
 ): Promise<LeadRow[]> {
   const contacts = await fetchBusinessContactRows(admin, businessId);
 
-  const { data: conversations } = await admin
-    .from("conversations")
-    .select("phone, cta_clicked_at")
-    .eq("business_id", businessId);
+  const conversations: { phone?: string; cta_clicked_at?: string | null }[] = [];
+  for (let off = 0; off < CONTACTS_CAP; off += CONTACTS_PAGE) {
+    const { data, error } = await admin
+      .from("conversations")
+      .select("phone, cta_clicked_at")
+      .eq("business_id", businessId)
+      .range(off, off + CONTACTS_PAGE - 1);
+    if (error) {
+      console.warn("[leads-data] conversations load:", error.message);
+      break;
+    }
+    const batch = data ?? [];
+    conversations.push(...batch);
+    if (batch.length < CONTACTS_PAGE) break;
+  }
 
   const ctaByPhone = new Map<string, string | null>();
   for (const row of conversations ?? []) {

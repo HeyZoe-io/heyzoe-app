@@ -426,10 +426,11 @@ export default function ConversationsClient({
       const j = (await res.json()) as { sessions?: SessionSummary[] };
       return (j.sessions ?? []) as SessionSummary[];
     },
-    initialData: initialSessions,
+    ...(initialSessions.length > 0 ? { initialData: initialSessions } : {}),
     refetchOnWindowFocus: true,
     refetchInterval: 30_000,
   });
+  const listLoading = sessions.length === 0 && (sessionsQuery.isPending || sessionsQuery.isFetching);
 
   useEffect(() => {
     if (!sessionsQuery.data) return;
@@ -831,7 +832,17 @@ export default function ConversationsClient({
             ) : null}
 
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-              {visibleSessions.map((s) => {
+              {listLoading
+                ? Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 border-b border-[#f0f2f5] px-3 py-3">
+                      <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-[#f0f2f5]" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="h-4 w-3/4 animate-pulse rounded bg-[#f0f2f5]" />
+                        <div className="h-3 w-1/2 animate-pulse rounded bg-[#f0f2f5]" />
+                      </div>
+                    </div>
+                  ))
+                : visibleSessions.map((s) => {
                 const active = selectedId === s.session_id;
                 const hasName = Boolean(sessionLeadName(s));
                 const phone = sessionPhoneDisplay(s, t.unavailable);
@@ -890,7 +901,7 @@ export default function ConversationsClient({
                   </button>
                 );
               })}
-              {visibleSessions.length === 0 ? (
+              {!listLoading && visibleSessions.length === 0 ? (
                 <p className={`px-4 py-6 text-sm text-[#667781] ${textAlignClass}`}>{emptyMessage}</p>
               ) : null}
             </div>

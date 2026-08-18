@@ -42,44 +42,93 @@ type ContactPhoneMeta = {
   lastContactAt: string | null;
 };
 
+const CONTACT_META_PAGE = 1000;
+const CONTACT_META_CAP = 2000;
+const TEMPLATE_CONTACTS_CAP = 400;
+const SESSION_LIST_CAP = 500;
+const FALLBACK_MESSAGE_PAGE = 1000;
+const FALLBACK_MESSAGE_PAGES = 4;
+const RPC_TIMEOUT_MS = 3500;
+
+function mergeContactMetaRow(
+  map: Map<string, ContactPhoneMeta>,
+  row: Record<string, unknown>
+): void {
+  const phone = String((row as { phone?: string }).phone ?? "").trim();
+  const key = phoneLookupKey(phone);
+  if (!key) return;
+  const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
+  const lastContactAt = leadConversationAt(row as Parameters<typeof leadConversationAt>[0]);
+  const next: ContactPhoneMeta = {
+    status: computeContactStatus(row as Parameters<typeof computeContactStatus>[0]),
+    fullName: fullName || null,
+    lastContactAt,
+  };
+  const prev = map.get(key);
+  if (!prev) {
+    map.set(key, next);
+    return;
+  }
+  const prevAt = sessionRecentActivityMs({ lastAt: prev.lastContactAt });
+  const rowAt = sessionRecentActivityMs({ lastAt: lastContactAt });
+  map.set(key, rowAt >= prevAt ? next : prev);
+}
+
 async function loadContactMetaByPhoneForBusiness(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
 ): Promise<Map<string, ContactPhoneMeta>> {
-  const { data, error } = await admin
-    .from("contacts")
-    .select(
-      "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
-    )
-    .eq("business_id", businessId);
-
-  if (error) {
-    console.warn("[conversations-sessions] contacts meta load:", error.message);
-    return new Map();
-  }
-
   const map = new Map<string, ContactPhoneMeta>();
-  for (const row of data ?? []) {
-    const phone = String((row as { phone?: string }).phone ?? "").trim();
-    const key = phoneLookupKey(phone);
-    if (!key) continue;
-    const fullName = String((row as { full_name?: string | null }).full_name ?? "").trim();
-    const lastContactAt = leadConversationAt(row as Parameters<typeof leadConversationAt>[0]);
-    const next: ContactPhoneMeta = {
-      status: computeContactStatus(row as Parameters<typeof computeContactStatus>[0]),
-      fullName: fullName || null,
-      lastContactAt,
-    };
-    const prev = map.get(key);
-    if (!prev) {
-      map.set(key, next);
-      continue;
+  for (let off = 0; off < CONTACT_META_CAP; off += CONTACT_META_PAGE) {
+    const { data, error } = await admin
+      .from("contacts")
+      .select(
+        "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
+      )
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false })
+      .range(off, off + CONTACT_META_PAGE - 1);
+
+    if (error) {
+      console.warn("[conversations-sessions] contacts meta load:", error.message);
+      break;
     }
-    const prevAt = sessionRecentActivityMs({ lastAt: prev.lastContactAt });
-    const rowAt = sessionRecentActivityMs({ lastAt: lastContactAt });
-    map.set(key, rowAt >= prevAt ? next : prev);
+    const rows = data ?? [];
+    for (const row of rows) mergeContactMetaRow(map, row as Record<string, unknown>);
+    if (rows.length < CONTACT_META_PAGE) break;
   }
   return map;
+}
+
+async function fetchRecentMessagesForSessions(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  slugVariants: string[],
+  phoneNumberIds: string[]
+): Promise<{ session_id?: string | null; role?: string | null; created_at?: string | null }[]> {
+  const filtered: { session_id?: string | null; role?: string | null; created_at?: string | null }[] = [];
+  for (let page = 0; page < FALLBACK_MESSAGE_PAGES; page += 1) {
+    const from = page * FALLBACK_MESSAGE_PAGE;
+    const to = from + FALLBACK_MESSAGE_PAGE - 1;
+    const { data, error } = await admin
+      .from("messages")
+      .select("session_id, role, created_at")
+      .in("business_slug", slugVariants)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      console.warn("[conversations-sessions] recent messages fallback:", error.message);
+      break;
+    }
+    const batch = data ?? [];
+    for (const m of batch) {
+      if (sessionIdMatchesWaPhoneNumberIds(String((m as { session_id?: string }).session_id ?? ""), phoneNumberIds)) {
+        filtered.push(m);
+      }
+    }
+    if (batch.length < FALLBACK_MESSAGE_PAGE) break;
+  }
+  return filtered;
 }
 
 function enrichSessionsWithContactMeta(
@@ -315,16 +364,18 @@ export async function loadBusinessConversationSessions(
   const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
   const businessId = Number((biz as { id?: number } | null)?.id ?? 0);
 
-  const [{ data: pausedRows }, { data: rpcRows, error: rpcError }, { data: templateContacts }] = await Promise.all([
+  const [{ data: pausedRows }, rpcResult, { data: templateContacts }] = await Promise.all([
     admin
       .from("paused_sessions")
       .select("session_id, paused_until, business_slug")
       .in("business_slug", slugVariants)
       .gt("paused_until", new Date().toISOString()),
-    admin.rpc("dashboard_session_summaries", {
-      slug_variants: slugVariants,
-      wa_session_prefixes: waSessionPrefixes,
-    }),
+    admin
+      .rpc("dashboard_session_summaries", {
+        slug_variants: slugVariants,
+        wa_session_prefixes: waSessionPrefixes,
+      })
+      .abortSignal(AbortSignal.timeout(RPC_TIMEOUT_MS)),
     Number.isFinite(businessId) && businessId > 0
       ? admin
           .from("contacts")
@@ -333,22 +384,35 @@ export async function loadBusinessConversationSessions(
           )
           .eq("business_id", businessId)
           .in("source", ["meta_lead_ad", "site_lead"])
+          .order("created_at", { ascending: false })
+          .limit(TEMPLATE_CONTACTS_CAP)
       : Promise.resolve({ data: [] as Record<string, unknown>[] }),
   ]);
   const pausedUntilBySession = pausedUntilBySessionFromRows(pausedRows as { session_id?: string; paused_until?: string }[] | null, (sid) =>
     sessionIdMatchesWaPhoneNumberIds(sid, phoneNumberIds)
   );
-  if (rpcError) console.warn("[conversations-sessions] rpc:", rpcError.message);
-  let sessions = mapRpcRowsToSessions((rpcRows ?? []) as RpcSessionRow[], pausedUntilBySession);
+  const rpcError = rpcResult.error;
+  const rpcRows = rpcResult.data;
+  let sessions: SessionSummary[];
+  if (rpcError) {
+    console.warn("[conversations-sessions] rpc:", rpcError.message);
+    const recent = await fetchRecentMessagesForSessions(admin, slugVariants, phoneNumberIds);
+    sessions = aggregateSessionsFromMessages(recent, pausedUntilBySession).slice(0, SESSION_LIST_CAP);
+  } else {
+    sessions = mapRpcRowsToSessions((rpcRows ?? []) as RpcSessionRow[], pausedUntilBySession).slice(
+      0,
+      SESSION_LIST_CAP
+    );
+  }
   sessions = appendTemplateOnlySessions(
     sessions,
     (templateContacts ?? []) as Record<string, unknown>[],
     phoneNumberIds,
     pausedUntilBySession
-  );
+  ).slice(0, SESSION_LIST_CAP);
 
   if (!Number.isFinite(businessId) || businessId <= 0) return sessions;
 
   const metaByPhone = await loadContactMetaByPhoneForBusiness(admin, businessId);
-  return enrichSessionsWithContactMeta(sessions, metaByPhone);
+  return enrichSessionsWithContactMeta(sessions, metaByPhone).slice(0, SESSION_LIST_CAP);
 }
