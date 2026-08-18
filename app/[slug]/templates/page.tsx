@@ -75,6 +75,7 @@ export default async function TemplatesPage({ params }: Props) {
 
   const initialTriggers = ((triggers ?? []) as TriggerRow[]).map((row) => ({
     ...row,
+    id: String((row as { id?: unknown }).id ?? ""),
     trigger_type: canonicalizeTriggerType(String(row.trigger_type)) as TriggerRow["trigger_type"],
   }));
 

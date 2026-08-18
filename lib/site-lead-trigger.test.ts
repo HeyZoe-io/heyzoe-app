@@ -5,6 +5,7 @@ import {
   isCreatableTriggerType,
   isIncomingLeadTriggerType,
   isTriggerType,
+  parseTriggerId,
   NON_ARBOX_TRIGGER_TYPES,
   TRIGGER_TYPES,
 } from "@/lib/template-trigger-types";
@@ -156,6 +157,15 @@ function rule(
   const wouldCreateSecond = existing.some((r) => isIncomingLeadTriggerType(r.trigger_type));
   assert.equal(wouldCreateSecond, true);
   assert.equal(isIncomingLeadTriggerType("incoming_lead"), true);
+}
+
+/** template_triggers.id is uuid; Number(uuid) is NaN. */
+{
+  assert.equal(parseTriggerId("b818a96f-0220-45f5-a7fc-118fe482202d"), "b818a96f-0220-45f5-a7fc-118fe482202d");
+  assert.equal(parseTriggerId("B818A96F-0220-45F5-A7FC-118FE482202D"), "B818A96F-0220-45F5-A7FC-118FE482202D");
+  assert.equal(parseTriggerId(Number("b818a96f-0220-45f5-a7fc-118fe482202d")), null);
+  assert.equal(parseTriggerId(""), null);
+  assert.equal(parseTriggerId("12"), null);
 }
 
 console.log("site-lead-trigger.test.ts: ok");

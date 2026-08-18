@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Check, Copy, Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, Copy, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
@@ -39,7 +39,7 @@ export type TriggerType =
 export type DelayDirection = "after" | "before";
 
 export type TriggerRow = {
-  id: number;
+  id: string;
   business_id: number;
   trigger_type: TriggerType;
   product_filter: number[] | null;
@@ -310,8 +310,12 @@ export default function TemplatesClient({
   const [success, setSuccess] = useState<string | null>(null);
 
   const [triggerSaving, setTriggerSaving] = useState(false);
-  const [triggerTogglingId, setTriggerTogglingId] = useState<number | null>(null);
-  const [triggerDeletingId, setTriggerDeletingId] = useState<number | null>(null);
+  const [triggerTogglingId, setTriggerTogglingId] = useState<string | null>(null);
+  const [triggerDeletingId, setTriggerDeletingId] = useState<string | null>(null);
+  const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
+  const [editDelayDays, setEditDelayDays] = useState(0);
+  const [editTemplateName, setEditTemplateName] = useState("");
+  const [triggerEditSaving, setTriggerEditSaving] = useState(false);
 
   const [newTriggerType, setNewTriggerType] = useState<TriggerType>(
     hasArbox ? "purchase" : "incoming_lead"
@@ -346,9 +350,11 @@ export default function TemplatesClient({
 
   const creatableTriggerOptions = useMemo(() => {
     const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
+    const hasArboxNewLead = triggers.some((t) => t.trigger_type === "arbox_new_lead");
     return TRIGGER_TYPE_OPTIONS.filter((opt) => {
       if (!isCreatableTriggerType(opt.value, hasArbox)) return false;
       if (opt.value === "incoming_lead" && hasIncomingLead) return false;
+      if (opt.value === "arbox_new_lead" && hasArboxNewLead) return false;
       return true;
     });
   }, [hasArbox, triggers]);
@@ -507,6 +513,9 @@ export default function TemplatesClient({
         if (j.error === "incoming_lead_exists") {
           throw new Error("כבר קיים טריגר ליד");
         }
+        if (j.error === "arbox_new_lead_exists") {
+          throw new Error("כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים במקום ליצור עוד אחד");
+        }
         throw new Error(j.error || `http_${res.status}`);
       }
       if (j.trigger) {
@@ -554,7 +563,7 @@ export default function TemplatesClient({
     }
   }
 
-  async function onDeleteTrigger(id: number) {
+  async function onDeleteTrigger(id: string) {
     setError(null);
     setTriggerDeletingId(id);
     try {
@@ -565,11 +574,72 @@ export default function TemplatesClient({
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(j.error || `http_${res.status}`);
       setTriggers((prev) => prev.filter((row) => row.id !== id));
+      if (editingTriggerId === id) setEditingTriggerId(null);
       setSuccess("הטריגר נמחק");
     } catch (err) {
       setError(err instanceof Error ? err.message : "מחיקת טריגר נכשלה");
     } finally {
       setTriggerDeletingId(null);
+    }
+  }
+
+  function templatesForTriggerType(type: TriggerType): TemplateRow[] {
+    if (type === "arbox_new_lead") {
+      return templates.filter((t) => {
+        const st = String(t.status).toUpperCase();
+        return t.disabled !== true && (st === "APPROVED" || st === "PENDING");
+      });
+    }
+    return approvedTemplates;
+  }
+
+  function startEditTrigger(trigger: TriggerRow) {
+    setError(null);
+    setSuccess(null);
+    setEditingTriggerId(trigger.id);
+    setEditDelayDays(trigger.delay_days);
+    setEditTemplateName(trigger.template_name ?? "");
+  }
+
+  async function onSaveTriggerEdit(trigger: TriggerRow) {
+    setError(null);
+    setSuccess(null);
+    setTriggerEditSaving(true);
+    try {
+      const delayMin = trigger.trigger_type === "no_response" ? 2 : 0;
+      const delayDays = Math.max(delayMin, Math.trunc(Number(editDelayDays) || 0));
+      const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: trigger.id,
+          delay_days: delayDays,
+          template_name: editTemplateName.trim() || null,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        trigger?: TriggerRow;
+        error?: string;
+      };
+      if (!res.ok) {
+        if (j.error === "template_not_approved") {
+          throw new Error(
+            trigger.trigger_type === "arbox_new_lead"
+              ? "הטמפלייט לא נמצא או נדחה"
+              : "אפשר לבחור רק טמפלייט שאושר במטא"
+          );
+        }
+        throw new Error(j.error || `http_${res.status}`);
+      }
+      if (j.trigger) {
+        setTriggers((prev) => prev.map((row) => (row.id === j.trigger!.id ? j.trigger! : row)));
+      }
+      setEditingTriggerId(null);
+      setSuccess("הטריגר עודכן");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "עדכון טריגר נכשל");
+    } finally {
+      setTriggerEditSaving(false);
     }
   }
 
@@ -1013,6 +1083,59 @@ export default function TemplatesClient({
                     <p className="text-xs text-zinc-600 break-all" dir="ltr">
                       טמפלייט: {trigger.template_name || "—"}
                     </p>
+                    {editingTriggerId === trigger.id ? (
+                      <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                        {trigger.trigger_type !== "birthday" ? (
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
+                            <input
+                              type="number"
+                              min={trigger.trigger_type === "no_response" ? 2 : 0}
+                              value={editDelayDays}
+                              onChange={(e) => setEditDelayDays(Number(e.target.value))}
+                              className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                            />
+                          </div>
+                        ) : null}
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
+                          <select
+                            value={editTemplateName}
+                            onChange={(e) => setEditTemplateName(e.target.value)}
+                            className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                            dir="ltr"
+                          >
+                            <option value="">— ללא טמפלייט —</option>
+                            {templatesForTriggerType(trigger.trigger_type).map((t) => {
+                              const pending = String(t.status).toUpperCase() === "PENDING";
+                              return (
+                                <option key={t.name} value={t.name}>
+                                  {pending ? `${t.name} (ממתין לאישור)` : t.name}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingTriggerId(null)}
+                            className="rounded-lg border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
+                          >
+                            ביטול
+                          </button>
+                          <button
+                            type="button"
+                            disabled={triggerEditSaving}
+                            onClick={() => void onSaveTriggerEdit(trigger)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-[#7133da] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+                          >
+                            {triggerEditSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                            שמור
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     {!hasArbox && isArboxTriggerType(trigger.trigger_type) ? (
                       <p className="text-xs text-zinc-500">
                         {trigger.enabled ? "פעיל" : "מושבת"}
@@ -1031,6 +1154,15 @@ export default function TemplatesClient({
                         />
                         פעיל
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => startEditTrigger(trigger)}
+                        className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+                        aria-label="ערוך טריגר"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        עריכה
+                      </button>
                       <button
                         type="button"
                         disabled={triggerDeletingId === trigger.id}

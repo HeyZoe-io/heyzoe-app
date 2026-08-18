@@ -9,6 +9,7 @@ import {
   isArboxDependentTriggerType,
   isIncomingLeadTriggerType,
   isTriggerType,
+  parseTriggerId,
   type TriggerType,
 } from "@/lib/template-trigger-types";
 
@@ -30,7 +31,7 @@ const DELAY_DIRECTIONS = ["after", "before"] as const;
 type DelayDirection = (typeof DELAY_DIRECTIONS)[number];
 
 type TriggerRow = {
-  id: number;
+  id: string;
   business_id: number;
   trigger_type: TriggerType;
   product_filter: number[] | null;
@@ -152,8 +153,9 @@ async function verifyTriggerTemplate(
 function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
   const productFilter = parseProductFilter(row.product_filter);
   const rawType = String(row.trigger_type ?? "");
+  const id = parseTriggerId(row.id) ?? String(row.id ?? "").trim();
   return {
-    id: Number(row.id),
+    id,
     business_id: Number(row.business_id),
     trigger_type: canonicalizeTriggerType(rawType) as TriggerType,
     product_filter: productFilter === "invalid" ? null : productFilter,
@@ -169,16 +171,17 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
 async function findExistingIncomingLeadRule(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
-  excludeId?: number
-): Promise<{ id: number } | null> {
+  excludeId?: string
+): Promise<{ id: string } | null> {
   let q = admin
     .from("template_triggers")
     .select("id")
     .eq("business_id", businessId)
     .in("trigger_type", [...INCOMING_LEAD_TRIGGER_TYPES_RESOLVE])
     .limit(1);
-  if (excludeId != null && Number.isFinite(excludeId)) {
-    q = q.neq("id", excludeId);
+  const exclude = parseTriggerId(excludeId);
+  if (exclude) {
+    q = q.neq("id", exclude);
   }
   const { data, error } = await q;
   if (error) {
@@ -186,8 +189,35 @@ async function findExistingIncomingLeadRule(
     throw new Error("incoming_lead_lookup_failed");
   }
   const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
-  if (!row?.id) return null;
-  return { id: Number(row.id) };
+  const id = parseTriggerId(row?.id);
+  if (!id) return null;
+  return { id };
+}
+
+async function findExistingArboxNewLeadRule(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  excludeId?: string
+): Promise<{ id: string } | null> {
+  let q = admin
+    .from("template_triggers")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("trigger_type", "arbox_new_lead")
+    .limit(1);
+  const exclude = parseTriggerId(excludeId);
+  if (exclude) {
+    q = q.neq("id", exclude);
+  }
+  const { data, error } = await q;
+  if (error) {
+    console.error("[api/triggers] arbox_new_lead uniqueness lookup failed:", error.message);
+    throw new Error("arbox_new_lead_lookup_failed");
+  }
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  const id = parseTriggerId(row?.id);
+  if (!id) return null;
+  return { id };
 }
 
 const TRIGGER_SELECT =
@@ -258,6 +288,20 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       }
     } catch {
       return NextResponse.json({ error: "incoming_lead_lookup_failed" }, { status: 500 });
+    }
+  }
+
+  if (triggerType === "arbox_new_lead") {
+    try {
+      const existing = await findExistingArboxNewLeadRule(admin, business.id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "arbox_new_lead_exists", message: "כבר קיים טריגר ליד חדש מארבוקס" },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "arbox_new_lead_lookup_failed" }, { status: 500 });
     }
   }
 
@@ -345,8 +389,8 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const id = Number(body.id);
-  if (!Number.isFinite(id) || id <= 0) {
+  const id = parseTriggerId(body.id);
+  if (!id) {
     return NextResponse.json({ error: "missing_id" }, { status: 400 });
   }
 
@@ -438,7 +482,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });
   }
 
-  // Changing type → incoming_lead: still only one row allowed per business.
+  // Changing type → incoming_lead / arbox_new_lead: still only one row allowed per business.
   if (patch.trigger_type != null && isIncomingLeadTriggerType(String(patch.trigger_type))) {
     try {
       const existing = await findExistingIncomingLeadRule(admin, business.id, id);
@@ -450,6 +494,19 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       }
     } catch {
       return NextResponse.json({ error: "incoming_lead_lookup_failed" }, { status: 500 });
+    }
+  }
+  if (patch.trigger_type === "arbox_new_lead") {
+    try {
+      const existing = await findExistingArboxNewLeadRule(admin, business.id, id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "arbox_new_lead_exists", message: "כבר קיים טריגר ליד חדש מארבוקס" },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "arbox_new_lead_lookup_failed" }, { status: 500 });
     }
   }
 
@@ -506,8 +563,8 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   if (!gate.ok) return gate.response;
   const { admin, business } = gate;
 
-  const id = Number(req.nextUrl.searchParams.get("id"));
-  if (!Number.isFinite(id) || id <= 0) {
+  const id = parseTriggerId(req.nextUrl.searchParams.get("id"));
+  if (!id) {
     return NextResponse.json({ error: "missing_id" }, { status: 400 });
   }
 

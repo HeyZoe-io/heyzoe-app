@@ -62,3 +62,13 @@ export function canonicalizeTriggerType(value: string): string {
   }
   return value;
 }
+
+const TRIGGER_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** template_triggers.id is uuid — do not coerce with Number() (NaN). */
+export function parseTriggerId(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  if (!TRIGGER_UUID_RE.test(s)) return null;
+  return s;
+}
