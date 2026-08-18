@@ -6,6 +6,9 @@ import {
   resolveAllLeadsReportDateRange,
   seedAllLeadsReportDateRange,
   ARBOX_NEW_LEAD_CONTACT_SOURCE,
+  isArboxUncontactedLeadStatus,
+  isArboxZoeCreatedLeadSource,
+  templateComponentsUseFirstName,
 } from "@/lib/leads/arbox-new-lead";
 import { isOpeningTemplateLeadSource } from "@/lib/lead-template";
 import { buildArboxNewLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
@@ -81,13 +84,55 @@ import { isArboxDependentTriggerType, isTriggerType } from "@/lib/template-trigg
   assert.equal(stale.toDate, "2026-08-17");
 }
 
-/** Seed-first-run decision: seeded=false → seed path (no WhatsApp). */
+/** Seed-first-run: uncontacted rows are not seeded; other statuses are. */
 {
-  function decideNewLeadRun(seeded: boolean): "seed" | "process" {
-    return seeded ? "process" : "seed";
+  function shouldSeedRow(status: string, seeded: boolean): boolean {
+    if (seeded) return false;
+    return !isArboxUncontactedLeadStatus(status);
   }
-  assert.equal(decideNewLeadRun(false), "seed");
-  assert.equal(decideNewLeadRun(true), "process");
+  assert.equal(shouldSeedRow("Lost", false), true);
+  assert.equal(shouldSeedRow("לא נוצר קשר", false), false);
+  assert.equal(shouldSeedRow("Converted to Member", false), true);
+  assert.equal(shouldSeedRow("לא נוצר קשר", true), false);
+}
+
+/** Uncontacted status matcher ignores extra whitespace. */
+{
+  assert.equal(isArboxUncontactedLeadStatus("לא נוצר קשר"), true);
+  assert.equal(isArboxUncontactedLeadStatus("  לא  נוצר קשר "), true);
+  assert.equal(isArboxUncontactedLeadStatus("ניסיון 1"), false);
+  assert.equal(isArboxUncontactedLeadStatus("Lost"), false);
+}
+
+/** Zoe-created Arbox leads are skipped (already on WhatsApp). */
+{
+  assert.equal(isArboxZoeCreatedLeadSource("זואי"), true);
+  assert.equal(isArboxZoeCreatedLeadSource("פילאטיס נשים"), false);
+}
+
+/** Body {{1}} detection — Limitless template has none. */
+{
+  assert.equal(
+    templateComponentsUseFirstName([
+      { type: "BODY", text: "תודה שהתעניינתם בLimitless!\nבואו נכיר :)" },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "בואו נתחיל!" }] },
+    ]),
+    false
+  );
+  assert.equal(
+    templateComponentsUseFirstName([{ type: "BODY", text: "היי {{1}}!" }]),
+    true
+  );
+}
+
+/** Gated/pending must not consume the lead: held rows stay eligible. */
+{
+  function consumesDedupLog(dispatch: "immediate" | "deferred" | "gated" | "send_failed"): boolean {
+    return dispatch === "immediate" || dispatch === "deferred";
+  }
+  assert.equal(consumesDedupLog("gated"), false);
+  assert.equal(consumesDedupLog("send_failed"), false);
+  assert.equal(consumesDedupLog("immediate"), true);
 }
 
 /** Contact source is already in the no-response cron allow-list. */

@@ -334,6 +334,16 @@ export default function TemplatesClient({
     [templates]
   );
 
+  const selectableTemplates = useMemo(() => {
+    if (newTriggerType === "arbox_new_lead") {
+      return templates.filter((t) => {
+        const st = String(t.status).toUpperCase();
+        return t.disabled !== true && (st === "APPROVED" || st === "PENDING");
+      });
+    }
+    return approvedTemplates;
+  }, [approvedTemplates, newTriggerType, templates]);
+
   const creatableTriggerOptions = useMemo(() => {
     const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
     return TRIGGER_TYPE_OPTIONS.filter((opt) => {
@@ -479,7 +489,11 @@ export default function TemplatesClient({
       };
       if (!res.ok) {
         if (j.error === "template_not_approved") {
-          throw new Error("אפשר לבחור רק טמפלייט שאושר במטא");
+          throw new Error(
+            newTriggerType === "arbox_new_lead"
+              ? "הטמפלייט לא נמצא או נדחה — אפשר לבחור טמפלייט שממתין לאישור"
+              : "אפשר לבחור רק טמפלייט שאושר במטא"
+          );
         }
         if (j.error === "template_disabled") {
           throw new Error("הטמפלייט מושבת — בחרו טמפלייט פעיל או הפעילו מחדש");
@@ -1203,7 +1217,9 @@ export default function TemplatesClient({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-zinc-800">טמפלייט (מאושר)</label>
+            <label className="text-sm font-medium text-zinc-800">
+              {newTriggerType === "arbox_new_lead" ? "טמפלייט" : "טמפלייט (מאושר)"}
+            </label>
             <select
               value={newTemplateName}
               onChange={(e) => setNewTemplateName(e.target.value)}
@@ -1211,12 +1227,21 @@ export default function TemplatesClient({
               dir="ltr"
             >
               <option value="">— ללא טמפלייט —</option>
-              {approvedTemplates.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name}
-                </option>
-              ))}
+              {selectableTemplates.map((t) => {
+                const pending = String(t.status).toUpperCase() === "PENDING";
+                return (
+                  <option key={t.name} value={t.name}>
+                    {pending ? `${t.name} (ממתין לאישור)` : t.name}
+                  </option>
+                );
+              })}
             </select>
+            {newTriggerType === "arbox_new_lead" ? (
+              <p className="text-xs text-zinc-500">
+                השליחה מתחילה רק אחרי שמטא מאשרת את הטמפלייט. לידים קיימים בסטטוס «לא נוצר קשר»
+                יקבלו אותו גם כן — לא רק לידים חדשים מהאישור והלאה.
+              </p>
+            ) : null}
           </div>
 
           <label className="inline-flex items-center gap-2 text-sm text-zinc-700">

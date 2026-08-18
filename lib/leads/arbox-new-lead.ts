@@ -4,7 +4,6 @@ import {
   buildTemplateIncomingContactPatch,
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
-  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
   type OpeningTemplateLeadSource,
 } from "@/lib/lead-template";
@@ -76,6 +75,32 @@ export type ArboxNewLeadSyncSummary = {
   errors: number;
   fetch_error?: string;
 };
+
+/** Arbox lead status name for prospects that have not been contacted yet. */
+export const ARBOX_UNCONTACTED_LEAD_STATUS = "לא נוצר קשר";
+
+/** Lead source name Arbox stores when Zoe created the lead from WhatsApp. */
+export const ARBOX_ZOE_LEAD_SOURCE = "זואי";
+
+export function isArboxUncontactedLeadStatus(status: unknown): boolean {
+  return String(status ?? "").replace(/\s+/g, " ").trim() === ARBOX_UNCONTACTED_LEAD_STATUS;
+}
+
+export function isArboxZoeCreatedLeadSource(source: unknown): boolean {
+  return String(source ?? "").trim() === ARBOX_ZOE_LEAD_SOURCE;
+}
+
+/** True when a Meta template BODY includes {{1}} (first-name param). */
+export function templateComponentsUseFirstName(components: unknown): boolean {
+  if (!Array.isArray(components)) return false;
+  for (const raw of components) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as { type?: unknown; text?: unknown };
+    if (String(c.type ?? "").toUpperCase() !== "BODY") continue;
+    if (/\{\{\s*1\s*\}\}/.test(String(c.text ?? ""))) return true;
+  }
+  return false;
+}
 
 function maskPhoneForLog(phone: string): string {
   const d = phone.replace(/\D/g, "");
@@ -271,7 +296,44 @@ type ContactRow = {
   phone?: string | null;
   full_name?: string | null;
   arbox_user_id?: string | null;
+  source?: string | null;
 };
+
+const CONTACT_SELECT = "id, phone, full_name, arbox_user_id, source";
+
+async function findExistingContact(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  arboxUserId: string;
+  phone: string | null;
+}): Promise<ContactRow | null> {
+  if (input.arboxUserId) {
+    const { data } = await input.admin
+      .from("contacts")
+      .select(CONTACT_SELECT)
+      .eq("business_id", input.businessId)
+      .eq("arbox_user_id", input.arboxUserId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    const row = data?.[0] as ContactRow | undefined;
+    if (row?.id) return row;
+  }
+
+  if (input.phone) {
+    const variants = contactPhoneLookupVariants(input.phone);
+    const { data } = await input.admin
+      .from("contacts")
+      .select(CONTACT_SELECT)
+      .eq("business_id", input.businessId)
+      .in("phone", variants.length ? variants : [input.phone])
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    const row = data?.[0] as ContactRow | undefined;
+    if (row?.id) return row;
+  }
+
+  return null;
+}
 
 async function resolveOrUpsertContact(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -281,39 +343,17 @@ async function resolveOrUpsertContact(input: {
   nowIso: string;
 }): Promise<{ contact: ContactRow | null; created: boolean; phone: string | null }> {
   const arboxUserId = String(input.row.user_id ?? "").trim();
-  const contactSelect = "id, phone, full_name, arbox_user_id";
 
-  let existing: ContactRow | undefined;
-
-  if (arboxUserId) {
-    const { data } = await input.admin
-      .from("contacts")
-      .select(contactSelect)
-      .eq("business_id", input.businessId)
-      .eq("arbox_user_id", arboxUserId)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-    existing = data?.[0] as ContactRow | undefined;
-  }
-
-  let phoneNorm =
-    normalizePhone(input.row.phone) ??
-    normalizePhone(input.row.additional_phone) ??
-    normalizePhone(existing?.phone);
+  let phoneNorm = normalizePhone(input.row.phone) ?? normalizePhone(input.row.additional_phone);
   let fullName = resolveReportFullName(input.row);
 
-  if (!existing && phoneNorm) {
-    const variants = contactPhoneLookupVariants(phoneNorm);
-    const { data } = await input.admin
-      .from("contacts")
-      .select(contactSelect)
-      .eq("business_id", input.businessId)
-      .in("phone", variants.length ? variants : [phoneNorm])
-      .order("updated_at", { ascending: false })
-      .limit(1);
-    existing = data?.[0] as ContactRow | undefined;
-    if (existing) phoneNorm = normalizePhone(existing.phone) ?? phoneNorm;
-  }
+  const existing = await findExistingContact({
+    admin: input.admin,
+    businessId: input.businessId,
+    arboxUserId,
+    phone: phoneNorm,
+  });
+  if (existing?.phone) phoneNorm = normalizePhone(existing.phone) ?? phoneNorm;
 
   if (!phoneNorm && arboxUserId) {
     const profile = await fetchArboxUserPhone(input.apiKey, arboxUserId);
@@ -361,7 +401,7 @@ async function resolveOrUpsertContact(input: {
       arbox_user_id: arboxUserId || null,
       ...openingPatch,
     })
-    .select(contactSelect)
+    .select(CONTACT_SELECT)
     .single();
 
   if (error || !inserted) {
@@ -425,7 +465,7 @@ async function sendArboxNewLeadTemplate(input: {
     input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
     input.admin
       .from("whatsapp_templates")
-      .select("id, status, language")
+      .select("id, status, language, components")
       .eq("business_id", input.businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
@@ -444,13 +484,16 @@ async function sendArboxNewLeadTemplate(input: {
   const firstName = firstNameFromFullName(String(input.fullName ?? ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+  const useFirstName = templateComponentsUseFirstName(
+    (approvedTpl as { components?: unknown }).components
+  );
 
   const sendResult = await sendBusinessTemplate({
     to: input.phone,
     phoneNumberId,
     templateName,
     languageCode,
-    ...(leadTemplateUsesFirstName(templateName)
+    ...(useFirstName
       ? {
           components: [
             {
@@ -479,14 +522,41 @@ async function sendArboxNewLeadTemplate(input: {
   return { dispatch: "immediate", ok: true };
 }
 
+async function markArboxNewLeadSeen(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  leadId: number;
+  contactId: string | null;
+  nowIso: string;
+}): Promise<{ ok: boolean }> {
+  const { error } = await input.admin.from("arbox_new_lead_sync_log").upsert(
+    {
+      business_id: input.businessId,
+      lead_id: input.leadId,
+      contact_id: input.contactId,
+      processed_at: input.nowIso,
+    },
+    { onConflict: "business_id,lead_id" }
+  );
+  if (error) {
+    console.error("[leads/arbox-new-lead] sync_log upsert failed:", error.message);
+    return { ok: false };
+  }
+  return { ok: true };
+}
+
 /**
- * Arbox allLeadsReport → opening template for newly created leads.
+ * Arbox allLeadsReport → opening template for uncontacted leads (status «לא נוצר קשר»).
  * Scheduling: same ~15-min cron-job.org job as arbox-trial-sync (separate step).
  *
+ * Historical contacted/lost/converted rows are seeded (marked seen, no WhatsApp).
+ * Uncontacted rows are held until the template is APPROVED, then messaged once.
+ * Gated sends (pending template / no channel) do not consume the dedup log.
+ *
  * IO at 10x clients: only businesses with an enabled arbox_new_lead rule call Arbox
- * (~1 GET allLeadsReport per 15 min; typically 1 page for a 1–2 day window).
- * Profile GET /v3/users/{id} only when the report row has no phone (rare on live acrobyjoe).
- * WhatsApp: 1 template per lead ever (dedup log).
+ * (~1 GET allLeadsReport per 15 min; 30-day window until seeded, then 1–2 days).
+ * Profile GET /v3/users/{id} only when the report row has no phone.
+ * WhatsApp: 1 template per lead ever (dedup log after successful send).
  */
 export async function syncArboxNewLeadsForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -560,6 +630,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
 
   if (!input.leadsSeeded) {
     for (const row of report.rows) {
+      if (isArboxUncontactedLeadStatus(row.status)) continue;
       const leadId = parseLeadIdFromUserId(row.user_id);
       if (leadId == null) {
         summary.errors += 1;
@@ -568,18 +639,15 @@ export async function syncArboxNewLeadsForBusiness(input: {
         });
         continue;
       }
-      const { error } = await input.admin.from("arbox_new_lead_sync_log").upsert(
-        {
-          business_id: businessId,
-          lead_id: leadId,
-          contact_id: null,
-          processed_at: nowIso,
-        },
-        { onConflict: "business_id,lead_id" }
-      );
-      if (error) {
+      const marked = await markArboxNewLeadSeen({
+        admin: input.admin,
+        businessId,
+        leadId,
+        contactId: null,
+        nowIso,
+      });
+      if (!marked.ok) {
         summary.errors += 1;
-        console.error("[leads/arbox-new-lead] seed upsert failed:", error.message);
         continue;
       }
       summary.seeded += 1;
@@ -591,21 +659,11 @@ export async function syncArboxNewLeadsForBusiness(input: {
         dispatch: "seeded" satisfies ArboxNewLeadDispatch,
       });
     }
-
-    const { error: flagErr } = await input.admin
-      .from("businesses")
-      .update({ arbox_leads_seeded: true })
-      .eq("id", businessId);
-    if (flagErr) {
-      console.error("[leads/arbox-new-lead] seeded flag update failed:", flagErr.message);
-      summary.errors += 1;
-      summary.fetch_error = "arbox_leads_seeded_flag_failed";
-    }
-
-    return summary;
   }
 
   for (const row of report.rows) {
+    if (!isArboxUncontactedLeadStatus(row.status)) continue;
+
     const leadId = parseLeadIdFromUserId(row.user_id);
     const userId = String(row.user_id ?? "").trim();
     if (leadId == null || !userId) {
@@ -633,25 +691,56 @@ export async function syncArboxNewLeadsForBusiness(input: {
         continue;
       }
 
-      const resolved = await resolveOrUpsertContact({
+      const reportPhone =
+        normalizePhone(row.phone) ?? normalizePhone(row.additional_phone);
+      const existingContact = await findExistingContact({
         admin: input.admin,
         businessId,
-        apiKey,
-        row,
-        nowIso,
+        arboxUserId: userId,
+        phone: reportPhone,
       });
 
-      if (!resolved.phone || !resolved.contact?.id) {
+      if (existingContact?.id || isArboxZoeCreatedLeadSource(row.lead_source)) {
+        const marked = await markArboxNewLeadSeen({
+          admin: input.admin,
+          businessId,
+          leadId,
+          contactId: existingContact?.id ? String(existingContact.id) : null,
+          nowIso,
+        });
+        if (!marked.ok) {
+          summary.errors += 1;
+          continue;
+        }
+        summary.already += 1;
+        console.info("[leads/arbox-new-lead] dispatch", {
+          businessId,
+          lead_id: leadId,
+          user_id: userId,
+          contact: null,
+          dispatch: "already" satisfies ArboxNewLeadDispatch,
+          reason: "already_in_app",
+        });
+        continue;
+      }
+
+      let phone = reportPhone;
+      let fullName = resolveReportFullName(row);
+      if (!phone) {
+        const profile = await fetchArboxUserPhone(apiKey, userId);
+        phone = profile.phone;
+        if (!fullName && profile.fullName) fullName = profile.fullName;
+      }
+
+      if (!phone) {
         summary.no_phone += 1;
-        await input.admin.from("arbox_new_lead_sync_log").upsert(
-          {
-            business_id: businessId,
-            lead_id: leadId,
-            contact_id: null,
-            processed_at: nowIso,
-          },
-          { onConflict: "business_id,lead_id" }
-        );
+        await markArboxNewLeadSeen({
+          admin: input.admin,
+          businessId,
+          leadId,
+          contactId: null,
+          nowIso,
+        });
         console.info("[leads/arbox-new-lead] dispatch", {
           businessId,
           lead_id: leadId,
@@ -662,35 +751,57 @@ export async function syncArboxNewLeadsForBusiness(input: {
         continue;
       }
 
-      const contactId = String(resolved.contact.id);
-      const phone = resolved.phone;
-
-      await input.admin.from("arbox_new_lead_sync_log").upsert(
-        {
-          business_id: businessId,
-          lead_id: leadId,
-          contact_id: contactId,
-          processed_at: nowIso,
-        },
-        { onConflict: "business_id,lead_id" }
-      );
-
       const send = await sendArboxNewLeadTemplate({
         admin: input.admin,
         businessId,
         businessSlug,
         phone,
-        fullName: resolveReportFullName(row) ?? resolved.contact.full_name ?? null,
+        fullName,
         leadId,
         createdAt: row.created_at,
         rule,
       });
 
+      if (send.dispatch === "gated" || send.dispatch === "send_failed") {
+        summary.processed += 1;
+        if (send.dispatch === "gated") summary.gated += 1;
+        else summary.errors += 1;
+        console.info("[leads/arbox-new-lead] dispatch", {
+          businessId,
+          lead_id: leadId,
+          user_id: userId,
+          lead_source: row.lead_source ?? null,
+          campaign: row.campaign ?? null,
+          contact: maskPhoneForLog(phone),
+          dispatch: send.dispatch,
+        });
+        continue;
+      }
+
+      const resolved = await resolveOrUpsertContact({
+        admin: input.admin,
+        businessId,
+        apiKey,
+        row,
+        nowIso,
+      });
+      const contactId = resolved.contact?.id ? String(resolved.contact.id) : null;
+
+      const marked = await markArboxNewLeadSeen({
+        admin: input.admin,
+        businessId,
+        leadId,
+        contactId,
+        nowIso,
+      });
+      if (!marked.ok) {
+        summary.errors += 1;
+        continue;
+      }
+
       summary.processed += 1;
       if (send.dispatch === "immediate") summary.notified += 1;
       else if (send.dispatch === "deferred") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
 
       console.info("[leads/arbox-new-lead] dispatch", {
         businessId,
@@ -709,6 +820,18 @@ export async function syncArboxNewLeadsForBusiness(input: {
         user_id: userId,
         error: e instanceof Error ? e.message : String(e),
       });
+    }
+  }
+
+  if (!input.leadsSeeded && summary.gated === 0) {
+    const { error: flagErr } = await input.admin
+      .from("businesses")
+      .update({ arbox_leads_seeded: true })
+      .eq("id", businessId);
+    if (flagErr) {
+      console.error("[leads/arbox-new-lead] seeded flag update failed:", flagErr.message);
+      summary.errors += 1;
+      summary.fetch_error = "arbox_leads_seeded_flag_failed";
     }
   }
 

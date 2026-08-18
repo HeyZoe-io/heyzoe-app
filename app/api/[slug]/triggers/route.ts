@@ -100,10 +100,11 @@ function parseDelayDays(raw: unknown): number | "invalid" {
   return n;
 }
 
-async function verifyApprovedTemplate(
+async function verifyTriggerTemplate(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
-  templateName: string
+  templateName: string,
+  opts?: { allowPending?: boolean }
 ): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
   const name = templateName.trim();
   if (!name) {
@@ -124,24 +125,28 @@ async function verifyApprovedTemplate(
     console.error("[api/triggers] template lookup failed:", lookupErr.message);
     return { ok: false, error: "template_lookup_failed", status: 500 };
   }
-  if (!approved?.id) {
-    const { data: anyStatus } = await admin
-      .from("whatsapp_templates")
-      .select("id, status, disabled")
-      .eq("business_id", businessId)
-      .eq("name", name)
-      .limit(1)
-      .maybeSingle();
-    if (!anyStatus?.id) {
-      return { ok: false, error: "template_not_found", status: 404 };
-    }
-    if ((anyStatus as { disabled?: boolean }).disabled === true) {
-      return { ok: false, error: "template_disabled", status: 400 };
-    }
-    return { ok: false, error: "template_not_approved", status: 400 };
-  }
+  if (approved?.id) return { ok: true };
 
-  return { ok: true };
+  const { data: anyStatus } = await admin
+    .from("whatsapp_templates")
+    .select("id, status, disabled")
+    .eq("business_id", businessId)
+    .eq("name", name)
+    .limit(1)
+    .maybeSingle();
+  if (!anyStatus?.id) {
+    return { ok: false, error: "template_not_found", status: 404 };
+  }
+  if ((anyStatus as { disabled?: boolean }).disabled === true) {
+    return { ok: false, error: "template_disabled", status: 400 };
+  }
+  const status = String((anyStatus as { status?: unknown }).status ?? "")
+    .trim()
+    .toUpperCase();
+  if (opts?.allowPending && status === "PENDING") {
+    return { ok: true };
+  }
+  return { ok: false, error: "template_not_approved", status: 400 };
 }
 
 function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
@@ -287,7 +292,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       : String(templateNameRaw).trim();
 
   if (templateName) {
-    const verified = await verifyApprovedTemplate(admin, business.id, templateName);
+    const verified = await verifyTriggerTemplate(admin, business.id, templateName, {
+      allowPending: triggerType === "arbox_new_lead",
+    });
     if (!verified.ok) {
       return NextResponse.json({ error: verified.error }, { status: verified.status });
     }
@@ -402,7 +409,20 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
         ? null
         : String(body.template_name).trim();
     if (templateName) {
-      const verified = await verifyApprovedTemplate(admin, business.id, templateName);
+      let effectiveType =
+        patch.trigger_type != null ? String(patch.trigger_type) : null;
+      if (effectiveType == null) {
+        const { data: existing } = await admin
+          .from("template_triggers")
+          .select("trigger_type")
+          .eq("id", id)
+          .eq("business_id", business.id)
+          .maybeSingle();
+        effectiveType = String((existing as { trigger_type?: unknown } | null)?.trigger_type ?? "");
+      }
+      const verified = await verifyTriggerTemplate(admin, business.id, templateName, {
+        allowPending: effectiveType === "arbox_new_lead",
+      });
       if (!verified.ok) {
         return NextResponse.json({ error: verified.error }, { status: verified.status });
       }
