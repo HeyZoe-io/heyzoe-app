@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   classifyRegistrationIntentMembershipReply,
+  matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
 } from "@/lib/wa-registration-intent";
 
@@ -24,6 +25,20 @@ assert.equal(classifyRegistrationIntentMembershipReply("לא"), "no");
 assert.equal(classifyRegistrationIntentMembershipReply("אין לי"), "no");
 assert.equal(classifyRegistrationIntentMembershipReply("אין לי מנוי"), "no");
 assert.equal(classifyRegistrationIntentMembershipReply("no"), "no");
+
+assert.equal(matchesExistingMembershipClaim("יש לי מנוי"), true);
+assert.equal(matchesExistingMembershipClaim("יש לנו מנוי"), true);
+assert.equal(matchesExistingMembershipClaim("כבר יש לי מנוי"), true);
+assert.equal(matchesExistingMembershipClaim("אני מנויה"), true);
+assert.equal(matchesExistingMembershipClaim("אני כבר מנוי"), true);
+assert.equal(matchesExistingMembershipClaim("i have a membership"), true);
+assert.equal(matchesExistingMembershipClaim("I'm already a member"), true);
+
+assert.equal(matchesExistingMembershipClaim("אין לי מנוי"), false);
+assert.equal(matchesExistingMembershipClaim("רוצה מנוי"), false);
+assert.equal(matchesExistingMembershipClaim("מה כולל המנוי"), false);
+assert.equal(matchesExistingMembershipClaim("כן"), false);
+assert.equal(matchesExistingMembershipClaim("יש פילאטיס?"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("אין בעיה"), "unclear");
 assert.equal(classifyRegistrationIntentMembershipReply("מה זה"), "unclear");

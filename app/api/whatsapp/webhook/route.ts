@@ -187,7 +187,10 @@ import {
 } from "@/lib/wa-running-late";
 import {
   classifyRegistrationIntentMembershipReply,
+  matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  EXISTING_MEMBERSHIP_HELP_MODEL,
+  EXISTING_MEMBERSHIP_HELP_REPLY,
   REGISTRATION_INTENT_CLARIFY_MODEL,
   REGISTRATION_INTENT_CLARIFY_QUESTION,
   REGISTRATION_INTENT_HAS_MEMBER_MODEL,
@@ -6263,6 +6266,48 @@ async function processIncoming(
       return;
     }
     // unclear — fall through to current behavior, no loop
+  }
+
+  // 0.25) Existing membership in an active sales flow — exit funnel, ask how to help.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    salesFlowStarted &&
+    businessId &&
+    contactSessionPhase !== "registered" &&
+    contactTrialRegistered !== true &&
+    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    matchesExistingMembershipClaim(msg.text)
+  ) {
+    await updateContactSessionPhase({
+      supabase,
+      businessId,
+      phone: msg.from,
+      phase: "registered",
+    });
+    contactSessionPhase = "registered";
+    allowTrialCtaThisSession = false;
+    if (!looksLikeLeadQuestion(msg.text)) {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          EXISTING_MEMBERSHIP_HELP_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send existing-membership help failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: EXISTING_MEMBERSHIP_HELP_REPLY,
+        model_used: EXISTING_MEMBERSHIP_HELP_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
+    // Membership + a real question — stay in registered help mode (no CTA) and fall through to Claude.
   }
 
   // 0.3) Ambiguous registration-intent (pre-greeting) — before standalone-help.

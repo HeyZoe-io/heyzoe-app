@@ -32,6 +32,26 @@ export function matchesRegistrationIntentPhrase(raw: string): boolean {
   return false;
 }
 
+export const EXISTING_MEMBERSHIP_HELP_REPLY = "מעולה! איך אפשר לעזור לך?";
+export const EXISTING_MEMBERSHIP_HELP_MODEL = "existing_membership_help";
+
+/**
+ * הצהרת מנוי קיים בפלואו מכירה — לא תשובת כן/לא לשאלת הבהרה, ולא «רוצה מנוי».
+ */
+export function matchesExistingMembershipClaim(raw: string): boolean {
+  const t = normalizeRegistrationIntentText(raw);
+  if (!t || t.length > 400) return false;
+  if (/אין(?:\s+לי|\s+לנו)?\s+מנוי/u.test(t)) return false;
+  if (/(?:רוצה|רוצים|מעוניין|מעוניינת).{0,24}מנוי/u.test(t)) return false;
+  if (/^(?:מה|איך|כמה|מתי|איפה|האם|למה)\b.{0,40}מנוי/u.test(t)) return false;
+
+  if (/יש(?:\s+לי|\s+לנו)\s+מנוי/u.test(t)) return true;
+  if (/(?:אני|אנחנו)\s+(?:כבר\s+)?מנו[יהםות]{1,3}(?:\s|$|[.,!?])/u.test(t)) return true;
+  if (/\bi(?:'m|\s+am)\s+(?:already\s+)?a\s+member\b/i.test(t)) return true;
+  if (/\bi\s+(?:already\s+)?have\s+a\s+membership\b/i.test(t)) return true;
+  return false;
+}
+
 export type RegistrationIntentMembershipReply = "yes" | "no" | "unclear";
 
 /** תשובת כן/לא לשאלת «האם יש לך מנוי קיים» — לא לולאה על מעורפל. */
