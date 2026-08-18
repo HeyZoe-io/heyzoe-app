@@ -173,6 +173,14 @@ import {
   formatWaReactionLogContent,
   WA_INBOUND_REACTION_MODEL,
 } from "@/lib/wa-inbound-reaction";
+import { detectMessageLanguage } from "@/lib/language-detect";
+import {
+  pickUnclearIntentReply,
+  resolveUnclearIntentAction,
+  sessionHasUnclearClarifyAsk,
+  WA_UNCLEAR_CLARIFY_MODEL,
+  WA_UNCLEAR_HANDOFF_MODEL,
+} from "@/lib/wa-unclear-intent";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
@@ -8024,6 +8032,7 @@ async function processIncoming(
   let replyModelUsed: string = CLAUDE_WHATSAPP_MODEL;
   let pickedServiceScheduleLexicon: string | undefined;
   let pickedServiceScheduleDayLabels: string[] | undefined;
+  let aiSessionHistory: { role: "user" | "assistant"; content: string }[] = [];
   if (isSalesFlowOpenQuestionAi) {
     const pickedNameForLexicon =
       (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }))?.trim() ?? "";
@@ -8375,6 +8384,12 @@ async function processIncoming(
       scheduleInterestServiceName = pickedForPrompt.trim();
     }
     const currentText = msg.text.trim();
+    const history = await fetchRecentSessionMessages({
+      business_slug,
+      session_id: sessionId,
+      limit: 10,
+    });
+    aiSessionHistory = history;
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -8392,15 +8407,11 @@ async function processIncoming(
         ctaMultiServiceRepick: contactSessionPhase === "cta" && salesFlowServices.length > 1,
         scheduleInterestServiceName,
         pickedServiceScheduleLexicon,
+        unclearClarifyAlreadySent: sessionHasUnclearClarifyAsk(history),
       },
       platformGuidelines,
       currentText
     );
-    const history = await fetchRecentSessionMessages({
-      business_slug,
-      session_id: sessionId,
-      limit: 10,
-    });
     const claudeMessages =
       history.length > 0
         ? history.map((m) => ({ role: m.role, content: m.content }))
@@ -8579,6 +8590,42 @@ async function processIncoming(
       fullName: fullName || null,
     });
     return;
+  }
+
+  if (!isFallbackErrorReply && didCallClaude) {
+    const unclearAction = resolveUnclearIntentAction(replyCoreClean, aiSessionHistory);
+    if (unclearAction) {
+      const lang = detectMessageLanguage(incomingRaw);
+      const unclearTxt = pickUnclearIntentReply(unclearAction, lang);
+      if (unclearAction === "handoff" && businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] unclear-intent human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, unclearTxt, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send unclear-intent reply failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: unclearTxt,
+        model_used: unclearAction === "handoff" ? WA_UNCLEAR_HANDOFF_MODEL : WA_UNCLEAR_CLARIFY_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
   }
 
   function softenWebsiteAttribution(text: string): string {

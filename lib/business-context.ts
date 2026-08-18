@@ -25,6 +25,7 @@ import {
 import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
 import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-fixes";
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
+import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 
@@ -612,6 +613,8 @@ export type WhatsAppPromptContext = {
   scheduleInterestServiceName?: string;
   /** מועדי לוח/מחזור לאימון שנבחר — לקסיקון מדויק בפרומפט */
   pickedServiceScheduleLexicon?: string;
+  /** כבר נשלחה בקשת «נסחו שוב» בשיחה — השלב הבא הוא העברה לצוות */
+  unclearClarifyAlreadySent?: boolean;
 };
 
 function formatCommittedScheduleLabel(date: string, time: string): string {
@@ -741,7 +744,7 @@ export function buildSystemPrompt(
 - אסור להזכיר ללקוח: HeyZoe, דשבורד, פלטפורמה, דף שיחות, כיבוי/הפעלה/עצירה של בוט, או איך בעל העסק מנהל אותך.
 - אם שואלים על הגדרות בוט, כיבוי, דשבורד או פלטפורמה — אל תסבירי ניווט במערכת. עני בקצרה שאת כאן לעזור לגבי השירותים של העסק. אם מוגדר טלפון שירות לקוחות — אפשר להציע אותו. בלי שמות מסכים ובלי הוראות לבעל העסק.
 ${buildOffTopicStudioPromptRule(customerPhoneRaw)}
-${identityBlock ? `\n${identityBlock}` : ""}
+${isWhatsApp ? `${buildUnclearIntentPromptRule(waCtx?.unclearClarifyAlreadySent === true)}\n` : ""}${identityBlock ? `\n${identityBlock}` : ""}
 
 סגנון דיבור שנבחר (תגיות): ${knowledge?.vibeText || "חם, מקצועי וקצר"}
 הנחיות סגנון מפורטות - יש ליישם בכל תשובה, כולל הודעת פתיחה עתידית או המשך שיחה:
