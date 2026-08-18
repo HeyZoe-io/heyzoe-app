@@ -6492,13 +6492,17 @@ async function processIncoming(
     return;
   }
 
-  // explicit service switch (כל phase) — repick menu
+  // החלפת מוצר בפלואו מכירה פעיל — לא אחרי הרשמה / מצב עזרה
   if (
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
     businessId &&
     salesFlowServices.length > 1 &&
-    isSalesFlowFreeTextInbound(msg)
+    isSalesFlowFreeTextInbound(msg) &&
+    salesFlowStarted &&
+    contactTrialRegistered !== true &&
+    contactSessionPhase !== "registered" &&
+    !contactHumanRequestedAt
   ) {
     const lastPickedForExplicitSwitch = await fetchLastSfServiceEventName({
       business_slug,
@@ -6506,7 +6510,8 @@ async function processIncoming(
     });
     const serviceNamesForSwitch = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
     const exactTypedName = exactTypedCatalogServiceName(msg.text.trim(), serviceNamesForSwitch);
-    if (exactTypedName) {
+    const lastPickedName = String(lastPickedForExplicitSwitch ?? "").trim();
+    if (exactTypedName && !lastPickedName) {
       contactSessionPhase = await commitImplicitServiceSwitch({
         knowledge,
         salesFlowServices,

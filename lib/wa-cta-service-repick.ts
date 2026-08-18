@@ -214,7 +214,6 @@ export function isPhaseAgnosticExplicitServiceSwitch(
 
 /**
  * שמות קטלוג שחולקים טוקן חלקי עם הטקסט (2+), בלי התאמה חד-משמעית לפי serviceNameMatchesInUserText.
- * התאמה יחידה חלקית — לא כאן (נשאר fall-through ל-Claude כמו היום).
  */
 export function findAmbiguousPartialCatalogMatches(text: string, serviceNames: string[]): string[] {
   const names = [...new Set(serviceNames.map((n) => String(n ?? "").trim()).filter(Boolean))];
@@ -229,41 +228,64 @@ function isDefinitionalCatalogQuestion(text: string): boolean {
   return /^(?:מה\s+זה|מהו|מה\s+הוא|איך\s+עובד)/u.test(String(text ?? "").trim());
 }
 
+const CATALOG_KNOWLEDGE_SUITABILITY_RE =
+  /מתאים|מתאימה|מתאימים|מיועד|מיועדת|מומלץ|מותר|אסור|בטוח(?:ה)?/u;
+const CATALOG_KNOWLEDGE_AUDIENCE_RE =
+  /הריון|היריון|בהריון|בהיריון|נשים|גברים|ילדים|גיל|פציע|ניתוח|שיקום|אוסטאו|לחץ\s+דם|(?:^|[\s,])גב(?:\s|$|[?!.,])/u;
+
 /**
- * שאלת זמינות/עניין על משפחה («יש פילאטיס?», «אפשר פילאטיס?», «פילאטיס?») —
- * בלי פועל החלפה כמו «רוצה לנסות».
+ * שאלה ספציפית על המוצר (התאמה / הריון / מה זה) — לא התעניינות להחליף אימון.
+ * דוגמה: «האם פילאטיס מתאים לנשים בהיריון?»
  */
-function hasCatalogFamilyAvailabilityOrInterestIntent(text: string): boolean {
+export function isCatalogSpecificKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
-  if (!t || isDefinitionalCatalogQuestion(t)) return false;
+  if (!t) return false;
+  if (isDefinitionalCatalogQuestion(t)) return true;
+  if (/מה\s+ההבדל|למי\s+(?:זה\s+)?(?:מתאים|מיועד)|איך\s+(?:זה\s+)?עובד/u.test(t)) return true;
+  if (CATALOG_KNOWLEDGE_SUITABILITY_RE.test(t) && CATALOG_KNOWLEDGE_AUDIENCE_RE.test(t)) return true;
+  if (/(?:הריון|היריון|בהריון|בהיריון)/u.test(t) && /(?:אפשר|ניתן|מותר|אסור|מתאים)/u.test(t)) {
+    return true;
+  }
   if (
-    /(?:^|[\s,])יש(?:\s+(?:לכם|לכן|אצלכם|אצלכן|אצלך))?\s+\S/u.test(t) &&
-    !/(?:^|[\s,])יש\s+לי\b/u.test(t)
+    /(מתאים|מתאימה|מתאימים|מיועד|מיועדת).*(מתחיל|מתקדמ|רמה|רמת|beginner|advanced)/iu.test(t)
   ) {
     return true;
   }
-  if (/(?:עושים|מציעים|מלמדים)\s+\S/u.test(t)) return true;
-  if (
-    /(?:^|[\s,])(?:אפשר|אפשרי|ניתן)(?:\s+(?:לנסות|לעשות|לקחת|לי|לנו|גם|אצלכם|אצלכן))?/u.test(t) &&
-    !/(?:אפשר|אפשרי|ניתן).{0,28}(?:רק\s+)?(?:אחד|אחת|בודד)/u.test(t)
-  ) {
-    return true;
-  }
-  const toks = inboundSignificantTokens(t);
-  return toks.length === 1 && t.length <= 48;
+  if (/(מתחיל|מתקדמ|רמת\s+כושר|רמות).*(מתאים|מתאימ)/iu.test(t)) return true;
+  return false;
 }
 
+function mentionsOtherCatalogService(
+  text: string,
+  lastPickedServiceName: string,
+  serviceNames: string[]
+): boolean {
+  const lastKey = normalizeServiceNameKey(lastPickedServiceName);
+  if (!lastKey) return false;
+  if (textMentionsOtherServiceFromMenu(text, lastPickedServiceName, serviceNames)) return true;
+  if (findAmbiguousPartialCatalogMatches(text, serviceNames).length >= 2) return true;
+  const others = serviceNames
+    .map((n) => String(n ?? "").trim())
+    .filter((n) => n && normalizeServiceNameKey(n) !== lastKey);
+  const partialOthers = others.filter((n) => sharesPartialCatalogToken(n, text));
+  return partialOthers.length === 1;
+}
+
+/**
+ * באמצע פלואו: אזכור אימון אחר (משפחה או שם מלא) → תפריט בחירת מוצר.
+ * בלי דרישה לפועל («רוצה» / «יש» / «אפשר»). שאלת ידע ספציפית לא נחשבת.
+ */
 export function isAmbiguousPartialCatalogServiceSwitch(
   text: string,
   lastPickedServiceName: string | null,
   serviceNames: string[]
 ): boolean {
   const t = String(text ?? "").trim();
-  if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
-  if (isDefinitionalCatalogQuestion(t)) return false;
-  if (isPhaseAgnosticExplicitServiceSwitch(t, lastPickedServiceName, serviceNames)) return false;
-  if (findAmbiguousPartialCatalogMatches(t, serviceNames).length < 2) return false;
-  return hasExplicitServiceSwitchIntent(t) || hasCatalogFamilyAvailabilityOrInterestIntent(t);
+  const last = String(lastPickedServiceName ?? "").trim();
+  if (!t || !last || t.length > 400 || isNumericServicePickReply(t)) return false;
+  if (isCatalogSpecificKnowledgeQuestion(t)) return false;
+  if (isPhaseAgnosticExplicitServiceSwitch(t, last, serviceNames)) return false;
+  return mentionsOtherCatalogService(t, last, serviceNames);
 }
 
 /**
