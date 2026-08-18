@@ -169,7 +169,7 @@ import {
   isSalesFlowStartInbound,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
   buildClassRescheduleTeamHandoffReply,
@@ -6270,6 +6270,22 @@ async function processIncoming(
         contactTrialRegistered = restartState.contactTrialRegistered;
         contactTrialRegisteredAt = restartState.contactTrialRegisteredAt;
       }
+      return;
+    }
+    if (isSalesFlowFreeTextInbound(msg) && isCasualHiGreeting(msg.text)) {
+      const hiReply = buildCasualHiGreetingReply(knowledge?.botName ?? "", knowledge?.businessName ?? "");
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, hiReply, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send casual hi greeting failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: hiReply,
+        model_used: "casual_hi_greeting",
+        session_id: sessionId,
+      });
       return;
     }
   }

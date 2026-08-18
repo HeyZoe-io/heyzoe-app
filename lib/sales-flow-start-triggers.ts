@@ -12,7 +12,7 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
 
 /**
  * איפוס והפעלת פלואו מכירה — בקשת פרטים / «בואו נתחיל» (הקלדה או כפתור).
- * «היי» / «שלום» לבד לא מתחילים פלואו אצל זואי עסק.
+ * «היי» / «שלום» לבד לא מתחילים פלואו אצל זואי עסק (ברכת זהות נפרדת).
  */
 export const SALES_FLOW_START_TRIGGERS = new Set([
   SALES_FLOW_START_BUTTON_LABEL_HE,
@@ -21,6 +21,11 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
   "אשמח לשמוע פרטים",
   "אפשר פרטים",
   "אשמח למידע",
+  "פרטים",
+  "רוצה פרטים",
+  "מהתחלה",
+  "התחלה",
+  "להתחיל מהתחלה",
   // English button + details (normalized: apostrophes stripped → i'd → id)
   "lets start",
   "let us start",
@@ -43,6 +48,17 @@ export function isSalesFlowStartTrigger(text: string): boolean {
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   return withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting);
+}
+
+/** «היי» לבד — ברכת זהות, בלי פלואו מכירה. */
+export function isCasualHiGreeting(text: string): boolean {
+  return normalizeSalesFlowGreetingToken(text) === "היי";
+}
+
+export function buildCasualHiGreetingReply(botName: string, businessName: string): string {
+  const bot = String(botName ?? "").trim() || "זואי";
+  const biz = String(businessName ?? "").trim() || "העסק";
+  return `היי! כאן ${bot}, הבוטית של ${biz} איך אפשר לעזור?`;
 }
 
 /**
