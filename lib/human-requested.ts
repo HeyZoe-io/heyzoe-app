@@ -11,6 +11,59 @@ export function buildHumanRequestedContactPatch(atIso: string): Record<string, u
   };
 }
 
+/** «אשמח לפרטים» אחרי בקשת נציג — מחזיר את זואי לפעיל. */
+export function buildHumanRequestedReactivationPatch(): Record<string, unknown> {
+  return {
+    human_requested_at: null,
+    wa_followup_stage: 0,
+    followup_sent: false,
+  };
+}
+
+export async function reactivateHumanRequestedLead(input: {
+  supabase: import("@supabase/supabase-js").SupabaseClient;
+  businessId: number;
+  phone: string;
+  contactId?: string | number | null;
+}): Promise<boolean> {
+  const businessId = Number(input.businessId);
+  const phone = String(input.phone ?? "").trim();
+  const contactId = input.contactId;
+  if (!businessId || (!phone && (contactId === undefined || contactId === null))) return false;
+
+  const patch = buildHumanRequestedReactivationPatch();
+  let error: { message?: string } | null = null;
+  let updated: { id?: unknown }[] | null = null;
+
+  if (contactId !== undefined && contactId !== null) {
+    const result = await input.supabase
+      .from("contacts")
+      .update(patch)
+      .eq("id", contactId)
+      .eq("business_id", businessId)
+      .select("id");
+    updated = result.data;
+    error = result.error;
+  } else {
+    const phoneVariants = contactPhoneLookupVariants(phone);
+    if (!phoneVariants.length) return false;
+    const result = await input.supabase
+      .from("contacts")
+      .update(patch)
+      .eq("business_id", businessId)
+      .in("phone", phoneVariants)
+      .select("id");
+    updated = result.data;
+    error = result.error;
+  }
+
+  if (error) {
+    console.error("[human-requested] reactivate failed:", error.message);
+    return false;
+  }
+  return Boolean(updated?.length);
+}
+
 /** עדכון DB + אירוע + התראות בעלים + CRM (idempotent — לא חוזר אם כבר סומן) */
 export async function handleLeadHumanRequested(input: {
   supabase: import("@supabase/supabase-js").SupabaseClient;

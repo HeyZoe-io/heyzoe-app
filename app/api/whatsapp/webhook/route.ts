@@ -5602,14 +5602,37 @@ async function processIncoming(
     }
   }
 
-  // בקשת נציג — הודעת «אין בעיה» פעם אחת, אחר כך שקט (ללא פלואו / AI / resend)
+  // בקשת נציג — הודעת «אין בעיה» פעם אחת, אחר כך שקט (ללא פלואו / AI / resend).
+  // מילת פתיחת פלואו («אשמח לפרטים») מחזירה את זואי, כמו ליד «לא רלוונטי».
   if (contactHumanRequestedAt) {
-    console.info("[WA Webhook] human_requested — skipping auto-reply", {
-      business_slug,
-      sessionId,
-      human_requested_at: contactHumanRequestedAt,
-    });
-    return;
+    if (isSalesFlowStartInbound(msg) && businessId) {
+      try {
+        const { reactivateHumanRequestedLead } = await import("@/lib/human-requested");
+        const reactivated = await reactivateHumanRequestedLead({
+          supabase,
+          businessId: Number(businessId),
+          phone: msg.from,
+          contactId,
+        });
+        if (reactivated) {
+          console.info("[WA Webhook] human_requested lead reactivated via flow-start trigger", {
+            business_slug,
+            session_id: sessionId,
+          });
+          contactHumanRequestedAt = null;
+        }
+      } catch (e) {
+        console.error("[WA Webhook] human_requested reactivate failed:", e);
+      }
+    }
+    if (contactHumanRequestedAt) {
+      console.info("[WA Webhook] human_requested — skipping auto-reply", {
+        business_slug,
+        sessionId,
+        human_requested_at: contactHumanRequestedAt,
+      });
+      return;
+    }
   }
   if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
     if (knowledge?.salesFlowConfig) {
