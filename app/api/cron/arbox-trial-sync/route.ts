@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import {
+  arboxSaleHasOutstandingDebt,
   handleArboxTrialSaleRegistered,
   type ArboxSalesReportRow,
 } from "@/lib/leads/arbox-trial-sale-registered";
@@ -61,6 +62,7 @@ type BusinessSummary = {
   fetched: number;
   processed: number;
   already: number;
+  unpaid: number;
   seeded: number;
   seed_without_contact: number;
   errors: number;
@@ -293,6 +295,8 @@ async function seedTrialSalesForBusiness(input: {
   let seed_errors = 0;
 
   for (const rawRow of input.trialRows) {
+    if (arboxSaleHasOutstandingDebt(rawRow)) continue;
+
     const saleId = parseSaleId(rawRow.sale_id);
     if (saleId == null) {
       seed_errors += 1;
@@ -397,6 +401,7 @@ export async function GET(req: NextRequest) {
       fetched: 0,
       processed: 0,
       already: 0,
+      unpaid: 0,
       seeded: 0,
       seed_without_contact: 0,
       errors: 0,
@@ -493,6 +498,8 @@ export async function GET(req: NextRequest) {
 
             if ("already" in result && result.already) {
               summary.already += 1;
+            } else if ("unpaid" in result && result.unpaid) {
+              summary.unpaid += 1;
             } else {
               summary.processed += 1;
             }

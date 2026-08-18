@@ -29,10 +29,20 @@ export type ArboxSalesReportRow = {
   date?: unknown;
   membership_type_id: unknown;
   item_name?: unknown;
+  paid?: unknown;
+  debt?: unknown;
+  price?: unknown;
 };
+
+/** Payment-link / invoice still open — not a completed registration. */
+export function arboxSaleHasOutstandingDebt(row: { debt?: unknown }): boolean {
+  const debt = Number(row.debt);
+  return Number.isFinite(debt) && debt > 0;
+}
 
 export type ArboxTrialSaleRegisteredResult =
   | { ok: true; already: true }
+  | { ok: true; unpaid: true }
   | {
       ok: true;
       trial_registered_at: string;
@@ -297,6 +307,7 @@ function isWithinTwoDayNotifyThrottle(lastNotifiedAtIso: string | null | undefin
 /**
  * רישום לשיעור ניסיון ב-Arbox (salesReport trial membership) → contact בזואי + הודעה.
  * Arbox הוא מקור האמת — לא שולח חזרה ל-CRM.
+ * מכירה עם חוב פתוח לא נחשבת רישום (לינק תשלום / חשבונית) — לא מסמנים seen, כדי שתשלום מאוחר יישלח.
  */
 export async function handleArboxTrialSaleRegistered(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -316,6 +327,18 @@ export async function handleArboxTrialSaleRegistered(input: {
   const saleId = parseSaleId(input.row.sale_id);
   if (saleId == null) {
     return { ok: false, error: "missing_sale_id" };
+  }
+
+  if (arboxSaleHasOutstandingDebt(input.row)) {
+    console.info("[leads/arbox-trial-sale-registered] skip unpaid sale", {
+      businessSlug,
+      sale_id: saleId,
+      debt: input.row.debt ?? null,
+      paid: input.row.paid ?? null,
+      price: input.row.price ?? null,
+      phone: maskPhoneForLog(String(input.row.phone ?? "")),
+    });
+    return { ok: true, unpaid: true };
   }
 
   const arboxUserId = String(input.row.user_id ?? "").trim();
