@@ -12,7 +12,8 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
 
 /**
  * איפוס והפעלת פלואו מכירה — בקשת פרטים / «בואו נתחיל» (הקלדה או כפתור).
- * «היי» / «שלום» לבד לא מתחילים פלואו אצל זואי עסק (ברכת זהות נפרדת).
+ * «היי» / «שלום» לבד לא מתחילים פלואו אצל זואי עסק (ברכת זהות נפרדת),
+ * חוץ מסאנגה שגם «היי» מתחיל פלואו.
  */
 export const SALES_FLOW_START_TRIGGERS = new Set([
   SALES_FLOW_START_BUTTON_LABEL_HE,
@@ -43,9 +44,28 @@ function stripLeadingCasualGreeting(normalized: string): string {
   return normalized;
 }
 
-export function isSalesFlowStartTrigger(text: string): boolean {
+export type SalesFlowStartTriggerOpts = {
+  slug?: string;
+  businessName?: string;
+};
+
+/**
+ * סאנגה בלבד: גם «היי» מתחיל פלואו מכירה (בנוסף לטריגרי ברירת המחדל).
+ * שאר העסקים: «היי» = ברכת זהות בלבד.
+ */
+export function businessStartsSalesFlowOnHi(opts?: SalesFlowStartTriggerOpts): boolean {
+  const slug = String(opts?.slug ?? "").trim().toLowerCase();
+  const name = String(opts?.businessName ?? "").trim().toLowerCase();
+  if (slug === "info-2815") return true;
+  if (slug.includes("sanga") || slug.includes("sangha")) return true;
+  if (name.includes("סאנגה") || name.includes("sanga") || name.includes("sangha")) return true;
+  return false;
+}
+
+export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTriggerOpts): boolean {
   const normalized = normalizeSalesFlowGreetingToken(text);
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
+  if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   return withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting);
 }

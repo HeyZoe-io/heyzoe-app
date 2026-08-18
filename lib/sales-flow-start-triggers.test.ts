@@ -7,6 +7,10 @@ import {
 } from "@/lib/sales-flow-start-triggers";
 
 assert.equal(isSalesFlowStartTrigger("היי"), false);
+assert.equal(isSalesFlowStartTrigger("היי", { slug: "info-2815" }), true);
+assert.equal(isSalesFlowStartTrigger("היי!", { slug: "info-2815" }), true);
+assert.equal(isSalesFlowStartTrigger("היי", { businessName: "סאנגה יוגה" }), true);
+assert.equal(isSalesFlowStartTrigger("היי", { slug: "limitless" }), false);
 assert.equal(isSalesFlowStartTrigger("שלום"), false);
 assert.equal(isSalesFlowStartTrigger("hi"), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים"), true);

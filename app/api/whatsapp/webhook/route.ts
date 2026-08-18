@@ -1037,13 +1037,54 @@ async function recoverUnrecognizedMenuPick(input: {
     } catch (e) {
       console.error("[WA Webhook] menu pick recovery sendFlowContinuation failed:", e);
     }
-  } else {
-    console.warn("[WA Webhook] menu pick recovery: unclear phase or missing sales flow — restarting greeting", {
+  }
+
+  const salesFlowAlreadyStarted = await sessionHasSalesFlowGreeting(
+    input.business_slug,
+    input.sessionId
+  );
+  // כפתור ישן (Q2 אחרי איפוס) לא אמור לשלוח שוב מדיה+פתיחה — רק את השלב הנוכחי.
+  const skipGreetingRestart =
+    salesFlowAlreadyStarted || isMetaInteractiveMenuReply(input.msg);
+  if (skipGreetingRestart && input.businessId && input.knowledge?.salesFlowConfig) {
+    console.info("[WA Webhook] menu pick recovery: skip greeting restart — resend current step", {
       phase,
+      salesFlowAlreadyStarted,
+      interactive: isMetaInteractiveMenuReply(input.msg),
       business_slug: input.business_slug,
       session_id: input.sessionId,
     });
+    const resendPhase = SALES_FLOW_CONTINUATION_PHASES.has(phase) ? phase : "warmup";
+    try {
+      await sendFlowContinuation({
+        phase: resendPhase,
+        contact: { flow_step: input.contactFlowStep },
+        knowledge: input.knowledge,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId: input.businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        salesFlowServices: input.salesFlowServices,
+        trialRegistered: input.contactTrialRegistered,
+        allowTrialCta: input.allowTrialCtaThisSession,
+        blockTrialPickMedia: input.blockTrialPickMedia,
+        sfConsumedKinds: input.sfClickedCtaKinds,
+        instagramFollowPromptSent: input.contactInstagramFollowPromptSent,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] menu pick recovery resend after started-flow failed:", e);
+    }
+    return;
   }
+
+  console.warn("[WA Webhook] menu pick recovery: unclear phase or missing sales flow — restarting greeting", {
+    phase,
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+  });
 
   await restartSalesFlowFromGreeting({
     knowledge: input.knowledge,
@@ -5301,7 +5342,9 @@ async function processIncoming(
   if (contactNotRelevantAt) {
     // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו שהוגדרה («אשמח לפרטים» / «בואו נתחיל» וכו׳)
     // — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
-    const wantsFlowRestart = isSalesFlowStartInbound(msg);
+    const wantsFlowRestart = isSalesFlowStartInbound(msg, {
+      slug: business_slug,
+    });
 
     if (wantsFlowRestart && businessId) {
       const reactivated = await reactivateNotRelevantLead({
@@ -5648,7 +5691,11 @@ async function processIncoming(
 
   // בקשת נציג — הודעת «אין בעיה» פעם אחת. זואי ממשיכה לענות על שאלות;
   // מילת פתיחה («אשמח לפרטים») מפעילה מחדש את פלואו המכירה.
-  if (contactHumanRequestedAt && isSalesFlowStartInbound(msg) && businessId) {
+  if (
+    contactHumanRequestedAt &&
+    isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName }) &&
+    businessId
+  ) {
     try {
       const { reactivateHumanRequestedLead } = await import("@/lib/human-requested");
       const reactivated = await reactivateHumanRequestedLead({
@@ -6292,7 +6339,7 @@ async function processIncoming(
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
-    if (isSalesFlowStartInbound(msg)) {
+    if (isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName })) {
       // «אשמח לפרטים» / «בואו נתחיל» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({
         knowledge,

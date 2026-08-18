@@ -39,7 +39,10 @@ export function inboundTextForSalesFlowStartCheck(msg: WaIncomingText): string {
 }
 
 /** הקלדה או לחיצה על כפתור (טמפלייט / quick-reply / interactive) עם טקסט התנעה. */
-export function isSalesFlowStartInbound(msg: WaIncomingMessage): boolean {
+export function isSalesFlowStartInbound(
+  msg: WaIncomingMessage,
+  opts?: { slug?: string; businessName?: string }
+): boolean {
   if (msg.type !== "text") return false;
-  return isSalesFlowStartTrigger(inboundTextForSalesFlowStartCheck(msg));
+  return isSalesFlowStartTrigger(inboundTextForSalesFlowStartCheck(msg), opts);
 }
