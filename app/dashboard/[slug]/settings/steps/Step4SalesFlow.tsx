@@ -1818,24 +1818,14 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     : salesFlowConfig.cta_body
                 )}
                 onChange={(v) =>
-                  setSalesFlowConfig((c) => ({
-                    ...c,
-                    ...(showScheduleSelectionSession
-                      ? {
-                          cta_body_after_schedule: ctaBodyToStore(
-                            v,
-                            firstTrialForTemplates.priceText,
-                            firstTrialForTemplates.durationText
-                          ),
-                        }
-                      : {
-                          cta_body: ctaBodyToStore(
-                            v,
-                            firstTrialForTemplates.priceText,
-                            firstTrialForTemplates.durationText
-                          ),
-                        }),
-                  }))
+                  setSalesFlowConfig((c) => {
+                    const stored = ctaBodyToStore(
+                      v,
+                      firstTrialForTemplates.priceText,
+                      firstTrialForTemplates.durationText
+                    );
+                    return { ...c, cta_body: stored, cta_body_after_schedule: stored };
+                  })
                 }
                 rows={4}
                 placeholder={

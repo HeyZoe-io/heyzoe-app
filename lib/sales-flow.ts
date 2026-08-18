@@ -1516,6 +1516,17 @@ export function resolveTrialCtaBodyTemplate(cfg: SalesFlowConfig, afterScheduleF
   return alt || cfg.cta_body;
 }
 
+/**
+ * Same switch as the dashboard CTA editor: when weekly slot-pick is on for the business,
+ * the visible trial CTA is `cta_body_after_schedule` — even if this product has no slots.
+ */
+export function shouldUseTrialAfterScheduleCta(input: {
+  offerKind?: string | null;
+  scheduleDirectRegistration?: boolean | null;
+}): boolean {
+  return input.offerKind === "trial" && input.scheduleDirectRegistration === false;
+}
+
 function normalizePromoForCompare(value: string): string {
   return String(value ?? "")
     .trim()

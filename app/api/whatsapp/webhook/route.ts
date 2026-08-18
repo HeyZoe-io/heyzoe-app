@@ -64,6 +64,7 @@ import {
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
   resolveTrialCtaBodyTemplate,
+  shouldUseTrialAfterScheduleCta,
   resolveSfServicePriceDuration,
   isSfServiceUnsetForCta,
   resolveAfterRegistrationBodyTemplate,
@@ -2762,8 +2763,10 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
 
   const activeOfferKind = selectedService?.offerKind ?? "trial";
 
-  const inScheduleTrialFlow =
-    activeOfferKind === "trial" && shouldCollectScheduleSelection(knowledge, selectedService);
+  const inScheduleTrialFlow = shouldUseTrialAfterScheduleCta({
+    offerKind: activeOfferKind,
+    scheduleDirectRegistration: knowledge.scheduleDirectRegistration,
+  });
   const ctaBank = inScheduleTrialFlow
     ? filterTrialCtaButtonsAfterSchedule(ctaButtonsForOfferKind(cfg, activeOfferKind))
     : ctaButtonsForOfferKind(cfg, activeOfferKind);
