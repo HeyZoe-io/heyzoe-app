@@ -188,6 +188,11 @@ import {
   shouldHandoffUnknownIntroPackSplit,
 } from "@/lib/wa-unknown-offer-policy";
 import {
+  FREEZE_BILLING_HANDOFF_MODEL,
+  FREEZE_BILLING_HANDOFF_REPLY,
+  isFreezeBillingAccountDispute,
+} from "@/lib/wa-freeze-billing-handoff";
+import {
   matchesRunningLateStatusUpdate,
   RUNNING_LATE_ACK_MESSAGE,
 } from "@/lib/wa-running-late";
@@ -5703,6 +5708,42 @@ async function processIncoming(
       role: "assistant",
       content: handoffTxt,
       model_used: "class_reschedule_team_handoff",
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  // הקפאה/חיוב על מנוי קיים — קצר + התראת נציג, בלי הזדהות ובלי לנחש
+  if (msg.type === "text" && businessId && isFreezeBillingAccountDispute(msg.text)) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] freeze-billing human_requested failed:", e);
+    }
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        FREEZE_BILLING_HANDOFF_REPLY,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send freeze-billing team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: FREEZE_BILLING_HANDOFF_REPLY,
+      model_used: FREEZE_BILLING_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;
