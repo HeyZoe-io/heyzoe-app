@@ -61,9 +61,9 @@ function splitCatalogTokens(key: string): string[] {
 }
 
 function inboundSignificantTokens(text: string): string[] {
-  return splitCatalogTokens(normalizeInboundForServiceMatch(text)).filter(
-    (w) => !PARTIAL_AMBIGUITY_SKIP_TOKENS.has(w)
-  );
+  return splitCatalogTokens(normalizeInboundForServiceMatch(text))
+    .map((w) => w.replace(/^[?!.,;:]+|[?!.,;:]+$/g, ""))
+    .filter((w) => w.length >= 4 && !PARTIAL_AMBIGUITY_SKIP_TOKENS.has(w));
 }
 
 /** התאמת טוקן חלקי לשם קטלוג — בלי לשנות את serviceNameMatchesInUserText (חד-משמעי נשאר כפי שהוא). */
@@ -221,6 +221,29 @@ export function findAmbiguousPartialCatalogMatches(text: string, serviceNames: s
   return partials.length >= 2 ? partials : [];
 }
 
+/** «מה זה פילאטיס» — ידע, לא בחירת מוצר. */
+function isDefinitionalCatalogQuestion(text: string): boolean {
+  return /^(?:מה\s+זה|מהו|מה\s+הוא|איך\s+עובד)/u.test(String(text ?? "").trim());
+}
+
+/**
+ * שאלת זמינות/עניין על משפחה («יש פילאטיס?», «יש לכם יוגה», «פילאטיס?») —
+ * בלי פועל החלפה כמו «רוצה לנסות».
+ */
+function hasCatalogFamilyAvailabilityOrInterestIntent(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || isDefinitionalCatalogQuestion(t)) return false;
+  if (
+    /(?:^|[\s,])יש(?:\s+(?:לכם|לכן|אצלכם|אצלכן|אצלך))?\s+\S/u.test(t) &&
+    !/(?:^|[\s,])יש\s+לי\b/u.test(t)
+  ) {
+    return true;
+  }
+  if (/(?:עושים|מציעים|מלמדים)\s+\S/u.test(t)) return true;
+  const toks = inboundSignificantTokens(t);
+  return toks.length === 1 && t.length <= 48;
+}
+
 export function isAmbiguousPartialCatalogServiceSwitch(
   text: string,
   lastPickedServiceName: string | null,
@@ -228,9 +251,10 @@ export function isAmbiguousPartialCatalogServiceSwitch(
 ): boolean {
   const t = String(text ?? "").trim();
   if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
-  if (!hasExplicitServiceSwitchIntent(t)) return false;
+  if (isDefinitionalCatalogQuestion(t)) return false;
   if (isPhaseAgnosticExplicitServiceSwitch(t, lastPickedServiceName, serviceNames)) return false;
-  return findAmbiguousPartialCatalogMatches(t, serviceNames).length >= 2;
+  if (findAmbiguousPartialCatalogMatches(t, serviceNames).length < 2) return false;
+  return hasExplicitServiceSwitchIntent(t) || hasCatalogFamilyAvailabilityOrInterestIntent(t);
 }
 
 /**
