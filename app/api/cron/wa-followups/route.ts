@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { logMessage } from "@/lib/analytics";
+import { logMessage, sessionHasSalesFlowGreeting } from "@/lib/analytics";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import {
   sendWhatsAppIdleFollowupMessage,
@@ -486,6 +486,22 @@ export async function GET(req: NextRequest) {
       const phoneNumberId = String(channel.phoneNumberId).trim();
       const sessionId = buildWaSessionId(phoneNumberId, phone);
       const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
+
+      if (
+        !(await sessionHasSalesFlowGreeting({
+          business_slug,
+          session_id: sessionIds.length ? sessionIds : sessionId,
+        }))
+      ) {
+        logWaFollowupSkip("sales_flow_not_started", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          session_id: sessionId,
+        });
+        bumpSkip("sales_flow_not_started");
+        continue;
+      }
 
       const { isWaFollowupBlockedByAppPause } = await import("@/lib/wa-app-echo-pause");
       if (
