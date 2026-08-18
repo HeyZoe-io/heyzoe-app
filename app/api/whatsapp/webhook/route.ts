@@ -219,10 +219,7 @@ import {
   isZoeAdminWhatsAppPhone,
   WA_ZOE_ADMIN_TEMPLATE_MODEL,
 } from "@/lib/wa-inbound-unsupported";
-import {
-  sessionAssistantFloodReached,
-  shouldSkipStudioAutoReplyPeer,
-} from "@/lib/wa-bot-loop-guard";
+import { shouldSkipStudioAutoReplyPeer } from "@/lib/wa-bot-loop-guard";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import {
   pickUnclearIntentReply,
@@ -4996,20 +4993,6 @@ async function processIncoming(
   }
   const starterBlocksMedia = planIsStarter(bizQuotaRow?.plan);
 
-  if (
-    shouldSkipStudioAutoReplyPeer(
-      msg.from,
-      (channel as { phone_display?: string | null }).phone_display,
-      typeof bizQuotaRow?.owner_whatsapp_phone === "string" ? bizQuotaRow.owner_whatsapp_phone : null
-    )
-  ) {
-    console.info("[WA Webhook] skip auto-reply — inbound from owner WhatsApp number", {
-      business_slug,
-      from: msg.from,
-    });
-    return;
-  }
-
   // ── SAVE CONTACT (upsert) + OPT-IN/OPT-OUT gating ───────────────────────────
   // Always try to save/update the contact on any inbound message.
   // If contact is opted out, we may early-return before reaching any automated flow.
@@ -5240,22 +5223,6 @@ async function processIncoming(
 
   let optedInThisMessage = false;
   const earlySessionId = buildWaSessionId(msg.toNumber, msg.from);
-
-  if (earlySessionId) {
-    const flooded = await sessionAssistantFloodReached({
-      admin: supabase,
-      businessSlug: business_slug,
-      sessionId: earlySessionId,
-    });
-    if (flooded) {
-      console.error("[WA Webhook] session assistant flood — stopping auto-reply", {
-        business_slug,
-        session_id: earlySessionId,
-        from: msg.from,
-      });
-      return;
-    }
-  }
 
   // OPT-OUT (Claude) — skipped for Meta menu/button picks. Not-relevant is keyword-only, after lock.
   let preLockOptOutClaudePositive = false;

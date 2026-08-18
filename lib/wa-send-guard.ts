@@ -1,27 +1,18 @@
 /**
  * Leaf send-guard — no imports from whatsapp.ts / marketing-whatsapp (cycle-safe).
- * Every Graph/Twilio outbound must pass {@link assertWhatsAppOutboundAllowed}.
+ * Blocks the admin↔studio test ping-pong only. No per-second send caps.
  */
 
 /** הודעות בדיקה / debug — רק המספר הזה. לעולם לא מספר לקוח. */
 export const HEYZOE_SAFE_TEST_PHONE = "972508318162";
 
-/** קו זואי אדמין/שיווק — סטודיו לא שולח לכאן (פינג־פונג). */
+/** קו זואי אדמין/שיווק — סטודיו לא שולח לכאן (לולאת בדיקות). */
 export const HEYZOE_MARKETING_LINE_DIGITS = "97233824981";
 export const HEYZOE_MARKETING_PHONE_NUMBER_ID = "1179786855208358";
-
-export const WA_OUTBOUND_FLOOD_WINDOW_MS = 90_000;
-/** אותו שולח+נמען — פלואו רגיל שולח כמה הודעות; לולאה עוברת את זה. */
-export const WA_OUTBOUND_MAX_PER_PAIR = 12;
-/** כל השולחים לאותו נמען בתהליך הזה. */
-export const WA_OUTBOUND_MAX_PER_RECIPIENT = 20;
 
 export type WhatsAppOutboundDecision =
   | { ok: true }
   | { ok: false; reason: string };
-
-const sendTimesByPair = new Map<string, number[]>();
-const sendTimesByRecipient = new Map<string, number[]>();
 
 export function whatsappPeerDigits(phone: string): string {
   const d = String(phone ?? "").replace(/\D/g, "");
@@ -45,23 +36,10 @@ export function assertHeyzoeSafeTestRecipient(phone: string, context: string): s
   return digits;
 }
 
-function pruneTimestamps(times: number[], now: number, windowMs: number): number[] {
-  const cutoff = now - windowMs;
-  return times.filter((t) => t > cutoff);
-}
-
-function pairKey(fromPhoneNumberId: string, toDigits: string): string {
-  return `${String(fromPhoneNumberId ?? "").trim()}|${toDigits}`;
-}
-
-/**
- * In-memory, fail-closed. Same Node isolate: a tight webhook loop dies here
- * even if DB flood count is lagging or unavailable.
- */
+/** Block studio→marketing ping-pong. Does not cap how many customer messages we send. */
 export function decideWhatsAppOutbound(input: {
   fromPhoneNumberId: string;
   to: string;
-  nowMs?: number;
 }): WhatsAppOutboundDecision {
   const fromId = String(input.fromPhoneNumberId ?? "").trim();
   const toDigits = whatsappPeerDigits(input.to);
@@ -71,26 +49,6 @@ export function decideWhatsAppOutbound(input: {
     return { ok: false, reason: "refused_studio_to_marketing_line" };
   }
 
-  const now = input.nowMs ?? Date.now();
-  const pKey = pairKey(fromId, toDigits);
-  const pairTimes = pruneTimestamps(sendTimesByPair.get(pKey) ?? [], now, WA_OUTBOUND_FLOOD_WINDOW_MS);
-  const recipTimes = pruneTimestamps(
-    sendTimesByRecipient.get(toDigits) ?? [],
-    now,
-    WA_OUTBOUND_FLOOD_WINDOW_MS
-  );
-
-  if (pairTimes.length >= WA_OUTBOUND_MAX_PER_PAIR) {
-    return { ok: false, reason: "flood_pair" };
-  }
-  if (recipTimes.length >= WA_OUTBOUND_MAX_PER_RECIPIENT) {
-    return { ok: false, reason: "flood_recipient" };
-  }
-
-  pairTimes.push(now);
-  recipTimes.push(now);
-  sendTimesByPair.set(pKey, pairTimes);
-  sendTimesByRecipient.set(toDigits, recipTimes);
   return { ok: true };
 }
 
@@ -106,9 +64,4 @@ export function assertWhatsAppOutboundAllowed(input: {
     to: whatsappPeerDigits(input.to),
   });
   throw new Error(`[wa-send-guard] blocked outbound: ${decision.reason}`);
-}
-
-export function resetWaSendGuardForTests(): void {
-  sendTimesByPair.clear();
-  sendTimesByRecipient.clear();
 }
