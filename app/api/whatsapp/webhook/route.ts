@@ -219,6 +219,10 @@ import {
   isZoeAdminWhatsAppPhone,
   WA_ZOE_ADMIN_TEMPLATE_MODEL,
 } from "@/lib/wa-inbound-unsupported";
+import {
+  sessionAssistantFloodReached,
+  shouldSkipStudioAutoReplyPeer,
+} from "@/lib/wa-bot-loop-guard";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import {
   pickUnclearIntentReply,
@@ -4894,6 +4898,19 @@ async function processIncoming(
   const { business_slug } = channel;
   const channelActive = (channel as { is_active?: boolean }).is_active === true;
 
+  if (
+    shouldSkipStudioAutoReplyPeer(
+      msg.from,
+      (channel as { phone_display?: string | null }).phone_display
+    )
+  ) {
+    console.info("[WA Webhook] skip auto-reply — inbound from Zoe admin or this channel's own number", {
+      business_slug,
+      from: msg.from,
+    });
+    return;
+  }
+
   const nowIso = new Date().toISOString();
 
   // Resolve business_id + subscription gate (needed for contacts upsert)
@@ -5209,6 +5226,22 @@ async function processIncoming(
 
   let optedInThisMessage = false;
   const earlySessionId = buildWaSessionId(msg.toNumber, msg.from);
+
+  if (earlySessionId) {
+    const flooded = await sessionAssistantFloodReached({
+      admin: supabase,
+      businessSlug: business_slug,
+      sessionId: earlySessionId,
+    });
+    if (flooded) {
+      console.error("[WA Webhook] session assistant flood — stopping auto-reply", {
+        business_slug,
+        session_id: earlySessionId,
+        from: msg.from,
+      });
+      return;
+    }
+  }
 
   // OPT-OUT (Claude) — skipped for Meta menu/button picks. Not-relevant is keyword-only, after lock.
   let preLockOptOutClaudePositive = false;

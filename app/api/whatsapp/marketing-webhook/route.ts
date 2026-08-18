@@ -70,6 +70,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (String(msg.toNumber ?? "").trim() !== MARKETING_META_PHONE_NUMBER_ID) {
+    console.info("[marketing-webhook] ignored (not marketing line)", { to: msg.toNumber });
+    return NextResponse.json({ ok: true, ignored: "not_marketing_line" });
+  }
+
   const phone = normalizePhone(msg.from);
   const userText = msg.text;
   if (!phone) {
