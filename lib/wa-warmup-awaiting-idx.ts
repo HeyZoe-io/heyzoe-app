@@ -19,5 +19,6 @@ export function salesFlowOpeningResetPatch() {
     flow_step: 0,
     sf_requested_date: null,
     sf_requested_time: null,
+    free_text_replies_since_cta: 0,
   });
 }
