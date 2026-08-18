@@ -735,7 +735,7 @@ async function fetchContactFreeTextRepliesSinceCta(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
   phone: string;
-}): Promise<number> {
+}): Promise<number | null> {
   const phoneVariants = contactPhoneLookupVariants(input.phone);
   try {
     const { data, error } = await input.supabase
@@ -743,18 +743,23 @@ async function fetchContactFreeTextRepliesSinceCta(input: {
       .select("free_text_replies_since_cta")
       .eq("business_id", input.businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [input.phone])
+      .limit(1)
       .maybeSingle();
     if (error) {
-      if (!/free_text_replies_since_cta/i.test(String(error.message ?? ""))) {
+      if (/free_text_replies_since_cta/i.test(String(error.message ?? ""))) {
+        console.error(
+          "[WA Webhook] free_text_replies_since_cta missing — run supabase/contacts_cta_frequency_and_self_reported.sql"
+        );
+      } else {
         console.warn("[WA Webhook] free_text_replies_since_cta select:", error.message);
       }
-      return 0;
+      return null;
     }
     const n = Number((data as { free_text_replies_since_cta?: unknown } | null)?.free_text_replies_since_cta);
     return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
   } catch (e) {
     console.warn("[WA Webhook] free_text_replies_since_cta select threw:", e);
-    return 0;
+    return null;
   }
 }
 

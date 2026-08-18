@@ -8,5 +8,7 @@ assert.equal(shouldSendSalesFlowCtaForFreeTextCount(3), true);
 assert.equal(shouldSendSalesFlowCtaForFreeTextCount(4), true);
 assert.equal(shouldSendSalesFlowCtaForFreeTextCount(-1), true);
 assert.equal(shouldSendSalesFlowCtaForFreeTextCount(Number.NaN), true);
+assert.equal(shouldSendSalesFlowCtaForFreeTextCount(null), false);
+assert.equal(shouldSendSalesFlowCtaForFreeTextCount(undefined), false);
 
 console.log("wa-cta-frequency.test.ts: ok");
