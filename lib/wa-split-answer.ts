@@ -80,6 +80,36 @@ export function stripTrailingFollowUpQuestion(text: string): string {
   return s;
 }
 
+function normalizeCtaHookLine(s: string): string {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isSalesFlowCtaHookLine(line: string): boolean {
+  const n = normalizeCtaHookLine(line);
+  if (!n) return false;
+  if (n.startsWith("מה דעתך? שנשריין אימון ניסיון")) return true;
+  if (/מה דעתך.*אימון.*ניסיון/u.test(n)) return true;
+  if (/עכשיו רק נותר לשריין/u.test(n)) return true;
+  if (/^לשמור לך מקום/u.test(n) || /^לשמור לכם מקום/u.test(n)) return true;
+  if (/תשלום מאובטח/u.test(n) && /הטבה דרך השיחה/u.test(n)) return true;
+  return false;
+}
+
+/**
+ * CTA-phase split only: drop leaked booking-prompt closings from the free-text answer
+ * before the real interactive CTA is sent separately.
+ */
+export function stripSalesFlowCtaHookFromAnswer(text: string): string {
+  let raw = String(text ?? "").replace(/\r\n/g, "\n");
+  raw = raw.replace(/([?!.…🙂💜)])\s+(עכשיו רק נותר לשריין)/gu, "$1\n$2");
+  raw = raw.replace(/([?!.…🙂💜)])\s+(לשמור לך מקום|לשמור לכם מקום)/gu, "$1\n$2");
+  const filtered = raw.split("\n").filter((l) => !isSalesFlowCtaHookLine(l));
+  return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export const REGISTERED_OPEN_QUESTION_HELP_CLOSING =
   "יש עוד משהו שאני יכולה לעזור לך בו?";
 

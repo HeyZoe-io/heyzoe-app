@@ -6,8 +6,6 @@ import type { OfferKind } from "@/lib/sales-flow";
 /** גשר קבוע — חייב להופיע בדיוק כך (גם לזיהוי «כן» בהודעה הבאה). */
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
   "תרצו שנבחר יחד אימון אחר מהרשימה?";
-
-/** לפני שליחה מחדש של תפריט בחירת אימון (טקסט חופשי — לא כפתור). */
 export const SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE =
   "אוקיי, אני מבינה שיש אימון אחר שמעניין אותך. אני שולחת לך שוב את הרשימה לבחור ממנה";
 
@@ -40,6 +38,49 @@ function serviceTokens(key: string): string[] {
     .split(/[\s\-–—]+/)
     .map((w) => w.trim())
     .filter((w) => w.length >= 3);
+}
+
+/** שמות קטגוריה כלליים — לא מזהים משפחת מוצר (פילאטיס / יוגה / אקרו). */
+const PARTIAL_AMBIGUITY_SKIP_TOKENS = new Set([
+  "שיעור",
+  "אימון",
+  "אימוני",
+  "סדנה",
+  "סדנת",
+  "קורס",
+  "מפגש",
+  "מפגשים",
+  "לאחר",
+]);
+
+function splitCatalogTokens(key: string): string[] {
+  return key
+    .split(/[\s\-–—&,/+]+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 4);
+}
+
+function inboundSignificantTokens(text: string): string[] {
+  return splitCatalogTokens(normalizeInboundForServiceMatch(text)).filter(
+    (w) => !PARTIAL_AMBIGUITY_SKIP_TOKENS.has(w)
+  );
+}
+
+/** התאמת טוקן חלקי לשם קטלוג — בלי לשנות את serviceNameMatchesInUserText (חד-משמעי נשאר כפי שהוא). */
+function sharesPartialCatalogToken(menuName: string, userText: string): boolean {
+  if (serviceNameMatchesInUserText(menuName, userText)) return false;
+  const key = normalizeServiceNameKey(menuName);
+  const userToks = inboundSignificantTokens(userText);
+  if (!key || !userToks.length) return false;
+  const catToks = splitCatalogTokens(key);
+  for (const ut of userToks) {
+    if (key.includes(ut)) return true;
+    for (const ct of catToks) {
+      if (ct === ut) return true;
+      if (ct.startsWith(ut) || ut.startsWith(ct)) return true;
+    }
+  }
+  return false;
 }
 
 function serviceNameMatchesInUserText(menuName: string, userText: string): boolean {
@@ -166,6 +207,30 @@ export function isPhaseAgnosticExplicitServiceSwitch(
     return true;
   }
   return false;
+}
+
+/**
+ * שמות קטלוג שחולקים טוקן חלקי עם הטקסט (2+), בלי התאמה חד-משמעית לפי serviceNameMatchesInUserText.
+ * התאמה יחידה חלקית — לא כאן (נשאר fall-through ל-Claude כמו היום).
+ */
+export function findAmbiguousPartialCatalogMatches(text: string, serviceNames: string[]): string[] {
+  const names = [...new Set(serviceNames.map((n) => String(n ?? "").trim()).filter(Boolean))];
+  const uniqueHits = names.filter((n) => serviceNameMatchesInUserText(n, text));
+  if (uniqueHits.length === 1) return [];
+  const partials = names.filter((n) => sharesPartialCatalogToken(n, text));
+  return partials.length >= 2 ? partials : [];
+}
+
+export function isAmbiguousPartialCatalogServiceSwitch(
+  text: string,
+  lastPickedServiceName: string | null,
+  serviceNames: string[]
+): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
+  if (!hasExplicitServiceSwitchIntent(t)) return false;
+  if (isPhaseAgnosticExplicitServiceSwitch(t, lastPickedServiceName, serviceNames)) return false;
+  return findAmbiguousPartialCatalogMatches(t, serviceNames).length >= 2;
 }
 
 /**

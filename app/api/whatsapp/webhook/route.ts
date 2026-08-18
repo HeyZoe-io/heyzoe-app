@@ -124,6 +124,7 @@ import {
   looksLikeLeadQuestion,
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
+  stripSalesFlowCtaHookFromAnswer,
 } from "@/lib/wa-split-answer";
 import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import {
@@ -138,6 +139,7 @@ import {
   replyContainsServiceRepickBridge,
   resolveImplicitServiceSwitchFromFreeText,
   SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
+  isAmbiguousPartialCatalogServiceSwitch,
   shouldHandleCtaServiceRepickYes,
 } from "@/lib/wa-cta-service-repick";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
@@ -6444,6 +6446,37 @@ async function processIncoming(
       contactScheduleRequestedTime = "";
       return;
     }
+    if (
+      isAmbiguousPartialCatalogServiceSwitch(
+        msg.text.trim(),
+        lastPickedForExplicitSwitch,
+        serviceNamesForSwitch
+      )
+    ) {
+      const phoneVariants = contactPhoneLookupVariants(msg.from);
+      await supabase
+        .from("contacts")
+        .update(salesFlowOpeningResetPatch())
+        .eq("business_id", businessId)
+        .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+      await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+        skipScheduleBoard: true,
+        modelUsed: "flow_continuation_opening_service_pick",
+      });
+      contactSessionPhase = "opening";
+      contactFlowStep = 0;
+      contactScheduleRequestedDate = "";
+      contactScheduleRequestedTime = "";
+      return;
+    }
   }
 
   // מספר אחרי תפריט repick — רק awaiting-pick
@@ -9125,22 +9158,6 @@ async function processIncoming(
       out.push(line);
     }
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  }
-
-  function stripSalesFlowCtaHookFromAnswer(text: string): string {
-    // In CTA phase, when we split into (answer) + (CTA menu), we must keep the first message
-    // as a pure answer without a sales hook line like "מה דעתך להגיע לאימון ניסיון בקרוב...".
-    const raw = String(text ?? "").replace(/\r\n/g, "\n");
-    const lines = raw.split("\n");
-    const isCtaHookLine = (line: string) => {
-      const n = normalizeLine(line);
-      if (!n) return false;
-      if (n.startsWith("מה דעתך? שנשריין אימון ניסיון")) return true;
-      // Common CTA hook variants from the sales-flow templates / model completions
-      return /מה דעתך.*אימון.*ניסיון/u.test(n);
-    };
-    const filtered = lines.filter((l) => !isCtaHookLine(l));
-    return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   let replyText = replyCoreClean;

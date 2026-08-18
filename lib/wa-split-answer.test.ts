@@ -4,6 +4,7 @@ import {
   ensureStandaloneOpenQuestionClosing,
   isStandaloneWhatsAppOpenQuestion,
   looksLikeLeadQuestion,
+  stripSalesFlowCtaHookFromAnswer,
 } from "@/lib/wa-split-answer";
 
 assert.equal(
@@ -66,5 +67,20 @@ assert.equal(
   false
 );
 assert.equal(looksLikeLeadQuestion("כבר נרשמתי"), false);
+
+{
+  const pilatesLeak =
+    "איזה כיף! 🙂 שיעורי פילאטיס מכשירים הם תרגול המתמקד בהתארכות. השיעור עולה 99 ₪ לשני אימוני היכרות ונמשך כ-45 דקות 🙂 עכשיו רק נותר לשריין את מקומך באמצעות תשלום מאובטח - 99 ₪ בלבד, הטבה דרך השיחה שלנו כאן :)\nלשמור לך מקום? 💜";
+  const stripped = stripSalesFlowCtaHookFromAnswer(pilatesLeak);
+  assert.equal(stripped.includes("עכשיו רק נותר לשריין"), false);
+  assert.equal(stripped.includes("לשמור לך מקום"), false);
+  assert.match(stripped, /פילאטיס מכשירים/);
+  assert.match(stripped, /99 ₪ לשני אימוני היכרות/);
+}
+
+assert.match(
+  stripSalesFlowCtaHookFromAnswer("כן, יש שיעור מחר.\nמה דעתך שנבדוק מתי האימון ניסיון הבא?"),
+  /יש שיעור מחר/
+);
 
 console.log("wa-split-answer.test.ts: ok");
