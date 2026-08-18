@@ -367,7 +367,13 @@ import {
   shouldSendNotRelevantGatingReply,
 } from "@/lib/not-relevant";
 import { matchesSelfReportedRegistered } from "@/lib/self-reported-registered";
-import { FULL_SALES_FLOW_CTA_SENT_MARKER, resolveSalesFlowCtaDeliveryMode } from "@/lib/wa-cta-frequency";
+import {
+  FULL_SALES_FLOW_CTA_SENT_MARKER,
+  parseSalesFlowCtaFlagValue,
+  resolveSalesFlowCtaDeliveryFromRead,
+  resolveSalesFlowCtaDeliveryMode,
+  type SalesFlowCtaFlagRead,
+} from "@/lib/wa-cta-frequency";
 import {
   SALES_FLOW_CTA_COMPACT_MODEL,
   SALES_FLOW_CTA_HAVE_A_QUESTION_MODEL,
@@ -749,7 +755,7 @@ async function fetchContactFreeTextRepliesSinceCta(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
   phone: string;
-}): Promise<number | null> {
+}): Promise<SalesFlowCtaFlagRead> {
   const phoneVariants = contactPhoneLookupVariants(input.phone);
   try {
     const { data, error } = await input.supabase
@@ -760,14 +766,15 @@ async function fetchContactFreeTextRepliesSinceCta(input: {
       .limit(1)
       .maybeSingle();
     if (error) {
-      console.warn("[WA Webhook] free_text_replies_since_cta select:", error.message);
-      return null;
+      console.error("[WA Webhook] free_text_replies_since_cta select failed:", error.message);
+      return { status: "unreadable", error: error.message };
     }
-    const n = Number((data as { free_text_replies_since_cta?: unknown } | null)?.free_text_replies_since_cta);
-    return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+    const raw = (data as { free_text_replies_since_cta?: unknown } | null)?.free_text_replies_since_cta;
+    return { status: "ok", value: parseSalesFlowCtaFlagValue(raw) };
   } catch (e) {
-    console.warn("[WA Webhook] free_text_replies_since_cta select threw:", e);
-    return null;
+    const error = e instanceof Error ? e.message : String(e);
+    console.error("[WA Webhook] free_text_replies_since_cta select threw:", e);
+    return { status: "unreadable", error };
   }
 }
 
@@ -2828,12 +2835,18 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   if (!ctaBody) return;
 
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
-  const fullCtaFlag = await fetchContactFreeTextRepliesSinceCta({
+  const fullCtaRead = await fetchContactFreeTextRepliesSinceCta({
     supabase,
     businessId,
     phone: msg.from,
   });
-  if (resolveSalesFlowCtaDeliveryMode(fullCtaFlag) === "compact") {
+  if (fullCtaRead.status === "unreadable") {
+    console.error(
+      "[WA Webhook] sendSalesFlowCtaMenu: free_text_replies_since_cta unreadable, fail-closed to compact",
+      { businessId, error: fullCtaRead.error }
+    );
+  }
+  if (resolveSalesFlowCtaDeliveryFromRead(fullCtaRead) === "compact") {
     const compactLabels = buildCompactCtaMenuLabels(filtered, contentLang);
     const compactBody = ctaCompactFollowupBody(contentLang);
     if (compactLabels.length >= 1) {
@@ -4940,7 +4953,7 @@ async function processIncoming(
   let contactNotRelevantAt: string | null = null;
   let contactHumanRequestedAt: string | null = null;
   let contactClaudeCount: number | null = null;
-  let contactFreeTextRepliesSinceCta = 0;
+  let contactFreeTextRepliesSinceCta: number | null = null;
   let contactTrialRegistered: boolean | null = null;
   let contactTrialRegisteredAt: string | null = null;
   // Persisted registration blocks trial CTA even if the flow is reset later.
@@ -5089,8 +5102,9 @@ async function processIncoming(
           : null;
       const cc = (contactRow as any)?.claude_message_count;
       contactClaudeCount = typeof cc === "number" && Number.isFinite(cc) ? cc : null;
-      const ftCta = Number((contactRow as any)?.free_text_replies_since_cta);
-      contactFreeTextRepliesSinceCta = Number.isFinite(ftCta) ? Math.max(0, Math.trunc(ftCta)) : 0;
+      contactFreeTextRepliesSinceCta = parseSalesFlowCtaFlagValue(
+        (contactRow as any)?.free_text_replies_since_cta
+      );
       contactTrialRegistered =
         typeof (contactRow as any)?.trial_registered === "boolean"
           ? (contactRow as any).trial_registered
