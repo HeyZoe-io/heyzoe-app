@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  extractBodyVarCount,
+  paramSlotsForTriggerType,
+  TEMPLATE_PRESETS,
+} from "@/lib/template-presets";
+import {
   expiryYmdFromScheduledDedupKey,
   formatTemplateExpiryDate,
   resolveTemplateBodyParamValues,
@@ -77,6 +82,41 @@ import {
     firstName: "יוסי",
   });
   assert.deepEqual(missingComponents, ["יוסי"]);
+}
+
+/** Every preset body fills Meta positional params in trigger-type order — {{2}} is never the expiry date. */
+{
+  const ctx = {
+    firstName: "דנה כהן",
+    businessName: "Limitless",
+    expiryDateYmd: "2026-09-15",
+  };
+  const expected: Record<string, string[]> = {
+    incoming_lead: ["Limitless"],
+    arbox_new_lead: ["Limitless"],
+    no_response: ["דנה"],
+    purchase: ["דנה", "Limitless"],
+    credit_refusal: ["דנה"],
+    birthday: ["דנה", "Limitless"],
+    membership_expiring: ["דנה", "Limitless", "15.09.2026"],
+    sessions_expiring: ["דנה", "Limitless", "15.09.2026"],
+    trial_attended: ["דנה"],
+  };
+
+  for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
+    const values = resolveTemplateBodyParamValues({
+      triggerType: type,
+      storedComponents: [{ type: "BODY", text: preset.body }],
+      ...ctx,
+    });
+    assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
+    assert.deepEqual(values, expected[type], type);
+    const slots = paramSlotsForTriggerType(type);
+    if (slots.length >= 2) assert.equal(slots[1], "business_name");
+    if (slots.includes("expiry_date")) {
+      assert.equal(slots.indexOf("expiry_date"), 2);
+    }
+  }
 }
 
 console.log("template-send-params.test.ts: ok");
