@@ -1,4 +1,5 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
+import { knowledgeQaTextBlob } from "@/lib/knowledge-qa";
 import { sanitizeZoeOutboundLanguage } from "@/lib/zoe-text";
 import {
   formatCourseCyclesForKnowledge,
@@ -84,6 +85,7 @@ export function businessKnowledgeIndicatesWomenOnlyAudience(
     knowledge.businessDescription,
     knowledge.targetAudienceText,
     ...(knowledge.traits ?? []),
+    knowledgeQaTextBlob(knowledge.knowledgeQa),
     knowledge.servicesText,
   ]
     .filter(Boolean)

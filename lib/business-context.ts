@@ -28,6 +28,12 @@ import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
+import {
+  formatKnowledgeQaForPrompt,
+  KNOWLEDGE_QA_MATCH_RULES,
+  parseKnowledgeQa,
+  type KnowledgeQaPair,
+} from "@/lib/knowledge-qa";
 
 export type QuickReplyEntry = { label: string; reply: string };
 
@@ -88,6 +94,7 @@ export type BusinessKnowledgePack = {
   instagramUrl: string;
   promotionsText: string;
   traits: string[];
+  knowledgeQa?: KnowledgeQaPair[];
 };
 
 function formatMembershipsLinkLine(social: Record<string, unknown>): string {
@@ -319,6 +326,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const traitsList = Array.isArray(social.traits)
       ? social.traits.map((x) => String(x ?? "").trim()).filter(Boolean)
       : [fact1, fact2, fact3].filter(Boolean);
+    const knowledgeQa = parseKnowledgeQa(social.knowledge_qa);
     const fromTraits = traitsList.join(" • ");
     const legacyDesc = String(social.business_description ?? "").trim();
     const businessDescriptionRaw =
@@ -435,6 +443,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       instagramUrl,
       promotionsText,
       traits: traitsList,
+      knowledgeQa,
     };
     cache.set(key, { at: now, v: packed });
     return packed;
@@ -649,6 +658,32 @@ function buildBookingTruthPromptBlock(waCtx: WhatsAppPromptContext | undefined):
 - במקום «אתה/את נרשמת» — תמיד: «ההרשמה היא לשיעור ניסיון של…»${repickAddon}`;
 }
 
+const FACT_QUOTE_RULES = `כללי שימוש בעובדות:
+- מרכאות = ציטוט מדויק לליד: אם בעובדה יש טקסט בין מרכאות (״…״ או "…") — שלחי לליד את כל מה שבתוך המרכאות, כלשונו, במלואו. אסור לקצר, אסור להשמיט משפט שני, ואסור לסנן ניסוח שיווקי מתוך הציטוט. כללי «תשובות קצרות» / «בלי הקדמות שיווקיות» לא חלים על ציטוט במרכאות. הטקסט שמחוץ למרכאות הוא הוראות פנימיות עבורך בלבד (מתי להשתמש, הקשר, הגבלות) — אסור לכתוב אותו לליד.
+- חריג יחיד לציטוט: מותר להשמיט משפט מתוך המרכאות רק אם הוא ממש לא קשור לשאלת הליד. אסור להשמיט כי המשפט ארוך, שיווקי, או «מיותר».
+- בלי מרכאות = סנני מה להגיד: אם אין מרכאות — הביני מה שייך לתשובה לליד ומה להתייחסות שלך בלבד. אל תעתיקי שאלות/כותרות/הנחיות לליד. דוגמה: «האם יש שיעורים פרטיים? כן! יש שיעורים פרטיים…» → עני רק את החלק שמיועד לליד (למשל «כן! יש שיעורים פרטיים…»), בלי לחזור על השאלה.
+- נאמנות למקור: כשחלק התשובה רלוונטי לשאלה — עם מרכאות העתיקי את הציטוט במלואו (בלי «לקצר מעט»). בלי מרכאות העדיפי ניסוח קרוב למקור; נסחי מחדש רק אם חייבים להתאים לשפת השיחה/טון או לקצר מעט. אל תשני משמעות, מספרים, שמות או פרטים.
+- קישורים: אם בחלק שמיועד לליד (בתוך מרכאות, או בחלק התשובה כשאין מרכאות) מופיע קישור (http/https, www, או לינק מלא) — חובה לכלול אותו בתשובה בדיוק כפי שכתוב (טקסט רגיל, בלי Markdown ובלי לקצר). אסור להשמיט לינק או להחליף אותו ב«באתר»/«אצלנו» בלי לשלוח את הקישור עצמו.
+- השתמשי במידע גם אם הוא תיאורי ולא מספרי.`;
+
+function formatBusinessFactsPromptBlock(knowledge: BusinessKnowledgePack | null): string {
+  const qaItems = formatKnowledgeQaForPrompt(knowledge?.knowledgeQa ?? []);
+  if (qaItems) {
+    return `עובדות על העסק (ידע רשמי מבעל העסק — מקור אמת לשאלות פתוחות):
+${FACT_QUOTE_RULES}
+${KNOWLEDGE_QA_MATCH_RULES}
+הפריטים:
+${qaItems}`;
+  }
+  if ((knowledge?.traits?.length ?? 0) > 0) {
+    return `עובדות על העסק (ידע רשמי מבעל העסק — מקור אמת לשאלות פתוחות):
+${FACT_QUOTE_RULES}
+העובדות:
+${knowledge!.traits.map((t) => `- ${t}`).join("\n")}`;
+  }
+  return "";
+}
+
 function buildUserLanguagePromptBlock(lastUserMessage?: string): string {
   const detected = detectMessageLanguage(String(lastUserMessage ?? ""));
   if (detected === "en") {
@@ -771,18 +806,7 @@ ${waResponseShapeBlock}
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
 תיאור עסק: ${knowledge?.businessDescription ?? "לא הוגדר"}
-${(knowledge?.traits?.length ?? 0) > 0
-    ? `עובדות על העסק (ידע רשמי מבעל העסק — מקור אמת לשאלות פתוחות):
-כללי שימוש בעובדות:
-- מרכאות = ציטוט מדויק לליד: אם בעובדה יש טקסט בין מרכאות (״…״ או "…") — שלחי לליד את כל מה שבתוך המרכאות, כלשונו, במלואו. אסור לקצר, אסור להשמיט משפט שני, ואסור לסנן ניסוח שיווקי מתוך הציטוט. כללי «תשובות קצרות» / «בלי הקדמות שיווקיות» לא חלים על ציטוט במרכאות. הטקסט שמחוץ למרכאות הוא הוראות פנימיות עבורך בלבד (מתי להשתמש, הקשר, הגבלות) — אסור לכתוב אותו לליד.
-- חריג יחיד לציטוט: מותר להשמיט משפט מתוך המרכאות רק אם הוא ממש לא קשור לשאלת הליד. אסור להשמיט כי המשפט ארוך, שיווקי, או «מיותר».
-- בלי מרכאות = סנני מה להגיד: אם אין מרכאות — הביני מה שייך לתשובה לליד ומה להתייחסות שלך בלבד. אל תעתיקי שאלות/כותרות/הנחיות לליד. דוגמה: «האם יש שיעורים פרטיים? כן! יש שיעורים פרטיים…» → עני רק את החלק שמיועד לליד (למשל «כן! יש שיעורים פרטיים…»), בלי לחזור על השאלה.
-- נאמנות למקור: כשחלק התשובה רלוונטי לשאלה — עם מרכאות העתיקי את הציטוט במלואו (בלי «לקצר מעט»). בלי מרכאות העדיפי ניסוח קרוב למקור; נסחי מחדש רק אם חייבים להתאים לשפת השיחה/טון או לקצר מעט. אל תשני משמעות, מספרים, שמות או פרטים.
-- קישורים: אם בחלק שמיועד לליד (בתוך מרכאות, או בחלק התשובה כשאין מרכאות) מופיע קישור (http/https, www, או לינק מלא) — חובה לכלול אותו בתשובה בדיוק כפי שכתוב (טקסט רגיל, בלי Markdown ובלי לקצר). אסור להשמיט לינק או להחליף אותו ב«באתר»/«אצלנו» בלי לשלוח את הקישור עצמו.
-- השתמשי במידע גם אם הוא תיאורי ולא מספרי.
-העובדות:
-${knowledge!.traits.map((t) => `- ${t}`).join("\n")}`
-    : ""}
+${formatBusinessFactsPromptBlock(knowledge)}
 הנחות ומבצעים (ידע רשמי לשאלות פתוחות על הנחה/מבצע/מחיר מוזל): ${promotionsText || "לא הוגדר"}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}

@@ -10,6 +10,7 @@ import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import { cn } from "@/lib/utils";
 import type { FactQuestion } from "@/lib/fact-questions";
 import { factFromQuestionAnswer } from "@/lib/fact-questions";
+import type { KnowledgeQaPair } from "@/lib/knowledge-qa";
 import {
   SALES_PATH_INPUT,
   SALES_PATH_TEXTAREA,
@@ -131,6 +132,83 @@ function FactCard({
   );
 }
 
+function KnowledgeQaCard({
+  question,
+  answer,
+  onQuestionChange,
+  onAnswerChange,
+  questionPlaceholder,
+  answerPlaceholder,
+  dir,
+  canRemove,
+  onRemove,
+  removeAriaLabel,
+  indexLabel,
+  questionLabel,
+  answerLabel,
+}: {
+  question: string;
+  answer: string;
+  onQuestionChange: (next: string) => void;
+  onAnswerChange: (next: string) => void;
+  questionPlaceholder: string;
+  answerPlaceholder: string;
+  dir: "rtl" | "ltr";
+  canRemove: boolean;
+  onRemove: () => void;
+  removeAriaLabel: string;
+  indexLabel: string;
+  questionLabel: string;
+  answerLabel: string;
+}) {
+  return (
+    <li className="rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] tabular-nums text-zinc-400">{indexLabel}</span>
+        {canRemove ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="shrink-0 rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+            aria-label={removeAriaLabel}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ) : (
+          <span className="h-7 w-7 shrink-0" />
+        )}
+      </div>
+      <div className="space-y-2.5">
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-zinc-500">{questionLabel}</label>
+          <Input
+            dir={dir}
+            value={question}
+            onChange={(e) => onQuestionChange(e.target.value)}
+            placeholder={questionPlaceholder}
+            className={INPUT}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-medium text-zinc-500">{answerLabel}</label>
+          <textarea
+            dir={dir}
+            value={answer}
+            onChange={(e) => {
+              onAnswerChange(e.target.value);
+              autosizeFactTextarea(e.currentTarget);
+            }}
+            onFocus={(e) => autosizeFactTextarea(e.currentTarget)}
+            placeholder={answerPlaceholder}
+            rows={2}
+            className={cn(SALES_PATH_TEXTAREA, "min-h-[4.5rem] [field-sizing:content]")}
+          />
+        </div>
+      </div>
+    </li>
+  );
+}
+
 type SectionId = "contact" | "identity" | "location" | "knowledge";
 
 function traitPlaceholder(index: number, lang: DashboardLang): string {
@@ -165,6 +243,9 @@ export type AboutBusinessStepPanelProps = {
   setPromotions: (v: string) => void;
   traits: string[];
   setTraits: React.Dispatch<React.SetStateAction<string[]>>;
+  useKnowledgeQa?: boolean;
+  knowledgeQa?: KnowledgeQaPair[];
+  setKnowledgeQa?: React.Dispatch<React.SetStateAction<KnowledgeQaPair[]>>;
   factQuestions: FactQuestion[];
   factAnswers: Record<string, string>;
   setFactAnswers: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -198,6 +279,9 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     setPromotions,
     traits,
     setTraits,
+    useKnowledgeQa = false,
+    knowledgeQa = [],
+    setKnowledgeQa,
     factQuestions,
     factAnswers,
     setFactAnswers,
@@ -213,9 +297,13 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
       { id: "contact" as const, label: t.about.sections.contact.label, hint: t.about.sections.contact.hint },
       { id: "identity" as const, label: t.about.sections.identity.label, hint: t.about.sections.identity.hint },
       { id: "location" as const, label: t.about.sections.location.label, hint: t.about.sections.location.hint },
-      { id: "knowledge" as const, label: t.about.sections.knowledge.label, hint: t.about.sections.knowledge.hint },
+      {
+        id: "knowledge" as const,
+        label: t.about.sections.knowledge.label,
+        hint: useKnowledgeQa ? t.about.sections.knowledgeQa.hint : t.about.sections.knowledge.hint,
+      },
     ],
-    [t]
+    [t, useKnowledgeQa]
   );
 
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
@@ -241,9 +329,23 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
       contact: Boolean(customerServicePhone.trim()),
       identity: Boolean(name.trim() || botName.trim() || businessTagline.trim()),
       location: Boolean(address.trim() || directions.trim()),
-      knowledge: traits.some((t) => t.trim()) || Boolean(promotions.trim()),
+      knowledge:
+        (useKnowledgeQa
+          ? knowledgeQa.some((p) => p.question.trim() || p.answer.trim())
+          : traits.some((row) => row.trim())) || Boolean(promotions.trim()),
     }),
-    [customerServicePhone, name, botName, businessTagline, address, directions, traits, promotions]
+    [
+      customerServicePhone,
+      name,
+      botName,
+      businessTagline,
+      address,
+      directions,
+      traits,
+      promotions,
+      useKnowledgeQa,
+      knowledgeQa,
+    ]
   );
 
   const currentFactQ = factQuestions[factQuestionIdx] ?? factQuestions[0];
@@ -402,43 +504,101 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             stepPrefix="about"
             id="knowledge"
             title={t.about.knowledge}
-            hint={t.about.knowledgeHint}
+            hint={useKnowledgeQa ? t.about.knowledgeHintQa : t.about.knowledgeHint}
             open={openSections.knowledge}
             onToggle={() => toggle("knowledge")}
             filled={sectionFilled.knowledge}
           >
             <div>
-              <SalesPathFieldLabel hint={t.about.factsHint}>{t.about.facts}</SalesPathFieldLabel>
-              <ul className="space-y-2">
-                {traits.map((row, i) => (
-                  <FactCard
-                    key={i}
-                    indexLabel={String(i + 1)}
-                    value={row}
-                    placeholder={traitPlaceholder(i, lang)}
-                    dir={dashboardDir(lang)}
-                    canRemove={traits.length > 1}
-                    removeAriaLabel={t.about.removeRow}
-                    onChange={(next) =>
-                      setTraits((prev) => {
-                        const copy = [...prev];
-                        copy[i] = next;
-                        return copy;
-                      })
+              <SalesPathFieldLabel hint={useKnowledgeQa ? t.about.factsHintQa : t.about.factsHint}>
+                {t.about.facts}
+              </SalesPathFieldLabel>
+              {useKnowledgeQa ? (
+                <>
+                  <ul className="space-y-3">
+                    {knowledgeQa.map((row, i) => (
+                      <KnowledgeQaCard
+                        key={i}
+                        indexLabel={String(i + 1)}
+                        question={row.question}
+                        answer={row.answer}
+                        questionLabel={t.about.qaQuestion}
+                        answerLabel={t.about.qaAnswer}
+                        questionPlaceholder={t.about.qaQuestionPlaceholder}
+                        answerPlaceholder={
+                          i < 3 ? traitPlaceholder(i, lang) : t.about.qaAnswerPlaceholder
+                        }
+                        dir={dashboardDir(lang)}
+                        canRemove={knowledgeQa.length > 1}
+                        removeAriaLabel={t.about.removeRow}
+                        onQuestionChange={(next) =>
+                          setKnowledgeQa?.((prev) => {
+                            const copy = [...prev];
+                            const cur = copy[i] ?? { question: "", answer: "" };
+                            copy[i] = { ...cur, question: next };
+                            return copy;
+                          })
+                        }
+                        onAnswerChange={(next) =>
+                          setKnowledgeQa?.((prev) => {
+                            const copy = [...prev];
+                            const cur = copy[i] ?? { question: "", answer: "" };
+                            copy[i] = { ...cur, answer: next };
+                            return copy;
+                          })
+                        }
+                        onRemove={() =>
+                          setKnowledgeQa?.((prev) => prev.filter((_, j) => j !== i))
+                        }
+                      />
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 h-9 w-full gap-1 border-dashed text-xs"
+                    onClick={() =>
+                      setKnowledgeQa?.((prev) => [...prev, { question: "", answer: "" }])
                     }
-                    onRemove={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
-                  />
-                ))}
-              </ul>
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-2 h-9 w-full gap-1 border-dashed text-xs"
-                onClick={() => setTraits((prev) => [...prev, ""])}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {t.about.addFact}
-              </Button>
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t.about.addQaPair}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <ul className="space-y-2">
+                    {traits.map((row, i) => (
+                      <FactCard
+                        key={i}
+                        indexLabel={String(i + 1)}
+                        value={row}
+                        placeholder={traitPlaceholder(i, lang)}
+                        dir={dashboardDir(lang)}
+                        canRemove={traits.length > 1}
+                        removeAriaLabel={t.about.removeRow}
+                        onChange={(next) =>
+                          setTraits((prev) => {
+                            const copy = [...prev];
+                            copy[i] = next;
+                            return copy;
+                          })
+                        }
+                        onRemove={() => setTraits((prev) => prev.filter((_, j) => j !== i))}
+                      />
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 h-9 w-full gap-1 border-dashed text-xs"
+                    onClick={() => setTraits((prev) => [...prev, ""])}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t.about.addFact}
+                  </Button>
+                </>
+              )}
             </div>
 
             <div>
@@ -487,9 +647,25 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                       variant="outline"
                       className="h-9 gap-1 px-3 text-xs"
                       onClick={() => {
-                        addFactLine(
-                          factFromQuestionAnswer(currentFactQ.question, factAnswers[currentFactQ.id] ?? "")
-                        );
+                        const q = currentFactQ.question;
+                        const a = factAnswers[currentFactQ.id] ?? "";
+                        if (useKnowledgeQa && setKnowledgeQa) {
+                          const pair = { question: q, answer: a };
+                          setKnowledgeQa((prev) => {
+                            const next = [...prev];
+                            const emptyIndex = next.findIndex(
+                              (p) => !p.question.trim() && !p.answer.trim()
+                            );
+                            if (emptyIndex >= 0) {
+                              next[emptyIndex] = pair;
+                              return next;
+                            }
+                            next.push(pair);
+                            return next;
+                          });
+                        } else {
+                          addFactLine(factFromQuestionAnswer(q, a));
+                        }
                         if (factQuestions.length > 1) {
                           setFactQuestionIdx((i) => (i + 1) % factQuestions.length);
                         }

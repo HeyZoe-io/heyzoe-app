@@ -51,6 +51,15 @@ import { compressImageForWhatsAppIfNeeded } from "@/lib/compress-image-for-whats
 import { buildCourseSchedulePhraseForCta } from "@/lib/product-schedule-slots";
 import { dashboardMaxUploadBytesForFile } from "@/lib/whatsapp-media-limits";
 import { buildFactQuestions } from "@/lib/fact-questions";
+import {
+  legacyFactsToQaPairs,
+  parseFactLineToQaPair,
+  parseKnowledgeQa,
+  qaPairsToTraitLines,
+  serializeKnowledgeQa,
+  usesKnowledgeQaDashboard,
+  type KnowledgeQaPair,
+} from "@/lib/knowledge-qa";
 import { sortServiceRowsBySortOrder } from "@/lib/service-sort-order";
 import {
   DASHBOARD_CENTERED_CONTENT,
@@ -1168,6 +1177,7 @@ export default function SlugSettingsPage({
   settingsPresenceEditorName?: string;
 } = {}) {
   const { slug } = useParams() as { slug: string };
+  const useKnowledgeQaUi = usesKnowledgeQaDashboard(slug);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1237,6 +1247,7 @@ export default function SlugSettingsPage({
   const [directionsMediaType, setDirectionsMediaType] = useState<"image" | "video" | "">("");
   const [businessTagline, setBusinessTagline] = useState("");
   const [traits, setTraits] = useState<string[]>(["", "", ""]);
+  const [knowledgeQa, setKnowledgeQa] = useState<KnowledgeQaPair[]>([{ question: "", answer: "" }]);
   const [promotions, setPromotions] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
@@ -1414,13 +1425,13 @@ export default function SlugSettingsPage({
       .filter(Boolean)
       .join("\n");
     return buildFactQuestions({
-      traits,
+      traits: useKnowledgeQaUi ? qaPairsToTraitLines(knowledgeQa) : traits,
       directionsText: directions,
       promotionsText: promotions,
       servicesText,
       addressText: address,
     });
-  }, [traits, directions, promotions, services, address]);
+  }, [traits, knowledgeQa, useKnowledgeQaUi, directions, promotions, services, address]);
 
   useEffect(() => {
     if (!settingsHydrated || !hasTrialOffers) return;
@@ -1668,6 +1679,23 @@ export default function SlugSettingsPage({
         } else {
           setTraits(["", "", ""]);
         }
+        if (usesKnowledgeQaDashboard(slug)) {
+          const storedQa = parseKnowledgeQa(sl.knowledge_qa);
+          if (storedQa.length > 0) {
+            setKnowledgeQa(storedQa);
+          } else {
+            const factLines = fromArr
+              ? fromArr
+              : hasLegacyFacts
+                ? [f1, f2, f3]
+                : legacy.trim()
+                  ? legacy.split(/\n+/).map((line) => line.trim()).filter(Boolean)
+                  : [];
+            setKnowledgeQa(legacyFactsToQaPairs(factLines));
+          }
+        } else {
+          setKnowledgeQa([{ question: "", answer: "" }]);
+        }
         setVibe(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
         setMembershipsUrl(typeof sl.memberships_url === "string" ? sl.memberships_url.trim() : "");
         setSchedulePublicUrl(
@@ -1887,6 +1915,9 @@ export default function SlugSettingsPage({
       businessTagline.trim(),
       address.trim()
     );
+    const traitLines = (useKnowledgeQaUi ? qaPairsToTraitLines(knowledgeQa) : traits)
+      .map((line) => line.trim())
+      .filter(Boolean);
     const base = {
       business: {
         slug,
@@ -1909,11 +1940,11 @@ export default function SlugSettingsPage({
           website_url: websiteUrl,
           instagram: instagramUrl.trim(),
           tagline: businessTagline.trim(),
-          traits: traits.map((s) => s.trim()).filter(Boolean),
-          fact1: (traits[0] ?? "").trim(),
-          fact2: (traits[1] ?? "").trim(),
-          fact3: (traits[2] ?? "").trim(),
-          business_description: traits.map((s) => s.trim()).filter(Boolean).join("\n"),
+          traits: traitLines,
+          fact1: (traitLines[0] ?? "").trim(),
+          fact2: (traitLines[1] ?? "").trim(),
+          fact3: (traitLines[2] ?? "").trim(),
+          business_description: traitLines.join("\n"),
           promotions: promotions.trim(),
           address,
           customer_service_phone: customerServicePhone.trim(),
@@ -1946,6 +1977,7 @@ export default function SlugSettingsPage({
           memberships_url: membershipsUrl.trim(),
           schedule_public_url: schedulePublicUrl.trim(),
           schedule_scan_image_url: scheduleScanImageUrl.trim(),
+          ...(useKnowledgeQaUi ? { knowledge_qa: serializeKnowledgeQa(knowledgeQa) } : {}),
         },
       },
       faqs: [] as unknown[],
@@ -1981,6 +2013,8 @@ export default function SlugSettingsPage({
       instagramUrl,
       businessTagline,
       traits,
+      knowledgeQa,
+      useKnowledgeQaUi,
       address,
       customerServicePhone,
       directions,
@@ -2323,7 +2357,9 @@ export default function SlugSettingsPage({
             business_name: name.trim(),
             niche: niche.trim(),
             business_tagline: businessTagline.trim(),
-            business_traits: traits.map((x) => String(x ?? "").trim()).filter(Boolean),
+            business_traits: (useKnowledgeQaUi ? qaPairsToTraitLines(knowledgeQa) : traits)
+              .map((x) => String(x ?? "").trim())
+              .filter(Boolean),
             product_name: service.name.trim(),
             offer_kind: service.offer_kind,
             price_text: service.price_text,
@@ -2369,6 +2405,8 @@ export default function SlugSettingsPage({
       niche,
       businessTagline,
       traits,
+      knowledgeQa,
+      useKnowledgeQaUi,
       setServicesFromUser,
       tp.invalidServerResponse,
       tp.scanNoAiKey,
@@ -2759,7 +2797,18 @@ export default function SlugSettingsPage({
       const scannedTraits = Array.isArray(j.business_traits)
         ? j.business_traits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
         : [];
-      if (scannedTraits.length) setTraits(normalizeTraitsState(scannedTraits));
+      if (scannedTraits.length) {
+        if (useKnowledgeQaUi) {
+          setKnowledgeQa((prev) => {
+            const existing = prev.filter((row) => row.question.trim() || row.answer.trim());
+            const incoming = scannedTraits.map((line: string) => parseFactLineToQaPair(line));
+            const merged = [...existing, ...incoming];
+            return merged.length ? merged : [{ question: "", answer: "" }];
+          });
+        } else {
+          setTraits(normalizeTraitsState(scannedTraits));
+        }
+      }
       const addrFallback =
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
       if (Array.isArray(j.products) && j.products.length > 0) {
@@ -2952,6 +3001,9 @@ export default function SlugSettingsPage({
                 setPromotions={setPromotions}
                 traits={traits}
                 setTraits={setTraits}
+                useKnowledgeQa={useKnowledgeQaUi}
+                knowledgeQa={knowledgeQa}
+                setKnowledgeQa={setKnowledgeQa}
                 factQuestions={factQuestions}
                 factAnswers={factAnswers}
                 setFactAnswers={setFactAnswers}
