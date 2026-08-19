@@ -24,6 +24,7 @@ const INFO_QUESTION_OPENER =
 const COMPOSABLE_PATTERNS: RegExp[] = [
   new RegExp(TRY_FIRST_PATTERN, "u"),
   new RegExp(String.raw`^${TRIAL_NOUN}$`, "u"),
+  new RegExp(String.raw`^יש\s+${TRIAL_NOUN}$`, "u"),
   new RegExp(String.raw`^אפשר\s+(?:לבוא\s+ל\s*)?${TRIAL_NOUN}$`, "u"),
   new RegExp(String.raw`^${DESIRE_CUE}\s+(?:מאוד\s+)?${TRIAL_NOUN}$`, "u"),
   new RegExp(

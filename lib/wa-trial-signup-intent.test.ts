@@ -50,6 +50,8 @@ const mustSignup = [
   "שיעור הכרות",
   "אימון נסיון",
   "אשמח לאימון היכרות",
+  "יש אימון ניסיון",
+  "יש שיעור ניסיון",
 ];
 for (const phrase of mustSignup) {
   const t = normalizeSalesFlowGreetingToken(phrase);
