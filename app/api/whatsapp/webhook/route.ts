@@ -294,6 +294,8 @@ import {
 const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
   "לאחר התשלום כתבו *נרשמתי* ואשלח לכם את כל הפרטים!";
 const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
+/** תשובות Claude/Gemini לליד בוואטסאפ בחלון נע של 24 שעות (לא כולל הודעות פלואו דטרמיניסטיות). */
+const WA_AI_REPLIES_PER_ROLLING_24H = 40;
 
 function salesFlowMenuFooter(knowledge: BusinessKnowledgePack | null | undefined): string {
   return getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(knowledge));
@@ -9246,8 +9248,8 @@ async function processIncoming(
   ) {
     return;
   } else {
-    // Rate-limit: 20 AI answers in a rolling 24h window (prevents token abuse without blocking forever).
-    // Count only model-generated assistant replies (Claude/Gemini) for this WhatsApp session_id.
+    // Rate-limit: Claude/Gemini answers in a rolling 24h window (prevents token abuse without blocking forever).
+    // Count only model-generated assistant replies for this WhatsApp session_id.
     try {
       const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { count } = await supabase
@@ -9259,7 +9261,7 @@ async function processIncoming(
         .in("model_used", [CLAUDE_WHATSAPP_MODEL, GEMINI_WHATSAPP_MODEL])
         .gte("created_at", sinceIso);
       const recentAiCount = typeof count === "number" ? count : 0;
-      if (recentAiCount >= 20) {
+      if (recentAiCount >= WA_AI_REPLIES_PER_ROLLING_24H) {
         const phone = knowledge?.customerServicePhone?.trim() ?? "";
         const txt = phone
           ? [
