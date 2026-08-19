@@ -25,7 +25,7 @@ import {
   type WaIncomingText,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
-import { knowledgeQaTextBlob } from "@/lib/knowledge-qa";
+import { knowledgeQaTextBlob, lookupKnowledgeQaAnswerForInbound } from "@/lib/knowledge-qa";
 import { type SfServiceRow } from "@/lib/sf-service-rows";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
@@ -182,6 +182,13 @@ import {
   detectClosedPlaybookIntent,
   resolveClosedPlaybook,
 } from "@/lib/wa-closed-playbook";
+import {
+  matchesTrialTopicAdvanceIntent,
+  matchesTrialTopicIntent,
+  TRIAL_TOPIC_FLOW_ENTRY_MODEL,
+  TRIAL_TOPIC_QA_REPLY_MODEL,
+} from "@/lib/wa-trial-topic-intent";
+import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
@@ -5805,6 +5812,76 @@ async function processIncoming(
         });
       } catch (e) {
         console.error("[WA Webhook] out-of-flow signup flow-entry failed:", e);
+      }
+      return;
+    }
+  }
+
+  // Trial / intro training («אימון היכרות», «אימון הכרות», «אימוני ניסיון») — verbatim Q&A when configured, then product pick.
+  if (
+    msg.type === "text" &&
+    businessId &&
+    knowledge?.salesFlowConfig &&
+    contactTrialRegistered !== true &&
+    contactSessionPhase !== "registered" &&
+    matchesTrialTopicIntent(msg.text) &&
+    !detectClosedPlaybookIntent(msg.text)
+  ) {
+    const salesFlowStartedForTrial = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+    const advanceTrial =
+      matchesTrialTopicAdvanceIntent(msg.text) ||
+      !salesFlowStartedForTrial ||
+      contactSessionPhase === "opening" ||
+      contactSessionPhase === "warmup";
+    const qaPair = lookupKnowledgeQaAnswerForInbound(knowledge.knowledgeQa, msg.text);
+    const qaReply = qaPair ? leadFacingFactText(qaPair.answer).trim() : "";
+
+    if (qaReply || (advanceTrial && salesFlowServices.length >= 1)) {
+      try {
+        if (qaReply) {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, qaReply, accountSid, authToken);
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: qaReply,
+            model_used: TRIAL_TOPIC_QA_REPLY_MODEL,
+            session_id: sessionId,
+          });
+        }
+        if (advanceTrial) {
+          if (!salesFlowStartedForTrial) {
+            await resetContactSalesFlowStateForGreeting({
+              supabase,
+              businessId,
+              phone: msg.from,
+            });
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: "[heyzoe:trial_topic_flow_entry]",
+              model_used: TRIAL_TOPIC_FLOW_ENTRY_MODEL,
+              session_id: sessionId,
+            });
+          }
+          await advanceAfterWarmupSessionComplete({
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            trialRegistered: false,
+            allowTrialCta: allowTrialCtaThisSession,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          });
+        }
+      } catch (e) {
+        console.error("[WA Webhook] trial topic flow-entry failed:", e);
       }
       return;
     }

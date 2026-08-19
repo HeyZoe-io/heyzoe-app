@@ -24,12 +24,15 @@ const INTENT_CLUSTERS: string[][] = [
   [
     "אימון ניסיון",
     "אימון היכרות",
+    "אימון הכרות",
     "שיעור ניסיון",
     "שיעור היכרות",
+    "שיעור הכרות",
     "trial",
     "intro class",
     "אימוני ניסיון",
     "אימוני היכרות",
+    "אימוני הכרות",
     "שיעורי ניסיון",
     "שיעור נסיון",
     "אימון נסיון",
@@ -162,6 +165,48 @@ export function relatedPhrasingsForQuestion(question: string, limit = 10): strin
     }
   }
   return found;
+}
+
+function inboundMatchesQaQuestion(inboundNorm: string, question: string): boolean {
+  const qNorm = normalizeIntentText(question);
+  if (!qNorm || !inboundNorm) return false;
+  if (inboundNorm.includes(qNorm) || qNorm.includes(inboundNorm)) return true;
+  for (const variant of relatedPhrasingsForQuestion(question)) {
+    const vNorm = normalizeIntentText(variant);
+    if (vNorm && inboundNorm.includes(vNorm)) return true;
+  }
+  for (const variant of relatedPhrasingsForQuestion(inboundNorm)) {
+    const vNorm = normalizeIntentText(variant);
+    if (vNorm && qNorm.includes(vNorm)) return true;
+  }
+  return false;
+}
+
+/** Best matching Q&A pair for inbound trial/FAQ text — used for deterministic verbatim replies. */
+export function lookupKnowledgeQaAnswerForInbound(
+  pairs: KnowledgeQaPair[] | null | undefined,
+  inbound: string
+): KnowledgeQaPair | null {
+  const items = serializeKnowledgeQa(pairs ?? []);
+  if (!items.length) return null;
+  const inboundNorm = normalizeIntentText(inbound);
+  if (!inboundNorm) return null;
+
+  let best: KnowledgeQaPair | null = null;
+  let bestScore = 0;
+  for (const pair of items) {
+    const q = String(pair.question ?? "").trim();
+    const a = String(pair.answer ?? "").trim();
+    if (!q || !a) continue;
+    if (!inboundMatchesQaQuestion(inboundNorm, q)) continue;
+    const qNorm = normalizeIntentText(q);
+    const score = qNorm.length + (inboundNorm.includes(qNorm) ? 50 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = pair;
+    }
+  }
+  return best;
 }
 
 function formatQaItemForPrompt(pair: KnowledgeQaPair, index: number): string {
