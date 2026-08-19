@@ -8,6 +8,9 @@ assert.equal(isScheduleIntent("מתי אפשר להגיע לשיעור?"), true)
 assert.equal(isScheduleIntent("מתי אפשר לבוא לאימון ניסיון"), true);
 assert.equal(isScheduleIntent("מתי יש שיעור"), true);
 
+assert.equal(isScheduleIntent("יש שיעור בשלישי?"), true);
+assert.equal(isScheduleIntent("יש אימון ביום שני"), true);
+
 assert.equal(isScheduleIntent("עם מי לתאם הגעה לשיעור ניסיון?"), false);
 assert.equal(isScheduleIntent("אשמח לדעת עלויות"), false);
 assert.equal(isScheduleIntent("לא. תודה."), false);

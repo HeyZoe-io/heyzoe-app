@@ -11,6 +11,9 @@ export function isScheduleIntent(text: string): boolean {
   const arrival =
     n.includes("להגיע") || n.includes("לבוא") || n.includes("להגיע לשיעור") || n.includes("לבוא לשיעור");
   const classish = n.includes("שיעור") || n.includes("אימון") || n.includes("ניסיון") || n.includes("יוגה");
+  const asksIfClassOnDay =
+    /יש\s+(?:שיעור|אימון|שיעורים|אימונים)/u.test(n) &&
+    /(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|סופ(?:ש|["׳']?ש)|יום\s*[א-ש])/u.test(n);
   return (
     n.includes("מערכת שעות") ||
     n.includes("מערכת השעות") ||
@@ -29,6 +32,7 @@ export function isScheduleIntent(text: string): boolean {
     n.includes("צפייה במערכת") ||
     (asksWhen && arrival && classish) ||
     (n.includes("שעות") && (n.includes("שיעור") || n.includes("אימון") || n.includes("יוגה"))) ||
-    (n.includes("שוב") && n.includes("מערכת"))
+    (n.includes("שוב") && n.includes("מערכת")) ||
+    asksIfClassOnDay
   );
 }

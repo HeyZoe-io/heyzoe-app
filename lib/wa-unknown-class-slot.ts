@@ -74,6 +74,10 @@ function serviceHasDay(service: SfServiceRow, day: DayLetter): boolean {
   return (service.scheduleSlots ?? []).some((s) => slotDay(s) === day);
 }
 
+function servicesHaveAnyConfiguredScheduleSlots(services: SfServiceRow[]): boolean {
+  return services.some((s) => (s.scheduleSlots ?? []).some((sl) => Boolean(slotDay(sl))));
+}
+
 function serviceHasTime(service: SfServiceRow, time: string, day?: DayLetter): boolean {
   const want = normalizeSlotTime(time);
   if (!want) return false;
@@ -149,6 +153,8 @@ export function shouldHandoffUnknownClassSlot(input: {
   services: SfServiceRow[];
   committedServiceName?: string | null;
   sessionPhase?: string | null;
+  /** תמונת/קישור/טקסט מערכת שעות — כשאין מועדי לוח למוצר */
+  hasScheduleBoardFallback?: boolean;
 }): boolean {
   const phase = String(input.sessionPhase ?? "").trim();
   if (phase === "schedule_date" || phase === "schedule_time") return false;
@@ -191,6 +197,8 @@ export function shouldHandoffUnknownClassSlot(input: {
   }
 
   if (!service && days.length && timeQuestion && !looksLikeNamedClass(text)) {
+    const anyProductSlots = servicesHaveAnyConfiguredScheduleSlots(input.services);
+    if (!anyProductSlots && input.hasScheduleBoardFallback) return false;
     return !input.services.some((s) => days.some((d) => serviceHasDay(s, d)));
   }
 

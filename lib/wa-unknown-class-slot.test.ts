@@ -122,6 +122,34 @@ assert.equal(
   true
 );
 
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: limitlessLike,
+  }),
+  false,
+  "generic Tuesday question — Power & HIIT has Tuesday"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: [svc("אקרו יוגה", []), svc("עמידות ידיים", [])],
+    hasScheduleBoardFallback: true,
+  }),
+  false,
+  "no product slots but schedule board fallback — do not hand off"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: [svc("אקרו יוגה", []), svc("עמידות ידיים", [])],
+  }),
+  true,
+  "no product slots and no schedule board — hand off"
+);
+
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 

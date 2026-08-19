@@ -86,6 +86,7 @@ import {
   DEFAULT_MULTI_SERVICE_QUESTION_TAIL,
   resolveScheduleBoardAssets,
   resolveScheduleBoardPlacement,
+  businessHasScheduleBoardFallback,
   formatMembershipsPriceRangeLine,
   membershipsPriceRangeWhatsAppText,
   SCHEDULE_BOARD_CAPTION,
@@ -6102,8 +6103,31 @@ async function processIncoming(
     return;
   }
 
-  // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות
+  // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות (אלא אם יש לוח חיצוני / מועדים במוצרים)
   if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
+    const schedBtnForSlot = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
+    const scheduleBoardAssetsForSlot = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
+    const scheduleBoardFallback = businessHasScheduleBoardFallback({
+      schedulePublicUrl: knowledge.schedulePublicUrl,
+      arboxLink: knowledge.arboxLink,
+      scheduleScanImageUrl: knowledge.scheduleScanImageUrl,
+      scheduleCtaImageUrl: schedBtnForSlot?.schedule_cta_image_url,
+      scheduleText: knowledge.scheduleText,
+    });
+
+    if (isScheduleIntent(msg.text.trim()) && scheduleBoardFallback) {
+      const delivery = await sendScheduleBoardAfterOpening({
+        assets: scheduleBoardAssetsForSlot,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        modelUsed: "sales_flow_schedule_board_free_text_intent",
+      });
+      if (delivery !== "none") return;
+    }
+
     const lastPickedForSlot =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
@@ -6114,6 +6138,7 @@ async function processIncoming(
         services: salesFlowServices,
         committedServiceName: lastPickedForSlot,
         sessionPhase: contactSessionPhase,
+        hasScheduleBoardFallback: scheduleBoardFallback,
       })
     ) {
       try {
