@@ -53,6 +53,7 @@ import { dashboardMaxUploadBytesForFile } from "@/lib/whatsapp-media-limits";
 import { buildFactQuestions } from "@/lib/fact-questions";
 import {
   legacyFactsToQaPairs,
+  mergeScannedKnowledgeQa,
   parseFactLineToQaPair,
   parseKnowledgeQa,
   qaPairsToTraitLines,
@@ -2729,7 +2730,12 @@ export default function SlugSettingsPage({
       const res = await fetch("/api/dashboard/fetch-site", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ website_url: websiteUrl, business_name: name, niche }),
+        body: JSON.stringify({
+          website_url: websiteUrl,
+          business_name: name,
+          niche,
+          knowledge_format: useKnowledgeQaUi ? "qa" : "traits",
+        }),
       });
       let j: Record<string, unknown> = {};
       try {
@@ -2762,6 +2768,7 @@ export default function SlugSettingsPage({
           Boolean(j.tagline) ||
           Boolean(j.business_description) ||
           (Array.isArray(j.business_traits) && j.business_traits.length > 0) ||
+          (Array.isArray(j.knowledge_qa) && j.knowledge_qa.length > 0) ||
           (Array.isArray(j.products) && j.products.length > 0);
         if (!hasPayload) return;
       }
@@ -2797,14 +2804,17 @@ export default function SlugSettingsPage({
       const scannedTraits = Array.isArray(j.business_traits)
         ? j.business_traits.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
         : [];
-      if (scannedTraits.length) {
+      const scannedKnowledgeQa = parseKnowledgeQa(j.knowledge_qa);
+      if (useKnowledgeQaUi && scannedKnowledgeQa.length) {
+        setKnowledgeQa((prev) => mergeScannedKnowledgeQa(prev, scannedKnowledgeQa));
+      } else if (scannedTraits.length) {
         if (useKnowledgeQaUi) {
-          setKnowledgeQa((prev) => {
-            const existing = prev.filter((row) => row.question.trim() || row.answer.trim());
-            const incoming = scannedTraits.map((line: string) => parseFactLineToQaPair(line));
-            const merged = [...existing, ...incoming];
-            return merged.length ? merged : [{ question: "", answer: "" }];
-          });
+          setKnowledgeQa((prev) =>
+            mergeScannedKnowledgeQa(
+              prev,
+              scannedTraits.map((line: string) => parseFactLineToQaPair(line))
+            )
+          );
         } else {
           setTraits(normalizeTraitsState(scannedTraits));
         }

@@ -90,6 +90,17 @@ export function normalizeQaState(pairs: KnowledgeQaPair[]): KnowledgeQaPair[] {
   return cleaned;
 }
 
+/** מיזוג ידע קיים עם תוצאות סריקה — שומר שורות שכבר מולאו ומוסיף חדשות. */
+export function mergeScannedKnowledgeQa(
+  existing: KnowledgeQaPair[],
+  incoming: KnowledgeQaPair[]
+): KnowledgeQaPair[] {
+  const kept = existing.filter((row) => row.question.trim() || row.answer.trim());
+  const added = serializeKnowledgeQa(incoming);
+  const merged = [...kept, ...added];
+  return merged.length ? merged : [{ question: "", answer: "" }];
+}
+
 /** פירוק שורת עובדה ישנה (שאלה ותשובה באותו שדה) לזוג שאלה/תשובה. */
 export function parseFactLineToQaPair(line: string): KnowledgeQaPair {
   const t = String(line ?? "").trim();
