@@ -63,6 +63,8 @@ assert.equal(cat("אני רוצה לבטל את המנוי")?.category, "cancell
 assert.equal(cat("אני רוצה לבטל את המנוי")?.shape, "action");
 assert.equal(cat("מה מדיניות הביטול")?.category, "cancellation");
 assert.equal(cat("מה מדיניות הביטול")?.shape, "policy");
+assert.equal(cat("איך מבטלים מנוי")?.category, "cancellation");
+assert.equal(cat("איך מבטלים מנוי")?.shape, "policy");
 assert.equal(cat("אפשר לבטל מנוי?")?.shape, "policy");
 assert.equal(cat("אפשר לבטל לי את המנוי?")?.shape, "action");
 

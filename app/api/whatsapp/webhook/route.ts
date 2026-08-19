@@ -183,6 +183,10 @@ import {
   resolveClosedPlaybook,
 } from "@/lib/wa-closed-playbook";
 import {
+  matchesOptOutKeyword,
+  shouldBypassOptOutForClosedPlaybook,
+} from "@/lib/wa-opt-out-match";
+import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
   assistantReplyIsUnknownClassSlotHandoff,
@@ -5224,20 +5228,6 @@ async function processIncoming(
     return needles.some((n) => h === n || h.includes(n));
   };
 
-  const OPT_OUT = [
-    "הסר",
-    "הסרה",
-    "הפסק",
-    "בטל",
-    "לא רוצה",
-    "עצור",
-    "stop",
-    "unsubscribe",
-    "remove",
-    "cancel",
-    "opt out",
-    "optout",
-  ];
   const OPT_IN = [
     "הצטרף",
     "כן",
@@ -5251,10 +5241,67 @@ async function processIncoming(
 
   let optedInThisMessage = false;
   const earlySessionId = buildWaSessionId(msg.toNumber, msg.from);
+  const optOutPhoneVariants = (() => {
+    const variants = contactPhoneLookupVariants(msg.from);
+    return variants.length ? variants : [String(msg.from ?? "").trim()].filter(Boolean);
+  })();
+  const bypassOptOutForPlaybook =
+    msg.type === "text" && shouldBypassOptOutForClosedPlaybook(incomingTextRaw);
 
-  // OPT-OUT (Claude) — skipped for Meta menu/button picks. Not-relevant is keyword-only, after lock.
+  async function markContactOptedOut(): Promise<"error" | "claimed" | "already"> {
+    if (!businessId) return "claimed";
+    if (!optOutPhoneVariants.length) {
+      console.error("[WA Webhook] opt-out mark skipped — empty phone variants", {
+        business_slug,
+        phone: msg.from,
+      });
+      return "error";
+    }
+    const { data: markedOut, error: optOutErr } = await supabase
+      .from("contacts")
+      .update({ opted_out: true, opted_out_at: nowIso })
+      .eq("business_id", businessId)
+      .in("phone", optOutPhoneVariants)
+      .or("opted_out.is.null,opted_out.eq.false")
+      .select("id");
+    if (optOutErr) {
+      console.error("[WA Webhook] opt-out mark failed:", optOutErr.message);
+      return "error";
+    }
+    return markedOut?.length ? "claimed" : "already";
+  }
+
+  async function finishOptOutAndStop(source: "keyword" | "claude"): Promise<void> {
+    if (msg.type === "text" && !processOpts?.skipUserLog) {
+      await logMessage({
+        business_slug,
+        role: "user",
+        content: msg.text,
+        session_id: earlySessionId,
+      });
+    }
+    const marked = await markContactOptedOut();
+    if (marked === "error") return;
+    if (marked === "claimed") {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
+    } else {
+      console.info("[WA Webhook] opt-out already marked — skip duplicate reply", {
+        business_slug,
+        phone: msg.from,
+        source,
+      });
+    }
+  }
+
+  // OPT-OUT (Claude) — skipped for Meta menu/button picks, closed-playbook (e.g. «איך מבטלים מנוי»).
   let preLockOptOutClaudePositive = false;
-  if (!isMetaInteractiveMenuReply(msg) && msg.type === "text") {
+  if (!isMetaInteractiveMenuReply(msg) && msg.type === "text" && !bypassOptOutForPlaybook) {
     const optOutClaudeEligible =
       !optedInThisMessage &&
       Boolean(businessId) &&
@@ -5275,66 +5322,14 @@ async function processIncoming(
   }
 
   // 2) OPT-OUT DETECTION (only for text)
-  if (msg.type === "text" && matchesAny(incomingText, OPT_OUT)) {
-    let claimedOptOut = !businessId;
-    if (businessId) {
-      const { data: markedOut, error: optOutErr } = await supabase
-        .from("contacts")
-        .update({ opted_out: true, opted_out_at: nowIso })
-        .eq("business_id", businessId)
-        .eq("phone", msg.from)
-        .or("opted_out.is.null,opted_out.eq.false")
-        .select("id");
-      if (optOutErr) {
-        console.error("[WA Webhook] opt-out mark failed:", optOutErr.message);
-        return;
-      }
-      claimedOptOut = Boolean(markedOut?.length);
-    }
-    if (claimedOptOut) {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
-        accountSid,
-        authToken
-      ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
-    } else {
-      console.info("[WA Webhook] opt-out already marked — skip duplicate reply", {
-        business_slug,
-        phone: msg.from,
-      });
-    }
+  if (msg.type === "text" && !bypassOptOutForPlaybook && matchesOptOutKeyword(incomingTextRaw)) {
+    await finishOptOutAndStop("keyword");
     return;
   }
 
   // 2.1) OPT-OUT (Claude) — applied after keyword check (classifiers may have run in parallel above).
   if (preLockOptOutClaudePositive && msg.type === "text" && businessId) {
-    const { data: markedOut, error: optOutErr } = await supabase
-      .from("contacts")
-      .update({ opted_out: true, opted_out_at: nowIso })
-      .eq("business_id", businessId)
-      .eq("phone", msg.from)
-      .or("opted_out.is.null,opted_out.eq.false")
-      .select("id");
-    if (optOutErr) {
-      console.error("[WA Webhook] opt-out (Claude) mark failed:", optOutErr.message);
-      return;
-    }
-    if (markedOut?.length) {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        "הוסרת בהצלחה מרשימת ההתראות ✅\nאם תרצה לחזור בעתיד, פשוט שלח *הצטרף*",
-        accountSid,
-        authToken
-      ).catch((e) => console.error("[WA Webhook] Send opt-out reply failed:", e));
-    } else {
-      console.info("[WA Webhook] opt-out already marked — skip duplicate reply", {
-        business_slug,
-        phone: msg.from,
-      });
-    }
+    await finishOptOutAndStop("claude");
     return;
   }
 
@@ -5346,7 +5341,7 @@ async function processIncoming(
         .from("contacts")
         .update({ opted_out: false, opted_in_at: nowIso, opted_out_at: null })
         .eq("business_id", businessId)
-        .eq("phone", msg.from)
+        .in("phone", optOutPhoneVariants)
         .eq("opted_out", true)
         .select("id");
       if (optInErr) {
