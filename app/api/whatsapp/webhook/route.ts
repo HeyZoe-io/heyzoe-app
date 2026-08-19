@@ -330,6 +330,7 @@ import {
   isRetryableClaudeError,
   sleepMs,
 } from "@/lib/claude";
+import { isEditorShadowEnabled, runEditorPassShadow } from "@/lib/editor-pass";
 import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
@@ -9372,6 +9373,25 @@ async function processIncoming(
       trialRegistered: contactTrialRegistered === true,
     }
   );
+
+  if (
+    didCallClaude &&
+    !isFallbackErrorReply &&
+    replyModelUsed === CLAUDE_WHATSAPP_MODEL &&
+    isEditorShadowEnabled() &&
+    businessId
+  ) {
+    const editorBusinessId = Number(businessId);
+    const editorContactId = typeof contactId === "string" && contactId.trim() ? contactId.trim() : null;
+    const originalText = replyCoreClean;
+    after(() =>
+      runEditorPassShadow({
+        businessId: editorBusinessId,
+        contactId: editorContactId,
+        originalText,
+      }).catch((e) => console.warn("[editor-shadow] failed:", e))
+    );
+  }
 
   if (
     !isFallbackErrorReply &&
