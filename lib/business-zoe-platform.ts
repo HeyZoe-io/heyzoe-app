@@ -149,6 +149,24 @@ function upgradeQuotedFactsGuidelineLines(lines: string[]): string[] {
   });
 }
 
+/** שורת דחיית שיעור ישנה — כוללת גם הרשמה בטעות / שעה לא נכונה. */
+function upgradeClassRescheduleGuidelineLines(lines: string[]): string[] {
+  const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("נרשם לשעה הלא נכונה"));
+  if (!replacement) return lines;
+  return lines.map((line) => {
+    const t = line.trim();
+    if (!t.includes("דחה/החליף שיעור") || !t.includes("תודה קצרה והעברה לצוות")) return line;
+    return replacement;
+  });
+}
+
+function upgradeGuidelineLines(lines: string[]): string[] {
+  return upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines));
+}
+
 /** ממזג שמור ב-DB עם ברירת מחדל (פורמט 4 קטגוריות) */
 export function mergeWithDefaultZoePlatform(stored: ZoePlatformGuidelines | null): ZoePlatformGuidelines {
   const defaults = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories;
@@ -163,7 +181,7 @@ export function mergeWithDefaultZoePlatform(stored: ZoePlatformGuidelines | null
     const s = byId.get(def.id);
     if (!s) return def;
     if (!def.sections?.length) {
-      return { ...def, ...s, lines: s.lines.length ? upgradeQuotedFactsGuidelineLines(s.lines) : def.lines };
+      return { ...def, ...s, lines: s.lines.length ? upgradeGuidelineLines(s.lines) : def.lines };
     }
     const defSecs = def.sections ?? [];
     const sSecs = s.sections ?? [];
@@ -174,7 +192,7 @@ export function mergeWithDefaultZoePlatform(stored: ZoePlatformGuidelines | null
       sections: defSecs.map((ds) => {
         const ov = sByKey.get(ds.key);
         return ov && ov.lines.length
-          ? { ...ds, ...ov, lines: upgradeQuotedFactsGuidelineLines(ov.lines) }
+          ? { ...ds, ...ov, lines: upgradeGuidelineLines(ov.lines) }
           : ds;
       }),
     };

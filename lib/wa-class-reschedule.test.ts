@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  assistantReplyClaimsUnauthorizedBookingChange,
   buildClassRescheduleTeamHandoffReply,
   matchesClassRescheduleUpdate,
 } from "@/lib/wa-class-reschedule";
@@ -22,12 +23,31 @@ assert.equal(matchesTrialRegisteredMessage("נרשמתי"), true);
 assert.equal(matchesClassRescheduleUpdate("כבר נרשמתי לחמישי"), true);
 assert.equal(matchesTrialAlreadyRegisteredMessage("כבר נרשמתי לחמישי"), false);
 
+const wrongHour =
+  "יו אלין!\nאני רשומה ל-8 בטעות במקום 9.\nגיליתי עכשיו הכי במקרה\nאני ממש מצטערת, 9 זו השעה הקבועה שלי ברביעי, נרשמתי ל-8 בטעות לגמרי ….";
+assert.equal(matchesClassRescheduleUpdate(wrongHour), true);
+assert.equal(matchesTrialRegisteredMessage(wrongHour), false);
+assert.equal(matchesClassRescheduleUpdate("נרשמתי לשעה 8 במקום 9"), true);
+assert.equal(matchesClassRescheduleUpdate("I signed up for the wrong time by mistake"), true);
+
 assert.equal(matchesClassRescheduleUpdate("אפשר לדחות שיעור?"), false);
 assert.equal(matchesClassRescheduleUpdate("מה מדיניות הביטול"), false);
 
 assert.equal(
-  buildClassRescheduleTeamHandoffReply("אלין"),
-  "היי כאן אלין הבוטית, תודה על העדכון! אמסור את המידע לצוות שלנו"
+  buildClassRescheduleTeamHandoffReply("לימי"),
+  "היי! כאן לימי, אני אעביר את הפנייה שלך לצוות!"
 );
+assert.equal(
+  buildClassRescheduleTeamHandoffReply("אלין"),
+  "היי! כאן אלין, אני אעביר את הפנייה שלך לצוות!"
+);
+
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange(
+    "אני מבינה, קרה לך! 💜 עשיתי לך שינוי בהרשמה. אתה צריכה להיות ברשומה לשעה 9 ברביעי."
+  ),
+  true
+);
+assert.equal(assistantReplyClaimsUnauthorizedBookingChange("נשמח לראותך בשיעור"), false);
 
 console.log("wa-class-reschedule.test.ts: ok");

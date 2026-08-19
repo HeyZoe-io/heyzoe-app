@@ -172,6 +172,7 @@ import {
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
+  assistantReplyClaimsUnauthorizedBookingChange,
   buildClassRescheduleTeamHandoffReply,
   matchesClassRescheduleUpdate,
 } from "@/lib/wa-class-reschedule";
@@ -9368,6 +9369,42 @@ async function processIncoming(
       role: "assistant",
       content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
       model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    assistantReplyClaimsUnauthorizedBookingChange(replyCoreClean) &&
+    businessId &&
+    knowledge
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] booking-change (claude) human_requested failed:", e);
+    }
+    const bookingHandoffTxt = buildClassRescheduleTeamHandoffReply(knowledge.botName);
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, bookingHandoffTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send booking-change (claude) team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: bookingHandoffTxt,
+      model_used: "class_reschedule_team_handoff",
       session_id: sessionId,
     });
     return;
