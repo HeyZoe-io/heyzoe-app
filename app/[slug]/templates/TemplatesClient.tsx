@@ -9,6 +9,14 @@ import {
   DASHBOARD_SETTINGS_SHELL,
 } from "@/app/dashboard/[slug]/settings/settings-ui";
 import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
+import {
+  extractBodyVarCount,
+  isPresetAvailable,
+  paramSlotsForTriggerType,
+  presetExampleForSlot,
+  presetVarHint,
+  TEMPLATE_PRESETS,
+} from "@/lib/template-presets";
 import { isArboxDependentTriggerType, isCreatableTriggerType } from "@/lib/template-trigger-types";
 
 export type TemplateRow = {
@@ -151,20 +159,12 @@ function statusLabel(status: string): string {
   return status || "—";
 }
 
-function extractBodyVarCount(body: string): number {
-  let max = 0;
-  for (const m of body.matchAll(/\{\{(\d+)\}\}/g)) {
-    const n = Number(m[1]);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  return max;
-}
-
 function buildMetaComponents(input: {
   body: string;
   header: string;
   footer: string;
   buttons: ButtonDraft[];
+  exampleValues?: string[];
 }): unknown[] {
   const components: Record<string, unknown>[] = [];
   const header = input.header.trim();
@@ -176,9 +176,11 @@ function buildMetaComponents(input: {
   const varCount = extractBodyVarCount(body);
   const bodyComp: Record<string, unknown> = { type: "BODY", text: body };
   if (varCount > 0) {
-    const examples = Array.from({ length: varCount }, (_, i) =>
-      i === 0 ? "דנה" : `ערך${i + 1}`
-    );
+    const examples = Array.from({ length: varCount }, (_, i) => {
+      const fromPreset = input.exampleValues?.[i]?.trim();
+      if (fromPreset) return fromPreset;
+      return i === 0 ? "דנה" : `ערך${i + 1}`;
+    });
     bodyComp.example = { body_text: [examples] };
   }
   components.push(bodyComp);
@@ -657,6 +659,38 @@ export default function TemplatesClient({
   const [buttons, setButtons] = useState<ButtonDraft[]>([
     { kind: "QUICK_REPLY", text: "", url: "" },
   ]);
+  const [purposeTrigger, setPurposeTrigger] = useState<TriggerType | "">("");
+
+  const purposeOptions = useMemo(
+    () => TRIGGER_TYPE_OPTIONS.filter((opt) => isPresetAvailable(opt.value, hasArbox)),
+    [hasArbox]
+  );
+
+  function applyPurposePreset(type: TriggerType | "") {
+    setPurposeTrigger(type);
+    if (!type) return;
+    const preset = TEMPLATE_PRESETS[type];
+    if (!preset) return;
+    setName(preset.name);
+    setCategory(preset.category);
+    setBody(preset.body);
+    if (preset.button_text) {
+      setButtons([{ kind: "QUICK_REPLY", text: preset.button_text, url: "" }]);
+    } else {
+      setButtons([{ kind: "QUICK_REPLY", text: "", url: "" }]);
+    }
+  }
+
+  function resetCreateForm() {
+    setName("");
+    setBody("");
+    setHeader("");
+    setFooter("");
+    setButtons([{ kind: "QUICK_REPLY", text: "", url: "" }]);
+    setCategory("MARKETING");
+    setLanguage("he");
+    setPurposeTrigger("");
+  }
 
   const nameValid = !name || TEMPLATE_NAME_RE.test(name);
   const canSubmitCreate =
@@ -830,7 +864,16 @@ export default function TemplatesClient({
     }
     setCreating(true);
     try {
-      const components = buildMetaComponents({ body, header, footer, buttons });
+      const exampleValues = purposeTrigger
+        ? paramSlotsForTriggerType(purposeTrigger).map(presetExampleForSlot)
+        : undefined;
+      const components = buildMetaComponents({
+        body,
+        header,
+        footer,
+        buttons,
+        exampleValues,
+      });
       const res = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -857,13 +900,7 @@ export default function TemplatesClient({
       window.setTimeout(() => {
         setShowCreate(false);
         setCreateSuccess(false);
-        setName("");
-        setBody("");
-        setHeader("");
-        setFooter("");
-        setButtons([{ kind: "QUICK_REPLY", text: "", url: "" }]);
-        setCategory("MARKETING");
-        setLanguage("he");
+        resetCreateForm();
       }, 900);
     } catch (err) {
       setError(err instanceof Error ? err.message : "יצירה נכשלה");
@@ -1408,6 +1445,25 @@ export default function TemplatesClient({
         <ModalShell title="צור טמפלייט חדש" onClose={() => !creating && setShowCreate(false)} widthClass="max-w-xl">
           <form className="space-y-4" onSubmit={(e) => void onCreate(e)}>
             <div className="space-y-1.5">
+              <label className="text-sm font-medium text-zinc-800">מטרה</label>
+              <select
+                value={purposeTrigger}
+                onChange={(e) => applyPurposePreset((e.target.value || "") as TriggerType | "")}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+              >
+                <option value="">בחירה ידנית</option>
+                {purposeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-zinc-500">
+                בחירה ממלאת שם, קטגוריה, גוף וכפתור. אפשר לערוך אחרי הבחירה — הבחירה עצמה לא נשמרת במטא.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
               <label className="text-sm font-medium text-zinc-800">שם הטמפלייט</label>
               <input
                 value={name}
@@ -1467,7 +1523,10 @@ export default function TemplatesClient({
                 placeholder={"היי {{1}}, תודה שהשארת פרטים — נשמח לחזור אליך!"}
               />
               <p className="text-xs text-zinc-500">
-                אפשר להשתמש ב־{"{{1}}"}, {"{{2}}"} וכו׳. {"{{1}}"} הוא בדרך כלל שם פרטי של הליד.
+                אפשר להשתמש ב־{"{{1}}"}, {"{{2}}"} וכו׳.
+                {purposeTrigger
+                  ? ` ${presetVarHint(purposeTrigger)}.`
+                  : " {{1}} הוא בדרך כלל שם פרטי של הליד."}
               </p>
             </div>
 

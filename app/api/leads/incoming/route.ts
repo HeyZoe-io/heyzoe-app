@@ -9,7 +9,6 @@ import {
   buildTemplateIncomingContactPatch,
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
-  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
   type OpeningTemplateLeadSource,
 } from "@/lib/lead-template";
@@ -21,6 +20,7 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { templateSendPayload } from "@/lib/template-send-params";
 import { resolveSiteLeadTemplateTrigger } from "@/lib/template-triggers-match";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -370,10 +370,10 @@ export async function POST(req: NextRequest) {
   // Rule path delay=0 → gate like purchase (channel already resolved; check WABA + APPROVED).
   if (usingRule && matchedRule) {
     const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-      admin.from("businesses").select("waba_id").eq("id", businessId).maybeSingle(),
+      admin.from("businesses").select("waba_id, name").eq("id", businessId).maybeSingle(),
       admin
         .from("whatsapp_templates")
-        .select("id, status, language")
+        .select("id, status, language, components")
         .eq("business_id", businessId)
         .eq("name", templateName)
         .eq("status", "APPROVED")
@@ -409,22 +409,19 @@ export async function POST(req: NextRequest) {
     const firstName = firstNameFromFullName(fullName);
     const languageCode =
       String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+    const { sendComponents, bodyParams } = templateSendPayload({
+      triggerType: "incoming_lead",
+      storedComponents: (approvedTpl as { components?: unknown }).components,
+      firstName,
+      businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+    });
 
     const sendResult = await sendBusinessTemplate({
       to: phoneNorm,
       phoneNumberId,
       templateName,
       languageCode,
-      ...(leadTemplateUsesFirstName(templateName)
-        ? {
-            components: [
-              {
-                type: "body",
-                parameters: [{ type: "text", text: firstName }],
-              },
-            ],
-          }
-        : {}),
+      ...(sendComponents ? { components: sendComponents } : {}),
     });
 
     console.info("[api/leads/incoming] template trigger resolution", {
@@ -452,7 +449,11 @@ export async function POST(req: NextRequest) {
     await logMessage({
       business_slug: businessSlug,
       role: "assistant",
-      content: formatLeadTemplateMessageContent(templateName, { firstName }),
+      content: formatLeadTemplateMessageContent(templateName, {
+        firstName,
+        components: (approvedTpl as { components?: unknown }).components,
+        bodyParams,
+      }),
       model_used: LEAD_TEMPLATE_MODEL,
       session_id: sessionId || null,
     });
@@ -479,7 +480,7 @@ export async function POST(req: NextRequest) {
   // Soft-disable only when we have a cached row; missing cache keeps legacy send behavior.
   const { data: fallbackTpl } = await admin
     .from("whatsapp_templates")
-    .select("id, status, disabled, language")
+    .select("id, status, disabled, language, components")
     .eq("business_id", businessId)
     .eq("name", templateName)
     .limit(1)
@@ -505,22 +506,18 @@ export async function POST(req: NextRequest) {
   }
 
   const firstName = firstNameFromFullName(fullName);
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "legacy_opening",
+    storedComponents: (fallbackTpl as { components?: unknown } | null)?.components,
+    firstName,
+  });
   const sendResult = await sendBusinessTemplate({
     to: phoneNorm,
     phoneNumberId,
     templateName,
     languageCode:
       String((fallbackTpl as { language?: string } | null)?.language ?? "he").trim() || "he",
-    ...(leadTemplateUsesFirstName(templateName)
-      ? {
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: firstName }],
-            },
-          ],
-        }
-      : {}),
+    ...(sendComponents ? { components: sendComponents } : {}),
   });
 
   console.info("[api/leads/incoming] template trigger resolution", {
@@ -548,7 +545,11 @@ export async function POST(req: NextRequest) {
   await logMessage({
     business_slug: businessSlug,
     role: "assistant",
-    content: formatLeadTemplateMessageContent(templateName, { firstName }),
+    content: formatLeadTemplateMessageContent(templateName, {
+      firstName,
+      components: (fallbackTpl as { components?: unknown } | null)?.components,
+      bodyParams,
+    }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId || null,
   });

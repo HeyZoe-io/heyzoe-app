@@ -14,6 +14,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
+import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveArboxNewLeadTemplateTrigger,
@@ -462,7 +463,7 @@ async function sendArboxNewLeadTemplate(input: {
   }
 
   const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
+    input.admin.from("businesses").select("waba_id, name").eq("id", input.businessId).maybeSingle(),
     input.admin
       .from("whatsapp_templates")
       .select("id, status, language, components")
@@ -484,25 +485,20 @@ async function sendArboxNewLeadTemplate(input: {
   const firstName = firstNameFromFullName(String(input.fullName ?? ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
-  const useFirstName = templateComponentsUseFirstName(
-    (approvedTpl as { components?: unknown }).components
-  );
+  const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "arbox_new_lead",
+    storedComponents,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+  });
 
   const sendResult = await sendBusinessTemplate({
     to: input.phone,
     phoneNumberId,
     templateName,
     languageCode,
-    ...(useFirstName
-      ? {
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: firstName }],
-            },
-          ],
-        }
-      : {}),
+    ...(sendComponents ? { components: sendComponents } : {}),
   });
 
   if (!sendResult.ok) {
@@ -516,7 +512,8 @@ async function sendArboxNewLeadTemplate(input: {
     role: "assistant",
     content: formatLeadTemplateMessageContent(templateName, {
       firstName,
-      components: (approvedTpl as { components?: unknown }).components,
+      components: storedComponents,
+      bodyParams,
     }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId,

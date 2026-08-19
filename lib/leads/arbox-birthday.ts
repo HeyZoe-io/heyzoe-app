@@ -3,7 +3,6 @@ import { logMessage } from "@/lib/analytics";
 import {
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
-  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
@@ -13,6 +12,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
+import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveBirthdayTemplateTrigger,
@@ -377,10 +377,10 @@ async function sendBirthdayTemplate(input: {
   if (!phoneNumberId) return { dispatch: "gated", ok: false };
 
   const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
+    input.admin.from("businesses").select("waba_id, name").eq("id", input.businessId).maybeSingle(),
     input.admin
       .from("whatsapp_templates")
-      .select("id, status, language")
+      .select("id, status, language, components")
       .eq("business_id", input.businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
@@ -397,22 +397,20 @@ async function sendBirthdayTemplate(input: {
   const firstName = firstNameFromFullName(String(input.fullName ?? ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+  const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "birthday",
+    storedComponents,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+  });
 
   const sendResult = await sendBusinessTemplate({
     to: input.phone,
     phoneNumberId,
     templateName,
     languageCode,
-    ...(leadTemplateUsesFirstName(templateName)
-      ? {
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: firstName }],
-            },
-          ],
-        }
-      : {}),
+    ...(sendComponents ? { components: sendComponents } : {}),
   });
 
   if (!sendResult.ok) {
@@ -423,7 +421,11 @@ async function sendBirthdayTemplate(input: {
   await logMessage({
     business_slug: input.businessSlug,
     role: "assistant",
-    content: formatLeadTemplateMessageContent(templateName, { firstName }),
+    content: formatLeadTemplateMessageContent(templateName, {
+      firstName,
+      components: storedComponents,
+      bodyParams,
+    }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: buildWaSessionId(phoneNumberId, input.phone),
   });

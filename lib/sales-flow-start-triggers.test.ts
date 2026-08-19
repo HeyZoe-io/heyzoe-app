@@ -14,6 +14,7 @@ assert.equal(isSalesFlowStartTrigger("היי", { slug: "limitless" }), false);
 assert.equal(isSalesFlowStartTrigger("שלום"), false);
 assert.equal(isSalesFlowStartTrigger("hi"), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים"), true);
+assert.equal(isSalesFlowStartTrigger("הצטרפות למנוי"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע פרטים"), true);
 assert.equal(isSalesFlowStartTrigger("אפשר פרטים?"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח למידע"), true);

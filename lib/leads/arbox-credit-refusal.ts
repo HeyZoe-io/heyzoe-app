@@ -2,7 +2,6 @@ import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import {
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
-  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { logMessage } from "@/lib/analytics";
@@ -13,6 +12,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
+import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveCreditRefusalTemplateTrigger,
@@ -398,10 +398,10 @@ async function sendCreditRefusalTemplate(input: {
   }
 
   const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
+    input.admin.from("businesses").select("waba_id, name").eq("id", input.businessId).maybeSingle(),
     input.admin
       .from("whatsapp_templates")
-      .select("id, status, language")
+      .select("id, status, language, components")
       .eq("business_id", input.businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
@@ -420,22 +420,20 @@ async function sendCreditRefusalTemplate(input: {
   const firstName = firstNameFromFullName(String(input.fullName ?? ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+  const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "credit_refusal",
+    storedComponents,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+  });
 
   const sendResult = await sendBusinessTemplate({
     to: input.phone,
     phoneNumberId,
     templateName,
     languageCode,
-    ...(leadTemplateUsesFirstName(templateName)
-      ? {
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: firstName }],
-            },
-          ],
-        }
-      : {}),
+    ...(sendComponents ? { components: sendComponents } : {}),
   });
 
   if (!sendResult.ok) {
@@ -447,7 +445,11 @@ async function sendCreditRefusalTemplate(input: {
   await logMessage({
     business_slug: input.businessSlug,
     role: "assistant",
-    content: formatLeadTemplateMessageContent(templateName, { firstName }),
+    content: formatLeadTemplateMessageContent(templateName, {
+      firstName,
+      components: storedComponents,
+      bodyParams,
+    }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId,
   });

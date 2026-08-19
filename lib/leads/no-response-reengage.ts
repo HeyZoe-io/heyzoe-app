@@ -6,7 +6,6 @@
 import {
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
-  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { logMessage } from "@/lib/analytics";
@@ -17,6 +16,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
+import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveNoResponseTemplateTrigger,
@@ -190,10 +190,10 @@ async function dispatchNoResponseTemplate(input: {
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
 
   const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
+    input.admin.from("businesses").select("waba_id, name").eq("id", input.businessId).maybeSingle(),
     input.admin
       .from("whatsapp_templates")
-      .select("id, status, language")
+      .select("id, status, language, components")
       .eq("business_id", input.businessId)
       .eq("name", input.templateName)
       .eq("status", "APPROVED")
@@ -222,22 +222,20 @@ async function dispatchNoResponseTemplate(input: {
   const firstName = firstNameFromFullName(String(input.contact.full_name ?? ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+  const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "no_response",
+    storedComponents,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+  });
 
   const sendResult = await sendBusinessTemplate({
     to: phoneNorm,
     phoneNumberId,
     templateName: input.templateName,
     languageCode,
-    ...(leadTemplateUsesFirstName(input.templateName)
-      ? {
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: firstName }],
-            },
-          ],
-        }
-      : {}),
+    ...(sendComponents ? { components: sendComponents } : {}),
   });
 
   console.info("[no-response-reengage] template trigger resolution", {
@@ -258,7 +256,11 @@ async function dispatchNoResponseTemplate(input: {
   await logMessage({
     business_slug: input.businessSlug,
     role: "assistant",
-    content: formatLeadTemplateMessageContent(input.templateName, { firstName }),
+    content: formatLeadTemplateMessageContent(input.templateName, {
+      firstName,
+      components: storedComponents,
+      bodyParams,
+    }),
     model_used: LEAD_TEMPLATE_MODEL,
     session_id: sessionId || null,
   });

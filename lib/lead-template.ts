@@ -53,6 +53,7 @@ type LeadTemplatePreview = {
 
 export type LeadTemplateRenderOpts = {
   firstName?: string;
+  bodyParams?: string[];
   components?: unknown;
   componentsByName?: Record<string, unknown>;
 };
@@ -96,10 +97,21 @@ export function previewFromWhatsappTemplateComponents(
   };
 }
 
-function renderPreviewText(preview: LeadTemplatePreview, firstName: string): string {
+function renderPreviewText(
+  preview: LeadTemplatePreview,
+  firstName: string,
+  extraParams?: string[]
+): string {
   const lines: string[] = [];
   if (preview.header?.trim()) lines.push(preview.header.trim());
-  lines.push(preview.body.replace(/\{\{1\}\}/g, firstName));
+  const values = extraParams?.length ? extraParams : [firstName];
+  lines.push(
+    preview.body.replace(/\{\{(\d+)\}\}/g, (_, raw: string) => {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 1) return "";
+      return values[n - 1] ?? "";
+    })
+  );
   if (preview.footer?.trim()) lines.push(preview.footer.trim());
 
   let text = lines.join("\n\n");
@@ -164,7 +176,7 @@ export function renderLeadTemplateMessageContent(
   if (!preview) {
     return `נשלח טמפלייט פתיחה (${key})`;
   }
-  return renderPreviewText(preview, firstName);
+  return renderPreviewText(preview, firstName, opts?.bodyParams);
 }
 
 /** @deprecated Use renderLeadTemplateMessageContent — kept for call sites. */

@@ -169,6 +169,7 @@ import {
   isMetaInteractiveMenuReply,
   isSalesFlowFreeTextInbound,
   isSalesFlowStartInbound,
+  inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply } from "@/lib/sales-flow-start-triggers";
@@ -198,6 +199,11 @@ import {
   FREEZE_BILLING_HANDOFF_REPLY,
   isFreezeBillingAccountDispute,
 } from "@/lib/wa-freeze-billing-handoff";
+import {
+  isRenewalTemplateHandoffText,
+  RENEWAL_HANDOFF_MODEL,
+  RENEWAL_HANDOFF_REPLY,
+} from "@/lib/wa-renewal-handoff";
 import {
   matchesRunningLateStatusUpdate,
   RUNNING_LATE_ACK_MESSAGE,
@@ -5785,6 +5791,46 @@ async function processIncoming(
       role: "assistant",
       content: FREEZE_BILLING_HANDOFF_REPLY,
       model_used: FREEZE_BILLING_HANDOFF_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  // חידוש מנוי/כרטיסייה מכפתור טמפלייט — לפני classifiers של פלואו מכירה
+  if (
+    msg.type === "text" &&
+    businessId &&
+    isRenewalTemplateHandoffText(inboundTextForSalesFlowStartCheck(msg))
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] renewal-template human_requested failed:", e);
+    }
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        RENEWAL_HANDOFF_REPLY,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send renewal-template team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: RENEWAL_HANDOFF_REPLY,
+      model_used: RENEWAL_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;

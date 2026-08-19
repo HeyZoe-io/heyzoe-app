@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
-  leadTemplateUsesFirstName,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { logMessage } from "@/lib/analytics";
@@ -17,6 +16,12 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
+import {
+  expiryYmdFromScheduledDedupKey,
+  templateSendPayload,
+  triggerTypeFromScheduledDedupKey,
+} from "@/lib/template-send-params";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET יומי + Authorization: Bearer CRON_SECRET */
@@ -110,16 +115,21 @@ async function dispatchOneScheduledSend(
   const channel = await resolveSendChannelForContact(admin, businessId, phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
 
-  const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    admin.from("businesses").select("slug, waba_id").eq("id", businessId).maybeSingle(),
+  const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
+    admin.from("businesses").select("slug, waba_id, name").eq("id", businessId).maybeSingle(),
     admin
       .from("whatsapp_templates")
-      .select("id, status, language")
+      .select("id, status, language, components")
       .eq("business_id", businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
       .eq("disabled", false)
       .limit(1)
+      .maybeSingle(),
+    admin
+      .from("template_triggers")
+      .select("trigger_type")
+      .eq("id", row.trigger_id)
       .maybeSingle(),
   ]);
 
@@ -145,22 +155,26 @@ async function dispatchOneScheduledSend(
   const firstName = firstNameFromFullName(String(fullName ?? ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+  const triggerType = canonicalizeTriggerType(
+    String((triggerRow as { trigger_type?: unknown } | null)?.trigger_type ?? "").trim() ||
+      triggerTypeFromScheduledDedupKey(row.dedup_key) ||
+      ""
+  );
+  const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType,
+    storedComponents,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+    expiryDateYmd: expiryYmdFromScheduledDedupKey(row.dedup_key),
+  });
 
   const sendResult = await sendBusinessTemplate({
     to: phone,
     phoneNumberId,
     templateName,
     languageCode,
-    ...(leadTemplateUsesFirstName(templateName)
-      ? {
-          components: [
-            {
-              type: "body",
-              parameters: [{ type: "text", text: firstName }],
-            },
-          ],
-        }
-      : {}),
+    ...(sendComponents ? { components: sendComponents } : {}),
   });
 
   const afterMeta = decideScheduledSendAfterMeta({
@@ -186,7 +200,11 @@ async function dispatchOneScheduledSend(
     await logMessage({
       business_slug: businessSlug,
       role: "assistant",
-      content: formatLeadTemplateMessageContent(templateName, { firstName }),
+      content: formatLeadTemplateMessageContent(templateName, {
+        firstName,
+        components: storedComponents,
+        bodyParams,
+      }),
       model_used: LEAD_TEMPLATE_MODEL,
       session_id: sessionId,
     });

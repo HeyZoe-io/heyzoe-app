@@ -19,6 +19,7 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
   SALES_FLOW_START_BUTTON_LABEL_HE,
   "בוא נתחיל",
   "אשמח לפרטים",
+  "הצטרפות למנוי",
   "אשמח לשמוע פרטים",
   "אפשר פרטים",
   "אשמח למידע",
