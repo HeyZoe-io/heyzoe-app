@@ -33,6 +33,8 @@ assert.equal(matchesClassRescheduleUpdate("I signed up for the wrong time by mis
 
 assert.equal(matchesClassRescheduleUpdate("אפשר לדחות שיעור?"), false);
 assert.equal(matchesClassRescheduleUpdate("מה מדיניות הביטול"), false);
+assert.equal(matchesClassRescheduleUpdate("אני רוצה לבטל את ההרשמה שלי"), true);
+assert.equal(matchesClassRescheduleUpdate("תבטלי לי את ההרשמה"), true);
 
 assert.equal(
   buildClassRescheduleTeamHandoffReply("לימי"),
@@ -52,10 +54,18 @@ assert.equal(
 assert.equal(assistantReplyClaimsUnauthorizedBookingChange("נשמח לראותך בשיעור"), false);
 assert.equal(
   assistantReplyClaimsUnauthorizedBookingChange("רשמתי אותך לשיעור ניסיון ביום רביעי"),
-  false
+  true
 );
 assert.equal(
   assistantReplyClaimsUnauthorizedBookingChange("אפשר לשנות מועד? אני אבדוק מול הצוות"),
+  false
+);
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange("הבנתי את ההרשמה שלך, אני מעבירה לצוות."),
+  false
+);
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange("בדקתי ביומן ואין לי הרשאה לשנות."),
   false
 );
 
@@ -81,6 +91,37 @@ assert.equal(
     assistantReply: "אין לי גישה ליומן ההרשמות, אני מעבירה לצוות.",
   }).handoff,
   false
+);
+
+// #1 general claim-guard (not an inbound keyword, not the old verb allowlist).
+// Turn 1 may skip Claude via #2; the proof is a follow-up that does not match
+// inbound, plus a completion claim using unlisted verbs (סגרתי / הסרתי).
+const cancelRequest = "אני רוצה לבטל את ההרשמה שלי";
+const cancelFollowUp = "כן תעשי את זה עכשיו";
+assert.equal(matchesClassRescheduleUpdate(cancelFollowUp), false);
+const claudeClaimedCancelDone =
+  "סגרתי לך את זה, הסרתי אותך מהרשימה. את כבר לא רשומה לשיעור.";
+assert.equal(assistantReplyClaimsUnauthorizedBookingChange(claudeClaimedCancelDone), true);
+const cancelFollowUpDecision = resolveUnauthorizedBookingHandoff({
+  inbound: cancelFollowUp,
+  assistantReply: claudeClaimedCancelDone,
+});
+assert.equal(cancelFollowUpDecision.handoff, true);
+assert.equal(cancelFollowUpDecision.reason, "assistant_claim");
+assert.equal(
+  resolveUnauthorizedBookingHandoff({
+    inbound: cancelRequest,
+    assistantReply: claudeClaimedCancelDone,
+  }).reason,
+  "assistant_claim"
+);
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange("הזזתי אותך ל-9 ברביעי"),
+  true
+);
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange("טיפלתי בהרשמה שלך, את כבר לא ברשימה."),
+  true
 );
 
 console.log("wa-class-reschedule.test.ts: ok");
