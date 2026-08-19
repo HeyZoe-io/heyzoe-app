@@ -76,5 +76,12 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  salesFlowGreetingMarkerCountsAsStarted({
+    modelUsed: "signup_intent_flow_entry",
+    precedingUserText: "היי, איך אני יכולה להירשם לשיעור ניסיון?",
+  }),
+  true
+);
 
 console.log("sales-flow-start-triggers.test.ts: ok");

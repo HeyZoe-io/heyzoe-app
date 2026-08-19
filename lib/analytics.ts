@@ -27,6 +27,8 @@ export const SALES_FLOW_GREETING_RESET_MODELS = [
   "greeting",
   "default_opening",
   "registration_intent_no_member",
+  "signup_intent_flow_entry",
+  "closed_playbook_catalog_group",
 ] as const;
 
 function sessionIdList(session_id: string | string[]): string[] {
@@ -121,7 +123,14 @@ export async function sessionHasSalesFlowGreeting(input: {
 }): Promise<boolean> {
   const marker = await fetchLastSalesFlowGreetingMarker(input);
   if (!marker) return false;
-  if (marker.model_used === "greeting") return true;
+  if (
+    marker.model_used === "greeting" ||
+    marker.model_used === "registration_intent_no_member" ||
+    marker.model_used === "signup_intent_flow_entry" ||
+    marker.model_used === "closed_playbook_catalog_group"
+  ) {
+    return true;
+  }
   const precedingUserText = await fetchUserMessageBefore({
     business_slug: input.business_slug,
     session_id: input.session_id,

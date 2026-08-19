@@ -15,7 +15,7 @@ import {
   detectClosedPlaybookIntent,
   resolveClosedPlaybook,
 } from "@/lib/wa-closed-playbook";
-import { findRelevantActivePromo, leadFacingFactText, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
+import { findMatchingGroupCatalogProduct, findRelevantActivePromo, leadFacingFactText, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 
 function cat(raw: string) {
@@ -27,6 +27,10 @@ const nearMisses = [
   "נרשמתי",
   "נרשמתי לשיעור ניסיון",
   "אשמח לפרטים על שיעור ניסיון",
+  "היי, איך אני יכולה להירשם לשיעור ניסיון?",
+  "רוצה להירשם לשיעור ניסיון",
+  "איך נרשמים",
+  "אני רוצה להירשם",
   "כמה עולה",
   "כמה עולה מנוי",
   "לא מרגיש טוב",
@@ -93,6 +97,54 @@ assert.equal(cat("המקום מלוכלך")?.category, "complaint");
 assert.equal(cat("רוצים סדנה פרטית לחברה")?.category, "group");
 assert.equal(cat("יום גיבוש לצוות מהעבודה")?.category, "group");
 assert.equal(cat("יש לכם private workshop for our team?")?.category, "group");
+assert.equal(cat("אירוע לחברה")?.category, "group");
+assert.equal(cat("אירוע לחברה")?.shape, "action");
+
+const joeCatalog = [
+  { name: "קורס אקרויוגה אונליין" },
+  { name: "סדנאות ואירועים מיוחדים" },
+  { name: "עמידות ידיים / גמישות" },
+  { name: "אקרו יוגה - ליחיד" },
+  { name: "אקרו יוגה - לזוג" },
+  { name: "שיעור אקרו אישי (1 - 1)" },
+];
+assert.equal(findMatchingGroupCatalogProduct("אירוע לחברה", joeCatalog), "סדנאות ואירועים מיוחדים");
+assert.equal(
+  findMatchingGroupCatalogProduct("אירוע לחברה", [{ name: "אקרו יוגה - סדנת היכרות" }, { name: "אקרו יוגה - לזוג" }]),
+  null,
+  "intro workshop is not an org-event product"
+);
+
+const joeGroup = resolveClosedPlaybook({
+  inbound: "אירוע לחברה",
+  knowledge: {
+    botName: "זואי",
+    salesFlowServices: joeCatalog,
+    knowledgeQa: [{ question: "אירוע חברה", answer: "עובדת גיבוש מה-FAQ" }],
+  },
+});
+assert.equal(joeGroup?.source, "catalog");
+assert.equal(joeGroup?.catalogServiceName, "סדנאות ואירועים מיוחדים");
+assert.equal(joeGroup?.notifyHumanRequested, false);
+assert.equal(joeGroup?.modelUsed, "closed_playbook_catalog_group");
+
+const groupFactOnly = resolveClosedPlaybook({
+  inbound: "אירוע לחברה",
+  knowledge: {
+    knowledgeQa: [{ question: "אירוע חברה", answer: "סדנאות גיבוש בתיאום עם הצוות" }],
+  },
+});
+assert.equal(groupFactOnly?.source, "fact");
+assert.match(groupFactOnly?.reply ?? "", /גיבוש/);
+assert.equal(groupFactOnly?.notifyHumanRequested, true);
+
+const groupDefault = resolveClosedPlaybook({
+  inbound: "אירוע לחברה",
+  knowledge: { botName: "זואי", salesFlowServices: [{ name: "אקרו יוגה - ליחיד" }] },
+});
+assert.equal(groupDefault?.source, "default");
+assert.equal(groupDefault?.reply, CLOSED_PLAYBOOK_GROUP_REPLY);
+assert.equal(groupDefault?.notifyHumanRequested, true);
 
 // --- promo / discount ---
 assert.equal(cat("תעשי לי הנחה")?.category, "discount");

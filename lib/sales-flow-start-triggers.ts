@@ -37,7 +37,7 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
 /** ברכות קצרות שאפשר להסיר מתחילת המשפט אם אחריהן נשאר טריגר («היי אשמח לפרטים»). */
 const LEADING_CASUAL_GREETING_PREFIXES = ["היי ", "הי ", "שלום ", "אהלן ", "hello ", "hi ", "hey "] as const;
 
-function stripLeadingCasualGreeting(normalized: string): string {
+export function stripLeadingCasualGreeting(normalized: string): string {
   for (const prefix of LEADING_CASUAL_GREETING_PREFIXES) {
     if (normalized.startsWith(prefix)) return normalized.slice(prefix.length).trim();
   }
@@ -90,7 +90,14 @@ export function salesFlowGreetingMarkerCountsAsStarted(input: {
   precedingUserText: string | null;
 }): boolean {
   const modelUsed = String(input.modelUsed ?? "").trim();
-  if (modelUsed === "greeting" || modelUsed === "registration_intent_no_member") return true;
+  if (
+    modelUsed === "greeting" ||
+    modelUsed === "registration_intent_no_member" ||
+    modelUsed === "signup_intent_flow_entry" ||
+    modelUsed === "closed_playbook_catalog_group"
+  ) {
+    return true;
+  }
   if (modelUsed !== "default_opening") return false;
   return isSalesFlowStartTrigger(input.precedingUserText ?? "");
 }

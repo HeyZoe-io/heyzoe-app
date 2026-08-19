@@ -52,9 +52,10 @@ export function buildClosedPlaybookDefaultReply(
 
 export function closedPlaybookModelUsed(
   category: ClosedPlaybookCategory,
-  source: "default" | "fact" | "promo"
+  source: "default" | "fact" | "promo" | "catalog"
 ): string {
   if (source === "promo") return "closed_playbook_promo";
+  if (source === "catalog") return `closed_playbook_catalog_${category}`;
   if (source === "fact") return `closed_playbook_fact_${category}`;
   if (category === "reschedule") return "class_reschedule_team_handoff";
   return `closed_playbook_${category}`;

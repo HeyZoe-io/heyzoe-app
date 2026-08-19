@@ -2,7 +2,7 @@ import {
   buildClosedPlaybookDefaultReply,
   closedPlaybookModelUsed,
 } from "@/lib/wa-closed-playbook-copy";
-import { findRelevantActivePromo, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
+import { findRelevantActivePromo, findMatchingGroupCatalogProduct, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 import type {
   ClosedPlaybookKnowledge,
@@ -75,6 +75,21 @@ export function resolveClosedPlaybook(opts: {
       notifyHumanRequested: true,
       source: "default",
     };
+  }
+
+  if (intent.category === "group") {
+    const catalogName = findMatchingGroupCatalogProduct(opts.inbound, knowledge.salesFlowServices);
+    if (catalogName) {
+      return {
+        category: "group",
+        shape: intent.shape,
+        reply: buildClosedPlaybookDefaultReply("group", botName),
+        modelUsed: closedPlaybookModelUsed("group", "catalog"),
+        notifyHumanRequested: false,
+        source: "catalog",
+        catalogServiceName: catalogName,
+      };
+    }
   }
 
   const fact = lookupPlaybookFact(intent.category, knowledge);

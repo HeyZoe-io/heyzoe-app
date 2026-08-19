@@ -1,4 +1,8 @@
-import { normalizeSalesFlowGreetingToken } from "@/lib/sales-flow-start-triggers";
+import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
+import {
+  normalizeSalesFlowGreetingToken,
+  stripLeadingCasualGreeting,
+} from "@/lib/sales-flow-start-triggers";
 
 export type WarmupSkipPhase = "opening" | "warmup";
 
@@ -131,7 +135,8 @@ export function isWarmupSkipIntentText(raw: string, phase: WarmupSkipPhase): boo
  * מורחב מקבוצה ג + ביטויים באנגלית + «איך מתחילים» (תאימות לאחור).
  */
 export function isJoinSignupIntentText(raw: string): boolean {
-  const t = normalizeWarmupSkipIntentText(raw);
+  const normalized = normalizeWarmupSkipIntentText(raw);
+  const t = stripLeadingCasualGreeting(normalized);
   if (!t) return false;
   if (hasInfoQuestionBlock(t)) return false;
   if (hasQuestionsTrap(t)) return false;
@@ -139,8 +144,30 @@ export function isJoinSignupIntentText(raw: string): boolean {
 
   if (matchesGroupCRegistration(t)) return true;
   if (/^איך\s+מתחיל/u.test(t)) return true;
+  if (/^איך\s+(?:אני\s+)?(?:יכולה|יכול|נוכל)\s+לה[יי]?רשם/u.test(t)) return true;
   if (/^איך\s+(?:קונים|רוכשים|מזמינים|משריינים|שומרים\s+מקום)/u.test(t)) return true;
-  if (/^רוצה\s+(?:להירשם|להצטרף)/u.test(t)) return true;
+  if (/^(?:אני\s+|אנחנו\s+)?רוצ(?:ה|ים)\s+(?:להירשם|להצטרף)/u.test(t)) return true;
+  if (/^(?:אשמח|נשמח)\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
   if (matchesEnglishJoinSignup(t)) return true;
   return false;
+}
+
+export const SIGNUP_INTENT_FLOW_ENTRY_MODEL = "signup_intent_flow_entry";
+
+/**
+ * Lead is not in a started sales flow and asks how to register / wants to sign up.
+ * Closed-playbook cancel/reschedule wins if both could match.
+ */
+export function shouldStartSalesFlowFromOutOfFlowSignup(input: {
+  inbound: string;
+  salesFlowStarted: boolean;
+  trialRegistered?: boolean | null;
+  sessionPhase?: string | null;
+}): boolean {
+  if (input.salesFlowStarted) return false;
+  if (input.trialRegistered === true) return false;
+  if (input.sessionPhase === "registered") return false;
+  if (!isJoinSignupIntentText(input.inbound)) return false;
+  if (detectClosedPlaybookIntent(input.inbound)) return false;
+  return true;
 }

@@ -21,6 +21,13 @@ export type ClosedPlaybookIntent = {
   shape: ClosedPlaybookShape;
 };
 
+export type ClosedPlaybookCatalogService = {
+  name?: string | null;
+  descriptionText?: string | null;
+  benefit?: string | null;
+  offerKind?: string | null;
+};
+
 export type ClosedPlaybookKnowledge = {
   botName?: string | null;
   traits?: string[] | null;
@@ -28,6 +35,8 @@ export type ClosedPlaybookKnowledge = {
   faqsText?: string | null;
   promotionsText?: string | null;
   membershipsAndCardsText?: string | null;
+  /** Existing sales-flow catalog — lookup only, no schema change. */
+  salesFlowServices?: ClosedPlaybookCatalogService[] | null;
 };
 
 export type ClosedPlaybookResolution = {
@@ -36,5 +45,7 @@ export type ClosedPlaybookResolution = {
   reply: string;
   modelUsed: string;
   notifyHumanRequested: boolean;
-  source: "default" | "fact" | "promo";
+  source: "default" | "fact" | "promo" | "catalog";
+  /** Unique catalog product to switch to (group category). */
+  catalogServiceName?: string;
 };

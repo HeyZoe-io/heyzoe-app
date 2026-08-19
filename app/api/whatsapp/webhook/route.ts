@@ -239,7 +239,12 @@ import {
   matchesOutOfScopeTeamHandoff,
   WA_OUT_OF_SCOPE_HANDOFF_MODEL,
 } from "@/lib/wa-out-of-scope-handoff";
-import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
+import {
+  isJoinSignupIntentText,
+  isWarmupSkipIntentText,
+  shouldStartSalesFlowFromOutOfFlowSignup,
+  SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+} from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
   salesFlowOpeningResetPatch,
@@ -5785,11 +5790,156 @@ async function processIncoming(
     return;
   }
 
-  // Closed playbook: intents Zoe cannot execute. Facts-first where required; else fixed copy.
+  // Out-of-flow «איך נרשמים / רוצה להירשם לשיעור ניסיון» — start sales flow at product pick
+  // (or CTA if one product). Immediately before closed-playbook so «אני רוצה להירשם» is not
+  // stolen by cancel («לבטל את ההרשמה») / reschedule. Playbook still wins if both match.
+  if (msg.type === "text" && businessId && knowledge?.salesFlowConfig && isJoinSignupIntentText(msg.text)) {
+    const salesFlowStartedForSignup = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+    if (
+      shouldStartSalesFlowFromOutOfFlowSignup({
+        inbound: msg.text,
+        salesFlowStarted: salesFlowStartedForSignup,
+        trialRegistered: contactTrialRegistered,
+        sessionPhase: contactSessionPhase,
+      })
+    ) {
+      try {
+        await resetContactSalesFlowStateForGreeting({
+          supabase,
+          businessId,
+          phone: msg.from,
+        });
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: "[heyzoe:signup_intent_flow_entry]",
+          model_used: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+          session_id: sessionId,
+        });
+        await advanceAfterWarmupSessionComplete({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          trialRegistered: false,
+          allowTrialCta: true,
+          sfConsumedKinds: [],
+          instagramFollowPromptSent: false,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] out-of-flow signup flow-entry failed:", e);
+      }
+      return;
+    }
+  }
+
+  // Closed playbook: intents Zoe cannot execute. Facts-first / catalog-product where required; else fixed copy.
   // Notify flag comes from resolveClosedPlaybook — do not special-case categories here.
+  // source === "catalog" routes to that product (before generic catalog switcher reopen-menu).
   if (msg.type === "text" && businessId && knowledge) {
     const playbook = resolveClosedPlaybook({ inbound: msg.text.trim(), knowledge });
     if (playbook) {
+      if (
+        playbook.source === "catalog" &&
+        playbook.catalogServiceName &&
+        knowledge.salesFlowConfig
+      ) {
+        try {
+          const salesFlowStartedForCatalog = await sessionHasSalesFlowGreeting(
+            business_slug,
+            sessionId
+          );
+          if (!salesFlowStartedForCatalog) {
+            await resetContactSalesFlowStateForGreeting({
+              supabase,
+              businessId,
+              phone: msg.from,
+            });
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: "[heyzoe:closed_playbook_catalog_group]",
+              model_used: playbook.modelUsed,
+              session_id: sessionId,
+            });
+          }
+          contactSessionPhase = await commitImplicitServiceSwitch({
+            knowledge,
+            salesFlowServices,
+            serviceName: playbook.catalogServiceName,
+            msg,
+            supabase,
+            businessId,
+            sessionId,
+            business_slug,
+            logModelUsed: "sf_service_closed_playbook_group",
+          });
+          contactFlowStep = 0;
+          contactScheduleRequestedDate = "";
+          contactScheduleRequestedTime = "";
+          {
+            const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+              knowledge,
+              supabase,
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+              blockTrialPickMedia: starterBlocksMedia,
+              when: "after_service_pick",
+            });
+            if (scheduleAfterPick === "image") {
+              await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+            }
+          }
+          await sendFlowContinuation({
+            phase: contactSessionPhase,
+            contact: { flow_step: 0 },
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            blockTrialPickMedia: starterBlocksMedia,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] closed-playbook catalog product route failed:", e);
+          try {
+            await sendWhatsAppMessage(
+              msg.toNumber,
+              msg.from,
+              playbook.reply,
+              accountSid,
+              authToken
+            );
+          } catch (sendErr) {
+            console.error("[WA Webhook] Send closed-playbook group fallback failed:", sendErr);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: playbook.reply,
+            model_used: playbook.modelUsed,
+            session_id: sessionId,
+          });
+        }
+        return;
+      }
       if (playbook.notifyHumanRequested) {
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");

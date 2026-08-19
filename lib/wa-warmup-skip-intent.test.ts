@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
+import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
+import {
+  isJoinSignupIntentText,
+  isWarmupSkipIntentText,
+  shouldStartSalesFlowFromOutOfFlowSignup,
+} from "@/lib/wa-warmup-skip-intent";
 
 type Case = { text: string; phase: "opening" | "warmup" };
 
@@ -40,5 +45,56 @@ for (const { text, phase } of mustNotSkip) {
 
 assert.equal(isJoinSignupIntentText("איך מתחילים?"), true, "CTA join: איך מתחילים");
 assert.equal(isJoinSignupIntentText("כמה עולה להירשם?"), false, "CTA join trap: price");
+assert.equal(isJoinSignupIntentText("היי, איך אני יכולה להירשם לשיעור ניסיון?"), true);
+assert.equal(isJoinSignupIntentText("איך נרשמים"), true);
+assert.equal(isJoinSignupIntentText("רוצה להירשם לשיעור ניסיון"), true);
+assert.equal(isJoinSignupIntentText("אני רוצה להירשם"), true);
+assert.equal(isJoinSignupIntentText("אשמח להירשם"), true);
+assert.equal(isJoinSignupIntentText("אני רוצה לבטל את ההרשמה"), false, "cancel must not be join-signup");
 
-console.log(`wa-warmup-skip-intent: ${mustSkip.length + mustNotSkip.length + 2} assertions passed`);
+const outOfFlowSignup = "היי, איך אני יכולה להירשם לשיעור ניסיון?";
+assert.equal(detectClosedPlaybookIntent(outOfFlowSignup), null);
+assert.equal(detectClosedPlaybookIntent("אני רוצה להירשם"), null);
+assert.equal(detectClosedPlaybookIntent("רוצה להירשם לשיעור ניסיון"), null);
+assert.equal(
+  shouldStartSalesFlowFromOutOfFlowSignup({
+    inbound: outOfFlowSignup,
+    salesFlowStarted: false,
+    trialRegistered: false,
+    sessionPhase: null,
+  }),
+  true,
+  "out-of-flow trial signup must enter product pick"
+);
+assert.equal(
+  shouldStartSalesFlowFromOutOfFlowSignup({
+    inbound: outOfFlowSignup,
+    salesFlowStarted: true,
+    trialRegistered: false,
+    sessionPhase: "warmup",
+  }),
+  false,
+  "already in-flow must not re-enter here"
+);
+assert.equal(
+  shouldStartSalesFlowFromOutOfFlowSignup({
+    inbound: "אני רוצה לבטל את ההרשמה",
+    salesFlowStarted: false,
+    trialRegistered: false,
+    sessionPhase: null,
+  }),
+  false,
+  "cancel must stay on closed playbook"
+);
+assert.equal(
+  shouldStartSalesFlowFromOutOfFlowSignup({
+    inbound: "אפשר לדחות שיעור?",
+    salesFlowStarted: false,
+    trialRegistered: false,
+    sessionPhase: null,
+  }),
+  false,
+  "reschedule must stay on closed playbook"
+);
+
+console.log("wa-warmup-skip-intent: extra join-signup / flow-entry assertions passed");

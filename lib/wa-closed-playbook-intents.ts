@@ -232,7 +232,7 @@ export function matchGroupPlaybook(raw: string): ClosedPlaybookIntent | null {
     /אימון\s+פרטי\s+(?:לקבוצה|לחברה|לצוות)/u.test(t) ||
     /יום\s+גיבוש/u.test(t) ||
     /(?:קבוצה|צוות|חברה)\s+(?:מהעבודה|מהמשרד)/u.test(t) ||
-    /אירוע\s+(?:חברה|גיבוש|משרד)/u.test(t) ||
+    /אירוע\s+ל?(?:חברה|גיבוש|משרד)/u.test(t) ||
     /מסיבת\s+(?:רווקות|יום\s+הולדת).{0,24}(?:אצלכם|סטודיו|אימון)/u.test(t) ||
     /private\s+workshop/i.test(t) ||
     /(?:corporate|company|team)\s+(?:event|workshop|offsite)/i.test(t) ||

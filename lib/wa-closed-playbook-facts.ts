@@ -1,4 +1,8 @@
-import type { ClosedPlaybookCategory, ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
+import type {
+  ClosedPlaybookCatalogService,
+  ClosedPlaybookCategory,
+  ClosedPlaybookKnowledge,
+} from "@/lib/wa-closed-playbook-types";
 
 const TOPIC_TERMS: Record<
   Exclude<ClosedPlaybookCategory, "discount" | "coach_owner">,
@@ -19,7 +23,7 @@ const TOPIC_TERMS: Record<
   refund: [/החזר/u, /\brefund\b/i, /כסף\s+בחזרה/u],
   medical: [/פציע/u, /\binjur/i, /שיקום/u, /\brehab\b/i],
   complaint: [/תלונ/u, /\bcomplaint\b/i],
-  group: [/סדנ[הא]/u, /\bworkshop\b/i, /גיבוש/u, /אירוע\s+חברה/u, /corporate\s+event/i],
+  group: [/סדנ[הא]/u, /\bworkshop\b/i, /גיבוש/u, /אירוע\s+ל?חברה/u, /אירוע/u, /corporate\s+event/i],
 };
 
 const PROMO_TOPICS: { id: string; inbound: RegExp; promo: RegExp }[] = [
@@ -97,7 +101,71 @@ export function lookupPlaybookFact(
   if (fromFaq) return fromFaq;
   const fromMemberships = firstMatchingLine(knowledge.membershipsAndCardsText ?? "", terms);
   if (fromMemberships) return fromMemberships;
+  if (category === "group") {
+    for (const row of knowledge.salesFlowServices ?? []) {
+      const desc = String(row.descriptionText ?? "").trim();
+      const benefit = String(row.benefit ?? "").trim();
+      for (const blob of [desc, benefit]) {
+        if (blob && termsHit(blob, terms)) return leadFacingFactText(blob);
+      }
+    }
+  }
   return null;
+}
+
+const GROUP_ORG_EVENT_INBOUND =
+  /אירוע|חברה|גיבוש|משרד|צוות|corporate|team|workshop|סדנ/iu;
+const GROUP_ORG_EVENT_CATALOG =
+  /אירוע|גיבוש|corporate|מיוחד|חברה|צוות|משרד|private\s+event/iu;
+
+function groupCatalogBlob(row: ClosedPlaybookCatalogService): string {
+  return [row.name, row.descriptionText, row.benefit]
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function groupCatalogScore(row: ClosedPlaybookCatalogService, inbound: string): number {
+  const blob = groupCatalogBlob(row);
+  if (!blob) return 0;
+  const inboundWantsOrgEvent = GROUP_ORG_EVENT_INBOUND.test(inbound);
+  if (inboundWantsOrgEvent && /סדנ[הא]/u.test(blob) && !GROUP_ORG_EVENT_CATALOG.test(blob)) {
+    return 0;
+  }
+  if (inboundWantsOrgEvent && !GROUP_ORG_EVENT_CATALOG.test(blob) && String(row.offerKind ?? "") !== "workshop") {
+    return 0;
+  }
+  let score = 0;
+  if (/אירוע/u.test(blob)) score += 4;
+  if (/סדנ[הא]/u.test(blob)) score += 3;
+  if (/גיבוש|corporate|\bworkshop\b/iu.test(blob)) score += 3;
+  if (/מיוחד/u.test(blob)) score += 2;
+  if (String(row.offerKind ?? "") === "workshop") score += 2;
+  if (/(?:חברה|גיבוש|משרד|צוות)/u.test(inbound) && /(?:אירוע|סדנ|גיבוש|חברה|workshop)/iu.test(blob)) {
+    score += 2;
+  }
+  return score;
+}
+
+/**
+ * Unique catalog product for a group/org-event inbound.
+ * Name + description + benefit + existing offerKind only — no catalog schema change.
+ */
+export function findMatchingGroupCatalogProduct(
+  inbound: string,
+  services: ClosedPlaybookCatalogService[] | null | undefined
+): string | null {
+  const list = (services ?? []).filter((row) => String(row.name ?? "").trim());
+  if (!list.length) return null;
+  const scored = list
+    .map((row) => ({ name: String(row.name).trim(), score: groupCatalogScore(row, inbound) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!scored.length) return null;
+  const top = scored[0]!.score;
+  const winners = scored.filter((row) => row.score === top);
+  if (winners.length !== 1) return null;
+  return winners[0]!.name;
 }
 
 function inboundPromoTopics(inbound: string): string[] {
