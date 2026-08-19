@@ -1,12 +1,12 @@
 import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 
-/** טקסטי ברירת מחדל למעקב אחרי שתיקה בווטסאפ (20 דק׳ / 2 שעות / 23 שעות). {{service_phone_note}} ב־1, {{bot_name}}+{{business_name}} ב־2, {{phone}} ב־3 (מותנה: טלפון נוסף רק אם לעסק יש מספר שירות) */
+/** טקסטי ברירת מחדל למעקב אחרי שתיקה בווטסאפ (20 דק׳ / 2 שעות / 23 שעות). {{service_phone_note}} ב־1, {{bot_name}} ב־2, {{phone}} ב־3 (מותנה: טלפון נוסף רק אם לעסק יש מספר שירות) */
 
 export const WA_SALES_FOLLOWUP_1_DEFAULT =
   `מזכירה שאני ממתינה לתשובתך 😊 להמשך שיחה יש ללחוץ על הכפתור הקודם מהתפריט, לשאול שאלה פתוחה, או לכתוב *${SALES_FLOW_START_BUTTON_LABEL_HE}* ונתחיל מחדש.{{service_phone_note}}`;
 
 export const WA_SALES_FOLLOWUP_2_DEFAULT =
-  `היי, {{bot_name}} זו 👋 מ{{business_name}} יש לך שאלה? אפשר לכתוב לי. לתחילת שיחה חדשה יש לכתוב *${SALES_FLOW_START_BUTTON_LABEL_HE}*`;
+  `היי זו {{bot_name}} 👋 יש לך שאלה? אפשר לכתוב לי. לתחילת שיחה חדשה יש לכתוב ״${SALES_FLOW_START_BUTTON_LABEL_HE}״`;
 
 export const WA_SALES_FOLLOWUP_3_DEFAULT =
   "היי! זו הודעה אחרונה שלא נציק לך יותר מידי.\nאם יש בך רצון להתאהב בשגרת האימונים החדשה שלך, אני כאן כדי לגרום לזה לקרות. אפשר לשאול אותי כל שאלה או להרים טלפון ישירות למספר {{phone}} אנחנו כאן בשבילך! שיהיה המשך יום קסום.";
