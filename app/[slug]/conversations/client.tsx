@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ImagePlus, MoreVertical, Search, Send, X } from "lucide-react";
+import { ArrowRight, ImagePlus, Search, Send, X } from "lucide-react";
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
 import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
@@ -790,15 +790,8 @@ export default function ConversationsClient({
             dir={dashboardDir(lang)}
             className="flex w-full shrink-0 flex-col border-[#e9edef] bg-white md:w-[380px] md:border-e"
           >
-            <header className="flex h-[59px] shrink-0 items-center justify-between bg-[#f0f2f5] px-4">
+            <header className="flex h-[59px] shrink-0 items-center bg-[#f0f2f5] px-4">
               <h2 className="text-[19px] font-normal text-[#111b21]">{t.chatsTitle}</h2>
-              <button
-                type="button"
-                className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]"
-                aria-label={t.searchPlaceholder}
-              >
-                <MoreVertical className="h-5 w-5" aria-hidden />
-              </button>
             </header>
 
             <div className="shrink-0 bg-white px-3 pb-2 pt-3">
