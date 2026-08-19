@@ -46,6 +46,6 @@ export type ClosedPlaybookResolution = {
   modelUsed: string;
   notifyHumanRequested: boolean;
   source: "default" | "fact" | "promo" | "catalog";
-  /** Unique catalog product to switch to (group category). */
+  /** Unique catalog product — webhook re-sends product pick (does not auto-CTA). */
   catalogServiceName?: string;
 };

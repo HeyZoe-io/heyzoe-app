@@ -5841,7 +5841,8 @@ async function processIncoming(
 
   // Closed playbook: intents Zoe cannot execute. Facts-first / catalog-product where required; else fixed copy.
   // Notify flag comes from resolveClosedPlaybook — do not special-case categories here.
-  // source === "catalog" routes to that product (before generic catalog switcher reopen-menu).
+  // source === "catalog" (2+ products): re-send product pick so the lead can choose the matching
+  // catalog item — do not auto-CTA, and do not use the generic «אימון אחר» reopen-menu copy.
   if (msg.type === "text" && businessId && knowledge) {
     const playbook = resolveClosedPlaybook({ inbound: msg.text.trim(), knowledge });
     if (playbook) {
@@ -5861,62 +5862,89 @@ async function processIncoming(
               businessId,
               phone: msg.from,
             });
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: "[heyzoe:closed_playbook_catalog_group]",
-              model_used: playbook.modelUsed,
-              session_id: sessionId,
-            });
+            if (salesFlowServices.length <= 1) {
+              await logMessage({
+                business_slug,
+                role: "assistant",
+                content: "[heyzoe:closed_playbook_catalog_group]",
+                model_used: playbook.modelUsed,
+                session_id: sessionId,
+              });
+            }
           }
-          contactSessionPhase = await commitImplicitServiceSwitch({
-            knowledge,
-            salesFlowServices,
-            serviceName: playbook.catalogServiceName,
-            msg,
-            supabase,
-            businessId,
-            sessionId,
-            business_slug,
-            logModelUsed: "sf_service_closed_playbook_group",
-          });
-          contactFlowStep = 0;
-          contactScheduleRequestedDate = "";
-          contactScheduleRequestedTime = "";
-          {
-            const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+          if (salesFlowServices.length > 1) {
+            const phoneVariants = contactPhoneLookupVariants(msg.from);
+            await supabase
+              .from("contacts")
+              .update(salesFlowOpeningResetPatch())
+              .eq("business_id", businessId)
+              .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+            await sendOpeningServicePickMenu({
               knowledge,
-              supabase,
+              salesFlowServices,
               msg,
               accountSid,
               authToken,
               business_slug,
               sessionId,
-              blockTrialPickMedia: starterBlocksMedia,
-              when: "after_service_pick",
+              blockMedia: starterBlocksMedia,
+              skipScheduleBoard: true,
+              modelUsed: "closed_playbook_catalog_group",
             });
-            if (scheduleAfterPick === "image") {
-              await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+            contactSessionPhase = "opening";
+            contactFlowStep = 0;
+            contactScheduleRequestedDate = "";
+            contactScheduleRequestedTime = "";
+          } else {
+            contactSessionPhase = await commitImplicitServiceSwitch({
+              knowledge,
+              salesFlowServices,
+              serviceName: playbook.catalogServiceName,
+              msg,
+              supabase,
+              businessId,
+              sessionId,
+              business_slug,
+              logModelUsed: "sf_service_closed_playbook_group",
+            });
+            contactFlowStep = 0;
+            contactScheduleRequestedDate = "";
+            contactScheduleRequestedTime = "";
+            {
+              const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+                knowledge,
+                supabase,
+                msg,
+                accountSid,
+                authToken,
+                business_slug,
+                sessionId,
+                blockTrialPickMedia: starterBlocksMedia,
+                when: "after_service_pick",
+              });
+              if (scheduleAfterPick === "image") {
+                await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+              }
             }
+            await sendFlowContinuation({
+              phase: contactSessionPhase,
+              contact: { flow_step: 0 },
+              knowledge,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              salesFlowServices,
+              trialRegistered: contactTrialRegistered,
+              allowTrialCta: allowTrialCtaThisSession,
+              blockTrialPickMedia: starterBlocksMedia,
+              sfConsumedKinds: sfClickedCtaKinds,
+              instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            });
           }
-          await sendFlowContinuation({
-            phase: contactSessionPhase,
-            contact: { flow_step: 0 },
-            knowledge,
-            msg,
-            accountSid,
-            authToken,
-            supabase,
-            businessId,
-            business_slug,
-            sessionId,
-            salesFlowServices,
-            trialRegistered: contactTrialRegistered,
-            allowTrialCta: allowTrialCtaThisSession,
-            blockTrialPickMedia: starterBlocksMedia,
-            sfConsumedKinds: sfClickedCtaKinds,
-            instagramFollowPromptSent: contactInstagramFollowPromptSent,
-          });
         } catch (e) {
           console.error("[WA Webhook] closed-playbook catalog product route failed:", e);
           try {

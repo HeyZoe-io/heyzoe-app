@@ -25,14 +25,14 @@ export {
 
 /**
  * Inbound closed playbook: facts-first where required, else fixed copy.
- * Group: unique catalog product → source catalog (webhook switches to that product);
+ * Group: unique catalog product → source catalog (webhook re-sends product pick);
  * else fact; else default. notifyHumanRequested is the webhook notify flag.
  *
  * Policy + fact → fact text, no notify.
  * Policy + no fact → default, notify.
  * Action + fact → fact text, notify.
  * Action + no fact → default, notify.
- * Group + unique catalog product → catalog route, no notify.
+ * Group + unique catalog product → catalog (webhook: product-pick menu), no notify.
  * Discount + relevant promo → promo text, no notify.
  * Coach/owner → default, notify (no facts-check).
  */
