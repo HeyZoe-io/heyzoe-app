@@ -155,6 +155,7 @@ import {
   replyRefersToCustomerService,
   sendCustomerServiceRedirectWithServicePickFollowUp,
 } from "@/lib/wa-cs-redirect-service-pick";
+import { shouldPauseSalesFlowPromptResend } from "@/lib/sales-flow-pause";
 import {
   buildSalesFlowHumanAgentHandoffReply,
   userRequestedHumanAgent,
@@ -1336,13 +1337,17 @@ function buildScheduleTimeQuestion(service: SfServiceRow | null): string {
 function shouldSkipSalesFlowPromptResend(input: {
   inboundText?: string;
   aiReplyCoreClean?: string;
-  knowledge: BusinessKnowledgePack;
+  knowledge: BusinessKnowledgePack | null | undefined;
 }): boolean {
   const inbound = String(input.inboundText ?? "").trim();
   if (inbound && userRequestedHumanAgent(inbound)) return true;
-  const csPhone = input.knowledge.customerServicePhone?.trim() ?? "";
+  const csPhone = input.knowledge?.customerServicePhone?.trim() ?? "";
   // CS intent = הודעת הליד (לא תשובת Claude — שם «ליצור קשר» נפוץ בתיאור מוצר)
-  return Boolean(inbound && replyRefersToCustomerService(inbound, csPhone));
+  if (inbound && replyRefersToCustomerService(inbound, csPhone)) return true;
+  return shouldPauseSalesFlowPromptResend({
+    inboundText: inbound,
+    assistantReply: input.aiReplyCoreClean,
+  });
 }
 
 async function trySendSalesFlowHumanAgentHandoff(input: {
@@ -3749,6 +3754,20 @@ async function resendUnansweredSalesFlowPrompt(
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
   if (!(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
+    return;
+  }
+  if (
+    shouldSkipSalesFlowPromptResend({
+      inboundText: input.inboundText,
+      aiReplyCoreClean: input.aiReplyCoreClean,
+      knowledge,
+    })
+  ) {
+    console.info("[WA Webhook] skip flow prompt resend — lead paused or CS/human", {
+      business_slug,
+      session_id: sessionId,
+      phase,
+    });
     return;
   }
   const menuFooter = salesFlowMenuFooter(knowledge);
@@ -9654,6 +9673,11 @@ async function processIncoming(
           : "";
 
       const isFreeTextSalesFlowContinuation = isFreeTextSalesFlowAi && !isFallbackErrorReply;
+      const skipFlowPromptResend = shouldSkipSalesFlowPromptResend({
+        inboundText: incomingRaw,
+        aiReplyCoreClean: replyCoreClean,
+        knowledge,
+      });
 
       let openingSkipFlowContinuation = !salesFlowStarted;
       if (!openingSkipFlowContinuation && contactSessionPhase === "opening") {
@@ -9714,7 +9738,7 @@ async function processIncoming(
         }
         const ctaMode = resolveSalesFlowCtaDeliveryMode(contactFreeTextRepliesSinceCta);
         const compactLabels =
-          !needsCtaRepickBridge && ctaMode === "compact"
+          !skipFlowPromptResend && !needsCtaRepickBridge && ctaMode === "compact"
             ? buildCompactCtaMenuLabels(filteredCtaForAi, aiMenuContentLang)
             : [];
         try {
@@ -9750,6 +9774,7 @@ async function processIncoming(
           businessId &&
           knowledge?.salesFlowConfig &&
           !needsCtaRepickBridge &&
+          !skipFlowPromptResend &&
           ctaMode === "full"
         ) {
           await sendSalesFlowCtaMenuWithPhaseUpdate({
@@ -9881,7 +9906,8 @@ async function processIncoming(
         !shouldSplitCtaAnswerAndMenu &&
         !shouldSplitFreeTextAnswerAndResendPrompt &&
         !shouldOfferServicePickAfterCs &&
-        !needsCtaRepickBridge
+        !needsCtaRepickBridge &&
+        !skipFlowPromptResend
       ) {
         await sendFlowContinuation({
           phase: contactSessionPhase,
