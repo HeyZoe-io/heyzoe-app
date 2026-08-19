@@ -19,6 +19,7 @@ assert.match(rule, /קודם כל/);
 assert.match(rule, /על העסק/);
 assert.match(rule, /חוסר ידע רגיל/);
 assert.match(rule, /אל תשתפי פעולה/);
+assert.match(rule, /אעביר את ההודעה לצוות/);
 assert.match(rule, /סימולציה/);
 assert.match(rule, new RegExp(WA_UNCLEAR_CLARIFY_HE.replace(/[?]/g, "\\?")));
 assert.match(rule, new RegExp(WA_UNCLEAR_HANDOFF_HE.replace(/[?]/g, "\\?")));

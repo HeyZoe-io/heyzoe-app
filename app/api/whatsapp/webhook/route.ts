@@ -25,6 +25,7 @@ import {
   type WaIncomingText,
 } from "@/lib/whatsapp";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
+import { knowledgeQaTextBlob } from "@/lib/knowledge-qa";
 import { type SfServiceRow } from "@/lib/sf-service-rows";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
@@ -228,6 +229,12 @@ import {
   WA_UNCLEAR_CLARIFY_MODEL,
   WA_UNCLEAR_HANDOFF_MODEL,
 } from "@/lib/wa-unclear-intent";
+import {
+  assistantReplySteersBackToStudioScope,
+  buildOutOfScopeTeamHandoffReply,
+  matchesOutOfScopeTeamHandoff,
+  WA_OUT_OF_SCOPE_HANDOFF_MODEL,
+} from "@/lib/wa-out-of-scope-handoff";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
@@ -5798,6 +5805,42 @@ async function processIncoming(
     return;
   }
 
+  // נושא מחוץ לסמכות זואי (קבלה / דרושים / מסמך) — לצוות, בלי חזרה לאימוני ניסיון
+  if (
+    msg.type === "text" &&
+    businessId &&
+    isSalesFlowFreeTextInbound(msg) &&
+    matchesOutOfScopeTeamHandoff(msg.text)
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] out-of-scope human_requested failed:", e);
+    }
+    const outOfScopeTxt = buildOutOfScopeTeamHandoffReply(detectMessageLanguage(msg.text));
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, outOfScopeTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send out-of-scope team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: outOfScopeTxt,
+      model_used: WA_OUT_OF_SCOPE_HANDOFF_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
   // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות
   if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
     const lastPickedForSlot =
@@ -5851,6 +5894,7 @@ async function processIncoming(
   if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
     const offerPolicyBlobs = [
       ...(knowledge.traits ?? []),
+      knowledgeQaTextBlob(knowledge.knowledgeQa),
       knowledge.faqsText,
       knowledge.servicesText,
       knowledge.promotionsText,
@@ -9405,6 +9449,41 @@ async function processIncoming(
       role: "assistant",
       content: bookingHandoffTxt,
       model_used: "class_reschedule_team_handoff",
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    assistantReplySteersBackToStudioScope(replyCoreClean) &&
+    businessId
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] studio-scope-steer (claude) human_requested failed:", e);
+    }
+    const scopeHandoffTxt = buildOutOfScopeTeamHandoffReply(detectMessageLanguage(incomingRaw));
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, scopeHandoffTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send studio-scope-steer (claude) team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: scopeHandoffTxt,
+      model_used: WA_OUT_OF_SCOPE_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;
