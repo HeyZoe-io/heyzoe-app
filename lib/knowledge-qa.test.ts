@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   formatKnowledgeQaForPrompt,
   legacyFactsToQaPairs,
+  mergeScannedKnowledgeQa,
   parseFactLineToQaPair,
   parseKnowledgeQa,
   qaPairToTraitLine,
@@ -65,5 +66,17 @@ assert.equal(
   qaPairToTraitLine({ question: "יש מקלחות?", answer: "כן, ולוקרים" }),
   "מקלחות: כן, ולוקרים"
 );
+
+assert.deepEqual(
+  mergeScannedKnowledgeQa(
+    [{ question: "יש חניה?", answer: "כחול-לבן" }],
+    [{ question: "מתאים למתחילים?", answer: "«לכל הרמות»" }]
+  ),
+  [
+    { question: "יש חניה?", answer: "כחול-לבן" },
+    { question: "מתאים למתחילים?", answer: "«לכל הרמות»" },
+  ]
+);
+assert.deepEqual(mergeScannedKnowledgeQa([], []), [{ question: "", answer: "" }]);
 
 console.log("knowledge-qa tests ok");

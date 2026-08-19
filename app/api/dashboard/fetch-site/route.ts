@@ -11,10 +11,11 @@ export async function POST(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { website_url, business_name, niche } = await req.json();
+  const { website_url, business_name, niche, knowledge_format } = await req.json();
   const result = await scanWebsiteFromUrl(String(website_url ?? ""), {
     business_name,
     niche,
+    knowledge_format: knowledge_format === "qa" ? "qa" : "traits",
   });
   return NextResponse.json(result.body, { status: result.status });
 }

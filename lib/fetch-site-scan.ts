@@ -13,8 +13,14 @@ import {
   appendGeneratedProductDescriptionFooter,
   stripGeneratedProductDescriptionFooter,
 } from "@/lib/product-description-template";
+import {
+  parseKnowledgeQa,
+  qaPairsToTraitLines,
+  type KnowledgeQaPair,
+} from "@/lib/knowledge-qa";
 
 export type FetchSiteScanResult = { status: number; body: Record<string, unknown> };
+export type ScanKnowledgeFormat = "qa" | "traits";
 
 const PAGE_TEXT_MAX_CHARS = 8000;
 /** דפים נוספים מאותו אתר — לוח שעות/שיעורים (מקור מועדף לתיאורי שירות) */
@@ -788,12 +794,63 @@ function guessNicheFromHost(hostname: string): string {
   return "Business";
 }
 
+function buildKnowledgeScanPromptSection(knowledgeFormat: ScanKnowledgeFormat): string {
+  if (knowledgeFormat === "qa") {
+    return `- knowledge_qa: מערך של 3–8 פריטי ידע לזואי — כל פריט { "question", "answer" }:
+  - question: נושא/כוונה קצרה בעברית — מתי זואי צריכה להשתמש (למשל «יש חניה?», «מתאים למתחילים?», «אימון ניסיון», «מה להביא לשיעור?»). שדה פנימי — לא חייב להיות ציטוט מהאתר.
+  - answer: תשובה מדויקת מהאתר — העתק מילה במילה את המקטע הרלוונטי. אם יש ציטוט ברור, עטוף במרכאות עבריות «…». אסור לפרפרז, לסכם או לתקן דקדוק.
+  - אם אין ציטוט מתאים לנושא — אל תכלול את הפריט.
+- business_traits: השאר [] (מערך ריק) — בפורמט זה משתמשים רק ב-knowledge_qa.`;
+  }
+  return `- business_traits: מערך של 3–8 ציטוטים קצרים מהאתר — כל פריט חייב להיות מקטע שמופיע במקור כמעט מילה במילה (עד משפט אחד). אל תסכם, אל תפרפרז, אל תתקן דקדוק. אם אין ציטוט מתאים — השאר מערך ריק.`;
+}
+
+function buildKnowledgeScanJsonExample(knowledgeFormat: ScanKnowledgeFormat): string {
+  if (knowledgeFormat === "qa") {
+    return `"business_traits": [],
+  "knowledge_qa": [
+    { "question": "מתאים למתחילים?", "answer": "«שיעורים לכל הרמות, גם בלי ניסיון קודם»" },
+    { "question": "יש חניה?", "answer": "«חניה בכחול-לבן ברחוב הסמוך»" }
+  ],`;
+  }
+  return `"business_traits": ["מאפיין קצר 1", "מאפיין קצר 2", "מאפיין קצר 3"],`;
+}
+
+function parseScannedKnowledgeFields(
+  parsed: Record<string, unknown>,
+  knowledgeFormat: ScanKnowledgeFormat
+): { traitsRaw: string[]; knowledgeQaRaw: KnowledgeQaPair[] } {
+  if (knowledgeFormat === "qa") {
+    const knowledgeQaRaw = parseKnowledgeQa(parsed.knowledge_qa).slice(0, 12);
+    return { traitsRaw: qaPairsToTraitLines(knowledgeQaRaw), knowledgeQaRaw };
+  }
+  const traitsRaw = Array.isArray(parsed.business_traits)
+    ? parsed.business_traits.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 12)
+    : [];
+  return { traitsRaw, knowledgeQaRaw: [] };
+}
+
+function withKnowledgeScanFields(
+  body: Record<string, unknown>,
+  knowledgeFormat: ScanKnowledgeFormat,
+  knowledgeQaRaw: KnowledgeQaPair[]
+): Record<string, unknown> {
+  if (knowledgeFormat !== "qa") return body;
+  return { ...body, knowledge_qa: knowledgeQaRaw };
+}
+
 export async function scanWebsiteFromUrl(
   websiteUrl: string,
-  options: { business_name?: string; niche?: string } = {}
+  options: {
+    business_name?: string;
+    niche?: string;
+    knowledge_format?: ScanKnowledgeFormat;
+  } = {}
 ): Promise<FetchSiteScanResult> {
   const business_name = options.business_name;
   const niche = options.niche;
+  const knowledgeFormat: ScanKnowledgeFormat =
+    options.knowledge_format === "qa" ? "qa" : "traits";
   const normalized = normalizeWebsiteUrl(String(websiteUrl ?? ""));
   const safe = await assertSafePublicUrl(normalized);
   if (!safe.ok) {
@@ -883,7 +940,7 @@ ${thinContent ? 'אם התוכן דל/חלקי, בצע "educated guesses" סבי
 - directions: הנחיות הגעה/חניה/כניסה — העתק מדויק אם מופיע (או ריק).
 - customer_service_phone: מספר טלפון לשירות לקוחות/יצירת קשר — העתק בדיוק כפי שמופיע. אם יש רשימת "טלפונים גולמיים" למטה — העתק אחד מהם בדיוק.
 - schedule_booking_url: קישור https מלא למערכת שעות/הרשמה (Arbox, Mindbody, Acuity, Calendly וכו׳). אם יש רשימת "קישורים גולמיים" למטה — העתק אחד מהם בדיוק (עדיפות לראשון ברשימה אם זה ארבוקס/Mindbody).
-- business_traits: מערך של 3–8 ציטוטים קצרים מהאתר — כל פריט חייב להיות מקטע שמופיע במקור כמעט מילה במילה (עד משפט אחד). אל תסכם, אל תפרפרז, אל תתקן דקדוק. אם אין ציטוט מתאים — השאר מערך ריק.
+${buildKnowledgeScanPromptSection(knowledgeFormat)}
 
 חוקיות תיאור שירות (products[].description) — חובה:
 1) עדיפות למקור: חפש תחילה בקטעים שמסומנים "מקור (דף לו״ז / שיעורים)" ובטקסט ליד שם השירות (כותרת + פסקה). אחר כך דף הבית ושאר הגוף.
@@ -914,7 +971,7 @@ business_description: אותו תוכן כמו tagline או סיכום קצר מ
   "customer_service_phone": "",
   "schedule_booking_url": "",
   "business_description": "כמו tagline או ריק",
-  "business_traits": ["מאפיין קצר 1", "מאפיין קצר 2", "מאפיין קצר 3"],
+  ${buildKnowledgeScanJsonExample(knowledgeFormat)}
   "logo_url": "URL ללוגו או favicon אם קיים",
   "schedule_text": "שעות בפורמט: יום שני: ... \\nיום שלישי: ... (או ריק)",
   "age_range": "18-25 או 25-40 או 40-60 או 60+ או ריק",
@@ -958,13 +1015,17 @@ ${combinedSiteCorpus}`;
     console.warn("[fetch-site] Claude primary prompt failed:", e);
 
     // Compact fallback
+    const compactKnowledgeJson =
+      knowledgeFormat === "qa"
+        ? '"business_traits":[],"knowledge_qa":[{"question":"","answer":""}]'
+        : '"business_traits":[]';
     const compactPrompt = `החזר JSON בלבד. נתח בקצרה אתר עסקי.
 אתר: ${url}
 מטא: ${metaHints || "אין"}
 קישורי הזמנה מהדף: ${bookingCandidates.slice(0, 5).join(" | ") || "אין"}
 טקסט (מקוצר): ${combinedSiteCorpus.slice(0, 5600)}
 מבנה:
-{"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","flow_features":"","benefits":[],"benefit_suggestions":[]}]}`;
+{"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","customer_service_phone":"","${compactKnowledgeJson},"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","flow_features":"","benefits":[],"benefit_suggestions":[]}]}`;
     try {
       const fallbackResponse = await client.messages.create({
         model: CLAUDE_FETCH_SITE_MODEL,
@@ -982,42 +1043,54 @@ ${combinedSiteCorpus}`;
     const fallbackHost = (() => { try { return new URL(url).hostname; } catch { return ""; } })();
     const nicheGuess = guessNicheFromHost(fallbackHost);
     const nameGuess = guessBusinessNameFromMeta(metaHints, fallbackHost);
-    return { status: 200, body: {
-      niche: nicheGuess,
-      business_name: nameGuess,
-      tagline: metaHints || `עסק בתחום ${nicheGuess}.`,
-      address: "",
-      directions: "",
-      customer_service_phone: phoneCandidates[0] ?? "",
-      schedule_booking_url: bookingCandidates[0] ?? "",
-      business_description: metaHints || `עסק בתחום ${nicheGuess}.`,
-      business_traits: [] as string[],
-      logo_url: logoCandidate,
-      schedule_text: "",
-      age_range: "",
-      gender: "הכול",
-      products: [],
-      warning: "ai_generation_failed_fallback_used",
-      message: "לא הצלחנו לחלץ הכל אוטומטית, מילאנו נתונים בסיסיים מהאתר.",
-      details: String(lastError ?? ""),
-    } };
+    return {
+      status: 200,
+      body: withKnowledgeScanFields(
+        {
+          niche: nicheGuess,
+          business_name: nameGuess,
+          tagline: metaHints || `עסק בתחום ${nicheGuess}.`,
+          address: "",
+          directions: "",
+          customer_service_phone: phoneCandidates[0] ?? "",
+          schedule_booking_url: bookingCandidates[0] ?? "",
+          business_description: metaHints || `עסק בתחום ${nicheGuess}.`,
+          business_traits: [] as string[],
+          logo_url: logoCandidate,
+          schedule_text: "",
+          age_range: "",
+          gender: "הכול",
+          products: [],
+          warning: "ai_generation_failed_fallback_used",
+          message: "לא הצלחנו לחלץ הכל אוטומטית, מילאנו נתונים בסיסיים מהאתר.",
+          details: String(lastError ?? ""),
+        },
+        knowledgeFormat,
+        []
+      ),
+    };
   }
 
   const parsed = tryParseSiteJson(text);
   if (!parsed) {
-    return { status: 200, body: heuristicScanPayload({
-        url,
-        metaHints,
-        bookingCandidates,
-        logoCandidate,
-        rawAiText: text,
-      }) };
+    return {
+      status: 200,
+      body: withKnowledgeScanFields(
+        heuristicScanPayload({
+          url,
+          metaHints,
+          bookingCandidates,
+          logoCandidate,
+          rawAiText: text,
+        }),
+        knowledgeFormat,
+        []
+      ),
+    };
   }
 
   try {
-    const traitsRaw = Array.isArray(parsed.business_traits)
-      ? parsed.business_traits.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 12)
-      : [];
+    const { traitsRaw, knowledgeQaRaw } = parseScannedKnowledgeFields(parsed, knowledgeFormat);
     const hostForName = (() => {
       try {
         return new URL(url).hostname;
@@ -1064,39 +1137,53 @@ ${combinedSiteCorpus}`;
         : {}),
     }));
 
-    return { status: 200, body: {
-      niche: typeof parsed.niche === "string" ? parsed.niche : "",
-      business_name: businessName,
-      tagline: taglineStr,
-      address: typeof parsed.address === "string" ? parsed.address.trim() : "",
-      directions: typeof parsed.directions === "string" ? parsed.directions.trim() : "",
-      customer_service_phone: phone,
-      schedule_booking_url: scheduleUrl,
-      business_description:
-        typeof parsed.business_description === "string" && parsed.business_description.trim()
-          ? parsed.business_description.trim()
-          : taglineStr,
-      business_traits: traitsRaw,
-      logo_url:
-        typeof parsed.logo_url === "string" && parsed.logo_url.trim()
-          ? parsed.logo_url.trim()
-          : logoCandidate,
-      schedule_text: typeof parsed.schedule_text === "string" ? parsed.schedule_text : "",
-      age_range: typeof parsed.age_range === "string" ? parsed.age_range : "",
-      gender:
-        parsed.gender === "זכר" || parsed.gender === "נקבה" || parsed.gender === "הכול"
-          ? parsed.gender
-          : "הכול",
-      products: productsOut,
-    } };
+    return {
+      status: 200,
+      body: withKnowledgeScanFields(
+        {
+          niche: typeof parsed.niche === "string" ? parsed.niche : "",
+          business_name: businessName,
+          tagline: taglineStr,
+          address: typeof parsed.address === "string" ? parsed.address.trim() : "",
+          directions: typeof parsed.directions === "string" ? parsed.directions.trim() : "",
+          customer_service_phone: phone,
+          schedule_booking_url: scheduleUrl,
+          business_description:
+            typeof parsed.business_description === "string" && parsed.business_description.trim()
+              ? parsed.business_description.trim()
+              : taglineStr,
+          business_traits: traitsRaw,
+          logo_url:
+            typeof parsed.logo_url === "string" && parsed.logo_url.trim()
+              ? parsed.logo_url.trim()
+              : logoCandidate,
+          schedule_text: typeof parsed.schedule_text === "string" ? parsed.schedule_text : "",
+          age_range: typeof parsed.age_range === "string" ? parsed.age_range : "",
+          gender:
+            parsed.gender === "זכר" || parsed.gender === "נקבה" || parsed.gender === "הכול"
+              ? parsed.gender
+              : "הכול",
+          products: productsOut,
+        },
+        knowledgeFormat,
+        knowledgeQaRaw
+      ),
+    };
   } catch {
-    return { status: 200, body: heuristicScanPayload({
-        url,
-        metaHints,
-        bookingCandidates,
-        logoCandidate,
-        rawAiText: text,
-      }) };
+    return {
+      status: 200,
+      body: withKnowledgeScanFields(
+        heuristicScanPayload({
+          url,
+          metaHints,
+          bookingCandidates,
+          logoCandidate,
+          rawAiText: text,
+        }),
+        knowledgeFormat,
+        []
+      ),
+    };
   }
 }
 
