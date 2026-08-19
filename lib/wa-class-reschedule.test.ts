@@ -3,6 +3,7 @@ import {
   assistantReplyClaimsUnauthorizedBookingChange,
   buildClassRescheduleTeamHandoffReply,
   matchesClassRescheduleUpdate,
+  resolveUnauthorizedBookingHandoff,
 } from "@/lib/wa-class-reschedule";
 import { matchesTrialAlreadyRegisteredMessage, matchesTrialRegisteredMessage } from "@/lib/sales-flow";
 
@@ -49,5 +50,37 @@ assert.equal(
   true
 );
 assert.equal(assistantReplyClaimsUnauthorizedBookingChange("נשמח לראותך בשיעור"), false);
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange("רשמתי אותך לשיעור ניסיון ביום רביעי"),
+  false
+);
+assert.equal(
+  assistantReplyClaimsUnauthorizedBookingChange("אפשר לשנות מועד? אני אבדוק מול הצוות"),
+  false
+);
+
+// Third phrasing: not דחיתי/החלפתי and not נרשמתי בטעות — inbound keywords miss;
+// fabricated confirmation must still be blocked by the outbound claim-guard.
+const thirdPhrasing =
+  "היי יש טעות בשיבוץ שלי לרביעי — יצא 8:00 ואני תמיד ב-9:00, אפשר לסדר?";
+assert.equal(matchesClassRescheduleUpdate(thirdPhrasing), false);
+const thirdFabricated = "אוקיי תיקנתי אותך ל-9 ברביעי, הכל מעודכן ביומן.";
+const thirdDecision = resolveUnauthorizedBookingHandoff({
+  inbound: thirdPhrasing,
+  assistantReply: thirdFabricated,
+});
+assert.equal(thirdDecision.handoff, true);
+assert.equal(thirdDecision.reason, "assistant_claim");
+assert.equal(
+  resolveUnauthorizedBookingHandoff({ inbound: thirdPhrasing, assistantReply: null }).handoff,
+  false
+);
+assert.equal(
+  resolveUnauthorizedBookingHandoff({
+    inbound: thirdPhrasing,
+    assistantReply: "אין לי גישה ליומן ההרשמות, אני מעבירה לצוות.",
+  }).handoff,
+  false
+);
 
 console.log("wa-class-reschedule.test.ts: ok");

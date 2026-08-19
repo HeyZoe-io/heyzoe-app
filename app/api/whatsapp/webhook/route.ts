@@ -173,9 +173,9 @@ import {
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply } from "@/lib/sales-flow-start-triggers";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
-  assistantReplyClaimsUnauthorizedBookingChange,
   buildClassRescheduleTeamHandoffReply,
   matchesClassRescheduleUpdate,
+  resolveUnauthorizedBookingHandoff,
 } from "@/lib/wa-class-reschedule";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
@@ -5738,7 +5738,8 @@ async function processIncoming(
     return;
   }
 
-  // דחיית/החלפת שיעור — תודה + העברה לצוות (התראת «ביקש נציג»), לא ack של הרשמה לניסיון
+  // Known reschedule phrasings: skip Claude (API-cost optimization). Primary defense is
+  // the outbound claim-guard after any generated reply — new phrasings are expected to miss here.
   if (msg.type === "text" && businessId && knowledge && matchesClassRescheduleUpdate(msg.text.trim())) {
     try {
       const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -9418,10 +9419,16 @@ async function processIncoming(
     return;
   }
 
+  const unauthorizedBooking = resolveUnauthorizedBookingHandoff({
+    inbound: msg.type === "text" ? msg.text : "",
+    assistantReply: replyCoreClean,
+  });
+  // Primary defense: any generated free-text that claims a booking change is replaced.
+  // Independent of inbound classification. Keyword matching only skips Claude earlier.
   if (
     !isFallbackErrorReply &&
-    didCallClaude &&
-    assistantReplyClaimsUnauthorizedBookingChange(replyCoreClean) &&
+    !matched?.reply &&
+    unauthorizedBooking.reason === "assistant_claim" &&
     businessId &&
     knowledge
   ) {
@@ -9438,6 +9445,9 @@ async function processIncoming(
     } catch (e) {
       console.error("[WA Webhook] booking-change (claude) human_requested failed:", e);
     }
+    console.info(
+      `[WA Webhook] unauthorized booking handoff via ${unauthorizedBooking.reason} to ${msg.from}`
+    );
     const bookingHandoffTxt = buildClassRescheduleTeamHandoffReply(knowledge.botName);
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, bookingHandoffTxt, accountSid, authToken);
