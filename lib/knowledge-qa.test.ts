@@ -49,6 +49,10 @@ assert.ok(trialVariants.some((v) => /trial/i.test(v)));
 
 const introVariants = relatedPhrasingsForQuestion("אימון היכרות");
 assert.ok(introVariants.includes("אימון ניסיון"));
+assert.ok(introVariants.includes("אימון הכרות"));
+
+const hkTypoVariants = relatedPhrasingsForQuestion("אימון הכרות");
+assert.ok(hkTypoVariants.includes("אימון ניסיון"));
 
 const prompt = formatKnowledgeQaForPrompt([
   { question: "אימון ניסיון", answer: "עולה 50 ש״ח ונמשך שעה" },

@@ -27,7 +27,7 @@ const TOPIC_TERMS: Record<
 };
 
 const PROMO_TOPICS: { id: string; inbound: RegExp; promo: RegExp }[] = [
-  { id: "trial", inbound: /ניסיון|היכרות|\btrial\b|\bintro\b/iu, promo: /ניסיון|היכרות|\btrial\b|\bintro\b/iu },
+  { id: "trial", inbound: /ניסיון|נסיון|היכרות|הכרות|\btrial\b|\bintro\b/iu, promo: /ניסיון|נסיון|היכרות|הכרות|\btrial\b|\bintro\b/iu },
   { id: "membership", inbound: /מנוי|\bmembership\b|חודש/iu, promo: /מנוי|\bmembership\b|חודש/iu },
   { id: "punch", inbound: /כרטיסי[יה]|\bpunch\s*card\b/iu, promo: /כרטיסי[יה]|\bpunch\s*card\b/iu },
   { id: "private", inbound: /שיעור\s+פרטי|אימון\s+פרטי|\bprivate\b/iu, promo: /פרטי|\bprivate\b/iu },

@@ -15,6 +15,8 @@ const mustSkip: Case[] = [
   { text: "לא רוצה לענות על שאלות", phase: "warmup" },
   { text: "רק רוצה פרטים", phase: "warmup" },
   { text: "רוצה אימון ניסיון", phase: "opening" },
+  { text: "רוצה אימון היכרות", phase: "opening" },
+  { text: "רוצה אימון הכרות", phase: "warmup" },
   { text: "איך מתחילים?", phase: "warmup" },
 ];
 
