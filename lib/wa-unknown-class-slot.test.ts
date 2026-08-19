@@ -122,7 +122,31 @@ assert.equal(
   true
 );
 
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעורים בימי רביעי?",
+    services: [svc("אקרו יוגה", [{ day: "ב", time: "19:00" }])],
+  }),
+  true,
+  "generic Wednesday question — no catalog slots that day"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעורים בימי רביעי?",
+    services: [svc("אקרו יוגה", [{ day: "ד", time: "19:00" }])],
+  }),
+  false,
+  "generic Wednesday question — catalog has Wednesday"
+);
+
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
+assert.match(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY, /אין לי מידע מדויק/);
+assert.equal(
+  assistantReplyIsUnknownClassSlotHandoff("אין בעיה אני מעבירה את הבקשה לצוות"),
+  true,
+  "legacy short copy still detected so webhook can replace it"
+);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 
 console.log("wa-unknown-class-slot.test.ts: ok");
