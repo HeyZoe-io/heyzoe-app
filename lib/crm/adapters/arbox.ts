@@ -345,6 +345,7 @@ export async function submitArboxCrmEvent(input: {
   boxId: string;
   sourceId?: string | null;
   statusId?: string | null;
+  leadCreationEnabled?: boolean;
   phone: string;
   fullName?: string | null;
   noteText: string;
@@ -375,6 +376,9 @@ export async function submitArboxCrmEvent(input: {
     }
 
     if (!userId) {
+      if (input.leadCreationEnabled !== true) {
+        return { ok: true };
+      }
       const created = await createArboxLead({
         apiKey,
         locationId,

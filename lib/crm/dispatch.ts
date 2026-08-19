@@ -76,7 +76,9 @@ export async function dispatchCrmEvent(input: {
     const admin = createSupabaseAdminClient();
     const { data: business, error } = await admin
       .from("businesses")
-      .select("crm_type, crm_api_key, crm_box_id, crm_arbox_source_id, crm_arbox_status_id")
+      .select(
+        "crm_type, crm_api_key, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, arbox_lead_creation_enabled"
+      )
       .eq("id", businessId)
       .maybeSingle();
 
@@ -94,6 +96,8 @@ export async function dispatchCrmEvent(input: {
     const arboxStatusId = String(
       (business as { crm_arbox_status_id?: unknown } | null)?.crm_arbox_status_id ?? ""
     ).trim();
+    const arboxLeadCreationEnabled =
+      (business as { arbox_lead_creation_enabled?: unknown } | null)?.arbox_lead_creation_enabled === true;
     if (!crmType || !apiKey) return;
 
     const eventAtIso = String(input.eventAtIso ?? new Date().toISOString()).trim();
@@ -137,6 +141,7 @@ export async function dispatchCrmEvent(input: {
         boxId,
         sourceId: arboxSourceId || null,
         statusId: arboxStatusId || null,
+        leadCreationEnabled: arboxLeadCreationEnabled,
         phone: leadPhone,
         fullName,
         noteText,
