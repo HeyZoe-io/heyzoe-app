@@ -1,9 +1,9 @@
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
+import { normalizeSalesFlowGreetingToken } from "@/lib/sales-flow-start-triggers";
 import {
-  normalizeSalesFlowGreetingToken,
-  stripLeadingCasualGreeting,
-} from "@/lib/sales-flow-start-triggers";
-import { matchesComposableTrialSignupIntent } from "@/lib/wa-trial-signup-intent";
+  matchesComposableTrialSignupIntent,
+  normalizeTrialSignupIntentText,
+} from "@/lib/wa-trial-signup-intent";
 
 export type WarmupSkipPhase = "opening" | "warmup";
 
@@ -125,7 +125,7 @@ function matchesEnglishJoinSignup(t: string): boolean {
  * לא כולל שאלות מידע (מחיר/כתובת/שעות) ולא מלכודות «שאלה» / «פרטים אישיים».
  */
 export function isWarmupSkipIntentText(raw: string, phase: WarmupSkipPhase): boolean {
-  const t = normalizeWarmupSkipIntentText(raw);
+  const t = normalizeTrialSignupIntentText(raw);
   if (!t) return false;
   if (hasInfoQuestionBlock(t)) return false;
   if (hasQuestionsTrap(t)) return false;
@@ -144,8 +144,7 @@ export function isWarmupSkipIntentText(raw: string, phase: WarmupSkipPhase): boo
  * מורחב מקבוצה ג + ביטויים באנגלית + «איך מתחילים» (תאימות לאחור).
  */
 export function isJoinSignupIntentText(raw: string): boolean {
-  const normalized = normalizeWarmupSkipIntentText(raw);
-  const t = stripLeadingCasualGreeting(normalized);
+  const t = normalizeTrialSignupIntentText(raw);
   if (!t) return false;
   if (hasInfoQuestionBlock(t)) return false;
   if (hasQuestionsTrap(t)) return false;

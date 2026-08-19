@@ -4,6 +4,7 @@ import {
 } from "@/lib/sales-flow-start-triggers";
 import {
   matchesComposableTrialSignupIntent,
+  normalizeTrialSignupIntentText,
   TRIAL_NOUN,
 } from "@/lib/wa-trial-signup-intent";
 
@@ -36,9 +37,8 @@ export function matchesTrialTopicIntent(raw: string): boolean {
 
 /** Wants to start trial flow — skip warmup / open product pick (not pure price/info FAQ). */
 export function matchesTrialTopicAdvanceIntent(raw: string): boolean {
-  const normalized = normalizeTrialTopicText(raw);
-  const t = stripLeadingCasualGreeting(normalized);
-  if (!t || !matchesTrialTopicIntent(t)) return false;
+  const t = normalizeTrialSignupIntentText(raw);
+  if (!t || !matchesTrialTopicIntent(raw)) return false;
   if (/^(?:כמה|מה\s+המחיר|מה\s+עולה|עולה|מחיר)/u.test(t) && !/(?:רוצ|אשמח|נשמח|להירשם|להצטרף|לנסות)/u.test(t)) {
     return false;
   }

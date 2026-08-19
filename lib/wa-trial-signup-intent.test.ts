@@ -5,7 +5,6 @@ import {
 } from "@/lib/wa-trial-signup-intent";
 import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
 import { matchesTrialTopicAdvanceIntent, matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
-import { normalizeSalesFlowGreetingToken } from "@/lib/sales-flow-start-triggers";
 
 /** Document exported regex building blocks (for review / PR). */
 assert.ok(TRIAL_SIGNUP_REGEX_SUMMARY.TRIAL_NOUN.includes("ני?סיון"));
@@ -28,6 +27,30 @@ assert.equal(isWarmupSkipIntentText("כמה עולה שיעור ניסיון?", 
 assert.equal(isJoinSignupIntentText("כמה עולה שיעור ניסיון?"), false);
 assert.equal(matchesTrialTopicAdvanceIntent("כמה עולה שיעור ניסיון?"), false);
 assert.equal(matchesTrialTopicIntent("כמה עולה שיעור ניסיון?"), true);
+
+/** Case 2 — wrapped phrasing (greeting / emoji / trailing polite word). */
+const wrappedSignup = [
+  "היי, אשמח לשיעור ניסיון",
+  "היי אשמח לשיעור ניסיון 🙏",
+  "שלום, רוצה שיעור ניסיון בבקשה",
+  "היי, יש אימון ניסיון?",
+];
+for (const phrase of wrappedSignup) {
+  assert.equal(matchesComposableTrialSignupIntent(phrase), true, `wrapped composable: ${phrase}`);
+  assert.equal(isWarmupSkipIntentText(phrase, "warmup"), true, `wrapped warmup: ${phrase}`);
+  assert.equal(isJoinSignupIntentText(phrase), true, `wrapped join: ${phrase}`);
+}
+
+/** Wrapped negatives — info/price must stay false. */
+const wrappedNegatives = [
+  "היי, מה זה אימון היכרות?",
+  "היי כמה עולה שיעור ניסיון?",
+];
+for (const phrase of wrappedNegatives) {
+  assert.equal(matchesComposableTrialSignupIntent(phrase), false, `wrapped neg composable: ${phrase}`);
+  assert.equal(isWarmupSkipIntentText(phrase, "warmup"), false, `wrapped neg warmup: ${phrase}`);
+  assert.equal(isJoinSignupIntentText(phrase), false, `wrapped neg join: ${phrase}`);
+}
 
 /** Case 2 + approved phrasing list — desire cue + trial noun → signup path. */
 const mustSignup = [
@@ -54,8 +77,7 @@ const mustSignup = [
   "יש שיעור ניסיון",
 ];
 for (const phrase of mustSignup) {
-  const t = normalizeSalesFlowGreetingToken(phrase);
-  assert.equal(matchesComposableTrialSignupIntent(t), true, `composable: ${phrase}`);
+  assert.equal(matchesComposableTrialSignupIntent(phrase), true, `composable: ${phrase}`);
   assert.equal(
     isWarmupSkipIntentText(phrase, "warmup") || isJoinSignupIntentText(phrase),
     true,
