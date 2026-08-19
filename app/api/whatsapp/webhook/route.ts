@@ -182,10 +182,7 @@ import {
   detectClosedPlaybookIntent,
   resolveClosedPlaybook,
 } from "@/lib/wa-closed-playbook";
-import {
-  matchesOptOutKeyword,
-  shouldBypassOptOutForClosedPlaybook,
-} from "@/lib/wa-opt-out-match";
+import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
@@ -475,36 +472,6 @@ async function claimMessageForProcessing(messageId: string): Promise<boolean> {
 
 function waNormLabel(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-async function classifyOptOutWithClaude(input: { apiKey: string; text: string }): Promise<boolean> {
-  const apiKey = input.apiKey.trim();
-  const text = input.text.trim();
-  if (!apiKey || !text) return false;
-  if (text.length > 800) return false;
-  try {
-    const anthropic = new Anthropic({ apiKey });
-    const resp = await anthropic.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 12,
-      temperature: 0,
-      messages: [
-        {
-          role: "user",
-          content: `האם המשפט הבא מביע רצון להפסיק לקבל הודעות (הסרה מרשימת דיוור) — ולא רק שאינו מעוניין בשירות?\nענה רק "כן" או "לא".\nמשפט: "${text}"`,
-        },
-      ],
-    });
-    const out = (resp.content ?? [])
-      .map((c) => ("text" in c ? String((c as any).text ?? "") : ""))
-      .join("\n")
-      .trim()
-      .toLowerCase();
-    return out.startsWith("כן");
-  } catch (e) {
-    console.warn("[WA Webhook] opt-out Claude classify failed (continuing):", e);
-    return false;
-  }
 }
 
 /** פלואו מכירה התחיל רק אחרי ברכת טריגר («אשמח לפרטים» / «בואו נתחיל») — לא משאלה פתוחה / default_opening בטעות. */
@@ -5239,14 +5206,11 @@ async function processIncoming(
     "yes",
   ];
 
-  let optedInThisMessage = false;
   const earlySessionId = buildWaSessionId(msg.toNumber, msg.from);
   const optOutPhoneVariants = (() => {
     const variants = contactPhoneLookupVariants(msg.from);
     return variants.length ? variants : [String(msg.from ?? "").trim()].filter(Boolean);
   })();
-  const bypassOptOutForPlaybook =
-    msg.type === "text" && shouldBypassOptOutForClosedPlaybook(incomingTextRaw);
 
   async function markContactOptedOut(): Promise<"error" | "claimed" | "already"> {
     if (!businessId) return "claimed";
@@ -5271,8 +5235,9 @@ async function processIncoming(
     return markedOut?.length ? "claimed" : "already";
   }
 
-  async function finishOptOutAndStop(source: "keyword" | "claude"): Promise<void> {
-    if (msg.type === "text" && !processOpts?.skipUserLog) {
+  // Opt-out: only the three explicit phrases. Everything else continues to Zoe.
+  if (msg.type === "text" && matchesOptOutKeyword(incomingTextRaw)) {
+    if (!processOpts?.skipUserLog) {
       await logMessage({
         business_slug,
         role: "user",
@@ -5294,42 +5259,8 @@ async function processIncoming(
       console.info("[WA Webhook] opt-out already marked — skip duplicate reply", {
         business_slug,
         phone: msg.from,
-        source,
       });
     }
-  }
-
-  // OPT-OUT (Claude) — skipped for Meta menu/button picks, closed-playbook (e.g. «איך מבטלים מנוי»).
-  let preLockOptOutClaudePositive = false;
-  if (!isMetaInteractiveMenuReply(msg) && msg.type === "text" && !bypassOptOutForPlaybook) {
-    const optOutClaudeEligible =
-      !optedInThisMessage &&
-      Boolean(businessId) &&
-      incomingText.length >= 3 &&
-      incomingText.length <= 300 &&
-      !matchesTrialRegisteredMessage(incomingTextRaw) &&
-      !matchesNotRelevantKeyword(incomingTextRaw);
-
-    if (optOutClaudeEligible) {
-      const apiKey = resolveClaudeApiKey();
-      if (apiKey) {
-        preLockOptOutClaudePositive = await classifyOptOutWithClaude({
-          apiKey,
-          text: incomingTextRaw,
-        });
-      }
-    }
-  }
-
-  // 2) OPT-OUT DETECTION (only for text)
-  if (msg.type === "text" && !bypassOptOutForPlaybook && matchesOptOutKeyword(incomingTextRaw)) {
-    await finishOptOutAndStop("keyword");
-    return;
-  }
-
-  // 2.1) OPT-OUT (Claude) — applied after keyword check (classifiers may have run in parallel above).
-  if (preLockOptOutClaudePositive && msg.type === "text" && businessId) {
-    await finishOptOutAndStop("claude");
     return;
   }
 
@@ -5361,7 +5292,6 @@ async function processIncoming(
     }
     // Continue to Zoe normally (don't early-return)
     contactOptedOut = false;
-    optedInThisMessage = true;
   }
 
   // 1) If currently opted out, do not pass to Zoe (or any automated flow)

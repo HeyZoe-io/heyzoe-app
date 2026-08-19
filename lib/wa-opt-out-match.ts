@@ -1,49 +1,24 @@
-import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook";
-
-/** מילות הסרה מרשימת דיוור — לא ביטול מנוי בסטודיו. */
-export const WA_OPT_OUT_KEYWORDS = [
+/** הסרה מדיוור — רק הניסוחים האלה, כהודעה שלמה. */
+export const WA_OPT_OUT_PHRASES = [
+  "לא לשלוח לי יותר הודעות",
   "הסר",
-  "הסרה",
-  "הפסק",
-  "בטל",
-  "לא רוצה",
-  "עצור",
-  "stop",
-  "unsubscribe",
-  "remove",
-  "cancel",
-  "opt out",
-  "optout",
+  "להסיר אותי",
 ] as const;
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * מילת מפתח כמילה עצמאית (לא בתוך «מבטלים» / «cancellation»).
- * ביטויים עם רווח נשארים substring, כמו «לא רוצה» / «opt out».
- */
-export function matchesOptOutKeyword(raw: string): boolean {
-  const h = String(raw ?? "")
+function normalizeOptOutText(raw: string): string {
+  return String(raw ?? "")
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/[\u0591-\u05c7]/g, "")
+    .replace(/[""״׳']/g, "")
+    .replace(/[?!.,;:~…]+/g, " ")
+    .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  if (!h) return false;
-  for (const keyword of WA_OPT_OUT_KEYWORDS) {
-    const needle = keyword.toLowerCase();
-    if (!needle) continue;
-    if (needle.includes(" ")) {
-      if (h === needle || h.includes(needle)) return true;
-      continue;
-    }
-    if (h === needle) return true;
-    const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(needle)}(?:$|[^\\p{L}\\p{N}])`, "u");
-    if (re.test(h)) return true;
-  }
-  return false;
 }
 
-/** שאלת ביטול/הקפאה וכו׳ — לפלייבוק הסגור, לא להסרה מדיוור. */
-export function shouldBypassOptOutForClosedPlaybook(raw: string): boolean {
-  return detectClosedPlaybookIntent(raw) != null;
+/** true רק אם כל ההודעה היא אחד משלושת ניסוחי ההסרה. */
+export function matchesOptOutKeyword(raw: string): boolean {
+  const h = normalizeOptOutText(raw);
+  if (!h) return false;
+  return WA_OPT_OUT_PHRASES.some((phrase) => h === phrase);
 }
