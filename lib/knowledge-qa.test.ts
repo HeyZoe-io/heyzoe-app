@@ -12,8 +12,8 @@ import {
 assert.equal(usesKnowledgeQaDashboard("acrobyjoe"), true);
 assert.equal(usesKnowledgeQaDashboard("new-studio"), true);
 assert.equal(usesKnowledgeQaDashboard(""), true);
-assert.equal(usesKnowledgeQaDashboard("limitless"), false);
-assert.equal(usesKnowledgeQaDashboard("Limitless"), false);
+assert.equal(usesKnowledgeQaDashboard("limitless"), true);
+assert.equal(usesKnowledgeQaDashboard("Limitless"), true);
 assert.equal(usesKnowledgeQaDashboard("info-2815"), false);
 
 assert.deepEqual(parseKnowledgeQa([{ question: " אימון ניסיון ", answer: " 50 ש״ח " }]), [
@@ -55,7 +55,8 @@ const prompt = formatKnowledgeQaForPrompt([
   { question: "", answer: "הסטודיו גדול ומרווח" },
 ]);
 assert.match(prompt, /שאלה\/נושא \(מתי להשתמש\): אימון ניסיון/);
-assert.match(prompt, /תשובה לליד \(מה להגיד\): עולה 50 ש״ח ונמשך שעה/);
+assert.match(prompt, /תשובה בתיבה/);
+assert.match(prompt, /עולה 50 ש״ח ונמשך שעה/);
 assert.match(prompt, /אימון היכרות/);
 assert.match(prompt, /עובדה כללית/);
 assert.match(prompt, /הסטודיו גדול ומרווח/);
