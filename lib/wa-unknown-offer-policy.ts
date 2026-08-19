@@ -1,6 +1,7 @@
 /** חריג לחבילת היכרות שאין עליו תשובה במוצרים/עובדות — לא מנחשים כן/לא. */
-export const UNKNOWN_OFFER_POLICY_HANDOFF_REPLY =
-  "אני לא בטוחה לגבי זה, אני מעבירה את הבקשה לצוות";
+import { ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY } from "@/lib/wa-unknown-knowledge-handoff";
+
+export const UNKNOWN_OFFER_POLICY_HANDOFF_REPLY = ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY;
 
 export const UNKNOWN_OFFER_POLICY_HANDOFF_MODEL = "unknown_offer_policy_team_handoff";
 

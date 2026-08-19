@@ -1,8 +1,12 @@
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import type { WaSchedulePickSlot } from "@/lib/product-schedule-slots";
+import {
+  ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+  assistantReplyIsUnknownKnowledgeHandoff,
+} from "@/lib/wa-unknown-knowledge-handoff";
 
 /** כשאין מועד בידע — לא ממציאים שעה; מעבירים לצוות. */
-export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = "אין בעיה אני מעבירה את הבקשה לצוות";
+export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY;
 
 export const UNKNOWN_CLASS_SLOT_HANDOFF_MODEL = "unknown_class_slot_team_handoff";
 
@@ -144,8 +148,21 @@ export function matchCatalogServiceFromFreeText(
 }
 
 export function assistantReplyIsUnknownClassSlotHandoff(text: string): boolean {
-  const t = String(text ?? "").replace(/\s+/g, " ").trim();
-  return t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY || t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY);
+  return assistantReplyIsUnknownKnowledgeHandoff(text);
+}
+
+function isGenericDayScheduleQuestion(input: {
+  matchedName: string | null;
+  days: DayLetter[];
+  timeQuestion: boolean;
+  text: string;
+}): boolean {
+  return (
+    !input.matchedName &&
+    input.days.length > 0 &&
+    input.timeQuestion &&
+    !looksLikeNamedClass(input.text)
+  );
 }
 
 export function shouldHandoffUnknownClassSlot(input: {
@@ -166,12 +183,12 @@ export function shouldHandoffUnknownClassSlot(input: {
   const times = parseRequestedTimes(text);
   const matchedName = matchCatalogServiceFromFreeText(text, input.services);
   const committed = String(input.committedServiceName ?? "").trim();
-  const serviceName = matchedName || committed;
+  const timeQuestion = looksLikeClassTimeQuestion(text);
+  const genericDayQ = isGenericDayScheduleQuestion({ matchedName, days, timeQuestion, text });
+  const serviceName = matchedName || (genericDayQ ? "" : committed);
   const service = serviceName
     ? input.services.find((s) => s.name === serviceName) ?? null
     : null;
-
-  const timeQuestion = looksLikeClassTimeQuestion(text);
 
   if (service && days.length) {
     for (const day of days) {
