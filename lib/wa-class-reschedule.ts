@@ -2,7 +2,8 @@ const HE_WEEKDAY =
   String.raw`(?:יום\s+)?(?:א['׳]|ב['׳]|ג['׳]|ד['׳]|ה['׳]|ו['׳]|ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)`;
 
 /**
- * Inbound skip-Claude optimization only — not the primary defense.
+ * Inbound skip-Claude optimization for class postpone/swap/wrong-time — not the primary defense.
+ * Registration/membership cancellation lives in `matchCancellationPlaybook` (closed playbook).
  * New customer phrasings will miss this on purpose; the outbound claim-guard
  * (`assistantReplyClaimsUnauthorizedBookingChange`) is what must catch fabricated confirmations.
  */
@@ -23,11 +24,6 @@ export function matchesClassRescheduleUpdate(raw: string): boolean {
     /(?:נרשמ(?:תי|נו|ת)|רשומ(?:ה|ים|ות)|רשום(?:ה)?).{0,80}(?:בטעות|במקום)/u.test(t) ||
     /(?:בטעות|במקום).{0,80}(?:נרשמ(?:תי|נו|ת)|רשומ(?:ה|ים|ות)|רשום(?:ה)?)/u.test(t) ||
     /(?:שעה|מועד).{0,24}(?:לא\s+נכון|הלא\s+נכון|הלא\s+נכונה)/u.test(t);
-  const cancelRegistration =
-    /לבטל.{0,32}את\s+ההרשמ/u.test(t) ||
-    /תבטל(?:י|ו)?\s+(?:לי\s+)?את\s+ההרשמ/u.test(t) ||
-    /בטל(?:י|ו)\s+(?:לי\s+)?את\s+ההרשמ/u.test(t) ||
-    /\bcancel\s+(my\s+)?(registration|booking|class|spot|lesson)\b/i.test(n);
   const english =
     /\b(i\s+)?(postponed|rescheduled|moved)\b.{0,40}\b(class|session|lesson|it)\b/i.test(n) ||
     /\bchanged\s+(my\s+)?(class|session|lesson|time|day)\b/i.test(n) ||
@@ -35,7 +31,7 @@ export function matchesClassRescheduleUpdate(raw: string): boolean {
     /\bsigned\s+up\s+(at|for|to)\s+the\s+wrong\b/i.test(n) ||
     /\bby\s+mistake\b.{0,40}\b(registered|signed\s+up|class|time)\b/i.test(n);
 
-  return hebrewPostpone || hebrewSignedForDay || wrongTimeOrMistake || cancelRegistration || english;
+  return hebrewPostpone || hebrewSignedForDay || wrongTimeOrMistake || english;
 }
 
 export function buildClassRescheduleTeamHandoffReply(botName: string): string {

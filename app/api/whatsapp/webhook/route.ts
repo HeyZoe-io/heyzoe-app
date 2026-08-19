@@ -175,9 +175,12 @@ import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGre
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
   buildClassRescheduleTeamHandoffReply,
-  matchesClassRescheduleUpdate,
   resolveUnauthorizedBookingHandoff,
 } from "@/lib/wa-class-reschedule";
+import {
+  detectClosedPlaybookIntent,
+  resolveClosedPlaybook,
+} from "@/lib/wa-closed-playbook";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
@@ -5472,7 +5475,10 @@ async function processIncoming(
 
   if (msg.type === "text" && businessId) {
     try {
-      if (userRequestedHumanAgent(msg.text)) {
+      if (
+        !detectClosedPlaybookIntent(msg.text) &&
+        userRequestedHumanAgent(msg.text)
+      ) {
         const { handleLeadHumanRequested } = await import("@/lib/human-requested");
         await handleLeadHumanRequested({
           supabase,
@@ -5743,54 +5749,7 @@ async function processIncoming(
       console.error("[WA Webhook] human_requested reactivate failed:", e);
     }
   }
-  if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
-    if (knowledge?.salesFlowConfig) {
-      await trySendSalesFlowHumanAgentHandoff({
-        inboundText: msg.text.trim(),
-        knowledge,
-        msg,
-        accountSid,
-        authToken,
-        business_slug,
-        sessionId,
-      });
-    }
-    return;
-  }
-
-  // Known reschedule phrasings: skip Claude (API-cost optimization). Primary defense is
-  // the outbound claim-guard after any generated reply — new phrasings are expected to miss here.
-  if (msg.type === "text" && businessId && knowledge && matchesClassRescheduleUpdate(msg.text.trim())) {
-    try {
-      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-      await handleLeadHumanRequested({
-        supabase,
-        businessId: Number(businessId),
-        businessSlug: business_slug,
-        phone: msg.from,
-        nowIso,
-        sessionId,
-      });
-    } catch (e) {
-      console.error("[WA Webhook] class-reschedule human_requested failed:", e);
-    }
-    const handoffTxt = buildClassRescheduleTeamHandoffReply(knowledge.botName);
-    try {
-      await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
-    } catch (e) {
-      console.error("[WA Webhook] Send class-reschedule team handoff failed:", e);
-    }
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: handoffTxt,
-      model_used: "class_reschedule_team_handoff",
-      session_id: sessionId,
-    });
-    return;
-  }
-
-  // הקפאה/חיוב על מנוי קיים — קצר + התראת נציג, בלי הזדהות ובלי לנחש
+  // הקפאה/חיוב על מנוי קיים — לפני closed-playbook כדי שלא ייחשב כבקשת הקפאה כללית
   if (msg.type === "text" && businessId && isFreezeBillingAccountDispute(msg.text)) {
     try {
       const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -5823,6 +5782,61 @@ async function processIncoming(
       model_used: FREEZE_BILLING_HANDOFF_MODEL,
       session_id: sessionId,
     });
+    return;
+  }
+
+  // Closed playbook: intents Zoe cannot execute. Facts-first where required; else fixed copy.
+  // Notify flag comes from resolveClosedPlaybook — do not special-case categories here.
+  if (msg.type === "text" && businessId && knowledge) {
+    const playbook = resolveClosedPlaybook({ inbound: msg.text.trim(), knowledge });
+    if (playbook) {
+      if (playbook.notifyHumanRequested) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error(
+            `[WA Webhook] closed-playbook ${playbook.category} human_requested failed:`,
+            e
+          );
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, playbook.reply, accountSid, authToken);
+      } catch (e) {
+        console.error(`[WA Webhook] Send closed-playbook ${playbook.category} failed:`, e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: playbook.reply,
+        model_used: playbook.modelUsed,
+        session_id: sessionId,
+      });
+      return;
+    }
+  }
+
+  // בקשת נציג כללית — אחרי coach/owner playbook כדי לא לדרוס «תעבירי למאמנת»
+  if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
+    if (knowledge?.salesFlowConfig) {
+      await trySendSalesFlowHumanAgentHandoff({
+        inboundText: msg.text.trim(),
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+      });
+    }
     return;
   }
 

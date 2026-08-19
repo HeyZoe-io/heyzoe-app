@@ -33,8 +33,8 @@ assert.equal(matchesClassRescheduleUpdate("I signed up for the wrong time by mis
 
 assert.equal(matchesClassRescheduleUpdate("אפשר לדחות שיעור?"), false);
 assert.equal(matchesClassRescheduleUpdate("מה מדיניות הביטול"), false);
-assert.equal(matchesClassRescheduleUpdate("אני רוצה לבטל את ההרשמה שלי"), true);
-assert.equal(matchesClassRescheduleUpdate("תבטלי לי את ההרשמה"), true);
+assert.equal(matchesClassRescheduleUpdate("אני רוצה לבטל את ההרשמה שלי"), false);
+assert.equal(matchesClassRescheduleUpdate("תבטלי לי את ההרשמה"), false);
 
 assert.equal(
   buildClassRescheduleTeamHandoffReply("לימי"),

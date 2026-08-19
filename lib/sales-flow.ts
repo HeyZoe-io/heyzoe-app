@@ -16,6 +16,7 @@ import {
 } from "@/lib/product-description-template";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
 import { matchesClassRescheduleUpdate } from "@/lib/wa-class-reschedule";
+import { matchCancellationPlaybook } from "@/lib/wa-closed-playbook-intents";
 import { stripUnresolvedLeadPlaceholders } from "@/lib/zoe-text";
 
 export type SalesFlowExtraStep = {
@@ -3005,6 +3006,7 @@ export function matchesTrialAlreadyRegisteredMessage(raw: string): boolean {
   const t = normalizeTrialRegisteredText(raw);
   if (!t) return false;
   if (matchesClassRescheduleUpdate(raw)) return false;
+  if (matchCancellationPlaybook(raw)) return false;
   return (
     /\b(?:i\s+)?already\s+(?:registered|signed\s+up)\b/.test(t) ||
     /\bi\s+(?:registered|signed\s+up)\b/.test(t) ||
