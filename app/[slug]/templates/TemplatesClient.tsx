@@ -350,13 +350,16 @@ export default function TemplatesClient({
     return approvedTemplates;
   }, [approvedTemplates, newTriggerType, templates]);
 
+  const hasExistingArboxNewLead = useMemo(
+    () => triggers.some((t) => t.trigger_type === "arbox_new_lead"),
+    [triggers]
+  );
+
   const creatableTriggerOptions = useMemo(() => {
     const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
-    const hasArboxNewLead = triggers.some((t) => t.trigger_type === "arbox_new_lead");
     return TRIGGER_TYPE_OPTIONS.filter((opt) => {
       if (!isCreatableTriggerType(opt.value, hasArbox)) return false;
       if (opt.value === "incoming_lead" && hasIncomingLead) return false;
-      if (opt.value === "arbox_new_lead" && hasArboxNewLead) return false;
       return true;
     });
   }, [hasArbox, triggers]);
@@ -1290,6 +1293,11 @@ export default function TemplatesClient({
                 </option>
               ))}
             </select>
+            {newTriggerType === "arbox_new_lead" && hasExistingArboxNewLead ? (
+              <p className="text-xs text-amber-800">
+                כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים ברשימה למעלה במקום ליצור עוד אחד.
+              </p>
+            ) : null}
           </div>
 
           {showNewProductFilter ? (
