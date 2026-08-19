@@ -2,7 +2,8 @@ import type { SfServiceRow } from "@/lib/sf-service-rows";
 import type { WaSchedulePickSlot } from "@/lib/product-schedule-slots";
 
 /** כשאין מועד בידע — לא ממציאים שעה; מעבירים לצוות. */
-export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = "אין בעיה אני מעבירה את הבקשה לצוות";
+export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY =
+  "אין לי מידע מדויק לגבי זה, אבל אני מעבירה את הבקשה לצוות שידברו איתך, סבבה?";
 
 export const UNKNOWN_CLASS_SLOT_HANDOFF_MODEL = "unknown_class_slot_team_handoff";
 
