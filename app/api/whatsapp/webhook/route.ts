@@ -258,6 +258,7 @@ import {
   isWarmupSkipIntentText,
   shouldStartSalesFlowFromOutOfFlowSignup,
   SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+  type WarmupSkipPhase,
 } from "@/lib/wa-warmup-skip-intent";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
@@ -638,6 +639,13 @@ function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
 
 type JoinSignupRecoveryAction = "none" | "service_pick" | "cta_menu";
 
+/** joinSignupRecovery runs post-warmup only — opening/warmup use isWarmupSkipIntentText. */
+const JOIN_SIGNUP_RECOVERY_BLOCKED_PHASES = new Set<HeyzoeSessionPhase>([
+  "opening",
+  "warmup",
+  "registered",
+]);
+
 async function resolveJoinSignupRecoveryAction(input: {
   business_slug: string;
   session_id: string;
@@ -648,22 +656,18 @@ async function resolveJoinSignupRecoveryAction(input: {
   lastPickedServiceName: string | null;
 }): Promise<JoinSignupRecoveryAction> {
   if (!input.isJoinSignupIntent || !input.isFreeTextSalesFlowAi) return "none";
-  if (input.phase === "registered") return "none";
-  if (SALES_FLOW_DETERMINISTIC_PHASES.has(input.phase)) return "none";
-
-  const lastModel = await fetchLastAssistantModelUsed({
-    business_slug: input.business_slug,
-    session_id: input.session_id,
-  });
-  const driftedToAi = isAiFreeTextAssistantModel(lastModel);
-
-  if (!driftedToAi && input.phase !== "cta") return "none";
+  if (JOIN_SIGNUP_RECOVERY_BLOCKED_PHASES.has(input.phase)) return "none";
 
   if (input.multiService && !input.lastPickedServiceName?.trim()) {
     return "service_pick";
   }
 
   if (input.phase !== "cta") return "none";
+
+  const lastModel = await fetchLastAssistantModelUsed({
+    business_slug: input.business_slug,
+    session_id: input.session_id,
+  });
   if (lastModel && CTA_MENU_SENT_MODELS.has(lastModel)) return "none";
 
   return "cta_menu";
@@ -5818,6 +5822,7 @@ async function processIncoming(
   }
 
   // Trial / intro training («אימון היכרות», «אימון הכרות», «אימוני ניסיון») — verbatim Q&A when configured, then product pick.
+  // In-flow opening/warmup: info-only trial questions fall through to Claude + warmup resend; signup/advance skips ahead.
   if (
     msg.type === "text" &&
     businessId &&
@@ -5828,11 +5833,15 @@ async function processIncoming(
     !detectClosedPlaybookIntent(msg.text)
   ) {
     const salesFlowStartedForTrial = await sessionHasSalesFlowGreeting(business_slug, sessionId);
-    const advanceTrial =
+    const inOpeningOrWarmup =
+      contactSessionPhase === "opening" || contactSessionPhase === "warmup";
+    const warmupSkipPhase: WarmupSkipPhase =
+      contactSessionPhase === "warmup" ? "warmup" : "opening";
+    const wantsTrialAdvance =
       matchesTrialTopicAdvanceIntent(msg.text) ||
-      !salesFlowStartedForTrial ||
-      contactSessionPhase === "opening" ||
-      contactSessionPhase === "warmup";
+      (inOpeningOrWarmup && isWarmupSkipIntentText(msg.text, warmupSkipPhase));
+    if (!(salesFlowStartedForTrial && inOpeningOrWarmup && !wantsTrialAdvance)) {
+      const advanceTrial = wantsTrialAdvance || !salesFlowStartedForTrial;
     const qaPair = lookupKnowledgeQaAnswerForInbound(knowledge.knowledgeQa, msg.text);
     const qaReply = qaPair ? leadFacingFactText(qaPair.answer).trim() : "";
 
@@ -5885,12 +5894,10 @@ async function processIncoming(
       }
       return;
     }
+    }
   }
 
-  // Closed playbook: intents Zoe cannot execute. Facts-first / catalog-product where required; else fixed copy.
-  // Notify flag comes from resolveClosedPlaybook — do not special-case categories here.
-  // source === "catalog" (2+ products): re-send product pick so the lead can choose the matching
-  // catalog item — do not auto-CTA, and do not use the generic «אימון אחר» reopen-menu copy.
+  // Closed playbook:
   if (msg.type === "text" && businessId && knowledge) {
     const playbook = resolveClosedPlaybook({ inbound: msg.text.trim(), knowledge });
     if (playbook) {

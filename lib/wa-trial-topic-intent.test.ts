@@ -14,7 +14,7 @@ assert.equal(matchesTrialTopicIntent("אפשר אימון ניסיון?"), true)
 assert.equal(matchesTrialTopicIntent("כמה עולה השיעור?"), false);
 
 assert.equal(matchesTrialTopicAdvanceIntent("רוצה אימון הכרות"), true);
-assert.equal(matchesTrialTopicAdvanceIntent("מה זה אימון היכרות"), true);
+assert.equal(matchesTrialTopicAdvanceIntent("מה זה אימון היכרות"), false);
 assert.equal(matchesTrialTopicAdvanceIntent("כמה עולה אימון היכרות"), false);
 
 assert.equal(isWarmupSkipIntentText("רוצה אימון היכרות", "opening"), true);

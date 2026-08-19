@@ -2,6 +2,10 @@ import {
   normalizeSalesFlowGreetingToken,
   stripLeadingCasualGreeting,
 } from "@/lib/sales-flow-start-triggers";
+import {
+  matchesComposableTrialSignupIntent,
+  TRIAL_NOUN,
+} from "@/lib/wa-trial-signup-intent";
 
 function normalizeTrialTopicText(raw: string): string {
   return normalizeSalesFlowGreetingToken(raw);
@@ -11,8 +15,7 @@ function normalizeTrialTopicText(raw: string): string {
 const TRIAL_TOPIC_MARKERS =
   /(?:ניסיון|נסיון|היכרות|הכרות|\btrial\b|\bintro\b|taster|first\s+class)/iu;
 
-const TRIAL_CLASS_PHRASE =
-  /(?:אימון|שיעור|אימוני|שיעורי|class).{0,16}(?:ניסיון|נסיון|היכרות|הכרות)/u;
+const TRIAL_CLASS_PHRASE = new RegExp(String.raw`${TRIAL_NOUN}`, "u");
 
 /** Lead asks about or wants trial / intro training — incl. «אימון הכרות» typo. */
 export function matchesTrialTopicIntent(raw: string): boolean {
@@ -27,13 +30,11 @@ export function matchesTrialTopicIntent(raw: string): boolean {
   if (/(?:מה|איך|כמה|יש|אפשר|ספר(?:י|ו)?|מידע|פרטים).{0,48}(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) {
     return true;
   }
-  if (/(?:רוצ(?:ה|ים|ה)|מעוניין|מעוניינת|אשמח|נשמח).{0,32}(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) {
-    return true;
-  }
+  if (matchesComposableTrialSignupIntent(t)) return true;
   return false;
 }
 
-/** Wants to start trial flow — skip warmup / open product pick (not pure price FAQ). */
+/** Wants to start trial flow — skip warmup / open product pick (not pure price/info FAQ). */
 export function matchesTrialTopicAdvanceIntent(raw: string): boolean {
   const normalized = normalizeTrialTopicText(raw);
   const t = stripLeadingCasualGreeting(normalized);
@@ -41,16 +42,16 @@ export function matchesTrialTopicAdvanceIntent(raw: string): boolean {
   if (/^(?:כמה|מה\s+המחיר|מה\s+עולה|עולה|מחיר)/u.test(t) && !/(?:רוצ|אשמח|נשמח|להירשם|להצטרף|לנסות)/u.test(t)) {
     return false;
   }
+  if (/^(?:מה|איך)\s+(?:זה|עובד|כולל)/u.test(t)) return false;
+  if (matchesComposableTrialSignupIntent(t)) return true;
   if (
-    /(?:רוצ(?:ה|ים|ה)|מעוניין|מעוניינת|אשמח|נשמח|אפשר|בוא(?:י|ו)?\s+נ).{0,40}(?:ניסיון|נסיון|היכרות|הכרות|להירשם|להצטרף|לנסות)/u.test(
+    /^(?:רוצ(?:ה|ים|ה)|אשמח|נשמח|אפשר)\s+(?:אימון|שיעור)\s*(?:ה)?(?:ני?סיון|(?:ה)?(?:י?כרות))/u.test(
       t
     )
   ) {
     return true;
   }
-  if (/^(?:רוצ(?:ה|ים|ה)|אשמח|נשמח)\s+(?:אימון|שיעור)/u.test(t)) return true;
   if (/^(?:איך|איפה)\s+(?:נרשמ|מצטרפ|קונים|רוכשים)/u.test(t)) return true;
-  if (/^(?:איך|מה)\s+(?:זה|עובד|כולל)/u.test(t) && TRIAL_TOPIC_MARKERS.test(t)) return true;
   if (/^(?:יש|אפשר)\s+(?:אימון|שיעור)/u.test(t)) return true;
   return false;
 }

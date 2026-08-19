@@ -3,6 +3,7 @@ import {
   normalizeSalesFlowGreetingToken,
   stripLeadingCasualGreeting,
 } from "@/lib/sales-flow-start-triggers";
+import { matchesComposableTrialSignupIntent } from "@/lib/wa-trial-signup-intent";
 
 export type WarmupSkipPhase = "opening" | "warmup";
 
@@ -87,6 +88,7 @@ function matchesGroupCRegistration(t: string): boolean {
   ) {
     return true;
   }
+  if (matchesComposableTrialSignupIntent(t)) return true;
   return false;
 }
 
@@ -155,6 +157,7 @@ export function isJoinSignupIntentText(raw: string): boolean {
   if (/^איך\s+(?:קונים|רוכשים|מזמינים|משריינים|שומרים\s+מקום)/u.test(t)) return true;
   if (/^(?:אני\s+|אנחנו\s+)?רוצ(?:ה|ים)\s+(?:להירשם|להצטרף)/u.test(t)) return true;
   if (/^(?:אשמח|נשמח)\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
+  if (matchesComposableTrialSignupIntent(t)) return true;
   if (matchesEnglishJoinSignup(t)) return true;
   return false;
 }
