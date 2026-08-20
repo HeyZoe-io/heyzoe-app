@@ -25,11 +25,20 @@ const LOOKAHEAD_DAYS = 14;
 export const SCHEDULE_LOOKUP_SINGLE_MODEL = "schedule_lookup_single";
 export const SCHEDULE_LOOKUP_MULTIPLE_MODEL = "schedule_lookup_multiple";
 export const SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL = "schedule_lookup_no_bookings";
+export const SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL = "schedule_lookup_no_bookings_final";
 export const SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL = "schedule_lookup_phone_not_found";
 export const SCHEDULE_LOOKUP_RETRY_HANDOFF_MODEL = "schedule_lookup_retry_handoff";
 export const SCHEDULE_LOOKUP_FETCH_FAILED_MODEL = "schedule_lookup_fetch_failed";
 
 export const SCHEDULE_LOOKUP_PHONE_NOT_FOUND_SNIPPET = "לא מצאתי את המספר הזה במערכת שלנו";
+export const SCHEDULE_LOOKUP_NO_BOOKINGS_SNIPPET = "לא מצאתי שיבוצים על המספר הזה בשבועיים הקרובים";
+export const SCHEDULE_LOOKUP_ASK_ALT_PHONE_LINE = "אפשר לכתוב לי מספר אחר";
+
+/**
+ * Test toggle: 4c (member found, no upcoming bookings) also invites another number.
+ * Set to false to revert 4c to team-handoff only.
+ */
+export const SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE = true;
 
 export type ScheduleLookupBooking = {
   className: string;
@@ -75,17 +84,37 @@ export function isScheduleLookupPhoneNotFoundOutbound(input: {
   return String(input.content ?? "").includes(SCHEDULE_LOOKUP_PHONE_NOT_FOUND_SNIPPET);
 }
 
-/** 4d (number not in system) or 4c (no bookings on that number) → inbound phone → one retry. */
+export function isScheduleLookupNoBookingsOutbound(input: {
+  modelUsed?: string | null;
+  content?: string | null;
+}): boolean {
+  const model = String(input.modelUsed ?? "").trim();
+  if (model === SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL) return false;
+  if (model === SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL) return true;
+  const content = String(input.content ?? "");
+  return (
+    content.includes(SCHEDULE_LOOKUP_NO_BOOKINGS_SNIPPET) &&
+    content.includes(SCHEDULE_LOOKUP_ASK_ALT_PHONE_LINE)
+  );
+}
+
+/** 4d, or 4c when the alt-phone test toggle is on → inbound phone → one retry. */
 export function shouldTreatInboundAsScheduleLookupRetry(input: {
   lastModelUsed?: string | null;
   lastAssistantContent?: string | null;
   inboundText: string;
 }): boolean {
   if (normalizeIsraeliPhoneTail(input.inboundText) == null) return false;
-  const model = String(input.lastModelUsed ?? "").trim();
-  if (model === SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL) return true;
-  if (model === SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL) return true;
-  return isScheduleLookupPhoneNotFoundOutbound({
+  if (
+    isScheduleLookupPhoneNotFoundOutbound({
+      modelUsed: input.lastModelUsed,
+      content: input.lastAssistantContent,
+    })
+  ) {
+    return true;
+  }
+  if (!SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE) return false;
+  return isScheduleLookupNoBookingsOutbound({
     modelUsed: input.lastModelUsed,
     content: input.lastAssistantContent,
   });
@@ -193,12 +222,17 @@ export function buildScheduleLookupMultipleReply(bookings: ScheduleLookupBooking
   return `מצאתי כמה שיבוצים קרובים 💜\n${lines.join("\n")}`;
 }
 
-export function buildScheduleLookupNoBookingsReply(customerServicePhone: string): string {
+export function buildScheduleLookupNoBookingsReply(
+  customerServicePhone: string,
+  opts?: { askAltPhone?: boolean }
+): string {
   const base =
     "בדקתי ולא מצאתי שיבוצים על המספר הזה בשבועיים הקרובים 🤔\nרוצה שאעביר את הפנייה לצוות כדי לבדוק?";
   const phone = String(customerServicePhone ?? "").trim();
-  if (!phone) return base;
-  return `${base} אפשר גם טלפונית: ${phone}`;
+  let text = phone ? `${base} אפשר גם טלפונית: ${phone}` : base;
+  const askAlt = opts?.askAltPhone ?? SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE;
+  if (askAlt) text += `\n${SCHEDULE_LOOKUP_ASK_ALT_PHONE_LINE}`;
+  return text;
 }
 
 export function buildScheduleLookupPhoneNotFoundReply(): string {
@@ -252,10 +286,11 @@ export function mapScheduleLookupReply(input: {
     };
   }
   if (input.memberMatched) {
+    const askAlt = SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE && !input.isRetry;
     return {
       kind: "no_bookings",
-      text: buildScheduleLookupNoBookingsReply(cs),
-      modelUsed: SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL,
+      text: buildScheduleLookupNoBookingsReply(cs, { askAltPhone: askAlt }),
+      modelUsed: askAlt ? SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL : SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL,
       notifyHumanRequested: false,
     };
   }
