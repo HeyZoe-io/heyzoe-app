@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import {
   formatKnowledgeQaForPrompt,
   legacyFactsToQaPairs,
+  lookupKnowledgeQaAnswerForInbound,
   parseFactLineToQaPair,
   parseKnowledgeQa,
   qaPairToTraitLine,
   relatedPhrasingsForQuestion,
+  splitQuestionMatchNotes,
   usesKnowledgeQaDashboard,
 } from "@/lib/knowledge-qa";
 
@@ -68,6 +70,37 @@ assert.match(prompt, /הסטודיו גדול ומרווח/);
 assert.equal(
   qaPairToTraitLine({ question: "יש מקלחות?", answer: "כן, ולוקרים" }),
   "מקלחות: כן, ולוקרים"
+);
+
+const returningQ =
+  "הייתי בשיעור ניסיון. אפשר לבוא שוב? (מדובר רק על מי שכבר היה בשיעור בעבר)";
+const returningA =
+  "היי כיף שאתם רוצים לבוא שוב! אחרי השיעור ניסיון המחיר לשיעור יחיד הוא 150 ולזוג 250";
+const joeQa = [
+  { question: returningQ, answer: returningA },
+  { question: "אימון ניסיון", answer: "כן, יש אימון ניסיון ב־80 ש״ח" },
+];
+
+assert.deepEqual(splitQuestionMatchNotes(returningQ).notes, [
+  "מדובר רק על מי שכבר היה בשיעור בעבר",
+]);
+assert.equal(lookupKnowledgeQaAnswerForInbound(joeQa, "יש אימון ניסיון?")?.question, "אימון ניסיון");
+assert.equal(lookupKnowledgeQaAnswerForInbound([{ question: returningQ, answer: returningA }], "יש אימון ניסיון?"), null);
+assert.equal(
+  lookupKnowledgeQaAnswerForInbound(joeQa, "הייתי בשיעור ניסיון")?.question,
+  returningQ
+);
+assert.equal(lookupKnowledgeQaAnswerForInbound(joeQa, "אפשר לבוא שוב?")?.question, returningQ);
+assert.equal(lookupKnowledgeQaAnswerForInbound(joeQa, "הייתי רוצה אימון ניסיון")?.question, "אימון ניסיון");
+
+const parenOnlyReturning = {
+  question: "שיעור ניסיון (מדובר רק על מי שכבר היה בשיעור בעבר)",
+  answer: returningA,
+};
+assert.equal(lookupKnowledgeQaAnswerForInbound([parenOnlyReturning], "יש אימון ניסיון?"), null);
+assert.equal(
+  lookupKnowledgeQaAnswerForInbound([parenOnlyReturning], "הייתי אצלכם בשיעור ניסיון")?.question,
+  parenOnlyReturning.question
 );
 
 console.log("knowledge-qa tests ok");

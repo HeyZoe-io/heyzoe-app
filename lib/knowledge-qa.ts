@@ -61,6 +61,130 @@ function normalizeIntentText(s: string): string {
     .trim();
 }
 
+/** Parentheses in the question field = internal match notes, not lead-facing topic text. */
+export function splitQuestionMatchNotes(question: string): { core: string; notes: string[] } {
+  const notes: string[] = [];
+  const core = String(question ?? "")
+    .replace(/[（(]([^)）]*)[)）]/g, (_m, inner: string) => {
+      const t = String(inner ?? "").trim();
+      if (t) notes.push(t);
+      return " ";
+    })
+    .replace(/[）)]([^)（(]+)[（(]/g, (_m, inner: string) => {
+      const t = String(inner ?? "").trim();
+      if (t) notes.push(t);
+      return " ";
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  return { core, notes };
+}
+
+const MATCH_STOPWORDS = new Set([
+  "יש",
+  "אפשר",
+  "האם",
+  "מה",
+  "איך",
+  "כמה",
+  "על",
+  "של",
+  "את",
+  "זה",
+  "זו",
+  "גם",
+  "רק",
+  "אם",
+  "לי",
+  "לך",
+  "לנו",
+  "או",
+  "מי",
+  "מדובר",
+  "רוצה",
+  "אשמח",
+  "נשמח",
+  "לבוא",
+  "להגיע",
+  "להירשם",
+  "לנסות",
+  "בבקשה",
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "can",
+  "i",
+  "we",
+  "do",
+  "does",
+  "to",
+  "for",
+  "of",
+  "in",
+  "at",
+]);
+
+function hasStandaloneToken(text: string, token: string): boolean {
+  const t = String(token ?? "").trim();
+  if (!t) return false;
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^\\u0590-\\u05FFa-z0-9])${escaped}(?:$|[^\\u0590-\\u05FFa-z0-9])`, "iu").test(
+    text
+  );
+}
+
+function stripDesirePrefix(norm: string): string {
+  return String(norm ?? "")
+    .replace(/היית[יךםן]\s+(?:רוצ\S*|שמח\S*)/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parentheticalRestrictsToReturning(notes: string[]): boolean {
+  const blob = notes.join(" ");
+  if (!blob) return false;
+  return /כבר\s+הי[הי]|מי\s+שכבר|בעבר|לקוח\s+חוזר|פעם\s+(?:קודמת|שעברה)|רק\s+על\s+מי/u.test(blob);
+}
+
+function inboundImpliesReturning(inboundNorm: string): boolean {
+  const t = stripDesirePrefix(inboundNorm);
+  if (hasStandaloneToken(t, "שוב") || hasStandaloneToken(t, "בעבר")) return true;
+  if (/פעם\s+(?:שעברה|קודמת)/u.test(t)) return true;
+  if (/היית[יךםן]\s+(?:ב|אצל)/u.test(t)) return true;
+  if (/כבר\s+(?:היית[יךםן]|באתי|הגעתי)/u.test(t)) return true;
+  return false;
+}
+
+function stripClusterTerms(norm: string): string {
+  const terms = INTENT_CLUSTERS.flatMap((cluster) => cluster.map((term) => normalizeIntentText(term)))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  let rest = ` ${norm} `;
+  for (const term of terms) {
+    if (!term) continue;
+    rest = rest.split(term).join(" ");
+  }
+  return rest.replace(/\s+/g, " ").trim();
+}
+
+function distinctiveLeftoverTokens(questionCoreNorm: string): string[] {
+  const rest = stripClusterTerms(questionCoreNorm);
+  if (!rest) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rest.split(" ")) {
+    const tok = raw.replace(/^[\s,.:;"״]+|[\s,.:;"״]+$/g, "").trim();
+    if (tok.length < 2) continue;
+    if (MATCH_STOPWORDS.has(tok)) continue;
+    if (seen.has(tok)) continue;
+    seen.add(tok);
+    out.push(tok);
+  }
+  return out;
+}
+
 export function parseKnowledgeQa(raw: unknown): KnowledgeQaPair[] {
   if (!Array.isArray(raw)) return [];
   const out: KnowledgeQaPair[] = [];
@@ -146,7 +270,7 @@ export function knowledgeQaTextBlob(pairs: KnowledgeQaPair[] | null | undefined)
 }
 
 export function relatedPhrasingsForQuestion(question: string, limit = 10): string[] {
-  const q = normalizeIntentText(question);
+  const q = normalizeIntentText(splitQuestionMatchNotes(question).core);
   if (!q) return [];
   const found: string[] = [];
   const seen = new Set<string>([q]);
@@ -167,11 +291,11 @@ export function relatedPhrasingsForQuestion(question: string, limit = 10): strin
   return found;
 }
 
-function inboundMatchesQaQuestion(inboundNorm: string, question: string): boolean {
-  const qNorm = normalizeIntentText(question);
+function questionHasTopicOverlap(inboundNorm: string, questionCore: string): boolean {
+  const qNorm = normalizeIntentText(questionCore);
   if (!qNorm || !inboundNorm) return false;
   if (inboundNorm.includes(qNorm) || qNorm.includes(inboundNorm)) return true;
-  for (const variant of relatedPhrasingsForQuestion(question)) {
+  for (const variant of relatedPhrasingsForQuestion(questionCore)) {
     const vNorm = normalizeIntentText(variant);
     if (vNorm && inboundNorm.includes(vNorm)) return true;
   }
@@ -180,6 +304,20 @@ function inboundMatchesQaQuestion(inboundNorm: string, question: string): boolea
     if (vNorm && qNorm.includes(vNorm)) return true;
   }
   return false;
+}
+
+function inboundMatchesQaQuestion(inboundNorm: string, question: string): boolean {
+  const { core, notes } = splitQuestionMatchNotes(question);
+  const qNorm = normalizeIntentText(core);
+  if (!qNorm || !inboundNorm) return false;
+  if (parentheticalRestrictsToReturning(notes) && !inboundImpliesReturning(inboundNorm)) {
+    return false;
+  }
+  if (!questionHasTopicOverlap(inboundNorm, core)) return false;
+  const leftovers = distinctiveLeftoverTokens(qNorm);
+  if (leftovers.length === 0) return true;
+  const inboundForLeftover = stripDesirePrefix(inboundNorm);
+  return leftovers.some((tok) => hasStandaloneToken(inboundForLeftover, tok));
 }
 
 /** Best matching Q&A pair for inbound trial/FAQ text — used for deterministic verbatim replies. */
@@ -199,8 +337,13 @@ export function lookupKnowledgeQaAnswerForInbound(
     const a = String(pair.answer ?? "").trim();
     if (!q || !a) continue;
     if (!inboundMatchesQaQuestion(inboundNorm, q)) continue;
-    const qNorm = normalizeIntentText(q);
-    const score = qNorm.length + (inboundNorm.includes(qNorm) ? 50 : 0);
+    const qNorm = normalizeIntentText(splitQuestionMatchNotes(q).core);
+    const leftovers = distinctiveLeftoverTokens(qNorm);
+    const leftoverHits = leftovers.filter((tok) => hasStandaloneToken(stripDesirePrefix(inboundNorm), tok)).length;
+    const score =
+      leftoverHits * 100 +
+      (inboundNorm.includes(qNorm) ? 50 : 0) +
+      Math.min(qNorm.length, 40);
     if (score > bestScore) {
       bestScore = score;
       best = pair;
@@ -212,11 +355,17 @@ export function lookupKnowledgeQaAnswerForInbound(
 function formatQaItemForPrompt(pair: KnowledgeQaPair, index: number): string {
   const q = pair.question.trim();
   const a = pair.answer.trim();
-  const variants = q ? relatedPhrasingsForQuestion(q) : [];
+  const { core, notes } = splitQuestionMatchNotes(q);
+  const variants = core ? relatedPhrasingsForQuestion(core) : [];
   const variantLine =
     variants.length > 0 ? `\n   וריאציות לאותה כוונה: ${variants.join(", ")}` : "";
-  if (q && a) {
-    return `${index}. שאלה/נושא (מתי להשתמש): ${q}${variantLine}\n   תשובה בתיבה (מרכאות = ציטוט מדויק לליד; מחוץ למרכאות = הוראות פנימיות): ${a}`;
+  const noteLine =
+    notes.length > 0
+      ? `\n   הוראת התאמה בסוגריים (פנימית, לא לליד): ${notes.join(" | ")}`
+      : "";
+  const topic = core || q;
+  if (topic && a) {
+    return `${index}. שאלה/נושא (מתי להשתמש): ${topic}${noteLine}${variantLine}\n   תשובה בתיבה (מרכאות = ציטוט מדויק לליד; מחוץ למרכאות = הוראות פנימיות): ${a}`;
   }
   if (a) {
     return `${index}. עובדה כללית (בלי שאלת נושא — השתמשי כשרלוונטי):\n   ${a}`;
@@ -233,8 +382,9 @@ export function formatKnowledgeQaForPrompt(pairs: KnowledgeQaPair[]): string {
 export const KNOWLEDGE_QA_MATCH_RULES = `כללי התאמת שאלה-תשובה:
 - שדה «שאלה/נושא» = מתי להשתמש בפריט. זו הכוונה, לא ניסוח מדויק של הליד. אל תעתיקי את השאלה לליד.
 - שדה התשובה בתיבה = מקור האמת לניסוח. כללי המרכאות למטה חלים על השדה הזה.
-- התאימי לפי משמעות ומילים נרדפות, גם אם הליד ניסח אחרת. דוגמה: «אימון היכרות», «שיעור ניסיון», «trial» ו-«אימון ראשון» הם אותה כוונה כמו «אימון ניסיון».
-- אם מופיעות «וריאציות לאותה כוונה» — כל אחת מהן מפעילה את אותה תשובה.
+- טקסט בסוגריים בשדה השאלה הוא הוראה פנימית בלבד (לא לליד). אם כתוב שזה רק למי שכבר היה / בעבר / רוצה לבוא שוב — אל תשתמשי בפריט על מי שרק שואל אם יש אימון ניסיון.
+- התאימי לפי משמעות ומילים נרדפות, גם אם הליד ניסח אחרת. דוגמה: «אימון היכרות», «שיעור ניסיון», «trial» ו-«אימון ראשון» הם אותה כוונה כמו «אימון ניסיון» — אבל רק כששאר פרטי השאלה גם מתקיימים.
+- אם מופיעות «וריאציות לאותה כוונה» — כל אחת מהן מפעילה את אותה תשובה, אלא אם יש הוראת סוגריים שמגבילה.
 - אם כמה פריטים יכולים להתאים — בחרי את הספציפי ביותר לשאלת הליד.
 - פריט בלי שאלת נושא הוא עובדה כללית; השתמשי בו רק כשהוא רלוונטי.`;
 

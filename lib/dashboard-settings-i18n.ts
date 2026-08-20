@@ -138,7 +138,7 @@ export const dashboardSettingsI18n = {
       facts: "עובדות על העסק",
       factsHint: "נקודות שכדאי שזואי תדע. טקסט ב״מרכאות״ = כתבי לליד בדיוק כך; מה שמחוץ למרכאות = הוראות לזואי. בלי מרכאות — זואי מנסחת בעצמה, בלי לכתוב את השאלה",
       factsHintQa:
-        "שאלה = הנושא (גם בניסוחים דומים, למשל אימון היכרות = אימון ניסיון). תשובה: טקסט ב״מרכאות״ = בדיוק כך לליד; מחוץ למרכאות = הוראות לזואי. בלי מרכאות — זואי מנסחת בעצמה, בלי לכתוב את השאלה.",
+        "שאלה = הנושא (גם בניסוחים דומים, למשל אימון היכרות = אימון ניסיון). סוגריים בשאלה = הוראה פנימית מתי להשתמש, לא לליד — למשל (רק למי שכבר היה בשיעור). תשובה: טקסט ב״מרכאות״ = בדיוק כך לליד; מחוץ למרכאות = הוראות לזואי. בלי מרכאות — זואי מנסחת בעצמה, בלי לכתוב את השאלה.",
       qaQuestion: "שאלה",
       qaAnswer: "תשובה",
       qaQuestionPlaceholder: "למשל: אימון ניסיון",
@@ -619,7 +619,7 @@ export const dashboardSettingsI18n = {
       facts: "Business facts",
       factsHint: "Points Zoe should know. Text in \"quotes\" = send exactly that to the lead; outside quotes = instructions for Zoe. Without quotes — Zoe phrases it herself, without writing the question",
       factsHintQa:
-        "Question = the topic (similar phrasings count, e.g. intro class = trial class). Answer: text in \"quotes\" = send exactly that; outside quotes = instructions for Zoe. Without quotes — Zoe phrases it herself, without writing the question.",
+        "Question = the topic (similar phrasings count, e.g. intro class = trial class). Parentheses in the question = internal when-to-use notes, not sent to the lead — e.g. (only for people who already took a class). Answer: text in \"quotes\" = send exactly that; outside quotes = instructions for Zoe. Without quotes — Zoe phrases it herself, without writing the question.",
       qaQuestion: "Question",
       qaAnswer: "Answer",
       qaQuestionPlaceholder: "e.g. trial class",
