@@ -35,10 +35,11 @@ export function matchesBookingLookupPhrase(raw: string): boolean {
   }
 
   const alreadyBooked = /קבענו|שנקבע|שנקבעה|שנקבעו|ששיריינו|ששיבצנו/u.test(t);
-  const myClassTime =
-    /(?:מתי|מה\s+ה?מועד|מה\s+ה?שעה).{0,24}(?:האימון|השיעור|ההרשמ)\s+שלי|(?:האימון|השיעור|ההרשמ)\s+שלי.{0,24}(?:מתי|מועד|שעה)/u.test(
-      t
-    );
+  const myClassNoun = String.raw`(?:האימון|השיעור|ההרשמ)(?:\s+(?:הקרוב|הבא|הקרובה|הבאה))?`;
+  const myClassTime = new RegExp(
+    String.raw`(?:מתי|מה\s+ה?מועד|מה\s+ה?שעה).{0,24}${myClassNoun}\s+שלי|${myClassNoun}\s+שלי.{0,24}(?:מתי|מועד|שעה)`,
+    "u"
+  ).test(t);
   const toCalendar =
     /(?:ל)?יומן|calendar/iu.test(t) &&
     /(?:מתי|מועד|קבע|רשמ|שעה|שלח|תשלח|תוכל|יכול|להכניס|שאכניס|להוסיף)/u.test(t);
@@ -56,7 +57,14 @@ function matchesAdditionalScheduleInquiry(t: string): boolean {
   ) {
     return false;
   }
-  if (/(?:מתי|למתי).{0,16}(?:השיעור|האימון)\s+הבא\s+שלי/u.test(t)) return true;
+  if (/(?:מתי|למתי).{0,16}(?:השיעור|האימון)\s+(?:הבא|הקרוב)\s+שלי/u.test(t)) return true;
+  // אני רשום/ה לשיעור <שם> — בדיקת שיבוץ קיים, לא הרשמה חדשה
+  if (
+    !/(?:לא\s+רשו|בטעות|במקום|להירשם)/u.test(t) &&
+    /(?:אני|אנחנו)\s+רשו(?:ם(?:\/ה)?|מ\/ה|מה|מים|מות)\s+ל(?:שיעור|אימון)(?:ים)?(?:\s|$|[?.!])/u.test(t)
+  ) {
+    return true;
+  }
   // קבענו / קבעתי — «מתי קבענו», «למתי קבעתי?», «מתי קבעתי אימון»
   if (/(?:מתי|למתי)\s+קבע(?:נו|תי)/u.test(t)) return true;
   if (/קבעתי\s+(?:אימון|שיעור)/u.test(t)) return true;

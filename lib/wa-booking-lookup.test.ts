@@ -34,6 +34,13 @@ assert.equal(matchesBookingLookupPhrase(""), false);
 
 assert.equal(isScheduleInquiryIntent("לאיזה שיעור נרשמתי"), true);
 assert.equal(isScheduleInquiryIntent("מתי השיעור הבא שלי"), true);
+assert.equal(isScheduleInquiryIntent("מתי האימון הקרוב שלי?"), true);
+assert.equal(isScheduleInquiryIntent("מתי השיעור הקרוב שלי"), true);
+assert.equal(matchesBookingLookupPhrase("מתי האימון הקרוב שלי?"), true);
+assert.equal(isScheduleInquiryIntent("אני רשומ/ה לשיעור יוגה"), true);
+assert.equal(isScheduleInquiryIntent("אני רשומה לשיעור פאוור אנד הייט"), true);
+assert.equal(isScheduleInquiryIntent("אני רשום לשיעור HIIT"), true);
+assert.equal(isScheduleInquiryIntent("אני רשום/ה לאימון פילאטיס"), true);
 assert.equal(isScheduleInquiryIntent("שכחתי מתי האימון"), true);
 assert.equal(isScheduleInquiryIntent("תזכירי לי מתי אני מגיעה"), true);
 assert.equal(isScheduleInquiryIntent("יש לי אימון השבוע"), true);
@@ -57,6 +64,8 @@ assert.equal(isScheduleInquiryIntent("תבדקי לי למתי אני רשומה
     ["באיזה אימון אני רשומה", "באיזה אימון אני רשום"],
     ["מתי נרשמה", "מתי נרשם"],
     ["אני רשומה למתי", "אני רשום למתי"],
+    ["אני רשומה לשיעור יוגה", "אני רשום לשיעור יוגה"],
+    ["אני רשומ/ה לשיעור HIIT", "אני רשום/ה לשיעור HIIT"],
     ["יכולה לשלוח לי את המועד ליומן", "יכול לשלוח לי את המועד ליומן"],
   ];
   for (const [fem, masc] of genderPairs) {
@@ -71,6 +80,8 @@ assert.equal(isScheduleInquiryIntent("מתי אנחנו רשומים"), true);
 assert.equal(isScheduleInquiryIntent("לאיזה אימון נרשמתי"), true);
 assert.equal(isScheduleInquiryIntent("מתי יש אימון"), false);
 assert.equal(isScheduleInquiryIntent("מתי נרשמים לשיעור"), false);
+assert.equal(isScheduleInquiryIntent("אני רוצה להירשם לשיעור יוגה"), false);
+assert.equal(isScheduleInquiryIntent("אני רשומה לשיעור בטעות"), false);
 assert.equal(isScheduleInquiryIntent("מתי אפשר להגיע לשיעור"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("מנוי קיים"), "yes");
