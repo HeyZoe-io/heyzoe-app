@@ -213,6 +213,22 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
     }),
     false
   );
+  assert.equal(
+    shouldTreatInboundAsScheduleLookupRetry({
+      lastModelUsed: SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL,
+      lastAssistantContent: buildScheduleLookupNoBookingsReply("03-1234567"),
+      inboundText: "+972548305644",
+    }),
+    true
+  );
+  assert.equal(
+    shouldTreatInboundAsScheduleLookupRetry({
+      lastModelUsed: "sales_flow_cs_redirect_service_pick",
+      lastAssistantContent: "איזה אימון הכי קורץ לך?",
+      inboundText: "+972548305644",
+    }),
+    false
+  );
 }
 
 /** Window is today → today+14 (Israel YMD). */

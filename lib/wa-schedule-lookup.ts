@@ -75,21 +75,20 @@ export function isScheduleLookupPhoneNotFoundOutbound(input: {
   return String(input.content ?? "").includes(SCHEDULE_LOOKUP_PHONE_NOT_FOUND_SNIPPET);
 }
 
-/** 4d → inbound parses as a phone → one retry. Non-phone inbound → no loop. */
+/** 4d (number not in system) or 4c (no bookings on that number) → inbound phone → one retry. */
 export function shouldTreatInboundAsScheduleLookupRetry(input: {
   lastModelUsed?: string | null;
   lastAssistantContent?: string | null;
   inboundText: string;
 }): boolean {
-  if (
-    !isScheduleLookupPhoneNotFoundOutbound({
-      modelUsed: input.lastModelUsed,
-      content: input.lastAssistantContent,
-    })
-  ) {
-    return false;
-  }
-  return normalizeIsraeliPhoneTail(input.inboundText) != null;
+  if (normalizeIsraeliPhoneTail(input.inboundText) == null) return false;
+  const model = String(input.lastModelUsed ?? "").trim();
+  if (model === SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL) return true;
+  if (model === SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL) return true;
+  return isScheduleLookupPhoneNotFoundOutbound({
+    modelUsed: input.lastModelUsed,
+    content: input.lastAssistantContent,
+  });
 }
 
 export function hebrewDayFromYmd(ymd: string): string {

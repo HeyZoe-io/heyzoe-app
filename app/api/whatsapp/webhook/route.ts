@@ -39,7 +39,7 @@ import {
   contactPhoneLookupVariants,
   buildWaSessionId,
   normalizePhone,
-  normalizeIsraeliPhoneTail,
+  looksLikeBarePhoneMessage,
   waSessionPhoneKey,
 } from "@/lib/phone-normalize";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
@@ -1356,6 +1356,7 @@ function shouldSkipSalesFlowPromptResend(input: {
 }): boolean {
   const inbound = String(input.inboundText ?? "").trim();
   if (inbound && userRequestedHumanAgent(inbound)) return true;
+  if (inbound && looksLikeBarePhoneMessage(inbound)) return true;
   const csPhone = input.knowledge?.customerServicePhone?.trim() ?? "";
   // CS intent = הודעת הליד (לא תשובת Claude — שם «ליצור קשר» נפוץ בתיאור מוצר)
   if (inbound && replyRefersToCustomerService(inbound, csPhone)) return true;
@@ -6191,17 +6192,19 @@ async function processIncoming(
   // Read-only Arbox schedule lookup — explicit schedule_inquiry only (never per inbound).
   // CRM gate first: non-Arbox (Boostapp / no-CRM) falls through to today's booking-lookup handoff.
   // Structured templates skip Claude and the Hebrew editor pass.
+  // Bare phone: retry lookup after 4c/4d; otherwise ask to rephrase — never dump product pick.
   if (isSalesFlowFreeTextInbound(msg) && businessId) {
     const inquiry = isScheduleInquiryIntent(msg.text);
-    const inboundLooksLikePhone = normalizeIsraeliPhoneTail(msg.text) != null;
+    const barePhone = looksLikeBarePhoneMessage(msg.text);
     let scheduleLookupRetry = false;
-    if (!inquiry && inboundLooksLikePhone) {
-      const lastModelForRetry = await fetchLastAssistantModelUsed({
+    let lastModelForPhone: string | null = null;
+    if (barePhone) {
+      lastModelForPhone = await fetchLastAssistantModelUsed({
         business_slug,
         session_id: sessionId,
       });
       scheduleLookupRetry = shouldTreatInboundAsScheduleLookupRetry({
-        lastModelUsed: lastModelForRetry,
+        lastModelUsed: lastModelForPhone,
         inboundText: msg.text,
       });
     }
@@ -6234,6 +6237,39 @@ async function processIncoming(
         });
         return;
       }
+    }
+    if (barePhone) {
+      const alreadyAsked = lastModelForPhone === WA_UNCLEAR_CLARIFY_MODEL;
+      const unclearKind = alreadyAsked ? "handoff" : "clarify";
+      const unclearTxt = pickUnclearIntentReply(unclearKind, detectMessageLanguage(msg.text));
+      if (alreadyAsked) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] bare-phone unclear human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, unclearTxt, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send bare-phone unclear reply failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: unclearTxt,
+        model_used: alreadyAsked ? WA_UNCLEAR_HANDOFF_MODEL : WA_UNCLEAR_CLARIFY_MODEL,
+        session_id: sessionId,
+      });
+      return;
     }
   }
 

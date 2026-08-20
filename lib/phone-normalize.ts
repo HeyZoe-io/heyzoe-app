@@ -34,6 +34,17 @@ export function normalizeIsraeliPhoneTail(raw: unknown): string | null {
   return digits.slice(-9);
 }
 
+/**
+ * Inbound that is only a phone number (digits + phone punctuation).
+ * "1" / sentences with a number inside are not a bare phone.
+ */
+export function looksLikeBarePhoneMessage(raw: unknown): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t || normalizeIsraeliPhoneTail(t) == null) return false;
+  const compact = t.replace(/[\s\-().+]/g, "");
+  return /^\d{9,15}$/.test(compact);
+}
+
 /** E.164 ל-Supabase Auth / Meta (+972...) */
 export function normalizePhoneToE164(input: unknown): string | null {
   const digits = normalizePhone(input);
