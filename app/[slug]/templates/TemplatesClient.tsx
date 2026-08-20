@@ -75,8 +75,8 @@ const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "credit_refusal", label: "סירוב אשראי" },
   { value: "trial_attended", label: "נוכחות בשיעור ניסיון" },
   { value: "birthday", label: "יום הולדת" },
-  { value: "membership_expiring", label: "מנוי עומד לפוג" },
-  { value: "sessions_expiring", label: "כרטיסייה עומדת לפוג" },
+  { value: "membership_expiring", label: "פג תוקף מנוי" },
+  { value: "sessions_expiring", label: "פג תוקף כרטיסיה" },
 ];
 
 function isArboxTriggerType(type: TriggerType): boolean {
@@ -123,14 +123,13 @@ function formatDelayLabel(
   if (type === "birthday") {
     return days === 0 ? "ביום ההולדת" : `${days} ימים לפני יום ההולדת`;
   }
-  const effectiveDirection: DelayDirection = allowsDelayBefore(type)
-    ? direction
-    : "after";
-  const dir = effectiveDirection === "before" ? "לפני התאריך" : "אחרי האירוע";
-  if (days === 0) {
-    return effectiveDirection === "before" ? "ביום התאריך" : "ביום האירוע";
+  if (allowsDelayBefore(type)) {
+    if (days === 0) return "ביום פקיעת התוקף";
+    const dir = direction === "before" ? "לפני פקיעת התוקף" : "אחרי פקיעת התוקף";
+    return `${days} ימים ${dir}`;
   }
-  return `${days} ימים ${dir}`;
+  if (days === 0) return "ביום האירוע";
+  return `${days} ימים אחרי האירוע`;
 }
 
 type Props = {
@@ -1394,8 +1393,8 @@ export default function TemplatesClient({
                   onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
                   className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                 >
-                  <option value="after">אחרי האירוע</option>
-                  <option value="before">לפני התאריך</option>
+                  <option value="before">לפני פקיעת התוקף</option>
+                  <option value="after">אחרי פקיעת התוקף</option>
                 </select>
               </div>
             ) : null}
