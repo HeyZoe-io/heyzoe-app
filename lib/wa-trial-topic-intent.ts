@@ -18,11 +18,34 @@ const TRIAL_TOPIC_MARKERS =
 
 const TRIAL_CLASS_PHRASE = new RegExp(String.raw`${TRIAL_NOUN}`, "u");
 
+/**
+ * Already signed up for a trial (or comparing a friend's signup) — not asking to buy one.
+ * Limitless: «נרשמנו ביחד לאימוני ניסיון ולה לא הייתה את הבעיה הזאת של להירשם».
+ */
+export function isExistingTrialEnrollmentMention(raw: string): boolean {
+  const t = stripLeadingCasualGreeting(normalizeTrialTopicText(raw));
+  if (!t) return false;
+  if (
+    /(?:נרשמ(?:תי|נו|ה|ת|ים)|נרשמתם).{0,48}(?:אימוני|אימון|שיעור(?:י)?).{0,20}(?:ניסיון|נסיון|היכרות|הכרות)/u.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (
+    /(?:כבר\s+)?(?:יש\s+לי|יש\s+לנו)\s+(?:אימון|שיעור|אימוני)\s*(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Lead asks about or wants trial / intro training — incl. «אימון הכרות» typo. */
 export function matchesTrialTopicIntent(raw: string): boolean {
   const normalized = normalizeTrialTopicText(raw);
   const t = stripLeadingCasualGreeting(normalized);
   if (!t || t.length > 400) return false;
+  if (isExistingTrialEnrollmentMention(raw)) return false;
   if (!TRIAL_TOPIC_MARKERS.test(t)) return false;
   if (TRIAL_CLASS_PHRASE.test(t)) return true;
   if (/אימוני\s+(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) return true;

@@ -5967,7 +5967,8 @@ async function processIncoming(
     });
     if (
       lastAssistForTrialTopic !== BOOKING_LOOKUP_CLARIFY_MODEL &&
-      lastAssistForTrialTopic !== REGISTRATION_INTENT_CLARIFY_MODEL
+      lastAssistForTrialTopic !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+      lastAssistForTrialTopic !== "manual_handoff"
     ) {
     const salesFlowStartedForTrial = await sessionHasSalesFlowGreeting(business_slug, sessionId);
     const inOpeningOrWarmup =

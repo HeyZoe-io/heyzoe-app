@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { lookupKnowledgeQaAnswerForInbound, relatedPhrasingsForQuestion } from "@/lib/knowledge-qa";
 import {
+  isExistingTrialEnrollmentMention,
   matchesTrialTopicAdvanceIntent,
   matchesTrialTopicIntent,
 } from "@/lib/wa-trial-topic-intent";
@@ -12,6 +13,13 @@ assert.equal(matchesTrialTopicIntent("מה זה אימון הכרות?"), true);
 assert.equal(matchesTrialTopicIntent("יש אימוני ניסיון?"), true);
 assert.equal(matchesTrialTopicIntent("אפשר אימון ניסיון?"), true);
 assert.equal(matchesTrialTopicIntent("כמה עולה השיעור?"), false);
+
+const liahExistingTrial =
+  "כן פשוט אני ומיה אלקיים נרשמנו ביחד לאימוני ניסיון ולה לא הייתה את הבעיה הזאת של להירשם";
+assert.equal(isExistingTrialEnrollmentMention(liahExistingTrial), true);
+assert.equal(matchesTrialTopicIntent(liahExistingTrial), false);
+assert.equal(matchesTrialTopicAdvanceIntent(liahExistingTrial), false);
+assert.equal(matchesTrialTopicIntent("נרשמתי לאימון ניסיון ולא נותן לי להירשם"), false);
 
 assert.equal(matchesTrialTopicAdvanceIntent("רוצה אימון הכרות"), true);
 assert.equal(matchesTrialTopicAdvanceIntent("מה זה אימון היכרות"), false);
