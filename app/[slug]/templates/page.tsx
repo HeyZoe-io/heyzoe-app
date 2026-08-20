@@ -13,7 +13,9 @@ export default async function TemplatesPage({ params }: Props) {
 
   const supabase = await createSupabaseServerClient();
   const { data: user } = await supabase.auth.getUser();
-  if (!user.user) redirect("/dashboard/login");
+  if (!user.user) {
+    redirect(`/dashboard/login?next=${encodeURIComponent(`/${slug}/templates`)}`);
+  }
 
   const admin = createSupabaseAdminClient();
   const access = await requireDashboardSlugAccess(

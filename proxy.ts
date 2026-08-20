@@ -89,6 +89,7 @@ export async function proxy(req: NextRequest) {
   const isAdminPath = pathname.startsWith("/admin");
   const isOwnerDashboardPath = pathname.startsWith("/dashboard");
   const isOwnerAccountPath = pathname.startsWith("/account");
+  const isGenericTemplatesPath = pathname === "/templates" || pathname === "/templates/";
   // IMPORTANT: don't treat reserved prefixes (e.g. /account/settings) as business slugs.
   const isReservedPrefix =
     pathname.startsWith("/account") ||
@@ -101,16 +102,24 @@ export async function proxy(req: NextRequest) {
     pathname === "/" ||
     pathname === "/privacy" ||
     pathname === "/terms" ||
-    pathname === "/contact";
+    pathname === "/contact" ||
+    isGenericTemplatesPath;
   const isSingleSegment = /^\/[^/]+\/?$/.test(pathname);
   const slugOnlyShortcut =
     isSingleSegment && !pathname.includes(".") && !isReservedPrefix;
   /** /my-studio/settings, /my-studio/analytics, etc. (+ optional `/my-studio` redirect root) */
   const isOwnerSlugPath =
     !isReservedPrefix &&
-    (/^\/[^/]+\/(analytics|conversations|contacts|settings)\/?$/.test(pathname) || slugOnlyShortcut);
+    (/^\/[^/]+\/(analytics|conversations|contacts|settings|templates)\/?$/.test(pathname) ||
+      slugOnlyShortcut);
   const isDashboardSlugSettingsPath = /^\/dashboard\/[^/]+\/settings\/?$/.test(pathname);
-  if (!isAdminPath && !isOwnerDashboardPath && !isOwnerAccountPath && !isOwnerSlugPath)
+  if (
+    !isAdminPath &&
+    !isOwnerDashboardPath &&
+    !isOwnerAccountPath &&
+    !isOwnerSlugPath &&
+    !isGenericTemplatesPath
+  )
     return NextResponse.next();
 
   const res = NextResponse.next({ request: { headers: req.headers } });
@@ -168,7 +177,7 @@ export async function proxy(req: NextRequest) {
     return res;
   }
 
-  if (isOwnerDashboardPath || isOwnerAccountPath || isOwnerSlugPath) {
+  if (isOwnerDashboardPath || isOwnerAccountPath || isOwnerSlugPath || isGenericTemplatesPath) {
     const isLoginPath = pathname === "/dashboard/login";
     const isResetPath = pathname === "/dashboard/reset";
     if (!hasAuthCookie) {

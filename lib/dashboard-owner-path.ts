@@ -9,6 +9,7 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "onboarding",
   "privacy",
   "register",
+  "templates",
   "terms",
 ]);
 
