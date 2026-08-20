@@ -14,6 +14,10 @@ assert.equal(TEMPLATE_PRESETS.no_response.button_text, "אשמח לפרטים");
 assert.equal(TEMPLATE_PRESETS.membership_expiring.button_text, "חידוש מנוי");
 assert.equal(TEMPLATE_PRESETS.sessions_expiring.button_text, "חידוש כרטיסיה");
 assert.equal(TEMPLATE_PRESETS.trial_attended.button_text, "הצטרפות למנוי");
+assert.equal(
+  TEMPLATE_PRESETS.trial_attended.body,
+  "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:"
+);
 assert.equal(TEMPLATE_PRESETS.purchase.button_text, undefined);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);

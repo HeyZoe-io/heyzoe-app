@@ -76,7 +76,7 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   trial_attended: {
     name: "trial_attended",
     category: "MARKETING",
-    body: "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊",
+    body: "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:",
     button_text: "הצטרפות למנוי",
   },
 };
