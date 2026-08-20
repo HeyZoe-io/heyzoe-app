@@ -9,10 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import {
   computeContactStatus,
   contactStatusLabel,
+  contactStatusMatchesFilter,
   CONTACT_STATUS_META,
   CONTACT_STATUS_FILTER_ORDER,
   MANUAL_CONTACT_STATUSES,
   canManuallySetContactStatus,
+  isContactTrialRegistered,
   type ContactStatusFilterValue,
   type ContactStatusKey,
 } from "@/lib/contact-status";
@@ -494,8 +496,7 @@ export default function ContactsClient({
       if (!matchesConversationDateRange(leadConversationAt(c), dateFrom, dateTo)) return false;
       if (statusFilter === "all") return true;
       const status = computeContactStatus(c);
-      if (statusFilter === "none") return status === null;
-      return status === statusFilter;
+      return contactStatusMatchesFilter(status, statusFilter);
     });
   }, [contacts, dateFrom, dateTo, statusFilter]);
 
@@ -557,6 +558,7 @@ export default function ContactsClient({
       no_response: 0,
       not_relevant: 0,
       human_requested: 0,
+      registered_human_requested: 0,
       registered: 0,
       opted_out: 0,
     };
@@ -743,7 +745,11 @@ export default function ContactsClient({
               : row
           )
         );
-        showToast("הסטטוס עודכן — זואי תפסיק פולואפים והליד יועבר ל-CRM");
+        showToast(
+          isContactTrialRegistered(c)
+            ? "הסטטוס עודכן — ביקש נציג + נרשם, נשלחה התראה לצוות"
+            : "הסטטוס עודכן — זואי תפסיק פולואפים והליד יועבר ל-CRM"
+        );
       } else if (status === "no_response") {
         const noResponseAt = j.wa_no_response_at ?? new Date().toISOString();
         setContacts((prev) =>
@@ -1145,9 +1151,13 @@ export default function ContactsClient({
                     {statusPendingConfirm.contact.full_name?.trim() ||
                       statusPendingConfirm.contact.phone}
                   </span>{" "}
-                  כ«ביקש נציג»?
+                  {isContactTrialRegistered(statusPendingConfirm.contact)
+                    ? "כ«ביקש נציג + נרשם»?"
+                    : "כ«ביקש נציג»?"}
                   <br />
-                  זואי תפסיק פולואפים, תישלח התראה לבעלים והליד יועבר ל-CRM.
+                  {isContactTrialRegistered(statusPendingConfirm.contact)
+                    ? "הליד יישאר מסומן כנרשם, תישלח התראה לצוות והוא יועבר ל-CRM."
+                    : "זואי תפסיק פולואפים, תישלח התראה לבעלים והליד יועבר ל-CRM."}
                 </>
               ) : statusPendingConfirm.status === "no_response" ? (
                 <>

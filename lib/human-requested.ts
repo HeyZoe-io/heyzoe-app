@@ -64,7 +64,7 @@ export async function reactivateHumanRequestedLead(input: {
   return Boolean(updated?.length);
 }
 
-/** עדכון DB + אירוע + התראות בעלים + CRM (idempotent — לא חוזר אם כבר סומן) */
+/** עדכון DB + אירוע + התראות בעלים + CRM (idempotent — לא חוזר אם כבר סומן). גם אחרי הרשמה — נשמר «ביקש נציג + נרשם». */
 export async function handleLeadHumanRequested(input: {
   supabase: import("@supabase/supabase-js").SupabaseClient;
   businessId: number;

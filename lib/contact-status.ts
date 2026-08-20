@@ -6,6 +6,7 @@ export type ContactStatusKey =
   | "opted_out"
   | "not_relevant"
   | "human_requested"
+  | "registered_human_requested"
   | "registered"
   | "human_followup"
   | "no_response"
@@ -28,10 +29,30 @@ export type ContactStatusInput = {
 
 const ACTIVE_PHASES = new Set(["opening", "warmup", "schedule_date", "schedule_time", "cta"]);
 
+export function isContactTrialRegistered(input: ContactStatusInput): boolean {
+  return input.trial_registered === true || input.session_phase === "registered";
+}
+
+export function contactStatusMatchesFilter(
+  status: ContactStatusKey | null,
+  filter: ContactStatusFilterValue
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "none") return status === null;
+  if (filter === "registered") {
+    return status === "registered" || status === "registered_human_requested";
+  }
+  if (filter === "human_requested") {
+    return status === "human_requested" || status === "registered_human_requested";
+  }
+  return status === filter;
+}
+
 export function computeContactStatus(input: ContactStatusInput): ContactStatusKey | null {
   if (input.opted_out === true) return "opted_out";
   if (input.not_relevant_at) return "not_relevant";
-  if (input.trial_registered === true || input.session_phase === "registered") return "registered";
+  if (isContactTrialRegistered(input) && input.human_requested_at) return "registered_human_requested";
+  if (isContactTrialRegistered(input)) return "registered";
   if (input.human_followup_at) return "human_followup";
   if (input.human_requested_at) return "human_requested";
   if (input.wa_no_response_at) return "no_response";
@@ -92,6 +113,11 @@ const CONTACT_STATUS_META_HE: Record<ContactStatusKey, ContactStatusMeta> = {
     tooltip: "הליד נרשם בהצלחה",
     badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-800",
   },
+  registered_human_requested: {
+    label: "ביקש נציג + נרשם",
+    tooltip: "הליד נרשם וגם ביקש לדבר עם נציג — זואי הפסיקה פולואפים ונשלחה התראה לצוות",
+    badgeClass: "border-orange-300 bg-emerald-50 text-orange-900",
+  },
   opted_out: {
     label: "הסר",
     tooltip: "הליד ביקש להפסיק התקשרות",
@@ -141,6 +167,11 @@ const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
     tooltip: "Lead registered successfully",
     badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-800",
   },
+  registered_human_requested: {
+    label: "Requested Agent + Registered",
+    tooltip: "Lead registered and also asked to speak with a representative — Zoe stopped follow-ups and notified the team",
+    badgeClass: "border-orange-300 bg-emerald-50 text-orange-900",
+  },
   opted_out: {
     label: "Opted Out",
     tooltip: "Lead asked to stop communication",
@@ -178,6 +209,7 @@ export const CONTACT_STATUS_FILTER_ORDER: ContactStatusKey[] = [
   "no_response",
   "not_relevant",
   "human_requested",
+  "registered_human_requested",
   "registered",
   "opted_out",
 ];
@@ -190,6 +222,7 @@ export const MARKETING_PIPELINE_STATUS_ORDER: Array<ContactStatusKey | "none"> =
   "human_followup",
   "no_response",
   "human_requested",
+  "registered_human_requested",
   "registered",
   "not_relevant",
   "opted_out",
@@ -218,25 +251,21 @@ export function canManuallySetContactStatus(
       contact.opted_out !== true &&
       !contact.not_relevant_at &&
       !contact.wa_no_response_at &&
-      contact.trial_registered !== true &&
-      contact.session_phase !== "registered"
+      !isContactTrialRegistered(contact)
     );
   }
   if (target === "human_requested") {
     return (
       contact.opted_out !== true &&
       !contact.not_relevant_at &&
-      !contact.human_requested_at &&
-      contact.trial_registered !== true &&
-      contact.session_phase !== "registered"
+      !contact.human_requested_at
     );
   }
   if (target === "registered") {
     return (
       contact.opted_out !== true &&
       !contact.not_relevant_at &&
-      contact.trial_registered !== true &&
-      contact.session_phase !== "registered"
+      !isContactTrialRegistered(contact)
     );
   }
   return false;
