@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
   canonicalizeTriggerType,
+  delayDirectionForTrigger,
+  forcesDelayAfter,
+  allowsDelayBefore,
   isArboxDependentTriggerType,
   isCreatableTriggerType,
   isIncomingLeadTriggerType,
@@ -49,6 +52,23 @@ import { buildSiteLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
   assert.equal(isCreatableTriggerType("incoming_lead", false), true);
   assert.equal(isCreatableTriggerType("no_response", false), true);
   assert.equal(isCreatableTriggerType("arbox_new_lead", true), true);
+}
+
+/** purchase / credit_refusal / trial_attended cannot fire before the event date */
+{
+  assert.equal(forcesDelayAfter("purchase"), true);
+  assert.equal(forcesDelayAfter("credit_refusal"), true);
+  assert.equal(forcesDelayAfter("trial_attended"), true);
+  assert.equal(forcesDelayAfter("incoming_lead"), true);
+  assert.equal(allowsDelayBefore("purchase"), false);
+  assert.equal(allowsDelayBefore("credit_refusal"), false);
+  assert.equal(allowsDelayBefore("trial_attended"), false);
+  assert.equal(allowsDelayBefore("membership_expiring"), true);
+  assert.equal(allowsDelayBefore("sessions_expiring"), true);
+  assert.equal(delayDirectionForTrigger("purchase", "before"), "after");
+  assert.equal(delayDirectionForTrigger("credit_refusal", "before"), "after");
+  assert.equal(delayDirectionForTrigger("trial_attended", "before"), "after");
+  assert.equal(delayDirectionForTrigger("membership_expiring", "before"), "before");
 }
 
 function rule(

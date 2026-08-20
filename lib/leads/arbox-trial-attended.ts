@@ -19,6 +19,7 @@ import {
   resolveTrialAttendedTemplateTrigger,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
+import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const ISRAEL_TZ = "Asia/Jerusalem";
@@ -370,7 +371,10 @@ async function dispatchTrialAttendedTemplate(input: {
 
   if (delayDays > 0) {
     const dueAt = computeDueAt(
-      { delay_days: delayDays, delay_direction: "after" },
+      {
+        delay_days: delayDays,
+        delay_direction: delayDirectionForTrigger("trial_attended", input.rule.delay_direction),
+      },
       input.now
     );
     const enqueueResult = await enqueueScheduledTemplateSend({

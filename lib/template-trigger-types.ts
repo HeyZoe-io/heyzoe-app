@@ -63,6 +63,37 @@ export function canonicalizeTriggerType(value: string): string {
   return value;
 }
 
+/**
+ * Event-based types whose send time is after the event (purchase, attendance, refusal).
+ * "before" is only valid for known future dates (membership/sessions expiry).
+ */
+export function forcesDelayAfter(triggerType: string): boolean {
+  const t = canonicalizeTriggerType(triggerType);
+  return (
+    t === "purchase" ||
+    t === "credit_refusal" ||
+    t === "trial_attended" ||
+    t === "no_response" ||
+    t === "arbox_new_lead" ||
+    isIncomingLeadTriggerType(t)
+  );
+}
+
+/** Expiry reminders may fire before the end date; birthday UI is handled separately. */
+export function allowsDelayBefore(triggerType: string): boolean {
+  const t = canonicalizeTriggerType(triggerType);
+  return t === "membership_expiring" || t === "sessions_expiring";
+}
+
+export function delayDirectionForTrigger(
+  triggerType: string,
+  stored: string | null | undefined
+): "after" | "before" {
+  if (forcesDelayAfter(triggerType)) return "after";
+  const d = String(stored ?? "").trim().toLowerCase();
+  return d === "before" ? "before" : "after";
+}
+
 const TRIGGER_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

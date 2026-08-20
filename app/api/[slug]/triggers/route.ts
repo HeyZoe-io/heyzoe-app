@@ -5,6 +5,7 @@ import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import {
   canonicalizeTriggerType,
+  forcesDelayAfter,
   INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
   isArboxDependentTriggerType,
   isIncomingLeadTriggerType,
@@ -153,14 +154,16 @@ async function verifyTriggerTemplate(
 function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
   const productFilter = parseProductFilter(row.product_filter);
   const rawType = String(row.trigger_type ?? "");
+  const canonicalType = canonicalizeTriggerType(rawType) as TriggerType;
   const id = parseTriggerId(row.id) ?? String(row.id ?? "").trim();
+  const storedDirection = String(row.delay_direction ?? "after") as DelayDirection;
   return {
     id,
     business_id: Number(row.business_id),
-    trigger_type: canonicalizeTriggerType(rawType) as TriggerType,
+    trigger_type: canonicalType,
     product_filter: productFilter === "invalid" ? null : productFilter,
     delay_days: Number(row.delay_days ?? 0),
-    delay_direction: String(row.delay_direction ?? "after") as DelayDirection,
+    delay_direction: forcesDelayAfter(canonicalType) ? "after" : storedDirection,
     template_name: row.template_name != null ? String(row.template_name) : null,
     enabled: Boolean(row.enabled),
     created_at: String(row.created_at ?? ""),
@@ -306,7 +309,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   let delayDirection = String(body.delay_direction ?? "").trim();
-  if (forcesAfterNoProductFilter(triggerType)) {
+  if (forcesDelayAfter(triggerType)) {
     delayDirection = "after";
   }
   if (!isDelayDirection(delayDirection)) {
@@ -411,15 +414,27 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     if (forcesAfterNoProductFilter(triggerType)) {
       patch.delay_direction = "after";
       patch.product_filter = null;
+    } else if (forcesDelayAfter(triggerType)) {
+      patch.delay_direction = "after";
     }
   }
 
   if (body.delay_direction !== undefined) {
     let delayDirection = String(body.delay_direction).trim();
-    if (
-      patch.trigger_type != null &&
-      forcesAfterNoProductFilter(String(patch.trigger_type))
-    ) {
+    let typeForDelay =
+      patch.trigger_type != null ? String(patch.trigger_type) : null;
+    if (typeForDelay == null) {
+      const { data: existingForDelay } = await admin
+        .from("template_triggers")
+        .select("trigger_type")
+        .eq("id", id)
+        .eq("business_id", business.id)
+        .maybeSingle();
+      typeForDelay = String(
+        (existingForDelay as { trigger_type?: unknown } | null)?.trigger_type ?? ""
+      );
+    }
+    if (forcesDelayAfter(typeForDelay)) {
       delayDirection = "after";
     }
     if (!isDelayDirection(delayDirection)) {

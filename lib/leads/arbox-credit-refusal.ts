@@ -18,6 +18,7 @@ import {
   resolveCreditRefusalTemplateTrigger,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
+import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** Default per-customer throttle between credit_refusal WhatsApp notifies. */
@@ -367,7 +368,7 @@ async function sendCreditRefusalTemplate(input: {
     const dueAt = computeDueAt(
       {
         delay_days: input.rule.delay_days,
-        delay_direction: input.rule.delay_direction,
+        delay_direction: delayDirectionForTrigger("credit_refusal", input.rule.delay_direction),
       },
       parseTransactionEventDate(input.transactionDate)
     );

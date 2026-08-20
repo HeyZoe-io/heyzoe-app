@@ -17,7 +17,11 @@ import {
   presetVarHint,
   TEMPLATE_PRESETS,
 } from "@/lib/template-presets";
-import { isArboxDependentTriggerType, isCreatableTriggerType } from "@/lib/template-trigger-types";
+import {
+  allowsDelayBefore,
+  isArboxDependentTriggerType,
+  isCreatableTriggerType,
+} from "@/lib/template-trigger-types";
 
 export type TemplateRow = {
   id?: string;
@@ -119,9 +123,12 @@ function formatDelayLabel(
   if (type === "birthday") {
     return days === 0 ? "ביום ההולדת" : `${days} ימים לפני יום ההולדת`;
   }
-  const dir = direction === "before" ? "לפני התאריך" : "אחרי האירוע";
+  const effectiveDirection: DelayDirection = allowsDelayBefore(type)
+    ? direction
+    : "after";
+  const dir = effectiveDirection === "before" ? "לפני התאריך" : "אחרי האירוע";
   if (days === 0) {
-    return direction === "before" ? "ביום התאריך" : "ביום האירוע";
+    return effectiveDirection === "before" ? "ביום התאריך" : "ביום האירוע";
   }
   return `${days} ימים ${dir}`;
 }
@@ -383,11 +390,7 @@ export default function TemplatesClient({
   }, [arboxMembershipTypes]);
 
   const showNewProductFilter = showsProductFilter(newTriggerType);
-  const hideNewDelayDirection =
-    newTriggerType === "birthday" ||
-    newTriggerType === "incoming_lead" ||
-    newTriggerType === "arbox_new_lead" ||
-    newTriggerType === "no_response";
+  const hideNewDelayDirection = !allowsDelayBefore(newTriggerType);
   const newDelayDaysMin = newTriggerType === "no_response" ? 2 : 0;
 
   useEffect(() => {

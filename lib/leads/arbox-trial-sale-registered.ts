@@ -12,6 +12,7 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateSendPayload } from "@/lib/template-send-params";
 import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
+import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -168,7 +169,7 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
     const dueAt = computeDueAt(
       {
         delay_days: matchedRule.delay_days,
-        delay_direction: matchedRule.delay_direction,
+        delay_direction: delayDirectionForTrigger("purchase", matchedRule.delay_direction),
       },
       parseSaleEventDate(input.saleDate)
     );
