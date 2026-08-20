@@ -242,7 +242,6 @@ import {
 import {
   loadArboxScheduleLookupConnection,
   lookupArboxScheduleByPhone,
-  shouldTreatInboundAsScheduleLookupRetry,
   type ScheduleLookupReply,
 } from "@/lib/wa-schedule-lookup";
 import {
@@ -6190,36 +6189,24 @@ async function processIncoming(
   }
 
   // Read-only Arbox schedule lookup — explicit schedule_inquiry only (never per inbound).
+  // Always looks up msg.from (WhatsApp number) only — never a typed-in alternate number.
   // CRM gate first: non-Arbox (Boostapp / no-CRM) falls through to today's booking-lookup handoff.
   // Structured templates skip Claude and the Hebrew editor pass.
-  // Bare phone: retry lookup after 4c/4d; otherwise ask to rephrase — never dump product pick.
+  // Bare phone: ask to rephrase — never dump product pick, never query Arbox.
   if (isSalesFlowFreeTextInbound(msg) && businessId) {
     const inquiry = isScheduleInquiryIntent(msg.text);
     const barePhone = looksLikeBarePhoneMessage(msg.text);
-    let scheduleLookupRetry = false;
     let lastModelForPhone: string | null = null;
-    if (barePhone) {
-      lastModelForPhone = await fetchLastAssistantModelUsed({
-        business_slug,
-        session_id: sessionId,
-      });
-      scheduleLookupRetry = shouldTreatInboundAsScheduleLookupRetry({
-        lastModelUsed: lastModelForPhone,
-        inboundText: msg.text,
-      });
-    }
-    if (inquiry || scheduleLookupRetry) {
+    if (inquiry) {
       const arboxCreds = await loadArboxScheduleLookupConnection({
         supabase,
         businessId: Number(businessId),
       });
       if (arboxCreds) {
-        const lookupPhone = scheduleLookupRetry ? msg.text : msg.from;
         const result = await lookupArboxScheduleByPhone({
           apiKey: arboxCreds.apiKey,
           boxId: arboxCreds.boxId,
-          lookupPhone,
-          isRetry: scheduleLookupRetry,
+          lookupPhone: msg.from,
           customerServicePhone: knowledge?.customerServicePhone ?? "",
           businessId: Number(businessId),
           supabase,
@@ -6239,6 +6226,10 @@ async function processIncoming(
       }
     }
     if (barePhone) {
+      lastModelForPhone = await fetchLastAssistantModelUsed({
+        business_slug,
+        session_id: sessionId,
+      });
       const alreadyAsked = lastModelForPhone === WA_UNCLEAR_CLARIFY_MODEL;
       const unclearKind = alreadyAsked ? "handoff" : "clarify";
       const unclearTxt = pickUnclearIntentReply(unclearKind, detectMessageLanguage(msg.text));

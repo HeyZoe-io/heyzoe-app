@@ -1,7 +1,9 @@
 /**
  * Read-only Arbox schedule lookup by phone — on-demand, explicit schedule_inquiry only.
  * Reuses GET /v3/reports/bookingsReport (same path as the daily trial-attended cron).
- * No Arbox writes. No cache. Scheduling is not attached to the inbound webhook broadly.
+ * Always looks up the WhatsApp sender number (msg.from) only — never a typed-in
+ * alternate phone. No Arbox writes. No cache. Scheduling is not attached to the
+ * inbound webhook broadly.
  *
  * IO (10x clients): 1–20 bookingsReport pages + 0–1 searchUser, only when the lead
  * explicitly asks about their bookings (never per inbound message).
@@ -25,20 +27,8 @@ const LOOKAHEAD_DAYS = 14;
 export const SCHEDULE_LOOKUP_SINGLE_MODEL = "schedule_lookup_single";
 export const SCHEDULE_LOOKUP_MULTIPLE_MODEL = "schedule_lookup_multiple";
 export const SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL = "schedule_lookup_no_bookings";
-export const SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL = "schedule_lookup_no_bookings_final";
 export const SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL = "schedule_lookup_phone_not_found";
-export const SCHEDULE_LOOKUP_RETRY_HANDOFF_MODEL = "schedule_lookup_retry_handoff";
 export const SCHEDULE_LOOKUP_FETCH_FAILED_MODEL = "schedule_lookup_fetch_failed";
-
-export const SCHEDULE_LOOKUP_PHONE_NOT_FOUND_SNIPPET = "לא מצאתי את המספר הזה במערכת שלנו";
-export const SCHEDULE_LOOKUP_NO_BOOKINGS_SNIPPET = "לא מצאתי שיבוצים על המספר הזה בשבועיים הקרובים";
-export const SCHEDULE_LOOKUP_ASK_ALT_PHONE_LINE = "אפשר לכתוב לי מספר אחר";
-
-/**
- * Test toggle: 4c (member found, no upcoming bookings) also invites another number.
- * Set to false to revert 4c to team-handoff only.
- */
-export const SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE = true;
 
 export type ScheduleLookupBooking = {
   className: string;
@@ -47,7 +37,7 @@ export type ScheduleLookupBooking = {
   sortKey: string;
 };
 
-export type ScheduleLookupReplyKind = "single" | "multiple" | "no_bookings" | "phone_not_found" | "retry_handoff" | "fetch_failed";
+export type ScheduleLookupReplyKind = "single" | "multiple" | "no_bookings" | "phone_not_found" | "fetch_failed";
 
 export type ScheduleLookupReply = {
   kind: ScheduleLookupReplyKind;
@@ -74,50 +64,6 @@ function addDaysToYmd(ymd: string, days: number): string {
 export function scheduleLookupWindow(now: Date = new Date()): { fromDate: string; toDate: string } {
   const fromDate = formatDateYmdIsrael(now);
   return { fromDate, toDate: addDaysToYmd(fromDate, LOOKAHEAD_DAYS) };
-}
-
-export function isScheduleLookupPhoneNotFoundOutbound(input: {
-  modelUsed?: string | null;
-  content?: string | null;
-}): boolean {
-  if (String(input.modelUsed ?? "").trim() === SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL) return true;
-  return String(input.content ?? "").includes(SCHEDULE_LOOKUP_PHONE_NOT_FOUND_SNIPPET);
-}
-
-export function isScheduleLookupNoBookingsOutbound(input: {
-  modelUsed?: string | null;
-  content?: string | null;
-}): boolean {
-  const model = String(input.modelUsed ?? "").trim();
-  if (model === SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL) return false;
-  if (model === SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL) return true;
-  const content = String(input.content ?? "");
-  return (
-    content.includes(SCHEDULE_LOOKUP_NO_BOOKINGS_SNIPPET) &&
-    content.includes(SCHEDULE_LOOKUP_ASK_ALT_PHONE_LINE)
-  );
-}
-
-/** 4d, or 4c when the alt-phone test toggle is on → inbound phone → one retry. */
-export function shouldTreatInboundAsScheduleLookupRetry(input: {
-  lastModelUsed?: string | null;
-  lastAssistantContent?: string | null;
-  inboundText: string;
-}): boolean {
-  if (normalizeIsraeliPhoneTail(input.inboundText) == null) return false;
-  if (
-    isScheduleLookupPhoneNotFoundOutbound({
-      modelUsed: input.lastModelUsed,
-      content: input.lastAssistantContent,
-    })
-  ) {
-    return true;
-  }
-  if (!SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE) return false;
-  return isScheduleLookupNoBookingsOutbound({
-    modelUsed: input.lastModelUsed,
-    content: input.lastAssistantContent,
-  });
 }
 
 export function hebrewDayFromYmd(ymd: string): string {
@@ -222,28 +168,17 @@ export function buildScheduleLookupMultipleReply(bookings: ScheduleLookupBooking
   return `מצאתי כמה שיבוצים קרובים 💜\n${lines.join("\n")}`;
 }
 
-export function buildScheduleLookupNoBookingsReply(
-  customerServicePhone: string,
-  opts?: { askAltPhone?: boolean }
-): string {
+export function buildScheduleLookupNoBookingsReply(customerServicePhone: string): string {
   const base =
     "בדקתי ולא מצאתי שיבוצים על המספר הזה בשבועיים הקרובים 🤔\nרוצה שאעביר את הפנייה לצוות כדי לבדוק?";
   const phone = String(customerServicePhone ?? "").trim();
-  let text = phone ? `${base} אפשר גם טלפונית: ${phone}` : base;
-  const askAlt = opts?.askAltPhone ?? SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE;
-  if (askAlt) text += `\n${SCHEDULE_LOOKUP_ASK_ALT_PHONE_LINE}`;
-  return text;
+  return phone ? `${base} אפשר גם טלפונית: ${phone}` : base;
 }
 
-export function buildScheduleLookupPhoneNotFoundReply(): string {
-  return "לא מצאתי את המספר הזה במערכת שלנו 🤔 יכול להיות שההרשמה רשומה על מספר אחר?\nאם כן - אפשר לכתוב לי אותו ואבדוק שוב 💜";
-}
-
-export function buildScheduleLookupRetryHandoffReply(customerServicePhone: string): string {
-  const base = "גם את המספר הזה לא הצלחתי לאתר 💜\nאני מעבירה את הפנייה לצוות שיבדקו ידנית ויחזרו אליך.";
+export function buildScheduleLookupPhoneNotFoundReply(customerServicePhone: string): string {
+  const base = "לא מצאתי את המספר הזה במערכת שלנו 🤔\nרוצה שאעביר את הפנייה לצוות כדי לבדוק?";
   const phone = String(customerServicePhone ?? "").trim();
-  if (!phone) return base;
-  return `${base} אפשר גם טלפונית:\n${phone}`;
+  return phone ? `${base} אפשר גם טלפונית: ${phone}` : base;
 }
 
 export function buildScheduleLookupFetchFailedReply(customerServicePhone: string): string {
@@ -256,7 +191,6 @@ export function buildScheduleLookupFetchFailedReply(customerServicePhone: string
 export function mapScheduleLookupReply(input: {
   bookings: ScheduleLookupBooking[];
   memberMatched: boolean;
-  isRetry: boolean;
   customerServicePhone: string;
   fetchFailed?: boolean;
 }): ScheduleLookupReply {
@@ -286,25 +220,16 @@ export function mapScheduleLookupReply(input: {
     };
   }
   if (input.memberMatched) {
-    const askAlt = SCHEDULE_LOOKUP_NO_BOOKINGS_ASK_ALT_PHONE && !input.isRetry;
     return {
       kind: "no_bookings",
-      text: buildScheduleLookupNoBookingsReply(cs, { askAltPhone: askAlt }),
-      modelUsed: askAlt ? SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL : SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL,
+      text: buildScheduleLookupNoBookingsReply(cs),
+      modelUsed: SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL,
       notifyHumanRequested: false,
-    };
-  }
-  if (input.isRetry) {
-    return {
-      kind: "retry_handoff",
-      text: buildScheduleLookupRetryHandoffReply(cs),
-      modelUsed: SCHEDULE_LOOKUP_RETRY_HANDOFF_MODEL,
-      notifyHumanRequested: true,
     };
   }
   return {
     kind: "phone_not_found",
-    text: buildScheduleLookupPhoneNotFoundReply(),
+    text: buildScheduleLookupPhoneNotFoundReply(cs),
     modelUsed: SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL,
     notifyHumanRequested: false,
   };
@@ -353,7 +278,6 @@ export async function lookupArboxScheduleByPhone(input: {
   apiKey: string;
   boxId: string;
   lookupPhone: string;
-  isRetry: boolean;
   customerServicePhone: string;
   businessId?: number;
   supabase?: ReturnType<typeof createSupabaseAdminClient>;
@@ -369,7 +293,6 @@ export async function lookupArboxScheduleByPhone(input: {
     return mapScheduleLookupReply({
       bookings: [],
       memberMatched: false,
-      isRetry: input.isRetry,
       customerServicePhone: cs,
       fetchFailed: true,
     });
@@ -378,7 +301,6 @@ export async function lookupArboxScheduleByPhone(input: {
     return mapScheduleLookupReply({
       bookings: [],
       memberMatched: false,
-      isRetry: input.isRetry,
       customerServicePhone: cs,
     });
   }
@@ -398,7 +320,6 @@ export async function lookupArboxScheduleByPhone(input: {
     return mapScheduleLookupReply({
       bookings: [],
       memberMatched: false,
-      isRetry: input.isRetry,
       customerServicePhone: cs,
       fetchFailed: true,
     });
@@ -418,7 +339,6 @@ export async function lookupArboxScheduleByPhone(input: {
     return mapScheduleLookupReply({
       bookings,
       memberMatched: true,
-      isRetry: input.isRetry,
       customerServicePhone: cs,
     });
   }
@@ -444,14 +364,12 @@ export async function lookupArboxScheduleByPhone(input: {
       return mapScheduleLookupReply({
         bookings,
         memberMatched: true,
-        isRetry: input.isRetry,
         customerServicePhone: cs,
       });
     }
     return mapScheduleLookupReply({
       bookings: [],
       memberMatched: true,
-      isRetry: input.isRetry,
       customerServicePhone: cs,
     });
   }
@@ -459,7 +377,6 @@ export async function lookupArboxScheduleByPhone(input: {
   return mapScheduleLookupReply({
     bookings: [],
     memberMatched: false,
-    isRetry: input.isRetry,
     customerServicePhone: cs,
   });
 }

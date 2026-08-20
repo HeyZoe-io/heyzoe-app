@@ -8,7 +8,6 @@ import {
   buildScheduleLookupMultipleReply,
   buildScheduleLookupNoBookingsReply,
   buildScheduleLookupPhoneNotFoundReply,
-  buildScheduleLookupRetryHandoffReply,
   buildScheduleLookupSingleReply,
   formatScheduleLookupDate,
   formatScheduleLookupTime,
@@ -16,13 +15,10 @@ import {
   mapBookingsForMember,
   mapScheduleLookupReply,
   SCHEDULE_LOOKUP_MULTIPLE_MODEL,
-  SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL,
   SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL,
   SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL,
-  SCHEDULE_LOOKUP_RETRY_HANDOFF_MODEL,
   SCHEDULE_LOOKUP_SINGLE_MODEL,
   scheduleLookupWindow,
-  shouldTreatInboundAsScheduleLookupRetry,
   type ScheduleLookupBooking,
 } from "@/lib/wa-schedule-lookup";
 import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
@@ -126,7 +122,6 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
   const one = mapScheduleLookupReply({
     bookings: [single],
     memberMatched: true,
-    isRetry: false,
     customerServicePhone: "03-1234567",
   });
   assert.equal(one.kind, "single");
@@ -139,7 +134,6 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
   const many = mapScheduleLookupReply({
     bookings: mapped,
     memberMatched: true,
-    isRetry: false,
     customerServicePhone: "03-1234567",
   });
   assert.equal(many.kind, "multiple");
@@ -153,7 +147,6 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
   const none = mapScheduleLookupReply({
     bookings: [],
     memberMatched: true,
-    isRetry: false,
     customerServicePhone: "03-1234567",
   });
   assert.equal(none.kind, "no_bookings");
@@ -161,101 +154,23 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
   assert.equal(none.text, buildScheduleLookupNoBookingsReply("03-1234567"));
   assert.match(none.text, /בשבועיים הקרובים/);
   assert.match(none.text, /03-1234567/);
-  assert.match(none.text, /אפשר לכתוב לי מספר אחר/);
-
-  const noneRetry = mapScheduleLookupReply({
-    bookings: [],
-    memberMatched: true,
-    isRetry: true,
-    customerServicePhone: "03-1234567",
-  });
-  assert.equal(noneRetry.kind, "no_bookings");
-  assert.equal(noneRetry.modelUsed, SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL);
-  assert.equal(noneRetry.text.includes("אפשר לכתוב לי מספר אחר"), false);
+  assert.equal(none.text.includes("מספר אחר"), false);
+  assert.equal(none.text.includes("אפשר לכתוב לי"), false);
 
   const notFound = mapScheduleLookupReply({
     bookings: [],
     memberMatched: false,
-    isRetry: false,
     customerServicePhone: "03-1234567",
   });
   assert.equal(notFound.kind, "phone_not_found");
   assert.equal(notFound.modelUsed, SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL);
-  assert.equal(notFound.text, buildScheduleLookupPhoneNotFoundReply());
-  assert.match(notFound.text, /אפשר לכתוב לי אותו/);
-  assert.equal(notFound.text.includes("תכתבי"), false);
-
-  const retryFail = mapScheduleLookupReply({
-    bookings: [],
-    memberMatched: false,
-    isRetry: true,
-    customerServicePhone: "03-1234567",
-  });
-  assert.equal(retryFail.kind, "retry_handoff");
-  assert.equal(retryFail.modelUsed, SCHEDULE_LOOKUP_RETRY_HANDOFF_MODEL);
-  assert.equal(retryFail.notifyHumanRequested, true);
-  assert.equal(retryFail.text, buildScheduleLookupRetryHandoffReply("03-1234567"));
-}
-
-/** One-retry inference: 4d → phone inbound → second lookup; 4d → non-phone → no loop. */
-{
-  const fourD = buildScheduleLookupPhoneNotFoundReply();
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL,
-      lastAssistantContent: fourD,
-      inboundText: "0501234567",
-    }),
-    true
-  );
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: null,
-      lastAssistantContent: fourD,
-      inboundText: "+972 50-123-4567",
-    }),
-    true
-  );
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL,
-      lastAssistantContent: fourD,
-      inboundText: "שכחתי, תודה",
-    }),
-    false
-  );
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: SCHEDULE_LOOKUP_SINGLE_MODEL,
-      lastAssistantContent: "מצאתי! 💜",
-      inboundText: "0501234567",
-    }),
-    false
-  );
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: SCHEDULE_LOOKUP_NO_BOOKINGS_MODEL,
-      lastAssistantContent: buildScheduleLookupNoBookingsReply("03-1234567"),
-      inboundText: "+972548305644",
-    }),
-    true
-  );
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: SCHEDULE_LOOKUP_NO_BOOKINGS_FINAL_MODEL,
-      lastAssistantContent: buildScheduleLookupNoBookingsReply("03-1234567", { askAltPhone: false }),
-      inboundText: "+972548305644",
-    }),
-    false
-  );
-  assert.equal(
-    shouldTreatInboundAsScheduleLookupRetry({
-      lastModelUsed: "sales_flow_cs_redirect_service_pick",
-      lastAssistantContent: "איזה אימון הכי קורץ לך?",
-      inboundText: "+972548305644",
-    }),
-    false
-  );
+  assert.equal(notFound.text, buildScheduleLookupPhoneNotFoundReply("03-1234567"));
+  assert.match(notFound.text, /לא מצאתי את המספר הזה במערכת שלנו/);
+  assert.match(notFound.text, /רוצה שאעביר את הפנייה לצוות/);
+  assert.match(notFound.text, /03-1234567/);
+  assert.equal(notFound.text.includes("מספר אחר"), false);
+  assert.equal(notFound.text.includes("אבדוק שוב"), false);
+  assert.equal(notFound.text.includes("אפשר לכתוב לי"), false);
 }
 
 /** Window is today → today+14 (Israel YMD). */
