@@ -23,6 +23,17 @@ export function normalizePhone(input: unknown): string | null {
   return normalized;
 }
 
+/**
+ * Canonical 9-digit tail for matching WhatsApp E.164 against Arbox storage.
+ * Strips non-digits, then last 9 (handles 972 / +972 / leading 0 / spaces / dashes).
+ * Too short or no digits → null (treat as no-match).
+ */
+export function normalizeIsraeliPhoneTail(raw: unknown): string | null {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  if (digits.length < 9) return null;
+  return digits.slice(-9);
+}
+
 /** E.164 ל-Supabase Auth / Meta (+972...) */
 export function normalizePhoneToE164(input: unknown): string | null {
   const digits = normalizePhone(input);

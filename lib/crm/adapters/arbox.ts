@@ -198,7 +198,7 @@ async function resolveArboxLocationId(
   };
 }
 
-async function searchArboxUserByPhone(input: {
+export async function searchArboxUserByPhone(input: {
   apiKey: string;
   locationId?: number;
   phone: string;

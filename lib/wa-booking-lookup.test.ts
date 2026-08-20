@@ -5,6 +5,7 @@ import {
   BOOKING_LOOKUP_CLARIFY_QUESTION,
   buildBookingLookupMembershipHandoffReply,
   matchesBookingLookupPhrase,
+  isScheduleInquiryIntent,
 } from "@/lib/wa-booking-lookup";
 import { classifyRegistrationIntentMembershipReply } from "@/lib/wa-registration-intent";
 
@@ -21,6 +22,14 @@ assert.equal(matchesBookingLookupPhrase("מתי אפשר לבוא לאימון �
 assert.equal(matchesBookingLookupPhrase("רוצה להצטרף בשבת לפוואר אנד הייט"), false);
 assert.equal(matchesBookingLookupPhrase("כמה עולה השיעור?"), false);
 assert.equal(matchesBookingLookupPhrase(""), false);
+
+assert.equal(isScheduleInquiryIntent("לאיזה שיעור נרשמתי"), true);
+assert.equal(isScheduleInquiryIntent("מתי השיעור הבא שלי"), true);
+assert.equal(isScheduleInquiryIntent("שכחתי מתי האימון"), true);
+assert.equal(isScheduleInquiryIntent("תזכירי לי מתי אני מגיעה"), true);
+assert.equal(isScheduleInquiryIntent("יש לי אימון השבוע"), true);
+assert.equal(isScheduleInquiryIntent("מתי אני רשומה"), true);
+assert.equal(isScheduleInquiryIntent("מתי יש אימון"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("מנוי קיים"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("יש לי מנוי"), "yes");

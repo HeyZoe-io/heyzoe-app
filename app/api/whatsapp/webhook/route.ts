@@ -39,6 +39,7 @@ import {
   contactPhoneLookupVariants,
   buildWaSessionId,
   normalizePhone,
+  normalizeIsraeliPhoneTail,
   waSessionPhoneKey,
 } from "@/lib/phone-normalize";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
@@ -236,8 +237,14 @@ import {
   BOOKING_LOOKUP_CLARIFY_QUESTION,
   BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
   buildBookingLookupMembershipHandoffReply,
-  matchesBookingLookupPhrase,
+  isScheduleInquiryIntent,
 } from "@/lib/wa-booking-lookup";
+import {
+  loadArboxScheduleLookupConnection,
+  lookupArboxScheduleByPhone,
+  shouldTreatInboundAsScheduleLookupRetry,
+  type ScheduleLookupReply,
+} from "@/lib/wa-schedule-lookup";
 import {
   fetchLastQuoteableSessionMessage,
   formatWaReactionLogContent,
@@ -1424,6 +1431,52 @@ async function sendBookingLookupTeamHandoff(input: {
     role: "assistant",
     content: txt,
     model_used: BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+    session_id: input.sessionId,
+  });
+}
+
+async function sendScheduleLookupReply(input: {
+  result: ScheduleLookupReply;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | number | null | undefined;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  if (input.result.notifyHumanRequested && input.businessId) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: input.nowIso,
+        sessionId: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] schedule-lookup human_requested failed:", e);
+    }
+  }
+  try {
+    await sendWhatsAppMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      input.result.text,
+      input.accountSid,
+      input.authToken
+    );
+  } catch (e) {
+    console.error("[WA Webhook] Send schedule-lookup reply failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: input.result.text,
+    model_used: input.result.modelUsed,
     session_id: input.sessionId,
   });
 }
@@ -6133,6 +6186,55 @@ async function processIncoming(
     return;
   }
 
+  // Read-only Arbox schedule lookup — explicit schedule_inquiry only (never per inbound).
+  // CRM gate first: non-Arbox (Boostapp / no-CRM) falls through to today's booking-lookup handoff.
+  // Structured templates skip Claude and the Hebrew editor pass.
+  if (isSalesFlowFreeTextInbound(msg) && businessId) {
+    const inquiry = isScheduleInquiryIntent(msg.text);
+    const inboundLooksLikePhone = normalizeIsraeliPhoneTail(msg.text) != null;
+    let scheduleLookupRetry = false;
+    if (!inquiry && inboundLooksLikePhone) {
+      const lastModelForRetry = await fetchLastAssistantModelUsed({
+        business_slug,
+        session_id: sessionId,
+      });
+      scheduleLookupRetry = shouldTreatInboundAsScheduleLookupRetry({
+        lastModelUsed: lastModelForRetry,
+        inboundText: msg.text,
+      });
+    }
+    if (inquiry || scheduleLookupRetry) {
+      const arboxCreds = await loadArboxScheduleLookupConnection({
+        supabase,
+        businessId: Number(businessId),
+      });
+      if (arboxCreds) {
+        const lookupPhone = scheduleLookupRetry ? msg.text : msg.from;
+        const result = await lookupArboxScheduleByPhone({
+          apiKey: arboxCreds.apiKey,
+          boxId: arboxCreds.boxId,
+          lookupPhone,
+          isRetry: scheduleLookupRetry,
+          customerServicePhone: knowledge?.customerServicePhone ?? "",
+          businessId: Number(businessId),
+          supabase,
+        });
+        await sendScheduleLookupReply({
+          result,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          nowIso,
+        });
+        return;
+      }
+    }
+  }
+
   // נושא מחוץ לסמכות זואי (קבלה / דרושים / מסמך) — לצוות, בלי חזרה לאימוני ניסיון
   if (
     msg.type === "text" &&
@@ -6913,12 +7015,13 @@ async function processIncoming(
     // Membership + a real question — stay in registered help mode (no CTA) and fall through to Claude.
   }
 
-  // 0.28) Scheduled-class / calendar lookup — short membership-vs-trial, then team handoff.
+  // 0.28) Scheduled-class / calendar lookup — non-Arbox: short membership-vs-trial, then team handoff.
+  // Arbox businesses are handled earlier (read-only bookingsReport lookup).
   if (
     isSalesFlowFreeTextInbound(msg) &&
     lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
     lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
-    matchesBookingLookupPhrase(msg.text)
+    isScheduleInquiryIntent(msg.text)
   ) {
     try {
       await sendWhatsAppMessage(

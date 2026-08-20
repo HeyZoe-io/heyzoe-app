@@ -50,6 +50,33 @@ export function matchesBookingLookupPhrase(raw: string): boolean {
   return alreadyBooked || myClassTime || toCalendar || english;
 }
 
+function matchesAdditionalScheduleInquiry(t: string): boolean {
+  if (
+    /מתי\s+(?:יש|אפשר|ניתן)\s+(?:להגיע|לבוא|שיעור|אימון)|מערכת\s+ה?שעות|לוח\s+(?:ה)?שיעורים/u.test(t)
+  ) {
+    return false;
+  }
+  if (/(?:מתי|למתי).{0,16}(?:השיעור|האימון)\s+הבא\s+שלי/u.test(t)) return true;
+  if (/לאיזה\s+שיעור\s+נרשמ/u.test(t)) return true;
+  if (/(?:מתי|למתי)\s+אני\s+רשומ/u.test(t)) return true;
+  if (/שכחתי.{0,24}מתי.{0,20}(?:האימון|השיעור|קבענו)/u.test(t)) return true;
+  if (
+    /תזכיר(?:י|ו)?\s+לי.{0,24}מתי.{0,20}(?:אני\s+מגיע|האימון|השיעור|קבענו)/u.test(t)
+  ) {
+    return true;
+  }
+  if (/יש\s+לי\s+(?:אימון|שיעור)\s+(?:השבוע|היום|מחר)/u.test(t)) return true;
+  return false;
+}
+
+/** בקשת שיבוץ קיים / «מתי האימון שלי» — כולל matchesBookingLookupPhrase. */
+export function isScheduleInquiryIntent(raw: string): boolean {
+  if (matchesBookingLookupPhrase(raw)) return true;
+  const t = normalizeBookingLookupText(raw);
+  if (!t || t.length > 500) return false;
+  return matchesAdditionalScheduleInquiry(t);
+}
+
 /** זואי (גם קלוד) שאלה מנוי קיים מול אימון ניסיון. */
 export function assistantAskedMembershipOrTrialClarify(raw: string): boolean {
   const t = normalizeBookingLookupText(raw);

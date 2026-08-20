@@ -184,7 +184,8 @@ export function buildBookingsReportPath(input: {
   return `/v3/reports/bookingsReport?${qs.toString()}`;
 }
 
-async function fetchBookingRows(input: {
+/** Shared Arbox GET /v3/reports/bookingsReport (paginated). Read-only. */
+export async function fetchArboxBookingsReport(input: {
   apiKey: string;
   fromDate: string;
   toDate: string;
@@ -555,7 +556,7 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   summary.lookback_from = window.fromDate;
   summary.lookback_to = window.toDate;
 
-  const report = await fetchBookingRows({
+  const report = await fetchArboxBookingsReport({
     apiKey,
     fromDate: window.fromDate,
     toDate: window.toDate,

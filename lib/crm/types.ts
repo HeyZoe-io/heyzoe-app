@@ -32,6 +32,14 @@ export function businessHasArboxConnection(
   );
 }
 
+/** Schedule lookup needs Arbox + location (box) id. Boostapp / no-CRM → false. */
+export function canUseArboxScheduleLookup(
+  row: { crm_type?: unknown; crm_api_key?: unknown; crm_box_id?: unknown } | null | undefined
+): boolean {
+  if (!businessHasArboxConnection(row)) return false;
+  return Boolean(String(row?.crm_box_id ?? "").trim());
+}
+
 export type CrmEventKind =
   | "trial_registered"
   | "human_requested"
