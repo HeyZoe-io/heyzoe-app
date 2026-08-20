@@ -1156,7 +1156,7 @@ export default function ContactsClient({
                     : "כ«ביקש נציג»?"}
                   <br />
                   {isContactTrialRegistered(statusPendingConfirm.contact)
-                    ? "הליד יישאר מסומן כנרשם, תישלח התראה לצוות והוא יועבר ל-CRM."
+                    ? "הליד יישאר מסומן כנרשם. תישלח רק התראת «ביקש נציג» לצוות — בלי אישור הרשמה נוסף."
                     : "זואי תפסיק פולואפים, תישלח התראה לבעלים והליד יועבר ל-CRM."}
                 </>
               ) : statusPendingConfirm.status === "no_response" ? (

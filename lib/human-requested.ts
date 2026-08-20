@@ -1,3 +1,4 @@
+import { isContactTrialRegistered } from "@/lib/contact-status";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
@@ -82,7 +83,7 @@ export async function handleLeadHumanRequested(input: {
 
   const { data: existing } = await input.supabase
     .from("contacts")
-    .select("human_requested_at, full_name")
+    .select("human_requested_at, full_name, trial_registered, session_phase")
     .eq("business_id", businessId)
     .in("phone", phoneVariants)
     .order("updated_at", { ascending: false })
@@ -141,6 +142,7 @@ export async function handleLeadHumanRequested(input: {
       kind: "human_requested",
       fullName,
       eventAtIso: input.nowIso,
+      skipLeadCreation: isContactTrialRegistered(existing ?? {}),
     });
   } catch (e) {
     console.error("[human-requested] CRM dispatch failed:", e);
@@ -165,7 +167,7 @@ export async function markContactHumanRequestedManually(input: {
 
   const { data: existing } = await input.admin
     .from("contacts")
-    .select("human_requested_at, full_name")
+    .select("human_requested_at, full_name, trial_registered, session_phase")
     .eq("business_id", businessId)
     .in("phone", phoneVariants)
     .order("updated_at", { ascending: false })
@@ -232,6 +234,7 @@ export async function markContactHumanRequestedManually(input: {
       kind: "human_requested",
       fullName,
       eventAtIso: nowIso,
+      skipLeadCreation: isContactTrialRegistered(existing ?? {}),
     });
   } catch (e) {
     console.error("[human-requested] manual CRM dispatch failed:", e);

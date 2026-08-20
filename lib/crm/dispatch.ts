@@ -67,6 +67,8 @@ export async function dispatchCrmEvent(input: {
   eventAtIso?: string;
   registration?: CrmTrialRegistrationContext | null;
   notRelevantReason?: string | null;
+  /** ליד כבר נרשם — רק הערת CRM, בלי ליד חדש שיפעיל אישור הרשמה. */
+  skipLeadCreation?: boolean;
 }): Promise<void> {
   const businessId = Number(input.businessId);
   const leadPhone = String(input.leadPhone ?? "").trim();
@@ -141,7 +143,7 @@ export async function dispatchCrmEvent(input: {
         boxId,
         sourceId: arboxSourceId || null,
         statusId: arboxStatusId || null,
-        leadCreationEnabled: arboxLeadCreationEnabled,
+        leadCreationEnabled: input.skipLeadCreation === true ? false : arboxLeadCreationEnabled,
         phone: leadPhone,
         fullName,
         noteText,

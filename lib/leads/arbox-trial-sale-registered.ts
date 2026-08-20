@@ -445,6 +445,28 @@ export async function handleArboxTrialSaleRegistered(input: {
     return { ok: false, error: "invalid_phone" };
   }
 
+  const alreadyRegistered =
+    existing?.trial_registered === true ||
+    String(existing?.session_phase ?? "").trim() === "registered";
+  if (alreadyRegistered && existing?.id) {
+    const nowIso = new Date().toISOString();
+    const contactId = String(existing.id);
+    const { error: seenUpsertErr } = await input.admin.from("arbox_trial_sync_log").upsert(
+      {
+        business_id: businessId,
+        sale_id: saleId,
+        contact_id: contactId,
+        processed_at: nowIso,
+      },
+      { onConflict: "business_id,sale_id" }
+    );
+    if (seenUpsertErr) {
+      console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenUpsertErr.message);
+      return { ok: false, error: "seen_upsert_failed" };
+    }
+    return { ok: true, already: true };
+  }
+
   // 3) Mark trial_registered
   const nowIso = new Date().toISOString();
   const hadNotRelevant = Boolean(existing?.not_relevant_at);
