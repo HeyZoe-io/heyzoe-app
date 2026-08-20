@@ -230,6 +230,15 @@ import {
   REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
 } from "@/lib/wa-registration-intent";
 import {
+  assistantAskedMembershipOrTrialClarify,
+  assistantReplyDumpsAccountAccessToSelfServeCall,
+  BOOKING_LOOKUP_CLARIFY_MODEL,
+  BOOKING_LOOKUP_CLARIFY_QUESTION,
+  BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+  buildBookingLookupMembershipHandoffReply,
+  matchesBookingLookupPhrase,
+} from "@/lib/wa-booking-lookup";
+import {
   fetchLastQuoteableSessionMessage,
   formatWaReactionLogContent,
   WA_INBOUND_REACTION_MODEL,
@@ -1375,6 +1384,48 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
     session_id: input.sessionId,
   });
   return true;
+}
+
+async function sendBookingLookupTeamHandoff(input: {
+  knowledge: BusinessKnowledgePack | null | undefined;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | number | null | undefined;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  const csPhone = input.knowledge?.customerServicePhone?.trim() ?? "";
+  const txt = buildBookingLookupMembershipHandoffReply(csPhone);
+  if (input.businessId) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: input.nowIso,
+        sessionId: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] booking-lookup human_requested failed:", e);
+    }
+  }
+  try {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken);
+  } catch (e) {
+    console.error("[WA Webhook] Send booking-lookup team handoff failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: txt,
+    model_used: BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+    session_id: input.sessionId,
+  });
 }
 
 function buildScheduleTimeSideAnswer(text: string, knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
@@ -6699,6 +6750,41 @@ async function processIncoming(
 
   const lastAssistForWarmupPriority = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
 
+  // 0.18) Booking-lookup yes/no — after short clarify (or Claude's long version of it).
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL
+  ) {
+    let awaitingBookingLookupClarify = lastAssistForWarmupPriority === BOOKING_LOOKUP_CLARIFY_MODEL;
+    if (!awaitingBookingLookupClarify) {
+      const ynPreview = classifyRegistrationIntentMembershipReply(msg.text);
+      if (ynPreview !== "unclear") {
+        const lastAssistContent = await fetchLastAssistantMessageContent({
+          business_slug,
+          session_id: sessionId,
+        });
+        awaitingBookingLookupClarify = assistantAskedMembershipOrTrialClarify(lastAssistContent);
+      }
+    }
+    if (awaitingBookingLookupClarify) {
+      const yn = classifyRegistrationIntentMembershipReply(msg.text);
+      if (yn === "yes" || yn === "no") {
+        await sendBookingLookupTeamHandoff({
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          nowIso,
+        });
+        return;
+      }
+    }
+  }
+
   // 0.2) Registration-intent yes/no — must run before standalone-help / Claude.
   // Precedence: after greeting trigger (0), before warmup (0.5) and before
   // isStandaloneWhatsAppOpenQuestion. sessionHasSalesFlowGreeting already ran above.
@@ -6783,6 +6869,7 @@ async function processIncoming(
     contactSessionPhase !== "registered" &&
     contactTrialRegistered !== true &&
     lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
     matchesExistingMembershipClaim(msg.text)
   ) {
     await updateContactSessionPhase({
@@ -6817,11 +6904,40 @@ async function processIncoming(
     // Membership + a real question — stay in registered help mode (no CTA) and fall through to Claude.
   }
 
+  // 0.28) Scheduled-class / calendar lookup — short membership-vs-trial, then team handoff.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
+    matchesBookingLookupPhrase(msg.text)
+  ) {
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        BOOKING_LOOKUP_CLARIFY_QUESTION,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send booking-lookup clarify failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: BOOKING_LOOKUP_CLARIFY_QUESTION,
+      model_used: BOOKING_LOOKUP_CLARIFY_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
   // 0.3) Ambiguous registration-intent (pre-greeting) — before standalone-help.
   if (
     isSalesFlowFreeTextInbound(msg) &&
     !salesFlowStarted &&
     lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
     contactSessionPhase !== "registered" &&
     contactTrialRegistered !== true &&
     matchesRegistrationIntentPhrase(msg.text)
@@ -9701,6 +9817,28 @@ async function processIncoming(
       content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
       model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
       session_id: sessionId,
+    });
+    return;
+  }
+
+  // Claude dumped the lead to call CS for membership/calendar access — replace with a real handoff.
+  if (
+    !isFallbackErrorReply &&
+    !matched?.reply &&
+    assistantReplyDumpsAccountAccessToSelfServeCall(replyCoreClean) &&
+    businessId
+  ) {
+    console.info(`[WA Webhook] account-access self-serve dump replaced with team handoff to ${msg.from}`);
+    await sendBookingLookupTeamHandoff({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      nowIso,
     });
     return;
   }

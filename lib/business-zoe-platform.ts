@@ -163,8 +163,57 @@ function upgradeClassRescheduleGuidelineLines(lines: string[]): string[] {
   });
 }
 
+function upgradeCsPhoneHandoffGuidelineLines(lines: string[]): string[] {
+  const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("כשהבקשה דורשת גישה למנוי/יומן"));
+  if (!replacement) return lines;
+  return lines.map((line) => {
+    const t = line.trim();
+    if (!t.includes("אם מוגדר טלפון שירות לקוחות") || t.includes("מעבירים את הפנייה לצוות")) {
+      return line;
+    }
+    return replacement;
+  });
+}
+
+function ensureBookingLookupGuidelineLines(lines: string[]): string[] {
+  if (lines.some((l) => l.includes("לשלוח זמן ליומן ולא ברור אם מנוי קיים"))) return lines;
+  const bookingLine = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("לשלוח זמן ליומן ולא ברור אם מנוי קיים"));
+  if (!bookingLine) return lines;
+  if (!lines.some((l) => l.includes("דחה/החליף שיעור") || l.includes("נרשם לשעה הלא נכונה"))) {
+    return lines;
+  }
+  const idx = lines.findIndex((l) => l.includes("דחה/החליף שיעור") || l.includes("נרשם לשעה הלא נכונה"));
+  if (idx < 0) return lines;
+  return [...lines.slice(0, idx + 1), bookingLine, ...lines.slice(idx + 1)];
+}
+
+function upgradeLegalCsExampleLines(lines: string[]): string[] {
+  const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("כשצריך נציג לחשבון/יומן"));
+  if (!replacement) return lines;
+  return lines.map((line) => {
+    const t = line.trim();
+    if (!t.includes("אני ממליצה ליצור קשר עם שירות הלקוחות שלנו בטלפון")) return line;
+    return replacement;
+  });
+}
+
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines));
+  return ensureBookingLookupGuidelineLines(
+    upgradeCsPhoneHandoffGuidelineLines(
+      upgradeLegalCsExampleLines(
+        upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+      )
+    )
+  );
 }
 
 /** ממזג שמור ב-DB עם ברירת מחדל (פורמט 4 קטגוריות) */

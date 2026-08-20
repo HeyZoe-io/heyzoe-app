@@ -1,5 +1,6 @@
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
-export const REGISTRATION_INTENT_CLARIFY_QUESTION = "האם יש לך מנוי קיים אצלנו?";
+export const REGISTRATION_INTENT_CLARIFY_QUESTION =
+  "היי! 👋 יש לך מנוי קיים אצלנו או שמדובר באימון ניסיון?";
 export const REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY =
   "אם כך, אפשר להירשם ישירות באפליקציה! האם נדרשת עזרה עם הרישום?";
 export const REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY =
@@ -56,13 +57,18 @@ export function matchesExistingMembershipClaim(raw: string): boolean {
 
 export type RegistrationIntentMembershipReply = "yes" | "no" | "unclear";
 
-/** תשובת כן/לא לשאלת «האם יש לך מנוי קיים» — לא לולאה על מעורפל. */
+/** תשובת כן/לא לשאלת מנוי קיים מול אימון ניסיון — לא לולאה על מעורפל. */
 export function classifyRegistrationIntentMembershipReply(raw: string): RegistrationIntentMembershipReply {
   const t = normalizeRegistrationIntentText(raw);
   if (!t) return "unclear";
 
   if (/אין(?:\s+לי|\s+לנו)?\s+מנוי/u.test(t)) return "no";
-  if (/יש(?:\s+לי|\s+לנו)?\s+מנוי/u.test(t)) return "yes";
+  if (/מדובר באימון ניסיון|(?:^|\s)אימון ניסיון(?:\s|$|[.,!?])/u.test(t) && !/מנוי/u.test(t)) {
+    return "no";
+  }
+  if (/^(?:אימון\s+)?ניסיון(?:\s|$|[.,!?])/iu.test(t)) return "no";
+  if (/מנוי קיים|יש(?:\s+לי|\s+לנו)?\s+מנוי/u.test(t)) return "yes";
+  if (/^מנוי(?:\s|$|[.,!?])/u.test(t)) return "yes";
 
   if (/^(לא|אין לי|אין לנו|no|nope)(?:\b|[.!,?\s]|$)/iu.test(t)) return "no";
   if (/^(כן|יש לי|יש לנו|בטח|yes|yep|yeah)(?:\b|[.!,?\s]|$)/iu.test(t)) return "yes";

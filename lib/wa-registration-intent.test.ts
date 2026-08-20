@@ -27,7 +27,12 @@ assert.equal(matchesRegistrationIntentPhrase(""), false);
 assert.equal(classifyRegistrationIntentMembershipReply("כן"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("כן יש לי"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("יש לי מנוי"), "yes");
+assert.equal(classifyRegistrationIntentMembershipReply("מנוי קיים"), "yes");
+assert.equal(classifyRegistrationIntentMembershipReply("מנוי"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("yes"), "yes");
+assert.equal(classifyRegistrationIntentMembershipReply("אימון ניסיון"), "no");
+assert.equal(classifyRegistrationIntentMembershipReply("מדובר באימון ניסיון"), "no");
+assert.equal(classifyRegistrationIntentMembershipReply("ניסיון"), "no");
 
 assert.equal(classifyRegistrationIntentMembershipReply("לא"), "no");
 assert.equal(classifyRegistrationIntentMembershipReply("אין לי"), "no");
