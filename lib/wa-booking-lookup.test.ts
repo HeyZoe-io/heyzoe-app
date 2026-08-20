@@ -18,6 +18,8 @@ assert.equal(isScheduleInquiryIntent("למתי קבענו?"), true);
 assert.equal(isScheduleInquiryIntent("מתי קבעתי אימון"), true);
 assert.equal(isScheduleInquiryIntent("למתי קבעתי?"), true);
 assert.equal(isScheduleInquiryIntent("למתי קבעתי"), true);
+assert.equal(isScheduleInquiryIntent("למתי נרשמתי"), true);
+assert.equal(isScheduleInquiryIntent("למתי נרשמתי?"), true);
 assert.equal(matchesBookingLookupPhrase("למתי קבענו?"), true);
 assert.equal(matchesBookingLookupPhrase("מתי האימון שלי"), true);
 assert.equal(matchesBookingLookupPhrase("תשלחי לי את המועד ליומן"), true);
