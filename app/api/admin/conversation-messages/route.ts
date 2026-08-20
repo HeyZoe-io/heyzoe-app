@@ -10,6 +10,7 @@ import {
   MARKETING_CONVERSATIONS_SLUG,
   marketingSessionIdVariants,
 } from "@/lib/marketing-whatsapp";
+import { waSessionIdVariantsFromSessionId } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
 
   const sessionFilter = isMarketingConversationsSlug(slug)
     ? marketingSessionIdVariants(sessionId)
-    : [sessionId];
+    : waSessionIdVariantsFromSessionId(sessionId);
 
   let messagesQuery = admin
     .from("messages")

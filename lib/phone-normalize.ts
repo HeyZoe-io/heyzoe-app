@@ -79,6 +79,28 @@ export function waSessionIdLookupVariants(phoneNumberId: unknown, leadPhone: unk
   return [...out].filter(Boolean);
 }
 
+/** Parse `wa_{phone_number_id}_{leadPhone}`. */
+export function waSessionIdParts(sessionId: string): { phoneNumberId: string; phone: string } | null {
+  const sid = String(sessionId ?? "").trim();
+  if (!sid.startsWith("wa_")) return null;
+  const rest = sid.slice(3);
+  const idx = rest.indexOf("_");
+  if (idx < 0) return null;
+  const phoneNumberId = rest.slice(0, idx).trim();
+  const phone = rest.slice(idx + 1).trim();
+  if (!phoneNumberId || !phone) return null;
+  return { phoneNumberId, phone };
+}
+
+/** All session_id spellings for one WhatsApp thread (+972 vs 972). */
+export function waSessionIdVariantsFromSessionId(sessionId: string): string[] {
+  const sid = String(sessionId ?? "").trim();
+  if (!sid) return [];
+  const parts = waSessionIdParts(sid);
+  if (!parts) return [sid];
+  return [...new Set([sid, ...waSessionIdLookupVariants(parts.phoneNumberId, parts.phone)])];
+}
+
 /** וריאנטים לחיפוש contacts.phone (+972..., 972..., וכו'). */
 export function contactPhoneLookupVariants(input: unknown): string[] {
   const trimmed = String(input ?? "").trim();

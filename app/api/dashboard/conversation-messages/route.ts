@@ -11,6 +11,7 @@ import { isAdminAllowedEmail } from "@/lib/server-env";
 import { appendLeadTemplateMessageFallback } from "@/lib/conversation-template-messages";
 import { hydrateUnsupportedZoeAdminMessages } from "@/lib/wa-zoe-admin-template-log";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
+import { waSessionIdVariantsFromSessionId } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
 
@@ -45,12 +46,17 @@ export async function GET(req: NextRequest) {
   const business = pickBusinessBySlug(accessible, slug) as DashboardBizRow | null;
   if (!business) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const { data: messages } = await admin
+  const sessionIds = waSessionIdVariantsFromSessionId(sessionId);
+  let messagesQuery = admin
     .from("messages")
     .select("role, content, created_at, error_code, model_used")
     .in("business_slug", slugVariants.length ? slugVariants : [slug])
-    .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
+  messagesQuery =
+    sessionIds.length === 1
+      ? messagesQuery.eq("session_id", sessionIds[0]!)
+      : messagesQuery.in("session_id", sessionIds);
+  const { data: messages } = await messagesQuery;
 
   let out: SessionMessage[] = (messages ?? []).map((m) => ({
     role: String((m as { role?: string }).role ?? ""),

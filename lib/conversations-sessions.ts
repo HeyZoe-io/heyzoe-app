@@ -276,6 +276,7 @@ export function aggregateSessionsFromMessages(
   }
 
   const sessions: SessionSummary[] = [...bySession.entries()].map(([sid, data]) => {
+    const rawPhone = extractPhoneFromSessionId(sid);
     const isOpen = data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000;
     const pausedUntil = pausedUntilBySession.get(sid) ?? null;
     return {
@@ -285,11 +286,88 @@ export function aggregateSessionsFromMessages(
       isOpen,
       isPaused: Boolean(pausedUntil),
       pausedUntil,
-      phone: extractPhoneFromSessionId(sid),
+      phone: normalizePhone(rawPhone) ?? rawPhone,
     };
   });
 
   return sortSessionsByRecentActivity(sessions);
+}
+
+function sessionIdIsCanonical(sessionId: string): boolean {
+  const phone = extractPhoneFromSessionId(sessionId);
+  return Boolean(phone) && !phone.includes("+") && Boolean(normalizePhone(phone));
+}
+
+/**
+ * One row per lead phone: prefer the current WhatsApp line, then canonical session_id
+ * (972 without +), then most recent activity. Collapses old-line + current-line duplicates.
+ */
+export function dedupeSessionsByPhone(
+  sessions: SessionSummary[],
+  currentPhoneNumberIds: string[] = []
+): SessionSummary[] {
+  const byPhone = new Map<string, SessionSummary>();
+  for (const s of sessions) {
+    const key = phoneLookupKey(s.phone) || String(s.session_id ?? "").trim();
+    if (!key) continue;
+    const phone = normalizePhone(s.phone) ?? s.phone;
+    const next: SessionSummary = { ...s, phone };
+    const prev = byPhone.get(key);
+    if (!prev) {
+      byPhone.set(key, next);
+      continue;
+    }
+    byPhone.set(key, pickPreferredSession(prev, next, currentPhoneNumberIds));
+  }
+  return sortSessionsByRecentActivity([...byPhone.values()]);
+}
+
+function pickPreferredSession(
+  a: SessionSummary,
+  b: SessionSummary,
+  currentPhoneNumberIds: string[]
+): SessionSummary {
+  const aCurrent = sessionIdMatchesWaPhoneNumberIds(a.session_id, currentPhoneNumberIds);
+  const bCurrent = sessionIdMatchesWaPhoneNumberIds(b.session_id, currentPhoneNumberIds);
+  let keep = a;
+  let drop = b;
+  if (bCurrent && !aCurrent) {
+    keep = b;
+    drop = a;
+  } else if (aCurrent === bCurrent) {
+    const aMs = sessionRecentActivityMs(a);
+    const bMs = sessionRecentActivityMs(b);
+    if (bMs > aMs) {
+      keep = b;
+      drop = a;
+    } else if (
+      bMs === aMs &&
+      sessionIdIsCanonical(b.session_id) &&
+      !sessionIdIsCanonical(a.session_id)
+    ) {
+      keep = b;
+      drop = a;
+    }
+  }
+
+  const sameLine = aCurrent === bCurrent;
+  const keepMs = sessionRecentActivityMs(keep);
+  const dropMs = sessionRecentActivityMs(drop);
+  const pausedUntil =
+    keep.pausedUntil && drop.pausedUntil
+      ? keep.pausedUntil > drop.pausedUntil
+        ? keep.pausedUntil
+        : drop.pausedUntil
+      : keep.pausedUntil ?? drop.pausedUntil ?? null;
+  return {
+    ...keep,
+    count: sameLine ? keep.count + drop.count : keep.count,
+    lastAt: sameLine && dropMs > keepMs ? drop.lastAt : keep.lastAt,
+    isPaused: keep.isPaused || drop.isPaused,
+    pausedUntil,
+    fullName: keep.fullName || drop.fullName,
+    contactStatus: keep.contactStatus ?? drop.contactStatus,
+  };
 }
 
 function appendTemplateOnlySessions(
@@ -381,8 +459,13 @@ export async function loadBusinessConversationSessions(
     pausedUntilBySession
   ).slice(0, SESSION_LIST_CAP);
 
-  if (!Number.isFinite(businessId) || businessId <= 0) return sessions;
+  if (!Number.isFinite(businessId) || businessId <= 0) {
+    return dedupeSessionsByPhone(sessions, phoneNumberIds).slice(0, SESSION_LIST_CAP);
+  }
 
   const metaByPhone = await loadContactMetaByPhoneForBusiness(admin, businessId);
-  return enrichSessionsWithContactMeta(sessions, metaByPhone).slice(0, SESSION_LIST_CAP);
+  return dedupeSessionsByPhone(
+    enrichSessionsWithContactMeta(sessions, metaByPhone),
+    phoneNumberIds
+  ).slice(0, SESSION_LIST_CAP);
 }
