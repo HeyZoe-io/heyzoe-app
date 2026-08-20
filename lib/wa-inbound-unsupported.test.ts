@@ -8,12 +8,46 @@ import {
   hebrewUnsupportedInboundLabel,
   isZoeAdminWhatsAppPhone,
   parseWaUnsupportedKind,
+  unsupportedInboundPreviewShouldProcessAsText,
 } from "@/lib/wa-inbound-unsupported";
 
 assert.equal(digitsForMarketingLineCompare("+972 3-382-4981"), "97233824981");
 assert.equal(digitsForMarketingLineCompare("033824981"), "97233824981");
 assert.equal(isZoeAdminWhatsAppPhone("+97233824981"), true);
 assert.equal(isZoeAdminWhatsAppPhone("972501234567"), false);
+
+assert.equal(
+  unsupportedInboundPreviewShouldProcessAsText({
+    from: "972587715716",
+    metaInboundType: "unsupported",
+    previewText: "היי מה נשמע? אני מנסה  להירשם לשיעור שבוע הבא ולא נותן לי",
+  }),
+  "היי מה נשמע? אני מנסה  להירשם לשיעור שבוע הבא ולא נותן לי"
+);
+assert.equal(
+  unsupportedInboundPreviewShouldProcessAsText({
+    from: "+97233824981",
+    metaInboundType: "hsm",
+    previewText: "היי אלין, יש ליד חדש",
+  }),
+  null
+);
+assert.equal(
+  unsupportedInboundPreviewShouldProcessAsText({
+    from: "972587715716",
+    metaInboundType: "image",
+    previewText: "כיתוב על תמונה",
+  }),
+  null
+);
+assert.equal(
+  unsupportedInboundPreviewShouldProcessAsText({
+    from: "972587715716",
+    metaInboundType: "unsupported",
+    previewText: "",
+  }),
+  null
+);
 
 assert.equal(formatWaUnsupportedLogContent("unsupported"), "[unsupported] unsupported");
 assert.equal(formatWaUnsupportedLogContent("hsm", "שלום אלין"), "שלום אלין");

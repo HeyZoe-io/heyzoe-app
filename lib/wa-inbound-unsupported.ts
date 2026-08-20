@@ -5,6 +5,23 @@ export const WA_ZOE_ADMIN_TEMPLATE_MODEL = "wa_zoe_admin_template";
 
 const TEMPLATE_KINDS = new Set(["unsupported", "unknown", "hsm", "template", "interactive"]);
 
+/** Media / non-text kinds — keep current "log, don't auto-reply" behavior. */
+const UNSUPPORTED_MEDIA_KINDS = new Set([
+  "image",
+  "video",
+  "audio",
+  "voice",
+  "sticker",
+  "document",
+  "location",
+  "contacts",
+  "poll",
+  "poll_creation",
+  "order",
+  "system",
+  "reaction",
+]);
+
 function marketingLineDigits(): string {
   return String(MARKETING_PHONE_WA_ME ?? "").replace(/\D/g, "");
 }
@@ -22,6 +39,23 @@ export function isZoeAdminWhatsAppPhone(phone: string): boolean {
   const want = marketingLineDigits();
   const got = digitsForMarketingLineCompare(phone);
   return Boolean(want && got && got === want);
+}
+
+/**
+ * Meta sometimes delivers a customer text as type=unsupported (WABA→WABA, unknown
+ * subtype) but still includes the body as preview. Promote those to normal text so
+ * Zoe replies. Do not promote Zoe-admin template echoes or media captions.
+ */
+export function unsupportedInboundPreviewShouldProcessAsText(input: {
+  from: string;
+  metaInboundType?: string | null;
+  previewText?: string | null;
+}): string | null {
+  if (isZoeAdminWhatsAppPhone(input.from)) return null;
+  const kind = String(input.metaInboundType ?? "").trim().toLowerCase();
+  if (UNSUPPORTED_MEDIA_KINDS.has(kind)) return null;
+  const preview = String(input.previewText ?? "").trim();
+  return preview || null;
 }
 
 export function isWaUnsupportedLogContent(raw: string): boolean {

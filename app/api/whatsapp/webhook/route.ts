@@ -252,6 +252,7 @@ import {
 import {
   formatWaUnsupportedLogContent,
   isZoeAdminWhatsAppPhone,
+  unsupportedInboundPreviewShouldProcessAsText,
   WA_ZOE_ADMIN_TEMPLATE_MODEL,
 } from "@/lib/wa-inbound-unsupported";
 import { detectMessageLanguage } from "@/lib/language-detect";
@@ -5552,6 +5553,28 @@ async function processIncoming(
 
   // Handle unsupported message types (voice note, image, sticker, …).
   // Log for the dashboard; do not auto-reply (no canned "text only" message).
+  // Exception: Meta sometimes includes the customer text as preview on
+  // type=unsupported — treat that as a normal inbound so Zoe still replies.
+  if (msg.type === "unsupported") {
+    const promotedText = unsupportedInboundPreviewShouldProcessAsText(msg);
+    if (promotedText) {
+      console.info("[WA Webhook] unsupported inbound promoted to text", {
+        business_slug,
+        sessionId,
+        from: msg.from,
+        metaInboundType: msg.metaInboundType ?? null,
+      });
+      msg = {
+        type: "text",
+        messageId: msg.messageId,
+        from: msg.from,
+        toNumber: msg.toNumber,
+        text: promotedText,
+        profileName: msg.profileName,
+      };
+    }
+  }
+
   if (msg.type === "unsupported") {
     try {
       if (msg.metaInboundType === "reaction") {
