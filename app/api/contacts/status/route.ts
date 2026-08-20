@@ -134,9 +134,6 @@ export async function POST(req: NextRequest) {
     if ((existing as { not_relevant_at?: string | null }).not_relevant_at) {
       return NextResponse.json({ error: "contact_not_relevant" }, { status: 400 });
     }
-    if ((existing as { human_requested_at?: string | null }).human_requested_at) {
-      return NextResponse.json({ error: "contact_human_requested" }, { status: 400 });
-    }
     const alreadyRegistered =
       (existing as { trial_registered?: boolean | null }).trial_registered === true ||
       String((existing as { session_phase?: string | null }).session_phase ?? "").trim() === "registered";
@@ -204,9 +201,6 @@ export async function POST(req: NextRequest) {
   }
   if ((existing as { wa_no_response_at?: string | null }).wa_no_response_at) {
     return NextResponse.json({ error: "contact_no_response" }, { status: 400 });
-  }
-  if ((existing as { human_requested_at?: string | null }).human_requested_at) {
-    return NextResponse.json({ error: "contact_human_requested" }, { status: 400 });
   }
 
   const result = await markContactTrialRegisteredManually({

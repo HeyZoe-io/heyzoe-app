@@ -61,6 +61,7 @@ export async function fetchLastUserMessageAt(input: {
 export function buildNoResponseContactPatch(atIso: string): Record<string, unknown> {
   return {
     wa_no_response_at: atIso,
+    human_requested_at: null,
     wa_next_followup_at: null,
     wa_no_response_due_at: null,
     wa_followup_stage: 3,

@@ -198,7 +198,7 @@ export const MARKETING_PIPELINE_STATUS_ORDER: Array<ContactStatusKey | "none"> =
 
 export type ContactStatusFilterValue = ContactStatusKey | "all" | "none";
 
-/** סטטוסים שניתן לקבוע ידנית מדשבורד הלידים */
+/** סטטוסים שניתן לקבוע ידנית מדשבורד הלידים (כולל מעבר מ«ביקש נציג») */
 export const MANUAL_CONTACT_STATUSES: ContactStatusKey[] = [
   "registered",
   "not_relevant",
@@ -217,7 +217,6 @@ export function canManuallySetContactStatus(
     return (
       contact.opted_out !== true &&
       !contact.not_relevant_at &&
-      !contact.human_requested_at &&
       !contact.wa_no_response_at &&
       contact.trial_registered !== true &&
       contact.session_phase !== "registered"
@@ -236,7 +235,6 @@ export function canManuallySetContactStatus(
     return (
       contact.opted_out !== true &&
       !contact.not_relevant_at &&
-      !contact.human_requested_at &&
       contact.trial_registered !== true &&
       contact.session_phase !== "registered"
     );

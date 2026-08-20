@@ -181,7 +181,7 @@ function isContactStatusEditable(
   if (marketingAdminMode) return false;
   if (!contact.phone?.trim()) return false;
   if (multiBusinessAdmin && !contact.business_slug?.trim()) return false;
-  if (contact.opted_out || contact.not_relevant_at || contact.human_requested_at || contact.wa_no_response_at)
+  if (contact.opted_out || contact.not_relevant_at || contact.wa_no_response_at)
     return false;
   return MANUAL_CONTACT_STATUSES.some((s) => canManuallySetContactStatus(s, contact));
 }
@@ -696,6 +696,7 @@ export default function ContactsClient({
                   ...row,
                   not_relevant_at: notRelevantAt,
                   not_relevant_reason: row.not_relevant_reason ?? null,
+                  human_requested_at: null,
                   wa_next_followup_at: null,
                   wa_no_response_due_at: null,
                   wa_followup_stage: 3,
@@ -715,6 +716,7 @@ export default function ContactsClient({
                   ...row,
                   trial_registered: true,
                   session_phase: "registered",
+                  human_requested_at: null,
                   wa_next_followup_at: null,
                   wa_no_response_due_at: null,
                   wa_followup_stage: 3,
@@ -751,6 +753,7 @@ export default function ContactsClient({
               ? {
                   ...row,
                   wa_no_response_at: noResponseAt,
+                  human_requested_at: null,
                   wa_next_followup_at: null,
                   wa_no_response_due_at: null,
                   wa_followup_stage: 3,

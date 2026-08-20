@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   assistantReplyIndicatesLeadNotRelevant,
+  buildNotRelevantContactPatch,
   matchesNotRelevantKeyword,
   shouldSendNotRelevantGatingReply,
 } from "@/lib/not-relevant";
@@ -47,5 +48,10 @@ assert.equal(
   true
 );
 assert.equal(shouldSendNotRelevantGatingReply(null), true);
+
+{
+  const patch = buildNotRelevantContactPatch("רחוק", "2026-08-20T08:00:00.000Z");
+  assert.equal(patch.human_requested_at, null);
+}
 
 console.log("not-relevant.test.ts: ok");

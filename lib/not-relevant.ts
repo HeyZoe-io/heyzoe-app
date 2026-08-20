@@ -460,6 +460,7 @@ export function buildNotRelevantContactPatch(reason: string | null, atIso: strin
   return {
     not_relevant_at: atIso,
     not_relevant_reason: String(reason ?? "").trim().slice(0, 120),
+    human_requested_at: null,
     wa_next_followup_at: null,
     wa_no_response_due_at: null,
     wa_followup_stage: 3,
