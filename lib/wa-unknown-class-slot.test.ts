@@ -122,7 +122,53 @@ assert.equal(
   true
 );
 
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: limitlessLike,
+  }),
+  false,
+  "generic Tuesday question — Power & HIIT has Tuesday"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: [svc("אקרו יוגה", []), svc("עמידות ידיים", [])],
+    hasScheduleBoardFallback: true,
+  }),
+  false,
+  "no product slots but schedule board fallback — do not hand off"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: [svc("אקרו יוגה", []), svc("עמידות ידיים", [])],
+  }),
+  true,
+  "no product slots and no schedule board — hand off"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור בשלישי?",
+    services: [
+      svc("אקרו יוגה", [{ day: "ג", time: "18:00" }]),
+      svc("עמידות ידיים", [{ day: "ב", time: "17:00" }]),
+    ],
+    committedServiceName: "עמידות ידיים",
+  }),
+  false,
+  "generic Tuesday Q ignores committed service without Tuesday — acro has Tuesday"
+);
+
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
+assert.equal(
+  assistantReplyIsUnknownClassSlotHandoff("אין בעיה אני מעבירה את הבקשה לצוות"),
+  true,
+  "legacy handoff phrase still detected"
+);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 
 console.log("wa-unknown-class-slot.test.ts: ok");

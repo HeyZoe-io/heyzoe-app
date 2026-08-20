@@ -363,6 +363,19 @@ export function resolveScheduleBoardAssets(input: {
   return { link, scheduleImgUrl, canSendScheduleImage };
 }
 
+/** תמונת/קישור/טקסט מערכת שעות — כשאין מועדי לוח למוצר (הרשמה ישירה). */
+export function businessHasScheduleBoardFallback(input: {
+  schedulePublicUrl?: string;
+  arboxLink?: string;
+  scheduleScanImageUrl?: string;
+  scheduleCtaImageUrl?: string;
+  scheduleText?: string;
+}): boolean {
+  const assets = resolveScheduleBoardAssets({ ...input, blockMedia: false });
+  if (assets.canSendScheduleImage || assets.link) return true;
+  return Boolean(String(input.scheduleText ?? "").trim());
+}
+
 /** תמונת מערכת שעות ל־CTA — מתוך הכפתור או מ־schedule_scan שהועלה בסשנים קודמים */
 export function resolveEffectiveScheduleCtaImageUrl(
   scheduleCtaImageUrl?: string,

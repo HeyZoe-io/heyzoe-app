@@ -86,6 +86,7 @@ import {
   DEFAULT_MULTI_SERVICE_QUESTION_TAIL,
   resolveScheduleBoardAssets,
   resolveScheduleBoardPlacement,
+  businessHasScheduleBoardFallback,
   formatMembershipsPriceRangeLine,
   membershipsPriceRangeWhatsAppText,
   SCHEDULE_BOARD_CAPTION,
@@ -191,11 +192,11 @@ import {
 import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import {
-  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
-  UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-  assistantReplyIsUnknownClassSlotHandoff,
-  shouldHandoffUnknownClassSlot,
-} from "@/lib/wa-unknown-class-slot";
+  UNKNOWN_KNOWLEDGE_HANDOFF_MODEL,
+  ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+  assistantReplyNeedsUnknownKnowledgeTeamHandoff,
+} from "@/lib/wa-unknown-knowledge-handoff";
+import { shouldHandoffUnknownClassSlot } from "@/lib/wa-unknown-class-slot";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
@@ -6102,8 +6103,31 @@ async function processIncoming(
     return;
   }
 
-  // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות
+  // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות (אלא אם יש לוח חיצוני / מועדים במוצרים)
   if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
+    const schedBtnForSlot = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
+    const scheduleBoardAssetsForSlot = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
+    const scheduleBoardFallback = businessHasScheduleBoardFallback({
+      schedulePublicUrl: knowledge.schedulePublicUrl,
+      arboxLink: knowledge.arboxLink,
+      scheduleScanImageUrl: knowledge.scheduleScanImageUrl,
+      scheduleCtaImageUrl: schedBtnForSlot?.schedule_cta_image_url,
+      scheduleText: knowledge.scheduleText,
+    });
+
+    if (isScheduleIntent(msg.text.trim()) && scheduleBoardFallback) {
+      const delivery = await sendScheduleBoardAfterOpening({
+        assets: scheduleBoardAssetsForSlot,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        modelUsed: "sales_flow_schedule_board_free_text_intent",
+      });
+      if (delivery !== "none") return;
+    }
+
     const lastPickedForSlot =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
@@ -6114,6 +6138,7 @@ async function processIncoming(
         services: salesFlowServices,
         committedServiceName: lastPickedForSlot,
         sessionPhase: contactSessionPhase,
+        hasScheduleBoardFallback: scheduleBoardFallback,
       })
     ) {
       try {
@@ -6133,7 +6158,7 @@ async function processIncoming(
         await sendWhatsAppMessage(
           msg.toNumber,
           msg.from,
-          UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+          ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
           accountSid,
           authToken
         );
@@ -6143,8 +6168,8 @@ async function processIncoming(
       await logMessage({
         business_slug,
         role: "assistant",
-        content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-        model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+        content: ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+        model_used: UNKNOWN_KNOWLEDGE_HANDOFF_MODEL,
         session_id: sessionId,
       });
       return;
@@ -9661,7 +9686,7 @@ async function processIncoming(
   if (
     !isFallbackErrorReply &&
     didCallClaude &&
-    assistantReplyIsUnknownClassSlotHandoff(replyCoreClean) &&
+    assistantReplyNeedsUnknownKnowledgeTeamHandoff(replyCoreClean) &&
     businessId
   ) {
     try {
@@ -9675,24 +9700,24 @@ async function processIncoming(
         sessionId,
       });
     } catch (e) {
-      console.error("[WA Webhook] unknown-class-slot (claude) human_requested failed:", e);
+      console.error("[WA Webhook] unknown-knowledge (claude) human_requested failed:", e);
     }
     try {
       await sendWhatsAppMessage(
         msg.toNumber,
         msg.from,
-        UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+        ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
         accountSid,
         authToken
       );
     } catch (e) {
-      console.error("[WA Webhook] Send unknown-class-slot (claude) team handoff failed:", e);
+      console.error("[WA Webhook] Send unknown-knowledge (claude) team handoff failed:", e);
     }
     await logMessage({
       business_slug,
       role: "assistant",
-      content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-      model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+      content: ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+      model_used: UNKNOWN_KNOWLEDGE_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;
