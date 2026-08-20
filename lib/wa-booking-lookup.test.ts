@@ -29,6 +29,9 @@ assert.equal(isScheduleInquiryIntent("שכחתי מתי האימון"), true);
 assert.equal(isScheduleInquiryIntent("תזכירי לי מתי אני מגיעה"), true);
 assert.equal(isScheduleInquiryIntent("יש לי אימון השבוע"), true);
 assert.equal(isScheduleInquiryIntent("מתי אני רשומה"), true);
+assert.equal(isScheduleInquiryIntent("אפשר לבדוק לי למתי אני רשומ/ה"), true);
+assert.equal(isScheduleInquiryIntent("אפשר לבדוק לי למתי אני רשום"), true);
+assert.equal(isScheduleInquiryIntent("תבדקי לי למתי אני רשומה"), true);
 assert.equal(isScheduleInquiryIntent("מתי יש אימון"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("מנוי קיים"), "yes");

@@ -58,7 +58,8 @@ function matchesAdditionalScheduleInquiry(t: string): boolean {
   }
   if (/(?:מתי|למתי).{0,16}(?:השיעור|האימון)\s+הבא\s+שלי/u.test(t)) return true;
   if (/לאיזה\s+שיעור\s+נרשמ/u.test(t)) return true;
-  if (/(?:מתי|למתי)\s+אני\s+רשומ/u.test(t)) return true;
+  if (/(?:מתי|למתי)\s+אני\s+רשו[םמ]/u.test(t)) return true;
+  if (/(?:לבדוק|תבדק(?:י|ו)?)\s+לי.{0,24}(?:מתי|למתי).{0,16}רשו[םמ]/u.test(t)) return true;
   if (/שכחתי.{0,24}מתי.{0,20}(?:האימון|השיעור|קבענו)/u.test(t)) return true;
   if (
     /תזכיר(?:י|ו)?\s+לי.{0,24}מתי.{0,20}(?:אני\s+מגיע|האימון|השיעור|קבענו)/u.test(t)
