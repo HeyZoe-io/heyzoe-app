@@ -126,7 +126,7 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
   assert.equal(one.kind, "single");
   assert.equal(one.modelUsed, SCHEDULE_LOOKUP_SINGLE_MODEL);
   assert.equal(one.notifyHumanRequested, false);
-  assert.match(one.text, /מצאתי! 💜 את רשומה ל-יוגה ביום שלישי 25\.8 בשעה 09:00/);
+  assert.match(one.text, /מצאתי! 💜 אני רואה רישום ל-יוגה ביום שלישי 25\.8 בשעה 09:00/);
   assert.equal(one.text, buildScheduleLookupSingleReply(single));
   assert.equal(one.text.includes("—"), false);
 
@@ -165,6 +165,8 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
   assert.equal(notFound.kind, "phone_not_found");
   assert.equal(notFound.modelUsed, SCHEDULE_LOOKUP_PHONE_NOT_FOUND_MODEL);
   assert.equal(notFound.text, buildScheduleLookupPhoneNotFoundReply());
+  assert.match(notFound.text, /אפשר לכתוב לי אותו/);
+  assert.equal(notFound.text.includes("תכתבי"), false);
 
   const retryFail = mapScheduleLookupReply({
     bookings: [],

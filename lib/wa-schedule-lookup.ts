@@ -185,7 +185,7 @@ export function buildScheduleLookupSingleReply(booking: ScheduleLookupBooking): 
   const day = hebrewDayFromYmd(booking.dateYmd);
   const date = formatScheduleLookupDate(booking.dateYmd);
   const timeBit = booking.timeHhmm ? ` בשעה ${booking.timeHhmm}` : "";
-  return `מצאתי! 💜 את רשומה ל-${booking.className} ביום ${day} ${date}${timeBit}.\nנתראה שם! 🙌`;
+  return `מצאתי! 💜 אני רואה רישום ל-${booking.className} ביום ${day} ${date}${timeBit}.\nנתראה שם! 🙌`;
 }
 
 export function buildScheduleLookupMultipleReply(bookings: ScheduleLookupBooking[]): string {
@@ -202,7 +202,7 @@ export function buildScheduleLookupNoBookingsReply(customerServicePhone: string)
 }
 
 export function buildScheduleLookupPhoneNotFoundReply(): string {
-  return "לא מצאתי את המספר הזה במערכת שלנו 🤔 יכול להיות שההרשמה רשומה על מספר אחר?\nאם כן - תכתבי לי אותו ואבדוק שוב 💜";
+  return "לא מצאתי את המספר הזה במערכת שלנו 🤔 יכול להיות שההרשמה רשומה על מספר אחר?\nאם כן - אפשר לכתוב לי אותו ואבדוק שוב 💜";
 }
 
 export function buildScheduleLookupRetryHandoffReply(customerServicePhone: string): string {
