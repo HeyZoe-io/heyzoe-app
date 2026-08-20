@@ -138,12 +138,14 @@ const LEAD_TEMPLATE_REGISTRY: Record<string, LeadTemplatePreview> = {
     ].join("\n"),
   },
   sanga_quiz_welcome: {
+    header: "היי! כאן סאנגה יוגה",
     body: [
-      "מתלבטים אם להתחיל לתרגל איתנו יוגה?",
-      "הנה 5 שאלות להבין יחד האם זה בשבילך👇",
-      "מתחילים? קליק.",
+      "מתלבטים אם לתרגל איתנו יוגה?",
+      "3 שאלות כדי שנתאים לכם את האימון המושלם!",
+      "קליק👇",
     ].join("\n"),
     buttons: ["בואו נתחיל!"],
+    footer: "דם המכבים 36 מודיעין",
   },
 };
 
@@ -168,11 +170,11 @@ export function renderLeadTemplateMessageContent(
 ): string {
   const key = String(templateName ?? "").trim() || "lead_welcome";
   const firstName = String(opts?.firstName ?? "").trim() || "שלום";
+  // Live Meta components win — the registry is only a fallback for old rows.
   const preview =
-    LEAD_TEMPLATE_REGISTRY[key] ??
     previewFromWhatsappTemplateComponents(
       opts?.components ?? opts?.componentsByName?.[key]
-    );
+    ) ?? LEAD_TEMPLATE_REGISTRY[key];
   if (!preview) {
     return `נשלח טמפלייט פתיחה (${key})`;
   }

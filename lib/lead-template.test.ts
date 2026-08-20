@@ -40,4 +40,22 @@ const ARBOX_NEW_LEAD_COMPONENTS = [
   assert.equal(resolveLeadTemplateDisplayContent(placeholder), placeholder);
 }
 
+{
+  const live = [
+    { type: "HEADER", format: "TEXT", text: "היי! כאן סאנגה יוגה" },
+    {
+      type: "BODY",
+      text: "מתלבטים אם לתרגל איתנו יוגה?\n3 שאלות כדי שנתאים לכם את האימון המושלם!\nקליק👇",
+    },
+    { type: "FOOTER", text: "דם המכבים 36 מודיעין" },
+    { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "בואו נתחיל!" }] },
+  ];
+  const text = renderLeadTemplateMessageContent("sanga_quiz_welcome", {
+    components: live,
+  });
+  assert.match(text, /3 שאלות כדי שנתאים לכם את האימון המושלם/);
+  assert.equal(text.includes("5 שאלות"), false);
+  assert.equal(text.includes("להתחיל לתרגל"), false);
+}
+
 console.log("lead-template.test.ts: ok");
