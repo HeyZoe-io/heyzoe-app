@@ -1,6 +1,7 @@
 -- Fix AcroByJoe WhatsApp display number (Twilio) in dashboard
 -- Local IL: 03-382-3805 → E.164: +972 3 382 3805
 -- Run in Supabase SQL Editor.
+-- Only the current (newest) channel — do not blanket-activate stale/test rows.
 
 UPDATE public.whatsapp_channels
 SET
@@ -8,8 +9,14 @@ SET
   is_active = true,
   provisioning_status = 'active',
   business_slug = 'acrobyjoe'
-WHERE lower(coalesce(business_slug, '')) = 'acrobyjoe'
-   OR business_id = (SELECT id FROM public.businesses WHERE lower(slug) = 'acrobyjoe' LIMIT 1);
+WHERE id = (
+  SELECT c.id
+  FROM public.whatsapp_channels c
+  WHERE lower(coalesce(c.business_slug, '')) = 'acrobyjoe'
+     OR c.business_id = (SELECT b.id FROM public.businesses b WHERE lower(b.slug) = 'acrobyjoe' LIMIT 1)
+  ORDER BY (c.is_active IS TRUE) DESC, c.created_at DESC NULLS LAST, c.id DESC
+  LIMIT 1
+);
 
 UPDATE public.businesses
 SET

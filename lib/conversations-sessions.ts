@@ -3,6 +3,10 @@ import { computeContactStatus, type ContactStatusKey } from "@/lib/contact-statu
 import { leadConversationAt } from "@/lib/lead-activity";
 import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
+import {
+  pickDefaultActiveChannel,
+  type ActiveWaChannel,
+} from "@/lib/wa-resolve-send-channel";
 
 export function sessionRecentActivityMs(session: { lastAt?: string | null }): number {
   const at = String(session.lastAt ?? "").trim();
@@ -190,7 +194,16 @@ function pausedUntilBySessionFromRows(
   return map;
 }
 
-/** מזהי Meta phone_number_id של עסק מ-whatsapp_channels */
+/**
+ * Owner dashboard: current WhatsApp line only (newest active channel).
+ * Historical / stale numbers stay out of the conversation list even if still marked active.
+ */
+export function phoneNumberIdsForOwnerDashboard(channels: ActiveWaChannel[]): string[] {
+  const picked = pickDefaultActiveChannel(channels);
+  return picked?.phoneNumberId ? [picked.phoneNumberId] : [];
+}
+
+/** מזהה Meta phone_number_id של קו הוואטסאפ הנוכחי מ-whatsapp_channels */
 export async function resolveBusinessWaPhoneNumberIds(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   slug: string
@@ -200,15 +213,25 @@ export async function resolveBusinessWaPhoneNumberIds(
 
   const { data: channels } = await admin
     .from("whatsapp_channels")
-    .select("phone_number_id, business_slug")
-    .in("business_slug", slugVariants);
+    .select("id, phone_number_id, business_slug, created_at, is_active")
+    .in("business_slug", slugVariants)
+    .eq("is_active", true);
 
-  const ids = new Set<string>();
+  const active: ActiveWaChannel[] = [];
   for (const row of channels ?? []) {
-    const id = String((row as { phone_number_id?: string }).phone_number_id ?? "").trim();
-    if (id) ids.add(id);
+    const phoneNumberId = String((row as { phone_number_id?: string }).phone_number_id ?? "").trim();
+    if (!phoneNumberId) continue;
+    const channelId = Number((row as { id?: unknown }).id);
+    active.push({
+      id: Number.isFinite(channelId) ? channelId : 0,
+      phoneNumberId,
+      businessSlug: String((row as { business_slug?: string }).business_slug ?? "")
+        .trim()
+        .toLowerCase(),
+      createdAt: String((row as { created_at?: string }).created_at ?? "").trim(),
+    });
   }
-  return [...ids];
+  return phoneNumberIdsForOwnerDashboard(active);
 }
 
 /** מחזיר את כל וריאציות ה-slug הרלוונטיות (כולל רישיות שונות ב-messages הישנים) */
