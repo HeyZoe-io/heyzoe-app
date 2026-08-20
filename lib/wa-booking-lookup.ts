@@ -41,7 +41,7 @@ export function matchesBookingLookupPhrase(raw: string): boolean {
     );
   const toCalendar =
     /(?:ל)?יומן|calendar/iu.test(t) &&
-    /(?:מתי|מועד|קבע|רשמ|שעה|שלח|תשלח|תוכל|יכולה|להכניס|שאכניס|להוסיף)/u.test(t);
+    /(?:מתי|מועד|קבע|רשמ|שעה|שלח|תשלח|תוכל|יכול|להכניס|שאכניס|להוסיף)/u.test(t);
   const english =
     /when\s+(?:is|did\s+we\s+(?:book|schedule))\s+my\s+(?:class|session|lesson|training)/i.test(t) ||
     /add(?:\s+it)?\s+to\s+(?:my\s+)?calendar/i.test(t) ||
@@ -57,15 +57,24 @@ function matchesAdditionalScheduleInquiry(t: string): boolean {
     return false;
   }
   if (/(?:מתי|למתי).{0,16}(?:השיעור|האימון)\s+הבא\s+שלי/u.test(t)) return true;
-  if (/לאיזה\s+שיעור\s+נרשמ/u.test(t)) return true;
-  if (/(?:מתי|למתי)\s+אני\s+רשו[םמ]/u.test(t)) return true;
-  if (/(?:לבדוק|תבדק(?:י|ו)?)\s+לי.{0,24}(?:מתי|למתי).{0,16}רשו[םמ]/u.test(t)) return true;
-  if (/שכחתי.{0,24}מתי.{0,20}(?:האימון|השיעור|קבענו)/u.test(t)) return true;
+  // נרשם / נרשמה / נרשמתי / נרשמנו — לא «נרשמים» הכללי
+  const signedUp = String.raw`נרש(?:מתי|מה|מנו|מת|ם)`;
+  if (new RegExp(String.raw`לאיזה\s+(?:שיעור|אימון)\s+${signedUp}`, "u").test(t)) return true;
+  if (new RegExp(String.raw`${signedUp}.{0,16}לאיזה\s+(?:שיעור|אימון)`, "u").test(t)) return true;
+  if (new RegExp(String.raw`(?:מתי|למתי)\s+${signedUp}`, "u").test(t)) return true;
+  if (/(?:לאיזה|באיזה)\s+(?:שיעור|אימון)\s+(?:אני|אנחנו)\s+רשו[םמ]/u.test(t)) return true;
+  // רשום / רשומה / רשומ/ה / רשום/ה
+  if (/(?:מתי|למתי)\s+(?:אני|אנחנו)\s+רשו[םמ]/u.test(t)) return true;
+  if (/(?:אני|אנחנו)\s+רשו[םמ].{0,16}(?:מתי|למתי)/u.test(t)) return true;
+  if (/(?:לבדוק|תבד(?:ו)?ק(?:י|ו)?)\s+לי.{0,24}(?:מתי|למתי)/u.test(t)) return true;
+  if (/שכחתי.{0,24}מתי.{0,20}(?:האימון|השיעור|קבענו|אני\s+רשו[םמ])/u.test(t)) return true;
   if (
     /תזכיר(?:י|ו)?\s+לי.{0,24}מתי.{0,20}(?:אני\s+מגיע|האימון|השיעור|קבענו)/u.test(t)
   ) {
     return true;
   }
+  // מגיע / מגיעה — אותה כוונה בלי «תזכירי לי»
+  if (/(?:מתי|למתי)\s+אני\s+מגיע/u.test(t)) return true;
   if (/יש\s+לי\s+(?:אימון|שיעור)\s+(?:השבוע|היום|מחר)/u.test(t)) return true;
   return false;
 }

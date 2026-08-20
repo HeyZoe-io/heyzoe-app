@@ -32,7 +32,37 @@ assert.equal(isScheduleInquiryIntent("מתי אני רשומה"), true);
 assert.equal(isScheduleInquiryIntent("אפשר לבדוק לי למתי אני רשומ/ה"), true);
 assert.equal(isScheduleInquiryIntent("אפשר לבדוק לי למתי אני רשום"), true);
 assert.equal(isScheduleInquiryIntent("תבדקי לי למתי אני רשומה"), true);
+
+{
+  const genderPairs: Array<[string, string]> = [
+    ["מתי אני רשומה", "מתי אני רשום"],
+    ["למתי אני רשומה", "למתי אני רשום"],
+    ["מתי אני רשומ/ה", "מתי אני רשום/ה"],
+    ["אפשר לבדוק לי למתי אני רשומה", "אפשר לבדוק לי למתי אני רשום"],
+    ["תבדקי לי למתי אני רשומה", "תבדוק לי למתי אני רשום"],
+    ["תזכירי לי מתי אני מגיעה", "תזכיר לי מתי אני מגיע"],
+    ["מתי אני מגיעה", "מתי אני מגיע"],
+    ["לאיזה שיעור נרשמה", "לאיזה שיעור נרשם"],
+    ["לאיזה שיעור נרשמתי", "לאיזה שיעור נרשמתי"],
+    ["באיזה שיעור אני רשומה", "באיזה שיעור אני רשום"],
+    ["באיזה אימון אני רשומה", "באיזה אימון אני רשום"],
+    ["מתי נרשמה", "מתי נרשם"],
+    ["אני רשומה למתי", "אני רשום למתי"],
+    ["יכולה לשלוח לי את המועד ליומן", "יכול לשלוח לי את המועד ליומן"],
+  ];
+  for (const [fem, masc] of genderPairs) {
+    assert.equal(isScheduleInquiryIntent(fem), true, fem);
+    assert.equal(isScheduleInquiryIntent(masc), true, masc);
+  }
+}
+
+assert.equal(isScheduleInquiryIntent("תבדוק לי מתי האימון"), true);
+assert.equal(isScheduleInquiryIntent("תבדקי לי מתי האימון"), true);
+assert.equal(isScheduleInquiryIntent("מתי אנחנו רשומים"), true);
+assert.equal(isScheduleInquiryIntent("לאיזה אימון נרשמתי"), true);
 assert.equal(isScheduleInquiryIntent("מתי יש אימון"), false);
+assert.equal(isScheduleInquiryIntent("מתי נרשמים לשיעור"), false);
+assert.equal(isScheduleInquiryIntent("מתי אפשר להגיע לשיעור"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("מנוי קיים"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("יש לי מנוי"), "yes");
