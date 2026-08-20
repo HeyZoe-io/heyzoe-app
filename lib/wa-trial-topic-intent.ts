@@ -37,6 +37,17 @@ export function isExistingTrialEnrollmentMention(raw: string): boolean {
   ) {
     return true;
   }
+  if (
+    /(?:לא\s+)?נרשמ(?:תי|נו|ה|ת)\s+ל(?:אימון|שיעור)\s*(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /(?:אני\s+)?(?:כבר\s+)?רשומ(?:ה|ים|\/ה)?\s+ל(?:אימון|שיעור)\s*(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t) ||
+    /(?:אני\s+)?(?:כבר\s+)?רשום(?:\/ה)?\s+ל(?:אימון|שיעור)\s*(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)
+  ) {
+    return true;
+  }
   return false;
 }
 

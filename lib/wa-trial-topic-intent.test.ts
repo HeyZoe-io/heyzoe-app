@@ -20,6 +20,12 @@ assert.equal(isExistingTrialEnrollmentMention(liahExistingTrial), true);
 assert.equal(matchesTrialTopicIntent(liahExistingTrial), false);
 assert.equal(matchesTrialTopicAdvanceIntent(liahExistingTrial), false);
 assert.equal(matchesTrialTopicIntent("נרשמתי לאימון ניסיון ולא נותן לי להירשם"), false);
+assert.equal(matchesTrialTopicIntent("לא נרשמתי לשיעור ניסיון"), false);
+assert.equal(matchesTrialTopicIntent("אני כבר רשומה לשיעור ניסיון"), false);
+assert.equal(matchesTrialTopicIntent("אני כבר רשום לשיעור ניסיון"), false);
+assert.equal(matchesTrialTopicIntent("אני כבר רשומ/ה לשיעור ניסיון"), false);
+assert.equal(isExistingTrialEnrollmentMention("לא נרשמתי לשיעור ניסיון"), true);
+assert.equal(isExistingTrialEnrollmentMention("אני כבר רשומ/ה לשיעור ניסיון"), true);
 
 assert.equal(matchesTrialTopicAdvanceIntent("רוצה אימון הכרות"), true);
 assert.equal(matchesTrialTopicAdvanceIntent("מה זה אימון היכרות"), false);
