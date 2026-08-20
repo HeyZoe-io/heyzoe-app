@@ -1,4 +1,5 @@
 import type { DetectedMessageLanguage } from "@/lib/language-detect";
+import { ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY } from "@/lib/wa-unknown-knowledge-handoff";
 
 export const WA_UNCLEAR_CLARIFY_MODEL = "wa_unclear_clarify";
 export const WA_UNCLEAR_HANDOFF_MODEL = "wa_unclear_team_handoff";
@@ -97,5 +98,5 @@ export function buildUnclearIntentPromptRule(alreadyAsked: boolean): string {
   if (alreadyAsked) {
     return `- כבר ביקשת ניסוח מחדש בשיחה הזו. אם עדיין לא ברור למה הליד מתכוון — עני רק: «${WA_UNCLEAR_HANDOFF_HE}» (או באנגלית: «${WA_UNCLEAR_HANDOFF_EN}»). אל תבקשי ניסוח שוב. אל תוסיפי שאלת «יש עוד משהו».`;
   }
-  return `- אם לא הבנת עד הסוף למה הליד מתכוון (הודעה מעורפלת, חסרה, או לא ברורה) — עני רק: «${WA_UNCLEAR_CLARIFY_HE}» (או באנגלית: «${WA_UNCLEAR_CLARIFY_EN}»). פעם אחת בלבד בשיחה. זה לא חוסר ידע: אם ברור מה שואלים ואין מידע בידע — «אין לי את הפרטים», לא המשפט הזה.`;
+  return `- אם לא הבנת עד הסוף למה הליד מתכוון (הודעה מעורפלת, חסרה, או לא ברורה) — עני רק: «${WA_UNCLEAR_CLARIFY_HE}» (או באנגלית: «${WA_UNCLEAR_CLARIFY_EN}»). פעם אחת בלבד בשיחה. זה לא חוסר ידע: אם ברור מה שואלים ואין מידע בידע — «${ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY}», לא המשפט הזה.`;
 }

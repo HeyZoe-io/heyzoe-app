@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** ניסוחי חוסר-ידע של זואי (עברית + אנגלית) — לא כולל מגבלת 24ש׳ / redirect כללי. */
 export const KNOWLEDGE_GAP_NEEDLES = [
+  "אין לי מידע מדויק",
   "אין לי את הפרטים",
   "אין לי כרגע מידע",
   "אין לי מידע על",

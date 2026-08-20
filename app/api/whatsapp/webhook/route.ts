@@ -192,11 +192,11 @@ import {
 import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import {
-  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
-  UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-  assistantReplyIsUnknownClassSlotHandoff,
-  shouldHandoffUnknownClassSlot,
-} from "@/lib/wa-unknown-class-slot";
+  UNKNOWN_KNOWLEDGE_HANDOFF_MODEL,
+  ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+  assistantReplyNeedsUnknownKnowledgeTeamHandoff,
+} from "@/lib/wa-unknown-knowledge-handoff";
+import { shouldHandoffUnknownClassSlot } from "@/lib/wa-unknown-class-slot";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
@@ -6158,7 +6158,7 @@ async function processIncoming(
         await sendWhatsAppMessage(
           msg.toNumber,
           msg.from,
-          UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+          ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
           accountSid,
           authToken
         );
@@ -6168,8 +6168,8 @@ async function processIncoming(
       await logMessage({
         business_slug,
         role: "assistant",
-        content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-        model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+        content: ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+        model_used: UNKNOWN_KNOWLEDGE_HANDOFF_MODEL,
         session_id: sessionId,
       });
       return;
@@ -9686,7 +9686,7 @@ async function processIncoming(
   if (
     !isFallbackErrorReply &&
     didCallClaude &&
-    assistantReplyIsUnknownClassSlotHandoff(replyCoreClean) &&
+    assistantReplyNeedsUnknownKnowledgeTeamHandoff(replyCoreClean) &&
     businessId
   ) {
     try {
@@ -9700,24 +9700,24 @@ async function processIncoming(
         sessionId,
       });
     } catch (e) {
-      console.error("[WA Webhook] unknown-class-slot (claude) human_requested failed:", e);
+      console.error("[WA Webhook] unknown-knowledge (claude) human_requested failed:", e);
     }
     try {
       await sendWhatsAppMessage(
         msg.toNumber,
         msg.from,
-        UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+        ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
         accountSid,
         authToken
       );
     } catch (e) {
-      console.error("[WA Webhook] Send unknown-class-slot (claude) team handoff failed:", e);
+      console.error("[WA Webhook] Send unknown-knowledge (claude) team handoff failed:", e);
     }
     await logMessage({
       business_slug,
       role: "assistant",
-      content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-      model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+      content: ZOE_UNKNOWN_KNOWLEDGE_HANDOFF_REPLY,
+      model_used: UNKNOWN_KNOWLEDGE_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;
