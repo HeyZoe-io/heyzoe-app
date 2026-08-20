@@ -57,6 +57,9 @@ function matchesAdditionalScheduleInquiry(t: string): boolean {
     return false;
   }
   if (/(?:מתי|למתי).{0,16}(?:השיעור|האימון)\s+הבא\s+שלי/u.test(t)) return true;
+  // קבענו / קבעתי — «מתי קבענו», «למתי קבעתי?», «מתי קבעתי אימון»
+  if (/(?:מתי|למתי)\s+קבע(?:נו|תי)/u.test(t)) return true;
+  if (/קבעתי\s+(?:אימון|שיעור)/u.test(t)) return true;
   // נרשם / נרשמה / נרשמתי / נרשמנו — לא «נרשמים» הכללי
   const signedUp = String.raw`נרש(?:מתי|מה|מנו|מת|ם)`;
   if (new RegExp(String.raw`לאיזה\s+(?:שיעור|אימון)\s+${signedUp}`, "u").test(t)) return true;

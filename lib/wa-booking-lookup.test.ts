@@ -11,6 +11,13 @@ import { classifyRegistrationIntentMembershipReply } from "@/lib/wa-registration
 
 const liveLead = "היי ממצב? יכולה לשלוח לי למתי קבענו שאכניס לי ליומן";
 assert.equal(matchesBookingLookupPhrase(liveLead), true);
+assert.equal(isScheduleInquiryIntent(liveLead), true);
+assert.equal(isScheduleInquiryIntent("מתי קבענו"), true);
+assert.equal(isScheduleInquiryIntent("למתי קבענו"), true);
+assert.equal(isScheduleInquiryIntent("למתי קבענו?"), true);
+assert.equal(isScheduleInquiryIntent("מתי קבעתי אימון"), true);
+assert.equal(isScheduleInquiryIntent("למתי קבעתי?"), true);
+assert.equal(isScheduleInquiryIntent("למתי קבעתי"), true);
 assert.equal(matchesBookingLookupPhrase("למתי קבענו?"), true);
 assert.equal(matchesBookingLookupPhrase("מתי האימון שלי"), true);
 assert.equal(matchesBookingLookupPhrase("תשלחי לי את המועד ליומן"), true);
