@@ -5883,6 +5883,14 @@ async function processIncoming(
     matchesTrialTopicIntent(msg.text) &&
     !detectClosedPlaybookIntent(msg.text)
   ) {
+    const lastAssistForTrialTopic = await fetchLastAssistantModelUsed({
+      business_slug,
+      session_id: sessionId,
+    });
+    if (
+      lastAssistForTrialTopic !== BOOKING_LOOKUP_CLARIFY_MODEL &&
+      lastAssistForTrialTopic !== REGISTRATION_INTENT_CLARIFY_MODEL
+    ) {
     const salesFlowStartedForTrial = await sessionHasSalesFlowGreeting(business_slug, sessionId);
     const inOpeningOrWarmup =
       contactSessionPhase === "opening" || contactSessionPhase === "warmup";
@@ -5944,6 +5952,7 @@ async function processIncoming(
         console.error("[WA Webhook] trial topic flow-entry failed:", e);
       }
       return;
+    }
     }
     }
   }
