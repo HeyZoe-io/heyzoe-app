@@ -1,5 +1,6 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { assertWhatsAppOutboundAllowed } from "@/lib/wa-send-guard";
 
 export type OwnerTemplateComponent = {
   type: "body" | "header";
@@ -31,6 +32,14 @@ export async function sendOwnerNotification(input: {
   const phoneNumberId = resolveZoeMasterPhoneNumberId();
   const to = String(input.ownerPhone ?? "").replace(/\D/g, "");
   if (!to) return { ok: false, error: "missing_owner_phone" };
+
+  try {
+    assertWhatsAppOutboundAllowed({ fromPhoneNumberId: phoneNumberId, to });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[sendOwnerNotification] blocked:", msg);
+    return { ok: false, error: msg };
+  }
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
@@ -100,6 +109,14 @@ export async function sendBusinessTemplate(input: {
 
   const to = String(input.to ?? "").replace(/\D/g, "");
   if (!to) return { ok: false, error: "missing_recipient_phone" };
+
+  try {
+    assertWhatsAppOutboundAllowed({ fromPhoneNumberId: phoneNumberId, to });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[sendBusinessTemplate] blocked:", msg);
+    return { ok: false, error: msg };
+  }
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };

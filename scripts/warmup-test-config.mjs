@@ -23,12 +23,18 @@ export function normalizeWarmupTestPhone(raw) {
   return digits;
 }
 
-/** Single source of truth: WARMUP_TEST_PHONE env or default. */
+/** Single source of truth: always 972508318162 (0508318162). Env cannot retarget another number. */
 export function resolveWarmupTestPhone() {
   const fromEnv = process.env.WARMUP_TEST_PHONE?.trim();
   const phone = normalizeWarmupTestPhone(fromEnv || WARMUP_TEST_PHONE_DEFAULT);
   if (!phone) {
     console.error("[warmup-test-config] WARMUP_TEST_PHONE is empty after normalization.");
+    process.exit(1);
+  }
+  if (phone !== WARMUP_TEST_PHONE_DEFAULT) {
+    console.error(
+      `[warmup-test-config] refused — WARMUP_TEST_PHONE=${phone} is not the locked test phone ${WARMUP_TEST_PHONE_DEFAULT}.`
+    );
     process.exit(1);
   }
   return phone;
