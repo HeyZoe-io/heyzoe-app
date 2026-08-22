@@ -8,7 +8,7 @@ import {
 const ARBOX_NEW_LEAD_COMPONENTS = [
   {
     type: "BODY",
-    text: "תודה שהתעניינתם בLimitless!\nבואו נכיר :)\nלחצו על הכפתור👇",
+    text: "ברוכים הבאים ל - Limitless!\nבואו נמצא את האימון המושלם בשבילכם!\nלחצו על הכפתור👇",
   },
   {
     type: "BUTTONS",
@@ -26,7 +26,7 @@ const ARBOX_NEW_LEAD_COMPONENTS = [
   const text = renderLeadTemplateMessageContent("arbox_new_lead", {
     components: ARBOX_NEW_LEAD_COMPONENTS,
   });
-  assert.match(text, /תודה שהתעניינתם בLimitless!/);
+  assert.match(text, /ברוכים הבאים ל - Limitless!/);
   assert.match(text, /\[כפתור: בואו נתחיל!\]/);
   assert.equal(text.includes("נשלח טמפלייט פתיחה"), false);
 }
@@ -36,7 +36,7 @@ const ARBOX_NEW_LEAD_COMPONENTS = [
   const text = resolveLeadTemplateDisplayContent(placeholder, {
     componentsByName: { arbox_new_lead: ARBOX_NEW_LEAD_COMPONENTS },
   });
-  assert.match(text, /בואו נכיר/);
+  assert.match(text, /האימון המושלם/);
   assert.equal(resolveLeadTemplateDisplayContent(placeholder), placeholder);
 }
 

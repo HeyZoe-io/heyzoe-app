@@ -34,7 +34,12 @@ import {
 {
   const hardcoded = resolveTemplateBodyParamValues({
     triggerType: "arbox_new_lead",
-    storedComponents: [{ type: "BODY", text: "תודה שהתעניינתם בLimitless!" }],
+    storedComponents: [
+      {
+        type: "BODY",
+        text: "ברוכים הבאים ל - Limitless!\nבואו נמצא את האימון המושלם בשבילכם!\nלחצו על הכפתור👇",
+      },
+    ],
     firstName: "דנה",
     businessName: "Limitless",
   });

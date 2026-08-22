@@ -114,7 +114,10 @@ import { isArboxDependentTriggerType, isTriggerType } from "@/lib/template-trigg
 {
   assert.equal(
     templateComponentsUseFirstName([
-      { type: "BODY", text: "תודה שהתעניינתם בLimitless!\nבואו נכיר :)" },
+      {
+        type: "BODY",
+        text: "ברוכים הבאים ל - Limitless!\nבואו נמצא את האימון המושלם בשבילכם!\nלחצו על הכפתור👇",
+      },
       { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "בואו נתחיל!" }] },
     ]),
     false
