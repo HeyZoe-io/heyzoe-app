@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardDir, dashboardTextAlign, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 
 export const SALES_PATH_INPUT =
@@ -22,16 +22,27 @@ export function SalesPathFieldLabel({
   children,
   hint,
   action,
+  lang,
 }: {
   children: ReactNode;
   hint?: string;
   action?: ReactNode;
+  lang?: DashboardLang;
 }) {
+  const dir = lang ? dashboardDir(lang) : undefined;
+  const textAlign = lang ? dashboardTextAlign(lang) : undefined;
   return (
-    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-      <div>
-        <span className="text-[13px] font-medium text-zinc-800">{children}</span>
-        {hint ? <p className="mt-0.5 text-[11px] text-zinc-400">{hint}</p> : null}
+    <div
+      className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5"
+      dir={dir}
+    >
+      <div className="min-w-0 flex-1" style={textAlign ? { textAlign } : undefined}>
+        <span className="block text-[13px] font-medium text-zinc-800">{children}</span>
+        {hint ? (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400" dir={dir}>
+            {hint}
+          </p>
+        ) : null}
       </div>
       {action}
     </div>
@@ -51,6 +62,7 @@ export function SalesPathSectionBlock({
   headerAction,
   titleAction,
   leading,
+  lang,
 }: {
   stepPrefix: string;
   id: string;
@@ -66,10 +78,17 @@ export function SalesPathSectionBlock({
   titleAction?: ReactNode;
   /** ידית גרירה / אייקון לפני הכותרת */
   leading?: ReactNode;
+  lang?: DashboardLang;
 }) {
   const sectionDomId = `${stepPrefix}-section-${id}`;
+  const dir = lang ? dashboardDir(lang) : undefined;
+  const textAlign = lang ? dashboardTextAlign(lang) : undefined;
   return (
-    <section id={sectionDomId} className="scroll-mt-24 overflow-hidden rounded-xl border border-zinc-200/70 bg-white">
+    <section
+      id={sectionDomId}
+      className="scroll-mt-24 overflow-hidden rounded-xl border border-zinc-200/70 bg-white"
+      dir={dir}
+    >
       <div className="flex items-stretch gap-2">
         {leading ? (
           <div className="flex shrink-0 items-center ps-2" onClick={(e) => e.stopPropagation()}>
@@ -79,10 +98,12 @@ export function SalesPathSectionBlock({
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5 text-start transition-colors hover:bg-zinc-50/90"
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5 transition-colors hover:bg-zinc-50/90"
+          style={{ textAlign }}
+          dir={dir}
           aria-expanded={open}
         >
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1" style={{ textAlign }}>
             <div className="flex flex-wrap items-center justify-start gap-2">
               <span
                 className={cn("h-1.5 w-1.5 shrink-0 rounded-full", filled ? "bg-[#7133da]" : "bg-zinc-200")}
@@ -96,7 +117,9 @@ export function SalesPathSectionBlock({
               ) : null}
             </div>
             {hint ? (
-              <p className={cn("mt-0.5 ps-3.5 text-xs text-zinc-500", hintClassName)}>{hint}</p>
+              <p className={cn("mt-0.5 ps-3.5 text-xs text-zinc-500", hintClassName)} dir={dir}>
+                {hint}
+              </p>
             ) : null}
           </div>
           <ChevronDown

@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardDir, dashboardTextAlign, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import { cn } from "@/lib/utils";
 import type { FactQuestion } from "@/lib/fact-questions";
@@ -71,7 +71,7 @@ function FactCard({
   }, [editing, value]);
 
   return (
-    <li className="flex items-start gap-2">
+    <li className="flex items-start gap-2" dir={dir}>
       <span className="mt-2.5 w-5 shrink-0 text-center text-[11px] tabular-nums text-zinc-400">
         {indexLabel}
       </span>
@@ -89,7 +89,8 @@ function FactCard({
           onBlur={() => setEditing(false)}
           className={cn(
             SALES_PATH_TEXTAREA,
-            "min-h-10 flex-1 [field-sizing:content]"
+            "min-h-10 flex-1 [field-sizing:content]",
+            dir === "rtl" ? "text-right" : "text-left"
           )}
         />
       ) : (
@@ -99,13 +100,15 @@ function FactCard({
           onClick={() => setEditing(true)}
           className={cn(
             INPUT,
-            "flex h-auto min-h-10 flex-1 cursor-text items-start px-3 py-2 text-start"
+            "flex h-auto min-h-10 flex-1 cursor-text items-start px-3 py-2",
+            dir === "rtl" ? "text-right" : "text-left"
           )}
           aria-label={placeholder}
         >
           <span
             className={cn(
               "line-clamp-2 w-full whitespace-pre-wrap break-words text-sm leading-snug",
+              dir === "rtl" ? "text-right" : "text-left",
               value.trim() ? "text-zinc-800" : "text-zinc-400"
             )}
           >
@@ -162,7 +165,7 @@ function KnowledgeQaCard({
   answerLabel: string;
 }) {
   return (
-    <li className="rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-3">
+    <li className="rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-3" dir={dir}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[11px] tabular-nums text-zinc-400">{indexLabel}</span>
         {canRemove ? (
@@ -180,17 +183,27 @@ function KnowledgeQaCard({
       </div>
       <div className="space-y-2.5">
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-zinc-500">{questionLabel}</label>
+          <label
+            className="mb-1 block text-[11px] font-medium text-zinc-500"
+            style={{ textAlign: dir === "rtl" ? "right" : "left" }}
+          >
+            {questionLabel}
+          </label>
           <Input
             dir={dir}
             value={question}
             onChange={(e) => onQuestionChange(e.target.value)}
             placeholder={questionPlaceholder}
-            className={INPUT}
+            className={cn(INPUT, dir === "rtl" ? "text-right" : "text-left")}
           />
         </div>
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-zinc-500">{answerLabel}</label>
+          <label
+            className="mb-1 block text-[11px] font-medium text-zinc-500"
+            style={{ textAlign: dir === "rtl" ? "right" : "left" }}
+          >
+            {answerLabel}
+          </label>
           <textarea
             dir={dir}
             value={answer}
@@ -201,7 +214,11 @@ function KnowledgeQaCard({
             onFocus={(e) => autosizeFactTextarea(e.currentTarget)}
             placeholder={answerPlaceholder}
             rows={2}
-            className={cn(SALES_PATH_TEXTAREA, "min-h-[4.5rem] [field-sizing:content]")}
+            className={cn(
+              SALES_PATH_TEXTAREA,
+              "min-h-[4.5rem] [field-sizing:content]",
+              dir === "rtl" ? "text-right" : "text-left"
+            )}
           />
         </div>
       </div>
@@ -365,6 +382,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     >
           <SalesPathSectionBlock
             stepPrefix="about"
+            lang={lang}
             id="contact"
             title={t.about.phones}
             hint={t.about.phonesHint}
@@ -375,7 +393,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           >
             <div className="space-y-4">{whatsAppSlot}</div>
             <div>
-              <SalesPathFieldLabel hint={t.about.customerServiceHint}>{t.about.customerService}</SalesPathFieldLabel>
+              <SalesPathFieldLabel lang={lang} hint={t.about.customerServiceHint}>{t.about.customerService}</SalesPathFieldLabel>
               <Input
                 dir="ltr"
                 className={cn(INPUT, "font-mono text-sm")}
@@ -391,6 +409,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
 
           <SalesPathSectionBlock
             stepPrefix="about"
+            lang={lang}
             id="identity"
             title={t.about.identity}
             hint={t.about.identityHint}
@@ -400,7 +419,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <SalesPathFieldLabel>{t.about.businessName}</SalesPathFieldLabel>
+                <SalesPathFieldLabel lang={lang}>{t.about.businessName}</SalesPathFieldLabel>
                 {name.trim() && !businessNameEditing ? (
                   <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50/60">
                     <div className="flex-1 px-3 py-2.5 text-sm font-semibold text-zinc-900">{name}</div>
@@ -427,7 +446,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                 )}
               </div>
               <div>
-                <SalesPathFieldLabel>{t.about.botName}</SalesPathFieldLabel>
+                <SalesPathFieldLabel lang={lang}>{t.about.botName}</SalesPathFieldLabel>
                 <Input
                   dir={dashboardDir(lang)}
                   value={botName}
@@ -438,7 +457,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
               </div>
             </div>
             <div>
-              <SalesPathFieldLabel hint={t.about.taglineHint}>{t.about.tagline}</SalesPathFieldLabel>
+              <SalesPathFieldLabel lang={lang} hint={t.about.taglineHint}>{t.about.tagline}</SalesPathFieldLabel>
               <Input
                 dir={dashboardDir(lang)}
                 value={businessTagline}
@@ -451,6 +470,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
 
           <SalesPathSectionBlock
             stepPrefix="about"
+            lang={lang}
             id="location"
             title={`${t.about.sections.location.label} & ${t.about.directions}`}
             open={openSections.location}
@@ -459,7 +479,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <SalesPathFieldLabel>{t.about.address}</SalesPathFieldLabel>
+                <SalesPathFieldLabel lang={lang}>{t.about.address}</SalesPathFieldLabel>
                 <Input
                   dir={dashboardDir(lang)}
                   value={address}
@@ -470,7 +490,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                 />
               </div>
               <div>
-                <SalesPathFieldLabel
+                <SalesPathFieldLabel lang={lang}
                   action={
                     <button
                       type="button"
@@ -502,6 +522,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
 
           <SalesPathSectionBlock
             stepPrefix="about"
+            lang={lang}
             id="knowledge"
             title={t.about.knowledge}
             hint={useKnowledgeQa ? t.about.knowledgeHintQa : t.about.knowledgeHint}
@@ -510,7 +531,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             filled={sectionFilled.knowledge}
           >
             <div>
-              <SalesPathFieldLabel hint={useKnowledgeQa ? t.about.factsHintQa : t.about.factsHint}>
+              <SalesPathFieldLabel lang={lang} hint={useKnowledgeQa ? t.about.factsHintQa : t.about.factsHint}>
                 {t.about.facts}
               </SalesPathFieldLabel>
               {useKnowledgeQa ? (
@@ -602,7 +623,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             </div>
 
             <div>
-              <SalesPathFieldLabel>{t.about.promotions}</SalesPathFieldLabel>
+              <SalesPathFieldLabel lang={lang}>{t.about.promotions}</SalesPathFieldLabel>
               <Input
                 dir={dashboardDir(lang)}
                 value={promotions}
@@ -613,9 +634,15 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             </div>
 
             {factQuestions.length > 0 && currentFactQ ? (
-              <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50/50 p-3">
-                <p className="mb-2 text-[11px] font-medium text-zinc-500">{t.about.suggestedQuestion}</p>
-                <p className="mb-2 text-sm font-medium text-zinc-800">{currentFactQ.question}</p>
+              <div
+                className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50/50 p-3"
+                dir={dashboardDir(lang)}
+                style={{ textAlign: dashboardTextAlign(lang) }}
+              >
+                <p className="text-[11px] font-medium text-zinc-500">{t.about.suggestedQuestion}</p>
+                <p className="mt-1 mb-2 text-sm font-medium text-zinc-800" dir="auto">
+                  {currentFactQ.question}
+                </p>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
                     dir={dashboardDir(lang)}
