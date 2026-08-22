@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
   isKnowledgeGapAssistantText,
+  looksLikeScheduleRequest,
   parseMessageUuid,
+  resolveKnowledgeGapKind,
 } from "@/lib/analytics-knowledge-gaps";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
@@ -38,5 +40,24 @@ assert.equal(
   false
 );
 assert.equal(isKnowledgeGapAssistantText("שלום! אימון ניסיון עולה 30 שח"), false);
+
+assert.equal(looksLikeScheduleRequest("פילאטיס מכשירים בשעה 1800"), true);
+assert.equal(looksLikeScheduleRequest("פילאטיס מכשירים בשעה 18:00"), true);
+assert.equal(looksLikeScheduleRequest("יש מזגן בסטודיו?"), false);
+assert.equal(looksLikeScheduleRequest("אפשר להביא אוכל לסטודיו?"), false);
+assert.equal(looksLikeScheduleRequest("מתי יש שיעורים בבקרים?"), false);
+assert.equal(looksLikeScheduleRequest("יש פילאטיס בשעה 18"), false);
+
+assert.equal(
+  resolveKnowledgeGapKind({
+    question: "פילאטיס מכשירים בשעה 1800",
+    modelUsed: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+  }),
+  "schedule_request"
+);
+assert.equal(
+  resolveKnowledgeGapKind({ question: "יש מזגן בסטודיו?", modelUsed: "claude-haiku-4-5" }),
+  "question"
+);
 
 console.log("analytics-knowledge-gaps.test.ts: ok");

@@ -36,10 +36,13 @@ const SCAN_DAYS = 90;
 const ASSISTANT_SCAN_LIMIT = 1500;
 const RESULT_LIMIT = 20;
 
+export type KnowledgeGapKind = "question" | "schedule_request";
+
 export type KnowledgeGapItem = {
   id: string;
   assistantMessageId: string;
   sessionId: string;
+  kind: KnowledgeGapKind;
   question: string;
   assistantSnippet: string;
   createdAt: string;
@@ -54,6 +57,32 @@ function isoDaysAgo(days: number): string {
 export function parseMessageUuid(raw: unknown): string {
   const s = String(raw ?? "").trim();
   return MESSAGE_UUID_RE.test(s) ? s.toLowerCase() : "";
+}
+
+const QUESTION_MARK_RE = /[?؟]/;
+const INTERROGATIVE_RE =
+  /(?<![\u0590-\u05FF])(?:מה|איך|האם|כמה|מתי|למה|למי|איפה|מדוע|כיצד|מי)(?![\u0590-\u05FF])|\b(?:why|what|how|when|where|does)\b/iu;
+const SCHEDULE_TIME_RE =
+  /(?:בשעה|לשעה)\s*\d{1,4}|(?:[01]?\d|2[0-3])[:.][0-5]\d/u;
+
+/** בקשת מועד/שיעור (בחירה או הקלדה) — לא שאלת ידע. */
+export function looksLikeScheduleRequest(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (QUESTION_MARK_RE.test(t)) return false;
+  if (INTERROGATIVE_RE.test(t)) return false;
+  if (/^(?:אפשר|ניתן|יש)(?![\u0590-\u05FF])/u.test(t)) return false;
+  return SCHEDULE_TIME_RE.test(t);
+}
+
+export function resolveKnowledgeGapKind(input: {
+  question: string;
+  modelUsed?: string | null;
+}): KnowledgeGapKind {
+  if (String(input.modelUsed ?? "").trim() === UNKNOWN_CLASS_SLOT_HANDOFF_MODEL) {
+    return "schedule_request";
+  }
+  return looksLikeScheduleRequest(input.question) ? "schedule_request" : "question";
 }
 
 export function isKnowledgeGapAssistantText(content: string, modelUsed?: string | null): boolean {
@@ -197,6 +226,7 @@ export async function findKnowledgeGaps(input: {
       id: gap.id,
       assistantMessageId: gap.id,
       sessionId: gap.sessionId,
+      kind: resolveKnowledgeGapKind({ question, modelUsed: gap.modelUsed }),
       question: truncate(question, 280),
       assistantSnippet: truncate(gap.content, 160),
       createdAt: gap.createdAt,

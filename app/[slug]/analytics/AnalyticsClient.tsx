@@ -42,6 +42,7 @@ type KnowledgeGapItem = {
   id: string;
   assistantMessageId: string;
   sessionId: string;
+  kind: "question" | "schedule_request";
   question: string;
   assistantSnippet: string;
   createdAt: string;
@@ -83,7 +84,8 @@ const i18n = {
     noTrainingMatches: "אין עדיין התאמות לפי טקסט בטווח זה",
     knowledgeGapsTitle: "מידע ששווה להוסיף",
     knowledgeGapsSubtitle: "מצאנו מידע חסר שכדאי להוסיף לזואי",
-    customerQuestion: "שאלה מלקוח/ה:",
+    customerQuestion: "שאלה מלקוח/ה",
+    scheduleRequest: "מועד שאין בלוח",
     updateInfo: "עדכן מידע",
     showConversation: "הצג שיחה",
     markHandled: "טופל",
@@ -124,7 +126,8 @@ const i18n = {
     noTrainingMatches: "No text matches in this range yet",
     knowledgeGapsTitle: "Worth adding",
     knowledgeGapsSubtitle: "We found missing info that should be added for Zoe",
-    customerQuestion: "Customer question:",
+    customerQuestion: "Customer question",
+    scheduleRequest: "Class time not on the schedule",
     updateInfo: "Update info",
     showConversation: "Show chat",
     markHandled: "Done",
@@ -235,6 +238,7 @@ export default function AnalyticsClient({
             id: String(it.id ?? ""),
             assistantMessageId: String(it.assistantMessageId ?? ""),
             sessionId: String(it.sessionId ?? ""),
+            kind: it.kind === "schedule_request" ? "schedule_request" : "question",
             question: String(it.question ?? ""),
             assistantSnippet: String(it.assistantSnippet ?? ""),
             createdAt: String(it.createdAt ?? ""),
@@ -507,10 +511,18 @@ export default function AnalyticsClient({
                   className="rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3 sm:p-3.5"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                    <p className={`min-w-0 flex-1 text-sm text-zinc-800 ${textAlign === "right" ? "text-right" : "text-left"}`}>
-                      <span className="font-medium text-zinc-600">{t.customerQuestion}</span>{" "}
-                      <span className="text-zinc-900">{gap.question}</span>
-                    </p>
+                    <div
+                      className="min-w-0 flex-1"
+                      dir={dashboardDir(lang)}
+                      style={{ textAlign: textAlign }}
+                    >
+                      <p className="text-xs font-medium text-zinc-600">
+                        {gap.kind === "schedule_request" ? t.scheduleRequest : t.customerQuestion}
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-900" dir="auto">
+                        {gap.question}
+                      </p>
+                    </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 sm:justify-end">
                       <Link
                         href={knowledgeHref}
