@@ -4,7 +4,7 @@
 create table if not exists public.analytics_knowledge_gap_dismissals (
   id bigserial primary key,
   business_slug text not null,
-  assistant_message_id bigint not null,
+  assistant_message_id uuid not null,
   dismissed_at timestamptz not null default now(),
   dismissed_by uuid null,
   unique (business_slug, assistant_message_id)

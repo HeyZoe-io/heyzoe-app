@@ -5,6 +5,7 @@ import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import {
   dismissKnowledgeGap,
   findKnowledgeGaps,
+  parseMessageUuid,
 } from "@/lib/analytics-knowledge-gaps";
 
 export const runtime = "nodejs";
@@ -56,8 +57,8 @@ export async function POST(req: NextRequest) {
   }
 
   const businessSlug = String(body.business_slug ?? "").trim().toLowerCase();
-  const assistantMessageId = Number(body.assistant_message_id);
-  if (!businessSlug || !Number.isFinite(assistantMessageId) || assistantMessageId <= 0) {
+  const assistantMessageId = parseMessageUuid(body.assistant_message_id);
+  if (!businessSlug || !assistantMessageId) {
     return NextResponse.json({ error: "invalid_input" }, { status: 400 });
   }
 

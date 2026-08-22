@@ -1,11 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
+import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
 
 /** ניסוחי חוסר-ידע של זואי (עברית + אנגלית) — לא כולל מגבלת 24ש׳ / redirect כללי. */
 export const KNOWLEDGE_GAP_NEEDLES = [
   "אין לי את הפרטים",
   "אין לי כרגע מידע",
-  "אין לי מידע על",
-  "אין לי מידע לגבי",
+  "אין לי כרגע את המידע",
+  "אין לי מידע",
   "אין לי את המידע",
   "לא מצאתי את המידע",
   "לא מצאתי מידע",
@@ -13,11 +15,21 @@ export const KNOWLEDGE_GAP_NEEDLES = [
   "i don't have the details",
   "i don't currently have information",
   "i don't have information",
+  "i don't have the membership pricing details",
   "i couldn't find the information",
   "i could not find the information",
 ] as const;
 
 const EXCLUDED_MODELS = new Set(["claude_limit_24h"]);
+
+/** העברות לצוות שמייצגות חוסר ידע (מועד/מדיניות שאין בידע) — לא handoff תפעולי. */
+const KNOWLEDGE_GAP_MODELS = new Set([
+  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+  UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
+]);
+
+const MESSAGE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** חלון סריקה — מונע table scan מלא. ~1 שאילתה + סינון בזיכרון. */
 const SCAN_DAYS = 90;
@@ -26,7 +38,7 @@ const RESULT_LIMIT = 20;
 
 export type KnowledgeGapItem = {
   id: string;
-  assistantMessageId: number;
+  assistantMessageId: string;
   sessionId: string;
   question: string;
   assistantSnippet: string;
@@ -39,8 +51,15 @@ function isoDaysAgo(days: number): string {
   return d.toISOString();
 }
 
+export function parseMessageUuid(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  return MESSAGE_UUID_RE.test(s) ? s.toLowerCase() : "";
+}
+
 export function isKnowledgeGapAssistantText(content: string, modelUsed?: string | null): boolean {
-  if (modelUsed && EXCLUDED_MODELS.has(String(modelUsed).trim())) return false;
+  const model = String(modelUsed ?? "").trim();
+  if (model && EXCLUDED_MODELS.has(model)) return false;
+  if (model && KNOWLEDGE_GAP_MODELS.has(model)) return true;
   const t = String(content ?? "").trim();
   if (!t) return false;
   const lower = t.toLowerCase();
@@ -51,6 +70,12 @@ function truncate(s: string, max: number): string {
   const t = s.trim().replace(/\s+/g, " ");
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
+}
+
+function isDismissalsSchemaMismatch(message: string): boolean {
+  return /analytics_knowledge_gap_dismissals|does not exist|relation|invalid input syntax|uuid|bigint/i.test(
+    message
+  );
 }
 
 /**
@@ -82,19 +107,14 @@ export async function findKnowledgeGaps(input: {
 
   const candidates = (assistants ?? [])
     .map((row) => ({
-      id: Number((row as { id?: unknown }).id),
+      id: parseMessageUuid((row as { id?: unknown }).id),
       content: String((row as { content?: unknown }).content ?? ""),
       sessionId: String((row as { session_id?: unknown }).session_id ?? "").trim(),
       createdAt: String((row as { created_at?: unknown }).created_at ?? ""),
       modelUsed: ((row as { model_used?: unknown }).model_used as string | null) ?? null,
     }))
     .filter(
-      (r) =>
-        Number.isFinite(r.id) &&
-        r.id > 0 &&
-        r.sessionId &&
-        r.createdAt &&
-        isKnowledgeGapAssistantText(r.content, r.modelUsed)
+      (r) => r.id && r.sessionId && r.createdAt && isKnowledgeGapAssistantText(r.content, r.modelUsed)
     );
 
   if (!candidates.length) return [];
@@ -107,17 +127,17 @@ export async function findKnowledgeGaps(input: {
     .in("assistant_message_id", candidateIds);
 
   if (dErr) {
-    // טבלה עדיין לא קיימת / שגיאת הרשאה — לא נכשלים בשקט בלי לוג
+    // טבלה עדיין לא קיימת / טיפוס ישן (bigint) / שגיאת הרשאה — לא נכשלים בשקט בלי לוג
     console.error("[analytics-knowledge-gaps] dismissals fetch failed:", dErr.message);
-    if (/analytics_knowledge_gap_dismissals|does not exist|relation/i.test(dErr.message)) {
-      // ממשיכים בלי dismiss — ה-UI עדיין יעבוד; dismiss ייכשל עד migration
-    } else {
+    if (!isDismissalsSchemaMismatch(dErr.message)) {
       throw new Error(dErr.message);
     }
   }
 
   const dismissed = new Set(
-    (dismissedRows ?? []).map((r) => Number((r as { assistant_message_id?: unknown }).assistant_message_id))
+    (dismissedRows ?? [])
+      .map((r) => parseMessageUuid((r as { assistant_message_id?: unknown }).assistant_message_id))
+      .filter(Boolean)
   );
 
   const open = candidates.filter((c) => !dismissed.has(c.id)).slice(0, RESULT_LIMIT * 2);
@@ -174,7 +194,7 @@ export async function findKnowledgeGaps(input: {
     }
     if (!question) continue;
     out.push({
-      id: String(gap.id),
+      id: gap.id,
       assistantMessageId: gap.id,
       sessionId: gap.sessionId,
       question: truncate(question, 280),
@@ -189,12 +209,12 @@ export async function findKnowledgeGaps(input: {
 export async function dismissKnowledgeGap(input: {
   admin: SupabaseClient;
   businessSlug: string;
-  assistantMessageId: number;
+  assistantMessageId: string;
   dismissedBy?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
   const slug = input.businessSlug.trim().toLowerCase();
-  const mid = Number(input.assistantMessageId);
-  if (!slug || !Number.isFinite(mid) || mid <= 0) {
+  const mid = parseMessageUuid(input.assistantMessageId);
+  if (!slug || !mid) {
     return { ok: false, error: "invalid_input", status: 400 };
   }
 
@@ -210,7 +230,7 @@ export async function dismissKnowledgeGap(input: {
 
   if (error) {
     console.error("[analytics-knowledge-gaps] dismiss failed:", error.message);
-    if (/analytics_knowledge_gap_dismissals|does not exist|relation/i.test(error.message)) {
+    if (isDismissalsSchemaMismatch(error.message)) {
       return {
         ok: false,
         error: "migration_required",

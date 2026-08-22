@@ -40,7 +40,7 @@ type AnalyticsPayload = AnalyticsClientPayload;
 
 type KnowledgeGapItem = {
   id: string;
-  assistantMessageId: number;
+  assistantMessageId: string;
   sessionId: string;
   question: string;
   assistantSnippet: string;
@@ -196,7 +196,7 @@ export default function AnalyticsClient({
   const mountedRef = useRef(true);
   const inFlightRef = useRef<{ ac: AbortController | null; reqId: number }>({ ac: null, reqId: 0 });
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGapItem[]>([]);
-  const [dismissingId, setDismissingId] = useState<number | null>(null);
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [dismissError, setDismissError] = useState<string | null>(null);
   const knowledgeHref = settingsStepHref(`/${slug}/settings`, 2, lang, { section: "knowledge" });
 
@@ -233,7 +233,7 @@ export default function AnalyticsClient({
         setKnowledgeGaps(
           j.items.map((it) => ({
             id: String(it.id ?? ""),
-            assistantMessageId: Number(it.assistantMessageId) || 0,
+            assistantMessageId: String(it.assistantMessageId ?? ""),
             sessionId: String(it.sessionId ?? ""),
             question: String(it.question ?? ""),
             assistantSnippet: String(it.assistantSnippet ?? ""),
