@@ -9698,6 +9698,11 @@ async function processIncoming(
         session_id: sessionId,
       });
     }
+    const pendingServicePickResume =
+      isFreeTextSalesFlowAi &&
+      contactSessionPhase === "opening" &&
+      salesFlowServices.length > 1 &&
+      !String(lastPickedServiceName ?? "").trim();
     let committedServiceName: string | undefined;
     let scheduleInterestServiceName: string | undefined;
     const pickedForPrompt = (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
@@ -9731,6 +9736,8 @@ async function processIncoming(
         registeredOpenQuestionHelpClosing: isSalesFlowOpenQuestionAi && registeredInCurrentFlow,
         standaloneHelpClosing,
         pendingWarmupExperienceResume,
+        pendingServicePickResume,
+        warmupSessionEnabled: knowledge?.warmupSessionEnabled !== false,
         committedServiceName,
         committedScheduleDate: contactScheduleRequestedDate || undefined,
         committedScheduleTime: contactScheduleRequestedTime || undefined,

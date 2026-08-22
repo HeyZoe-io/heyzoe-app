@@ -385,6 +385,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       benefitByName.set(n, benefit);
     }
 
+    const warmupSessionEnabled = (business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false;
     const salesFlowConfig = parseSalesFlowFromSocial(social.sales_flow);
     const salesFlowPromptSection = salesFlowConfig
       ? formatSalesFlowForPrompt(
@@ -393,7 +394,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
           benefitByName,
           instagramUrl,
           addressText,
-          directionsText
+          directionsText,
+          { warmupSessionEnabled }
         )
       : "";
 
@@ -413,7 +415,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       scheduleScanImageUrl,
       membershipsUrl,
       scheduleDirectRegistration: (business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false,
-      warmupSessionEnabled: (business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false,
+      warmupSessionEnabled,
       salesFlowCallSchedulingEnabled:
         (business as { sales_flow_call_scheduling_enabled?: boolean }).sales_flow_call_scheduling_enabled === true,
       openingMediaUrl,
@@ -552,7 +554,7 @@ const RESPONSE_SHAPE_BLOCK_WA_SPLIT_FOLLOWUP = `
 2) סיימי במשפט עובדתי - לא בשאלה. אסור «?» בסוף, אסור שאלת המשך, «מה דעתך», «רוצה ל…», או הזמנה להמשיך - ההודעה הבאה מהמערכת כבר שולחת CTA / תפריט / שלב פלואו.
 3) אל תוסיפי רשימות ממוספרות 1. 2. 3. - אין כפתורים בגוף ההודעה.
 4) כשמפרטים שירותים/אימונים/אפשרויות מהידע - פרטי ישירות; אסור לספור («יש לך X אפשרויות», «אני רואה שיש…»). על התמחות: קצר ועובדתי («ההתמחות שלנו היא ביוגה»); אסור «גופים» ברבים ואסור «לכל סוגי גופים ודרישות».
-5) אל תזמיני לבחירת אימון - התפריט נשלח בנפרד.
+5) אל תזמיני לבחירת אימון - התפריט נשלח בנפרד. אם הלקוח עדיין לא בחר מוצר — אל תסיקי בחירה משאלה פתוחה ואל תשחזרי שאלת חימום/מטרות בטקסט.
 6) אל תסיקי לבד שהליד לא רלוונטי. כשהליד אמר במפורש שזה לא מתאים (רחוק מדי / לא מעוניין) - סיימי רק במשפט הבא בדיוק: «אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 🙂» — בלי שאלה, בלי הנעה לפעולה, בלי «מוזמנים בחזרה» ובלי «בהצלחה בחיפוש».
 7) מקף רגיל (-) בלבד; אסור מקף ארוך (—).
 8) בלי להתפלסף. חולה/לא מרגיש טוב: רק «מצטערת לשמוע, מאחלת החלמה מהירה!». עובדה מהידע (הקפאה וכו׳): ישר «ניתן להקפיא…» בלי «הטוב שיש לנו מדיניות גמישה». בלבול בהקפאה/חיוב על מנוי קיים: משפט אמפתיה קצר והעברה לצוות — אסור «זה בדיוק משהו שצריך להתברר», אסור «חשוב שכל דבר יהיה על פי מה שביקשת». נכון: «זה משהו שצריך לברר מול הצוות». אם הליד מבקש מועד שכבר נקבע / לשלוח ליומן ולא ברור אם מנוי או ניסיון — שאלי רק «היי! 👋 יש לך מנוי קיים אצלנו או שמדובר באימון ניסיון?». אם מנוי קיים ובקשה לחשבון/יומן — «תודה על הבהרה! 💜 אני מעבירה את הפנייה לצוות ויצרו איתך קשר בקרוב.» מותר גם טלפון שירות כערוץ נוסף. אסור לשלוח את הליד לטפל בזה לבד.
@@ -617,6 +619,10 @@ export type WhatsAppPromptContext = {
   standaloneHelpClosing?: boolean;
   /** שאלת חימום עם כפתורים עדיין ממתינה — אל תחזרי עליה בטקסט */
   pendingWarmupExperienceResume?: boolean;
+  /** בחירת מוצר ממתינה — אל תסיקי בחירה ואל תשחזרי שאלת חימום בטקסט */
+  pendingServicePickResume?: boolean;
+  /** סשן חימום כבוי בדשבורד — אסור לשחזר שאלת חימום */
+  warmupSessionEnabled?: boolean;
   /** שם שירות לשיבוץ (מ־fetchLastSfServiceEventName) — בשלב CTA בלבד */
   committedServiceName?: string;
   /** מתוך contact.sf_requested_date */
@@ -736,6 +742,14 @@ export function buildSystemPrompt(
     isWhatsApp && waCtx?.pendingWarmupExperienceResume
       ? "- הלקוח שאל שאלה פתוחה לפני שענה על שאלת החימום (כפתורים). עני רק על השאלה הפתוחה. מותר משפט גשר קצר כמו «עכשיו, בחזרה לשאלה שלנו» — בלי לחזור על נוסח השאלה ואסור לרשום את אפשרויות הכפתורים בטקסט; המערכת תשלח את השאלה שוב עם כפתורים אמיתיים."
       : "";
+  const servicePickResumeRule =
+    isWhatsApp && waCtx?.pendingServicePickResume
+      ? "- הלקוח שאל שאלה פתוחה לפני שבחר מוצר. עני רק על השאלה הפתוחה. אסור להסיק שכבר נבחר אימון, אסור לשאול שאלת חימום/מטרות, ואסור לרשום את רשימת האימונים בטקסט; המערכת תשלח את תפריט בחירת המוצר עם כפתורים אמיתיים."
+      : "";
+  const warmupDisabledRule =
+    isWhatsApp && waCtx?.warmupSessionEnabled === false
+      ? "- סשן חימום כבוי בעסק הזה. אסור לשאול שאלת מטרות/ציפיות מהאימון או לפרט אפשרויות כפתורי חימום בטקסט."
+      : "";
   const promotionsText = knowledge?.promotionsText?.trim() ?? "";
   const promotionsRule = promotionsText
     ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
@@ -794,6 +808,8 @@ ${optionListingNoCountRule}
 ${directAnswerRule}
 ${waSpellingPhrasingRule}
 ${warmupResumeRule}
+${servicePickResumeRule}
+${warmupDisabledRule}
 ${promotionsRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}
