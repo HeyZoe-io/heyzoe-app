@@ -102,6 +102,111 @@ export function bodyTextFromTemplateComponents(components: unknown): string {
   return "";
 }
 
+export type DashboardTemplateButton = {
+  kind: "QUICK_REPLY" | "URL";
+  text: string;
+  url: string;
+};
+
+export type DashboardTemplateDraft = {
+  body: string;
+  header: string;
+  footer: string;
+  buttons: DashboardTemplateButton[];
+  exampleValues: string[];
+};
+
+const DASHBOARD_BUTTON_TYPES = new Set(["QUICK_REPLY", "URL"]);
+const DASHBOARD_MAX_BUTTONS = 2;
+
+function exampleValuesFromBodyComponent(c: Record<string, unknown>): string[] {
+  const example = c.example;
+  if (!example || typeof example !== "object") return [];
+  const bodyText = (example as { body_text?: unknown }).body_text;
+  if (!Array.isArray(bodyText) || !Array.isArray(bodyText[0])) return [];
+  return bodyText[0].map((v) => String(v ?? ""));
+}
+
+/**
+ * Parses Meta `components` into the dashboard create/edit form.
+ * Returns null when the template has pieces the form cannot round-trip
+ * (image header, phone/flow buttons, carousel, more than 2 buttons, …).
+ */
+export function parseDashboardTemplateComponents(
+  components: unknown
+): DashboardTemplateDraft | null {
+  if (!Array.isArray(components)) {
+    return {
+      body: "",
+      header: "",
+      footer: "",
+      buttons: [{ kind: "QUICK_REPLY", text: "", url: "" }],
+      exampleValues: [],
+    };
+  }
+
+  let body = "";
+  let header = "";
+  let footer = "";
+  let exampleValues: string[] = [];
+  const buttons: DashboardTemplateButton[] = [];
+
+  for (const raw of components) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as Record<string, unknown>;
+    const type = String(c.type ?? "").toUpperCase();
+    if (!type) continue;
+
+    if (type === "BODY") {
+      body = String(c.text ?? "");
+      exampleValues = exampleValuesFromBodyComponent(c);
+      continue;
+    }
+    if (type === "HEADER") {
+      const format = String(c.format ?? (c.text != null ? "TEXT" : "")).toUpperCase();
+      if (format && format !== "TEXT") return null;
+      header = String(c.text ?? "");
+      continue;
+    }
+    if (type === "FOOTER") {
+      footer = String(c.text ?? "");
+      continue;
+    }
+    if (type === "BUTTONS") {
+      const list = Array.isArray(c.buttons) ? c.buttons : [];
+      if (list.length > DASHBOARD_MAX_BUTTONS) return null;
+      for (const bRaw of list) {
+        if (!bRaw || typeof bRaw !== "object") continue;
+        const b = bRaw as Record<string, unknown>;
+        const bType = String(b.type ?? "").toUpperCase();
+        if (!DASHBOARD_BUTTON_TYPES.has(bType)) return null;
+        buttons.push({
+          kind: bType === "URL" ? "URL" : "QUICK_REPLY",
+          text: String(b.text ?? ""),
+          url: String(b.url ?? ""),
+        });
+      }
+      continue;
+    }
+    return null;
+  }
+
+  return {
+    body,
+    header,
+    footer,
+    buttons: buttons.length > 0 ? buttons : [{ kind: "QUICK_REPLY", text: "", url: "" }],
+    exampleValues,
+  };
+}
+
+const META_EDITABLE_STATUSES = new Set(["APPROVED", "REJECTED", "PAUSED", "DISABLED"]);
+
+/** Meta only accepts content edits for these statuses (not PENDING / deleted). */
+export function isMetaTemplateContentEditable(status: string): boolean {
+  return META_EDITABLE_STATUSES.has(String(status ?? "").trim().toUpperCase());
+}
+
 export function paramSlotsForTriggerType(triggerType: string): TemplateParamSlot[] {
   const key = triggerType as TriggerType;
   if (key in TEMPLATE_PARAM_SLOTS) return TEMPLATE_PARAM_SLOTS[key];

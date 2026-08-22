@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
-import { createWabaTemplate, syncWabaTemplatesToDb } from "@/lib/meta-templates";
+import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@/lib/meta-templates";
+import { isMetaTemplateContentEditable } from "@/lib/template-presets";
 
 export const runtime = "nodejs";
 
@@ -202,6 +203,120 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   return NextResponse.json({ template: upserted ?? row });
+}
+
+const TEMPLATE_SELECT =
+  "id, business_id, waba_template_id, name, category, language, status, disabled, components, created_at, updated_at";
+
+/**
+ * PUT /api/[slug]/templates — edit content on Meta (same name/language).
+ * Body: { id } or { name, language? } + { category?, components }
+ * Meta re-reviews; local status is set to PENDING until refresh.
+ * 1 Graph call per save (owner-initiated).
+ */
+export async function PUT(req: NextRequest, ctx: RouteContext) {
+  const { slug } = await ctx.params;
+  const gate = await requireTemplatesAccess(slug);
+  if (!gate.ok) return gate.response;
+  const { admin, business } = gate;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  const id = String(body.id ?? "").trim();
+  const name = String(body.name ?? "").trim();
+  const language = String(body.language ?? "").trim();
+  const category = String(body.category ?? "").trim().toUpperCase();
+  const components = body.components;
+
+  if (!Array.isArray(components) || components.length === 0) {
+    return NextResponse.json({ error: "missing_components" }, { status: 400 });
+  }
+  if (category && category !== "MARKETING" && category !== "UTILITY") {
+    return NextResponse.json({ error: "invalid_category" }, { status: 400 });
+  }
+
+  let lookup = admin.from("whatsapp_templates").select(TEMPLATE_SELECT).eq("business_id", business.id);
+  if (id) {
+    lookup = lookup.eq("id", id);
+  } else if (name) {
+    lookup = lookup.eq("name", name);
+    if (language) lookup = lookup.eq("language", language);
+  } else {
+    return NextResponse.json({ error: "missing_template_ref" }, { status: 400 });
+  }
+
+  const { data: existing, error: lookupErr } = await lookup.maybeSingle();
+  if (lookupErr) {
+    console.error("[api/templates] PUT lookup failed:", lookupErr.message);
+    return NextResponse.json({ error: "template_lookup_failed" }, { status: 500 });
+  }
+  if (!existing?.id) {
+    return NextResponse.json({ error: "template_not_found" }, { status: 404 });
+  }
+
+  const existingStatus = String((existing as { status?: unknown }).status ?? "");
+  if (!isMetaTemplateContentEditable(existingStatus)) {
+    return NextResponse.json({ error: "template_not_editable" }, { status: 409 });
+  }
+
+  const wabaTemplateId = String(
+    (existing as { waba_template_id?: unknown }).waba_template_id ?? ""
+  ).trim();
+  if (!wabaTemplateId) {
+    return NextResponse.json({ error: "missing_waba_template_id" }, { status: 400 });
+  }
+
+  const existingCategory = String((existing as { category?: unknown }).category ?? "").trim();
+  const nextCategory = (category || existingCategory).toUpperCase();
+  const statusUpper = existingStatus.toUpperCase();
+  // Meta forbids changing category on an already-approved template.
+  if (statusUpper === "APPROVED" && nextCategory && existingCategory && nextCategory !== existingCategory.toUpperCase()) {
+    return NextResponse.json({ error: "category_locked" }, { status: 400 });
+  }
+
+  let updatedMeta: { category?: string; status?: string };
+  try {
+    updatedMeta = await updateWabaTemplate(wabaTemplateId, {
+      ...(statusUpper === "APPROVED" ? {} : nextCategory ? { category: nextCategory } : {}),
+      components,
+    });
+  } catch (e) {
+    console.error("[api/templates] Meta update failed:", e);
+    return NextResponse.json(
+      {
+        error: "template_update_failed",
+        detail: e instanceof Error ? e.message : String(e),
+      },
+      { status: 502 }
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  const nextStatus = String(updatedMeta.status ?? "").trim() || "PENDING";
+  const { data: updated, error: updErr } = await admin
+    .from("whatsapp_templates")
+    .update({
+      category: updatedMeta.category || nextCategory || existingCategory,
+      components,
+      status: nextStatus,
+      updated_at: nowIso,
+    })
+    .eq("id", existing.id)
+    .eq("business_id", business.id)
+    .select(TEMPLATE_SELECT)
+    .maybeSingle();
+
+  if (updErr) {
+    console.error("[api/templates] PUT db update failed:", updErr.message);
+    return NextResponse.json({ error: "template_upsert_failed" }, { status: 500 });
+  }
+
+  return NextResponse.json({ template: updated ?? { ...existing, components, status: nextStatus } });
 }
 
 /**

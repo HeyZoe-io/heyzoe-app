@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   extractBodyVarCount,
+  isMetaTemplateContentEditable,
   isPresetAvailable,
   paramSlotsForTriggerType,
+  parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
 } from "@/lib/template-presets";
 
@@ -37,5 +39,42 @@ assert.deepEqual(paramSlotsForTriggerType("membership_expiring"), [
 assert.equal(isPresetAvailable("incoming_lead", false), true);
 assert.equal(isPresetAvailable("arbox_new_lead", false), false);
 assert.equal(isPresetAvailable("arbox_new_lead", true), true);
+
+assert.equal(isMetaTemplateContentEditable("APPROVED"), true);
+assert.equal(isMetaTemplateContentEditable("rejected"), true);
+assert.equal(isMetaTemplateContentEditable("PENDING"), false);
+assert.equal(isMetaTemplateContentEditable("DELETED"), false);
+
+const parsed = parseDashboardTemplateComponents([
+  { type: "HEADER", format: "TEXT", text: "כותרת" },
+  {
+    type: "BODY",
+    text: "היי {{1}}",
+    example: { body_text: [["דנה"]] },
+  },
+  { type: "FOOTER", text: "הסטודיו" },
+  {
+    type: "BUTTONS",
+    buttons: [{ type: "QUICK_REPLY", text: "בואו נתחיל" }],
+  },
+]);
+assert.ok(parsed);
+assert.equal(parsed.body, "היי {{1}}");
+assert.equal(parsed.header, "כותרת");
+assert.equal(parsed.footer, "הסטודיו");
+assert.equal(parsed.buttons[0]?.kind, "QUICK_REPLY");
+assert.equal(parsed.buttons[0]?.text, "בואו נתחיל");
+assert.deepEqual(parsed.exampleValues, ["דנה"]);
+
+assert.equal(
+  parseDashboardTemplateComponents([{ type: "HEADER", format: "IMAGE" }]),
+  null
+);
+assert.equal(
+  parseDashboardTemplateComponents([
+    { type: "BUTTONS", buttons: [{ type: "PHONE_NUMBER", text: "חייגו" }] },
+  ]),
+  null
+);
 
 console.log("template-presets.test.ts: ok");

@@ -1,5 +1,5 @@
 /**
- * Meta Graph API helpers for WhatsApp message templates (list / create).
+ * Meta Graph API helpers for WhatsApp message templates (list / create / update).
  * Auth: WHATSAPP_SYSTEM_TOKEN (same System User token as meta-waba-resolve).
  * Graph version matches the rest of the codebase (v21.0).
  */
@@ -30,6 +30,19 @@ export type CreateWabaTemplateResult = {
   id: string;
   status: string;
   category?: string;
+};
+
+export type UpdateWabaTemplatePayload = {
+  category?: string;
+  components: unknown[];
+};
+
+export type UpdateWabaTemplateResult = {
+  success: boolean;
+  id?: string;
+  name?: string;
+  category?: string;
+  status?: string;
 };
 
 function resolveSystemToken(): string {
@@ -156,6 +169,66 @@ export async function createWabaTemplate(
     id,
     status,
     ...(r.category != null ? { category: String(r.category) } : {}),
+  };
+}
+
+/**
+ * POST /{template-id} — edits category/components. Name and language cannot change.
+ * Meta re-reviews the template; APPROVED typically becomes PENDING until approved again.
+ * 1 Graph call per save (owner-initiated, not a cron).
+ */
+export async function updateWabaTemplate(
+  templateId: string,
+  payload: UpdateWabaTemplatePayload
+): Promise<UpdateWabaTemplateResult> {
+  const id = String(templateId ?? "").trim();
+  if (!id) {
+    throw new Error("[updateWabaTemplate] missing templateId");
+  }
+  if (!Array.isArray(payload.components) || payload.components.length === 0) {
+    throw new Error("[updateWabaTemplate] missing components");
+  }
+  const token = resolveSystemToken();
+
+  const body: Record<string, unknown> = { components: payload.components };
+  const category = String(payload.category ?? "").trim().toUpperCase();
+  if (category) body.category = category;
+
+  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(
+      `[updateWabaTemplate] Meta Graph API ${res.status}: ${bodyText || res.statusText}`
+    );
+  }
+
+  let json: unknown = null;
+  try {
+    json = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    throw new Error(`[updateWabaTemplate] invalid JSON response: ${bodyText}`);
+  }
+
+  const r = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+  if (r.success === false) {
+    throw new Error(`[updateWabaTemplate] Meta returned success=false: ${bodyText}`);
+  }
+
+  return {
+    success: r.success !== false,
+    ...(r.id != null ? { id: String(r.id) } : {}),
+    ...(r.name != null ? { name: String(r.name) } : {}),
+    ...(r.category != null ? { category: String(r.category) } : {}),
+    ...(r.status != null ? { status: String(r.status) } : {}),
   };
 }
 

@@ -10,9 +10,12 @@ import {
 } from "@/app/dashboard/[slug]/settings/settings-ui";
 import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
 import {
+  bodyTextFromTemplateComponents,
   extractBodyVarCount,
+  isMetaTemplateContentEditable,
   isPresetAvailable,
   paramSlotsForTriggerType,
+  parseDashboardTemplateComponents,
   presetExampleForSlot,
   presetVarHint,
   TEMPLATE_PRESETS,
@@ -651,6 +654,8 @@ export default function TemplatesClient({
   }
 
   const [showCreate, setShowCreate] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateRow | null>(null);
+  const [editExampleValues, setEditExampleValues] = useState<string[]>([]);
   const [showAutomation, setShowAutomation] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createSuccess, setCreateSuccess] = useState(false);
@@ -665,6 +670,9 @@ export default function TemplatesClient({
     { kind: "QUICK_REPLY", text: "", url: "" },
   ]);
   const [purposeTrigger, setPurposeTrigger] = useState<TriggerType | "">("");
+  const isEditing = editingTemplate != null;
+  const categoryLocked =
+    isEditing && String(editingTemplate.status).toUpperCase() === "APPROVED";
 
   const purposeOptions = useMemo(
     () => TRIGGER_TYPE_OPTIONS.filter((opt) => isPresetAvailable(opt.value, hasArbox)),
@@ -695,11 +703,62 @@ export default function TemplatesClient({
     setCategory("MARKETING");
     setLanguage("he");
     setPurposeTrigger("");
+    setEditingTemplate(null);
+    setEditExampleValues([]);
+  }
+
+  function openCreateModal() {
+    setError(null);
+    resetCreateForm();
+    setShowCreate(true);
+  }
+
+  function openEditModal(t: TemplateRow) {
+    setError(null);
+    setSuccess(null);
+    if (!hasWaba) {
+      setError("אין WABA מחובר לעסק — אי אפשר לערוך טמפלייטים עד שתתחברו ל־WhatsApp.");
+      return;
+    }
+    if (!String(t.waba_template_id ?? "").trim()) {
+      setError("חסר מזהה מטא לטמפלייט — לחצו «רענן» ואז נסו שוב.");
+      return;
+    }
+    if (!isMetaTemplateContentEditable(t.status)) {
+      const s = String(t.status).toUpperCase();
+      if (s === "PENDING") {
+        setError("הטמפלייט ממתין לאישור מטא — אפשר לערוך אחרי שתתקבל תשובה.");
+      } else {
+        setError("אי אפשר לערוך טמפלייט במצב הזה.");
+      }
+      return;
+    }
+    const draft = parseDashboardTemplateComponents(t.components);
+    if (!draft) {
+      setError(
+        "לא ניתן לערוך טמפלייט זה מהדשבורד — הוא מכיל רכיבים מתקדמים (תמונה, כפתור מיוחד וכו׳)."
+      );
+      return;
+    }
+    setEditingTemplate(t);
+    setName(t.name);
+    setCategory(t.category.toUpperCase() === "UTILITY" ? "UTILITY" : "MARKETING");
+    setLanguage(t.language || "he");
+    setBody(draft.body);
+    setHeader(draft.header);
+    setFooter(draft.footer);
+    setButtons(draft.buttons);
+    setEditExampleValues(draft.exampleValues);
+    setPurposeTrigger("");
+    setShowCreate(true);
   }
 
   const nameValid = !name || TEMPLATE_NAME_RE.test(name);
   const canSubmitCreate =
-    TEMPLATE_NAME_RE.test(name) && body.trim().length > 0 && hasWaba && !creating;
+    (isEditing || TEMPLATE_NAME_RE.test(name)) &&
+    body.trim().length > 0 &&
+    hasWaba &&
+    !creating;
 
   const incomingUrl = "https://heyzoe.io/api/leads/incoming";
   const zapierBodyExample = useMemo(
@@ -859,7 +918,7 @@ export default function TemplatesClient({
     e.preventDefault();
     setError(null);
     setCreateSuccess(false);
-    if (!TEMPLATE_NAME_RE.test(name)) {
+    if (!isEditing && !TEMPLATE_NAME_RE.test(name)) {
       setError("שם טמפלייט לא תקין");
       return;
     }
@@ -867,11 +926,20 @@ export default function TemplatesClient({
       setError("גוף ההודעה חובה");
       return;
     }
+    if (editingTemplate && String(editingTemplate.status).toUpperCase() === "APPROVED") {
+      const warning = templateUsageWarning(editingTemplate.name);
+      const confirmMsg = warning
+        ? `לאחר השמירה מטא תבדוק את הטמפלייט מחדש והוא לא יישלח עד האישור. ${warning}`
+        : "לאחר השמירה מטא תבדוק את הטמפלייט מחדש — עד האישור הוא לא יישלח ללקוחות. להמשיך?";
+      if (!window.confirm(confirmMsg)) return;
+    }
     setCreating(true);
     try {
       const exampleValues = purposeTrigger
         ? paramSlotsForTriggerType(purposeTrigger).map(presetExampleForSlot)
-        : undefined;
+        : isEditing && editExampleValues.length > 0
+          ? editExampleValues
+          : undefined;
       const components = buildMetaComponents({
         body,
         header,
@@ -880,14 +948,24 @@ export default function TemplatesClient({
         exampleValues,
       });
       const res = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
-        method: "POST",
+        method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          category,
-          language,
-          components,
-        }),
+        body: JSON.stringify(
+          editingTemplate
+            ? {
+                ...(editingTemplate.id
+                  ? { id: editingTemplate.id }
+                  : { name: editingTemplate.name, language: editingTemplate.language }),
+                category,
+                components,
+              }
+            : {
+                name,
+                category,
+                language,
+                components,
+              }
+        ),
       });
       const j = (await res.json().catch(() => ({}))) as {
         template?: TemplateRow;
@@ -897,10 +975,19 @@ export default function TemplatesClient({
       if (!res.ok) {
         if (j.error === "invalid_template_name") throw new Error("שם טמפלייט לא תקין");
         if (j.error === "no_waba") throw new Error("אין WABA מחובר לעסק — חברו WhatsApp קודם");
+        if (j.error === "template_not_editable") {
+          throw new Error("אי אפשר לערוך טמפלייט במצב הזה (ממתין לאישור / נמחק).");
+        }
+        if (j.error === "missing_waba_template_id") {
+          throw new Error("חסר מזהה מטא — לחצו «רענן» ואז נסו שוב.");
+        }
+        if (j.error === "category_locked") {
+          throw new Error("אי אפשר לשנות קטגוריה של טמפלייט שכבר אושר.");
+        }
         throw new Error(j.detail || j.error || `http_${res.status}`);
       }
       setCreateSuccess(true);
-      setSuccess("נשלח לאישור מטא");
+      setSuccess(isEditing ? "העריכה נשלחה לאישור מטא" : "נשלח לאישור מטא");
       await reloadFromApi(false);
       window.setTimeout(() => {
         setShowCreate(false);
@@ -908,7 +995,7 @@ export default function TemplatesClient({
         resetCreateForm();
       }, 900);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "יצירה נכשלה");
+      setError(err instanceof Error ? err.message : isEditing ? "עריכה נכשלה" : "יצירה נכשלה");
     } finally {
       setCreating(false);
     }
@@ -974,10 +1061,7 @@ export default function TemplatesClient({
             </button>
             <button
               type="button"
-              onClick={() => {
-                setError(null);
-                setShowCreate(true);
-              }}
+              onClick={() => openCreateModal()}
               className="inline-flex items-center rounded-xl bg-[#7133da] px-3 py-2 text-sm font-medium text-white hover:bg-[#5f28c0]"
             >
               צור טמפלייט חדש
@@ -987,7 +1071,7 @@ export default function TemplatesClient({
 
         {!hasWaba && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-            אין WABA מחובר לעסק — אי אפשר ליצור או לרענן טמפלייטים ממטא עד שתתחברו ל־WhatsApp.
+            אין WABA מחובר לעסק — אי אפשר ליצור, לערוך או לרענן טמפלייטים ממטא עד שתתחברו ל־WhatsApp.
           </p>
         )}
 
@@ -1000,6 +1084,7 @@ export default function TemplatesClient({
               const isDisabled = t.disabled === true;
               const isCurrent = leadTemplateName != null && leadTemplateName === t.name;
               const toggleKey = `${t.id ?? t.name}:${t.language}`;
+              const bodyPreview = bodyTextFromTemplateComponents(t.components);
               return (
                 <li
                   key={`${t.name}:${t.language}:${t.id ?? t.waba_template_id ?? ""}`}
@@ -1011,6 +1096,11 @@ export default function TemplatesClient({
                     <p className="font-medium text-zinc-900 break-all" dir="ltr">
                       {t.name}
                     </p>
+                    {bodyPreview ? (
+                      <p className="text-sm text-zinc-600 line-clamp-2 whitespace-pre-wrap">
+                        {bodyPreview}
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                       <span
                         className={`inline-flex rounded-full border px-2 py-0.5 font-medium ${statusBadgeClass(
@@ -1029,6 +1119,14 @@ export default function TemplatesClient({
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(t)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      ערוך
+                    </button>
                     <button
                       type="button"
                       disabled={togglingDisabled === toggleKey}
@@ -1452,8 +1550,22 @@ export default function TemplatesClient({
       </section>
 
       {showCreate && (
-        <ModalShell title="צור טמפלייט חדש" onClose={() => !creating && setShowCreate(false)} widthClass="max-w-xl">
+        <ModalShell
+          title={isEditing ? "עריכת טמפלייט" : "צור טמפלייט חדש"}
+          onClose={() => {
+            if (creating) return;
+            setShowCreate(false);
+            resetCreateForm();
+          }}
+          widthClass="max-w-xl"
+        >
           <form className="space-y-4" onSubmit={(e) => void onCreate(e)}>
+            {isEditing ? (
+              <p className="text-xs leading-relaxed text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                שם ושפה לא ניתנים לשינוי במטא. אחרי שמירה הטמפלייט חוזר לאישור, ועד אז הוא לא יישלח
+                ללקוחות (כולל טריגרים שמחוברים אליו).
+              </p>
+            ) : (
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-zinc-800">מטרה</label>
               <select
@@ -1472,6 +1584,7 @@ export default function TemplatesClient({
                 בחירה ממלאת שם, קטגוריה, גוף וכפתור. אפשר לערוך אחרי הבחירה — הבחירה עצמה לא נשמרת במטא.
               </p>
             </div>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-zinc-800">שם הטמפלייט</label>
@@ -1481,16 +1594,19 @@ export default function TemplatesClient({
                   const next = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
                   setName(next);
                 }}
-                className={`${FIELD_CLASS} text-left`}
+                className={`${FIELD_CLASS} text-left disabled:bg-zinc-50 disabled:text-zinc-500`}
                 dir="ltr"
                 placeholder="lead_welcome"
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
                 required
+                disabled={isEditing}
               />
               <p className="text-xs text-zinc-500">
-                שם באנגלית בלבד, אותיות קטנות, מספרים וקו תחתון (_). ללא רווחים ועברית.
+                {isEditing
+                  ? "השם נשאר כמו במטא — אי אפשר לשנות אותו בעריכה."
+                  : "שם באנגלית בלבד, אותיות קטנות, מספרים וקו תחתון (_). ללא רווחים ועברית."}
               </p>
               {!nameValid && (
                 <p className="text-xs text-red-600">השם יכול לכלול רק a-z, 0-9 ו־_</p>
@@ -1503,18 +1619,23 @@ export default function TemplatesClient({
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value as "MARKETING" | "UTILITY")}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                  disabled={categoryLocked}
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-500"
                 >
                   <option value="MARKETING">MARKETING</option>
                   <option value="UTILITY">UTILITY</option>
                 </select>
+                {categoryLocked ? (
+                  <p className="text-xs text-zinc-500">לא ניתן לשנות קטגוריה של טמפלייט שכבר אושר.</p>
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-zinc-800">שפה</label>
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                  disabled={isEditing}
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-500"
                 >
                   <option value="he">he</option>
                   <option value="en">en</option>
@@ -1623,7 +1744,7 @@ export default function TemplatesClient({
 
             {createSuccess && (
               <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-                נשלח לאישור מטא
+                {isEditing ? "העריכה נשלחה לאישור מטא" : "נשלח לאישור מטא"}
               </p>
             )}
 
@@ -1631,7 +1752,10 @@ export default function TemplatesClient({
               <button
                 type="button"
                 disabled={creating}
-                onClick={() => setShowCreate(false)}
+                onClick={() => {
+                  setShowCreate(false);
+                  resetCreateForm();
+                }}
                 className="rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
               >
                 ביטול
@@ -1642,7 +1766,7 @@ export default function TemplatesClient({
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0] disabled:opacity-60"
               >
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                שלח לאישור מטא
+                {isEditing ? "שמור ושלח לאישור מטא" : "שלח לאישור מטא"}
               </button>
             </div>
           </form>
