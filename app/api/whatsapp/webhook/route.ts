@@ -41,6 +41,7 @@ import {
   normalizePhone,
   looksLikeBarePhoneMessage,
   waSessionPhoneKey,
+  waSessionIdLookupVariants,
 } from "@/lib/phone-normalize";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import {
@@ -413,10 +414,12 @@ import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversatio
 import {
   assistantReplyIndicatesLeadNotRelevant,
   handleLeadNotRelevant,
+  inboundResumesConversationAfterNotRelevant,
+  leadIndicatesStillRelevant,
   matchesNotRelevantKeyword,
-  NOT_RELEVANT_REPLY_MESSAGE,
+  NOT_RELEVANT_ENGAGING_FALLBACK_REPLY,
   reactivateNotRelevantLead,
-  shouldSendNotRelevantGatingReply,
+  userTextJustifiesNotRelevantMark,
 } from "@/lib/not-relevant";
 import { matchesSelfReportedRegistered } from "@/lib/self-reported-registered";
 import {
@@ -5425,14 +5428,45 @@ async function processIncoming(
     return;
   }
 
+  const pauseSessionIds = [
+    ...new Set(
+      [...waSessionIdLookupVariants(msg.toNumber, msg.from), earlySessionId].map((s) => String(s ?? "").trim()).filter(Boolean)
+    ),
+  ];
+  let sessionPausedNow = false;
+  try {
+    if (pauseSessionIds.length) {
+      const { data: pausedRow } = await supabase
+        .from("paused_sessions")
+        .select("id, paused_until")
+        .eq("business_slug", business_slug)
+        .in("session_id", pauseSessionIds)
+        .gt("paused_until", nowIso)
+        .limit(1)
+        .maybeSingle();
+      sessionPausedNow = Boolean(pausedRow);
+      if (sessionPausedNow) {
+        console.info(
+          `[WA Webhook] Session ${earlySessionId} for ${business_slug} is paused until ${pausedRow?.paused_until}; skip auto-reply.`
+        );
+      }
+    }
+  } catch (e) {
+    console.error("[WA Webhook] pause-check (early) failed (continuing):", e);
+  }
+
   if (contactNotRelevantAt) {
     // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו שהוגדרה («אשמח לפרטים» / «בואו נתחיל» וכו׳)
     // — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
     const wantsFlowRestart = isSalesFlowStartInbound(msg, {
       slug: business_slug,
     });
+    const inboundText = msg.type === "text" ? msg.text : "";
+    const wantsResume =
+      Boolean(inboundText) &&
+      (leadIndicatesStillRelevant(inboundText) || inboundResumesConversationAfterNotRelevant(inboundText));
 
-    if (wantsFlowRestart && businessId) {
+    if ((wantsFlowRestart || wantsResume) && businessId) {
       const reactivated = await reactivateNotRelevantLead({
         supabase,
         businessId: Number(businessId),
@@ -5442,12 +5476,12 @@ async function processIncoming(
         contactId,
       });
       if (reactivated) {
-        console.info("[WA Webhook] not-relevant lead reactivated via flow-start trigger", {
+        console.info("[WA Webhook] not-relevant lead reactivated", {
           business_slug,
           session_id: earlySessionId,
+          via: wantsFlowRestart ? "flow-start" : "continued-conversation",
         });
         contactNotRelevantAt = null;
-        // ממשיכים — מילת הפתיחה תזוהה בהמשך ותאתחל את פלואו המכירה.
       }
     }
 
@@ -5493,19 +5527,22 @@ async function processIncoming(
           session_id: earlySessionId,
         });
       }
-      if (shouldSendNotRelevantGatingReply(contactNotRelevantAt)) {
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          NOT_RELEVANT_REPLY_MESSAGE,
-          accountSid,
-          authToken
-        ).catch((e) => console.error("[WA Webhook] Send not-relevant gating reply failed:", e));
-      } else {
-        console.info("[WA Webhook] not-relevant gating — skip duplicate reply (recently marked)", {
+      console.info("[WA Webhook] not-relevant gating — stay silent (no farewell loop)", {
+        business_slug,
+        session_id: earlySessionId,
+        not_relevant_at: contactNotRelevantAt,
+        paused: sessionPausedNow,
+      });
+      return;
+    }
+
+    if (sessionPausedNow) {
+      if (msg.type === "text" && !processOpts?.skipUserLog) {
+        await logMessage({
           business_slug,
+          role: "user",
+          content: msg.text,
           session_id: earlySessionId,
-          not_relevant_at: contactNotRelevantAt,
         });
       }
       return;
@@ -5700,6 +5737,7 @@ async function processIncoming(
     msg.type === "text" &&
     businessId &&
     !contactNotRelevantAt &&
+    !sessionPausedNow &&
     matchesNotRelevantKeyword(msg.text)
   ) {
     const fullName =
@@ -5723,23 +5761,12 @@ async function processIncoming(
   }
 
   // Check if this session is currently paused (manual takeover by human).
-  try {
-    const nowIso = new Date().toISOString();
-    const { data: paused } = await supabase
-      .from("paused_sessions")
-      .select("id, paused_until")
-      .eq("business_slug", business_slug)
-      .eq("session_id", sessionId)
-      .gt("paused_until", nowIso)
-      .maybeSingle();
-    if (paused) {
-      console.info(
-        `[WA Webhook] Session ${sessionId} for ${business_slug} is paused until ${paused.paused_until}; skipping auto-reply.`
-      );
-      return;
-    }
-  } catch (e) {
-    console.error("[WA Webhook] pause-check failed (continuing anyway):", e);
+  // Uses the same variant lookup as the early check so app-echo pause cannot be missed.
+  if (sessionPausedNow) {
+    console.info(
+      `[WA Webhook] Session ${sessionId} for ${business_slug} is paused; skipping auto-reply.`
+    );
+    return;
   }
 
   // Business-level Zoe activation gate — independent of paused_sessions (per-session pause).
@@ -9889,7 +9916,7 @@ async function processIncoming(
   if (!isFallbackErrorReply && standaloneHelpClosing) {
     replyCoreForMenu = stripNumberedChoiceLinesAnywhere(replyCoreForMenu, undefined, { includeMidline: true });
   }
-  const replyCoreClean = applyKnownAssistantReplyFixes(
+  let replyCoreClean = applyKnownAssistantReplyFixes(
     stripAssistantInteractiveButtonsLog(stripZoeMenuFooterFromText(replyCoreForMenu)),
     {
       knowledge,
@@ -9929,24 +9956,37 @@ async function processIncoming(
     businessId &&
     assistantReplyIndicatesLeadNotRelevant(replyCoreClean)
   ) {
-    const fullName =
-      typeof (msg as { profileName?: string }).profileName === "string"
-        ? (msg as { profileName?: string }).profileName!.trim()
-        : "";
-    await handleLeadNotRelevant({
-      supabase,
-      businessId: Number(businessId),
-      businessSlug: business_slug,
-      phone: msg.from,
-      text: msg.type === "text" ? msg.text : incomingTextRaw,
-      nowIso,
-      waFromNumber: msg.toNumber,
-      accountSid,
-      authToken,
-      sessionId: sessionId,
-      fullName: fullName || null,
-    });
-    return;
+    const inboundForNotRelevant = msg.type === "text" ? msg.text : incomingTextRaw;
+    if (
+      leadIndicatesStillRelevant(inboundForNotRelevant) ||
+      inboundResumesConversationAfterNotRelevant(inboundForNotRelevant) ||
+      !userTextJustifiesNotRelevantMark(inboundForNotRelevant)
+    ) {
+      console.info("[WA Webhook] skip not-relevant mark — lead engaging or unjustified closing", {
+        business_slug,
+        session_id: sessionId,
+      });
+      replyCoreClean = NOT_RELEVANT_ENGAGING_FALLBACK_REPLY;
+    } else {
+      const fullName =
+        typeof (msg as { profileName?: string }).profileName === "string"
+          ? (msg as { profileName?: string }).profileName!.trim()
+          : "";
+      await handleLeadNotRelevant({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        text: inboundForNotRelevant,
+        nowIso,
+        waFromNumber: msg.toNumber,
+        accountSid,
+        authToken,
+        sessionId: sessionId,
+        fullName: fullName || null,
+      });
+      return;
+    }
   }
 
   if (

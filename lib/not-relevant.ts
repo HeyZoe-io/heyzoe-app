@@ -32,6 +32,19 @@ const NOT_RELEVANT_SHORT_DISMISSALS = new Set([
   "נשמע טוב",
 ]);
 
+/** «אבל זה רלוונטי» / «כן רלוונטי» — ביטול מפורש של «לא רלוונטי». */
+const STILL_RELEVANT_RES = [
+  /(?:^| )(?:אבל\s+)?(?:זה|זהו)\s+כן\s+רלוונטי/,
+  /(?:^| )(?:אבל\s+)?(?:זה|זהו)\s+רלוונטי/,
+  /(?:^| )כן\s+(?:זה\s+)?רלוונטי/,
+  /עדיין\s+רלוונטי/,
+  /כן\s+מעוניינ/,
+  /(?:^| )אני\s+מעוניינ/,
+  /\bstill\s+relevant\b/,
+  /\bit(?:['’]?s| is)\s+(?:still\s+)?relevant\b/,
+  /\bi(?:['’]?m| am)\s+interested\b/,
+];
+
 const OPEN_QUESTION_HINTS = [
   "מה ",
   "איך ",
@@ -339,14 +352,17 @@ export const NOT_RELEVANT_REPLY_MESSAGE =
 /** אחרי סימון, webhook-ים נוספים (wamid שונה) לא ישלחו שוב את הסגירה. */
 export const NOT_RELEVANT_GATING_REPLY_COOLDOWN_MS = 30 * 60 * 1000;
 
-/** false = הליד כבר קיבל את הודעת הסגירה לאחרונה (או סומן הרגע) — לא לשלוח שוב. */
+/**
+ * אחרי הסגירה הראשונה (`handleLeadNotRelevant`) לא שולחים שוב את המשפט הקבוע.
+ * ה-cooldown הישן נמדד מ-not_relevant_at — אחרי 30 דק׳ כל הודעה קיבלה שוב את הסגירה (לופ).
+ */
 export function shouldSendNotRelevantGatingReply(
   notRelevantAtIso: string | null | undefined,
-  now: Date = new Date()
+  _now: Date = new Date()
 ): boolean {
-  const t = Date.parse(String(notRelevantAtIso ?? "").trim());
-  if (!Number.isFinite(t)) return true;
-  return now.getTime() - t >= NOT_RELEVANT_GATING_REPLY_COOLDOWN_MS;
+  void notRelevantAtIso;
+  void _now;
+  return false;
 }
 
 export function normalizeNotRelevantToken(text: string): string {
@@ -403,6 +419,46 @@ function matchesLocationHint(text: string): boolean {
   if (!t) return false;
   return LOCATION_HINTS.some((hint) => t.includes(hint));
 }
+
+function normalizeAckToken(text: string): string {
+  return normalizeNotRelevantToken(text)
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** הליד אומר במפורש שזה כן רלוונטי — מבטל סטטוס «לא רלוונטי». */
+export function leadIndicatesStillRelevant(text: string): boolean {
+  const t = normalizeAckToken(text);
+  if (!t) return false;
+  if (matchesNotRelevantKeyword(text)) return false;
+  return STILL_RELEVANT_RES.some((re) => re.test(t));
+}
+
+/** סימון מותר רק מאמירה מפורשת / מיקום — לא מניחוש של קלוד. */
+export function userTextJustifiesNotRelevantMark(text: string): boolean {
+  return matchesNotRelevantKeyword(text) || matchesLocationHint(text);
+}
+
+/**
+ * ליד שסומן «לא רלוונטי» ממשיך שיחה רגילה — מפעילים מחדש במקום לופ סגירה.
+ * תודה/אוקיי קצרים נשארים בשקט.
+ */
+export function inboundResumesConversationAfterNotRelevant(text: string): boolean {
+  const raw = String(text ?? "").trim();
+  if (!raw) return false;
+  if (matchesNotRelevantKeyword(raw)) return false;
+  if (leadIndicatesStillRelevant(raw)) return true;
+  const t = normalizeAckToken(raw);
+  if (NOT_RELEVANT_SHORT_DISMISSALS.has(t)) return false;
+  if (hasObviousOpenQuestionShape(raw)) return true;
+  const words = t.split(" ").filter(Boolean);
+  const letters = t.replace(/[^\p{L}\p{N}]+/gu, "");
+  return words.length >= 2 && letters.length >= 6;
+}
+
+/** כשקלוד מייצר סגירת «לא רלוונטי» בטעות והליד ממשיך שיחה. */
+export const NOT_RELEVANT_ENGAGING_FALLBACK_REPLY = "סבבה, נמשיך 🙂";
 
 /** Claude — רק כשיש רמז למיקום/מרחק; אחרת null (לא מנחשים סיבות אחרות). */
 async function classifyLocationReasonWithClaude(input: {
