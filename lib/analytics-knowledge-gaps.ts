@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DetectedMessageLanguage } from "@/lib/language-detect";
+import {
+  assistantAskedMembershipOrTrialClarify,
+  assistantReplyDumpsAccountAccessToSelfServeCall,
+  BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+} from "@/lib/wa-booking-lookup";
+import { FREEZE_BILLING_HANDOFF_MODEL } from "@/lib/wa-freeze-billing-handoff";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
 import { isUnclearClarifyAsk } from "@/lib/wa-unclear-intent";
@@ -35,6 +41,12 @@ const KNOWLEDGE_GAP_MODELS = new Set([
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   KNOWLEDGE_GAP_NO_DETAILS_MODEL,
+]);
+
+/** יומן/חיוב/הקפאה — העברה תפעולית, לא מידע חסר להוסיף לזואי. */
+const OPERATIONAL_HANDOFF_MODELS = new Set([
+  BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+  FREEZE_BILLING_HANDOFF_MODEL,
 ]);
 
 const MESSAGE_UUID_RE =
@@ -94,9 +106,21 @@ export function resolveKnowledgeGapKind(input: {
   return looksLikeScheduleRequest(input.question) ? "schedule_request" : "question";
 }
 
+function isOperationalTeamHandoffText(content: string, modelUsed?: string | null): boolean {
+  const model = String(modelUsed ?? "").trim();
+  if (model && OPERATIONAL_HANDOFF_MODELS.has(model)) return true;
+  const t = String(content ?? "").trim();
+  if (!t) return false;
+  if (assistantReplyDumpsAccountAccessToSelfServeCall(t)) return true;
+  if (/תודה על הבהרה/u.test(t) && /צוות/u.test(t)) return true;
+  if (/בלבול עם (?:החיוב|ההקפאה|הכרטיס)/u.test(t)) return true;
+  return false;
+}
+
 export function isKnowledgeGapAssistantText(content: string, modelUsed?: string | null): boolean {
   const model = String(modelUsed ?? "").trim();
   if (model && EXCLUDED_MODELS.has(model)) return false;
+  if (isOperationalTeamHandoffText(content, modelUsed)) return false;
   if (model && KNOWLEDGE_GAP_MODELS.has(model)) return true;
   const t = String(content ?? "").trim();
   if (!t) return false;
@@ -108,10 +132,33 @@ export function pickKnowledgeGapNoDetailsReply(lang: DetectedMessageLanguage): s
   return lang === "en" ? KNOWLEDGE_GAP_NO_DETAILS_EN : KNOWLEDGE_GAP_NO_DETAILS_HE;
 }
 
+function stripQuestionDecor(raw: string): string {
+  return String(raw ?? "")
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, " ")
+    .replace(/[\s!.,?؟:;*\-]+/g, " ")
+    .trim();
+}
+
+function looksLikeChitchatUserText(content: string): boolean {
+  const t = stripQuestionDecor(content);
+  if (!t) return true;
+  return /^(?:ו?שבוע טוב|ו?שבת שלום|חג שמח|צום קל|גמר חתימה טובה|בוקר טוב|צהריים טובים|ערב טוב|לילה טוב|היי+|שלום(?: רב)?|תודה(?: רבה)?|thanks|thank you|hi+|hello|bye|good (?:week|morning|night))$/iu.test(
+    t
+  );
+}
+
+function looksLikeMembershipClarifyAnswerOnly(content: string): boolean {
+  const t = stripQuestionDecor(content);
+  if (!t || t.length > 48) return false;
+  return /^(?:מנוי קיים|יש לי מנוי|יש לנו מנוי|אימון ניסיון|שיעור ניסיון)$/iu.test(t);
+}
+
 function isUsableUserQuestion(content: string): boolean {
   const q = String(content ?? "").trim();
   if (!q) return false;
   if (q.startsWith("[media]") || q.startsWith("[heyzoe:") || q.startsWith("[reaction]")) return false;
+  if (looksLikeChitchatUserText(q)) return false;
+  if (looksLikeMembershipClarifyAnswerOnly(q)) return false;
   return true;
 }
 
@@ -136,7 +183,11 @@ export function pickKnowledgeGapQuestion(
       const prev = msgs[j]!;
       if (prev.createdAt >= gapCreatedAt) continue;
       if (prev.role === "user") break;
-      if (prev.role === "assistant" && isUnclearClarifyAsk(prev.content)) {
+      if (prev.role !== "assistant") continue;
+      if (
+        isUnclearClarifyAsk(prev.content) ||
+        assistantAskedMembershipOrTrialClarify(prev.content)
+      ) {
         replyToClarify = true;
         break;
       }

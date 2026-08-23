@@ -60,6 +60,69 @@ assert.equal(
   ),
   false
 );
+assert.equal(
+  isKnowledgeGapAssistantText(
+    "היי! 👋 הבנתי שיש בלבול עם החיוב על הכרטיס. זה משהו שצריך לברר מול הצוות - אני מעבירה את הבקשה שלך אליהם ויצרו איתך קשר בקרוב."
+  ),
+  false
+);
+assert.equal(
+  isKnowledgeGapAssistantText(
+    "תודה על הבהרה! 💜 לצערי, אני לא יכולה לגשת לפרטי המנוי או ללוח האימונים שלך. זה משהו שצריך לברר מול הצוות ישירות. אתה יכול ליצור קשר בטלפון: **0524617053** והם יעזרו לך להוסיף את האימון ליומן."
+  ),
+  false
+);
+
+const billingThenShavuaTov = [
+  {
+    role: "user",
+    content:
+      "בוביק היי.אני מנסה לחייב את הדיינרס שלי על חיוב שלא בוצע כי ביטלתי את הכרטיס",
+    createdAt: "2026-08-22T15:12:12.000Z",
+  },
+  {
+    role: "user",
+    content: "ושבוע טוב",
+    createdAt: "2026-08-22T15:12:17.000Z",
+  },
+  {
+    role: "assistant",
+    content: "זה משהו שצריך לברר מול הצוות",
+    createdAt: "2026-08-22T15:12:18.000Z",
+  },
+];
+assert.equal(
+  pickKnowledgeGapQuestion(billingThenShavuaTov, "2026-08-22T15:12:18.000Z").includes("דיינרס"),
+  true
+);
+
+const membershipClarifyThenHandoff = [
+  {
+    role: "user",
+    content: "היי ממצב? יכולה לשלוח לי למתי קבענו שאכניס לי ליומן",
+    createdAt: "2026-08-20T07:42:46.000Z",
+  },
+  {
+    role: "assistant",
+    content:
+      "היי! 👋 כדי שאוכל לעזור לך עם זה, אני צריכה קצת יותר פרטים. אתה מתכוון לאימון ניסיון שרשמת עכשיו, או שיש לך כבר מנוי קיים איתנו?",
+    createdAt: "2026-08-20T07:42:53.000Z",
+  },
+  {
+    role: "user",
+    content: "מנוי קיים",
+    createdAt: "2026-08-20T07:43:25.000Z",
+  },
+  {
+    role: "assistant",
+    content: "אין לי את הפרטים על כך.",
+    createdAt: "2026-08-20T07:43:32.000Z",
+  },
+];
+assert.notEqual(
+  pickKnowledgeGapQuestion(membershipClarifyThenHandoff, "2026-08-20T07:43:32.000Z"),
+  "מנוי קיים"
+);
 
 const limitlessLessonTransfer = [
   {
