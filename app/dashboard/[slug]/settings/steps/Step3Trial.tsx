@@ -88,6 +88,10 @@ type ServiceItem = {
   course_cycles: CourseCycle[];
   location_mode: "location" | "online";
   course_dates_enabled: boolean;
+  arbox_box_category_id: number | null;
+  arbox_class_name: string;
+  schedule_removed_notice: { detected_at: string; dismissed: boolean } | null;
+  description_meta: Record<string, unknown>;
 };
 
 function courseCyclesForOfferKindSwitch(
@@ -314,6 +318,12 @@ export default function Step3Trial(props: {
   /** לינק מערכת השעות (טאב לינקים) */
   scheduleUrl: string;
   generateProductDescription: (uiId: string) => void;
+  arboxProgrammaticScan?: boolean;
+  onArboxScheduleScan?: () => void;
+  arboxScheduleScanBusy?: boolean;
+  arboxScheduleScanError?: string;
+  focusProductUiId?: string | null;
+  onFocusProductConsumed?: () => void;
 }) {
   const {
     lang = "he",
@@ -340,8 +350,16 @@ export default function Step3Trial(props: {
     scheduleDirectRegistration,
     scheduleUrl,
     generateProductDescription,
+    arboxProgrammaticScan = false,
+    onArboxScheduleScan,
+    arboxScheduleScanBusy = false,
+    arboxScheduleScanError = "",
+    focusProductUiId = null,
+    onFocusProductConsumed,
   } = props;
   const t = dashboardSettingsT(lang);
+  const onFocusProductConsumedRef = useRef(onFocusProductConsumed);
+  onFocusProductConsumedRef.current = onFocusProductConsumed;
 
   const [scheduleExtractBusy, setScheduleExtractBusy] = useState(false);
   const [scheduleExtractError, setScheduleExtractError] = useState("");
@@ -361,6 +379,8 @@ export default function Step3Trial(props: {
   const productsFilled = services.some((s) => s.name.trim());
   const namedServices = useMemo(() => services.filter((s) => s.name.trim()), [services]);
   const [openProducts, setOpenProducts] = useState<Record<string, boolean>>({});
+  const servicesRef = useRef(services);
+  servicesRef.current = services;
 
   const productStableKey = (s: ServiceItem) => {
     const fromSlug = toSlug(s.service_slug || s.name);
@@ -379,6 +399,22 @@ export default function Step3Trial(props: {
       return { ...prev, [s.ui_id]: next, [stable]: next };
     });
   };
+
+  useEffect(() => {
+    if (!focusProductUiId) return;
+    const s = servicesRef.current.find((x) => x.ui_id === focusProductUiId);
+    if (!s) return;
+    const fromSlug = toSlug(s.service_slug || s.name);
+    const stable = fromSlug || s.ui_id;
+    setOpenProducts((prev) => ({ ...prev, [s.ui_id]: true, [stable]: true }));
+    requestAnimationFrame(() => {
+      document.getElementById(`product-card-${s.ui_id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    onFocusProductConsumedRef.current?.();
+  }, [focusProductUiId]);
 
   const runScheduleSlotsExtract = async () => {
     const url = scheduleUrl.trim();
@@ -487,6 +523,31 @@ export default function Step3Trial(props: {
           filled={Boolean(websiteUrl.trim())}
         >
         <div dir={dashboardDir(lang)} className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4">
+          {arboxProgrammaticScan ? (
+            <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-zinc-900">{t.products.scanSchedule}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 h-9 border-[#7133da]/30 bg-white text-xs"
+                  disabled={arboxScheduleScanBusy}
+                  onClick={() => onArboxScheduleScan?.()}
+                >
+                  {arboxScheduleScanBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {arboxScheduleScanBusy ? t.scanning : t.scan}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] font-medium text-zinc-600 leading-snug">
+                {t.products.scanArboxOverwriteNote}
+              </p>
+              {arboxScheduleScanError ? (
+                <p className="mt-2 text-sm text-red-600" role="alert">
+                  {arboxScheduleScanError}
+                </p>
+              ) : null}
+            </div>
+          ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
               <div className="flex items-center justify-between gap-2">
@@ -545,6 +606,7 @@ export default function Step3Trial(props: {
               </div>
             )}
           </div>
+          )}
         </div>
         </SalesPathSectionBlock>
 
@@ -574,6 +636,7 @@ export default function Step3Trial(props: {
           const productOpen = isProductOpen(s);
           return (
           <article
+            id={`product-card-${s.ui_id}`}
             key={s.ui_id}
             onDragOver={(e) => onDragOver(e, i)}
             className="overflow-hidden rounded-xl border border-zinc-200/80 bg-white transition-colors hover:border-[#7133da]/25"
@@ -749,6 +812,12 @@ export default function Step3Trial(props: {
                   placeholder={s.offer_kind === "course" ? t.products.offerCourse : t.products.offerTrial}
                   className={PRODUCT_INPUT}
                 />
+                {s.arbox_class_name?.trim() ? (
+                  <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
+                    <span className="font-medium text-zinc-600">{t.products.arboxSystemClassName}:</span>{" "}
+                    {s.arbox_class_name}
+                  </p>
+                ) : null}
               </div>
 
             {s.offer_kind === "course" ? (
@@ -1356,6 +1425,10 @@ export default function Step3Trial(props: {
                           course_cycles: [],
                           location_mode: "location",
                           course_dates_enabled: true,
+                          arbox_box_category_id: null,
+                          arbox_class_name: "",
+                          schedule_removed_notice: null,
+                          description_meta: {},
                         },
                       ]
                 );

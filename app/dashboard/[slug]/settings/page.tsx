@@ -62,6 +62,10 @@ import {
 } from "@/lib/knowledge-qa";
 import { sortServiceRowsBySortOrder } from "@/lib/service-sort-order";
 import {
+  parseArboxClassStamp,
+  type ArboxScheduleRemovedNotice,
+} from "@/lib/arbox-schedule-sync";
+import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
   salesPathSteps,
@@ -105,7 +109,37 @@ type ServiceItem = {
   location_mode: "location" | "online";
   /** קורס: האם מוגדרים תאריכי התחלה/סיום (מחזורים). ברירת מחדל true */
   course_dates_enabled: boolean;
+  arbox_box_category_id: number | null;
+  arbox_class_name: string;
+  schedule_removed_notice: ArboxScheduleRemovedNotice | null;
+  /** Full services.description JSON so unknown keys round-trip on save */
+  description_meta: Record<string, unknown>;
 };
+
+function emptyArboxServiceFields(): Pick<
+  ServiceItem,
+  "arbox_box_category_id" | "arbox_class_name" | "schedule_removed_notice" | "description_meta"
+> {
+  return {
+    arbox_box_category_id: null,
+    arbox_class_name: "",
+    schedule_removed_notice: null,
+    description_meta: {},
+  };
+}
+
+function arboxFieldsFromDescriptionMeta(meta: Record<string, unknown>): Pick<
+  ServiceItem,
+  "arbox_box_category_id" | "arbox_class_name" | "schedule_removed_notice" | "description_meta"
+> {
+  const stamp = parseArboxClassStamp(meta);
+  return {
+    arbox_box_category_id: stamp.arbox_box_category_id,
+    arbox_class_name: stamp.arbox_class_name,
+    schedule_removed_notice: stamp.schedule_removed_notice,
+    description_meta: meta,
+  };
+}
 
 type WhatsAppChannel = {
   phone_display: string;
@@ -243,6 +277,18 @@ function readTrialServicesStash(slug: string): ServiceItem[] | null {
           : [],
         location_mode: r.location_mode === "online" ? "online" : "location",
         course_dates_enabled: r.course_dates_enabled !== false,
+        arbox_box_category_id:
+          typeof r.arbox_box_category_id === "number" && r.arbox_box_category_id > 0
+            ? r.arbox_box_category_id
+            : null,
+        arbox_class_name: String(r.arbox_class_name ?? ""),
+        schedule_removed_notice: parseArboxClassStamp({
+          schedule_removed_notice: r.schedule_removed_notice,
+        }).schedule_removed_notice,
+        description_meta:
+          r.description_meta && typeof r.description_meta === "object" && !Array.isArray(r.description_meta)
+            ? { ...(r.description_meta as Record<string, unknown>) }
+            : {},
       });
     }
     return out.length ? out : null;
@@ -369,11 +415,14 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
           schedule_slots: normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, uid),
         };
       })(),
+      ...arboxFieldsFromDescriptionMeta(meta),
     };
   });
 }
 
 function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Record<string, unknown> {
+  const prior = { ...(s.description_meta ?? {}) };
+  delete prior.description_meta;
   const base = {
     price_text: (s.price_text ?? "").trim(),
     duration: s.duration,
@@ -394,33 +443,49 @@ function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Recor
           : "",
     location_mode: s.location_mode === "online" ? "online" : "location",
   };
-  if (s.offer_kind === "course") {
-    const datesOn = s.course_dates_enabled !== false;
-    const course_cycles = datesOn
-      ? (s.course_cycles ?? []).map((cy) => ({
-          id: cy.id,
-          start_date: cy.start_date.trim(),
-          end_date: cy.end_date.trim(),
-          schedule_slots: cy.schedule_slots,
-        }))
-      : [];
-    const { course_start_date, course_end_date } = syncCourseLegacyDatesFromCycles(course_cycles);
-    return {
-      ...base,
-      course_dates_enabled: datesOn,
-      course_cycles,
-      course_start_date,
-      course_end_date,
-      schedule_slots: [],
-    };
+  const known =
+    s.offer_kind === "course"
+      ? (() => {
+          const datesOn = s.course_dates_enabled !== false;
+          const course_cycles = datesOn
+            ? (s.course_cycles ?? []).map((cy) => ({
+                id: cy.id,
+                start_date: cy.start_date.trim(),
+                end_date: cy.end_date.trim(),
+                schedule_slots: cy.schedule_slots,
+              }))
+            : [];
+          const { course_start_date, course_end_date } = syncCourseLegacyDatesFromCycles(course_cycles);
+          return {
+            ...base,
+            course_dates_enabled: datesOn,
+            course_cycles,
+            course_start_date,
+            course_end_date,
+            schedule_slots: [],
+          };
+        })()
+      : {
+          ...base,
+          course_dates_enabled: true,
+          course_start_date: s.course_start_date,
+          course_end_date: s.course_end_date,
+          schedule_slots: s.schedule_slots,
+        };
+  const next: Record<string, unknown> = { ...prior, ...known };
+  const hadStamp =
+    s.arbox_box_category_id != null ||
+    Boolean(s.arbox_class_name.trim()) ||
+    s.schedule_removed_notice != null ||
+    prior.arbox_box_category_id != null ||
+    String(prior.arbox_class_name ?? "").trim() !== "" ||
+    prior.schedule_removed_notice != null;
+  if (hadStamp) {
+    next.arbox_box_category_id = s.arbox_box_category_id;
+    next.arbox_class_name = s.arbox_class_name;
+    next.schedule_removed_notice = s.schedule_removed_notice;
   }
-  return {
-    ...base,
-    course_dates_enabled: true,
-    course_start_date: s.course_start_date,
-    course_end_date: s.course_end_date,
-    schedule_slots: s.schedule_slots,
-  };
+  return next;
 }
 
 function payloadSavedTrialsWereCleared(payload: Record<string, unknown>): boolean {
@@ -884,6 +949,9 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "course_sessions_count",
   "course_cycles",
   "sort_order",
+  "arbox_box_category_id",
+  "arbox_class_name",
+  "schedule_removed_notice",
 ]);
 
 /**
@@ -982,6 +1050,7 @@ function trialServiceItemFromSiteProduct(
     course_cycles: [],
     location_mode: "location",
     course_dates_enabled: true,
+    ...emptyArboxServiceFields(),
   };
 }
 
@@ -1238,6 +1307,11 @@ export default function SlugSettingsPage({
   const [arboxLink, setArboxLink] = useState("");
   const [crmType, setCrmType] = useState<CrmType>("");
   const [crmApiKey, setCrmApiKey] = useState("");
+  const [arboxScheduleScanBusy, setArboxScheduleScanBusy] = useState(false);
+  const [arboxScheduleScanError, setArboxScheduleScanError] = useState("");
+  const [focusProductUiId, setFocusProductUiId] = useState<string | null>(null);
+  const [arboxRemovedSnoozedUiIds, setArboxRemovedSnoozedUiIds] = useState<string[]>([]);
+  const arboxScanSyncSnapshotRef = useRef(false);
   const [crmBoxId, setCrmBoxId] = useState("");
   const [crmArboxSourceId, setCrmArboxSourceId] = useState("");
   const [crmArboxStatusId, setCrmArboxStatusId] = useState("");
@@ -2073,6 +2147,8 @@ export default function SlugSettingsPage({
   useEffect(() => {
     savedPayloadSnapshotRef.current = null;
     setHasUnsavedChanges(false);
+    setArboxRemovedSnoozedUiIds([]);
+    setFocusProductUiId(null);
   }, [slug]);
 
   useEffect(() => {
@@ -2089,6 +2165,13 @@ export default function SlugSettingsPage({
       setHasUnsavedChanges(true);
     }
   }, [savePayloadJson, settingsHydrated, servicesHydrated]);
+
+  useEffect(() => {
+    if (!arboxScanSyncSnapshotRef.current) return;
+    arboxScanSyncSnapshotRef.current = false;
+    syncSavedSnapshot();
+    setHasUnsavedChanges(false);
+  }, [services, syncSavedSnapshot]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -2822,6 +2905,77 @@ export default function SlugSettingsPage({
   }
   function onDragEnd() { dragIdx.current = null; }
 
+  const arboxProgrammaticScan = crmType === "arbox" && Boolean(crmApiKey.trim());
+  const pendingRemovedService = services.find(
+    (s) =>
+      s.schedule_removed_notice &&
+      !s.schedule_removed_notice.dismissed &&
+      !arboxRemovedSnoozedUiIds.includes(s.ui_id)
+  );
+
+  async function runArboxScheduleScan() {
+    setArboxScheduleScanBusy(true);
+    setArboxScheduleScanError("");
+    try {
+      const res = await fetch("/api/dashboard/sync-arbox-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, action: "sync" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        services?: Record<string, unknown>[];
+      };
+      if (!res.ok || !Array.isArray(j.services)) {
+        setArboxScheduleScanError(
+          typeof j.error === "string" && j.error.trim() ? j.error.trim() : t.products.scanArboxFailed
+        );
+        return;
+      }
+      arboxScanSyncSnapshotRef.current = true;
+      setServices(dashboardApiRowsToServiceItems(j.services));
+      setServicesHydrated(true);
+    } catch {
+      setArboxScheduleScanError(t.products.scanArboxFailed);
+    } finally {
+      setArboxScheduleScanBusy(false);
+    }
+  }
+
+  async function dismissArboxRemovedNoticeForService(svc: ServiceItem) {
+    try {
+      const res = await fetch("/api/dashboard/sync-arbox-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, action: "dismiss", service_slug: svc.service_slug }),
+      });
+      if (!res.ok) {
+        console.error("[settings] dismiss Arbox removed notice failed", { status: res.status });
+        return;
+      }
+    } catch (e) {
+      console.error("[settings] dismiss Arbox removed notice failed", e);
+      return;
+    }
+    const notice = svc.schedule_removed_notice
+      ? { ...svc.schedule_removed_notice, dismissed: true }
+      : null;
+    if (!hasUnsavedChanges) arboxScanSyncSnapshotRef.current = true;
+    setServices((prev) =>
+      prev.map((x) =>
+        x.ui_id === svc.ui_id && notice
+          ? {
+              ...x,
+              schedule_removed_notice: notice,
+              description_meta: { ...x.description_meta, schedule_removed_notice: notice },
+            }
+          : x
+      )
+    );
+    setStep(3);
+    setFocusProductUiId(svc.ui_id);
+  }
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   if (blockingSettingsLoad) {
@@ -3027,6 +3181,12 @@ export default function SlugSettingsPage({
             scheduleDirectRegistration={scheduleDirectRegistration}
             scheduleUrl={(scheduleScanImageUrl.trim() || arboxLink).trim()}
             generateProductDescription={generateProductDescriptionBusy}
+            arboxProgrammaticScan={arboxProgrammaticScan}
+            onArboxScheduleScan={() => void runArboxScheduleScan()}
+            arboxScheduleScanBusy={arboxScheduleScanBusy}
+            arboxScheduleScanError={arboxScheduleScanError}
+            focusProductUiId={focusProductUiId}
+            onFocusProductConsumed={() => setFocusProductUiId(null)}
           />
         )}
 
@@ -3186,6 +3346,41 @@ export default function SlugSettingsPage({
             </div>
           )}
         </div>
+
+        {pendingRemovedService ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl" dir="rtl">
+              <p className="text-base font-semibold text-zinc-900 leading-relaxed">
+                {t.products.arboxRemovedNotice(pendingRemovedService.name.trim() || pendingRemovedService.arbox_class_name)}
+              </p>
+              <div className="mt-6 flex flex-wrap justify-start gap-2">
+                <Button
+                  type="button"
+                  className="rounded-xl"
+                  onClick={() => {
+                    setArboxRemovedSnoozedUiIds(
+                      services
+                        .filter((s) => s.schedule_removed_notice && !s.schedule_removed_notice.dismissed)
+                        .map((s) => s.ui_id)
+                    );
+                    setStep(3);
+                    setFocusProductUiId(pendingRemovedService.ui_id);
+                  }}
+                >
+                  {t.products.arboxRemovedCheckClass}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => void dismissArboxRemovedNoticeForService(pendingRemovedService)}
+                >
+                  {t.products.arboxRemovedAllGood}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {showStarterMediaProModal ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

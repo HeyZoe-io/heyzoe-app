@@ -80,6 +80,10 @@ type ServiceItem = {
   course_cycles: { id: string; start_date: string; end_date: string; schedule_slots: { id: string; day: string; time: string }[] }[];
   location_mode: "location" | "online";
   course_dates_enabled: boolean;
+  arbox_box_category_id: number | null;
+  arbox_class_name: string;
+  schedule_removed_notice: { detected_at: string; dismissed: boolean } | null;
+  description_meta: Record<string, unknown>;
 };
 
 type CtaOfferTab = "trial" | "workshop" | "course" | "course_online";
