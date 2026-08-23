@@ -2,7 +2,11 @@ import type { SfServiceRow } from "@/lib/sf-service-rows";
 import type { WaSchedulePickSlot } from "@/lib/product-schedule-slots";
 
 /** כשאין מועד בידע — לא ממציאים שעה; מעבירים לצוות. */
-export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = "אין בעיה אני מעבירה את הבקשה לצוות";
+export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY =
+  "אני לא בטוחה שיש לי את המידע הרלוונטי, אבל אני מעבירה את הפניה לצוות ויצרו איתך קשר ממש בקרוב!";
+
+/** ניסוח ישן — עדיין מזוהה בהודעות קיימות. */
+const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY_LEGACY = "אין בעיה אני מעבירה את הבקשה לצוות";
 
 export const UNKNOWN_CLASS_SLOT_HANDOFF_MODEL = "unknown_class_slot_team_handoff";
 
@@ -141,7 +145,12 @@ export function matchCatalogServiceFromFreeText(
 
 export function assistantReplyIsUnknownClassSlotHandoff(text: string): boolean {
   const t = String(text ?? "").replace(/\s+/g, " ").trim();
-  return t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY || t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY);
+  return (
+    t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY ||
+    t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY) ||
+    t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY_LEGACY ||
+    t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY_LEGACY)
+  );
 }
 
 export function shouldHandoffUnknownClassSlot(input: {

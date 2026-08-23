@@ -1,3 +1,4 @@
+import { UNKNOWN_CLASS_SLOT_HANDOFF_REPLY } from "@/lib/wa-unknown-class-slot";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES } from "@/lib/business-zoe-platform-defaults";
 import {
@@ -865,6 +866,6 @@ ${saleFlowExtra}
         ? `הציעי רק את הקישור הזה: ${(knowledge.schedulePublicUrl || knowledge.arboxLink || "").trim()} — אסור לשלוח קישור תשלום / הרשמה / סליקה במקום.`
         : "אין לינק - אל תמציאי."
   }
-- מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר או מיום אחר. אם שאלו על יום/שעה לאימון ואין את המועד בידע — עני רק את המשפט הזה ובלי תוספת: אין בעיה אני מעבירה את הבקשה לצוות.${bookingTruthBlock}
+- מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר או מיום אחר. אם שאלו על יום/שעה לאימון ואין את המועד בידע — עני רק את המשפט הזה ובלי תוספת: ${UNKNOWN_CLASS_SLOT_HANDOFF_REPLY}${bookingTruthBlock}
 `;
 }
