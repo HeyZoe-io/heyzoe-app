@@ -68,6 +68,8 @@ const TODAY = "2026-08-23";
   assert.equal(isRegistrationFailedInquiry("כמה עולה השיעור?"), false);
   assert.equal(isRegistrationFailedInquiry("לא יודע איך להירשם"), false);
   assert.equal(isRegistrationFailedInquiry("לא נרשמתי עדיין"), false);
+  assert.equal(isRegistrationFailedInquiry("פייסבוק לא עובד"), false);
+  assert.equal(isRegistrationFailedInquiry("facebook doesn't work"), false);
   assert.equal(isRegistrationFailedInquiry(""), false);
 }
 

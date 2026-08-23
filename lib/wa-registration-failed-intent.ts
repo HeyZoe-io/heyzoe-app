@@ -8,7 +8,7 @@ function normalizeRegistrationFailedText(raw: string): string {
 }
 
 function hasRegisterOrBookingContext(t: string): boolean {
-  return /לה[יי]?רשם|הרשמ(?:ה|ות)?|לשריין|לשיבוץ|לקבוע\s+(?:שיעור|אימון)|regist|sign\s*up|book(?:ing|ed)?/iu.test(
+  return /לה[יי]?רשם|הרשמ(?:ה|ות)?|לשריין|לשיבוץ|לקבוע\s+(?:שיעור|אימון)|\bregist|\bsign\s*up\b|\bbook(?:ing|ed)?\b/iu.test(
     t
   );
 }
