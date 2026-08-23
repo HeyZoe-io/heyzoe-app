@@ -479,7 +479,7 @@ export const dashboardSettingsI18n = {
       numberCreatingHint: "הדף יעדכן אוטומטית כל 10 שניות עד שהמספר יהפוך לפעיל.",
       numberSetupFailed: "אירעה בעיה בהגדרת המספר",
       supportContact: "צוות זואי יצור איתך קשר בקרוב",
-      waHi: "היי",
+      waPrefill: "אשמח לפרטים",
     },
   },
   en: {
@@ -964,7 +964,7 @@ export const dashboardSettingsI18n = {
       numberCreatingHint: "Page auto-refreshes every 10 seconds until the number is active.",
       numberSetupFailed: "There was a problem setting up the number",
       supportContact: "The Zoe team will contact you soon",
-      waHi: "Hi",
+      waPrefill: "I'd like details",
     },
   },
 } as const;

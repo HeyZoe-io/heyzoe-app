@@ -508,8 +508,8 @@ function WhatsAppNumberSection({
   const showLocalConnectedNumber = isActiveLocally && hasLocalNumber && status !== "pending";
   const friendly = formatIlWhatsAppPhoneFriendly(phoneDisplayRaw);
   const whatsAppSendHref = useMemo(
-    () => whatsAppPrefilledMessageHref(phoneDisplayRaw, tp.waHi),
-    [phoneDisplayRaw, tp.waHi]
+    () => whatsAppPrefilledMessageHref(phoneDisplayRaw, tp.waPrefill),
+    [phoneDisplayRaw, tp.waPrefill]
   );
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
