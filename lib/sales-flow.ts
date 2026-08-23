@@ -1231,6 +1231,24 @@ export function isSfServiceUnsetForCta(selectedServiceName: string, serviceCount
   return serviceCount > 1 && !String(selectedServiceName ?? "").trim();
 }
 
+/**
+ * CTA must use the service just picked in this turn (e.g. אימון אישי with no weekly slots)
+ * and not re-open the product menu if the sf_service event has not become visible yet.
+ */
+export function resolveCtaSelectedServiceName(input: {
+  serviceCount: number;
+  singleServiceName?: string | null;
+  knownPickedName?: string | null;
+  lastEventName?: string | null;
+}): string {
+  if (input.serviceCount === 1) {
+    return String(input.singleServiceName ?? "").trim();
+  }
+  const known = String(input.knownPickedName ?? "").trim();
+  if (known) return known;
+  return String(input.lastEventName ?? "").trim();
+}
+
 export function resolveSfServicePriceDuration(
   selected: { priceText?: string; durationText?: string } | null | undefined,
   all: Array<{ priceText?: string; durationText?: string }>

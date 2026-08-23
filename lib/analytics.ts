@@ -41,10 +41,11 @@ export async function fetchLastSalesFlowGreetingResetAt(input: {
 }): Promise<string | null> {
   try {
     const supabase = createSupabaseAdminClient();
+    const businessSlug = String(input.business_slug ?? "").trim().toLowerCase();
     const { data, error } = await supabase
       .from("messages")
       .select("created_at")
-      .eq("business_slug", input.business_slug)
+      .eq("business_slug", businessSlug)
       .eq("session_id", input.session_id)
       .eq("role", "assistant")
       .in("model_used", [...SALES_FLOW_GREETING_RESET_MODELS])
@@ -173,10 +174,11 @@ export async function fetchLastSfServiceEventName(input: {
 }): Promise<string | null> {
   try {
     const supabase = createSupabaseAdminClient();
+    const businessSlug = String(input.business_slug ?? "").trim().toLowerCase();
     const respectGreetingReset = input.respectGreetingReset !== false;
     const resetAt = respectGreetingReset
       ? await fetchLastSalesFlowGreetingResetAt({
-          business_slug: input.business_slug,
+          business_slug: businessSlug,
           session_id: input.session_id,
         })
       : null;
@@ -184,7 +186,7 @@ export async function fetchLastSfServiceEventName(input: {
     let q = supabase
       .from("messages")
       .select("content, created_at")
-      .eq("business_slug", input.business_slug)
+      .eq("business_slug", businessSlug)
       .eq("session_id", input.session_id)
       .eq("role", "event")
       .order("created_at", { ascending: false })

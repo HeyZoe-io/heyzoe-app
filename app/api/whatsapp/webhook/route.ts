@@ -69,6 +69,7 @@ import {
   shouldUseTrialAfterScheduleCta,
   resolveSfServicePriceDuration,
   isSfServiceUnsetForCta,
+  resolveCtaSelectedServiceName,
   resolveAfterRegistrationBodyTemplate,
   resolveAfterRegistrationDirectionsMediaEnabled,
   resolveAfterRegistrationDirectionsMediaCaptionTemplate,
@@ -2839,6 +2840,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   extraBodyLines?: string[];
   modelUsed: string;
   blockMedia?: boolean;
+  /** Service committed this turn — do not reopen product pick if the event log is not visible yet. */
+  pickedServiceName?: string;
 }): Promise<void> {
   const {
     knowledge,
@@ -2856,6 +2859,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     extraBodyLines,
     modelUsed,
     blockMedia = false,
+    pickedServiceName,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -2866,10 +2870,17 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     consumedNonTrialKinds: new Set(sfConsumedKinds ?? []),
   };
 
-  const selectedServiceName =
-    salesFlowServices.length === 1
-      ? salesFlowServices[0]!.name
-      : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+  const knownPicked = String(pickedServiceName ?? "").trim();
+  const lastEventName =
+    knownPicked || salesFlowServices.length === 1
+      ? knownPicked
+      : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
+  const selectedServiceName = resolveCtaSelectedServiceName({
+    serviceCount: salesFlowServices.length,
+    singleServiceName: salesFlowServices[0]?.name,
+    knownPickedName: knownPicked,
+    lastEventName,
+  });
   if (isSfServiceUnsetForCta(selectedServiceName, salesFlowServices.length)) {
     await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "opening" });
     const sentPick = await sendOpeningServicePickMenu({
@@ -3235,6 +3246,8 @@ async function sendFlowContinuation(input: {
   inboundText?: string;
   /** תשובת Claude לפני resend — לדילוג כשמפנה לשירות לקוחות. */
   aiReplyCoreClean?: string;
+  /** Service committed this turn — keep CTA on that product when it has no weekly slots. */
+  pickedServiceName?: string;
 }): Promise<void> {
   const {
     phase,
@@ -3253,6 +3266,7 @@ async function sendFlowContinuation(input: {
     blockTrialPickMedia = false,
     sfConsumedKinds,
     instagramFollowPromptSent,
+    pickedServiceName,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -3298,10 +3312,16 @@ async function sendFlowContinuation(input: {
   }
 
   if (phase === "schedule_date" || phase === "schedule_time") {
-    const selectedServiceName =
-      salesFlowServices.length === 1
-        ? salesFlowServices[0]!.name
-        : (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "";
+    const knownPicked = String(pickedServiceName ?? "").trim();
+    const selectedServiceName = resolveCtaSelectedServiceName({
+      serviceCount: salesFlowServices.length,
+      singleServiceName: salesFlowServices[0]?.name,
+      knownPickedName: knownPicked,
+      lastEventName:
+        knownPicked || salesFlowServices.length === 1
+          ? knownPicked
+          : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? ""),
+    });
     const selectedService =
       salesFlowServices.find((s) => s.name === selectedServiceName) ?? salesFlowServices[0] ?? null;
     // קורס בלי מועדים (או כל מצב שלא אוספים שיבוץ) — דלג ישר ל-CTA
@@ -3321,6 +3341,7 @@ async function sendFlowContinuation(input: {
         sfConsumedKinds,
         modelUsed: "flow_continuation_skip_schedule_to_cta",
         blockMedia: blockTrialPickMedia,
+        pickedServiceName: knownPicked,
       });
       return;
     }
@@ -3397,6 +3418,7 @@ async function sendFlowContinuation(input: {
         allowTrialCta,
         sfConsumedKinds,
         modelUsed: "flow_continuation_call_schedule_disabled",
+        pickedServiceName,
       });
       return;
     }
@@ -3461,6 +3483,7 @@ async function sendFlowContinuation(input: {
       allowTrialCta,
       sfConsumedKinds,
       modelUsed: "flow_continuation_cta",
+      pickedServiceName,
     });
     return;
   }
@@ -6137,6 +6160,7 @@ async function processIncoming(
               blockTrialPickMedia: starterBlocksMedia,
               sfConsumedKinds: sfClickedCtaKinds,
               instagramFollowPromptSent: contactInstagramFollowPromptSent,
+              pickedServiceName: playbook.catalogServiceName,
             });
           }
         } catch (e) {
@@ -7259,6 +7283,7 @@ async function processIncoming(
         blockTrialPickMedia: starterBlocksMedia,
         sfConsumedKinds: sfClickedCtaKinds,
         instagramFollowPromptSent: contactInstagramFollowPromptSent,
+        pickedServiceName: exactSwitchTarget,
       });
       return;
     }
@@ -7474,6 +7499,7 @@ async function processIncoming(
           blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          pickedServiceName: picked.name,
         });
         return;
       }
@@ -7594,6 +7620,7 @@ async function processIncoming(
           blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          pickedServiceName: implicitSwitch.serviceName,
         });
         return;
       } else if (implicitSwitch?.mode === "ambiguous") {
