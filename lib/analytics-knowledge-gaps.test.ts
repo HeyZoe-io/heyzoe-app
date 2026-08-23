@@ -5,7 +5,10 @@ import {
   parseMessageUuid,
   resolveKnowledgeGapKind,
 } from "@/lib/analytics-knowledge-gaps";
-import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
+import {
+  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+  UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+} from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
 
 assert.equal(parseMessageUuid("73149a89-228e-4e53-b0b7-1a806e4cf3a0"), "73149a89-228e-4e53-b0b7-1a806e4cf3a0");
@@ -23,9 +26,9 @@ assert.equal(
   isKnowledgeGapAssistantText("I don't have the membership pricing details right now."),
   true
 );
-assert.equal(isKnowledgeGapAssistantText("אין בעיה אני מעבירה את הבקשה לצוות"), false);
+assert.equal(isKnowledgeGapAssistantText(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), false);
 assert.equal(
-  isKnowledgeGapAssistantText("אין בעיה אני מעבירה את הבקשה לצוות", UNKNOWN_CLASS_SLOT_HANDOFF_MODEL),
+  isKnowledgeGapAssistantText(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY, UNKNOWN_CLASS_SLOT_HANDOFF_MODEL),
   true
 );
 assert.equal(

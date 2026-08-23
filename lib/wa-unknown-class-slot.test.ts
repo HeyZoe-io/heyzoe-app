@@ -122,7 +122,17 @@ assert.equal(
   true
 );
 
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש שיעור ביום ראשון?",
+    services: [svc("פילאטיס מכשירים", [{ day: "ג", time: "18:30" }])],
+  }),
+  true,
+  "generic Sunday with no Sunday slots in catalog"
+);
+
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
+assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין בעיה אני מעבירה את הבקשה לצוות"), true);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 
 console.log("wa-unknown-class-slot.test.ts: ok");
