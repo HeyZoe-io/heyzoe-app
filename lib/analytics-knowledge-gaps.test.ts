@@ -28,7 +28,7 @@ assert.equal(
 assert.equal(isKnowledgeGapAssistantText("אין בעיה אני מעבירה את הבקשה לצוות"), false);
 assert.equal(
   isKnowledgeGapAssistantText("אין בעיה אני מעבירה את הבקשה לצוות", UNKNOWN_CLASS_SLOT_HANDOFF_MODEL),
-  true
+  false
 );
 assert.equal(
   isKnowledgeGapAssistantText(
@@ -168,6 +168,32 @@ assert.equal(
     "2026-08-23T10:00:05.000Z"
   ),
   "יש מזגן בסטודיו?"
+);
+
+assert.equal(
+  isKnowledgeGapAssistantText(
+    "אוקיי, תודה על ההודעה! זה משהו שצריך לברר מול הצוות בגלל שהשעות האלה לא מופיעות בלוח השיעורים הרגיל שלנו. אני מעבירה את הבקשה שלך ויוקשרו אליך בקרוב 💜"
+  ),
+  false
+);
+assert.equal(looksLikeScheduleRequest("ראשון 14 וחצי חמישי 16:00"), true);
+assert.equal(
+  pickKnowledgeGapQuestion(
+    [
+      {
+        role: "user",
+        content: "רוצה להחליף שיעור",
+        createdAt: "2026-08-18T12:33:01.000Z",
+      },
+      {
+        role: "assistant",
+        content: "אין בעיה אני מעבירה את הבקשה לצוות",
+        createdAt: "2026-08-18T12:33:06.000Z",
+      },
+    ],
+    "2026-08-18T12:33:06.000Z"
+  ),
+  ""
 );
 
 assert.equal(looksLikeScheduleRequest("פילאטיס מכשירים בשעה 1800"), true);

@@ -36,17 +36,18 @@ export const KNOWLEDGE_GAP_NO_DETAILS_EN = "I don't have the details on that.";
 
 const EXCLUDED_MODELS = new Set(["claude_limit_24h"]);
 
-/** העברות לצוות שמייצגות חוסר ידע (מועד/מדיניות שאין בידע) — לא handoff תפעולי. */
+/** העברות לצוות שמייצגות חוסר ידע (מדיניות/פרטים שאין בידע) — לא מועד/יומן. */
 const KNOWLEDGE_GAP_MODELS = new Set([
-  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   KNOWLEDGE_GAP_NO_DETAILS_MODEL,
 ]);
 
-/** יומן/חיוב/הקפאה — העברה תפעולית, לא מידע חסר להוסיף לזואי. */
+/** יומן/מועד/חיוב/הקפאה — העברה תפעולית, לא מידע חסר להוסיף לזואי. */
 const OPERATIONAL_HANDOFF_MODELS = new Set([
   BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
   FREEZE_BILLING_HANDOFF_MODEL,
+  UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+  "class_reschedule_team_handoff",
 ]);
 
 const MESSAGE_UUID_RE =
@@ -114,6 +115,9 @@ function isOperationalTeamHandoffText(content: string, modelUsed?: string | null
   if (assistantReplyDumpsAccountAccessToSelfServeCall(t)) return true;
   if (/תודה על הבהרה/u.test(t) && /צוות/u.test(t)) return true;
   if (/בלבול עם (?:החיוב|ההקפאה|הכרטיס)/u.test(t)) return true;
+  if (/לא מופיע(?:ות|ים)? בלוח|אין (?:את )?(?:ה)?מועד בלוח|לא בלוח השיעורים/u.test(t)) {
+    return true;
+  }
   return false;
 }
 
@@ -153,12 +157,21 @@ function looksLikeMembershipClarifyAnswerOnly(content: string): boolean {
   return /^(?:מנוי קיים|יש לי מנוי|יש לנו מנוי|אימון ניסיון|שיעור ניסיון)$/iu.test(t);
 }
 
+function looksLikeRescheduleRequest(content: string): boolean {
+  const t = String(content ?? "").trim();
+  if (!t) return false;
+  return /להחליף\s+שיעור|החלפת\s+שיעור|לדחות\s+(?:את\s+)?ה?(?:שיעור|אימון)|שינוי\s+מועד/u.test(
+    t
+  );
+}
+
 function isUsableUserQuestion(content: string): boolean {
   const q = String(content ?? "").trim();
   if (!q) return false;
   if (q.startsWith("[media]") || q.startsWith("[heyzoe:") || q.startsWith("[reaction]")) return false;
   if (looksLikeChitchatUserText(q)) return false;
   if (looksLikeMembershipClarifyAnswerOnly(q)) return false;
+  if (looksLikeScheduleRequest(q) || looksLikeRescheduleRequest(q)) return false;
   return true;
 }
 
@@ -318,11 +331,13 @@ export async function findKnowledgeGaps(input: {
     const msgs = bySession.get(gap.sessionId) ?? [];
     const question = pickKnowledgeGapQuestion(msgs, gap.createdAt);
     if (!question) continue;
+    const kind = resolveKnowledgeGapKind({ question, modelUsed: gap.modelUsed });
+    if (kind === "schedule_request") continue;
     out.push({
       id: gap.id,
       assistantMessageId: gap.id,
       sessionId: gap.sessionId,
-      kind: resolveKnowledgeGapKind({ question, modelUsed: gap.modelUsed }),
+      kind,
       question: truncate(question, 280),
       assistantSnippet: truncate(gap.content, 160),
       createdAt: gap.createdAt,
