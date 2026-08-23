@@ -121,13 +121,14 @@ import {
 } from "@/lib/wa-call-schedule-flow";
 import {
   ensureRegisteredOpenQuestionClosing,
-  ensureStandaloneOpenQuestionClosing,
+  finalizeStandaloneHelpReply,
   isStandaloneWhatsAppOpenQuestion,
   looksLikeLeadQuestion,
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
   stripSalesFlowCtaHookFromAnswer,
 } from "@/lib/wa-split-answer";
+import { isStudioOverviewIntentText } from "@/lib/wa-studio-overview-intent";
 import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import {
   assistantAwaitingServiceRepickPick,
@@ -9320,6 +9321,8 @@ async function processIncoming(
     salesFlowStarted,
     registered: registeredInCurrentFlow,
   });
+  const studioOverviewClosing =
+    standaloneHelpClosing && msg.type === "text" && isStudioOverviewIntentText(incomingRaw);
 
   const isSalesFlowOpenQuestionAi =
     msg.type === "text" &&
@@ -9730,6 +9733,7 @@ async function processIncoming(
         suppressFollowUpQuestion: isSalesFlowOpenQuestionAi && !registeredInCurrentFlow,
         registeredOpenQuestionHelpClosing: isSalesFlowOpenQuestionAi && registeredInCurrentFlow,
         standaloneHelpClosing,
+        studioOverviewClosing,
         pendingWarmupExperienceResume,
         committedServiceName,
         committedScheduleDate: contactScheduleRequestedDate || undefined,
@@ -10165,10 +10169,8 @@ async function processIncoming(
 
   let replyText = replyCoreClean;
   replyText = softenWebsiteAttribution(replyText);
-  if (standaloneHelpClosing && looksLikeLeadQuestion(incomingRaw)) {
-    replyText = ensureStandaloneOpenQuestionClosing(replyText);
-  } else if (standaloneHelpClosing) {
-    replyText = stripTrailingFollowUpQuestion(replyText);
+  if (standaloneHelpClosing) {
+    replyText = finalizeStandaloneHelpReply(replyText, incomingRaw);
   }
   let assistantReplyLogged = false;
 
@@ -10437,11 +10439,7 @@ async function processIncoming(
             body = stripTrailingFollowUpQuestion(body);
           }
         } else if (standaloneHelpClosing) {
-          if (looksLikeLeadQuestion(incomingRaw)) {
-            body = ensureStandaloneOpenQuestionClosing(body);
-          } else {
-            body = stripTrailingFollowUpQuestion(body);
-          }
+          body = finalizeStandaloneHelpReply(body, incomingRaw);
         }
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
           body += `\n\n${menuQuestion}`;

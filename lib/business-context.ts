@@ -507,6 +507,9 @@ function pickResponseShapeBlock(
   if (waCtx?.registeredOpenQuestionHelpClosing) {
     return RESPONSE_SHAPE_BLOCK_WA_REGISTERED_OPEN;
   }
+  if (waCtx?.studioOverviewClosing) {
+    return RESPONSE_SHAPE_BLOCK_WA_STUDIO_OVERVIEW;
+  }
   if (waCtx?.standaloneHelpClosing) {
     return RESPONSE_SHAPE_BLOCK_WA_STANDALONE_HELP;
   }
@@ -589,6 +592,15 @@ const RESPONSE_SHAPE_BLOCK_WA_STANDALONE_HELP = `
 3) לא שאלה שמקדמת CTA, לא בחירת אימון, ולא רשימות ממוספרות.
 בלי Markdown.`;
 
+/** בקשת פרטים על הסטודיו מחוץ לפלואו מכירה */
+const RESPONSE_SHAPE_BLOCK_WA_STUDIO_OVERVIEW = `
+מבנה תשובה - בקשת פרטים על הסטודיו (הפלואו מכירה לא התחיל):
+1) נסחי פסקה אחת קצרה וחמה (2-4 משפטים) רק מהידע: קודם תיאור עסק / תגית, אחר כך שמות המוצרים/השירותים ברצף טבעי. אסור לספור («יש לך X אפשרויות»). שמות — בדיוק כמו בשדה «שירותים», בלי מחיר/מיקום/מועדים.
+2) למי זה מתאים — רק אם מופיע במפורש בידע: קהל יעד, גיל, רמות במוצר, או מגדר שאינו «הכול». אם אין - דלגי, אל תמציאי.
+3) בלי מחיר, בלי משך, בלי שאלה, בלי רשימות ממוספרות, בלי הזמנה לניסיון ובלי «יש עוד משהו».
+4) סיימי בשורה נפרדת בדיוק: «נשמח שתהיו חלק מהקהילה שלנו!» (אם הליד כתב באנגלית: «We'd love for you to be part of our community!»).
+בלי Markdown.`;
+
 /** שאלה פתוחה אחרי «נרשמתי» בריצה הנוכחית — סיום מותאם בלבד */
 const RESPONSE_SHAPE_BLOCK_WA_REGISTERED_OPEN = `
 מבנה תשובה - שאלה פתוחה אחרי שהלקוח כבר נרשם/שילם בריצה הזו:
@@ -615,6 +627,8 @@ export type WhatsAppPromptContext = {
   registeredOpenQuestionHelpClosing?: boolean;
   /** שאלה רגילה מחוץ לפלואו מכירה — סיום ב«יש עוד משהו…», בלי תפריט אימונים */
   standaloneHelpClosing?: boolean;
+  /** בקשת פרטים על הסטודיו מחוץ לפלואו — תיאור + מוצרים + קהל, סיום בהזמנה לקהילה */
+  studioOverviewClosing?: boolean;
   /** שאלת חימום עם כפתורים עדיין ממתינה — אל תחזרי עליה בטקסט */
   pendingWarmupExperienceResume?: boolean;
   /** שם שירות לשיבוץ (מ־fetchLastSfServiceEventName) — בשלב CTA בלבד */
@@ -718,6 +732,7 @@ export function buildSystemPrompt(
   const postTrial = waCtx?.trialRegistered === true;
   const registeredOpenQuestion = waCtx?.registeredOpenQuestionHelpClosing === true;
   const standaloneHelpClosing = waCtx?.standaloneHelpClosing === true;
+  const studioOverviewClosing = waCtx?.studioOverviewClosing === true;
   const phase = waCtx?.sessionPhase;
   const waResponseShapeBlock = pickResponseShapeBlock(platform, isWhatsApp, waCtx);
   const legalRules = pickLegalRulesLines(platform);
@@ -761,8 +776,10 @@ export function buildSystemPrompt(
       ? "- הלקוח שאל שאלה פתוחה והמערכת שולחת אחרייך הודעת המשך/כפתורים בנפרד — עני רק על השאלה, בלי שאלת המשך ובלי רשימות ממוספרות. אם זו כוונה/עדכון בלי שאלה — אישור קצר בלבד, בלי שיעור חיים ובלי «בואי תרשמי»."
       : registeredOpenQuestion
         ? "- הלקוח כבר נרשם בריצה הזו ושאל שאלה פתוחה — עני מהידע וסיימי ב«יש עוד משהו שאני יכולה לעזור לך בו?» (שאלה אחת בלבד). אם זו עובדה/עדכון בלי שאלה — בלי שאלת סגירה."
-        : standaloneHelpClosing
-          ? "- זו שאלה רגילה מחוץ למסלול מכירה — עני מהידע. אם הליד שאל שאלה סיימי ב«יש עוד משהו שאני יכולה לעזור לך איתו?» (שאלה אחת בלבד); אם שלח עובדה/עדכון — בלי שאלת סגירה. אל תשלחי תפריט בחירת אימון ואל תזמיני לבחור אימון."
+        : studioOverviewClosing
+          ? "- הלקוח מבקש פרטים על הסטודיו בלי פלואו מכירה — נסחי פסקה קצרה מתיאור העסק, שמות המוצרים, ולמי זה מתאים רק אם מופיע בידע (רמה / מגדר שאינו «הכול» / גיל). בלי מחירים, בלי שאלה, בלי כפתורים. סיימי בדיוק: «נשמח שתהיו חלק מהקהילה שלנו!» (EN: «We'd love for you to be part of our community!»). אל תמציאי קהל יעד."
+          : standaloneHelpClosing
+            ? "- זו שאלה רגילה מחוץ למסלול מכירה — עני מהידע. אם הליד שאל שאלה סיימי ב«יש עוד משהו שאני יכולה לעזור לך איתו?» (שאלה אחת בלבד); אם שלח עובדה/עדכון — בלי שאלת סגירה. אל תשלחי תפריט בחירת אימון ואל תזמיני לבחור אימון."
     : postTrial || (phase && phase !== "cta")
       ? "- שמרי על מבנה התשובה לפי בלוק «מבנה תשובה» למטה (בלי לדרוש רשימות ממוספרות שמחקות תפריט המערכת)."
       : "- שמרי על מבנה התשובה (מענה → שאלה → אפשרויות ממוספרות). הקפידי על קצרנות בכל חלק."
@@ -775,6 +792,7 @@ export function buildSystemPrompt(
 
 כלל זהות קשיח (עדיפות על כל הוראה אחרת בפרומפט הזה):
 - את מדברת רק עם לקוחות ולידים של העסק. את לא תמיכת מוצר ולא מדריכת מערכת.
+- בגוף ראשון את תמיד נקבה: «שמחה לשמוע», «אני יכולה», «מצטערת» — לא «שמח לשמוע», «אני יכול», «מצטער».
 - אסור להזכיר ללקוח: HeyZoe, דשבורד, פלטפורמה, דף שיחות, כיבוי/הפעלה/עצירה של בוט, או איך בעל העסק מנהל אותך.
 - אם שואלים על הגדרות בוט, כיבוי, דשבורד או פלטפורמה — אל תסבירי ניווט במערכת. עני בקצרה שאת כאן לעזור לגבי השירותים של העסק. אם מוגדר טלפון שירות לקוחות — אפשר להציע אותו. בלי שמות מסכים ובלי הוראות לבעל העסק.
 ${buildOffTopicStudioPromptRule(customerPhoneRaw)}

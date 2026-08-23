@@ -4,6 +4,10 @@
 
 import { CTA_SERVICE_REPICK_BRIDGE_QUESTION } from "@/lib/wa-cta-service-repick";
 import { SCHEDULE_WHEN_CONVENIENT_QUESTION } from "@/lib/wa-outbound-registration-guard";
+import {
+  isStudioOverviewIntentText,
+  studioOverviewClosingForInbound,
+} from "@/lib/wa-studio-overview-intent";
 
 export function normalizeLineForMenuEcho(s: string): string {
   return String(s ?? "")
@@ -154,6 +158,33 @@ export function ensureRegisteredOpenQuestionClosing(text: string): string {
 /** שאלה רגילה מחוץ לפלואו מכירה — סיום ב«יש עוד משהו…» בלי תפריט אימונים */
 export function ensureStandaloneOpenQuestionClosing(text: string): string {
   return ensureHelpClosing(text, STANDALONE_OPEN_QUESTION_HELP_CLOSING);
+}
+
+const HELP_CLOSING_TAIL_RE = /\n*יש עוד משהו שאני יכולה לעזור לך (?:איתו|בו)\??\s*$/iu;
+const HELP_CLOSING_TAIL_EN_RE = /\n*(?:is there anything else i can help(?: you)? with)\??\s*$/iu;
+
+/** סיום קבוע לבקשת פרטים על הסטודיו מחוץ לפלואו. */
+export function ensureStudioOverviewClosing(text: string, incoming: string): string {
+  const closing = studioOverviewClosingForInbound(incoming);
+  let t = stripTrailingFollowUpQuestion(String(text ?? "").replace(/\r\n/g, "\n").trim());
+  t = t.replace(HELP_CLOSING_TAIL_RE, "").replace(HELP_CLOSING_TAIL_EN_RE, "").trim();
+  if (!t) return closing;
+  const lower = t.toLowerCase();
+  if (t.includes("נשמח שתהיו חלק מהקהילה") || lower.includes("part of our community")) {
+    return t;
+  }
+  return `${t}\n\n${closing}`;
+}
+
+/** שאלה פתוחה מחוץ לפלואו: על הסטודיו → הזמנה לקהילה; אחרת «יש עוד משהו». */
+export function finalizeStandaloneHelpReply(text: string, incoming: string): string {
+  if (isStudioOverviewIntentText(incoming)) {
+    return ensureStudioOverviewClosing(text, incoming);
+  }
+  if (looksLikeLeadQuestion(incoming)) {
+    return ensureStandaloneOpenQuestionClosing(text);
+  }
+  return stripTrailingFollowUpQuestion(text);
 }
 
 /** שאלה פתוחה מחוץ לפלואו — גם אם session_phase נשאר warmup/cta מפתיחה שגויה. */

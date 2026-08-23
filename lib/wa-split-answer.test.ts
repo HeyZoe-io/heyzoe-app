@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import {
   STANDALONE_OPEN_QUESTION_HELP_CLOSING,
   ensureStandaloneOpenQuestionClosing,
+  ensureStudioOverviewClosing,
+  finalizeStandaloneHelpReply,
   isStandaloneWhatsAppOpenQuestion,
   looksLikeLeadQuestion,
   stripSalesFlowCtaHookFromAnswer,
 } from "@/lib/wa-split-answer";
+import { STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE } from "@/lib/wa-studio-overview-intent";
 
 assert.equal(
   isStandaloneWhatsAppOpenQuestion({
@@ -67,6 +70,29 @@ assert.equal(
   false
 );
 assert.equal(looksLikeLeadQuestion("כבר נרשמתי"), false);
+
+assert.equal(
+  ensureStudioOverviewClosing(
+    "אנחנו סטודיו פילאטיס באווירה חמה. אצלנו תמצאו מכשירים ומזרן.",
+    "ספרו לי על הסטודיו"
+  ),
+  `אנחנו סטודיו פילאטיס באווירה חמה. אצלנו תמצאו מכשירים ומזרן.\n\n${STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE}`
+);
+assert.equal(
+  ensureStudioOverviewClosing(
+    `אנחנו סטודיו פילאטיס.\n\n${STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE}`,
+    "ספרו לי על הסטודיו"
+  ),
+  `אנחנו סטודיו פילאטיס.\n\n${STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE}`
+);
+assert.equal(
+  finalizeStandaloneHelpReply("אנחנו סטודיו פילאטיס. יש עוד משהו שאני יכולה לעזור לך איתו?", "מה יש אצלכם"),
+  `אנחנו סטודיו פילאטיס.\n\n${STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE}`
+);
+assert.equal(
+  finalizeStandaloneHelpReply("ניתן להקפיא את המנוי עד 14 ימים.", "מה מדיניות הביטול?"),
+  `ניתן להקפיא את המנוי עד 14 ימים.\n\n${STANDALONE_OPEN_QUESTION_HELP_CLOSING}`
+);
 
 {
   const pilatesLeak =
