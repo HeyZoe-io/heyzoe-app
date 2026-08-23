@@ -7,6 +7,10 @@ import {
 } from "@/lib/analytics-knowledge-gaps";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
+import {
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_MODEL,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY,
+} from "@/lib/wa-unknown-knowledge-handoff";
 
 assert.equal(parseMessageUuid("73149a89-228e-4e53-b0b7-1a806e4cf3a0"), "73149a89-228e-4e53-b0b7-1a806e4cf3a0");
 assert.equal(parseMessageUuid("73149A89-228E-4E53-B0B7-1A806E4CF3A0"), "73149a89-228e-4e53-b0b7-1a806e4cf3a0");
@@ -26,6 +30,11 @@ assert.equal(
 assert.equal(isKnowledgeGapAssistantText("אין בעיה אני מעבירה את הבקשה לצוות"), false);
 assert.equal(
   isKnowledgeGapAssistantText("אין בעיה אני מעבירה את הבקשה לצוות", UNKNOWN_CLASS_SLOT_HANDOFF_MODEL),
+  true
+);
+assert.equal(isKnowledgeGapAssistantText(UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY), true);
+assert.equal(
+  isKnowledgeGapAssistantText(UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY, UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_MODEL),
   true
 );
 assert.equal(

@@ -194,16 +194,18 @@ import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
-  UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-  assistantReplyIsUnknownClassSlotHandoff,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
-  UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
   sfServiceOfferPolicyBlob,
   shouldHandoffUnknownIntroPackSplit,
 } from "@/lib/wa-unknown-offer-policy";
+import {
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_MODEL,
+  assistantReplyLooksLikeUnknownKnowledge,
+  pickUnknownKnowledgeHandoffReply,
+} from "@/lib/wa-unknown-knowledge-handoff";
 import {
   FREEZE_BILLING_HANDOFF_MODEL,
   FREEZE_BILLING_HANDOFF_REPLY,
@@ -6351,21 +6353,16 @@ async function processIncoming(
       } catch (e) {
         console.error("[WA Webhook] unknown-class-slot human_requested failed:", e);
       }
+      const unknownSlotTxt = pickUnknownKnowledgeHandoffReply(detectMessageLanguage(msg.text));
       try {
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-          accountSid,
-          authToken
-        );
+        await sendWhatsAppMessage(msg.toNumber, msg.from, unknownSlotTxt, accountSid, authToken);
       } catch (e) {
         console.error("[WA Webhook] Send unknown-class-slot team handoff failed:", e);
       }
       await logMessage({
         business_slug,
         role: "assistant",
-        content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+        content: unknownSlotTxt,
         model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
         session_id: sessionId,
       });
@@ -6398,21 +6395,16 @@ async function processIncoming(
       } catch (e) {
         console.error("[WA Webhook] unknown-offer-policy human_requested failed:", e);
       }
+      const unknownOfferTxt = pickUnknownKnowledgeHandoffReply(detectMessageLanguage(msg.text));
       try {
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
-          accountSid,
-          authToken
-        );
+        await sendWhatsAppMessage(msg.toNumber, msg.from, unknownOfferTxt, accountSid, authToken);
       } catch (e) {
         console.error("[WA Webhook] Send unknown-offer-policy team handoff failed:", e);
       }
       await logMessage({
         business_slug,
         role: "assistant",
-        content: UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
+        content: unknownOfferTxt,
         model_used: UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
         session_id: sessionId,
       });
@@ -9952,7 +9944,7 @@ async function processIncoming(
   if (
     !isFallbackErrorReply &&
     didCallClaude &&
-    assistantReplyIsUnknownClassSlotHandoff(replyCoreClean) &&
+    assistantReplyLooksLikeUnknownKnowledge(replyCoreClean) &&
     businessId
   ) {
     try {
@@ -9966,24 +9958,19 @@ async function processIncoming(
         sessionId,
       });
     } catch (e) {
-      console.error("[WA Webhook] unknown-class-slot (claude) human_requested failed:", e);
+      console.error("[WA Webhook] unknown-knowledge (claude) human_requested failed:", e);
     }
+    const unknownKnowledgeTxt = pickUnknownKnowledgeHandoffReply(detectMessageLanguage(incomingRaw));
     try {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-        accountSid,
-        authToken
-      );
+      await sendWhatsAppMessage(msg.toNumber, msg.from, unknownKnowledgeTxt, accountSid, authToken);
     } catch (e) {
-      console.error("[WA Webhook] Send unknown-class-slot (claude) team handoff failed:", e);
+      console.error("[WA Webhook] Send unknown-knowledge (claude) team handoff failed:", e);
     }
     await logMessage({
       business_slug,
       role: "assistant",
-      content: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
-      model_used: UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
+      content: unknownKnowledgeTxt,
+      model_used: UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;
