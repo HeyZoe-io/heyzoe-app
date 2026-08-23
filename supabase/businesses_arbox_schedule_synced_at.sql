@@ -18,8 +18,8 @@
 --     and table_name = 'businesses'
 --     and column_name = 'arbox_schedule_synced_at';
 
-alter table public.businesses
-  add column if not exists arbox_schedule_synced_at timestamptz;
+ALTER TABLE businesses
+  ADD COLUMN IF NOT EXISTS arbox_schedule_synced_at timestamptz;
 
 comment on column public.businesses.arbox_schedule_synced_at is
   'Last successful Arbox timetable pull (cron or manual). Null until the first successful sync.';

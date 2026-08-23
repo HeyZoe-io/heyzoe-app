@@ -525,20 +525,17 @@ export default function Step3Trial(props: {
         <div dir={dashboardDir(lang)} className="rounded-lg border border-zinc-200/80 bg-zinc-50/60 px-4 py-4">
           {arboxProgrammaticScan ? (
             <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-zinc-900">{t.products.scanSchedule}</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-2 h-9 border-[#7133da]/30 bg-white text-xs"
-                  disabled={arboxScheduleScanBusy}
-                  onClick={() => onArboxScheduleScan?.()}
-                >
-                  {arboxScheduleScanBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {arboxScheduleScanBusy ? t.scanning : t.scan}
-                </Button>
-              </div>
-              <p className="mt-2 text-[11px] font-medium text-zinc-600 leading-snug">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 gap-2 border-[#7133da]/30 bg-white text-xs"
+                disabled={arboxScheduleScanBusy}
+                onClick={() => onArboxScheduleScan?.()}
+              >
+                {arboxScheduleScanBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {arboxScheduleScanBusy ? t.scanning : t.products.scanSchedule}
+              </Button>
+              <p className="mt-2 text-[11px] font-medium leading-snug text-zinc-600">
                 {t.products.scanArboxOverwriteNote}
               </p>
               {arboxScheduleScanError ? (
@@ -733,7 +730,14 @@ export default function Step3Trial(props: {
 
             {productOpen ? (
             <div className="space-y-4 border-t border-zinc-100 p-4">
-              <div>
+              <div
+                className={
+                  s.arbox_class_name?.trim()
+                    ? "grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)] sm:items-start"
+                    : undefined
+                }
+              >
+                <div>
                 <SalesPathFieldLabel
                   hint={t.products.charsMax(TRIAL_SERVICE_NAME_MAX_CHARS)}
                   action={
@@ -812,11 +816,17 @@ export default function Step3Trial(props: {
                   placeholder={s.offer_kind === "course" ? t.products.offerCourse : t.products.offerTrial}
                   className={PRODUCT_INPUT}
                 />
+                </div>
                 {s.arbox_class_name?.trim() ? (
-                  <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
-                    <span className="font-medium text-zinc-600">{t.products.arboxSystemClassName}:</span>{" "}
-                    {s.arbox_class_name}
-                  </p>
+                  <div>
+                    <SalesPathFieldLabel>{t.products.arboxSystemClassName}</SalesPathFieldLabel>
+                    <p
+                      className="flex min-h-10 items-center rounded-xl border border-zinc-200/70 bg-zinc-50 px-3 text-[12px] leading-snug text-zinc-600"
+                      aria-readonly="true"
+                    >
+                      {s.arbox_class_name}
+                    </p>
+                  </div>
                 ) : null}
               </div>
 
