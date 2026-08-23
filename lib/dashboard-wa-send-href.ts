@@ -8,9 +8,16 @@ export function whatsAppMeDigitsFromDisplay(phoneDisplay: string): string | null
   return only;
 }
 
-/** קישור «שלח הודעה» בדשבורד — הטקסט תמיד ב-URL encoding. */
-export function whatsAppPrefilledMessageHref(phoneDisplay: string, text: string): string | null {
+/** טקסט קבוע לכפתור «שלח הודעה» בדשבורד — טריגר פלואו המכירה. */
+export const DASHBOARD_WA_SEND_PREFILL = "אשמח לפרטים";
+
+/** אותו טקסט אחרי encodeURIComponent — לא «היי». */
+export const DASHBOARD_WA_SEND_PREFILL_QUERY =
+  "%D7%90%D7%A9%D7%9E%D7%97%20%D7%9C%D7%A4%D7%A8%D7%98%D7%99%D7%9D";
+
+/** קישור «שלח הודעה» — מספר דינמי, פריפיל קבוע ומקודד. */
+export function dashboardWhatsAppSendHref(phoneDisplay: string): string | null {
   const num = whatsAppMeDigitsFromDisplay(phoneDisplay);
   if (!num) return null;
-  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+  return `https://wa.me/${num}?text=${DASHBOARD_WA_SEND_PREFILL_QUERY}`;
 }

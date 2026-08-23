@@ -70,7 +70,7 @@ import {
 } from "./settings-ui";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
-import { whatsAppPrefilledMessageHref } from "@/lib/dashboard-wa-send-href";
+import { dashboardWhatsAppSendHref } from "@/lib/dashboard-wa-send-href";
 import {
   useRegisterSettingsUnsaved,
   useSettingsUnsaved,
@@ -493,8 +493,8 @@ function WhatsAppNumberSection({
   const showLocalConnectedNumber = isActiveLocally && hasLocalNumber && status !== "pending";
   const friendly = formatIlWhatsAppPhoneFriendly(phoneDisplayRaw);
   const whatsAppSendHref = useMemo(
-    () => whatsAppPrefilledMessageHref(phoneDisplayRaw, tp.waPrefill),
-    [phoneDisplayRaw, tp.waPrefill]
+    () => dashboardWhatsAppSendHref(phoneDisplayRaw),
+    [phoneDisplayRaw]
   );
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
