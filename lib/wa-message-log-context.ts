@@ -1,4 +1,7 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+type AlsLike<T> = {
+  getStore: () => T | undefined;
+  enterWith: (value: T) => void;
+};
 
 export type WaMessageLogScope = {
   businessSlug: string;
@@ -9,7 +12,21 @@ export type WaMessageLogScope = {
   loggedAssistant: string[];
 };
 
-const als = new AsyncLocalStorage<WaMessageLogScope>();
+function createAls<T>(): AlsLike<T> {
+  // Client bundles import this via lib/whatsapp.ts — no node:async_hooks.
+  if (typeof window !== "undefined") {
+    return { getStore: () => undefined, enterWith: () => {} };
+  }
+  let current: T | undefined;
+  return {
+    getStore: () => current,
+    enterWith: (value) => {
+      current = value;
+    },
+  };
+}
+
+const als = createAls<WaMessageLogScope>();
 
 export function normalizeWaLogContent(content: string): string {
   return String(content ?? "")
