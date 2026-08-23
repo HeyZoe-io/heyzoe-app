@@ -1,8 +1,13 @@
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import type { WaSchedulePickSlot } from "@/lib/product-schedule-slots";
+import {
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_EN,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_LEGACY_SLOT,
+} from "@/lib/wa-unknown-knowledge-handoff";
 
 /** כשאין מועד בידע — לא ממציאים שעה; מעבירים לצוות. */
-export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = "אין בעיה אני מעבירה את הבקשה לצוות";
+export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY;
 
 export const UNKNOWN_CLASS_SLOT_HANDOFF_MODEL = "unknown_class_slot_team_handoff";
 
@@ -141,7 +146,14 @@ export function matchCatalogServiceFromFreeText(
 
 export function assistantReplyIsUnknownClassSlotHandoff(text: string): boolean {
   const t = String(text ?? "").replace(/\s+/g, " ").trim();
-  return t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY || t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY);
+  return (
+    t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY ||
+    t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY) ||
+    t === UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_EN ||
+    t.startsWith(UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_EN) ||
+    t === UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_LEGACY_SLOT ||
+    t.startsWith(UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_LEGACY_SLOT)
+  );
 }
 
 export function shouldHandoffUnknownClassSlot(input: {

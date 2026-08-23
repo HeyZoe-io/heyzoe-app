@@ -1,9 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
+import {
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_MODEL,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_EN,
+} from "@/lib/wa-unknown-knowledge-handoff";
 
 /** ניסוחי חוסר-ידע של זואי (עברית + אנגלית) — לא כולל מגבלת 24ש׳ / redirect כללי. */
 export const KNOWLEDGE_GAP_NEEDLES = [
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_REPLY_EN,
   "אין לי את הפרטים",
   "אין לי כרגע מידע",
   "אין לי כרגע את המידע",
@@ -26,6 +33,7 @@ const EXCLUDED_MODELS = new Set(["claude_limit_24h"]);
 const KNOWLEDGE_GAP_MODELS = new Set([
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
+  UNKNOWN_KNOWLEDGE_TEAM_HANDOFF_MODEL,
 ]);
 
 const MESSAGE_UUID_RE =

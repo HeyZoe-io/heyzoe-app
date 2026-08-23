@@ -123,6 +123,7 @@ assert.equal(
 );
 
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
+assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין בעיה אני מעבירה את הבקשה לצוות"), true);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 
 console.log("wa-unknown-class-slot.test.ts: ok");
