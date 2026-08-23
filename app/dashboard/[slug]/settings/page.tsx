@@ -70,6 +70,7 @@ import {
 } from "./settings-ui";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
+import { dashboardWhatsAppSendHref } from "@/lib/dashboard-wa-send-href";
 import {
   useRegisterSettingsUnsaved,
   useSettingsUnsaved,
@@ -451,22 +452,6 @@ function formatIlWhatsAppPhoneFriendly(input: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
 
-/** ספרות בלבד עם קידומת מדינה, ללא + — לפי הפורמט של wa.me */
-function whatsAppMeDigitsFromDisplay(phoneDisplay: string): string | null {
-  const only = String(phoneDisplay ?? "").replace(/\D/g, "");
-  if (!only) return null;
-  if (only.startsWith("972")) return only;
-  if (only.startsWith("0")) return `972${only.slice(1)}`;
-  if (only.length === 9) return `972${only}`;
-  return only;
-}
-
-function whatsAppPrefilledMessageHref(phoneDisplay: string, text: string): string | null {
-  const num = whatsAppMeDigitsFromDisplay(phoneDisplay);
-  if (!num) return null;
-  return `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
-}
-
 function WhatsAppNumberSection({
   slug,
   compact = false,
@@ -508,8 +493,8 @@ function WhatsAppNumberSection({
   const showLocalConnectedNumber = isActiveLocally && hasLocalNumber && status !== "pending";
   const friendly = formatIlWhatsAppPhoneFriendly(phoneDisplayRaw);
   const whatsAppSendHref = useMemo(
-    () => whatsAppPrefilledMessageHref(phoneDisplayRaw, tp.waHi),
-    [phoneDisplayRaw, tp.waHi]
+    () => dashboardWhatsAppSendHref(phoneDisplayRaw),
+    [phoneDisplayRaw]
   );
 
   const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
