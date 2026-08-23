@@ -32,11 +32,12 @@ const NOT_RELEVANT_SHORT_DISMISSALS = new Set([
   "נשמע טוב",
 ]);
 
-/** «אבל זה רלוונטי» / «כן רלוונטי» — ביטול מפורש של «לא רלוונטי». */
+/** «אבל זה רלוונטי» / «כן רלוונטי» / «נשמע רלוונטי» — ביטול מפורש של «לא רלוונטי». */
 const STILL_RELEVANT_RES = [
   /(?:^| )(?:אבל\s+)?(?:זה|זהו)\s+כן\s+רלוונטי/,
   /(?:^| )(?:אבל\s+)?(?:זה|זהו)\s+רלוונטי/,
   /(?:^| )כן\s+(?:זה\s+)?רלוונטי/,
+  /נשמע\s+(?:כן\s+)?רלוונטי/,
   /עדיין\s+רלוונטי/,
   /כן\s+מעוניינ/,
   /(?:^| )אני\s+מעוניינ/,
@@ -384,6 +385,17 @@ export function assistantReplyIndicatesLeadNotRelevant(text: string): boolean {
   return false;
 }
 
+/** כל התשובה היא משפט הסגירה — לא תשובה אמיתית לשאלה. */
+export function assistantReplyIsOnlyNotRelevantClosing(text: string): boolean {
+  if (!assistantReplyIndicatesLeadNotRelevant(text)) return false;
+  const stripped = normalizeNotRelevantToken(text)
+    .replace(/אין בעיה בכלל!?/g, " ")
+    .replace(/אם משהו ישתנה בעתיד/g, " ")
+    .replace(/אנחנו כאן/g, " ")
+    .replace(/[🙂😊\s!?.,]/g, "");
+  return stripped.length < 8;
+}
+
 /**
  * סימון «לא רלוונטי» — רק אמירה מפורשת (לא ניחוש של קלוד).
  * נשמר כ-async לתאימות ל-webhook; לא קורא ל-API.
@@ -432,6 +444,9 @@ export function leadIndicatesStillRelevant(text: string): boolean {
   const t = normalizeAckToken(text);
   if (!t) return false;
   if (matchesNotRelevantKeyword(text)) return false;
+  // «האם זה רלוונטי למתחילים?» — שאלה על המוצר, לא «אני רלוונטי».
+  if (/^(האם)(?:\s|$)/u.test(t) || /^(is this|is it)\b/u.test(t)) return false;
+  if (t === "רלוונטי" || t === "relevant") return true;
   return STILL_RELEVANT_RES.some((re) => re.test(t));
 }
 

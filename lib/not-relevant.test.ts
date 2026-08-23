@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   assistantReplyIndicatesLeadNotRelevant,
+  assistantReplyIsOnlyNotRelevantClosing,
   buildNotRelevantContactPatch,
   inboundResumesConversationAfterNotRelevant,
   leadIndicatesStillRelevant,
@@ -59,7 +60,12 @@ assert.equal(shouldSendNotRelevantGatingReply(null), false);
 
 assert.equal(leadIndicatesStillRelevant("אבל זה רלוונטי 😁"), true);
 assert.equal(leadIndicatesStillRelevant("זה כן רלוונטי"), true);
+assert.equal(leadIndicatesStillRelevant("זה רלוונטי"), true);
+assert.equal(leadIndicatesStillRelevant("נשמע רלוונטי"), true);
+assert.equal(leadIndicatesStillRelevant("רלוונטי"), true);
 assert.equal(leadIndicatesStillRelevant("לא רלוונטי"), false);
+assert.equal(leadIndicatesStillRelevant("נשמע טוב"), false);
+assert.equal(leadIndicatesStillRelevant("האם זה רלוונטי למתחילים?"), false);
 assert.equal(inboundResumesConversationAfterNotRelevant("נוכל לדבר מחר בבוקר? אני קצת עמוסה היום"), true);
 assert.equal(inboundResumesConversationAfterNotRelevant("חחחח אני רואה"), true);
 assert.equal(inboundResumesConversationAfterNotRelevant("תודה רבה"), false);
@@ -67,5 +73,13 @@ assert.equal(inboundResumesConversationAfterNotRelevant("תודה רבה 🤍"),
 assert.equal(userTextJustifiesNotRelevantMark("לא מעוניינת"), true);
 assert.equal(userTextJustifiesNotRelevantMark("רחוק לי"), true);
 assert.equal(userTextJustifiesNotRelevantMark("אבל זה רלוונטי"), false);
+assert.equal(
+  assistantReplyIsOnlyNotRelevantClosing("אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 🙂"),
+  true
+);
+assert.equal(
+  assistantReplyIsOnlyNotRelevantClosing("יש שיעור מחר בבוקר. אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 🙂"),
+  false
+);
 
 console.log("not-relevant.test.ts: ok");

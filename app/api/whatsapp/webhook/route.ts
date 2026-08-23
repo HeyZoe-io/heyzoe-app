@@ -420,8 +420,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 import {
   assistantReplyIndicatesLeadNotRelevant,
+  assistantReplyIsOnlyNotRelevantClosing,
   handleLeadNotRelevant,
-  inboundResumesConversationAfterNotRelevant,
   leadIndicatesStillRelevant,
   matchesNotRelevantKeyword,
   NOT_RELEVANT_ENGAGING_FALLBACK_REPLY,
@@ -1364,7 +1364,10 @@ function shouldSkipSalesFlowPromptResend(input: {
   inboundText?: string;
   aiReplyCoreClean?: string;
   knowledge: BusinessKnowledgePack | null | undefined;
+  /** ליד «לא רלוונטי» — קלוד עונה, בלי לדחוף מחדש את תפריט הפלואו. */
+  leadIsNotRelevant?: boolean;
 }): boolean {
+  if (input.leadIsNotRelevant) return true;
   const inbound = String(input.inboundText ?? "").trim();
   if (inbound && userRequestedHumanAgent(inbound)) return true;
   if (inbound && looksLikeBarePhoneMessage(inbound)) return true;
@@ -3291,6 +3294,7 @@ async function sendFlowContinuation(input: {
   inboundText?: string;
   /** תשובת Claude לפני resend — לדילוג כשמפנה לשירות לקוחות. */
   aiReplyCoreClean?: string;
+  leadIsNotRelevant?: boolean;
 }): Promise<void> {
   const {
     phase,
@@ -3922,6 +3926,7 @@ async function resendUnansweredSalesFlowPrompt(
       inboundText: input.inboundText,
       aiReplyCoreClean: input.aiReplyCoreClean,
       knowledge,
+      leadIsNotRelevant: input.leadIsNotRelevant,
     })
   ) {
     console.info("[WA Webhook] skip flow prompt resend — lead paused or CS/human", {
@@ -3973,6 +3978,7 @@ async function resendUnansweredSalesFlowPrompt(
           inboundText: input.inboundText,
           aiReplyCoreClean: input.aiReplyCoreClean,
           knowledge,
+          leadIsNotRelevant: input.leadIsNotRelevant,
         })
       ) {
         return;
@@ -4075,6 +4081,7 @@ async function resendUnansweredSalesFlowPrompt(
         inboundText: input.inboundText,
         aiReplyCoreClean: input.aiReplyCoreClean,
         knowledge,
+        leadIsNotRelevant: input.leadIsNotRelevant,
       })
     ) {
       return;
@@ -5515,9 +5522,7 @@ async function processIncoming(
       slug: business_slug,
     });
     const inboundText = msg.type === "text" ? msg.text : "";
-    const wantsResume =
-      Boolean(inboundText) &&
-      (leadIndicatesStillRelevant(inboundText) || inboundResumesConversationAfterNotRelevant(inboundText));
+    const wantsResume = Boolean(inboundText) && leadIndicatesStillRelevant(inboundText);
 
     if ((wantsFlowRestart || wantsResume) && businessId) {
       const reactivated = await reactivateNotRelevantLead({
@@ -5532,7 +5537,7 @@ async function processIncoming(
         console.info("[WA Webhook] not-relevant lead reactivated", {
           business_slug,
           session_id: earlySessionId,
-          via: wantsFlowRestart ? "flow-start" : "continued-conversation",
+          via: wantsFlowRestart ? "flow-start" : "still-relevant",
         });
         contactNotRelevantAt = null;
       }
@@ -5571,35 +5576,8 @@ async function processIncoming(
       }
     }
 
-    if (contactNotRelevantAt) {
-      if (msg.type === "text" && !processOpts?.skipUserLog) {
-        await logMessage({
-          business_slug,
-          role: "user",
-          content: msg.text,
-          session_id: earlySessionId,
-        });
-      }
-      console.info("[WA Webhook] not-relevant gating — stay silent (no farewell loop)", {
-        business_slug,
-        session_id: earlySessionId,
-        not_relevant_at: contactNotRelevantAt,
-        paused: sessionPausedNow,
-      });
-      return;
-    }
-
-    if (sessionPausedNow) {
-      if (msg.type === "text" && !processOpts?.skipUserLog) {
-        await logMessage({
-          business_slug,
-          role: "user",
-          content: msg.text,
-          session_id: earlySessionId,
-        });
-      }
-      return;
-    }
+    // נשאר «לא רלוונטי»: קלוד ממשיך לענות על שיחה רגילה. פולואפים אוטומטיים נשארים כבויים
+    // כל עוד not_relevant_at ב-DB. בלי משפט סגירה חוזר ובלי יציאה מוקדמת.
   }
 
   const sessionId = earlySessionId || buildWaSessionId(msg.toNumber, msg.from);
@@ -5809,6 +5787,19 @@ async function processIncoming(
       authToken,
       sessionId,
       fullName: fullName || null,
+    });
+    return;
+  }
+
+  // כבר מסומן «לא רלוונטי» וחוזר על זה — בלי תשובה נוספת. שיחה רגילה ממשיכה לקלוד למטה.
+  if (
+    msg.type === "text" &&
+    contactNotRelevantAt &&
+    matchesNotRelevantKeyword(msg.text)
+  ) {
+    console.info("[WA Webhook] not-relevant already marked — skip duplicate closing", {
+      business_slug,
+      session_id: sessionId,
     });
     return;
   }
@@ -10069,17 +10060,11 @@ async function processIncoming(
     assistantReplyIndicatesLeadNotRelevant(replyCoreClean)
   ) {
     const inboundForNotRelevant = msg.type === "text" ? msg.text : incomingTextRaw;
-    if (
-      leadIndicatesStillRelevant(inboundForNotRelevant) ||
-      inboundResumesConversationAfterNotRelevant(inboundForNotRelevant) ||
-      !userTextJustifiesNotRelevantMark(inboundForNotRelevant)
-    ) {
-      console.info("[WA Webhook] skip not-relevant mark — lead engaging or unjustified closing", {
-        business_slug,
-        session_id: sessionId,
-      });
-      replyCoreClean = NOT_RELEVANT_ENGAGING_FALLBACK_REPLY;
-    } else {
+    const shouldMarkNotRelevant =
+      !contactNotRelevantAt &&
+      userTextJustifiesNotRelevantMark(inboundForNotRelevant) &&
+      !leadIndicatesStillRelevant(inboundForNotRelevant);
+    if (shouldMarkNotRelevant) {
       const fullName =
         typeof (msg as { profileName?: string }).profileName === "string"
           ? (msg as { profileName?: string }).profileName!.trim()
@@ -10098,6 +10083,13 @@ async function processIncoming(
         fullName: fullName || null,
       });
       return;
+    }
+    console.info("[WA Webhook] skip not-relevant mark — already marked, engaging, or unjustified closing", {
+      business_slug,
+      session_id: sessionId,
+    });
+    if (assistantReplyIsOnlyNotRelevantClosing(replyCoreClean)) {
+      replyCoreClean = NOT_RELEVANT_ENGAGING_FALLBACK_REPLY;
     }
   }
 
@@ -10400,6 +10392,7 @@ async function processIncoming(
         inboundText: incomingRaw,
         aiReplyCoreClean: replyCoreClean,
         knowledge,
+        leadIsNotRelevant: Boolean(contactNotRelevantAt),
       });
 
       let openingSkipFlowContinuation = !salesFlowStarted;
@@ -10645,6 +10638,7 @@ async function processIncoming(
           blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          leadIsNotRelevant: Boolean(contactNotRelevantAt),
         });
       }
     }
