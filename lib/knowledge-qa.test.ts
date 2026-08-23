@@ -103,4 +103,18 @@ assert.equal(
   parenOnlyReturning.question
 );
 
+const groupVariants = relatedPhrasingsForQuestion("אימון קבוצתי");
+assert.ok(
+  groupVariants.includes("שיעור קבוצתי"),
+  `expected group-class synonym, got ${groupVariants.join(", ")}`
+);
+
+assert.equal(
+  lookupKnowledgeQaAnswerForInbound(
+    [{ question: "אימון קבוצתי", answer: "האימונים בסטודיו הם אימונים קבוצתיים" }],
+    "העמידות ידיים זה שיעור קבוצתי??"
+  )?.answer,
+  "האימונים בסטודיו הם אימונים קבוצתיים"
+);
+
 console.log("knowledge-qa tests ok");

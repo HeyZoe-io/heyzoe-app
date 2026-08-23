@@ -168,6 +168,7 @@ export function isSalesFlowOpenKnowledgeQuestion(text: string): boolean {
   if (/כמה\s+(?:מתאמנים|משתתפים|אנשים|מקומות|נשים|גברים|ילדים)/iu.test(t)) {
     return true;
   }
+  if (isCatalogSpecificKnowledgeQuestion(t)) return true;
   return false;
 }
 
@@ -237,19 +238,33 @@ function isDefinitionalCatalogQuestion(text: string): boolean {
   return /^(?:מה\s+זה|מהו|מה\s+הוא|איך\s+עובד)/u.test(String(text ?? "").trim());
 }
 
+/** «עמידות ידיים זה שיעור קבוצתי??» — פורמט השיעור, לא בקשה להחליף מוצר. */
+function isClassFormatKnowledgeQuestion(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/(?:זה|האם(?:\s+זה)?)\s+(?:שיעור|אימון)?\s*(?:קבוצתי|אישי|פרטי|זוגי)/u.test(t)) {
+    return true;
+  }
+  if (/(?:קבוצתי|אישי|פרטי)\s+או\s+(?:קבוצתי|אישי|פרטי)/u.test(t)) return true;
+  if (/(?:זה|האם)\s+(?:אחד\s+על\s+אחד|1\s*על\s*1|1\s*[-/]\s*1)/u.test(t)) return true;
+  if (/\bis\s+(?:this|it).{0,40}\b(?:a\s+)?group\s+class\b/i.test(t)) return true;
+  return false;
+}
+
 const CATALOG_KNOWLEDGE_SUITABILITY_RE =
   /מתאים|מתאימה|מתאימים|מיועד|מיועדת|מומלץ|מותר|אסור|בטוח(?:ה)?/u;
 const CATALOG_KNOWLEDGE_AUDIENCE_RE =
   /הריון|היריון|בהריון|בהיריון|נשים|גברים|ילדים|גיל|פציע|ניתוח|שיקום|אוסטאו|לחץ\s+דם|(?:^|[\s,])גב(?:\s|$|[?!.,])/u;
 
 /**
- * שאלה ספציפית על המוצר (התאמה / הריון / מה זה) — לא התעניינות להחליף אימון.
- * דוגמה: «האם פילאטיס מתאים לנשים בהיריון?»
+ * שאלה ספציפית על המוצר (התאמה / הריון / מה זה / קבוצתי) — לא התעניינות להחליף אימון.
+ * דוגמה: «האם פילאטיס מתאים לנשים בהיריון?» / «העמידות ידיים זה שיעור קבוצתי??»
  */
 export function isCatalogSpecificKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;
   if (isDefinitionalCatalogQuestion(t)) return true;
+  if (isClassFormatKnowledgeQuestion(t)) return true;
   if (/מה\s+ההבדל|למי\s+(?:זה\s+)?(?:מתאים|מיועד)|איך\s+(?:זה\s+)?עובד/u.test(t)) return true;
   if (CATALOG_KNOWLEDGE_SUITABILITY_RE.test(t) && CATALOG_KNOWLEDGE_AUDIENCE_RE.test(t)) return true;
   if (/(?:הריון|היריון|בהריון|בהיריון)/u.test(t) && /(?:אפשר|ניתן|מותר|אסור|מתאים)/u.test(t)) {

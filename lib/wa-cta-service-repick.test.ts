@@ -4,7 +4,9 @@ import {
   exactTypedCatalogSwitchTarget,
   isPhaseAgnosticExplicitServiceSwitch,
   isAmbiguousPartialCatalogServiceSwitch,
+  isCatalogSpecificKnowledgeQuestion,
   findAmbiguousPartialCatalogMatches,
+  resolveImplicitServiceSwitchFromFreeText,
   withServiceRepickAckPrefix,
   SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE,
 } from "@/lib/wa-cta-service-repick";
@@ -161,5 +163,37 @@ assert.equal(exactTypedCatalogServiceName("אקרו יוגה - לזוג", joe), 
 assert.equal(exactTypedCatalogSwitchTarget("אקרו יוגה - לזוג", "אקרו יוגה - ליחיד", joe), "אקרו יוגה - לזוג");
 assert.equal(isAmbiguousPartialCatalogServiceSwitch("אקרו יוגה - לזוג", "אקרו יוגה - ליחיד", joe), false);
 assert.equal(isAmbiguousPartialCatalogServiceSwitch("פילאטיס", "אימון אישי", limitless), true);
+
+assert.equal(isCatalogSpecificKnowledgeQuestion("העמידות ידיים זה שיעור קבוצתי??"), true);
+assert.equal(isCatalogSpecificKnowledgeQuestion("עמידות ידיים זה אימון קבוצתי"), true);
+assert.equal(isCatalogSpecificKnowledgeQuestion("זה קבוצתי או אישי?"), true);
+assert.equal(
+  isCatalogSpecificKnowledgeQuestion("רוצה אימון אישי"),
+  false,
+  "requesting a personal class is not a format question"
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch(
+    "העמידות ידיים זה שיעור קבוצתי??",
+    "אקרו יוגה - ליחיד",
+    joe
+  ),
+  false,
+  "asking if a named class is group is knowledge, not a product switch"
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("יש עמידות ידיים?", "אקרו יוגה - ליחיד", joe),
+  true,
+  "asking if they have another class still opens the menu"
+);
+assert.equal(
+  resolveImplicitServiceSwitchFromFreeText({
+    text: "העמידות ידיים זה שיעור קבוצתי??",
+    lastPickedServiceName: "אקרו יוגה - ליחיד",
+    services: joe.map((name) => ({ name })),
+    awaitingServicePick: true,
+  }),
+  null
+);
 
 console.log("wa-cta-service-repick.test.ts: ok");
