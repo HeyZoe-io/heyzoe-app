@@ -14,18 +14,24 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
-import { recordWaOutboundSent } from "@/lib/wa-message-log-context";
+
+function noteWaOutboundSent(content: string): void {
+  const t = String(content ?? "").trim();
+  if (!t) return;
+  const hook = (globalThis as { __hzRecordWaOutboundSent?: (s: string) => void })
+    .__hzRecordWaOutboundSent;
+  hook?.(t);
+}
 
 function noteWaTextSent(text: string): void {
-  const t = String(text ?? "").trim();
-  if (t) recordWaOutboundSent(t);
+  noteWaOutboundSent(text);
 }
 
 function noteWaMediaSent(url: string, caption?: string): void {
   const u = url.trim();
   if (!u) return;
   const cap = String(caption ?? "").trim();
-  recordWaOutboundSent(cap ? `[media] ${u}\n\n${cap}` : `[media] ${u}`);
+  noteWaOutboundSent(cap ? `[media] ${u}\n\n${cap}` : `[media] ${u}`);
 }
 
 export type WaUiLanguage = BusinessContentLanguage;

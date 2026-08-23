@@ -106,6 +106,11 @@ export function recordWaOutboundSent(content: string): void {
   store.pendingOutbound.push(text);
 }
 
+if (typeof window === "undefined") {
+  (globalThis as { __hzRecordWaOutboundSent?: (s: string) => void }).__hzRecordWaOutboundSent =
+    recordWaOutboundSent;
+}
+
 export function shouldSkipDuplicateWaLog(role: string, content: string): boolean {
   const store = als.getStore();
   if (!store) return false;
