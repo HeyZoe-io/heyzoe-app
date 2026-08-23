@@ -93,6 +93,21 @@ export function resolveUnclearIntentAction(
   return sessionHasUnclearClarifyAsk(history) ? "handoff" : "clarify";
 }
 
+const CLEAR_KNOWLEDGE_DOMAIN_RE =
+  /שיעור|אימון|מנוי|כרטיסי|חבילה|הקפא|ביטול|מחיר|יומן|הרשמ|lesson|class|membership|punch\s*card/iu;
+const CLEAR_KNOWLEDGE_QUESTION_RE =
+  /[?؟]|יש מצב|אפשר |ניתן |האם |מה |איך |מתי |למה |כמה |\bcan i\b|\bis there\b|\bhow (?:do|can|much)\b/iu;
+
+/**
+ * שאלה ברורה על הסטודיו — לא «לא הבנתי». חוסר מידע בידע זה «אין לי את הפרטים».
+ */
+export function inboundLooksLikeClearKnowledgeQuestion(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (t.length < 12 || t.length > 500) return false;
+  if (/^\[(?:media|heyzoe:|reaction)\]/i.test(t)) return false;
+  return CLEAR_KNOWLEDGE_DOMAIN_RE.test(t) && CLEAR_KNOWLEDGE_QUESTION_RE.test(t);
+}
+
 export function buildUnclearIntentPromptRule(alreadyAsked: boolean): string {
   if (alreadyAsked) {
     return `- כבר ביקשת ניסוח מחדש בשיחה הזו. אם עדיין לא ברור למה הליד מתכוון — עני רק: «${WA_UNCLEAR_HANDOFF_HE}» (או באנגלית: «${WA_UNCLEAR_HANDOFF_EN}»). אל תבקשי ניסוח שוב. אל תוסיפי שאלת «יש עוד משהו».`;

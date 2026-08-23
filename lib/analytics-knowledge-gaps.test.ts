@@ -3,8 +3,10 @@ import {
   isKnowledgeGapAssistantText,
   looksLikeScheduleRequest,
   parseMessageUuid,
+  pickKnowledgeGapQuestion,
   resolveKnowledgeGapKind,
 } from "@/lib/analytics-knowledge-gaps";
+import { WA_UNCLEAR_CLARIFY_HE } from "@/lib/wa-unclear-intent";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
 
@@ -40,6 +42,70 @@ assert.equal(
   false
 );
 assert.equal(isKnowledgeGapAssistantText("שלום! אימון ניסיון עולה 30 שח"), false);
+assert.equal(
+  isKnowledgeGapAssistantText(
+    "מצטערת לשמוע! זה משהו שצריך לברר מול הצוות. אני מעבירה את הפנייה שלך ויצרו איתך קשר בקרוב 💜"
+  ),
+  true
+);
+assert.equal(
+  isKnowledgeGapAssistantText(
+    "תודה על הבהרה! 💜 אני מעבירה את הפנייה לצוות ויצרו איתך קשר בקרוב."
+  ),
+  false
+);
+assert.equal(
+  isKnowledgeGapAssistantText(
+    "מצטערת לשמוע שיש בלבול עם ההקפאה! אני מעבירה את זה לבדיקה מול הצוות."
+  ),
+  false
+);
+
+const limitlessLessonTransfer = [
+  {
+    role: "user",
+    content: "הי, יש מצב שאני אעביר קצת שיעורים מחודש הבא לחודש הזה?",
+    createdAt: "2026-08-23T13:49:34.900Z",
+  },
+  {
+    role: "assistant",
+    content: WA_UNCLEAR_CLARIFY_HE,
+    createdAt: "2026-08-23T13:49:40.440Z",
+  },
+  {
+    role: "user",
+    content: "נגמרו לי השיעורים החודש",
+    createdAt: "2026-08-23T13:49:53.903Z",
+  },
+  {
+    role: "assistant",
+    content:
+      "מצטערת לשמוע! זה משהו שצריך לברר מול הצוות. אני מעבירה את הפנייה שלך ויצרו איתך קשר בקרוב 💜",
+    createdAt: "2026-08-23T13:49:58.991Z",
+  },
+];
+assert.equal(
+  pickKnowledgeGapQuestion(limitlessLessonTransfer, "2026-08-23T13:49:58.991Z"),
+  "הי, יש מצב שאני אעביר קצת שיעורים מחודש הבא לחודש הזה?"
+);
+assert.equal(
+  pickKnowledgeGapQuestion(
+    [
+      {
+        role: "user",
+        content: "יש מזגן בסטודיו?",
+        createdAt: "2026-08-23T10:00:00.000Z",
+      },
+      {
+        role: "assistant",
+        content: "אין לי את הפרטים על כך.",
+        createdAt: "2026-08-23T10:00:05.000Z",
+      },
+    ],
+    "2026-08-23T10:00:05.000Z"
+  ),
+  "יש מזגן בסטודיו?"
+);
 
 assert.equal(looksLikeScheduleRequest("פילאטיס מכשירים בשעה 1800"), true);
 assert.equal(looksLikeScheduleRequest("פילאטיס מכשירים בשעה 18:00"), true);

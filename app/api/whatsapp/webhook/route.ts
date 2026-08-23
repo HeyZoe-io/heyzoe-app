@@ -266,12 +266,17 @@ import {
 } from "@/lib/wa-inbound-unsupported";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import {
+  inboundLooksLikeClearKnowledgeQuestion,
   pickUnclearIntentReply,
   resolveUnclearIntentAction,
   sessionHasUnclearClarifyAsk,
   WA_UNCLEAR_CLARIFY_MODEL,
   WA_UNCLEAR_HANDOFF_MODEL,
 } from "@/lib/wa-unclear-intent";
+import {
+  KNOWLEDGE_GAP_NO_DETAILS_MODEL,
+  pickKnowledgeGapNoDetailsReply,
+} from "@/lib/analytics-knowledge-gaps";
 import {
   assistantReplySteersBackToStudioScope,
   buildOutOfScopeTeamHandoffReply,
@@ -10237,6 +10242,23 @@ async function processIncoming(
 
   if (!isFallbackErrorReply && didCallClaude) {
     const unclearAction = resolveUnclearIntentAction(replyCoreClean, aiSessionHistory);
+    if (unclearAction && inboundLooksLikeClearKnowledgeQuestion(incomingRaw)) {
+      const lang = detectMessageLanguage(incomingRaw);
+      const gapTxt = pickKnowledgeGapNoDetailsReply(lang);
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, gapTxt, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send knowledge-gap (unclear-misread) reply failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: gapTxt,
+        model_used: KNOWLEDGE_GAP_NO_DETAILS_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
     if (unclearAction) {
       const lang = detectMessageLanguage(incomingRaw);
       const unclearTxt = pickUnclearIntentReply(unclearAction, lang);

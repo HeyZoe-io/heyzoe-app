@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DetectedMessageLanguage } from "@/lib/language-detect";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
+import { isUnclearClarifyAsk } from "@/lib/wa-unclear-intent";
 
 /** ניסוחי חוסר-ידע של זואי (עברית + אנגלית) — לא כולל מגבלת 24ש׳ / redirect כללי. */
 export const KNOWLEDGE_GAP_NEEDLES = [
@@ -12,6 +14,8 @@ export const KNOWLEDGE_GAP_NEEDLES = [
   "לא מצאתי את המידע",
   "לא מצאתי מידע",
   "אני מתנצלת, אין לי",
+  "זה משהו שצריך לברר מול הצוות",
+  "צריך לברר מול הצוות",
   "i don't have the details",
   "i don't currently have information",
   "i don't have information",
@@ -20,12 +24,17 @@ export const KNOWLEDGE_GAP_NEEDLES = [
   "i could not find the information",
 ] as const;
 
+export const KNOWLEDGE_GAP_NO_DETAILS_MODEL = "knowledge_gap_no_details";
+export const KNOWLEDGE_GAP_NO_DETAILS_HE = "אין לי את הפרטים על כך.";
+export const KNOWLEDGE_GAP_NO_DETAILS_EN = "I don't have the details on that.";
+
 const EXCLUDED_MODELS = new Set(["claude_limit_24h"]);
 
 /** העברות לצוות שמייצגות חוסר ידע (מועד/מדיניות שאין בידע) — לא handoff תפעולי. */
 const KNOWLEDGE_GAP_MODELS = new Set([
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
+  KNOWLEDGE_GAP_NO_DETAILS_MODEL,
 ]);
 
 const MESSAGE_UUID_RE =
@@ -93,6 +102,52 @@ export function isKnowledgeGapAssistantText(content: string, modelUsed?: string 
   if (!t) return false;
   const lower = t.toLowerCase();
   return KNOWLEDGE_GAP_NEEDLES.some((n) => lower.includes(n.toLowerCase()));
+}
+
+export function pickKnowledgeGapNoDetailsReply(lang: DetectedMessageLanguage): string {
+  return lang === "en" ? KNOWLEDGE_GAP_NO_DETAILS_EN : KNOWLEDGE_GAP_NO_DETAILS_HE;
+}
+
+function isUsableUserQuestion(content: string): boolean {
+  const q = String(content ?? "").trim();
+  if (!q) return false;
+  if (q.startsWith("[media]") || q.startsWith("[heyzoe:") || q.startsWith("[reaction]")) return false;
+  return true;
+}
+
+/**
+ * שאלת המשתמש שלפני חוסר הידע.
+ * אחרי «לא הבנתי» לוקחים את ההודעה המקורית, לא את הניסוח מחדש.
+ */
+export function pickKnowledgeGapQuestion(
+  msgs: Array<{ role: string; content: string; createdAt: string }>,
+  gapCreatedAt: string
+): string {
+  let fallback = "";
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]!;
+    if (m.createdAt >= gapCreatedAt) continue;
+    if (m.role !== "user") continue;
+    const q = String(m.content ?? "").trim();
+    if (!isUsableUserQuestion(q)) continue;
+
+    let replyToClarify = false;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = msgs[j]!;
+      if (prev.createdAt >= gapCreatedAt) continue;
+      if (prev.role === "user") break;
+      if (prev.role === "assistant" && isUnclearClarifyAsk(prev.content)) {
+        replyToClarify = true;
+        break;
+      }
+    }
+    if (replyToClarify) {
+      if (!fallback) fallback = q;
+      continue;
+    }
+    return q;
+  }
+  return fallback;
 }
 
 function truncate(s: string, max: number): string {
@@ -210,17 +265,7 @@ export async function findKnowledgeGaps(input: {
   for (const gap of open) {
     if (out.length >= RESULT_LIMIT) break;
     const msgs = bySession.get(gap.sessionId) ?? [];
-    let question = "";
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]!;
-      if (m.createdAt >= gap.createdAt) continue;
-      if (m.role === "user") {
-        const q = String(m.content ?? "").trim();
-        if (!q || q.startsWith("[media]") || q.startsWith("[heyzoe:")) continue;
-        question = q;
-        break;
-      }
-    }
+    const question = pickKnowledgeGapQuestion(msgs, gap.createdAt);
     if (!question) continue;
     out.push({
       id: gap.id,

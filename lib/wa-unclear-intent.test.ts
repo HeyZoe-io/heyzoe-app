@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   WA_UNCLEAR_CLARIFY_HE,
   WA_UNCLEAR_HANDOFF_HE,
+  inboundLooksLikeClearKnowledgeQuestion,
   isUnclearClarifyAsk,
   isUnclearHandoffAsk,
   looksLikeUnclearIntentReply,
@@ -33,5 +34,15 @@ assert.equal(
 assert.equal(sessionHasUnclearClarifyAsk([{ role: "user", content: "היי" }]), false);
 assert.equal(pickUnclearIntentReply("clarify", "he"), WA_UNCLEAR_CLARIFY_HE);
 assert.equal(pickUnclearIntentReply("handoff", "he"), WA_UNCLEAR_HANDOFF_HE);
+
+assert.equal(
+  inboundLooksLikeClearKnowledgeQuestion(
+    "הי, יש מצב שאני אעביר קצת שיעורים מחודש הבא לחודש הזה?"
+  ),
+  true
+);
+assert.equal(inboundLooksLikeClearKnowledgeQuestion("היי"), false);
+assert.equal(inboundLooksLikeClearKnowledgeQuestion("asdfghjklqwerty"), false);
+assert.equal(inboundLooksLikeClearKnowledgeQuestion("יש מצב שנדבר מחר?"), false);
 
 console.log("wa-unclear-intent.test.ts: ok");
