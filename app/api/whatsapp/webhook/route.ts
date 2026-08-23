@@ -244,6 +244,13 @@ import {
   lookupArboxScheduleByPhone,
   type ScheduleLookupReply,
 } from "@/lib/wa-schedule-lookup";
+import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
+import {
+  lookupArboxMembershipByPhone,
+  mapMembershipLookupReply,
+  MEMBERSHIP_LOOKUP_ACTIVE_MODEL,
+  type MembershipLookupReply,
+} from "@/lib/wa-membership-lookup";
 import {
   fetchLastQuoteableSessionMessage,
   formatWaReactionLogContent,
@@ -1474,6 +1481,52 @@ async function sendScheduleLookupReply(input: {
     );
   } catch (e) {
     console.error("[WA Webhook] Send schedule-lookup reply failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: input.result.text,
+    model_used: input.result.modelUsed,
+    session_id: input.sessionId,
+  });
+}
+
+async function sendMembershipLookupReply(input: {
+  result: MembershipLookupReply;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | number | null | undefined;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  if (input.result.notifyHumanRequested && input.businessId) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: input.nowIso,
+        sessionId: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] membership-lookup human_requested failed:", e);
+    }
+  }
+  try {
+    await sendWhatsAppMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      input.result.text,
+      input.accountSid,
+      input.authToken
+    );
+  } catch (e) {
+    console.error("[WA Webhook] Send membership-lookup reply failed:", e);
   }
   await logMessage({
     business_slug: input.business_slug,
@@ -6209,6 +6262,65 @@ async function processIncoming(
       });
     }
     return;
+  }
+
+  // Read-only Arbox membership lookup — explicit registration_failed_inquiry only (never per inbound).
+  // CRM gate first (before phone normalize): non-Arbox (Boostapp / no-CRM) falls through —
+  // never send "number not found in the system" when there is no system to check.
+  // Always looks up msg.from only. Structured templates skip Claude.
+  if (isSalesFlowFreeTextInbound(msg) && businessId && isRegistrationFailedInquiry(msg.text)) {
+    const arboxCreds = await loadArboxScheduleLookupConnection({
+      supabase,
+      businessId: Number(businessId),
+    });
+    if (arboxCreds) {
+      const result = await lookupArboxMembershipByPhone({
+        apiKey: arboxCreds.apiKey,
+        boxId: arboxCreds.boxId,
+        lookupPhone: msg.from,
+      });
+      await sendMembershipLookupReply({
+        result,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        nowIso,
+      });
+      return;
+    }
+  }
+
+  // After ACTIVE membership lookup asked which class — do not adjudicate eligibility; team handoff.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    businessId &&
+    !isScheduleInquiryIntent(msg.text) &&
+    !looksLikeBarePhoneMessage(msg.text) &&
+    !isCasualHiGreeting(msg.text) &&
+    !isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName })
+  ) {
+    const lastAssistForMembership = await fetchLastAssistantModelUsed({
+      business_slug,
+      session_id: sessionId,
+    });
+    if (lastAssistForMembership === MEMBERSHIP_LOOKUP_ACTIVE_MODEL) {
+      await sendMembershipLookupReply({
+        result: mapMembershipLookupReply("active_followup"),
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        nowIso,
+      });
+      return;
+    }
   }
 
   // Read-only Arbox schedule lookup — explicit schedule_inquiry only (never per inbound).
