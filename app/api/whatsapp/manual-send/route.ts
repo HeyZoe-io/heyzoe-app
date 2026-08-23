@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { logMessage } from "@/lib/analytics";
+import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import { formatManualMediaMessageContent, isAllowedManualMediaUrl } from "@/lib/conversation-manual-media";
 import {
   isMetaCloudPhoneNumberId,
@@ -72,6 +73,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "missing_twilio_credentials" }, { status: 500 });
     }
 
+    await withWaMessageLogScope({ businessSlug, sessionId }, async () => {
     if (mediaUrl) {
       await sendWhatsAppMediaMessage(
         parsed.phoneNumberId,
@@ -105,8 +107,9 @@ export async function POST(req: NextRequest) {
       session_id: sessionId,
       error_code: null,
     });
+    });
 
-    return NextResponse.json({ ok: true, content: loggedContent });
+    return NextResponse.json({ ok: true, content: mediaUrl ? formatManualMediaMessageContent(mediaUrl, text) : text });
   } catch (e) {
     console.error("[api/whatsapp/manual-send] failed:", e);
     return NextResponse.json({ error: "manual_send_failed" }, { status: 500 });

@@ -279,6 +279,13 @@ export async function fetchRecentSessionMessages(input: {
 
 export async function logMessage(input: MessageLogInput) {
   try {
+    const { consumeWaOutboundIfLogged, noteWaLogInserted, shouldSkipDuplicateWaLog } = await import(
+      "@/lib/wa-message-log-context"
+    );
+    if (shouldSkipDuplicateWaLog(input.role, input.content)) {
+      if (input.role === "assistant") consumeWaOutboundIfLogged(input.content);
+      return;
+    }
     const supabase = createSupabaseAdminClient();
     const businessSlug = String(input.business_slug ?? "")
       .trim()
@@ -293,7 +300,10 @@ export async function logMessage(input: MessageLogInput) {
     });
     if (error) {
       console.error("[analytics] logMessage insert error:", error.message);
+      return;
     }
+    noteWaLogInserted(input.role, input.content);
+    if (input.role === "assistant") consumeWaOutboundIfLogged(input.content);
   } catch (e) {
     console.error("[analytics] logMessage failed:", e);
   }

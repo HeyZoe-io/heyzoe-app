@@ -14,6 +14,19 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { recordWaOutboundSent } from "@/lib/wa-message-log-context";
+
+function noteWaTextSent(text: string): void {
+  const t = String(text ?? "").trim();
+  if (t) recordWaOutboundSent(t);
+}
+
+function noteWaMediaSent(url: string, caption?: string): void {
+  const u = url.trim();
+  if (!u) return;
+  const cap = String(caption ?? "").trim();
+  recordWaOutboundSent(cap ? `[media] ${u}\n\n${cap}` : `[media] ${u}`);
+}
 
 export type WaUiLanguage = BusinessContentLanguage;
 
@@ -867,12 +880,13 @@ export async function sendWhatsAppIdleFollowupMessage(
     const replyLabel = normalized.label.trim() || waFollowupReplyFallbackLabel(language);
     const interactive = buildMetaInteractivePayload(bodyText.trim(), [replyLabel], footClean || undefined, language);
     if (interactive) {
-      try {
-        await sendMetaWhatsAppMessage(fromNumber, to, interactive);
-        return;
-      } catch (e) {
-        console.warn("[WhatsApp idle followup] reply button send failed, falling back to plain text:", e);
-      }
+        try {
+          await sendMetaWhatsAppMessage(fromNumber, to, interactive);
+          noteWaTextSent(bodyText);
+          return;
+        } catch (e) {
+          console.warn("[WhatsApp idle followup] reply button send failed, falling back to plain text:", e);
+        }
     }
   }
 
@@ -897,6 +911,7 @@ export async function sendWhatsAppIdleFollowupMessage(
           language
         )
       );
+      noteWaTextSent(bodyText);
       return;
     } catch (e) {
       console.warn("[WhatsApp idle followup] cta_url send failed, falling back to plain text:", e);
@@ -984,6 +999,7 @@ export async function sendWhatsAppTextOrMenu(
       if (interactive) {
         try {
           await sendMetaWhatsAppMessage(fromNumber, to, interactive);
+          noteWaTextSent(withFooterPlain(baseBody));
           return;
         } catch (e) {
           // Meta interactive can fail if body text is too long (common with AI answers).
@@ -994,6 +1010,7 @@ export async function sendWhatsAppTextOrMenu(
             const interactiveRetry = buildMetaInteractivePayload(minimalBody, labels, footer || undefined, language);
             if (interactiveRetry) {
               await sendMetaWhatsAppMessage(fromNumber, to, interactiveRetry);
+              noteWaTextSent(withFooterPlain(minimalBody));
               return;
             }
           } catch (e2) {
@@ -1006,6 +1023,7 @@ export async function sendWhatsAppTextOrMenu(
       type: "text",
       text: withFooterPlain(baseBody),
     });
+    noteWaTextSent(withFooterPlain(baseBody));
     return;
   }
 
@@ -1032,6 +1050,7 @@ export async function sendWhatsAppMessage(
   const metaToken = resolveMetaAccessToken();
   if (isMetaCloudPhoneNumberId(fromNumber) && metaToken) {
     await sendMetaWhatsAppMessage(fromNumber, to, { type: "text", text });
+    noteWaTextSent(text);
     return;
   }
 
@@ -1055,6 +1074,7 @@ export async function sendWhatsAppMessage(
     const err = await res.text().catch(() => "");
     throw new Error(`[Twilio send] ${res.status} ${res.statusText}: ${err}`);
   }
+  noteWaTextSent(text);
 }
 
 function inferMediaIsVideo(
@@ -1250,6 +1270,7 @@ export async function sendWhatsAppMediaMessage(
           isVideo,
           caption
         );
+        noteWaMediaSent(cleanUrl, caption);
         return;
       } catch (linkErr) {
         console.warn("[Meta WA media] link send failed, trying upload:", linkErr);
@@ -1265,6 +1286,7 @@ export async function sendWhatsAppMediaMessage(
       mediaKind,
       caption
     );
+    noteWaMediaSent(cleanUrl, caption);
     return;
   }
 
@@ -1289,4 +1311,5 @@ export async function sendWhatsAppMediaMessage(
     const err = await res.text().catch(() => "");
     throw new Error(`[Twilio send media] ${res.status} ${res.statusText}: ${err}`);
   }
+  noteWaMediaSent(cleanUrl, caption);
 }

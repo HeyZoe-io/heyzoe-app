@@ -399,6 +399,7 @@ import {
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
+import { beginWaMessageLogScope, endWaMessageLogScope } from "@/lib/wa-message-log-context";
 import {
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
@@ -5092,6 +5093,20 @@ async function processIncoming(
   }
 
   const { business_slug } = channel;
+  const inboundSessionId = buildWaSessionId(msg.toNumber, msg.from);
+  beginWaMessageLogScope({ businessSlug: business_slug, sessionId: inboundSessionId });
+  try {
+  if (!processOpts?.skipUserLog && msg.type === "text") {
+    const inboundText = String(msg.text ?? "").trim();
+    if (inboundText) {
+      await logMessage({
+        business_slug,
+        role: "user",
+        content: inboundText,
+        session_id: inboundSessionId,
+      });
+    }
+  }
   const channelActive = (channel as { is_active?: boolean }).is_active === true;
 
   const nowIso = new Date().toISOString();
@@ -10724,5 +10739,8 @@ async function processIncoming(
         );
       }
     }
+  }
+  } finally {
+    await endWaMessageLogScope();
   }
 }

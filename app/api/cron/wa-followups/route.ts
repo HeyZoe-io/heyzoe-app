@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage, sessionHasSalesFlowGreeting } from "@/lib/analytics";
+import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import {
   sendWhatsAppIdleFollowupMessage,
@@ -713,6 +714,7 @@ export async function GET(req: NextRequest) {
         session_phase: sessionPhase || null,
       });
 
+      await withWaMessageLogScope({ businessSlug: business_slug, sessionId }, async () => {
       await sendWhatsAppIdleFollowupMessage(
         phoneNumberId,
         phone,
@@ -733,6 +735,7 @@ export async function GET(req: NextRequest) {
         content: logContent,
         model_used: `wa_followup_${nextStage}`,
         session_id: sessionId,
+      });
       });
 
       const nowIso = new Date().toISOString();

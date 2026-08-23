@@ -1,4 +1,5 @@
 import { fetchLastSfServiceEventName, logMessage } from "@/lib/analytics";
+import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
 import { planIsStarter } from "@/lib/conversation-quota";
@@ -241,6 +242,7 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const authToken = resolveTwilioAuthToken();
   const starterBlocksMedia = planIsStarter(input.businessPlan);
 
+  return await withWaMessageLogScope({ businessSlug, sessionId }, async () => {
   try {
     const directionsMediaUrl = knowledge.directionsMediaUrl?.trim() ?? "";
     const sendDirectionsMedia =
@@ -306,4 +308,5 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     });
     return { sent: false, reason: "send_failed" };
   }
+  });
 }
