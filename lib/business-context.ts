@@ -27,6 +27,7 @@ import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-f
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { detectMessageLanguage } from "@/lib/language-detect";
+import { WA_MAX_PRODUCTS } from "@/lib/trial-service";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 import {
   FACT_QUOTE_RULES,
@@ -361,7 +362,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         const meta = parseServiceMeta(String(s.description ?? ""));
         return { name, offer_kind: offerKindFromServiceMeta(meta) };
       })
-      .filter((x): x is { name: string; offer_kind: OfferKind } => x !== null);
+      .filter((x): x is { name: string; offer_kind: OfferKind } => x !== null)
+      .slice(0, WA_MAX_PRODUCTS);
     const serviceNamesForOpening = openingServices.map((r) => r.name);
 
     const membershipsUrl =
@@ -440,7 +442,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
-      salesFlowServices: salesFlowConfig ? parseSfServiceRows(services ?? []).slice(0, 24) : [],
+      salesFlowServices: salesFlowConfig ? parseSfServiceRows(services ?? []).slice(0, WA_MAX_PRODUCTS) : [],
       instagramUrl,
       promotionsText,
       traits: traitsList,

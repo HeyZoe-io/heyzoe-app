@@ -187,6 +187,8 @@ export const dashboardSettingsI18n = {
       scanArboxFailed: "סריקת מערכת השעות מארבוקס נכשלה. נסו שוב.",
       productList: "רשימת מוצרים",
       productListWhatsAppCap: "עד 10 מוצרים (תקנון ווטסאפ)*",
+      overflowNotInChat:
+        "לא יופיעו בצ׳אט בפועל — עד 10 מוצרים (מגבלת ווטסאפ)",
       items: (n: number) => `${n} פריטים`,
       openProduct: "פתח פרטי מוצר",
       closeProduct: "סגור פרטי מוצר",
@@ -676,6 +678,7 @@ export const dashboardSettingsI18n = {
       scanArboxFailed: "Arbox timetable scan failed. Try again.",
       productList: "Product list",
       productListWhatsAppCap: "Up to 10 products (WhatsApp policy)*",
+      overflowNotInChat: "Won't appear in the chat — up to 10 products (WhatsApp limit)",
       items: (n: number) => `${n} items`,
       openProduct: "Open product details",
       closeProduct: "Close product details",

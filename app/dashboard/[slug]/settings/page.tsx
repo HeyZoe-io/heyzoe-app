@@ -38,7 +38,7 @@ import {
   trialServicePhraseForAfterPick,
   patchWarmupRegenerationForOfferKind,
 } from "@/lib/sales-flow";
-import { truncateTrialServiceName, WA_MAX_PRODUCTS } from "@/lib/trial-service";
+import { DASHBOARD_MAX_PRODUCTS, truncateTrialServiceName } from "@/lib/trial-service";
 import {
   createEmptyCourseCycle,
   migrateLegacyCourseToCycles,
@@ -1065,7 +1065,7 @@ function mergeTrialServicesWithScannedProducts(
 ): ServiceItem[] {
   if (!Array.isArray(products) || products.length === 0) return existing;
 
-  const slice = products.slice(0, 8).map((raw) => raw as Record<string, unknown>);
+  const slice = products.map((raw) => raw as Record<string, unknown>);
   const existingKeys = new Set<string>();
   for (const svc of existing) {
     const k = trialServiceMatchKey(svc.name);
@@ -1076,7 +1076,7 @@ function mergeTrialServicesWithScannedProducts(
   const addedFromScanKeys = new Set<string>();
 
   for (const raw of slice) {
-    if (existing.length + appended.length >= WA_MAX_PRODUCTS) break;
+    if (existing.length + appended.length >= DASHBOARD_MAX_PRODUCTS) break;
     const k = trialServiceMatchKey(String(raw.name ?? ""));
     if (k && existingKeys.has(k)) continue;
     if (k && addedFromScanKeys.has(k)) continue;

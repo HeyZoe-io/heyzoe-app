@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, GripVertical, Link, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import {
   SalesPathStepShell,
   useSalesPathSections,
 } from "./sales-path-shell";
-import { TRIAL_SERVICE_NAME_MAX_CHARS, WA_MAX_PRODUCTS } from "@/lib/trial-service";
+import { isWhatsAppChatOverflowIndex, TRIAL_SERVICE_NAME_MAX_CHARS, WA_MAX_PRODUCTS } from "@/lib/trial-service";
 import { type OfferKind } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT, type DashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -631,12 +631,26 @@ export default function Step3Trial(props: {
             <div className="space-y-2">
         {services.map((s, i) => {
           const productOpen = isProductOpen(s);
+          const overflow = isWhatsAppChatOverflowIndex(i);
           return (
+          <Fragment key={s.ui_id}>
+          {i === WA_MAX_PRODUCTS ? (
+            <p
+              className="px-1 pt-3 text-[12px] font-semibold leading-snug text-zinc-500"
+              dir={dashboardDir(lang)}
+            >
+              {t.products.overflowNotInChat}
+            </p>
+          ) : null}
           <article
             id={`product-card-${s.ui_id}`}
-            key={s.ui_id}
             onDragOver={(e) => onDragOver(e, i)}
-            className="overflow-hidden rounded-xl border border-zinc-200/80 bg-white transition-colors hover:border-[#7133da]/25"
+            className={cn(
+              "overflow-hidden rounded-xl border bg-white transition-colors",
+              overflow
+                ? "border-zinc-200/70 opacity-55"
+                : "border-zinc-200/80 hover:border-[#7133da]/25"
+            )}
           >
             <div
               className="flex flex-wrap items-center justify-between gap-2 bg-zinc-50/60 px-2 py-2 sm:px-3 sm:py-2.5"
@@ -1398,6 +1412,7 @@ export default function Step3Trial(props: {
             </div>
             ) : null}
           </article>
+          </Fragment>
           );
         })}
             </div>
