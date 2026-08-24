@@ -1,7 +1,4 @@
-type AlsLike<T> = {
-  getStore: () => T | undefined;
-  enterWith: (value: T) => void;
-};
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export type WaMessageLogScope = {
   businessSlug: string;
@@ -12,21 +9,7 @@ export type WaMessageLogScope = {
   loggedAssistant: string[];
 };
 
-function createAls<T>(): AlsLike<T> {
-  // Client bundles import this via lib/whatsapp.ts — no node:async_hooks.
-  if (typeof window !== "undefined") {
-    return { getStore: () => undefined, enterWith: () => {} };
-  }
-  let current: T | undefined;
-  return {
-    getStore: () => current,
-    enterWith: (value) => {
-      current = value;
-    },
-  };
-}
-
-const als = createAls<WaMessageLogScope>();
+const storage = new AsyncLocalStorage<WaMessageLogScope>();
 
 export function normalizeWaLogContent(content: string): string {
   return String(content ?? "")
@@ -34,10 +17,19 @@ export function normalizeWaLogContent(content: string): string {
     .replace(/\s+/g, " ");
 }
 
+/** Dashboard log adds `[כפתורים: …]` — the Meta send body does not. */
+function stripWaLogDecorations(raw: string): string {
+  return normalizeWaLogContent(
+    String(raw ?? "")
+      .replace(/\n*\[[^\]]{0,80}:[^\]]*\]/g, "")
+      .replace(/\n*_לביטול קבלת הודעות שלח \*הסר\*_/g, "")
+  );
+}
+
 /** Exact match, containment (min 16 chars), or shared prefix (48 chars) — same send logged with extra footer/buttons. */
 export function waOutboundLogMatches(a: string, b: string): boolean {
-  const x = normalizeWaLogContent(a);
-  const y = normalizeWaLogContent(b);
+  const x = stripWaLogDecorations(a);
+  const y = stripWaLogDecorations(b);
   if (!x || !y) return false;
   if (x === y) return true;
   if (x.length >= 16 && y.length >= 16 && (x.includes(y) || y.includes(x))) return true;
@@ -57,47 +49,70 @@ function newScope(businessSlug: string, sessionId: string): WaMessageLogScope {
 }
 
 export function getWaMessageLogScope(): WaMessageLogScope | undefined {
-  return als.getStore();
+  return storage.getStore();
 }
 
-export function beginWaMessageLogScope(input: { businessSlug: string; sessionId: string }): void {
+function parseScopeInput(input: { businessSlug: string; sessionId: string }): {
+  slug: string;
+  sessionId: string;
+} | null {
   const slug = String(input.businessSlug ?? "")
     .trim()
     .toLowerCase();
   const sessionId = String(input.sessionId ?? "").trim();
-  if (!slug || !sessionId) return;
-  const existing = als.getStore();
+  if (!slug || !sessionId) return null;
+  return { slug, sessionId };
+}
+
+/**
+ * Sequential tests / legacy callers. Concurrent requests must use `withWaMessageLogScope`
+ * (`AsyncLocalStorage.run`) — `enterWith` is not request-isolated.
+ */
+export function beginWaMessageLogScope(input: { businessSlug: string; sessionId: string }): void {
+  const parsed = parseScopeInput(input);
+  if (!parsed) return;
+  const existing = storage.getStore();
   if (existing) {
-    if (existing.businessSlug === slug && existing.sessionId === sessionId) {
+    if (existing.businessSlug === parsed.slug && existing.sessionId === parsed.sessionId) {
       existing.depth += 1;
       return;
     }
-    console.warn("[wa-message-log] nested scope mismatch — reusing parent", {
+    console.warn("[wa-message-log] nested scope mismatch — not reusing parent", {
       parent_slug: existing.businessSlug,
       parent_session: existing.sessionId,
-      child_slug: slug,
-      child_session: sessionId,
+      child_slug: parsed.slug,
+      child_session: parsed.sessionId,
     });
-    existing.depth += 1;
-    return;
   }
-  als.enterWith(newScope(slug, sessionId));
+  storage.enterWith(newScope(parsed.slug, parsed.sessionId));
 }
 
 export async function withWaMessageLogScope<T>(
   input: { businessSlug: string; sessionId: string },
   fn: () => Promise<T>
 ): Promise<T> {
-  beginWaMessageLogScope(input);
-  try {
-    return await fn();
-  } finally {
-    await endWaMessageLogScope();
+  const parsed = parseScopeInput(input);
+  if (!parsed) return await fn();
+  const parent = storage.getStore();
+  if (parent && parent.businessSlug === parsed.slug && parent.sessionId === parsed.sessionId) {
+    parent.depth += 1;
+    try {
+      return await fn();
+    } finally {
+      await endWaMessageLogScope();
+    }
   }
+  return await storage.run(newScope(parsed.slug, parsed.sessionId), async () => {
+    try {
+      return await fn();
+    } finally {
+      await endWaMessageLogScope();
+    }
+  });
 }
 
 export function recordWaOutboundSent(content: string): void {
-  const store = als.getStore();
+  const store = storage.getStore();
   if (!store) return;
   const text = String(content ?? "").trim();
   if (!text) return;
@@ -112,7 +127,7 @@ if (typeof window === "undefined") {
 }
 
 export function shouldSkipDuplicateWaLog(role: string, content: string): boolean {
-  const store = als.getStore();
+  const store = storage.getStore();
   if (!store) return false;
   const text = String(content ?? "").trim();
   if (!text) return false;
@@ -127,7 +142,7 @@ export function shouldSkipDuplicateWaLog(role: string, content: string): boolean
 }
 
 export function noteWaLogInserted(role: string, content: string): void {
-  const store = als.getStore();
+  const store = storage.getStore();
   if (!store) return;
   const text = String(content ?? "").trim();
   if (!text) return;
@@ -136,7 +151,7 @@ export function noteWaLogInserted(role: string, content: string): void {
 }
 
 export function consumeWaOutboundIfLogged(content: string): void {
-  const store = als.getStore();
+  const store = storage.getStore();
   if (!store) return;
   const text = String(content ?? "").trim();
   if (!text) return;
@@ -144,7 +159,7 @@ export function consumeWaOutboundIfLogged(content: string): void {
 }
 
 export async function endWaMessageLogScope(): Promise<void> {
-  const store = als.getStore();
+  const store = storage.getStore();
   if (!store) return;
   store.depth -= 1;
   if (store.depth > 0) return;

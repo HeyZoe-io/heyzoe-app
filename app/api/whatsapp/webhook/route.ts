@@ -415,7 +415,7 @@ import {
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
-import { beginWaMessageLogScope, endWaMessageLogScope } from "@/lib/wa-message-log-context";
+import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import {
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
@@ -5068,6 +5068,8 @@ type ProcessIncomingOpts = {
   skipUserLog?: boolean;
   userMessagesThroughIso?: string;
   pickupDepth?: number;
+  /** Inner call already inside `withWaMessageLogScope` — do not wrap again. */
+  logScopeReady?: boolean;
 };
 
 async function processIncoming(
@@ -5178,8 +5180,15 @@ async function processIncoming(
 
   const { business_slug } = channel;
   const inboundSessionId = buildWaSessionId(msg.toNumber, msg.from);
-  beginWaMessageLogScope({ businessSlug: business_slug, sessionId: inboundSessionId });
-  try {
+  if (!processOpts?.logScopeReady) {
+    await withWaMessageLogScope({ businessSlug: business_slug, sessionId: inboundSessionId }, () =>
+      processIncoming(msg, accountSid, authToken, ctwaClid, {
+        ...processOpts,
+        logScopeReady: true,
+      })
+    );
+    return;
+  }
   if (!processOpts?.skipUserLog && msg.type === "text") {
     const inboundText = String(msg.text ?? "").trim();
     if (inboundText) {
@@ -10939,12 +10948,10 @@ async function processIncoming(
             skipUserLog: true,
             userMessagesThroughIso: throughIso,
             pickupDepth: depth + 1,
+            logScopeReady: true,
           }
         );
       }
     }
-  }
-  } finally {
-    await endWaMessageLogScope();
   }
 }
