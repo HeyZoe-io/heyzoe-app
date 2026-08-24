@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import {
   isKnowledgeGapAssistantText,
+  looksLikeOperationalNeedNotKnowledge,
+  looksLikeKnowledgeSeekingUserText,
   looksLikeScheduleRequest,
   parseMessageUuid,
   pickKnowledgeGapQuestion,
   resolveKnowledgeGapKind,
+  shouldIncludeKnowledgeGap,
 } from "@/lib/analytics-knowledge-gaps";
 import { WA_UNCLEAR_CLARIFY_HE } from "@/lib/wa-unclear-intent";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
@@ -213,6 +216,86 @@ assert.equal(
 assert.equal(
   resolveKnowledgeGapKind({ question: "יש מזגן בסטודיו?", modelUsed: "claude-haiku-4-5" }),
   "question"
+);
+
+assert.equal(looksLikeOperationalNeedNotKnowledge("אני לא ממלאת שוב מההתחלה"), true);
+assert.equal(looksLikeOperationalNeedNotKnowledge("אני לא ממלאת שוב"), true);
+assert.equal(looksLikeOperationalNeedNotKnowledge("הטופס נמחק"), true);
+assert.equal(looksLikeOperationalNeedNotKnowledge("תתקשרו"), true);
+assert.equal(looksLikeOperationalNeedNotKnowledge("יש מזגן בסטודיו?"), false);
+assert.equal(
+  looksLikeOperationalNeedNotKnowledge(
+    "הי, יש מצב שאני אעביר קצת שיעורים מחודש הבא לחודש הזה?"
+  ),
+  false
+);
+assert.equal(looksLikeKnowledgeSeekingUserText("יש מזגן בסטודיו?"), true);
+assert.equal(looksLikeKnowledgeSeekingUserText("אני לא ממלאת שוב מההתחלה"), false);
+
+const formRefillThenHandoff = [
+  {
+    role: "user",
+    content: "אוקי איך משלמים?",
+    createdAt: "2026-08-24T10:39:00.000Z",
+  },
+  {
+    role: "assistant",
+    content: "הנה הקישור לתשלום: https://arbox.link/example",
+    createdAt: "2026-08-24T10:39:05.000Z",
+  },
+  {
+    role: "user",
+    content: "הטופס נמחק",
+    createdAt: "2026-08-24T10:42:00.000Z",
+  },
+  {
+    role: "user",
+    content: "אני לא ממלאת שוב מההתחלה",
+    createdAt: "2026-08-24T10:42:04.000Z",
+  },
+  {
+    role: "user",
+    content: "תתקשרו",
+    createdAt: "2026-08-24T10:42:08.000Z",
+  },
+  {
+    role: "assistant",
+    content:
+      "מצטערת לשמוע! זה משהו שצריך לברר מול הצוות. אני מעבירה את הפנייה שלך ויצרו איתך קשר בקרוב 💜",
+    createdAt: "2026-08-24T10:42:12.000Z",
+  },
+];
+assert.equal(pickKnowledgeGapQuestion(formRefillThenHandoff, "2026-08-24T10:42:12.000Z"), "");
+assert.equal(
+  shouldIncludeKnowledgeGap({
+    question: "אני לא ממלאת שוב מההתחלה",
+    assistantContent:
+      "מצטערת לשמוע! זה משהו שצריך לברר מול הצוות. אני מעבירה את הפנייה שלך ויצרו איתך קשר בקרוב 💜",
+  }),
+  false
+);
+assert.equal(
+  shouldIncludeKnowledgeGap({
+    question: "הי, יש מצב שאני אעביר קצת שיעורים מחודש הבא לחודש הזה?",
+    assistantContent:
+      "מצטערת לשמוע! זה משהו שצריך לברר מול הצוות. אני מעבירה את הפנייה שלך ויצרו איתך קשר בקרוב 💜",
+  }),
+  true
+);
+assert.equal(
+  shouldIncludeKnowledgeGap({
+    question: "יש מזגן בסטודיו?",
+    assistantContent: "אין לי את הפרטים על כך.",
+  }),
+  true
+);
+assert.equal(
+  shouldIncludeKnowledgeGap({
+    question:
+      "בוביק היי.אני מנסה לחייב את הדיינרס שלי על חיוב שלא בוצע כי ביטלתי את הכרטיס",
+    assistantContent: "זה משהו שצריך לברר מול הצוות",
+  }),
+  false
 );
 
 console.log("analytics-knowledge-gaps.test.ts: ok");

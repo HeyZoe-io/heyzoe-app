@@ -9,9 +9,10 @@ import { FREEZE_BILLING_HANDOFF_MODEL } from "@/lib/wa-freeze-billing-handoff";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
 import { isUnclearClarifyAsk } from "@/lib/wa-unclear-intent";
+import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 
-/** ניסוחי חוסר-ידע של זואי (עברית + אנגלית) — לא כולל מגבלת 24ש׳ / redirect כללי. */
-export const KNOWLEDGE_GAP_NEEDLES = [
+/** זואי אמרה שאין לה מידע — שאלה להוסיף לידע. */
+const EXPLICIT_KNOWLEDGE_GAP_NEEDLES = [
   "אין לי את הפרטים",
   "אין לי כרגע מידע",
   "אין לי כרגע את המידע",
@@ -20,14 +21,24 @@ export const KNOWLEDGE_GAP_NEEDLES = [
   "לא מצאתי את המידע",
   "לא מצאתי מידע",
   "אני מתנצלת, אין לי",
-  "זה משהו שצריך לברר מול הצוות",
-  "צריך לברר מול הצוות",
   "i don't have the details",
   "i don't currently have information",
   "i don't have information",
   "i don't have the membership pricing details",
   "i couldn't find the information",
   "i could not find the information",
+] as const;
+
+/** העברה לצוות — חוסר ידע רק אם הליד שאל שאלה, לא אם זואי זיהתה צורך תפעולי. */
+const TEAM_HANDOFF_KNOWLEDGE_GAP_NEEDLES = [
+  "זה משהו שצריך לברר מול הצוות",
+  "צריך לברר מול הצוות",
+] as const;
+
+/** ניסוחי חוסר-ידע של זואי (עברית + אנגלית) — לא כולל מגבלת 24ש׳ / redirect כללי. */
+export const KNOWLEDGE_GAP_NEEDLES = [
+  ...EXPLICIT_KNOWLEDGE_GAP_NEEDLES,
+  ...TEAM_HANDOFF_KNOWLEDGE_GAP_NEEDLES,
 ] as const;
 
 export const KNOWLEDGE_GAP_NO_DETAILS_MODEL = "knowledge_gap_no_details";
@@ -165,6 +176,65 @@ function looksLikeRescheduleRequest(content: string): boolean {
   );
 }
 
+/** הערה/צורך לשירות לקוחות — לא שאלה להוסיף לידע. */
+export function looksLikeOperationalNeedNotKnowledge(content: string): boolean {
+  const t = String(content ?? "").trim();
+  if (!t) return false;
+  if (userRequestedHumanAgent(t)) return true;
+  if (/טופס.{0,40}(?:נמחק|נעלם|התאפס|לא עובד)/u.test(t)) return true;
+  if (/(?:לא|אין מצב ש)(?:\s+\S+){0,6}\s*ממלא[תם]?/u.test(t)) return true;
+  if (/ממלא[תם]?.{0,24}(?:שוב|מחדש|מההתחלה)/u.test(t)) return true;
+  if (/\b(?:not filling|won['’]?t fill).{0,32}(?:again|from (?:the )?start)/i.test(t)) {
+    return true;
+  }
+  if (/\bform\b.{0,24}(?:deleted|disappeared|reset|gone|wiped)/i.test(t)) return true;
+  return false;
+}
+
+/** שאלה / בקשת מידע — לא תלונה, לא «תתקשרו». */
+export function looksLikeKnowledgeSeekingUserText(content: string): boolean {
+  const t = String(content ?? "").trim();
+  if (!t) return false;
+  if (looksLikeOperationalNeedNotKnowledge(t)) return false;
+  if (QUESTION_MARK_RE.test(t)) return true;
+  if (INTERROGATIVE_RE.test(t)) return true;
+  if (/יש מצב|^(?:אפשר|ניתן)\s|רוצה לדעת|כמה עולה|מחיר(?:ים)? של|מדיניות/u.test(t)) {
+    return true;
+  }
+  if (/\b(?:can i|is there|how (?:do|can|much)|tell me)\b/i.test(t)) return true;
+  return false;
+}
+
+function assistantTextIsExplicitKnowledgeGap(
+  content: string,
+  modelUsed?: string | null
+): boolean {
+  const model = String(modelUsed ?? "").trim();
+  if (model && KNOWLEDGE_GAP_MODELS.has(model)) return true;
+  const lower = String(content ?? "").trim().toLowerCase();
+  if (!lower) return false;
+  return EXPLICIT_KNOWLEDGE_GAP_NEEDLES.some((n) => lower.includes(n.toLowerCase()));
+}
+
+/**
+ * האם להציג ב«מידע ששווה להוסיף».
+ * «אין לי את הפרטים» = חוסר ידע. «מעבירה לצוות» = רק אם הליד שאל שאלה.
+ */
+export function shouldIncludeKnowledgeGap(input: {
+  question: string;
+  assistantContent: string;
+  modelUsed?: string | null;
+}): boolean {
+  const question = String(input.question ?? "").trim();
+  if (!question) return false;
+  if (looksLikeOperationalNeedNotKnowledge(question)) return false;
+  if (looksLikeScheduleRequest(question) || looksLikeRescheduleRequest(question)) return false;
+  if (assistantTextIsExplicitKnowledgeGap(input.assistantContent, input.modelUsed)) {
+    return true;
+  }
+  return looksLikeKnowledgeSeekingUserText(question);
+}
+
 function isUsableUserQuestion(content: string): boolean {
   const q = String(content ?? "").trim();
   if (!q) return false;
@@ -204,6 +274,14 @@ export function pickKnowledgeGapQuestion(
         replyToClarify = true;
         break;
       }
+    }
+    if (looksLikeOperationalNeedNotKnowledge(q)) {
+      if (replyToClarify) {
+        if (!fallback) fallback = q;
+        continue;
+      }
+      // צורך לשירות לקוחות — לא ללכת אחורה לשאלה ישנה בשיחה.
+      return "";
     }
     if (replyToClarify) {
       if (!fallback) fallback = q;
@@ -331,6 +409,15 @@ export async function findKnowledgeGaps(input: {
     const msgs = bySession.get(gap.sessionId) ?? [];
     const question = pickKnowledgeGapQuestion(msgs, gap.createdAt);
     if (!question) continue;
+    if (
+      !shouldIncludeKnowledgeGap({
+        question,
+        assistantContent: gap.content,
+        modelUsed: gap.modelUsed,
+      })
+    ) {
+      continue;
+    }
     const kind = resolveKnowledgeGapKind({ question, modelUsed: gap.modelUsed });
     if (kind === "schedule_request") continue;
     out.push({
