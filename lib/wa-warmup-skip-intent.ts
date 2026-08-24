@@ -5,6 +5,7 @@ import {
   matchesComposableTrialSignupIntent,
   normalizeTrialSignupIntentText,
 } from "@/lib/wa-trial-signup-intent";
+import { matchesTryClassIntent } from "@/lib/wa-try-class-offer";
 
 export type WarmupSkipPhase = "opening" | "warmup";
 
@@ -137,6 +138,7 @@ export function isWarmupSkipIntentText(raw: string, phase: WarmupSkipPhase): boo
   if (matchesGroupDDirectInfo(t)) return true;
   if (matchesGroupCRegistration(t)) return true;
   if (matchesClassInterestFlowStart(raw)) return true;
+  if (matchesTryClassIntent(raw)) return true;
   if (phase === "warmup" && matchesWarmupOnlyHowToStart(t)) return true;
   return false;
 }

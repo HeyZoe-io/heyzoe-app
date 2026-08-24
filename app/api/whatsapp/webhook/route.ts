@@ -291,6 +291,20 @@ import {
   SIGNUP_INTENT_FLOW_ENTRY_MODEL,
   type WarmupSkipPhase,
 } from "@/lib/wa-warmup-skip-intent";
+import {
+  isTryClassOfferAffirmative,
+  isTryClassOfferNegative,
+  matchesTryClassIntent,
+  resolveTryClassOfferLang,
+  shouldDeclineTryClassOffer,
+  shouldSendTryClassInfoOffer,
+  shouldStartProductPickAfterTryClassOffer,
+  tryClassInfoOfferDeclineReply,
+  tryClassInfoOfferLabels,
+  tryClassInfoOfferQuestion,
+  TRY_CLASS_OFFER_DECLINE_MODEL,
+  TRY_CLASS_OFFER_MODEL,
+} from "@/lib/wa-try-class-offer";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
 import {
   salesFlowOpeningResetPatch,
@@ -2563,6 +2577,72 @@ async function sendOpeningServicePickMenu(input: {
     session_id: input.sessionId,
   });
   return true;
+}
+
+async function sendTryClassInfoOffer(input: {
+  knowledge: BusinessKnowledgePack;
+  inbound: string;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const lang = resolveTryClassOfferLang(
+    input.inbound,
+    resolveBusinessContentLanguageFromKnowledge(input.knowledge)
+  );
+  const question = tryClassInfoOfferQuestion(lang);
+  const labels = [...tryClassInfoOfferLabels(lang)];
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  try {
+    await sendWhatsAppTextOrMenu(
+      input.msg.toNumber,
+      input.msg.from,
+      question,
+      labels,
+      input.accountSid,
+      input.authToken,
+      { footerHint: menuFooter, language: lang }
+    );
+  } catch (e) {
+    console.error("[WA Webhook] Send try-class info offer failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: formatInteractiveConversationLog(question, labels, menuFooter),
+    model_used: TRY_CLASS_OFFER_MODEL,
+    session_id: input.sessionId,
+  });
+}
+
+async function sendTryClassInfoOfferDecline(input: {
+  knowledge: BusinessKnowledgePack;
+  inbound: string;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const lang = resolveTryClassOfferLang(
+    input.inbound,
+    resolveBusinessContentLanguageFromKnowledge(input.knowledge)
+  );
+  const txt = tryClassInfoOfferDeclineReply(lang);
+  try {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken);
+  } catch (e) {
+    console.error("[WA Webhook] Send try-class info offer decline failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: txt,
+    model_used: TRY_CLASS_OFFER_DECLINE_MODEL,
+    session_id: input.sessionId,
+  });
 }
 
 /** טקסט חופשי — אימון אחר ממה שנבחר בכפתורים: אישור + תפריט באותה הודעה; איפוס מועד. */
@@ -5990,6 +6070,100 @@ async function processIncoming(
       session_id: sessionId,
     });
     return;
+  }
+
+  // Soft «אשמח לנסות / אפשר לנסות שיעור» out of flow: ask before dumping product pick.
+  // Hard signup («להירשם») still enters immediately below.
+  if (msg.type === "text" && businessId && knowledge?.salesFlowConfig) {
+    const inboundTry = matchesTryClassIntent(msg.text);
+    const inboundYes = isTryClassOfferAffirmative(msg.text);
+    const inboundNo = isTryClassOfferNegative(msg.text);
+    if (inboundTry || inboundYes || inboundNo) {
+      const lastAssistForTryOffer = await fetchLastAssistantModelUsed({
+        business_slug,
+        session_id: sessionId,
+      });
+      if (
+        shouldStartProductPickAfterTryClassOffer({
+          inbound: msg.text,
+          lastAssistantModel: lastAssistForTryOffer,
+        }) &&
+        !detectClosedPlaybookIntent(msg.text)
+      ) {
+      try {
+        await resetContactSalesFlowStateForGreeting({
+          supabase,
+          businessId,
+          phone: msg.from,
+        });
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: "[heyzoe:signup_intent_flow_entry]",
+          model_used: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+          session_id: sessionId,
+        });
+        await advanceAfterWarmupSessionComplete({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          trialRegistered: false,
+          allowTrialCta: true,
+          sfConsumedKinds: [],
+          instagramFollowPromptSent: false,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] try-class offer → product pick failed:", e);
+      }
+      return;
+    }
+    if (shouldDeclineTryClassOffer({ inbound: msg.text, lastAssistantModel: lastAssistForTryOffer })) {
+      await sendTryClassInfoOfferDecline({
+        knowledge,
+        inbound: msg.text,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+    if (inboundTry) {
+      const salesFlowStartedForTryOffer = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+      if (
+        shouldSendTryClassInfoOffer({
+          inbound: msg.text,
+          salesFlowStarted: salesFlowStartedForTryOffer,
+          trialRegistered: contactTrialRegistered,
+          sessionPhase: contactSessionPhase,
+        }) &&
+        !detectClosedPlaybookIntent(msg.text)
+      ) {
+        try {
+          await sendTryClassInfoOffer({
+            knowledge,
+            inbound: msg.text,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] try-class info offer failed:", e);
+        }
+        return;
+      }
+    }
+    }
   }
 
   // Out-of-flow «איך נרשמים / רוצה להירשם לשיעור ניסיון» — start sales flow at product pick
