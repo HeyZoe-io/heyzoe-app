@@ -122,4 +122,31 @@ const fakeSchedule = applyKnownAssistantReplyFixes(
 assert.doesNotMatch(fakeSchedule, /תישלח כאן|\[תמונה/);
 assert.match(fakeSchedule, /תיאום הגעה/);
 
+const inventedSlot = applyKnownAssistantReplyFixes(
+  "💜 בכל עת שתצטרכי - אני כאן. נשמח לראותך בחומש בשמונה!",
+  { knowledge }
+);
+assert.match(inventedSlot, /בכל עת שתצטרכי/);
+assert.doesNotMatch(inventedSlot, /חומש|שמונה|נשמח לראותך/);
+
+const inventedThursday = applyKnownAssistantReplyFixes(
+  "נשמח לראותך ביום חמישי בשעה 18:00",
+  { knowledge }
+);
+assert.equal(inventedThursday, "בכל עת שתצטרכי - אני כאן 💜");
+
+const keepSeeYouNoTime = applyKnownAssistantReplyFixes("מושלם! אנחנו פה גם בסופ״ש. נשמח לראותך.", {
+  knowledge,
+});
+assert.match(keepSeeYouNoTime, /נשמח לראותך/);
+
+const keepSeeYouInClass = applyKnownAssistantReplyFixes("נשמח לראותך בשיעור", { knowledge });
+assert.equal(keepSeeYouInClass, "נשמח לראותך בשיעור");
+
+const keepAfterRegSlot = applyKnownAssistantReplyFixes(
+  "מתרגשות לראותך בקרוב ברפורמר ביום רביעי בשעה 18:00",
+  { knowledge, trialRegistered: true }
+);
+assert.match(keepAfterRegSlot, /יום רביעי בשעה 18:00/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

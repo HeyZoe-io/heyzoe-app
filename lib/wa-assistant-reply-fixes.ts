@@ -288,6 +288,7 @@ export function buildWaSpellingAndPhrasingPromptRule(
 - אל תזמיני לבחירת אימון/שיעור ואל תפרטי רשימת אימונים — המערכת שולחת תפריט/שאלה בנפרד מיד אחרייך.
 - בלי להתפלסף: תשובות קצרות ולעניין. אם הליד לא מרגיש טוב - רק «מצטערת לשמוע, מאחלת החלמה מהירה!» (אסור «אני מבינה שזה מתסכל» / «קשה לעמוד בצד» / «ההשקעה הטובה ביותר»). עובדה מהידע: ישר «ניתן להקפיא…» בלי «הטוב שיש לנו מדיניות גמישה». בלבול בהקפאה/חיוב על מנוי קיים: משפט אמפתיה קצר והעברה לצוות — אסור «זה בדיוק משהו שצריך להתברר», אסור «חשוב שכל דבר יהיה על פי מה שביקשת». נכון: «זה משהו שצריך לברר מול הצוות». אם הליד מבקש מועד שכבר נקבע / ליומן ולא ברור אם מנוי או ניסיון — שאלי רק «היי! 👋 יש לך מנוי קיים אצלנו או שמדובר באימון ניסיון?». אם מנוי קיים: מעבירה לצוות, לא שולחת להתקשר לבד.
 - אם הליד משתף כוונה/עדכון בלי שאלה («אנסה להגיע בסופ״ש») - אישור קצר וחם בלבד. אסור שיעורי חיים («אל תתנגדי לעצמך») ואסור «בואי תרשמי» - המערכת שולחת CTA בנפרד.
+- אחרי תודה / «חושבת על זה» / שיתוף שקשה עכשיו: אמפתיה קצרה בלבד. אסור «נשמח לראותך ביום X בשעה Y» אלא אם הליד ממש נרשם למועד הזה בשיחה. הצעת מאמן בהיסטוריה אינה הרשמה.
 - איחור / בדרך לשיעור: רק «בסדר גמור אנחנו כאן.» אסור «בטוח שזה יעבוד», אסור «קח את הזמן».
 ${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון.` : ""}
 ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכבר נבחר אימון — ניסוח כמו: «${scheduleExample}» (לא «את מעניינת ב… תוכלי לבחור מהזמנים»).` : ""}`;
@@ -384,6 +385,37 @@ function applyIllnessPhilosophyFix(text: string): string {
   return `${ILLNESS_GET_WELL} ${s}`.trim();
 }
 
+/**
+ * «נשמח לראותך ביום X בשעה Y» בלי הרשמה — Claude ממציא מועד מהיסטוריה (הצעת מאמן וכו׳).
+ * אחרי הרשמה אמיתית (`trialRegistered`) לא חותכים.
+ */
+const HE_SEE_YOU_DAY =
+  String.raw`(?:יום\s+)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|חומש)|היום|מחרתיים|מחר`;
+const HE_SEE_YOU_HOUR =
+  String.raw`(?:\d{1,2}(?::\d{2})?|אחת[\s-]?עשרה|שתים[\s-]?עשרה|שתיים[\s-]?עשרה|אחת|שתיים|שתים|שלוש|ארבע|חמש|שש|שבע|שמונה|תשע|עשר)`;
+const FABRICATED_SEE_YOU_AT_SLOT_RE = new RegExp(
+  String.raw`(?:נשמח\s+לראות(?:ך|כם)|נתראה|מחכ(?:ה|ים|ות)\s+ל(?:ך|כם))\s+ב?(?:${HE_SEE_YOU_DAY})\s+(?:בשעה\s+|ב-?)${HE_SEE_YOU_HOUR}\s*[!.]?`,
+  "giu"
+);
+const FABRICATED_SEE_YOU_FALLBACK = "בכל עת שתצטרכי - אני כאן 💜";
+
+export function stripFabricatedSeeYouAtSlot(text: string): string {
+  let s = String(text ?? "").trim();
+  if (!s) return s;
+  FABRICATED_SEE_YOU_AT_SLOT_RE.lastIndex = 0;
+  if (!FABRICATED_SEE_YOU_AT_SLOT_RE.test(s)) return s;
+  FABRICATED_SEE_YOU_AT_SLOT_RE.lastIndex = 0;
+  s = s.replace(FABRICATED_SEE_YOU_AT_SLOT_RE, "").trim();
+  s = s
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,!?])/g, "$1")
+    .replace(/([.,!]){2,}/g, "$1")
+    .replace(/^\s*[-–—.]\s*/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return s || FABRICATED_SEE_YOU_FALLBACK;
+}
+
 /** שיעור-חיים / דחיפה להרשמה אחרי «אנסה להגיע» — לא תבנית; Claude ממציא. */
 const COACHING_SELF_RE =
   /אל\s+תתנגד(?:י|ו)?\s+לעצמ(?:ך|כם)|אל\s+תוות(?:ר|רי|רו)\s+על\s+עצמ(?:ך|כם)|תסמכ(?:י|ו)?\s+על\s+עצמ(?:ך|כם)|זה\s+הזמן\s+להשקיע\s+בעצמ(?:ך|כם)/iu;
@@ -467,6 +499,7 @@ export function applyKnownAssistantReplyFixes(
   s = stripFakeScheduleImagePlaceholders(s);
   s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
   if (input.trialRegistered !== true) {
+    s = stripFabricatedSeeYouAtSlot(s);
     s = stripPrematureAfterRegistration(s);
     s = ensureScheduleWhenConvenientQuestion(s);
   }
