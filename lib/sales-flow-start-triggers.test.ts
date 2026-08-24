@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   isCasualHiGreeting,
   isSalesFlowStartTrigger,
+  matchesSalesFlowRestartIntent,
   buildCasualHiGreetingReply,
   salesFlowGreetingMarkerCountsAsStarted,
 } from "@/lib/sales-flow-start-triggers";
@@ -23,6 +24,20 @@ assert.equal(isSalesFlowStartTrigger("רוצה פרטים"), true);
 assert.equal(isSalesFlowStartTrigger("מהתחלה"), true);
 assert.equal(isSalesFlowStartTrigger("התחלה"), true);
 assert.equal(isSalesFlowStartTrigger("להתחיל מהתחלה"), true);
+assert.equal(isSalesFlowStartTrigger("היי אפשר להתחיל את התפריט מהתחלה"), true);
+assert.equal(isSalesFlowStartTrigger("אפשר מהתחלה?"), true);
+assert.equal(isSalesFlowStartTrigger("להתחיל מחדש"), true);
+assert.equal(isSalesFlowStartTrigger("אפשר להתחיל מהתחלה"), true);
+assert.equal(isSalesFlowStartTrigger("אפשר להתחיל מחדש"), true);
+assert.equal(isSalesFlowStartTrigger("נתחיל מחדש"), true);
+assert.equal(isSalesFlowStartTrigger("בוא נתחיל מהתחלה"), true);
+assert.equal(matchesSalesFlowRestartIntent("היי אפשר להתחיל את התפריט מהתחלה"), true);
+assert.equal(matchesSalesFlowRestartIntent("אפשר מהתחלה?"), true);
+assert.equal(matchesSalesFlowRestartIntent("להתחיל מחדש"), true);
+assert.equal(matchesSalesFlowRestartIntent("להתחיל מהתחלה"), true);
+assert.equal(matchesSalesFlowRestartIntent("מהתחלה זה היה קשה לי"), false);
+assert.equal(matchesSalesFlowRestartIntent("רוצה להתחיל אימון"), false);
+assert.equal(isSalesFlowStartTrigger("רוצה להתחיל אימון"), false);
 assert.equal(isSalesFlowStartTrigger("בואו נתחיל"), true);
 assert.equal(isSalesFlowStartTrigger("בואו נתחיל!"), true);
 assert.equal(isSalesFlowStartTrigger("היי אשמח לפרטים"), true);

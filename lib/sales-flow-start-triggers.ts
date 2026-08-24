@@ -45,6 +45,32 @@ export function stripLeadingCasualGreeting(normalized: string): string {
   return normalized;
 }
 
+const RESTART_TAIL = String.raw`(?:מהה?תחלה|להתחלה|מחדש)`;
+const RESTART_POLITE = String.raw`(?:אפשר(?:\s+בבקשה)?|בבקשה|רוצה|אשמח)`;
+const RESTART_VERB = String.raw`(?:בוא(?:י|ו)?\s+)?(?:(?:ל)?התחיל|נתחיל|תתחיל(?:י|ו)?|נחזור|לחזור)`;
+const RESTART_OBJECT = String.raw`(?:את\s+)?(?:ה)?(?:תפריט|שיחה|פלואו)`;
+
+const SALES_FLOW_RESTART_PATTERNS: RegExp[] = [
+  new RegExp(`^${RESTART_TAIL}$`, "u"),
+  new RegExp(`^${RESTART_POLITE}\\s+${RESTART_TAIL}$`, "u"),
+  new RegExp(`^${RESTART_POLITE}\\s+${RESTART_VERB}\\s+${RESTART_TAIL}$`, "u"),
+  new RegExp(`^${RESTART_POLITE}\\s+${RESTART_VERB}\\s+${RESTART_OBJECT}\\s+${RESTART_TAIL}$`, "u"),
+  new RegExp(`^${RESTART_POLITE}\\s+${RESTART_OBJECT}\\s+${RESTART_TAIL}$`, "u"),
+  new RegExp(`^${RESTART_VERB}\\s+${RESTART_TAIL}$`, "u"),
+  new RegExp(`^${RESTART_VERB}\\s+${RESTART_OBJECT}\\s+${RESTART_TAIL}$`, "u"),
+];
+
+/**
+ * «אפשר מהתחלה?» / «להתחיל מחדש» / «היי אפשר להתחיל את התפריט מהתחלה»
+ * — איפוס והתחלת פלואו מכירה מחדש. לא על משפט ארוך שרק מזכיר התחלה.
+ */
+export function matchesSalesFlowRestartIntent(raw: string): boolean {
+  const normalized = normalizeSalesFlowGreetingToken(raw);
+  const t = stripLeadingCasualGreeting(normalized);
+  if (!t || t.length > 72) return false;
+  return SALES_FLOW_RESTART_PATTERNS.some((re) => re.test(t));
+}
+
 export type SalesFlowStartTriggerOpts = {
   slug?: string;
   businessName?: string;
@@ -68,7 +94,8 @@ export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTrigg
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
   if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
-  return withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting);
+  if (withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting)) return true;
+  return matchesSalesFlowRestartIntent(text);
 }
 
 /** «היי» לבד — ברכת זהות, בלי פלואו מכירה. */
