@@ -57,13 +57,14 @@ const i18n = {
     rangeAll: "כל הזמן",
     emptyState: "אין כרגע מה להציג כאן :)",
     newLeads: "לידים חדשים",
+    newLeadsHint: "מי שפתח פלואו מכירה מול זואי",
     conversions: "המרות (נרשמו לשיעור ניסיון)",
     conversionRate: "שיעור המרה",
-    conversionSubline: (total: number) => `מתוך ${total} צ׳אטים (פר מספר)`,
+    conversionSubline: (total: number) => `מתוך ${total} לידים שפתחו פלואו מכירה`,
     analysis: "ניתוח",
     proBadge: "לחשבון Pro",
     leadsByDay: "לידים חדשים לפי יום",
-    leadsByDayHint: "משתמש ב-contact.created_at (אזור ישראל)",
+    leadsByDayHint: "מי שפתח פלואו מכירה מול זואי (אזור ישראל)",
     loading: "טוען…",
     noLeadsInRange: "אין נתוני לידים בטווח שנבחר",
     chartLeads: "לידים",
@@ -99,13 +100,14 @@ const i18n = {
     rangeAll: "All Time",
     emptyState: "Nothing to show here yet :)",
     newLeads: "New Leads",
+    newLeadsHint: "Started a sales flow with Zoe",
     conversions: "Conversions (trial sign-ups)",
     conversionRate: "Conversion Rate",
-    conversionSubline: (total: number) => `Out of ${total} chats (per number)`,
+    conversionSubline: (total: number) => `Out of ${total} leads who started a sales flow`,
     analysis: "Analysis",
     proBadge: "Pro account",
     leadsByDay: "New Leads by Day",
-    leadsByDayHint: "Uses contact.created_at (Israel timezone)",
+    leadsByDayHint: "Leads who started a sales flow with Zoe (Israel timezone)",
     loading: "Loading…",
     noLeadsInRange: "No lead data in the selected range",
     chartLeads: "Leads",
@@ -581,6 +583,7 @@ export default function AnalyticsClient({
                 <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
                   <p className="text-xs text-zinc-500">{t.newLeads}</p>
                   <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
+                  <p className="mt-1 text-[11px] text-zinc-500">{t.newLeadsHint}</p>
                 </div>
                 <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
                   <p className="text-xs text-zinc-500">{t.conversions}</p>

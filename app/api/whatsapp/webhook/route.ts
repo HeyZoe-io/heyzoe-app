@@ -176,6 +176,7 @@ import {
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply } from "@/lib/sales-flow-start-triggers";
+import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
   buildClassRescheduleTeamHandoffReply,
@@ -809,6 +810,11 @@ async function resetContactSalesFlowStateForGreeting(input: {
   } catch (e) {
     console.warn("[WA Webhook] sales flow greeting reset threw:", e);
   }
+  await markContactSalesFlowStarted({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.phone,
+  });
 }
 
 async function fetchContactFreeTextRepliesSinceCta(input: {

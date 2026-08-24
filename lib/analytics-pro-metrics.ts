@@ -101,18 +101,23 @@ export async function computePremiumAnalytics(input: {
   const contactsStartIso = contactsCreatedStartIsoForLeads(range);
   const todayK = todayKeyIL();
 
-  /** ── לידים לפי יום ── */
-  const contactRows: { created_at: string }[] = [];
+  /** ── לידים לפי יום (פתיחת פלואו מכירה) ── */
+  const contactRows: { sales_flow_started_at: string }[] = [];
   const PAGE = 1000;
   const MAX_CONTACT_PAGES = 4;
   const MAX_MSG_PAGES = 3;
   const MAX_FOLLOW_PAGES = 4;
   for (let page = 0; page < MAX_CONTACT_PAGES; page += 1) {
     const off = page * PAGE;
-    let qc = admin.from("contacts").select("created_at").eq("business_id", businessId).order("created_at", {
-      ascending: true,
-    });
-    if (contactsStartIso) qc = qc.gte("created_at", contactsStartIso);
+    let qc = admin
+      .from("contacts")
+      .select("sales_flow_started_at")
+      .eq("business_id", businessId)
+      .not("sales_flow_started_at", "is", null)
+      .order("sales_flow_started_at", {
+        ascending: true,
+      });
+    if (contactsStartIso) qc = qc.gte("sales_flow_started_at", contactsStartIso);
     const { data, error } = await qc.range(off, off + PAGE - 1);
     if (error) {
       console.warn("[premium-analytics] contacts:", error.message);
@@ -127,7 +132,7 @@ export async function computePremiumAnalytics(input: {
   const countsByDay = new Map<string, number>();
   let earliestLeadKey: string | null = null;
   for (const r of contactRows) {
-    const at = String(r.created_at ?? "").trim();
+    const at = String(r.sales_flow_started_at ?? "").trim();
     if (!at) continue;
     const k = formatDateKeyIL(at);
     countsByDay.set(k, (countsByDay.get(k) ?? 0) + 1);

@@ -108,17 +108,27 @@ export async function GET(req: NextRequest) {
   ): Promise<number> {
     const { count, error } = await run;
     if (error) {
-      console.warn("[api/analytics] count:", error.message);
+      if (/sales_flow_started_at/i.test(error.message)) {
+        console.error(
+          "[api/analytics] missing sales_flow_started_at — run supabase/contacts_sales_flow_started_at.sql:",
+          error.message
+        );
+      } else {
+        console.warn("[api/analytics] count:", error.message);
+      }
       return 0;
     }
     return Number(count ?? 0) || 0;
   }
 
+  // New leads = opened a sales flow (sales_flow_started_at), not every inbound chat.
+  // Indexed HEAD count — do not scan messages.
   let leadsQ = admin
     .from("contacts")
     .select("id", { count: "exact", head: true })
-    .eq("business_id", biz.id);
-  if (startIso) leadsQ = leadsQ.gte("created_at", startIso);
+    .eq("business_id", biz.id)
+    .not("sales_flow_started_at", "is", null);
+  if (startIso) leadsQ = leadsQ.gte("sales_flow_started_at", startIso);
 
   let convQ = admin
     .from("contacts")
