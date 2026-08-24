@@ -847,7 +847,7 @@ export default function Step3Trial(props: {
             {s.offer_kind === "course" ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <SalesPathFieldLabel>{t.products.price}</SalesPathFieldLabel>
+                  <SalesPathFieldLabel hint={t.products.priceHint}>{t.products.price}</SalesPathFieldLabel>
                   <Input
                     dir={dashboardDir(lang)}
                     value={s.price_text}
@@ -856,7 +856,7 @@ export default function Step3Trial(props: {
                       arr[i] = { ...s, price_text: e.target.value };
                       setServices(arr);
                     }}
-                    placeholder="₪ 80"
+                    placeholder={t.products.pricePlaceholder}
                     className={PRODUCT_INPUT}
                   />
                 </div>
@@ -881,7 +881,7 @@ export default function Step3Trial(props: {
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <SalesPathFieldLabel>{t.products.price}</SalesPathFieldLabel>
+                  <SalesPathFieldLabel hint={t.products.priceHint}>{t.products.price}</SalesPathFieldLabel>
                   <Input
                     dir={dashboardDir(lang)}
                     value={s.price_text}
@@ -890,7 +890,7 @@ export default function Step3Trial(props: {
                       arr[i] = { ...s, price_text: e.target.value };
                       setServices(arr);
                     }}
-                    placeholder="₪ 80"
+                    placeholder={t.products.pricePlaceholder}
                     className={PRODUCT_INPUT}
                   />
                 </div>

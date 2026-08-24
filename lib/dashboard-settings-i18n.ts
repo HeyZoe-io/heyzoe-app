@@ -178,7 +178,7 @@ export const dashboardSettingsI18n = {
       scanScheduleMissing: "חסר לינק/תמונה למערכת שעות בטאב לינקים.",
       scanScheduleDirect:
         "כש״הרשמה ישירות מהמערכת״ מופעלת — אין צורך במועדי לוח. כבו את האפשרות בטאב «לינקים» כדי לסרוק מועדים.",
-      scanArboxOverwriteNote: "סריקת מערכת שעות תדרוס מוצרים קיימים במידה והוזנו",
+      scanArboxOverwriteNote: "סריקת מערכות שעות תתווסף למוצרים קיימים במידה והוזנו",
       arboxSystemClassName: "שם אימון במערכת",
       arboxRemovedNotice: (name: string) =>
         `מצאנו סוג אימון שירד ממערכת השעות בארבוקס - «${name}», בואו נעדכן אותו`,
@@ -200,6 +200,8 @@ export const dashboardSettingsI18n = {
       workshopName: "שם הסדנה",
       charsMax: (n: number) => `עד ${n} תווים`,
       price: "מחיר",
+      pricePlaceholder: "80",
+      priceHint: "מספר בלבד — זואי מוסיפה ₪",
       sessions: "מספר מפגשים",
       lessons: "מספר שיעורים",
       duration: "משך (דקות)",
@@ -669,7 +671,7 @@ export const dashboardSettingsI18n = {
       scanScheduleMissing: "Missing schedule link/image in the Links tab.",
       scanScheduleDirect:
         "When direct registration is on, schedule times aren't needed. Turn it off in Links to scan times.",
-      scanArboxOverwriteNote: "Schedule scan will overwrite existing products if they were already entered",
+      scanArboxOverwriteNote: "Schedule scan will be added to existing products if they were already entered",
       arboxSystemClassName: "Class name in the system",
       arboxRemovedNotice: (name: string) =>
         `We found a class type that dropped off the Arbox timetable — «${name}». Let's update it`,
@@ -690,6 +692,8 @@ export const dashboardSettingsI18n = {
       workshopName: "Workshop name",
       charsMax: (n: number) => `Up to ${n} characters`,
       price: "Price",
+      pricePlaceholder: "80",
+      priceHint: "Number only — Zoe adds ₪",
       sessions: "Number of sessions",
       lessons: "Number of lessons",
       duration: "Duration (minutes)",
