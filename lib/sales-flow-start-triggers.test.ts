@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
   isCasualHiGreeting,
+  isCasualHowAreYouGreeting,
   isSalesFlowStartTrigger,
   matchesSalesFlowRestartIntent,
   buildCasualHiGreetingReply,
+  CASUAL_HOW_ARE_YOU_REPLY_HE,
   salesFlowGreetingMarkerCountsAsStarted,
 } from "@/lib/sales-flow-start-triggers";
 
@@ -51,6 +53,19 @@ assert.equal(isCasualHiGreeting("היי!"), true);
 assert.equal(isCasualHiGreeting("  היי  "), true);
 assert.equal(isCasualHiGreeting("היי אשמח לפרטים"), false);
 assert.equal(isCasualHiGreeting("שלום"), false);
+assert.equal(isCasualHowAreYouGreeting("היי מה קורה"), true);
+assert.equal(isCasualHowAreYouGreeting("היי מה קורה?"), true);
+assert.equal(isCasualHowAreYouGreeting("מה נשמע"), true);
+assert.equal(isCasualHowAreYouGreeting("מה המצב"), true);
+assert.equal(isCasualHowAreYouGreeting("מה הולך"), true);
+assert.equal(isCasualHowAreYouGreeting("מה העניינים"), true);
+assert.equal(isCasualHowAreYouGreeting("אהלן מה נשמע"), true);
+assert.equal(isCasualHowAreYouGreeting("מה קורה אצלך"), true);
+assert.equal(isCasualHiGreeting("היי מה קורה"), true);
+assert.equal(isCasualHowAreYouGreeting("היי"), false);
+assert.equal(isCasualHowAreYouGreeting("היי מה קורה עם השיעור"), false);
+assert.equal(isCasualHowAreYouGreeting("מה המצב עם ההרשמה"), false);
+assert.equal(isSalesFlowStartTrigger("היי מה קורה"), false);
 assert.equal(
   buildCasualHiGreetingReply("אלין", "Limitless"),
   "היי! כאן אלין, הבוטית של Limitless איך אפשר לעזור?"
@@ -59,6 +74,11 @@ assert.equal(
   buildCasualHiGreetingReply("", ""),
   "היי! כאן זואי, הבוטית של העסק איך אפשר לעזור?"
 );
+assert.equal(
+  buildCasualHiGreetingReply("אלין", "Limitless", "היי מה קורה"),
+  CASUAL_HOW_ARE_YOU_REPLY_HE
+);
+assert.equal(CASUAL_HOW_ARE_YOU_REPLY_HE, "היי! מעולה, איך אפשר לעזור?");
 
 assert.equal(
   salesFlowGreetingMarkerCountsAsStarted({ modelUsed: "greeting", precedingUserText: "תודה" }),

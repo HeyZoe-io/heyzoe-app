@@ -7257,7 +7257,11 @@ async function processIncoming(
       return;
     }
     if (isSalesFlowFreeTextInbound(msg) && isCasualHiGreeting(msg.text)) {
-      const hiReply = buildCasualHiGreetingReply(knowledge?.botName ?? "", knowledge?.businessName ?? "");
+      const hiReply = buildCasualHiGreetingReply(
+        knowledge?.botName ?? "",
+        knowledge?.businessName ?? "",
+        msg.text
+      );
       try {
         await sendWhatsAppMessage(msg.toNumber, msg.from, hiReply, accountSid, authToken);
       } catch (e) {

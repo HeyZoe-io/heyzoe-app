@@ -100,10 +100,70 @@ export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTrigg
 
 /** «היי» לבד — ברכת זהות, בלי פלואו מכירה. */
 export function isCasualHiGreeting(text: string): boolean {
-  return normalizeSalesFlowGreetingToken(text) === "היי";
+  const normalized = normalizeSalesFlowGreetingToken(text);
+  if (normalized === "היי") return true;
+  return isCasualHowAreYouGreeting(text);
 }
 
-export function buildCasualHiGreetingReply(botName: string, businessName: string): string {
+const HOW_ARE_YOU_CORES = new Set([
+  "מה קורה",
+  "מה נשמע",
+  "מה המצב",
+  "מה הולך",
+  "מה העניינים",
+]);
+
+const SMALL_TALK_GREETING_PREFIXES = [
+  "היוש ",
+  "הייי ",
+  "היי ",
+  "הי ",
+  "אהלן ",
+  "שלום ",
+  "שלומות ",
+  "הלו ",
+  "hello ",
+  "hi ",
+  "hey ",
+  "בוקר טוב ",
+  "ערב טוב ",
+] as const;
+
+function normalizeCasualSmallTalkToken(raw: string): string {
+  return normalizeSalesFlowGreetingToken(raw)
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripSmallTalkGreetingPrefix(normalized: string): string {
+  for (const prefix of SMALL_TALK_GREETING_PREFIXES) {
+    if (normalized.startsWith(prefix)) return normalized.slice(prefix.length).trim();
+  }
+  return normalized;
+}
+
+/** «היי מה קורה» / «מה נשמע» / «מה המצב» — ברכת חולין, לא שאלה לא ברורה. */
+export function isCasualHowAreYouGreeting(text: string): boolean {
+  const normalized = normalizeCasualSmallTalkToken(text);
+  if (!normalized || normalized.length > 40) return false;
+  const core = stripSmallTalkGreetingPrefix(normalized).replace(
+    /\s+(?:אצלך|אצלכם|אצלכן|איתך|איתכם)$/u,
+    ""
+  );
+  return HOW_ARE_YOU_CORES.has(core);
+}
+
+export const CASUAL_HOW_ARE_YOU_REPLY_HE = "היי! מעולה, איך אפשר לעזור?";
+
+export function buildCasualHiGreetingReply(
+  botName: string,
+  businessName: string,
+  inboundText?: string
+): string {
+  if (inboundText && isCasualHowAreYouGreeting(inboundText)) {
+    return CASUAL_HOW_ARE_YOU_REPLY_HE;
+  }
   const bot = String(botName ?? "").trim() || "זואי";
   const biz = String(businessName ?? "").trim() || "העסק";
   return `היי! כאן ${bot}, הבוטית של ${biz} איך אפשר לעזור?`;

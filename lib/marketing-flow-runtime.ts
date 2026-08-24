@@ -29,6 +29,7 @@ import {
 } from "@/lib/whatsapp";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import { inferMarketingFlowButtonFromFreeText } from "@/lib/marketing-flow-answer-infer";
+import { CASUAL_HOW_ARE_YOU_REPLY_HE, isCasualHowAreYouGreeting } from "@/lib/sales-flow-start-triggers";
 
 import {
   getMarketingFlowCache,
@@ -1635,6 +1636,10 @@ export async function callMarketingAI(
   const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
   if (isHeyzoeOwnerOptInMessage(userText)) {
     return "קיבלנו את בקשת חיבור ההתראות. אם לא קיבלתם אישור — שלחו שוב את הקישור מהדשבורד (HEYZOE_OWNER_שם-העסק).";
+  }
+
+  if (isCasualHowAreYouGreeting(userText)) {
+    return CASUAL_HOW_ARE_YOU_REPLY_HE;
   }
 
   const offNicheReply = await getOffNicheMarketingHardReply(userText);

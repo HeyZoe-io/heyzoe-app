@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isCasualHowAreYouGreeting } from "@/lib/sales-flow-start-triggers";
 
 export type MarketingQuestionTopicId =
   | "pricing"
@@ -117,6 +118,7 @@ export function shouldSkipQuestion(text: string): boolean {
   const raw = String(text ?? "").trim();
   if (!raw || raw.length < 6) return true;
   if (GREETING_RE.test(raw)) return true;
+  if (isCasualHowAreYouGreeting(raw)) return true;
   if (SHORT_ACK_RE.test(raw)) return true;
   return false;
 }
