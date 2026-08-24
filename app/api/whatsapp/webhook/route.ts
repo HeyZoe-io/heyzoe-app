@@ -317,6 +317,7 @@ import {
   trialAlreadyRegisteredSoftClosing,
   trialAlreadyRegisteredSoftIntro,
   trialLinkPostCtaMessage,
+  automaticRegistrationSelfReportedAck,
   trialSignupLinkIntro,
   trialSignupLinkMissing,
 } from "@/lib/business-content-lang";
@@ -6630,6 +6631,23 @@ async function processIncoming(
     const rawTrimmed = msg.text.trim();
     if (matchesTrialRegisteredMessage(rawTrimmed)) {
       try {
+        const confirmationMode = resolveRegistrationConfirmationMode(knowledge.salesFlowConfig);
+        if (confirmationMode === "automatic") {
+          const ackLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const ackTxt = automaticRegistrationSelfReportedAck(ackLang);
+          await sendWhatsAppMessage(msg.toNumber, msg.from, ackTxt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send automatic-registration נרשמתי ack failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: ackTxt,
+            model_used: "trial_registered_automatic_ack",
+            session_id: sessionId,
+          });
+          return;
+        }
+
         const alreadyRegisteredClaim = matchesTrialAlreadyRegisteredMessage(rawTrimmed);
         let repeatRegistrationInSameSession = false;
         const sel = await supabase

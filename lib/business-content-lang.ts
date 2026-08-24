@@ -109,6 +109,11 @@ export function trialLinkPostCtaMessage(
     : "לאחר ההרשמה, נא לכתוב לי *נרשמתי* ואשלח הוראות המשך 🎉";
 }
 
+/** כשאישור הרשמה מגיע מה-CRM — «נרשמתי» לא מקבל את תבנית ההמשך המלאה. */
+export function automaticRegistrationSelfReportedAck(lang: BusinessContentLanguage): string {
+  return lang === "en" ? "How exciting! Looking forward to seeing you" : "איזה כיף! מחכים לראותך";
+}
+
 export function secondaryOfferPurchasePostCtaMessage(lang: BusinessContentLanguage): string {
   return lang === "en"
     ? "After payment, write *I registered* and we'll send you all the details!"
