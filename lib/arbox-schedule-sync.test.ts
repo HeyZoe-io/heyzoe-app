@@ -20,6 +20,7 @@ assert.equal(normalizeHhmm("7:05"), "07:05");
 assert.equal(normalizeHhmm("bad"), "");
 
 assert.equal(addDaysYmd("2026-08-23", 14), "2026-09-06");
+assert.equal(addDaysYmd("2026-08-24", 6), "2026-08-30"); // rolling week, next Monday not included
 assert.equal(hebrewDayLetterFromYmd("2026-08-23"), "א"); // Sunday
 assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
 

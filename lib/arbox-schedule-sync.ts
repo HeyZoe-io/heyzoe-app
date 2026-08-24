@@ -6,7 +6,8 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 const IL_TZ = "Asia/Jerusalem";
 const HEBREW_DAY_BY_SUNDAY_INDEX = ["א", "ב", "ג", "ד", "ה", "ו", "ש"] as const;
 const MAX_SCHEDULE_PAGES = 20;
-const WINDOW_DAYS = 14;
+/** Inclusive rolling week: today through +6 = 7 calendar days, each weekday once. */
+const WINDOW_DAYS = 6;
 
 export type ArboxScheduleRemovedNotice = {
   detected_at: string;
