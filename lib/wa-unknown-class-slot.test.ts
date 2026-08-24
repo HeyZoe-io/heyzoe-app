@@ -50,6 +50,27 @@ assert.equal(
   "POWER & HIIT"
 );
 
+const sangaLike: SfServiceRow[] = [
+  svc("שיעור יוגה מתחילים", [{ day: "ה", time: "18:00" }]),
+  svc("שיעור יוגה ממשיכים", [{ day: "ב", time: "18:00" }]),
+  svc("שיעור יוגה מתקדמים", [{ day: "ג", time: "19:00" }]),
+  svc("יוגה לכל הרמות", [{ day: "א", time: "09:00" }]),
+  svc("שיעור יוגה נשים", [{ day: "ד", time: "10:00" }]),
+  svc("קורס מתחילים (8 מפגשים)", [{ day: "א", time: "19:00" }]),
+];
+assert.equal(
+  matchCatalogServiceFromFreeText("יוגה מתחילות", sangaLike),
+  "שיעור יוגה מתחילים"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("שיעורי יוגה למתחילות", sangaLike),
+  "שיעור יוגה מתחילים"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("אני מתעניינת בשיעורי יוגה למתחילות", sangaLike),
+  "שיעור יוגה מתחילים"
+);
+
 assert.equal(
   shouldHandoffUnknownClassSlot({
     text: "רוצה להצטרף בשבת לפוואר אנד הייט",

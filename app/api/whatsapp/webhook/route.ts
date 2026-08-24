@@ -197,6 +197,7 @@ import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
   assistantReplyIsUnknownClassSlotHandoff,
+  matchCatalogServiceFromFreeText,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 import {
@@ -7529,11 +7530,13 @@ async function processIncoming(
       ).trim();
       const rawLower = resolved.toLowerCase();
       const num = Number(rawLower);
+      const catalogTyped = matchCatalogServiceFromFreeText(resolved, named);
       const picked =
         Number.isFinite(num) && num >= 1 && num <= named.length
           ? named[num - 1]
           : named.find((s) => waLabelMatches(resolved, s.name)) ??
             named.find((s) => s.name.trim().toLowerCase() === rawLower) ??
+            (catalogTyped ? named.find((s) => s.name === catalogTyped) : undefined) ??
             named.find((s) => rawLower && s.name.toLowerCase().includes(rawLower)) ??
             named.find((s) => rawLower && rawLower.includes(s.name.toLowerCase()));
 

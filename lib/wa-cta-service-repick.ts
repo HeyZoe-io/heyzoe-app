@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { fetchLastAssistantModelUsed } from "@/lib/analytics";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 import type { OfferKind } from "@/lib/sales-flow";
+import { foldHebrewServiceToken } from "@/lib/hebrew-service-token";
 
 /** גשר קבוע — חייב להופיע בדיוק כך (גם לזיהוי «כן» בהודעה הבאה). */
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
@@ -102,11 +103,22 @@ function serviceNameMatchesInUserText(menuName: string, userText: string): boole
   if (t.includes(key)) return true;
   if (key.includes(t) && t.length >= 8) return true;
   const tokens = serviceTokens(key);
-  if (tokens.length >= 2) {
-    const hits = tokens.filter((w) => t.includes(w)).length;
-    if (hits >= 2 && hits >= tokens.length - 1) return true;
+  const userBlob = t
+    .split(/[\s\-–—]+/)
+    .map((w) => foldHebrewServiceToken(w))
+    .join(" ");
+  const foldedTokens = tokens.map((w) => foldHebrewServiceToken(w)).filter((w) => w.length >= 3);
+  if (foldedTokens.length >= 2) {
+    const hits = foldedTokens.filter((w) => userBlob.includes(w) || t.includes(w)).length;
+    if (hits >= 2 && hits >= foldedTokens.length - 1) return true;
   }
-  if (tokens.length === 1 && tokens[0]!.length >= 6 && t.includes(tokens[0]!)) return true;
+  if (
+    foldedTokens.length === 1 &&
+    foldedTokens[0]!.length >= 6 &&
+    (userBlob.includes(foldedTokens[0]!) || t.includes(foldedTokens[0]!))
+  ) {
+    return true;
+  }
   return false;
 }
 

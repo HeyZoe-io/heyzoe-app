@@ -1,5 +1,6 @@
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import type { WaSchedulePickSlot } from "@/lib/product-schedule-slots";
+import { foldHebrewServiceToken } from "@/lib/hebrew-service-token";
 
 /** כשאין מועד בידע — לא ממציאים שעה; מעבירים לצוות. */
 export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = "אין בעיה אני מעבירה את הבקשה לצוות";
@@ -114,22 +115,40 @@ export function matchCatalogServiceFromFreeText(
     const nameInUser = foldedUser.includes(foldedName);
     const userInName = foldedName.includes(foldedUser) && foldedUser.length >= 8;
     const nameTokens = foldedName.split(" ").filter((w) => w.length >= 3);
-    const tokenHits = nameTokens.filter((w) => foldedUser.includes(w)).length;
+    const userBlob = foldedUser
+      .split(" ")
+      .map((w) => foldHebrewServiceToken(w))
+      .join(" ");
+    const foldedNameTokens = nameTokens.map((w) => foldHebrewServiceToken(w)).filter((w) => w.length >= 3);
+    const tokenHits = foldedNameTokens.filter((w) => userBlob.includes(w) || foldedUser.includes(w)).length;
     const userHasTokens =
-      nameTokens.length >= 2
-        ? tokenHits >= Math.min(2, nameTokens.length)
-        : nameTokens.length === 1 && nameTokens[0]!.length >= 5 && foldedUser.includes(nameTokens[0]!);
+      foldedNameTokens.length >= 2
+        ? tokenHits >= Math.min(2, foldedNameTokens.length)
+        : foldedNameTokens.length === 1 &&
+          foldedNameTokens[0]!.length >= 5 &&
+          (userBlob.includes(foldedNameTokens[0]!) || foldedUser.includes(foldedNameTokens[0]!));
     if (!nameInUser && !userInName && !userHasTokens) continue;
-    const extra = nameTokens.filter((w) => !foldedUser.includes(w)).length;
+    const extra = foldedNameTokens.filter((w) => !userBlob.includes(w) && !foldedUser.includes(w)).length;
     hits.push({ name, extra });
   }
   if (!hits.length) {
-    const distinctive = foldedUser.split(" ").filter((w) => w.length >= 5);
+    const distinctive = foldedUser
+      .split(" ")
+      .map((w) => foldHebrewServiceToken(w))
+      .filter((w) => w.length >= 5);
     const uniqueHits: string[] = [];
     for (const tok of distinctive) {
       const names = services
         .map((s) => String(s.name ?? "").trim())
-        .filter((name) => name && foldClassName(name).includes(tok));
+        .filter((name) => {
+          if (!name) return false;
+          const folded = foldClassName(name);
+          const foldedToks = folded
+            .split(" ")
+            .map((w) => foldHebrewServiceToken(w))
+            .join(" ");
+          return folded.includes(tok) || foldedToks.includes(tok);
+        });
       if (names.length === 1) uniqueHits.push(names[0]!);
     }
     const uniq = [...new Set(uniqueHits)];

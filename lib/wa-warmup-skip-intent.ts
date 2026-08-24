@@ -1,6 +1,7 @@
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 import { normalizeSalesFlowGreetingToken } from "@/lib/sales-flow-start-triggers";
 import {
+  matchesClassInterestFlowStart,
   matchesComposableTrialSignupIntent,
   normalizeTrialSignupIntentText,
 } from "@/lib/wa-trial-signup-intent";
@@ -135,6 +136,7 @@ export function isWarmupSkipIntentText(raw: string, phase: WarmupSkipPhase): boo
   if (matchesGroupBAdvance(t)) return true;
   if (matchesGroupDDirectInfo(t)) return true;
   if (matchesGroupCRegistration(t)) return true;
+  if (matchesClassInterestFlowStart(raw)) return true;
   if (phase === "warmup" && matchesWarmupOnlyHowToStart(t)) return true;
   return false;
 }
@@ -157,6 +159,7 @@ export function isJoinSignupIntentText(raw: string): boolean {
   if (/^(?:אני\s+|אנחנו\s+)?רוצ(?:ה|ים)\s+(?:להירשם|להצטרף)/u.test(t)) return true;
   if (/^(?:אשמח|נשמח)\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
   if (matchesComposableTrialSignupIntent(t)) return true;
+  if (matchesClassInterestFlowStart(raw)) return true;
   if (matchesEnglishJoinSignup(t)) return true;
   return false;
 }

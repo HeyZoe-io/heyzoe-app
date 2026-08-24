@@ -57,6 +57,21 @@ const RELAXED_DESIRE_TRIAL = new RegExp(
   "u"
 );
 
+/** מתעניינת/מחפשת שיעור או יוגה — כוונת אימון, בלי חובת «ניסיון». */
+const SEEKING_CLASS_RE =
+  /(?:מתעניינ(?:ת|ים)|מעוניינ(?:ת|ים)|מחפש(?:ת)?)\s+(?:ב|ל)?(?:שיעור(?:י)?|אימון(?:י)?|יוגה)/u;
+
+/**
+ * «אני מתעניינת בשיעורי יוגה למתחילות» — התנעת פלואו לבחירת מוצר.
+ * שאלות מחיר/שעות נחסמות אצל הקורא (hasInfoQuestionBlock / INFO_QUESTION_OPENER).
+ */
+export function matchesClassInterestFlowStart(raw: string): boolean {
+  const s = normalizeTrialSignupIntentText(raw);
+  if (!s) return false;
+  if (INFO_QUESTION_OPENER.test(s)) return false;
+  return SEEKING_CLASS_RE.test(s);
+}
+
 /**
  * Composable trial-signup intent.
  * Does NOT apply price/address traps — callers add those via hasInfoQuestionBlock.

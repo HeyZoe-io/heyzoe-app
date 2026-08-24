@@ -3,7 +3,7 @@ import {
   matchesComposableTrialSignupIntent,
   TRIAL_SIGNUP_REGEX_SUMMARY,
 } from "@/lib/wa-trial-signup-intent";
-import { isJoinSignupIntentText, isWarmupSkipIntentText } from "@/lib/wa-warmup-skip-intent";
+import { isJoinSignupIntentText, isWarmupSkipIntentText, shouldStartSalesFlowFromOutOfFlowSignup } from "@/lib/wa-warmup-skip-intent";
 import { matchesTrialTopicAdvanceIntent, matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
 
 /** Document exported regex building blocks (for review / PR). */
@@ -84,6 +84,24 @@ for (const phrase of mustSignup) {
     `signup path: ${phrase}`
   );
 }
+
+/** Class interest (no trial noun) — start product pick, not Claude chat. */
+const sangaClassInterest = "היי\nאני מתעניינת בשיעורי יוגה למתחילות";
+assert.equal(isJoinSignupIntentText(sangaClassInterest), true, "sanga class interest is join-signup");
+assert.equal(isWarmupSkipIntentText(sangaClassInterest, "warmup"), true, "sanga class interest skips warmup");
+assert.equal(
+  shouldStartSalesFlowFromOutOfFlowSignup({
+    inbound: sangaClassInterest,
+    salesFlowStarted: false,
+    trialRegistered: false,
+    sessionPhase: null,
+  }),
+  true,
+  "sanga class interest must enter product pick"
+);
+assert.equal(isJoinSignupIntentText("מחפשת שיעור יוגה"), true);
+assert.equal(isJoinSignupIntentText("כמה עולה שיעור יוגה למתחילות?"), false);
+assert.equal(isJoinSignupIntentText("מתי יש שיעורי יוגה?"), false);
 
 /** Legacy traps unchanged. */
 assert.equal(isWarmupSkipIntentText("רוצה להתחיל", "opening"), false);
