@@ -1,4 +1,8 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+type AlsLike<T> = {
+  getStore: () => T | undefined;
+  enterWith: (value: T) => void;
+  run: <R>(store: T, fn: () => Promise<R>) => Promise<R>;
+};
 
 export type WaMessageLogScope = {
   businessSlug: string;
@@ -9,7 +13,18 @@ export type WaMessageLogScope = {
   loggedAssistant: string[];
 };
 
-const storage = new AsyncLocalStorage<WaMessageLogScope>();
+const NOOP_ALS: AlsLike<WaMessageLogScope> = {
+  getStore: () => undefined,
+  enterWith: () => {},
+  run: async (_store, fn) => fn(),
+};
+
+/** Installed by `wa-message-log-als.server.ts` on the WhatsApp server runtime. */
+function getAls(): AlsLike<WaMessageLogScope> {
+  return (
+    (globalThis as { __hzWaMessageLogAls?: AlsLike<WaMessageLogScope> }).__hzWaMessageLogAls ?? NOOP_ALS
+  );
+}
 
 export function normalizeWaLogContent(content: string): string {
   return String(content ?? "")
@@ -49,7 +64,7 @@ function newScope(businessSlug: string, sessionId: string): WaMessageLogScope {
 }
 
 export function getWaMessageLogScope(): WaMessageLogScope | undefined {
-  return storage.getStore();
+  return getAls().getStore();
 }
 
 function parseScopeInput(input: { businessSlug: string; sessionId: string }): {
@@ -71,7 +86,7 @@ function parseScopeInput(input: { businessSlug: string; sessionId: string }): {
 export function beginWaMessageLogScope(input: { businessSlug: string; sessionId: string }): void {
   const parsed = parseScopeInput(input);
   if (!parsed) return;
-  const existing = storage.getStore();
+  const existing = getAls().getStore();
   if (existing) {
     if (existing.businessSlug === parsed.slug && existing.sessionId === parsed.sessionId) {
       existing.depth += 1;
@@ -84,7 +99,7 @@ export function beginWaMessageLogScope(input: { businessSlug: string; sessionId:
       child_session: parsed.sessionId,
     });
   }
-  storage.enterWith(newScope(parsed.slug, parsed.sessionId));
+  getAls().enterWith(newScope(parsed.slug, parsed.sessionId));
 }
 
 export async function withWaMessageLogScope<T>(
@@ -93,7 +108,7 @@ export async function withWaMessageLogScope<T>(
 ): Promise<T> {
   const parsed = parseScopeInput(input);
   if (!parsed) return await fn();
-  const parent = storage.getStore();
+  const parent = getAls().getStore();
   if (parent && parent.businessSlug === parsed.slug && parent.sessionId === parsed.sessionId) {
     parent.depth += 1;
     try {
@@ -102,7 +117,7 @@ export async function withWaMessageLogScope<T>(
       await endWaMessageLogScope();
     }
   }
-  return await storage.run(newScope(parsed.slug, parsed.sessionId), async () => {
+  return await getAls().run(newScope(parsed.slug, parsed.sessionId), async () => {
     try {
       return await fn();
     } finally {
@@ -112,7 +127,7 @@ export async function withWaMessageLogScope<T>(
 }
 
 export function recordWaOutboundSent(content: string): void {
-  const store = storage.getStore();
+  const store = getAls().getStore();
   if (!store) return;
   const text = String(content ?? "").trim();
   if (!text) return;
@@ -127,7 +142,7 @@ if (typeof window === "undefined") {
 }
 
 export function shouldSkipDuplicateWaLog(role: string, content: string): boolean {
-  const store = storage.getStore();
+  const store = getAls().getStore();
   if (!store) return false;
   const text = String(content ?? "").trim();
   if (!text) return false;
@@ -142,7 +157,7 @@ export function shouldSkipDuplicateWaLog(role: string, content: string): boolean
 }
 
 export function noteWaLogInserted(role: string, content: string): void {
-  const store = storage.getStore();
+  const store = getAls().getStore();
   if (!store) return;
   const text = String(content ?? "").trim();
   if (!text) return;
@@ -151,7 +166,7 @@ export function noteWaLogInserted(role: string, content: string): void {
 }
 
 export function consumeWaOutboundIfLogged(content: string): void {
-  const store = storage.getStore();
+  const store = getAls().getStore();
   if (!store) return;
   const text = String(content ?? "").trim();
   if (!text) return;
@@ -159,7 +174,7 @@ export function consumeWaOutboundIfLogged(content: string): void {
 }
 
 export async function endWaMessageLogScope(): Promise<void> {
-  const store = storage.getStore();
+  const store = getAls().getStore();
   if (!store) return;
   store.depth -= 1;
   if (store.depth > 0) return;

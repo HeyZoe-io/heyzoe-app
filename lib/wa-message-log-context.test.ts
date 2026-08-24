@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "@/lib/wa-message-log-als.server";
 import {
   beginWaMessageLogScope,
   consumeWaOutboundIfLogged,

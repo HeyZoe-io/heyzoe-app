@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { logMessage } from "@/lib/analytics";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
+import "@/lib/wa-message-log-als.server";
 import { formatManualMediaMessageContent, isAllowedManualMediaUrl } from "@/lib/conversation-manual-media";
 import {
   isMetaCloudPhoneNumberId,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage, sessionHasSalesFlowGreeting } from "@/lib/analytics";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
+import "@/lib/wa-message-log-als.server";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import {
   sendWhatsAppIdleFollowupMessage,

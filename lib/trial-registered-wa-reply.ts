@@ -1,5 +1,6 @@
 import { fetchLastSfServiceEventName, logMessage } from "@/lib/analytics";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
+import "@/lib/wa-message-log-als.server";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
 import { planIsStarter } from "@/lib/conversation-quota";
