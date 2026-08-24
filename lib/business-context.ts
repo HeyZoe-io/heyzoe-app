@@ -33,7 +33,9 @@ import {
   FACT_QUOTE_RULES,
   formatKnowledgeQaForPrompt,
   KNOWLEDGE_QA_MATCH_RULES,
+  legacyFactsToQaPairs,
   parseKnowledgeQa,
+  serializeKnowledgeQa,
   type KnowledgeQaPair,
 } from "@/lib/knowledge-qa";
 
@@ -328,7 +330,11 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const traitsList = Array.isArray(social.traits)
       ? social.traits.map((x) => String(x ?? "").trim()).filter(Boolean)
       : [fact1, fact2, fact3].filter(Boolean);
-    const knowledgeQa = parseKnowledgeQa(social.knowledge_qa);
+    const storedKnowledgeQa = parseKnowledgeQa(social.knowledge_qa);
+    const knowledgeQa =
+      storedKnowledgeQa.length > 0
+        ? storedKnowledgeQa
+        : serializeKnowledgeQa(legacyFactsToQaPairs(traitsList));
     const fromTraits = traitsList.join(" • ");
     const legacyDesc = String(social.business_description ?? "").trim();
     const businessDescriptionRaw =

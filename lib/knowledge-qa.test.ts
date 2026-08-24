@@ -16,7 +16,7 @@ assert.equal(usesKnowledgeQaDashboard("new-studio"), true);
 assert.equal(usesKnowledgeQaDashboard(""), true);
 assert.equal(usesKnowledgeQaDashboard("limitless"), true);
 assert.equal(usesKnowledgeQaDashboard("Limitless"), true);
-assert.equal(usesKnowledgeQaDashboard("info-2815"), false);
+assert.equal(usesKnowledgeQaDashboard("info-2815"), true);
 
 assert.deepEqual(parseKnowledgeQa([{ question: " אימון ניסיון ", answer: " 50 ש״ח " }]), [
   { question: "אימון ניסיון", answer: "50 ש״ח" },
@@ -115,6 +115,34 @@ assert.equal(
     "העמידות ידיים זה שיעור קבוצתי??"
   )?.answer,
   "האימונים בסטודיו הם אימונים קבוצתיים"
+);
+
+const sangaQa = [
+  { question: "מתחילים / לכל הרמות", answer: "שיעורים מגוונים לכל הרמות" },
+  {
+    question: "חניה",
+    answer: "יש חניה בכחול לבן ברחוב עצמו. יש להפעיל פנגו.",
+  },
+  { question: "מה להביא / ציוד", answer: "אנחנו דואגים לכל הציוד! מומלץ להביא מגבת אישית ובקבוק מים." },
+  { question: "קורס מורים", answer: "פרגני ליוזר, והפני בחביבות לשירות לקוחות." },
+  { question: "לשלם במקום", answer: "לא ניתן לשלם במקום. יש לשריין מקום בתשלום מראש בלינק המאובטח." },
+  { question: "ריטריט להודו", answer: "הפני ללינק. ״https://sanghayoga.co.il/india2026״" },
+  { question: "זום / בזום / Zoom / אונליין", answer: "חלק מהשיעורים משודרים גם ב-Zoom. רצוי לתאם מראש עם המורה" },
+];
+
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "יש חניה?")?.question, "חניה");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "איפה אפשר לחנות?")?.question, "חניה");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "מה להביא לשיעור?")?.question, "מה להביא / ציוד");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "צריך להביא ציוד?")?.question, "מה להביא / ציוד");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "זה מתאים למתחילים?")?.question, "מתחילים / לכל הרמות");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "אפשר לשלם במקום?")?.question, "לשלם במקום");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "יש קורס מורים?")?.question, "קורס מורים");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "יש ריטריט להודו?")?.question, "ריטריט להודו");
+assert.equal(lookupKnowledgeQaAnswerForInbound(sangaQa, "אפשר בזום?")?.question, "זום / בזום / Zoom / אונליין");
+assert.equal(
+  parseFactLineToQaPair("צריך להביא ציוד או שהכל מחכה בסטודיו? אנחנו דואגים לכל הציוד! מומלץ להביא מגבת אישית ובקבוק מים.")
+    .question,
+  "צריך להביא ציוד או שהכל מחכה בסטודיו?"
 );
 
 console.log("knowledge-qa tests ok");

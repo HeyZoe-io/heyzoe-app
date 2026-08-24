@@ -5,18 +5,10 @@ export type KnowledgeQaPair = {
   answer: string;
 };
 
-/**
- * דשבורדים ששומרים על שורת עובדה אחת (שאלה+תשובה מעורבבות).
- * Limitless, הסטודיו של ג׳ו ולקוחות חדשים מקבלים UI של שאלה/תשובה.
- */
-const LEGACY_SINGLE_LINE_KNOWLEDGE_SLUGS = new Set(["info-2815"]);
-
-export function usesKnowledgeQaDashboard(slug: string | null | undefined): boolean {
-  const s = String(slug ?? "")
-    .trim()
-    .toLowerCase();
-  if (!s) return true;
-  return !LEGACY_SINGLE_LINE_KNOWLEDGE_SLUGS.has(s);
+/** כל הדשבורדים משתמשים ב־UI של שאלה/תשובה לידע לזואי. */
+export function usesKnowledgeQaDashboard(slug?: string | null): boolean {
+  void slug;
+  return true;
 }
 
 /** אשכולות כוונה — אם בעל העסק כתב אחד, זואי מתייחסת לשאר כאותו נושא. */
@@ -58,6 +50,7 @@ const INTENT_CLUSTERS: string[][] = [
   ["ביטול", "לבטל", "מדיניות ביטול", "הקפאה", "cancellation", "cancel"],
   ["מחיר", "כמה עולה", "עלות", "price", "cost", "pricing"],
   ["מה להביא", "מה ללבוש", "ציוד", "what to bring", "what to wear"],
+  ["זום", "בזום", "zoom", "אונליין", "online"],
   ["מקלחות", "חדרי הלבשה", "לוקרים", "showers", "lockers"],
   ["פציעה", "פציעות", "שיקום", "injury", "rehab"],
 ];
