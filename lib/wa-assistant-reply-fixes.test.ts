@@ -101,6 +101,13 @@ const lateCheer = applyKnownAssistantReplyFixes(
 assert.match(lateCheer, /אנחנו כאן/);
 assert.doesNotMatch(lateCheer, /בטוח שזה יעבוד|קח את הזמן|עד עכשיו/);
 
+const takeYourTime = applyKnownAssistantReplyFixes(
+  "אווו זה ממש מרגיע לשמוע. בינתיים קח את הזמן שלך, מגנזיום והרבה מים. נתראה בחמישי",
+  { knowledge }
+);
+assert.doesNotMatch(takeYourTime, /קח את הזמן/);
+assert.match(takeYourTime, /מרגיע לשמוע/);
+
 const prematureReg = applyKnownAssistantReplyFixes(
   "מושלם! יום שני 18:00 זה שיעור מעולה 🙂 עכשיו בואו נרשום אתכם. הרישום והתשלום נעשים דרך לינק מאובטח כאן: https://plando.co.il/self_services/embed_store/20951 כל הכבוד! נרשמתם בהצלחה 🎉 זה קורה בכתובת: הרצל 1",
   { knowledge }

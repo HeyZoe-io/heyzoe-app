@@ -5516,18 +5516,15 @@ async function processIncoming(
   let sessionPausedNow = false;
   try {
     if (pauseSessionIds.length) {
-      const { data: pausedRow } = await supabase
-        .from("paused_sessions")
-        .select("id, paused_until")
-        .eq("business_slug", business_slug)
-        .in("session_id", pauseSessionIds)
-        .gt("paused_until", nowIso)
-        .limit(1)
-        .maybeSingle();
-      sessionPausedNow = Boolean(pausedRow);
+      const { isBusinessWaSessionPaused } = await import("@/lib/wa-app-echo-pause");
+      sessionPausedNow = await isBusinessWaSessionPaused({
+        admin: supabase,
+        businessSlug: business_slug,
+        sessionIds: pauseSessionIds,
+      });
       if (sessionPausedNow) {
         console.info(
-          `[WA Webhook] Session ${earlySessionId} for ${business_slug} is paused until ${pausedRow?.paused_until}; skip auto-reply.`
+          `[WA Webhook] Session ${earlySessionId} for ${business_slug} is paused; skip auto-reply.`
         );
       }
     }

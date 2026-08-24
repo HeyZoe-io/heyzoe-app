@@ -3,6 +3,7 @@ import { parseSmbMessageEchoes } from "@/lib/whatsapp";
 import {
   formatAppEchoPauseRemaining,
   isAppEchoAutoPause,
+  isRecentWaBusinessAppEcho,
   nextPausedUntilForAppEcho,
   WA_BUSINESS_APP_PAUSE_MS,
 } from "@/lib/wa-app-echo-pause";
@@ -50,17 +51,22 @@ assert.equal(echoes[0].text, "היי, נחזור אליך לגבי השיעור"
 assert.equal(parseSmbMessageEchoes({ object: "whatsapp_business_account", entry: [] }).length, 0);
 
 const now = new Date("2026-08-16T10:00:00.000Z");
-const fiveH = new Date(now.getTime() + WA_BUSINESS_APP_PAUSE_MS).toISOString();
-assert.equal(nextPausedUntilForAppEcho(null, now), fiveH);
-assert.equal(nextPausedUntilForAppEcho(new Date(now.getTime() + 60 * 60 * 1000).toISOString(), now), fiveH);
+const autoUntil = new Date(now.getTime() + WA_BUSINESS_APP_PAUSE_MS).toISOString();
+assert.equal(nextPausedUntilForAppEcho(null, now), autoUntil);
+assert.equal(nextPausedUntilForAppEcho(new Date(now.getTime() + 60 * 60 * 1000).toISOString(), now), autoUntil);
 
 const manual = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 365 * 50).toISOString();
 assert.equal(nextPausedUntilForAppEcho(manual, now), manual);
 
-assert.equal(isAppEchoAutoPause(fiveH, now), true);
+assert.equal(isAppEchoAutoPause(autoUntil, now), true);
 assert.equal(isAppEchoAutoPause(manual, now), false);
 assert.equal(isAppEchoAutoPause(null, now), false);
-assert.equal(formatAppEchoPauseRemaining(fiveH, "he", now), "עוד 5 שע׳");
-assert.equal(formatAppEchoPauseRemaining(fiveH, "en", now), "5h left");
+assert.equal(formatAppEchoPauseRemaining(autoUntil, "he", now), "עוד 24 שע׳");
+assert.equal(formatAppEchoPauseRemaining(autoUntil, "en", now), "24h left");
+
+const trainerSentAt = "2026-08-23T07:06:06.000Z";
+const eveningThanks = new Date("2026-08-23T15:27:00.000Z");
+assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, eveningThanks), true);
+assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, new Date("2026-08-24T08:00:00.000Z")), false);
 
 console.log("wa-app-echo-pause.test.ts: ok");

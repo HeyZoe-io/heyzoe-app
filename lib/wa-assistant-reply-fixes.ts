@@ -423,7 +423,7 @@ const UNSOLICITED_REGISTER_PUSH_RE =
   /בואי\s+תרשמ(?:י)?|בואו\s+תרשמ(?:ו)?|יאללה\s+תרשמ(?:י|ו)/iu;
 
 const CHEERLEADING_RE =
-  /בטוח\s+שזה\s+יעבוד|קח(?:י|ו)?\s+את\s+הזמן\s+שצריך|נראה\s+אותך\s+בעוד|עד\s+עכשיו!?/iu;
+  /בטוח\s+שזה\s+יעבוד|קח(?:י|ו)?\s+את\s+הזמן(?:\s+שצריך|\s+שלך)?|נראה\s+אותך\s+בעוד|עד\s+עכשיו!?/iu;
 
 export function stripCoachingAndUnsolicitedRegisterPush(text: string): string {
   let s = String(text ?? "").trim();
@@ -439,7 +439,7 @@ export function stripCoachingAndUnsolicitedRegisterPush(text: string): string {
   s = s.replace(/(?:יאללה\s*,?\s*)?בואי\s+תרשמ(?:י)?[^.!?\n]*/giu, "");
   s = s.replace(/(?:יאללה\s*,?\s*)?בואו\s+תרשמ(?:ו)?[^.!?\n]*/giu, "");
   s = s.replace(/בטוח\s+שזה\s+יעבוד[^.!?\n]*/giu, "");
-  s = s.replace(/קח(?:י|ו)?\s+את\s+הזמן\s+שצריך[^.!?\n]*/giu, "");
+  s = s.replace(/קח(?:י|ו)?\s+את\s+הזמן(?:\s+שצריך|\s+שלך)?[^.!?\n]*/giu, "");
   s = s.replace(/נראה\s+אותך\s+בעוד[^.!?\n]*/giu, "");
   s = s.replace(/עד\s+עכשיו!?/giu, "");
   s = s.replace(/[-–—:]\s*$/gu, "");

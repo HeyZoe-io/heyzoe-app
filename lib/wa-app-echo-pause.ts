@@ -10,11 +10,14 @@ import type { WaSmbMessageEcho } from "@/lib/whatsapp";
 /** Logged on messages.model_used — outbound from the WhatsApp Business app. */
 export const WA_BUSINESS_APP_ECHO_MODEL = "wa_business_app";
 
-/** Per-lead silence after a human send from the phone app. No cron — paused_until expires. */
-export const WA_BUSINESS_APP_PAUSE_MS = 5 * 60 * 60 * 1000;
+/**
+ * Per-lead silence after a human send from the phone app. No cron — paused_until expires.
+ * 24h covers morning scheduling + same-day evening “thanks for the session” (5h was too short).
+ */
+export const WA_BUSINESS_APP_PAUSE_MS = 24 * 60 * 60 * 1000;
 
-/** Dashboard pause is ~100 years. Anything within this window is the 5h app-echo pause. */
-export const WA_APP_ECHO_PAUSE_DISPLAY_MAX_MS = 12 * 60 * 60 * 1000;
+/** Dashboard pause is ~100 years. Anything within this window is the auto app-echo pause. */
+export const WA_APP_ECHO_PAUSE_DISPLAY_MAX_MS = 36 * 60 * 60 * 1000;
 
 export function remainingAppEchoPauseMs(
   pausedUntilIso: string | null | undefined,
@@ -25,7 +28,7 @@ export function remainingAppEchoPauseMs(
   return Math.max(0, until - now.getTime());
 }
 
-/** True when this pause is the auto 5h WhatsApp-app silence (not dashboard «עצור בוט»). */
+/** True when this pause is the auto WhatsApp-app silence (not dashboard «עצור בוט»). */
 export function isAppEchoAutoPause(
   pausedUntilIso: string | null | undefined,
   now: Date = new Date()
@@ -55,18 +58,30 @@ export function formatAppEchoPauseRemaining(
 
 /**
  * Dashboard "עצור בוט" sets paused_until ~100 years out. Never shorten that.
- * Otherwise refresh to now + 5h on every app send.
+ * Otherwise refresh to now + 24h on every app send.
  */
 export function nextPausedUntilForAppEcho(
   existingUntilIso: string | null | undefined,
   now: Date = new Date()
 ): string {
-  const fiveHours = new Date(now.getTime() + WA_BUSINESS_APP_PAUSE_MS);
+  const autoUntil = new Date(now.getTime() + WA_BUSINESS_APP_PAUSE_MS);
   const existingMs = existingUntilIso ? new Date(existingUntilIso).getTime() : NaN;
-  if (Number.isFinite(existingMs) && existingMs > fiveHours.getTime()) {
+  if (Number.isFinite(existingMs) && existingMs > autoUntil.getTime()) {
     return new Date(existingMs).toISOString();
   }
-  return fiveHours.toISOString();
+  return autoUntil.toISOString();
+}
+
+/** Last WhatsApp-app send still inside the coexistence window. */
+export function isRecentWaBusinessAppEcho(
+  createdAtIso: string | null | undefined,
+  now: Date = new Date(),
+  withinMs: number = WA_BUSINESS_APP_PAUSE_MS
+): boolean {
+  const t = createdAtIso ? new Date(createdAtIso).getTime() : NaN;
+  if (!Number.isFinite(t)) return false;
+  const elapsed = now.getTime() - t;
+  return elapsed >= 0 && elapsed < withinMs;
 }
 
 export async function isBusinessWaSessionPaused(input: {
@@ -90,7 +105,35 @@ export async function isBusinessWaSessionPaused(input: {
     console.warn("[wa-app-echo-pause] pause lookup failed:", error.message);
     return false;
   }
-  return Boolean(data?.id);
+  if (data?.id) return true;
+  return hasRecentWaBusinessAppEcho({
+    admin: input.admin,
+    businessSlug: slug,
+    sessionIds,
+  });
+}
+
+async function hasRecentWaBusinessAppEcho(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessSlug: string;
+  sessionIds: string[];
+}): Promise<boolean> {
+  const sinceIso = new Date(Date.now() - WA_BUSINESS_APP_PAUSE_MS).toISOString();
+  const { data, error } = await input.admin
+    .from("messages")
+    .select("id")
+    .eq("business_slug", input.businessSlug)
+    .in("session_id", input.sessionIds)
+    .eq("role", "assistant")
+    .eq("model_used", WA_BUSINESS_APP_ECHO_MODEL)
+    .gte("created_at", sinceIso)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[wa-app-echo-pause] recent app-echo lookup failed:", error.message);
+    return false;
+  }
+  return Boolean((data as { id?: unknown } | null)?.id);
 }
 
 async function pauseBusinessSessionForAppEcho(input: {
@@ -136,7 +179,7 @@ async function pauseBusinessSessionForAppEcho(input: {
 
 /**
  * Coexistence: a human sent from the WhatsApp Business app to a lead.
- * Pause Zoe on that session for 5 hours. Does not touch marketing, and does not
+ * Pause Zoe on that session for 24 hours. Does not touch marketing, and does not
  * set conversations.bot_paused (that flag auto-clears at 15 min).
  */
 export async function handleSmbMessageEchoes(echoes: WaSmbMessageEcho[]): Promise<void> {
