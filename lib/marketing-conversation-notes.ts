@@ -1,18 +1,25 @@
+/** סדר חשיבות באדמין זואי — 0 = הכי למעלה ברשימה */
 export const MARKETING_NOTE_STATUSES = [
   "in_process",
-  "not_relevant",
-  "registered",
+  "requires_call",
   "no_response",
   "not_interested",
-  "requires_call",
+  "registered",
+  "not_relevant",
 ] as const;
 
 export type MarketingNoteStatus = (typeof MARKETING_NOTE_STATUSES)[number];
 
 export const DEFAULT_MARKETING_NOTE_STATUS: MarketingNoteStatus = "in_process";
 
-/** סטטוס שמצמיד את השיחה לראש הרשימה */
-export const PINNED_MARKETING_NOTE_STATUS: MarketingNoteStatus = "requires_call";
+const MARKETING_NOTE_STATUS_RANK: Record<MarketingNoteStatus, number> = {
+  in_process: 0,
+  requires_call: 1,
+  no_response: 2,
+  not_interested: 3,
+  registered: 4,
+  not_relevant: 5,
+};
 
 export function isMarketingNoteStatus(v: unknown): v is MarketingNoteStatus {
   return typeof v === "string" && (MARKETING_NOTE_STATUSES as readonly string[]).includes(v);
@@ -22,8 +29,8 @@ export function coerceMarketingNoteStatus(v: unknown): MarketingNoteStatus {
   return isMarketingNoteStatus(v) ? v : DEFAULT_MARKETING_NOTE_STATUS;
 }
 
-export function isPinnedMarketingNoteStatus(status: MarketingNoteStatus | null | undefined): boolean {
-  return status === PINNED_MARKETING_NOTE_STATUS;
+export function marketingNoteStatusRank(status: MarketingNoteStatus | null | undefined): number {
+  return MARKETING_NOTE_STATUS_RANK[coerceMarketingNoteStatus(status)];
 }
 
 function sessionActivityMs(lastAt?: string | null): number {
@@ -33,14 +40,16 @@ function sessionActivityMs(lastAt?: string | null): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-/** «דורש שיחה» קודם, אחר כך לפי פעילות אחרונה */
-export function sortSessionsWithPinnedRequiresCall<
+/**
+ * לידים לפי חשיבות סטטוס (בתהליך → דורש שיחה → ללא מענה → לא מעוניין → נרשם → לא רלוונטי),
+ * ובאותו סטטוס לפי פעילות אחרונה.
+ */
+export function sortMarketingSessionsByStatusPriority<
   T extends { lastAt?: string | null; noteStatus?: MarketingNoteStatus | null },
 >(sessions: T[]): T[] {
   return [...sessions].sort((a, b) => {
-    const aPin = isPinnedMarketingNoteStatus(a.noteStatus) ? 1 : 0;
-    const bPin = isPinnedMarketingNoteStatus(b.noteStatus) ? 1 : 0;
-    if (aPin !== bPin) return bPin - aPin;
+    const rankDiff = marketingNoteStatusRank(a.noteStatus) - marketingNoteStatusRank(b.noteStatus);
+    if (rankDiff !== 0) return rankDiff;
     return sessionActivityMs(b.lastAt) - sessionActivityMs(a.lastAt);
   });
 }

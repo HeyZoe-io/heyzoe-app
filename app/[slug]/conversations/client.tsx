@@ -19,7 +19,7 @@ import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
 import {
   DEFAULT_MARKETING_NOTE_STATUS,
   getMarketingNoteStatusMeta,
-  sortSessionsWithPinnedRequiresCall,
+  sortMarketingSessionsByStatusPriority,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
@@ -378,7 +378,7 @@ export default function ConversationsClient({
       : list;
     const pinRequiresCall = apiScope === "admin" && isMarketingConversationsSlug(slug);
     return pinRequiresCall
-      ? sortSessionsWithPinnedRequiresCall(filtered)
+      ? sortMarketingSessionsByStatusPriority(filtered)
       : sortSessionsByRecentActivity(filtered);
   }, [sessions, normalizedFilter, searchQuery, apiScope, slug]);
 
@@ -440,7 +440,7 @@ export default function ConversationsClient({
     setSessions((prev) => {
       if (!(sessionsQuery.data.length > 0 || prev.length === 0)) return prev;
       return apiScope === "admin" && isMarketingConversationsSlug(slug)
-        ? sortSessionsWithPinnedRequiresCall(sessionsQuery.data)
+        ? sortMarketingSessionsByStatusPriority(sessionsQuery.data)
         : sortSessionsByRecentActivity(sessionsQuery.data);
     });
   }, [sessionsQuery.data, apiScope, slug]);
@@ -772,7 +772,7 @@ export default function ConversationsClient({
     setSessions((prev) => {
       const next = prev.map((s) => (s.session_id === sessionId ? { ...s, noteStatus } : s));
       return apiScope === "admin" && isMarketingConversationsSlug(slug)
-        ? sortSessionsWithPinnedRequiresCall(next)
+        ? sortMarketingSessionsByStatusPriority(next)
         : next;
     });
     void queryClient.invalidateQueries({ queryKey: [queryScope, "conversations", slug] });
