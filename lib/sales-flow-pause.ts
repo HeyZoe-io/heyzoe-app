@@ -51,6 +51,9 @@ export function assistantReplyIndicatesSalesFlowPause(text: string): boolean {
   if (/חזרה\s+בכל\s+עת/.test(t)) return true;
   if (/מוזמנ\S*\s+חזרה/.test(t)) return true;
   if (/we(?:['’]re| are)\s+here\s+when(?:\s+you(?:['’]re| are))?\s+ready/.test(t)) return true;
+  if (/מעביר(?:ה|ים)?\s+את\s+הפני/.test(t)) return true;
+  if (/יצרו\s+איתך\s+קשר/.test(t)) return true;
+  if (/הצוות\s+יצרו/.test(t)) return true;
   return false;
 }
 

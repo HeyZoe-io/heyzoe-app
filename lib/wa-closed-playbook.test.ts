@@ -164,6 +164,9 @@ assert.equal(cat("אפשר לדבר עם נציג"), null);
 assert.equal(userRequestedHumanAgent("אפשר לדבר עם נציג"), true);
 assert.equal(cat("מענה אנושי"), null);
 assert.equal(userRequestedHumanAgent("מענה אנושי"), true);
+assert.equal(userRequestedHumanAgent("תתקשרו"), true);
+assert.equal(userRequestedHumanAgent("תתקשרי אלי"), true);
+assert.equal(userRequestedHumanAgent("אל תתקשרו"), false);
 
 // --- 9 off-topic stays outside dispatcher ---
 assert.equal(cat("אשלח לך קבלה מעודכנת"), null);

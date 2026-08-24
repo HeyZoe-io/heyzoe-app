@@ -462,9 +462,11 @@ import {
   SALES_FLOW_CTA_COMPACT_MODEL,
   SALES_FLOW_CTA_HAVE_A_QUESTION_MODEL,
   buildCompactCtaMenuLabels,
+  collectSalesFlowCtaChoiceLabels,
   ctaCompactFollowupBody,
   ctaHaveAQuestionReply,
   isCtaHaveAQuestionMessage,
+  shouldDeferTrialTopicToCtaHandler,
 } from "@/lib/wa-cta-compact";
 import { isAddressOrDirectionsIntent } from "@/lib/wa-address-intent";
 import {
@@ -6217,6 +6219,7 @@ async function processIncoming(
 
   // Trial / intro training («אימון היכרות», «אימון הכרות», «אימוני ניסיון») — verbatim Q&A when configured, then product pick.
   // In-flow opening/warmup: info-only trial questions fall through to Claude + warmup resend; signup/advance skips ahead.
+  // CTA button labels like «הרשמה לשיעור ניסיון» also match trial-topic FAQ — defer those to the CTA handler.
   if (
     msg.type === "text" &&
     businessId &&
@@ -6230,7 +6233,16 @@ async function processIncoming(
       business_slug,
       session_id: sessionId,
     });
+    const ctaChoiceLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+    const deferTrialTopicToCta = shouldDeferTrialTopicToCtaHandler({
+      inbound: msg.text,
+      sessionPhase: contactSessionPhase,
+      lastAssistantModel: lastAssistForTrialTopic,
+      ctaLabels: collectSalesFlowCtaChoiceLabels(knowledge.salesFlowConfig, ctaChoiceLang),
+      ctaMenuModels: CTA_MENU_SENT_MODELS,
+    });
     if (
+      !deferTrialTopicToCta &&
       lastAssistForTrialTopic !== BOOKING_LOOKUP_CLARIFY_MODEL &&
       lastAssistForTrialTopic !== REGISTRATION_INTENT_CLARIFY_MODEL
     ) {

@@ -12,6 +12,12 @@ const sangaReply =
 assert.equal(leadPausesSalesFlowNow(sangaInbound), true);
 assert.equal(assistantReplyIndicatesSalesFlowPause(sangaReply), true);
 assert.equal(
+  assistantReplyIndicatesSalesFlowPause(
+    "מצטערת לשמוע שיש בעיה! זה משהו שצריך לברר מול הצוות. אני מעבירה את הפנייה שלך ויצרו איתך קשר בקרוב"
+  ),
+  true
+);
+assert.equal(
   shouldPauseSalesFlowPromptResend({ inboundText: sangaInbound, assistantReply: sangaReply }),
   true
 );

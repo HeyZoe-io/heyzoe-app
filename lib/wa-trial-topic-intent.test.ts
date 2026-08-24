@@ -13,6 +13,11 @@ assert.equal(matchesTrialTopicIntent("מה זה אימון הכרות?"), true);
 assert.equal(matchesTrialTopicIntent("יש אימוני ניסיון?"), true);
 assert.equal(matchesTrialTopicIntent("אפשר אימון ניסיון?"), true);
 assert.equal(matchesTrialTopicIntent("כמה עולה השיעור?"), false);
+assert.equal(
+  matchesTrialTopicIntent("הרשמה לשיעור ניסיון"),
+  true,
+  "CTA label contains trial markers — webhook must defer to CTA handler, not treat as FAQ"
+);
 
 const liahExistingTrial =
   "כן פשוט אני ומיה אלקיים נרשמנו ביחד לאימוני ניסיון ולה לא הייתה את הבעיה הזאת של להירשם";
