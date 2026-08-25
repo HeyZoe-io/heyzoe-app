@@ -1,4 +1,6 @@
 import { matchCatalogServiceFromFreeText } from "@/lib/wa-unknown-class-slot";
+import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
+import { matchesTrialTopicAdvanceIntent } from "@/lib/wa-trial-topic-intent";
 
 /** גשר קבוע אחרי אישור מילולי של אימון — חובה לבחור מהרשימה כדי להמשיך בפלואו. */
 export const OPENING_SERVICE_LIST_PICK_BRIDGE = "יש לבחור את השיעור מהרשימה";
@@ -12,6 +14,49 @@ export function ensureOpeningServiceListPickBridge(text: string): string {
   if (!raw) return OPENING_SERVICE_LIST_PICK_BRIDGE;
   if (replyContainsOpeningServiceListPickBridge(raw)) return raw;
   return `${raw}\n\n${OPENING_SERVICE_LIST_PICK_BRIDGE}`;
+}
+
+/** כמה התאמות בקטלוג — מפנים לרשימה במקום לבחור בשקט. */
+export function buildAmbiguousCatalogTrialPickMessage(matchCount: number): string {
+  const n = Math.max(2, Math.floor(Number(matchCount) || 0));
+  return `מצאתי ${n} אימונים שתואמים לבחירה שלך, הכי כדאי לבחור מתוך הרשימה`;
+}
+
+function looksLikeInfoQuestionOnly(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/[?؟]/.test(t)) return true;
+  const first = t.split(/[\n.!…]/)[0]?.trim() ?? t;
+  return /^(מה|איך|האם|מי|איפה|מתי|למה|מדוע|כמה)(?:\s|$)/u.test(first);
+}
+
+/**
+ * כוונת הרשמה / בחירת שיעור ניסיון (לא שאלת מחיר/מידע כללית).
+ * משמש רק יחד עם awaiting product-pick + כמה התאמות בקטלוג.
+ */
+export function inboundLooksLikeTrialClassRegistrationPick(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (isJoinSignupIntentText(t)) return true;
+  if (matchesTrialTopicAdvanceIntent(t)) return true;
+  if (looksLikeInfoQuestionOnly(t)) return false;
+  // בחירת אימון חופשית בפלואו ניסיון: «לאימון X», «עם מאמן ב-9», «רוצה pilates»
+  return (
+    /(?:^|[^\p{L}])(?:ל)?(?:אימון|שיעור)(?:[^\p{L}]|$)/u.test(t) ||
+    /(?:^|[^\p{L}])(?:רוצה|אשמח|אפשר|להצטרף|להירשם)(?:[^\p{L}]|$)/u.test(t) ||
+    /עם\s+\S+/u.test(t) ||
+    /ב[-–—]?\d/u.test(t)
+  );
+}
+
+export function shouldPromptAmbiguousCatalogTrialPick(input: {
+  inboundText: string;
+  matchCount: number;
+  awaitingOpeningServicePick: boolean;
+}): boolean {
+  if (!input.awaitingOpeningServicePick) return false;
+  if (input.matchCount < 2) return false;
+  return inboundLooksLikeTrialClassRegistrationPick(input.inboundText);
 }
 
 function foldForMention(raw: string): string {

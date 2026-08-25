@@ -148,8 +148,10 @@ import {
 } from "@/lib/wa-cta-service-repick";
 import {
   OPENING_SERVICE_LIST_PICK_BRIDGE,
+  buildAmbiguousCatalogTrialPickMessage,
   ensureOpeningServiceListPickBridge,
   shouldAttachOpeningServiceListPickBridge,
+  shouldPromptAmbiguousCatalogTrialPick,
 } from "@/lib/wa-opening-service-list-pick-bridge";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import {
@@ -204,6 +206,7 @@ import {
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
   assistantReplyIsUnknownClassSlotHandoff,
   matchCatalogServiceFromFreeText,
+  matchCatalogServicesFromFreeText,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 import {
@@ -7814,7 +7817,45 @@ async function processIncoming(
       ).trim();
       const rawLower = resolved.toLowerCase();
       const num = Number(rawLower);
-      const catalogTyped = matchCatalogServiceFromFreeText(resolved, named);
+      const catalogMatches = matchCatalogServicesFromFreeText(resolved, named);
+      const catalogTyped = catalogMatches.length === 1 ? catalogMatches[0]! : null;
+
+      if (
+        catalogMatches.length >= 2 &&
+        shouldPromptAmbiguousCatalogTrialPick({
+          inboundText: resolved,
+          matchCount: catalogMatches.length,
+          awaitingOpeningServicePick: true,
+        })
+      ) {
+        const ambiguousMsg = buildAmbiguousCatalogTrialPickMessage(catalogMatches.length);
+        await sendWhatsAppMessage(msg.toNumber, msg.from, ambiguousMsg, accountSid, authToken).catch(
+          (e) => console.error("[WA Webhook] ambiguous catalog pick bridge failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: ambiguousMsg,
+          model_used: "sales_flow_ambiguous_catalog_pick",
+          session_id: sessionId,
+        });
+        await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: "sales_flow_opening_service_pick_resend",
+        });
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        return;
+      }
+
       const picked =
         Number.isFinite(num) && num >= 1 && num <= named.length
           ? named[num - 1]
@@ -10115,7 +10156,7 @@ async function processIncoming(
       }
     }
 
-    // Last chance: awaiting product pick + unique free-text catalog match — never Claude.
+    // Last chance: awaiting product pick + free-text catalog match — never Claude.
     if (
       isFreeTextSalesFlowAi &&
       knowledge?.salesFlowConfig &&
@@ -10123,7 +10164,43 @@ async function processIncoming(
       salesFlowServices.length > 1 &&
       isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority)
     ) {
-      const lateMatch = matchCatalogServiceFromFreeText(incomingRaw, salesFlowServices);
+      const lateMatches = matchCatalogServicesFromFreeText(incomingRaw, salesFlowServices);
+      if (
+        lateMatches.length >= 2 &&
+        shouldPromptAmbiguousCatalogTrialPick({
+          inboundText: incomingRaw,
+          matchCount: lateMatches.length,
+          awaitingOpeningServicePick: true,
+        })
+      ) {
+        const ambiguousMsg = buildAmbiguousCatalogTrialPickMessage(lateMatches.length);
+        await sendWhatsAppMessage(msg.toNumber, msg.from, ambiguousMsg, accountSid, authToken).catch(
+          (e) => console.error("[WA Webhook] late ambiguous catalog pick failed:", e)
+        );
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: ambiguousMsg,
+          model_used: "sales_flow_ambiguous_catalog_pick",
+          session_id: sessionId,
+        });
+        await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: "sales_flow_opening_service_pick_resend",
+        });
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        return;
+      }
+      const lateMatch = lateMatches.length === 1 ? lateMatches[0]! : null;
       if (lateMatch) {
         const pickedLate = salesFlowServices.find((s) => s.name === lateMatch);
         if (pickedLate) {

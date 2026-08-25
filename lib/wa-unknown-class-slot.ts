@@ -104,12 +104,12 @@ function looksLikeClassTimeQuestion(text: string): boolean {
   );
 }
 
-export function matchCatalogServiceFromFreeText(
+export function matchCatalogServicesFromFreeText(
   text: string,
   services: Pick<SfServiceRow, "name">[]
-): string | null {
+): string[] {
   const foldedUser = foldClassName(text);
-  if (!foldedUser || foldedUser.length < 3) return null;
+  if (!foldedUser || foldedUser.length < 3) return [];
 
   type Hit = { name: string; extra: number };
   const hits: Hit[] = [];
@@ -157,11 +157,22 @@ export function matchCatalogServiceFromFreeText(
         });
       if (names.length === 1) uniqueHits.push(names[0]!);
     }
-    const uniq = [...new Set(uniqueHits)];
-    return uniq.length === 1 ? uniq[0]! : null;
+    return [...new Set(uniqueHits)];
   }
   hits.sort((a, b) => a.extra - b.extra || a.name.length - b.name.length);
-  return hits[0]!.name;
+  // התאמה ברורה: הכי פחות טוקנים חסרים — אחרת כמה בראש הרשימה = מעורפל
+  const bestExtra = hits[0]!.extra;
+  const top = hits.filter((h) => h.extra === bestExtra);
+  return [...new Set(top.map((h) => h.name))];
+}
+
+/** התאמה חד־משמעית בלבד — כמה התאמות → null (לא בוחרים בשקט את הראשונה). */
+export function matchCatalogServiceFromFreeText(
+  text: string,
+  services: Pick<SfServiceRow, "name">[]
+): string | null {
+  const matches = matchCatalogServicesFromFreeText(text, services);
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 export function assistantReplyIsUnknownClassSlotHandoff(text: string): boolean {
