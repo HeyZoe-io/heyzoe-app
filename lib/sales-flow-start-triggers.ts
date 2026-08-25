@@ -170,6 +170,21 @@ export function buildCasualHiGreetingReply(
 }
 
 /**
+ * תפריט בחירת מוצר בפתיחה — לחיצה עליו חייבת להיחשב לפלואו מכירה פעיל,
+ * גם אם לא נרשם סמן `greeting` / `signup_intent_flow_entry` לפני השליחה.
+ */
+export const OPENING_SERVICE_PICK_MENU_MODELS = [
+  "flow_continuation_opening_service_pick",
+  "sales_flow_opening_service_pick_resend",
+  "sales_flow_cs_redirect_service_pick",
+] as const;
+
+export function isOpeningServicePickMenuModel(model: string | null | undefined): boolean {
+  const m = String(model ?? "").trim();
+  return (OPENING_SERVICE_PICK_MENU_MODELS as readonly string[]).includes(m);
+}
+
+/**
  * האם סמן ברכה ב־messages נחשב לפתיחת פלואו מכירה.
  * `greeting` = טריגר מפורש. `default_opening` היסטורי נספר רק אם ההודעה שלפניו הייתה טריגר («אשמח לפרטים» וכו׳).
  */
@@ -182,10 +197,31 @@ export function salesFlowGreetingMarkerCountsAsStarted(input: {
     modelUsed === "greeting" ||
     modelUsed === "registration_intent_no_member" ||
     modelUsed === "signup_intent_flow_entry" ||
+    modelUsed === "trial_topic_flow_entry" ||
     modelUsed === "closed_playbook_catalog_group"
   ) {
     return true;
   }
+  if (isOpeningServicePickMenuModel(modelUsed)) return true;
   if (modelUsed !== "default_opening") return false;
   return isSalesFlowStartTrigger(input.precedingUserText ?? "");
+}
+
+/** פלואו התחיל מברכה, או שההודעה האחרונה של זואי היא תפריט בחירת מוצר. */
+export function sessionCountsAsSalesFlowStarted(input: {
+  greetingMarkerModel: string | null;
+  precedingUserText: string | null;
+  lastAssistantModel: string | null;
+}): boolean {
+  const marker = String(input.greetingMarkerModel ?? "").trim();
+  if (
+    marker &&
+    salesFlowGreetingMarkerCountsAsStarted({
+      modelUsed: marker,
+      precedingUserText: input.precedingUserText,
+    })
+  ) {
+    return true;
+  }
+  return isOpeningServicePickMenuModel(input.lastAssistantModel);
 }

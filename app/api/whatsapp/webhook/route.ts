@@ -132,7 +132,6 @@ import {
 import { isStudioOverviewIntentText } from "@/lib/wa-studio-overview-intent";
 import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import {
-  assistantAwaitingServiceRepickPick,
   ensureCtaServiceRepickBridge,
   fetchLastAssistantMessageContent,
   isCtaServiceFitQuestion,
@@ -145,7 +144,12 @@ import {
   withServiceRepickAckPrefix,
   isAmbiguousPartialCatalogServiceSwitch,
   shouldHandleCtaServiceRepickYes,
+  assistantAwaitingServiceRepickPick,
 } from "@/lib/wa-cta-service-repick";
+import {
+  ensureOpeningServiceListPickBridge,
+  shouldAttachOpeningServiceListPickBridge,
+} from "@/lib/wa-opening-service-list-pick-bridge";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import {
   buildWarmupExperienceMenu,
@@ -175,7 +179,7 @@ import {
   inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel } from "@/lib/sales-flow-start-triggers";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
@@ -406,6 +410,7 @@ import { isEditorShadowEnabled, runEditorPassShadow } from "@/lib/editor-pass";
 import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
+  ensureSalesFlowStartedMarker,
   sessionHasSalesFlowGreeting as fetchSessionHasSalesFlowGreeting,
   fetchLastSfServiceEventName,
   fetchLastSfWarmupExtraIndex,
@@ -630,6 +635,17 @@ function isWarmupExtraMenuModel(model: string | null | undefined): boolean {
 /** בחירת שירות מרובה — רק בשלב opening (לא בתוך חימום / לוח / CTA). */
 function isSalesFlowMultiServicePickPhase(phase: HeyzoeSessionPhase): boolean {
   return phase === "opening";
+}
+
+function isAwaitingOpeningServicePick(
+  phase: HeyzoeSessionPhase,
+  salesFlowStarted: boolean,
+  lastAssistModel: string | null | undefined
+): boolean {
+  return (
+    isSalesFlowMultiServicePickPhase(phase) &&
+    (salesFlowStarted || isOpeningServicePickMenuModel(lastAssistModel))
+  );
 }
 
 function inferWarmupExtraStepIndex(input: {
@@ -2536,6 +2552,11 @@ async function sendOpeningServicePickMenu(input: {
   if (!cfg) return false;
   const labels = input.salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
   if (labels.length < 2) return false;
+  await ensureSalesFlowStartedMarker({
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+    phone: input.msg.from,
+  });
 
   const qRaw = String(cfg.multi_service_question ?? "").trim() || buildDefaultMultiServiceQuestion();
   const assets = scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockMedia ?? false);
@@ -3994,7 +4015,10 @@ async function isWarmupFlowCompleteForRecovery(input: {
 
 /** אחרי תשובת Claude לטקסט חופשי — שולח מחדש את השאלה/תפריט שעדיין ממתין (בלי advance גנרי). */
 async function resendUnansweredSalesFlowPrompt(
-  input: Parameters<typeof sendFlowContinuation>[0]
+  input: Parameters<typeof sendFlowContinuation>[0] & {
+    /** כבר ידוע מהבקשה הנוכחית — לא להסתמך על lastAssist אחרי שקלוד כבר נרשם. */
+    flowStarted?: boolean;
+  }
 ): Promise<void> {
   const {
     phase,
@@ -4012,10 +4036,11 @@ async function resendUnansweredSalesFlowPrompt(
     trialRegistered,
     allowTrialCta,
     sfConsumedKinds,
+    flowStarted,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
-  if (!(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
+  if (!flowStarted && !(await sessionHasSalesFlowGreeting(business_slug, sessionId))) {
     return;
   }
   if (
@@ -4271,7 +4296,7 @@ async function resendUnansweredSalesFlowPrompt(
 }
 
 async function continueDeterministicFlowAfterFreeTextAi(
-  input: Parameters<typeof sendFlowContinuation>[0]
+  input: Parameters<typeof sendFlowContinuation>[0] & { flowStarted?: boolean }
 ): Promise<void> {
   await resendUnansweredSalesFlowPrompt(input);
 }
@@ -7697,7 +7722,7 @@ async function processIncoming(
   // מספר אחרי תפריט repick — רק awaiting-pick
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && salesFlowServices.length > 1) {
     const awaitingServicePickForNumeric =
-      (isSalesFlowMultiServicePickPhase(contactSessionPhase) && salesFlowStarted) ||
+      isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority) ||
       (contactSessionPhase === "cta" &&
         (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId })));
     if (awaitingServicePickForNumeric && isNumericServicePickReply(msg.text.trim())) {
@@ -7722,8 +7747,7 @@ async function processIncoming(
     knowledge?.salesFlowConfig &&
     businessId &&
     salesFlowServices.length > 1 &&
-    isSalesFlowMultiServicePickPhase(contactSessionPhase) &&
-    salesFlowStarted
+    isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority)
   ) {
     try {
       const named = salesFlowServices;
@@ -7851,6 +7875,14 @@ async function processIncoming(
         });
         return;
       }
+      if (catalogTyped) {
+        console.warn("[WA Webhook] free-text catalog match without pick row", {
+          business_slug,
+          session_id: sessionId,
+          catalogTyped,
+          inbound: resolved.slice(0, 120),
+        });
+      }
     } catch (e) {
       console.warn("[WA Webhook] Sales-flow service pick failed (continuing):", e);
     }
@@ -7907,7 +7939,7 @@ async function processIncoming(
     isSalesFlowFreeTextInbound(msg)
   ) {
     const awaitingServicePickForImplicit =
-      (isSalesFlowMultiServicePickPhase(contactSessionPhase) && salesFlowStarted) ||
+      isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority) ||
       (await assistantAwaitingServiceRepickPick({ business_slug, session_id: sessionId }));
     if (awaitingServicePickForImplicit) {
       const lastPickedForRepick = await fetchLastSfServiceEventName({ business_slug, session_id: sessionId });
@@ -10796,9 +10828,20 @@ async function processIncoming(
             }
           }
         }
-        const answerOnly = stripTrailingFollowUpQuestion(
+        let answerOnly = stripTrailingFollowUpQuestion(
           stripMenuEchoFromAnswer(answerBody, menuQuestion, menuLabels)
         );
+        const needsOpeningListPickBridge = shouldAttachOpeningServiceListPickBridge({
+          phase: contactSessionPhase,
+          multiService: salesFlowServices.length > 1,
+          alreadyPickedService: Boolean(lastPickedServiceName?.trim()),
+          inboundText: incomingRaw,
+          assistantReply: replyCoreClean,
+          serviceNames: salesFlowServices.map((s) => s.name),
+        });
+        if (needsOpeningListPickBridge) {
+          answerOnly = ensureOpeningServiceListPickBridge(answerOnly);
+        }
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await logMessage({
           business_slug,
@@ -10829,6 +10872,7 @@ async function processIncoming(
             instagramFollowPromptSent: contactInstagramFollowPromptSent,
             inboundText: incomingRaw,
             aiReplyCoreClean: replyCoreClean,
+            flowStarted: salesFlowStarted || needsOpeningListPickBridge,
           });
         }
       } else {

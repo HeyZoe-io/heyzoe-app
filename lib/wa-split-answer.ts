@@ -3,6 +3,7 @@
  */
 
 import { CTA_SERVICE_REPICK_BRIDGE_QUESTION } from "@/lib/wa-cta-service-repick";
+import { OPENING_SERVICE_LIST_PICK_BRIDGE } from "@/lib/wa-opening-service-list-pick-bridge";
 import { SCHEDULE_WHEN_CONVENIENT_QUESTION } from "@/lib/wa-outbound-registration-guard";
 import {
   isStudioOverviewIntentText,
@@ -51,6 +52,7 @@ export function looksLikeFollowUpQuestion(chunk: string): boolean {
   const t = String(chunk ?? "").trim();
   if (!t) return false;
   if (t.includes(CTA_SERVICE_REPICK_BRIDGE_QUESTION)) return false;
+  if (t.includes(OPENING_SERVICE_LIST_PICK_BRIDGE)) return false;
   if (t.includes(SCHEDULE_WHEN_CONVENIENT_QUESTION) || /מתי נוח ל(?:ך|כם) להגיע/u.test(t)) return false;
   if (t.length > 200) return false;
   if (/\?\s*$/.test(t)) return true;

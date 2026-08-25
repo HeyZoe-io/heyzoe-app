@@ -1,5 +1,10 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { salesFlowGreetingMarkerCountsAsStarted } from "@/lib/sales-flow-start-triggers";
+import {
+  isOpeningServicePickMenuModel,
+  salesFlowGreetingMarkerCountsAsStarted,
+} from "@/lib/sales-flow-start-triggers";
+import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
+import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
 import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
 
 export type MessageRole = "user" | "assistant" | "event" | "system";
@@ -28,6 +33,7 @@ export const SALES_FLOW_GREETING_RESET_MODELS = [
   "default_opening",
   "registration_intent_no_member",
   "signup_intent_flow_entry",
+  "trial_topic_flow_entry",
   "closed_playbook_catalog_group",
 ] as const;
 
@@ -114,49 +120,87 @@ async function fetchUserMessageBefore(input: {
 }
 
 /**
- * פלואו מכירה התחיל רק מטריגר («היי») או מ־default_opening היסטורי שאחרי טריגר.
- * שאלה פתוחה (למשל «יש איפה לשים אופניים?») לא נחשבת לפתיחת פלואו — גם אם נשלחה ברכת default_opening ישנה.
+ * פלואו מכירה התחיל מטריגר («היי») / default_opening היסטורי אחרי טריגר /
+ * או שההודעה האחרונה של זואי היא תפריט בחירת מוצר (שליחה ידנית / גשר CS בלי סמן ברכה).
  */
 export async function sessionHasSalesFlowGreeting(input: {
   business_slug: string;
   session_id: string | string[];
 }): Promise<boolean> {
   const marker = await fetchLastSalesFlowGreetingMarker(input);
-  if (!marker) return false;
-  if (
-    marker.model_used === "greeting" ||
-    marker.model_used === "registration_intent_no_member" ||
-    marker.model_used === "signup_intent_flow_entry" ||
-    marker.model_used === "closed_playbook_catalog_group"
-  ) {
-    return true;
+  if (marker) {
+    if (
+      marker.model_used === "greeting" ||
+      marker.model_used === "registration_intent_no_member" ||
+      marker.model_used === "signup_intent_flow_entry" ||
+      marker.model_used === "trial_topic_flow_entry" ||
+      marker.model_used === "closed_playbook_catalog_group"
+    ) {
+      return true;
+    }
+    const precedingUserText = await fetchUserMessageBefore({
+      business_slug: input.business_slug,
+      session_id: input.session_id,
+      beforeIso: marker.created_at,
+    });
+    if (
+      salesFlowGreetingMarkerCountsAsStarted({
+        modelUsed: marker.model_used,
+        precedingUserText,
+      })
+    ) {
+      return true;
+    }
   }
-  const precedingUserText = await fetchUserMessageBefore({
+  const lastAssist = await fetchLastAssistantModelUsed(input);
+  return isOpeningServicePickMenuModel(lastAssist);
+}
+
+/** אם הפלואו עוד לא התחיל — רושם סמן כניסה כדי שלחיצת בחירת מוצר תיקלט. */
+export async function ensureSalesFlowStartedMarker(input: {
+  business_slug: string;
+  session_id: string;
+  businessId?: string | number | null;
+  phone?: string | null;
+}): Promise<boolean> {
+  const sessionId = String(input.session_id ?? "").trim();
+  if (!sessionId) return false;
+  if (await sessionHasSalesFlowGreeting(input)) return false;
+  await logMessage({
     business_slug: input.business_slug,
-    session_id: input.session_id,
-    beforeIso: marker.created_at,
+    role: "assistant",
+    content: "[heyzoe:signup_intent_flow_entry]",
+    model_used: "signup_intent_flow_entry",
+    session_id: sessionId,
   });
-  return salesFlowGreetingMarkerCountsAsStarted({
-    modelUsed: marker.model_used,
-    precedingUserText,
-  });
+  const phone = String(input.phone ?? "").trim() || extractPhoneFromSessionId(sessionId);
+  if (phone) {
+    await markContactSalesFlowStarted({
+      businessId: input.businessId,
+      businessSlug: input.business_slug,
+      phone,
+    });
+  }
+  return true;
 }
 
 export async function fetchLastAssistantModelUsed(input: {
   business_slug: string;
-  session_id: string;
+  session_id: string | string[];
 }): Promise<string | null> {
+  const sessionIds = sessionIdList(input.session_id);
+  if (!sessionIds.length) return null;
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase
+    let q = supabase
       .from("messages")
       .select("model_used")
       .eq("business_slug", input.business_slug)
-      .eq("session_id", input.session_id)
       .eq("role", "assistant")
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    q = sessionIds.length === 1 ? q.eq("session_id", sessionIds[0]!) : q.in("session_id", sessionIds);
+    const { data, error } = await q.maybeSingle();
     if (error || data == null) return null;
     const m = data.model_used;
     return typeof m === "string" && m.trim() ? m.trim() : null;

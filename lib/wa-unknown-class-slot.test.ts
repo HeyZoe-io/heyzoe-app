@@ -71,6 +71,25 @@ assert.equal(
   "שיעור יוגה מתחילים"
 );
 
+const strengthLike: SfServiceRow[] = [
+  svc("אימוני כוח - Strength", [
+    { day: "ו", time: "09:00" },
+    { day: "ו", time: "10:00" },
+  ]),
+  svc("Power&HIIT", [{ day: "ב", time: "09:00" }]),
+  svc("כוח לנשים בלבד", [{ day: "ג", time: "19:00" }]),
+  svc("Mobility Power", [{ day: "א", time: "09:00" }]),
+];
+assert.equal(
+  matchCatalogServiceFromFreeText("לאימון strength עם אלין ב-9", strengthLike),
+  "אימוני כוח - Strength",
+  "free-text strength+instructor+hour → Strength"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("strength", strengthLike),
+  "אימוני כוח - Strength"
+);
+
 assert.equal(
   shouldHandoffUnknownClassSlot({
     text: "רוצה להצטרף בשבת לפוואר אנד הייט",

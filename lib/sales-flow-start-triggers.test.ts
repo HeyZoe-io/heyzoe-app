@@ -6,7 +6,9 @@ import {
   matchesSalesFlowRestartIntent,
   buildCasualHiGreetingReply,
   CASUAL_HOW_ARE_YOU_REPLY_HE,
+  isOpeningServicePickMenuModel,
   salesFlowGreetingMarkerCountsAsStarted,
+  sessionCountsAsSalesFlowStarted,
 } from "@/lib/sales-flow-start-triggers";
 
 assert.equal(isSalesFlowStartTrigger("היי"), false);
@@ -118,6 +120,40 @@ assert.equal(
     precedingUserText: "היי, איך אני יכולה להירשם לשיעור ניסיון?",
   }),
   true
+);
+assert.equal(
+  salesFlowGreetingMarkerCountsAsStarted({
+    modelUsed: "trial_topic_flow_entry",
+    precedingUserText: "היי! רציתי לברר אם אפשר להצטרף לשיעור נסיון",
+  }),
+  true
+);
+assert.equal(isOpeningServicePickMenuModel("flow_continuation_opening_service_pick"), true);
+assert.equal(isOpeningServicePickMenuModel("sales_flow_opening_service_pick_resend"), true);
+assert.equal(isOpeningServicePickMenuModel("sales_flow_cs_redirect_service_pick"), true);
+assert.equal(isOpeningServicePickMenuModel("greeting"), false);
+assert.equal(
+  salesFlowGreetingMarkerCountsAsStarted({
+    modelUsed: "flow_continuation_opening_service_pick",
+    precedingUserText: "אפשר לנסות שיעור יוגה היום?",
+  }),
+  true
+);
+assert.equal(
+  sessionCountsAsSalesFlowStarted({
+    greetingMarkerModel: null,
+    precedingUserText: null,
+    lastAssistantModel: "flow_continuation_opening_service_pick",
+  }),
+  true
+);
+assert.equal(
+  sessionCountsAsSalesFlowStarted({
+    greetingMarkerModel: null,
+    precedingUserText: null,
+    lastAssistantModel: "claude-haiku-4-5",
+  }),
+  false
 );
 
 console.log("sales-flow-start-triggers.test.ts: ok");
