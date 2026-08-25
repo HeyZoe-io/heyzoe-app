@@ -56,6 +56,12 @@ function parseRequestedTimes(text: string): string[] {
     const mm = m[2];
     out.push(`${hh}:${mm}`);
   }
+  // «ב-9» / «ב9» / «ב 9» → 09:00 (שעה עגולה בלי דקות)
+  const bareHour = /(?:^|[^\d\p{L}])(?:ב[-–—\s]?)([1-9]|1\d|2[0-3])(?:[^\d]|$)/gu;
+  let hm: RegExpExecArray | null;
+  while ((hm = bareHour.exec(text))) {
+    out.push(`${String(Number(hm[1])).padStart(2, "0")}:00`);
+  }
   return [...new Set(out)];
 }
 

@@ -92,6 +92,15 @@ assert.equal(
 
 assert.equal(
   shouldHandoffUnknownClassSlot({
+    text: "לאימון strength עם אלין ב-9",
+    services: strengthLike,
+  }),
+  false,
+  "bare hour ב-9 + Strength Friday 09:00 exists — not unknown slot"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
     text: "רוצה להצטרף בשבת לפוואר אנד הייט",
     services: limitlessLike,
   }),

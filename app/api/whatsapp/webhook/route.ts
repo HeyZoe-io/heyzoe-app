@@ -147,6 +147,7 @@ import {
   assistantAwaitingServiceRepickPick,
 } from "@/lib/wa-cta-service-repick";
 import {
+  OPENING_SERVICE_LIST_PICK_BRIDGE,
   ensureOpeningServiceListPickBridge,
   shouldAttachOpeningServiceListPickBridge,
 } from "@/lib/wa-opening-service-list-pick-bridge";
@@ -778,7 +779,7 @@ function shouldAckRepeatTrialRegistration(input: {
   return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < TRIAL_REGISTRATION_REPEAT_WINDOW_MS;
 }
 
-/** איפוס מצב פלואו/CTA ב«היי» — מאפס trial_registered לסשן חדש; היסטוריית HEYZOE_SF_REGISTERED נשמרת ב-messages. */
+/** איפוס מצב פלואו/CTA ב«היי» / כניסת mid-flow — כמו פתיחת פלואו רגילה: opening + ניקוי CTA/מועד. */
 async function resetContactSalesFlowStateForGreeting(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
   businessId: string;
@@ -786,19 +787,16 @@ async function resetContactSalesFlowStateForGreeting(input: {
 }): Promise<void> {
   const { supabase, businessId, phone } = input;
   const phoneVariants = contactPhoneLookupVariants(phone);
+  const openingPatch = salesFlowOpeningResetPatch();
   try {
     const { error } = await supabase
       .from("contacts")
       .update({
+        ...openingPatch,
         sf_clicked_cta_kinds: [],
-        sf_requested_date: null,
-        sf_requested_time: null,
         instagram_follow_prompt_sent: false,
-        flow_step: 0,
-        warmup_extra_awaiting_idx: WARMUP_EXTRA_AWAITING_OFF,
         trial_registered: false,
         trial_registered_at: null,
-        free_text_replies_since_cta: 0,
       })
       .eq("business_id", businessId)
       .in("phone", phoneVariants.length ? phoneVariants : [phone]);
@@ -807,12 +805,13 @@ async function resetContactSalesFlowStateForGreeting(input: {
         const { error: fallbackErr } = await supabase
           .from("contacts")
           .update({
-            sf_clicked_cta_kinds: [],
+            session_phase: "opening",
+            flow_step: 0,
             sf_requested_date: null,
             sf_requested_time: null,
-            instagram_follow_prompt_sent: false,
-            flow_step: 0,
             warmup_extra_awaiting_idx: WARMUP_EXTRA_AWAITING_OFF,
+            sf_clicked_cta_kinds: [],
+            instagram_follow_prompt_sent: false,
             trial_registered: false,
             trial_registered_at: null,
           })
@@ -831,6 +830,88 @@ async function resetContactSalesFlowStateForGreeting(input: {
     businessId: input.businessId,
     phone: input.phone,
   });
+}
+
+/**
+ * פתיחת פלואו ממקום אחר בפלואו (הרשמה / trial topic / try-class) —
+ * אותו איפוס + סמן התחלה + המשך כמו אחרי חימום (לוח → בחירת מוצר / CTA).
+ */
+async function beginSalesFlowAtProductPick(input: {
+  entryModel: string;
+  entryContent: string;
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  blockTrialPickMedia?: boolean;
+  /** false = כבר בפלואו ורק מדלגים ללוח/מוצר (בלי איפוס מלא). */
+  resetState?: boolean;
+  /** false = סמן כבר נרשם (למשל תשובת registration_intent_no_member). */
+  logEntry?: boolean;
+  allowTrialCta?: boolean;
+  sfConsumedKinds?: string[];
+  instagramFollowPromptSent?: boolean;
+}): Promise<{ contactSessionPhase: HeyzoeSessionPhase; contactFlowStep: number }> {
+  const resetState = input.resetState !== false;
+  const logEntry = input.logEntry !== false;
+  if (resetState) {
+    await resetContactSalesFlowStateForGreeting({
+      supabase: input.supabase,
+      businessId: input.businessId,
+      phone: input.msg.from,
+    });
+    if (logEntry) {
+      await logMessage({
+        business_slug: input.business_slug,
+        role: "assistant",
+        content: input.entryContent,
+        model_used: input.entryModel,
+        session_id: input.sessionId,
+      });
+    }
+  } else {
+    // עדיין מבטיחים סמן + phase=opening גם בלי איפוס מלא
+    const phoneVariants = contactPhoneLookupVariants(input.msg.from);
+    await input.supabase
+      .from("contacts")
+      .update(salesFlowOpeningResetPatch())
+      .eq("business_id", input.businessId)
+      .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
+    await ensureSalesFlowStartedMarker({
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+      businessId: input.businessId,
+      phone: input.msg.from,
+    });
+  }
+
+  await advanceAfterWarmupSessionComplete({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    blockTrialPickMedia: input.blockTrialPickMedia,
+    trialRegistered: false,
+    allowTrialCta: input.allowTrialCta ?? true,
+    sfConsumedKinds: resetState ? [] : input.sfConsumedKinds ?? [],
+    instagramFollowPromptSent: resetState ? false : input.instagramFollowPromptSent ?? false,
+  });
+
+  const nextPhase =
+    input.salesFlowServices.length > 1
+      ? ("opening" as const)
+      : scheduleSelectionPhaseAfterService(input.knowledge, input.salesFlowServices[0] ?? null);
+  return { contactSessionPhase: nextPhase, contactFlowStep: 0 };
 }
 
 async function fetchContactFreeTextRepliesSinceCta(input: {
@@ -6134,19 +6215,9 @@ async function processIncoming(
         !detectClosedPlaybookIntent(msg.text)
       ) {
       try {
-        await resetContactSalesFlowStateForGreeting({
-          supabase,
-          businessId,
-          phone: msg.from,
-        });
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: "[heyzoe:signup_intent_flow_entry]",
-          model_used: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
-          session_id: sessionId,
-        });
-        await advanceAfterWarmupSessionComplete({
+        await beginSalesFlowAtProductPick({
+          entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+          entryContent: "[heyzoe:signup_intent_flow_entry]",
           knowledge,
           salesFlowServices,
           msg,
@@ -6157,10 +6228,7 @@ async function processIncoming(
           business_slug,
           sessionId,
           blockTrialPickMedia: starterBlocksMedia,
-          trialRegistered: false,
           allowTrialCta: true,
-          sfConsumedKinds: [],
-          instagramFollowPromptSent: false,
         });
       } catch (e) {
         console.error("[WA Webhook] try-class offer → product pick failed:", e);
@@ -6223,19 +6291,9 @@ async function processIncoming(
       })
     ) {
       try {
-        await resetContactSalesFlowStateForGreeting({
-          supabase,
-          businessId,
-          phone: msg.from,
-        });
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: "[heyzoe:signup_intent_flow_entry]",
-          model_used: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
-          session_id: sessionId,
-        });
-        await advanceAfterWarmupSessionComplete({
+        await beginSalesFlowAtProductPick({
+          entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+          entryContent: "[heyzoe:signup_intent_flow_entry]",
           knowledge,
           salesFlowServices,
           msg,
@@ -6246,10 +6304,7 @@ async function processIncoming(
           business_slug,
           sessionId,
           blockTrialPickMedia: starterBlocksMedia,
-          trialRegistered: false,
           allowTrialCta: true,
-          sfConsumedKinds: [],
-          instagramFollowPromptSent: false,
         });
       } catch (e) {
         console.error("[WA Webhook] out-of-flow signup flow-entry failed:", e);
@@ -6313,21 +6368,9 @@ async function processIncoming(
           });
         }
         if (advanceTrial) {
-          if (!salesFlowStartedForTrial) {
-            await resetContactSalesFlowStateForGreeting({
-              supabase,
-              businessId,
-              phone: msg.from,
-            });
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: "[heyzoe:trial_topic_flow_entry]",
-              model_used: TRIAL_TOPIC_FLOW_ENTRY_MODEL,
-              session_id: sessionId,
-            });
-          }
-          await advanceAfterWarmupSessionComplete({
+          const started = await beginSalesFlowAtProductPick({
+            entryModel: TRIAL_TOPIC_FLOW_ENTRY_MODEL,
+            entryContent: "[heyzoe:trial_topic_flow_entry]",
             knowledge,
             salesFlowServices,
             msg,
@@ -6338,11 +6381,20 @@ async function processIncoming(
             business_slug,
             sessionId,
             blockTrialPickMedia: starterBlocksMedia,
-            trialRegistered: false,
+            resetState: !salesFlowStartedForTrial,
             allowTrialCta: allowTrialCtaThisSession,
             sfConsumedKinds: sfClickedCtaKinds,
             instagramFollowPromptSent: contactInstagramFollowPromptSent,
           });
+          contactSessionPhase = started.contactSessionPhase;
+          contactFlowStep = started.contactFlowStep;
+          if (!salesFlowStartedForTrial) {
+            contactTrialRegistered = false;
+            contactTrialRegisteredAt = null;
+            allowTrialCtaThisSession = true;
+            sfClickedCtaKinds = [];
+            contactInstagramFollowPromptSent = false;
+          }
         }
       } catch (e) {
         console.error("[WA Webhook] trial topic flow-entry failed:", e);
@@ -7395,12 +7447,9 @@ async function processIncoming(
         session_id: sessionId,
       });
       if (businessId && knowledge?.salesFlowConfig) {
-        await resetContactSalesFlowStateForGreeting({
-          supabase,
-          businessId,
-          phone: msg.from,
-        });
-        await advanceAfterWarmupSessionComplete({
+        const started = await beginSalesFlowAtProductPick({
+          entryModel: REGISTRATION_INTENT_NO_MEMBER_MODEL,
+          entryContent: "[heyzoe:registration_intent_no_member]",
           knowledge,
           salesFlowServices,
           msg,
@@ -7411,11 +7460,16 @@ async function processIncoming(
           business_slug,
           sessionId,
           blockTrialPickMedia: starterBlocksMedia,
-          trialRegistered: false,
           allowTrialCta: true,
-          sfConsumedKinds: [],
-          instagramFollowPromptSent: false,
+          logEntry: false,
         });
+        contactSessionPhase = started.contactSessionPhase;
+        contactFlowStep = started.contactFlowStep;
+        contactTrialRegistered = false;
+        contactTrialRegisteredAt = null;
+        allowTrialCtaThisSession = true;
+        sfClickedCtaKinds = [];
+        contactInstagramFollowPromptSent = false;
       }
       return;
     }
@@ -7884,7 +7938,35 @@ async function processIncoming(
         });
       }
     } catch (e) {
-      console.warn("[WA Webhook] Sales-flow service pick failed (continuing):", e);
+      console.warn("[WA Webhook] Sales-flow service pick failed — recovering with list resend:", e);
+      try {
+        const bridge = OPENING_SERVICE_LIST_PICK_BRIDGE;
+        await sendWhatsAppMessage(msg.toNumber, msg.from, bridge, accountSid, authToken);
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: bridge,
+          model_used: "sales_flow_opening_service_pick_recover",
+          session_id: sessionId,
+        });
+        await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: "sales_flow_opening_service_pick_resend",
+        });
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        return;
+      } catch (e2) {
+        console.error("[WA Webhook] Sales-flow service pick recover failed:", e2);
+      }
     }
   }
 
@@ -10030,6 +10112,137 @@ async function processIncoming(
           flow_step: contactFlowStep,
         });
         return;
+      }
+    }
+
+    // Last chance: awaiting product pick + unique free-text catalog match — never Claude.
+    if (
+      isFreeTextSalesFlowAi &&
+      knowledge?.salesFlowConfig &&
+      businessId &&
+      salesFlowServices.length > 1 &&
+      isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority)
+    ) {
+      const lateMatch = matchCatalogServiceFromFreeText(incomingRaw, salesFlowServices);
+      if (lateMatch) {
+        const pickedLate = salesFlowServices.find((s) => s.name === lateMatch);
+        if (pickedLate) {
+          console.info("[WA Webhook] late free-text service pick (skip Claude)", {
+            business_slug,
+            session_id: sessionId,
+            service: lateMatch,
+          });
+          try {
+            const cfg = knowledge.salesFlowConfig;
+            const afterPick = fillAfterServicePickTemplate(
+              cfg.after_service_pick,
+              pickedLate.name,
+              pickedLate.benefit,
+              {
+                priceText: pickedLate.priceText,
+                durationText: pickedLate.durationText,
+                businessAddress:
+                  pickedLate.offerKind === "course" && pickedLate.locationMode === "online"
+                    ? pickedLate.locationText.trim() || "אונליין"
+                    : knowledge.addressText ?? "",
+                sessionsText: pickedLate.courseSessionsText,
+                schedulePhrase:
+                  pickedLate.offerKind === "course" && pickedLate.courseDatesEnabled === false
+                    ? ""
+                    : buildCourseSchedulePhraseForCta(pickedLate.courseCycles ?? []),
+                offerKind: pickedLate.offerKind,
+              }
+            );
+            const afterPickText =
+              pickedLate.offerKind === "course" && pickedLate.locationMode === "online"
+                ? afterPick.replace(/מפגשים/g, "שיעורים")
+                : afterPick;
+            await sendTrialPickMediaIfAllowed({
+              blockMedia: starterBlocksMedia,
+              mediaUrl: pickedLate.trialPickMediaUrl,
+              mediaType: pickedLate.trialPickMediaType,
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+            });
+            if (afterPickText.trim()) {
+              await sendWhatsAppMessage(
+                msg.toNumber,
+                msg.from,
+                afterPickText.trim(),
+                accountSid,
+                authToken
+              ).catch((e) => console.error("[WA Webhook] late pick reply failed:", e));
+              await logMessage({
+                business_slug,
+                role: "assistant",
+                content: afterPickText.trim(),
+                model_used: "sales_flow",
+                session_id: sessionId,
+              });
+            }
+            await logMessage({
+              business_slug,
+              role: "event",
+              content: `${HEYZOE_SF_SERVICE_PREFIX}${pickedLate.name}`,
+              model_used: "sf_service_pick_late",
+              session_id: sessionId,
+            });
+            const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+              knowledge,
+              supabase,
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+              blockTrialPickMedia: starterBlocksMedia,
+              when: "after_service_pick",
+            });
+            if (scheduleAfterPick === "image") {
+              await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+            }
+            const nextPhase = scheduleSelectionPhaseAfterService(knowledge, pickedLate);
+            const phoneVariantsAfterPick = contactPhoneLookupVariants(msg.from);
+            await supabase
+              .from("contacts")
+              .update(
+                withWarmupExtraAwaitingOff({
+                  session_phase: nextPhase,
+                  flow_step: 0,
+                  sf_requested_date: null,
+                  sf_requested_time: null,
+                })
+              )
+              .eq("business_id", businessId)
+              .in("phone", phoneVariantsAfterPick.length ? phoneVariantsAfterPick : [msg.from]);
+            contactSessionPhase = nextPhase;
+            contactFlowStep = 0;
+            await sendFlowContinuation({
+              phase: nextPhase,
+              contact: { flow_step: 0 },
+              knowledge,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              salesFlowServices,
+              trialRegistered: contactTrialRegistered,
+              allowTrialCta: allowTrialCtaThisSession,
+              blockTrialPickMedia: starterBlocksMedia,
+              sfConsumedKinds: sfClickedCtaKinds,
+              instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            });
+            return;
+          } catch (e) {
+            console.warn("[WA Webhook] late free-text service pick failed:", e);
+          }
+        }
       }
     }
 
