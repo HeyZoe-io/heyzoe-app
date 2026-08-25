@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CLAUDE_WHATSAPP_MAX_TOKENS, resolveClaudeApiKey } from "@/lib/claude";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const CLAUDE_EDITOR_MODEL = process.env.EDITOR_MODEL?.trim() || "claude-sonnet-5";
@@ -78,6 +79,15 @@ export async function runEditorPassShadow(input: {
       temperature: 0.2,
       system: EDITOR_SYSTEM_PROMPT,
       messages: [{ role: "user", content: originalText }],
+    });
+    // Already under webhook after(); await so the insert is not detached.
+    await recordAiUsage({
+      businessId: input.businessId,
+      contactId: input.contactId,
+      provider: "anthropic",
+      model: CLAUDE_EDITOR_MODEL,
+      callType: "editor",
+      usage: response.usage,
     });
     correctedText = extractText(response);
   } catch (e) {

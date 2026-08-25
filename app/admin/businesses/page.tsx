@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { AdminNav } from "@/app/admin/AdminNav";
+import { AdminAiUsageTab } from "@/app/admin/businesses/AdminAiUsageTab";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ type Props = {
     | Record<string, string | string[] | undefined>;
 };
 
-type BusinessesSubTab = "businesses" | "cancellations" | "requests";
+type BusinessesSubTab = "businesses" | "cancellations" | "requests" | "ai-usage";
 
 type BizRow = {
   id: number;
@@ -69,6 +70,7 @@ function firstSearchParam(v: string | string[] | undefined): string {
 function parseTab(raw: string): BusinessesSubTab {
   if (raw === "cancellations") return "cancellations";
   if (raw === "requests") return "requests";
+  if (raw === "ai-usage") return "ai-usage";
   return "businesses";
 }
 
@@ -101,6 +103,7 @@ function SubTabs({ active }: { active: BusinessesSubTab }) {
     { id: "businesses", label: "עסקים", hint: "סטטוס, חבילה ומספרים" },
     { id: "cancellations", label: "ביטולים", hint: "שאלוני ביטול" },
     { id: "requests", label: "פניות מבעלי עסקים", hint: "צ׳אט עזרה וחזרה טלפונית" },
+    { id: "ai-usage", label: "ניצול טוקנים", hint: "כמות ועלות" },
   ];
   return (
     <nav className="mt-5 flex overflow-x-auto pb-1" aria-label="טאבי עסקים">
@@ -246,8 +249,10 @@ export default async function AdminBusinessesPage({ searchParams }: Props) {
               total={totalCancellations}
               aggregates={cancellationAggregates}
             />
-          ) : (
+          ) : tab === "requests" ? (
             <RequestsView threads={threads} lastByThread={lastByThread} />
+          ) : (
+            <AdminAiUsageTab />
           )}
         </section>
       </div>

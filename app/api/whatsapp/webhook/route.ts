@@ -411,6 +411,7 @@ import {
   sleepMs,
 } from "@/lib/claude";
 import { isEditorShadowEnabled, runEditorPassShadow } from "@/lib/editor-pass";
+import { recordAiUsage } from "@/lib/ai-usage";
 import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
@@ -10473,16 +10474,22 @@ async function processIncoming(
           model: GEMINI_WHATSAPP_MODEL,
           systemInstruction: systemPrompt,
         });
-        const response = await model.generateContent({
+        const geminiRes = await model.generateContent({
           contents: claudeMessages.map((m) => ({
             role: m.role === "assistant" ? "model" : "user",
             parts: [{ text: String(m.content ?? "") }],
           })),
         });
-        const text = response.response.text().trim();
+        // Capture usage before text extraction (usageMetadata is otherwise discarded).
+        const usageMetadata = geminiRes.response.usageMetadata;
+        const text = geminiRes.response.text().trim();
         if (!text) throw new Error("empty response");
-        return text;
+        return { text, usageMetadata };
       };
+
+      const usageBusinessId = businessId ? Number(businessId) : null;
+      const usageContactId =
+        typeof contactId === "string" && contactId.trim() ? contactId.trim() : null;
 
       try {
         let response: Awaited<ReturnType<typeof runClaude>> | null = null;
@@ -10536,11 +10543,34 @@ async function processIncoming(
         }
 
         replyCore = combinedText;
+        const claudeUsage = response?.usage ?? null;
+        after(() =>
+          recordAiUsage({
+            businessId: usageBusinessId,
+            contactId: usageContactId,
+            provider: "anthropic",
+            model: CLAUDE_WHATSAPP_MODEL,
+            callType: "generation",
+            usage: claudeUsage,
+          })
+        );
       } catch (claudeError) {
         console.error(`[WA Webhook] Claude error for ${business_slug}, falling back to Gemini:`, claudeError);
         try {
-          replyCore = await runGemini();
+          const geminiOut = await runGemini();
+          replyCore = geminiOut.text;
           replyModelUsed = GEMINI_WHATSAPP_MODEL;
+          const geminiUsage = geminiOut.usageMetadata ?? null;
+          after(() =>
+            recordAiUsage({
+              businessId: usageBusinessId,
+              contactId: usageContactId,
+              provider: "google",
+              model: GEMINI_WHATSAPP_MODEL,
+              callType: "generation",
+              usage: geminiUsage,
+            })
+          );
         } catch (geminiError) {
           console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
           replyCore = formatUserFacingClaudeError(geminiError);

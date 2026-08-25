@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { after } from "next/server";
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
@@ -7,6 +8,7 @@ import {
   resolveClaudeApiKey,
   sleepMs,
 } from "@/lib/claude";
+import { recordAiUsage, type AiUsageTokens } from "@/lib/ai-usage";
 import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -475,14 +477,21 @@ export function inboundResumesConversationAfterNotRelevant(text: string): boolea
 /** כשקלוד מייצר סגירת «לא רלוונטי» בטעות והליד ממשיך שיחה. */
 export const NOT_RELEVANT_ENGAGING_FALLBACK_REPLY = "סבבה, נמשיך 🙂";
 
+type LocationReasonClassifyResult = {
+  reason: string | null;
+  usage: AiUsageTokens;
+};
+
 /** Claude — רק כשיש רמז למיקום/מרחק; אחרת null (לא מנחשים סיבות אחרות). */
 async function classifyLocationReasonWithClaude(input: {
   apiKey: string;
   text: string;
-}): Promise<string | null> {
+}): Promise<LocationReasonClassifyResult> {
   const apiKey = input.apiKey.trim();
   const text = input.text.trim();
-  if (!apiKey || text.length < 4 || text.length > 400) return null;
+  if (!apiKey || text.length < 4 || text.length > 400) {
+    return { reason: null, usage: null };
+  }
 
   try {
     const anthropic = new Anthropic({ apiKey });
@@ -501,29 +510,35 @@ async function classifyLocationReasonWithClaude(input: {
         },
       ],
     });
+    const usage = resp.usage ?? null;
     const out = (resp.content ?? [])
       .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
       .join("\n")
       .trim();
-    if (!out || out.toUpperCase() === "NONE") return null;
-    return out.includes(NOT_RELEVANT_REASON_LOCATION) ? NOT_RELEVANT_REASON_LOCATION : null;
+    if (!out || out.toUpperCase() === "NONE") return { reason: null, usage };
+    return {
+      reason: out.includes(NOT_RELEVANT_REASON_LOCATION) ? NOT_RELEVANT_REASON_LOCATION : null,
+      usage,
+    };
   } catch (e) {
     console.warn("[not-relevant] location classify failed:", e);
-    return null;
+    return { reason: null, usage: null };
   }
 }
 
 /** מחזיר "מיקום" רק בזיהוי ודאי; אחרת null → «לא רלוונטי» בלבד */
 export async function resolveNotRelevantReason(input: {
   text: string;
-}): Promise<string | null> {
+}): Promise<LocationReasonClassifyResult> {
   const text = input.text.trim();
-  if (!text) return null;
+  if (!text) return { reason: null, usage: null };
 
-  if (matchesLocationHint(text)) return NOT_RELEVANT_REASON_LOCATION;
+  if (matchesLocationHint(text)) {
+    return { reason: NOT_RELEVANT_REASON_LOCATION, usage: null };
+  }
 
   const apiKey = resolveClaudeApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) return { reason: null, usage: null };
   return classifyLocationReasonWithClaude({ apiKey, text });
 }
 
@@ -703,7 +718,18 @@ export async function handleLeadNotRelevant(input: {
   sessionId: string;
   fullName?: string | null;
 }): Promise<void> {
-  const reason = await resolveNotRelevantReason({ text: input.text });
+  const { reason, usage: classifyUsage } = await resolveNotRelevantReason({ text: input.text });
+  if (classifyUsage) {
+    after(() =>
+      recordAiUsage({
+        businessId: input.businessId,
+        provider: "anthropic",
+        model: CLAUDE_WHATSAPP_MODEL,
+        callType: "classifier",
+        usage: classifyUsage,
+      })
+    );
+  }
 
   const patch = buildNotRelevantContactPatch(reason, input.nowIso);
   const phoneVariants = contactPhoneLookupVariants(input.phone);

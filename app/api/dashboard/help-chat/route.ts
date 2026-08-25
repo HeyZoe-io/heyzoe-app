@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { CLAUDE_CHAT_MODEL, resolveClaudeApiKey, sleepMs } from "@/lib/claude";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { extractErrorCode } from "@/lib/analytics";
 import {
   loadAccessibleBusinesses,
@@ -403,6 +404,15 @@ export async function POST(req: NextRequest) {
       system,
       messages: history,
     });
+    after(() =>
+      recordAiUsage({
+        businessId: biz.id,
+        provider: "anthropic",
+        model: CLAUDE_CHAT_MODEL,
+        callType: "dashboard_gen",
+        usage: response.usage,
+      })
+    );
     const blocks = Array.isArray((response as any)?.content) ? (response as any).content : [];
     assistantText = blocks
       .filter((b: any) => b?.type === "text" && typeof b.text === "string")
