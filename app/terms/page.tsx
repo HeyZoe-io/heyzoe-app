@@ -20,7 +20,7 @@ export default function TermsPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
             Terms of Service
           </h1>
-          <p className="text-sm text-zinc-600">Last updated: May 2026</p>
+          <p className="text-sm text-zinc-600">Last updated: August 2026</p>
         </header>
 
         <section className="space-y-3">
@@ -106,7 +106,31 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">8. Dashboard Access</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">
+            8. WhatsApp / Meta Message Fees
+          </h2>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            The Hey Zoe monthly subscription covers the Hey Zoe platform. It does not include
+            WhatsApp delivery fees charged by Meta. Meta may charge per-message fees on the
+            WhatsApp Business Account according to Meta&apos;s then-current rates and message
+            category (for example marketing versus service). Those rates are set by Meta and may
+            change.
+          </p>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            Conversations opened by an end user via a Click-to-WhatsApp ad may be free of Meta
+            delivery fees during Meta&apos;s applicable free window. Business-initiated messages
+            (such as approved campaign templates) and, from 1 October 2026, certain outbound
+            messages in conversations not opened via Click-to-WhatsApp, may incur Meta fees.
+          </p>
+          <p className="text-sm leading-relaxed text-zinc-700">
+            The subscribing business is responsible for Meta/WhatsApp charges on its WhatsApp
+            Business Account and for maintaining a valid payment method with Meta as required by
+            Meta.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-900">9. Dashboard Access</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             Access to the Hey Zoe business dashboard is granted solely to authorized users of the
             subscribing business. Hey Zoe reserves the right to suspend access in cases of misuse,
@@ -115,7 +139,7 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">9. Limitation of Liability</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">10. Limitation of Liability</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             Hey Zoe is not responsible for the content sent by business owners through the platform.
             To the maximum extent permitted by law, Hey Zoe&apos;s total liability for any claim
@@ -125,7 +149,7 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">10. Termination</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">11. Termination</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             Hey Zoe reserves the right to terminate or suspend access to the service at any time,
             with or without notice, for violations of these Terms or for any other reason at our sole
@@ -134,7 +158,7 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">11. Changes to Terms</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">12. Changes to Terms</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             We reserve the right to update these Terms at any time. We will notify active users of
             material changes via email. Continued use of the service after changes constitutes
@@ -143,7 +167,7 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">12. Governing Law</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">13. Governing Law</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             These Terms are governed by the laws of the{" "}
             <span className="font-medium text-zinc-900">State of Israel</span>. Any disputes shall be
@@ -152,7 +176,7 @@ export default function TermsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-zinc-900">13. Contact</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">14. Contact</h2>
           <p className="text-sm leading-relaxed text-zinc-700">
             <span className="font-medium text-zinc-900">Hey Zoe</span>
             <br />
