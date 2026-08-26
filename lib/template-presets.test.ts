@@ -6,6 +6,7 @@ import {
   paramSlotsForTriggerType,
   parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
+  uniqueTemplateName,
 } from "@/lib/template-presets";
 
 assert.equal(TEMPLATE_PRESETS.incoming_lead.body, TEMPLATE_PRESETS.arbox_new_lead.body);
@@ -76,5 +77,23 @@ assert.equal(
   ]),
   null
 );
+
+assert.equal(uniqueTemplateName("incoming_lead", []), "incoming_lead");
+assert.equal(uniqueTemplateName("incoming_lead", ["other"]), "incoming_lead");
+assert.equal(uniqueTemplateName("incoming_lead", ["incoming_lead"]), "incoming_lead1");
+assert.equal(
+  uniqueTemplateName("incoming_lead", ["incoming_lead", "incoming_lead1"]),
+  "incoming_lead2"
+);
+assert.equal(
+  uniqueTemplateName("incoming_lead", ["incoming_lead", "incoming_lead1", "incoming_lead2"]),
+  "incoming_lead3"
+);
+assert.equal(
+  uniqueTemplateName("incoming_lead", ["incoming_lead", "incoming_lead2"]),
+  "incoming_lead1"
+);
+assert.equal(uniqueTemplateName("incoming_lead", ["INCOMING_LEAD"]), "incoming_lead1");
+assert.equal(uniqueTemplateName("birthday_wish", ["birthday_wish"]), "birthday_wish1");
 
 console.log("template-presets.test.ts: ok");

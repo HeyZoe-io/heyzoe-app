@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@/lib/meta-templates";
-import { isMetaTemplateContentEditable } from "@/lib/template-presets";
+import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
 
 export const runtime = "nodejs";
 
@@ -158,10 +158,26 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: "no_waba" }, { status: 400 });
   }
 
+  const { data: existingNames, error: namesErr } = await admin
+    .from("whatsapp_templates")
+    .select("name")
+    .eq("business_id", business.id);
+  if (namesErr) {
+    console.error("[api/templates] POST existing names lookup failed:", namesErr.message);
+    return NextResponse.json({ error: "template_list_failed" }, { status: 500 });
+  }
+  const uniqueName = uniqueTemplateName(
+    name,
+    (existingNames ?? []).map((row) => String((row as { name?: unknown }).name ?? ""))
+  );
+  if (uniqueName !== name) {
+    console.info("[api/templates] POST name already in use, using unique suffix:", name, "→", uniqueName);
+  }
+
   let created: { id: string; status: string; category?: string };
   try {
     created = await createWabaTemplate(wabaId, {
-      name,
+      name: uniqueName,
       category,
       language,
       components,
@@ -181,7 +197,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const row = {
     business_id: business.id,
     waba_template_id: created.id,
-    name,
+    name: uniqueName,
     category: created.category || category,
     language,
     status: created.status || "PENDING",

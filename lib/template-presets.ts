@@ -238,3 +238,27 @@ export function isPresetAvailable(triggerType: TriggerType, hasArbox: boolean): 
   if (isArboxDependentTriggerType(triggerType) && !hasArbox) return false;
   return true;
 }
+
+const TEMPLATE_NAME_RE = /^[a-z0-9_]+$/;
+const UNIQUE_TEMPLATE_NAME_MAX = 999;
+
+/**
+ * Preset names are unique per WABA. If `incoming_lead` is taken, the next create
+ * gets `incoming_lead1`, then `incoming_lead2`, and so on.
+ */
+export function uniqueTemplateName(
+  baseName: string,
+  existingNames: readonly string[]
+): string {
+  const base = String(baseName ?? "").trim().toLowerCase();
+  if (!TEMPLATE_NAME_RE.test(base)) return base;
+  const taken = new Set(
+    existingNames.map((n) => String(n ?? "").trim().toLowerCase()).filter(Boolean)
+  );
+  if (!taken.has(base)) return base;
+  for (let n = 1; n <= UNIQUE_TEMPLATE_NAME_MAX; n++) {
+    const candidate = `${base}${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}${Date.now()}`;
+}
