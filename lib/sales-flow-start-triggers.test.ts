@@ -9,6 +9,10 @@ import {
   isOpeningServicePickMenuModel,
   salesFlowGreetingMarkerCountsAsStarted,
   sessionCountsAsSalesFlowStarted,
+  businessStartsSalesFlowOnAnyNewInbound,
+  businessStartsSalesFlowOnHi,
+  shouldAutoStartSalesFlowOnNewInbound,
+  IKMA_YIGAL_ARBIV_BUSINESS_SLUG,
 } from "@/lib/sales-flow-start-triggers";
 
 assert.equal(isSalesFlowStartTrigger("היי"), false);
@@ -18,6 +22,66 @@ assert.equal(isSalesFlowStartTrigger("היי", { businessName: "סאנגה יו�
 assert.equal(isSalesFlowStartTrigger("היי", { slug: "limitless" }), false);
 assert.equal(isSalesFlowStartTrigger("שלום"), false);
 assert.equal(isSalesFlowStartTrigger("hi"), false);
+
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({ slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG }), true);
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({ slug: "Master-Yigal-Arbiv-IKMA-Israel" }), true);
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({ slug: "info-2815" }), false);
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({ slug: "limitless" }), false);
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({ slug: "yigal-arbiv" }), false);
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({ businessName: "Master Yigal Arbiv IKMA ISRAEL" }), false);
+assert.equal(businessStartsSalesFlowOnAnyNewInbound({}), false);
+assert.equal(businessStartsSalesFlowOnHi({ slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG }), false);
+assert.equal(isSalesFlowStartTrigger("היי", { slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG }), false);
+assert.equal(isSalesFlowStartTrigger("שלום", { slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG }), false);
+assert.equal(isSalesFlowStartTrigger("מה המחיר", { slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG }), false);
+assert.equal(isSalesFlowStartTrigger("אשמח לפרטים", { slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG }), true);
+
+const yigalAutoStartBase = {
+  isFreeTextInbound: true,
+  hasSalesFlowConfig: true,
+  inboundText: "שלום, אפשר פרטים על החוגים?",
+  opts: { slug: IKMA_YIGAL_ARBIV_BUSINESS_SLUG },
+};
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({ ...yigalAutoStartBase, salesFlowAlreadyStarted: false }),
+  true
+);
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({ ...yigalAutoStartBase, salesFlowAlreadyStarted: true }),
+  false
+);
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({ ...yigalAutoStartBase, salesFlowAlreadyStarted: false, isFreeTextInbound: false }),
+  false
+);
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({
+    ...yigalAutoStartBase,
+    salesFlowAlreadyStarted: false,
+    hasSalesFlowConfig: false,
+  }),
+  false
+);
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({ ...yigalAutoStartBase, salesFlowAlreadyStarted: false, inboundText: "   " }),
+  false
+);
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({
+    ...yigalAutoStartBase,
+    salesFlowAlreadyStarted: false,
+    opts: { slug: "limitless" },
+  }),
+  false
+);
+assert.equal(
+  shouldAutoStartSalesFlowOnNewInbound({
+    ...yigalAutoStartBase,
+    salesFlowAlreadyStarted: false,
+    inboundText: "היי",
+  }),
+  true
+);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים"), true);
 assert.equal(isSalesFlowStartTrigger("הצטרפות למנוי"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע פרטים"), true);

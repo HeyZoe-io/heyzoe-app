@@ -89,6 +89,31 @@ export function businessStartsSalesFlowOnHi(opts?: SalesFlowStartTriggerOpts): b
   return false;
 }
 
+/** יגאל ארביב (IKMA) בלבד — השוואת slug מדויקת, בלי התאמת שם. */
+export const IKMA_YIGAL_ARBIV_BUSINESS_SLUG = "master-yigal-arbiv-ikma-israel";
+
+/**
+ * יגאל בלבד: פנייה חדשה (הודעת טקסט ראשונה לפני שהפלואו התחיל) נכנסת לפלואו מכירה
+ * בלי «אשמח לפרטים» / «בואו נתחיל». לא מאפס פלואו שכבר רץ, לא משנה טריגרים גלובליים.
+ */
+export function businessStartsSalesFlowOnAnyNewInbound(opts?: SalesFlowStartTriggerOpts): boolean {
+  return String(opts?.slug ?? "").trim().toLowerCase() === IKMA_YIGAL_ARBIV_BUSINESS_SLUG;
+}
+
+export function shouldAutoStartSalesFlowOnNewInbound(input: {
+  salesFlowAlreadyStarted: boolean;
+  isFreeTextInbound: boolean;
+  hasSalesFlowConfig: boolean;
+  inboundText?: string;
+  opts?: SalesFlowStartTriggerOpts;
+}): boolean {
+  if (input.salesFlowAlreadyStarted) return false;
+  if (!input.hasSalesFlowConfig) return false;
+  if (!input.isFreeTextInbound) return false;
+  if (!String(input.inboundText ?? "").trim()) return false;
+  return businessStartsSalesFlowOnAnyNewInbound(input.opts);
+}
+
 export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTriggerOpts): boolean {
   const normalized = normalizeSalesFlowGreetingToken(text);
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;

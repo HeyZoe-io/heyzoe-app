@@ -182,7 +182,7 @@ import {
   inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, shouldAutoStartSalesFlowOnNewInbound } from "@/lib/sales-flow-start-triggers";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
@@ -7310,13 +7310,24 @@ async function processIncoming(
   };
 
   // פלואו מכירה מתחיל רק ממילות הפתיחה שהוגדרו — לא מכל הודעה ראשונה (למשל «תודה»).
+  // חריג: יגאל ארביב בלבד — פנייה חדשה (עדיין בלי סמן פלואו) נכנסת ישר לפלואו.
   const salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
   const openingFlowActive = salesFlowStarted;
+  const salesFlowStartOpts = { slug: business_slug, businessName: knowledge?.businessName };
 
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
-    if (isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName })) {
+    if (
+      isSalesFlowStartInbound(msg, salesFlowStartOpts) ||
+      shouldAutoStartSalesFlowOnNewInbound({
+        salesFlowAlreadyStarted: salesFlowStarted,
+        isFreeTextInbound: isSalesFlowFreeTextInbound(msg),
+        hasSalesFlowConfig: Boolean(knowledge?.salesFlowConfig),
+        inboundText: msg.text,
+        opts: salesFlowStartOpts,
+      })
+    ) {
       // «אשמח לפרטים» / «בואו נתחיל» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({
         knowledge,
