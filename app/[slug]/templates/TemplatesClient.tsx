@@ -1607,14 +1607,6 @@ export default function TemplatesClient({
                   ? "השם נשאר כמו במטא — אי אפשר לשנות אותו בעריכה."
                   : "שם באנגלית בלבד, אותיות קטנות, מספרים וקו תחתון (_). ללא רווחים ועברית."}
               </p>
-              {!isEditing &&
-              purposeTrigger &&
-              name &&
-              name !== TEMPLATE_PRESETS[purposeTrigger].name ? (
-                <p className="text-xs text-zinc-500">
-                  השם {TEMPLATE_PRESETS[purposeTrigger].name} כבר בשימוש, לכן נוסף מספר.
-                </p>
-              ) : null}
               {!nameValid && (
                 <p className="text-xs text-red-600">השם יכול לכלול רק a-z, 0-9 ו־_</p>
               )}
