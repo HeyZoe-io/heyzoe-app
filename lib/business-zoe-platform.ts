@@ -206,11 +206,54 @@ function upgradeLegalCsExampleLines(lines: string[]): string[] {
   });
 }
 
+/** הנחיות ניסוח ניטרלי מגדר — מחליפות שורה ישנה בלי לדרוש שמירה מחדש. */
+function upgradeGenderNeutralVerbGuidelineLines(lines: string[]): string[] {
+  const defaults = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat();
+  const core = defaults.find((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("ביכולתך"));
+  const natural = defaults.find((l) => l.includes("גוונ בין הדרכים") && l.includes("מחר ניתן לקבל"));
+  if (!core || !natural) return lines;
+  if (
+    lines.some((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("ביכולתך")) &&
+    lines.some((l) => l.includes("גוונ בין הדרכים") && l.includes("מחר ניתן לקבל"))
+  ) {
+    return lines;
+  }
+
+  const coreIdx = lines.findIndex((l) => l.includes("כתיבה ניטרלית מגדרית"));
+  const naturalIdx = lines.findIndex((l) => l.includes("טבעיות") && l.includes("ניסוח ניטרלי"));
+  if (coreIdx >= 0) {
+    const next = [...lines];
+    next[coreIdx] = core;
+    if (naturalIdx >= 0 && naturalIdx !== coreIdx) {
+      next[naturalIdx] = natural;
+      return next;
+    }
+    next.splice(coreIdx + 1, 0, natural);
+    return next;
+  }
+
+  const oldIdx = lines.findIndex(
+    (l) =>
+      l.includes("פעלים בפנייה לליד") ||
+      (l.includes("ברצונך") && l.includes("ולקבל") && !l.includes("ביכולתך"))
+  );
+  if (oldIdx >= 0) {
+    return [...lines.slice(0, oldIdx), core, natural, ...lines.slice(oldIdx + 1)];
+  }
+  const genderIdx = lines.findIndex((l) => l.includes("ניסוח ניטרלי מגדרית") && l.includes("אתה/את"));
+  if (genderIdx < 0) return lines;
+  return [...lines.slice(0, genderIdx + 1), core, natural, ...lines.slice(genderIdx + 1)];
+}
+
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return ensureBookingLookupGuidelineLines(
-    upgradeCsPhoneHandoffGuidelineLines(
-      upgradeLegalCsExampleLines(
-        upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+  return upgradeGenderNeutralVerbGuidelineLines(
+    ensureBookingLookupGuidelineLines(
+      upgradeCsPhoneHandoffGuidelineLines(
+        upgradeLegalCsExampleLines(
+          upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+        )
       )
     )
   );
