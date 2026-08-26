@@ -76,7 +76,6 @@ export async function runEditorPassShadow(input: {
     const response = await client.messages.create({
       model: CLAUDE_EDITOR_MODEL,
       max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
-      temperature: 0.2,
       system: EDITOR_SYSTEM_PROMPT,
       messages: [{ role: "user", content: originalText }],
     });
