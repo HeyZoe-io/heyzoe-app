@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import OnboardingSuccessClient from "./client";
 
+export const dynamic = "force-dynamic";
+
 type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -20,15 +22,14 @@ export default async function OnboardingSuccessPage({ searchParams }: Props) {
     const admin = createSupabaseAdminClient();
     let slug = slugParam;
     if (!slug) {
-      const { data: session } = await admin
+      const { data: sessions } = await admin
         .from("payment_sessions")
         .select("slug")
         .eq("email", email)
         .eq("ready", true)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      slug = String((session as { slug?: unknown })?.slug ?? "")
+        .limit(1);
+      slug = String((sessions?.[0] as { slug?: unknown } | undefined)?.slug ?? "")
         .trim()
         .toLowerCase();
     }

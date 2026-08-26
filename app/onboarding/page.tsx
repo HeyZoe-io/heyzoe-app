@@ -357,23 +357,27 @@ function OnboardingContent() {
     if (!email) return;
 
     let cancelled = false;
+    let pollTimer: number | undefined;
     setPaymentReady(null);
     setPaymentReadyTimedOut(false);
-    const startedAt = Date.now();
+    const ac = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      cancelled = true;
+      ac.abort();
+      setPaymentReadyTimedOut(true);
+    }, PAY_READY_TIMEOUT_MS);
 
     async function tick() {
       if (cancelled) return;
-      const elapsed = Date.now() - startedAt;
-      if (elapsed >= PAY_READY_TIMEOUT_MS) {
-        setPaymentReadyTimedOut(true);
-        return;
-      }
       try {
         const res = await fetch(`/api/check-payment-ready?email=${encodeURIComponent(email)}`, {
           cache: "no-store",
+          signal: ac.signal,
         });
         const data = (await res.json()) as { ready?: boolean; slug?: string };
+        if (cancelled) return;
         if (data?.ready && data.slug) {
+          window.clearTimeout(timeoutId);
           setPaymentReady({ slug: data.slug });
           const qs = new URLSearchParams({ email, slug: data.slug });
           if (searchParams.get("lang") === "en") qs.set("lang", "en");
@@ -381,14 +385,17 @@ function OnboardingContent() {
           return;
         }
       } catch {
-        /* ignore transient */
+        if (cancelled) return;
       }
-      window.setTimeout(tick, PAY_READY_POLL_MS);
+      pollTimer = window.setTimeout(tick, PAY_READY_POLL_MS);
     }
 
     void tick();
     return () => {
       cancelled = true;
+      ac.abort();
+      window.clearTimeout(timeoutId);
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
     };
   }, [step, form.email, searchParams]);
 

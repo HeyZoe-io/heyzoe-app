@@ -201,11 +201,14 @@ export default function OnboardingSuccessClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = (searchParams.get("email") || "").trim().toLowerCase();
+  const slugFromUrl = (searchParams.get("slug") || "").trim().toLowerCase();
   const lang: Lang = searchParams.get("lang") === "en" ? "en" : "he";
   const t = i18n[lang];
   const textAlign = lang === "en" ? "left" : "right";
 
-  const [ready, setReady] = useState<null | { slug: string }>(null);
+  const [ready, setReady] = useState<null | { slug: string }>(
+    email && slugFromUrl ? { slug: slugFromUrl } : null
+  );
   const [timedOut, setTimedOut] = useState(false);
   const [revealedStepCount, setRevealedStepCount] = useState(0);
   const embeddedRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -510,24 +513,28 @@ export default function OnboardingSuccessClient() {
 
   useEffect(() => {
     if (!email) return;
+    if (slugFromUrl) return;
 
     let cancelled = false;
-    const startedAt = Date.now();
+    let pollTimer: number | undefined;
+    const ac = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      cancelled = true;
+      ac.abort();
+      setTimedOut(true);
+    }, TIMEOUT_MS);
 
     async function tick() {
       if (cancelled) return;
-      const elapsed = Date.now() - startedAt;
-      if (elapsed >= TIMEOUT_MS) {
-        setTimedOut(true);
-        return;
-      }
-
       try {
         const res = await fetch(`/api/check-payment-ready?email=${encodeURIComponent(email)}`, {
           cache: "no-store",
+          signal: ac.signal,
         });
         const data = (await res.json()) as { ready?: boolean; slug?: string };
+        if (cancelled) return;
         if (data?.ready && data.slug) {
+          window.clearTimeout(timeoutId);
           const slug = data.slug;
           // Purchase events are now recorded server-side only (single source of truth in /api/icount-ipn).
           setReady({ slug });
@@ -535,17 +542,20 @@ export default function OnboardingSuccessClient() {
           return;
         }
       } catch {
-        // ignore transient errors
+        if (cancelled) return;
       }
 
-      setTimeout(tick, POLL_MS);
+      pollTimer = window.setTimeout(tick, POLL_MS);
     }
 
     void tick();
     return () => {
       cancelled = true;
+      ac.abort();
+      window.clearTimeout(timeoutId);
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
     };
-  }, [email]);
+  }, [email, slugFromUrl]);
 
   useEffect(() => {
     if (embeddedState !== "success" || !ready?.slug || !embeddedHandledWabaRef.current) return;
@@ -567,7 +577,9 @@ export default function OnboardingSuccessClient() {
     if (!email || ready || timedOut) return;
     let n = 0;
     const bump = () => {
-      if (n >= prepSteps.length) return;
+      // Leave the last step pending until payment is actually ready — otherwise
+      // all ticks go green in ~11s and the screen looks finished while still polling.
+      if (n >= prepSteps.length - 1) return;
       n += 1;
       setRevealedStepCount(n);
     };
