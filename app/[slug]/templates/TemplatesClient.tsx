@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Check, Copy, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
@@ -337,28 +337,24 @@ export default function TemplatesClient({
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTriggerEnabled, setNewTriggerEnabled] = useState(true);
+  const [connectPrompt, setConnectPrompt] = useState<{
+    templateName: string;
+    purpose: TriggerType | "";
+  } | null>(null);
+  const addTriggerSectionRef = useRef<HTMLElement | null>(null);
 
   const [arboxMembershipTypes, setArboxMembershipTypes] = useState<ArboxMembershipTypeRow[]>([]);
   const [arboxMembershipTypesLoading, setArboxMembershipTypesLoading] = useState(false);
   const [arboxMembershipTypesError, setArboxMembershipTypesError] = useState<string | null>(null);
 
-  const approvedTemplates = useMemo(
+  const selectableTemplates = useMemo(
     () =>
-      templates.filter(
-        (t) => String(t.status).toUpperCase() === "APPROVED" && t.disabled !== true
-      ),
-    [templates]
-  );
-
-  const selectableTemplates = useMemo(() => {
-    if (newTriggerType === "arbox_new_lead") {
-      return templates.filter((t) => {
+      templates.filter((t) => {
         const st = String(t.status).toUpperCase();
         return t.disabled !== true && (st === "APPROVED" || st === "PENDING");
-      });
-    }
-    return approvedTemplates;
-  }, [approvedTemplates, newTriggerType, templates]);
+      }),
+    [templates]
+  );
 
   const hasExistingArboxNewLead = useMemo(
     () => triggers.some((t) => t.trigger_type === "arbox_new_lead"),
@@ -506,11 +502,7 @@ export default function TemplatesClient({
       };
       if (!res.ok) {
         if (j.error === "template_not_approved") {
-          throw new Error(
-            newTriggerType === "arbox_new_lead"
-              ? "הטמפלייט לא נמצא או נדחה — אפשר לבחור טמפלייט שממתין לאישור"
-              : "אפשר לבחור רק טמפלייט שאושר במטא"
-          );
+          throw new Error("הטמפלייט לא זמין לטריגר — בחרו טמפלייט אחר");
         }
         if (j.error === "template_disabled") {
           throw new Error("הטמפלייט מושבת — בחרו טמפלייט פעיל או הפעילו מחדש");
@@ -594,16 +586,6 @@ export default function TemplatesClient({
     }
   }
 
-  function templatesForTriggerType(type: TriggerType): TemplateRow[] {
-    if (type === "arbox_new_lead") {
-      return templates.filter((t) => {
-        const st = String(t.status).toUpperCase();
-        return t.disabled !== true && (st === "APPROVED" || st === "PENDING");
-      });
-    }
-    return approvedTemplates;
-  }
-
   function startEditTrigger(trigger: TriggerRow) {
     setError(null);
     setSuccess(null);
@@ -634,11 +616,7 @@ export default function TemplatesClient({
       };
       if (!res.ok) {
         if (j.error === "template_not_approved") {
-          throw new Error(
-            trigger.trigger_type === "arbox_new_lead"
-              ? "הטמפלייט לא נמצא או נדחה"
-              : "אפשר לבחור רק טמפלייט שאושר במטא"
-          );
+          throw new Error("הטמפלייט לא זמין לטריגר — בחרו טמפלייט אחר");
         }
         throw new Error(j.error || `http_${res.status}`);
       }
@@ -987,19 +965,47 @@ export default function TemplatesClient({
         }
         throw new Error(j.detail || j.error || `http_${res.status}`);
       }
-      setCreateSuccess(true);
-      setSuccess(isEditing ? "העריכה נשלחה לאישור מטא" : "נשלח לאישור מטא");
-      await reloadFromApi(false);
-      window.setTimeout(() => {
+      if (isEditing) {
+        setCreateSuccess(true);
+        setSuccess("העריכה נשלחה לאישור מטא");
+        await reloadFromApi(false);
+        window.setTimeout(() => {
+          setShowCreate(false);
+          setCreateSuccess(false);
+          resetCreateForm();
+        }, 900);
+      } else {
+        const createdName = String(j.template?.name ?? name).trim();
+        const createdPurpose = purposeTrigger;
+        await reloadFromApi(false);
         setShowCreate(false);
         setCreateSuccess(false);
         resetCreateForm();
-      }, 900);
+        setConnectPrompt({ templateName: createdName, purpose: createdPurpose });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : isEditing ? "עריכה נכשלה" : "יצירה נכשלה");
     } finally {
       setCreating(false);
     }
+  }
+
+  function closeConnectPrompt() {
+    setConnectPrompt(null);
+  }
+
+  function onConnectToTrigger() {
+    const prompt = connectPrompt;
+    setConnectPrompt(null);
+    if (prompt?.purpose && creatableTriggerOptions.some((o) => o.value === prompt.purpose)) {
+      setNewTriggerType(prompt.purpose);
+    }
+    if (prompt?.templateName) {
+      setNewTemplateName(prompt.templateName);
+    }
+    window.setTimeout(() => {
+      addTriggerSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   return (
@@ -1243,18 +1249,16 @@ export default function TemplatesClient({
                           <select
                             value={editTemplateName}
                             onChange={(e) => setEditTemplateName(e.target.value)}
-                            className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                            dir="ltr"
+                            className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-right"
+                            dir="rtl"
+                            style={{ textAlignLast: "right" }}
                           >
                             <option value="">— ללא טמפלייט —</option>
-                            {templatesForTriggerType(trigger.trigger_type).map((t) => {
-                              const pending = String(t.status).toUpperCase() === "PENDING";
-                              return (
-                                <option key={t.name} value={t.name}>
-                                  {pending ? `${t.name} (ממתין לאישור)` : t.name}
-                                </option>
-                              );
-                            })}
+                            {selectableTemplates.map((t) => (
+                              <option key={t.name} value={t.name}>
+                                {t.name}
+                              </option>
+                            ))}
                           </select>
                         </div>
                         <div className="flex justify-end gap-2">
@@ -1356,7 +1360,11 @@ export default function TemplatesClient({
         ) : null}
       </section>
 
-      <section className="rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4">
+      <section
+        ref={addTriggerSectionRef}
+        id="add-trigger"
+        className="scroll-mt-28 rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4"
+      >
         <div className="text-right">
           <h2 className="text-base font-semibold text-zinc-900">הוסף טריגר</h2>
         </div>
@@ -1500,31 +1508,21 @@ export default function TemplatesClient({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-zinc-800">
-              {newTriggerType === "arbox_new_lead" ? "טמפלייט" : "טמפלייט (מאושר)"}
-            </label>
+            <label className="text-sm font-medium text-zinc-800">טמפלייט</label>
             <select
               value={newTemplateName}
               onChange={(e) => setNewTemplateName(e.target.value)}
-              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-              dir="ltr"
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
+              dir="rtl"
+              style={{ textAlignLast: "right" }}
             >
               <option value="">— ללא טמפלייט —</option>
-              {selectableTemplates.map((t) => {
-                const pending = String(t.status).toUpperCase() === "PENDING";
-                return (
-                  <option key={t.name} value={t.name}>
-                    {pending ? `${t.name} (ממתין לאישור)` : t.name}
-                  </option>
-                );
-              })}
+              {selectableTemplates.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
             </select>
-            {newTriggerType === "arbox_new_lead" ? (
-              <p className="text-xs text-zinc-500">
-                השליחה מתחילה רק אחרי שמטא מאשרת את הטמפלייט. לידים קיימים בסטטוס «לא נוצר קשר»
-                יקבלו אותו גם כן — לא רק לידים חדשים מהאישור והלאה.
-              </p>
-            ) : null}
           </div>
 
           <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
@@ -1781,6 +1779,36 @@ export default function TemplatesClient({
           </form>
         </ModalShell>
       )}
+
+      {connectPrompt ? (
+        <ModalShell
+          title="כעת נחבר את הטמפלייט לטריגר המתאים!"
+          onClose={closeConnectPrompt}
+          widthClass="max-w-md"
+        >
+          <div className="space-y-5 text-right">
+            <p className="text-sm leading-relaxed text-zinc-600">
+              טריגר הוא הפעולה ששולחת פקודה לשלוח את הטמפלייט
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeConnectPrompt}
+                className="rounded-xl border border-zinc-200 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                לא עכשיו
+              </button>
+              <button
+                type="button"
+                onClick={onConnectToTrigger}
+                className="rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0]"
+              >
+                חבר לטריגר
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      ) : null}
 
       {showAutomation && (
         <ModalShell

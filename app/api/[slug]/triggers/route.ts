@@ -105,8 +105,7 @@ function parseDelayDays(raw: unknown): number | "invalid" {
 async function verifyTriggerTemplate(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
-  templateName: string,
-  opts?: { allowPending?: boolean }
+  templateName: string
 ): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
   const name = templateName.trim();
   if (!name) {
@@ -145,7 +144,7 @@ async function verifyTriggerTemplate(
   const status = String((anyStatus as { status?: unknown }).status ?? "")
     .trim()
     .toUpperCase();
-  if (opts?.allowPending && status === "PENDING") {
+  if (status === "PENDING") {
     return { ok: true };
   }
   return { ok: false, error: "template_not_approved", status: 400 };
@@ -339,9 +338,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       : String(templateNameRaw).trim();
 
   if (templateName) {
-    const verified = await verifyTriggerTemplate(admin, business.id, templateName, {
-      allowPending: triggerType === "arbox_new_lead",
-    });
+    const verified = await verifyTriggerTemplate(admin, business.id, templateName);
     if (!verified.ok) {
       return NextResponse.json({ error: verified.error }, { status: verified.status });
     }
@@ -468,20 +465,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
         ? null
         : String(body.template_name).trim();
     if (templateName) {
-      let effectiveType =
-        patch.trigger_type != null ? String(patch.trigger_type) : null;
-      if (effectiveType == null) {
-        const { data: existing } = await admin
-          .from("template_triggers")
-          .select("trigger_type")
-          .eq("id", id)
-          .eq("business_id", business.id)
-          .maybeSingle();
-        effectiveType = String((existing as { trigger_type?: unknown } | null)?.trigger_type ?? "");
-      }
-      const verified = await verifyTriggerTemplate(admin, business.id, templateName, {
-        allowPending: effectiveType === "arbox_new_lead",
-      });
+      const verified = await verifyTriggerTemplate(admin, business.id, templateName);
       if (!verified.ok) {
         return NextResponse.json({ error: verified.error }, { status: verified.status });
       }
