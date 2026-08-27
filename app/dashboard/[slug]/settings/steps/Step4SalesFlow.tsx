@@ -2098,14 +2098,16 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3">
                 <div className="min-w-0 text-right">
                   <p className="text-sm font-medium text-zinc-800">{t.salesFlow.trialCtaModeSalesCall}</p>
-                  <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                    {t.salesFlow.callScheduleToggleHint}
-                  </p>
                 </div>
                 <div className="space-y-3">
-                  <p className="text-base font-bold leading-snug text-zinc-800">
-                    {t.salesFlow.callScheduleSlotsHint}
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-base font-bold leading-snug text-zinc-800">
+                      {t.salesFlow.callScheduleSlotsHint}
+                    </p>
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {t.salesFlow.callScheduleToggleHint}
+                    </p>
+                  </div>
                   <div className="space-y-2">
                     {CALL_SCHEDULE_DAY_OPTIONS.map((dayOpt) => {
                       const dayIdx = dayOpt.day_of_week;
