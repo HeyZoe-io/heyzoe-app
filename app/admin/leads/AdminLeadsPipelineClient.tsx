@@ -247,6 +247,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   const [draggingColumn, setDraggingColumn] = useState<PipelineStatus | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<PipelineStatus | null>(null);
   const [columnOrder, setColumnOrder] = useState<PipelineStatus[]>(() => [...MARKETING_PIPELINE_STATUS_ORDER]);
+  const [callDrafts, setCallDrafts] = useState<Record<string, { date: string; time: string }>>({});
   const draggingPhoneRef = useRef<string | null>(null);
   const draggingColumnRef = useRef<PipelineStatus | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -341,7 +342,8 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
       status?: MarketingPipelineDropStatus;
       next_call_at?: string | null;
       next_call_time?: string | null;
-    }
+    },
+    opts?: { successToast?: string }
   ): Promise<boolean> {
     setBusyPhone(phone);
     try {
@@ -409,6 +411,8 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
       );
       if (patch.next_call_time && !j.next_call_time) {
         showToast("השעה לא נשמרה — הריצו supabase/marketing_flow_sessions_next_call_time.sql");
+      } else if (opts?.successToast) {
+        showToast(opts.successToast);
       } else if (patch.status) {
         showToast(`הועבר ל«${pipelineLabel(patch.status)}»`);
       } else {
@@ -634,6 +638,10 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                   <p className="px-2 py-8 text-center text-xs text-zinc-400">גררו ליד לכאן</p>
                 ) : (
                   columnLeads.map((c) => {
+                    const savedDate = c.next_call_at ?? "";
+                    const savedTime = toPipelineTime(c.next_call_time) ?? "";
+                    const draft = (c.phone && callDrafts[c.phone]) || { date: savedDate, time: savedTime };
+                    const callDirty = draft.date !== savedDate || draft.time !== savedTime;
                     const overdue = isHumanCallOverdue(c.next_call_at, c.next_call_time, todayYmd, nowHm);
                     const busy = busyPhone === c.phone;
                     return (
@@ -689,37 +697,61 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                             <div className="grid grid-cols-2 gap-1">
                               <input
                                 type="date"
-                                value={c.next_call_at ?? ""}
-                                disabled={busy || !c.phone}
+                                value={draft.date}
+                                disabled={!c.phone}
                                 aria-label="תאריך שיחה הבאה"
                                 onChange={(e) => {
                                   if (!c.phone) return;
-                                  void savePipeline(c.phone, {
-                                    human_followup: true,
-                                    status: "human_followup",
-                                    next_call_at: e.target.value || null,
-                                    next_call_time: toPipelineTime(c.next_call_time),
-                                  });
+                                  setCallDrafts((prev) => ({
+                                    ...prev,
+                                    [c.phone!]: { date: e.target.value, time: draft.time },
+                                  }));
                                 }}
                                 className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs"
                               />
                               <input
                                 type="time"
-                                value={toPipelineTime(c.next_call_time) ?? ""}
-                                disabled={busy || !c.phone}
+                                value={draft.time}
+                                disabled={!c.phone}
                                 aria-label="שעת שיחה הבאה"
                                 onChange={(e) => {
                                   if (!c.phone) return;
-                                  void savePipeline(c.phone, {
-                                    human_followup: true,
-                                    status: "human_followup",
-                                    next_call_at: c.next_call_at || todayYmd,
-                                    next_call_time: e.target.value || null,
-                                  });
+                                  setCallDrafts((prev) => ({
+                                    ...prev,
+                                    [c.phone!]: { date: draft.date || todayYmd, time: e.target.value },
+                                  }));
                                 }}
                                 className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs"
                               />
                             </div>
+                            <Button
+                              type="button"
+                              variant={callDirty ? "default" : "outline"}
+                              className="h-8 w-full text-xs"
+                              disabled={!c.phone || !callDirty || busy}
+                              onClick={async () => {
+                                if (!c.phone) return;
+                                const ok = await savePipeline(
+                                  c.phone,
+                                  {
+                                    human_followup: true,
+                                    status: "human_followup",
+                                    next_call_at: draft.date || todayYmd,
+                                    next_call_time: draft.time || null,
+                                  },
+                                  { successToast: "שיחה הבאה נשמרה" }
+                                );
+                                if (ok) {
+                                  setCallDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[c.phone!];
+                                    return next;
+                                  });
+                                }
+                              }}
+                            >
+                              {busy ? "שומר…" : "שמירה"}
+                            </Button>
                           </div>
                         ) : null}
 

@@ -15,9 +15,11 @@ export function toPipelineDateOnly(value: unknown): string | null {
 export function toPipelineTime(value: unknown): string | null {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
-  const match = raw.match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
+  const match = raw.match(/^(\d{1,2})[:.]([0-5]\d)(?::[0-5]\d)?$/);
   if (!match) return null;
-  return `${match[1]}:${match[2]}`;
+  const hour = Number(match[1]);
+  if (!Number.isFinite(hour) || hour > 23) return null;
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
 }
 
 export function israelNowHm(now = new Date()): string {

@@ -11,7 +11,8 @@ assert.equal(toPipelineDateOnly("2026-08-27"), "2026-08-27");
 assert.equal(toPipelineDateOnly(""), null);
 assert.equal(toPipelineTime("14:30"), "14:30");
 assert.equal(toPipelineTime("14:30:00"), "14:30");
-assert.equal(toPipelineTime("9:05"), null);
+assert.equal(toPipelineTime("9:05"), "09:05");
+assert.equal(toPipelineTime("14.30"), "14:30");
 assert.equal(toPipelineTime("24:00"), null);
 assert.equal(toPipelineTime(""), null);
 

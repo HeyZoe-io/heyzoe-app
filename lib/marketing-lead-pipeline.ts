@@ -303,7 +303,7 @@ async function applyPipelineUpdate(
     .single();
 
   if (error) {
-    if (writeNextCallTime && /next_call_time|column/i.test(String(error.message ?? ""))) {
+    if (writeNextCallTime && /next_call_time/i.test(String(error.message ?? ""))) {
       console.warn("[marketing-lead-pipeline] next_call_time missing — date only");
       return applyPipelineUpdate(admin, phone, existing, status, patch, writePipelineStatus, false);
     }
