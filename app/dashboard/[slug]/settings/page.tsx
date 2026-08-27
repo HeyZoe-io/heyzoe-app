@@ -74,6 +74,7 @@ import {
 } from "./settings-ui";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
+import ConnectWhatsAppSection from "../../../[slug]/settings/connect-whatsapp-section";
 import { dashboardWhatsAppSendHref } from "@/lib/dashboard-wa-send-href";
 import {
   useRegisterSettingsUnsaved,
@@ -3096,6 +3097,8 @@ export default function SlugSettingsPage({
           {busyError}
         </div>
       ) : null}
+
+      <ConnectWhatsAppSection slug={slug} lang={lang} embedded />
 
       <div
         className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}

@@ -13,7 +13,6 @@ import {
 } from "@/lib/settings-presence";
 import { Button } from "@/components/ui/button";
 import SettingsClient from "../../dashboard/[slug]/settings/page";
-import ConnectWhatsAppSection from "./connect-whatsapp-section";
 
 const SETTINGS_PRESENCE_PREFIX = "settings";
 
@@ -205,7 +204,6 @@ export default function SettingsPresenceClient({
 
   return (
     <>
-      <ConnectWhatsAppSection slug={slug} lang={lang} />
       <SettingsClient
         settingsPresenceLocked={settingsPresenceLocked}
         settingsPresenceEditorName={settingsPresenceEditorName}

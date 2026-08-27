@@ -30,13 +30,6 @@ function channelFetcher(key: string): Promise<WhatsAppChannelResponse> {
   });
 }
 
-function metaStatusFetcher(key: string): Promise<string> {
-  return fetch(key, { method: "GET", cache: "no-store" }).then(async (res) => {
-    const j = (await res.json().catch(() => ({}))) as { status?: string };
-    return String(j?.status ?? "").trim().toUpperCase();
-  });
-}
-
 /** Meta JS SDK (Embedded Signup) — minimal surface, duplicated from
  * app/onboarding/success/client.tsx intentionally (that file must not change). */
 type FbAuthResponse = {
@@ -167,28 +160,25 @@ type ConnectWhatsAppSectionProps = {
   lang?: DashboardLang;
   /** Meta Embedded Signup `featureType` extra — defaults to the "connect an existing number" flow. */
   featureType?: string;
+  /** Sit under the WhatsApp number row instead of a full-page banner. */
+  embedded?: boolean;
 };
 
 export default function ConnectWhatsAppSection({
   slug,
   lang = "he",
   featureType = "whatsapp_business_app_onboarding",
+  embedded = false,
 }: ConnectWhatsAppSectionProps) {
   const t = i18n[lang];
   const dir = dashboardDir(lang);
   const textAlign = lang === "en" ? "left" : "right";
 
   const channelKey = `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`;
-  const { data: channelData, isLoading: channelLoading, mutate: mutateChannel } = useSWR(
+  const { data: channelData, mutate: mutateChannel } = useSWR(
     channelKey,
     channelFetcher,
     { revalidateOnFocus: false, keepPreviousData: true }
-  );
-  const statusKey = `/api/dashboard/whatsapp-status?slug=${encodeURIComponent(slug)}`;
-  const { data: metaStatus, isLoading: metaStatusLoading, mutate: mutateMetaStatus } = useSWR(
-    statusKey,
-    metaStatusFetcher,
-    { revalidateOnFocus: false }
   );
 
   const [state, setState] = useState<ConnectState>("idle");
@@ -239,7 +229,6 @@ export default function ConnectWhatsAppSection({
         setWebhookError(j.webhook?.subscribed ? null : j.webhook?.error?.trim() || null);
         setState("success");
         void mutateChannel();
-        void mutateMetaStatus();
       } catch {
         setState("error");
         setErrorMsg(t.error_network);
@@ -247,7 +236,7 @@ export default function ConnectWhatsAppSection({
         inFlightRef.current = false;
       }
     },
-    [slug, t, mutateChannel, mutateMetaStatus]
+    [slug, t, mutateChannel]
   );
 
   useEffect(() => {
@@ -388,7 +377,7 @@ export default function ConnectWhatsAppSection({
   }, [launchLogin]);
 
   const hasActiveChannel = channelData?.channel?.is_active === true;
-  const reconnectMode = hasActiveChannel && metaStatus === "DISCONNECTED";
+  const reconnectMode = hasActiveChannel;
   const busy = state === "awaiting_login" || state === "submitting";
 
   // Post-connect result (including any webhook warning) takes priority over the
@@ -398,7 +387,7 @@ export default function ConnectWhatsAppSection({
       <section
         dir={dir}
         style={{ textAlign }}
-        className="mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4"
+        className={embedded ? "mt-3" : "mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4"}
       >
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
           <p className="text-sm font-semibold text-emerald-800">{t.successTitle}</p>
@@ -416,38 +405,12 @@ export default function ConnectWhatsAppSection({
     );
   }
 
-  // Avoid a flash of the connect button before we know the real channel state.
-  if (channelLoading && channelData === undefined) {
-    return null;
-  }
-  if (hasActiveChannel && metaStatusLoading && metaStatus === undefined) {
-    return null;
-  }
-
-  if (hasActiveChannel && !reconnectMode) {
-    return (
-      <section dir={dir} style={{ textAlign }} className="mx-auto w-full max-w-4xl px-4 sm:px-6 mb-3">
-        <div className="flex flex-wrap items-center justify-start gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={handleConnectClick}
-            className="text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline disabled:cursor-wait disabled:opacity-70"
-          >
-            {busy ? t.connecting : t.reconnect}
-          </button>
-          {state === "error" && errorMsg ? (
-            <p className="w-full text-xs text-rose-700" role="alert">
-              {errorMsg}
-            </p>
-          ) : null}
-        </div>
-      </section>
-    );
-  }
-
   return (
-    <section dir={dir} style={{ textAlign }} className="mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4">
+    <section
+      dir={dir}
+      style={{ textAlign }}
+      className={embedded ? "mt-3" : "mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4"}
+    >
       <div
         className={
           reconnectMode
