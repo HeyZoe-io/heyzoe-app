@@ -332,7 +332,7 @@ export const dashboardSettingsI18n = {
         "הליד בוחר יום ובלוק שעות לשיחת מכירה, ונשלחת התראת «ביקש לדבר עם נציג» עם המועד.",
       callScheduleOn: "פועל",
       callScheduleOff: "כבוי",
-      callScheduleSlotsHint: "סמנו לכל יום את בלוקי השעות הזמינים לשיחה (רק ימים עם לפחות בלוק אחד יוצגו לליד).",
+      callScheduleSlotsHint: "סמנו מועדי שיחה זמינים מצדכם",
       trialCtaMode: "סוג כפתור 1",
       trialCtaModeRegistration: "הרשמה לשיעור ניסיון",
       trialCtaModeSalesCall: "שיחת מכירה",
@@ -825,8 +825,7 @@ export const dashboardSettingsI18n = {
         "The lead picks a day and time block for a sales call; you get a «requested human» alert with the slot.",
       callScheduleOn: "On",
       callScheduleOff: "Off",
-      callScheduleSlotsHint:
-        "For each day, select available 2-hour blocks (only days with at least one block are shown to the lead).",
+      callScheduleSlotsHint: "Mark available call times on your side",
       trialCtaMode: "Button 1 type",
       trialCtaModeRegistration: "Trial registration",
       trialCtaModeSalesCall: "Sales call",

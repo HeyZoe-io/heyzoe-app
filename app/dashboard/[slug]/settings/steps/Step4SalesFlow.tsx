@@ -2103,7 +2103,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   </p>
                 </div>
                 <div className="space-y-3">
-                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                  <p className="text-base font-bold leading-snug text-zinc-800">
                     {t.salesFlow.callScheduleSlotsHint}
                   </p>
                   <div className="space-y-2">
