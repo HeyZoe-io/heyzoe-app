@@ -319,9 +319,10 @@ function WarmupButtonPairsEditor({
             {options.length > WARMUP_MIN_BUTTONS ? (
               <button
                 type="button"
-                className="p-1 text-zinc-400 hover:text-red-500 shrink-0"
+                className="ms-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-red-50 hover:text-red-600"
                 onClick={() => removePair(i)}
                 aria-label={t.salesFlow.removeButton(i + 1)}
+                title={t.salesFlow.removeButton(i + 1)}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
