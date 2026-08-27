@@ -163,6 +163,7 @@ async function readSaveErrorFromResponse(
     if (j.error === "unauthorized") return t.page.unauthorized;
     if (j.error === "slug_required") return t.page.slugRequired;
     if (j.error === "slug_taken") return t.page.slugTaken;
+    if (j.error === "settings_conflict") return t.page.settingsConflict;
     if (typeof j.error === "string" && j.error.trim()) return j.error.trim();
   } catch {
     /* not json */
@@ -562,7 +563,9 @@ function WhatsAppNumberSection({
     [phoneDisplayRaw]
   );
 
-  const [metaStatus, setMetaStatus] = useState<null | "CONNECTED" | "PENDING" | "UNVERIFIED">(null);
+  const [metaStatus, setMetaStatus] = useState<
+    null | "CONNECTED" | "PENDING" | "UNVERIFIED" | "DISCONNECTED"
+  >(null);
   const [metaChecked, setMetaChecked] = useState(false);
   const pollRef = useRef<number | null>(null);
   const metaReqIdRef = useRef(0);
@@ -578,8 +581,8 @@ function WhatsAppNumberSection({
       if (metaReqIdRef.current !== my) return null;
       const st = String(j?.status ?? "").trim().toUpperCase();
       if (st === "NOT_PROVISIONED" || st === "not_provisioned") return null;
-      if (st === "CONNECTED" || st === "PENDING" || st === "UNVERIFIED") {
-        return st as "CONNECTED" | "PENDING" | "UNVERIFIED";
+      if (st === "CONNECTED" || st === "PENDING" || st === "UNVERIFIED" || st === "DISCONNECTED") {
+        return st as "CONNECTED" | "PENDING" | "UNVERIFIED" | "DISCONNECTED";
       }
       return null;
     } catch {
@@ -661,6 +664,13 @@ function WhatsAppNumberSection({
   }, [fetchMetaStatus, isActiveLocally]);
 
   const badge = useMemo(() => {
+    if (metaStatus === "DISCONNECTED") {
+      return (
+        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 text-[11px] font-medium">
+          {tp.statusDisconnected}
+        </span>
+      );
+    }
     if ((metaStatus === "CONNECTED" || showLocalConnectedNumber) && isActiveLocally) {
       return (
         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[11px] font-medium">
@@ -683,11 +693,14 @@ function WhatsAppNumberSection({
       );
     }
     return null;
-  }, [metaStatus, isActiveLocally, showLocalConnectedNumber, tp.statusConnected, tp.statusPendingApproval, tp.statusUnverified]);
+  }, [metaStatus, isActiveLocally, showLocalConnectedNumber, tp.statusConnected, tp.statusDisconnected, tp.statusPendingApproval, tp.statusUnverified]);
 
   const metaText = useMemo(() => {
     if (metaStatus === "CONNECTED") {
       return tp.waConnected;
+    }
+    if (metaStatus === "DISCONNECTED") {
+      return tp.waDisconnected;
     }
     if (metaStatus === "PENDING") {
       return tp.waPending;
@@ -696,7 +709,7 @@ function WhatsAppNumberSection({
       return tp.waUnverified;
     }
     return "";
-  }, [metaStatus, tp.waConnected, tp.waPending, tp.waUnverified]);
+  }, [metaStatus, tp.waConnected, tp.waDisconnected, tp.waPending, tp.waUnverified]);
 
   const copy = useCallback(async () => {
     const value = phoneDisplayRaw;
@@ -1633,6 +1646,10 @@ export default function SlugSettingsPage({
   /** עריכות מוצרים מקומיות מאז טעינה אחרונה מהשרת — מונע דריסה בריענון SWR */
   const servicesUserEditCountRef = useRef(0);
   const servicesHydrationBaselineRef = useRef(0);
+  /** אותו מנגנון לטקסט פלואו מכירה (פתיחה / CTA / חימום) — בלי זה SWR מחזיר לשרת */
+  const salesFlowUserEditCountRef = useRef(0);
+  const salesFlowHydrationBaselineRef = useRef(0);
+  const expectedUpdatedAtRef = useRef("");
   const markDirtyRef = useRef(() => setHasUnsavedChanges(true));
   markDirtyRef.current = () => setHasUnsavedChanges(true);
 
@@ -1640,6 +1657,12 @@ export default function SlugSettingsPage({
     servicesUserEditCountRef.current += 1;
     markDirtyRef.current();
     setServices(action);
+  }, []);
+
+  const setSalesFlowConfigFromUser = useCallback<typeof setSalesFlowConfig>((action) => {
+    salesFlowUserEditCountRef.current += 1;
+    markDirtyRef.current();
+    setSalesFlowConfig(action);
   }, []);
 
   useEffect(() => {
@@ -1662,6 +1685,9 @@ export default function SlugSettingsPage({
       trialServicesStashConsumedRef.current = false;
       servicesUserEditCountRef.current = 0;
       servicesHydrationBaselineRef.current = 0;
+      salesFlowUserEditCountRef.current = 0;
+      salesFlowHydrationBaselineRef.current = 0;
+      expectedUpdatedAtRef.current = "";
     }
 
     let serialized = "";
@@ -1834,21 +1860,25 @@ export default function SlugSettingsPage({
           fullWelcome.trim().length > 0 ||
           hasSalesFlowSaved;
 
-        if (hasSalesFlowSaved) {
-          const parsed = parseSalesFlowFromSocial(sl.sales_flow);
-          if (parsed) {
-            setSalesFlowConfig(
-              hydrateSalesFlowScheduleCtaFromScan(
-                { ...parsed, greeting_extra_steps: [] },
-                loadedScheduleScanImageUrl
-              )
-            );
+        const salesFlowUserEditedSinceHydrate =
+          salesFlowUserEditCountRef.current > salesFlowHydrationBaselineRef.current;
+        if (!salesFlowUserEditedSinceHydrate) {
+          expectedUpdatedAtRef.current = String(
+            (business as { updated_at?: unknown }).updated_at ?? ""
+          ).trim();
+          if (hasSalesFlowSaved) {
+            const parsed = parseSalesFlowFromSocial(sl.sales_flow);
+            if (parsed) {
+              setSalesFlowConfig(
+                hydrateSalesFlowScheduleCtaFromScan(parsed, loadedScheduleScanImageUrl)
+              );
+            }
+          } else {
+            const def = defaultSalesFlowConfig(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
+            if (loadedWelcomeIntro.trim()) def.greeting_body_override = loadedWelcomeIntro.trim();
+            setSalesFlowConfig(def);
           }
-        } else {
-          const def = defaultSalesFlowConfig(Array.isArray(sl.vibe) ? (sl.vibe as string[]) : []);
-          if (loadedWelcomeIntro.trim()) def.greeting_body_override = loadedWelcomeIntro.trim();
-          def.greeting_extra_steps = [];
-          setSalesFlowConfig(def);
+          salesFlowHydrationBaselineRef.current = salesFlowUserEditCountRef.current;
         }
         setSegQuestions(Array.isArray(sl.segmentation_questions) ? (sl.segmentation_questions as SegQuestion[]) : []);
         const loadedQr =
@@ -2041,6 +2071,7 @@ export default function SlugSettingsPage({
       },
       faqs: [] as unknown[],
       call_slots: callScheduleSlots,
+      expected_updated_at: expectedUpdatedAtRef.current,
     };
     return servicesHydrated
       ? {
@@ -2196,6 +2227,13 @@ export default function SlugSettingsPage({
         setSaveErr(await readSaveErrorFromResponse(res, t));
         return false;
       }
+      try {
+        const saved = (await res.json()) as { updated_at?: unknown };
+        const nextToken = String(saved.updated_at ?? "").trim();
+        if (nextToken) expectedUpdatedAtRef.current = nextToken;
+      } catch {
+        /* keep previous token */
+      }
       const body = getSavePayloadRef.current() as Record<string, unknown>;
       if (payloadSavedTrialsWereCleared(body)) clearTrialServicesStash(slug);
       setSavedOk(true);
@@ -2286,7 +2324,7 @@ export default function SlugSettingsPage({
       if (section === "service_pick") {
         regenerateServiceBenefitLinesFromDescriptions();
       }
-      setSalesFlowConfig((c) => {
+      setSalesFlowConfigFromUser((c) => {
         if (!c) return base;
         if (section === "opening") {
           return {
@@ -2386,7 +2424,7 @@ export default function SlugSettingsPage({
         return c;
       });
     },
-    [regenerateServiceBenefitLinesFromDescriptions, vibe, courseOnlineCtaSample.hasDates]
+    [regenerateServiceBenefitLinesFromDescriptions, vibe, courseOnlineCtaSample.hasDates, setSalesFlowConfigFromUser]
   );
 
   const regenerateSalesFlowSectionBusy = useCallback(
@@ -2542,7 +2580,7 @@ export default function SlugSettingsPage({
           setScheduleCtaMediaUploadError(tp.storageUploadFailed(putRes.status));
           return;
         }
-        setSalesFlowConfig((c) => ({
+        setSalesFlowConfigFromUser((c) => ({
           ...c,
           cta_buttons: c.cta_buttons.map((btn) =>
             btn.kind === "schedule"
@@ -3212,7 +3250,7 @@ export default function SlugSettingsPage({
             regenerateSalesFlowSection={regenerateSalesFlowSectionBusy}
             regeneratingKey={busyAction}
             salesFlowConfig={salesFlowConfig}
-            setSalesFlowConfig={setSalesFlowConfig}
+            setSalesFlowConfig={setSalesFlowConfigFromUser}
             scheduleDirectRegistration={scheduleDirectRegistration}
             setScheduleDirectRegistration={setScheduleDirectRegistration}
             salesFlowCallSchedulingEnabled={salesFlowCallSchedulingEnabled}

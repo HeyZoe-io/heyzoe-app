@@ -30,6 +30,13 @@ function channelFetcher(key: string): Promise<WhatsAppChannelResponse> {
   });
 }
 
+function metaStatusFetcher(key: string): Promise<string> {
+  return fetch(key, { method: "GET", cache: "no-store" }).then(async (res) => {
+    const j = (await res.json().catch(() => ({}))) as { status?: string };
+    return String(j?.status ?? "").trim().toUpperCase();
+  });
+}
+
 /** Meta JS SDK (Embedded Signup) — minimal surface, duplicated from
  * app/onboarding/success/client.tsx intentionally (that file must not change). */
 type FbAuthResponse = {
@@ -106,6 +113,10 @@ const i18n = {
     description:
       "מחברים את חשבון ה־WhatsApp Business שלכם ל־HeyZoe דרך פייסבוק — אפשר לחבר מספר קיים.",
     connect: "חברו מספר WhatsApp",
+    reconnect: "חברו מחדש",
+    reconnectTitle: "חיבור מחדש ל‑WhatsApp",
+    reconnectDescription:
+      "החלפתם מכשיר או שהחיבור נותק? אפשר לחבר את אותו המספר מחדש דרך פייסבוק.",
     connecting: "מתחברים…",
     connectedTitle: "המספר מחובר",
     successTitle: "התחברתם בהצלחה!",
@@ -128,6 +139,10 @@ const i18n = {
     description:
       "Connect your WhatsApp Business account to HeyZoe via Facebook — you can connect an existing number.",
     connect: "Connect WhatsApp number",
+    reconnect: "Reconnect",
+    reconnectTitle: "Reconnect WhatsApp",
+    reconnectDescription:
+      "Changed phones or lost the connection? You can reconnect the same number via Facebook.",
     connecting: "Connecting…",
     connectedTitle: "Number connected",
     successTitle: "Connected successfully!",
@@ -168,6 +183,12 @@ export default function ConnectWhatsAppSection({
     channelKey,
     channelFetcher,
     { revalidateOnFocus: false, keepPreviousData: true }
+  );
+  const statusKey = `/api/dashboard/whatsapp-status?slug=${encodeURIComponent(slug)}`;
+  const { data: metaStatus, isLoading: metaStatusLoading, mutate: mutateMetaStatus } = useSWR(
+    statusKey,
+    metaStatusFetcher,
+    { revalidateOnFocus: false }
   );
 
   const [state, setState] = useState<ConnectState>("idle");
@@ -218,6 +239,7 @@ export default function ConnectWhatsAppSection({
         setWebhookError(j.webhook?.subscribed ? null : j.webhook?.error?.trim() || null);
         setState("success");
         void mutateChannel();
+        void mutateMetaStatus();
       } catch {
         setState("error");
         setErrorMsg(t.error_network);
@@ -225,7 +247,7 @@ export default function ConnectWhatsAppSection({
         inFlightRef.current = false;
       }
     },
-    [slug, t, mutateChannel]
+    [slug, t, mutateChannel, mutateMetaStatus]
   );
 
   useEffect(() => {
@@ -360,11 +382,14 @@ export default function ConnectWhatsAppSection({
   }, [sdkReady, submitEmbeddedFinish, t.error_fb_load, t.error_popup, t.sdkNotReady]);
 
   const handleConnectClick = useCallback(() => {
+    handledWabaRef.current = null;
     setErrorMsg(null);
     launchLogin();
   }, [launchLogin]);
 
   const hasActiveChannel = channelData?.channel?.is_active === true;
+  const reconnectMode = hasActiveChannel && metaStatus === "DISCONNECTED";
+  const busy = state === "awaiting_login" || state === "submitting";
 
   // Post-connect result (including any webhook warning) takes priority over the
   // generic "connected" badge so a successful-but-unsubscribed WABA is never hidden.
@@ -395,26 +420,55 @@ export default function ConnectWhatsAppSection({
   if (channelLoading && channelData === undefined) {
     return null;
   }
-
-  // Connected status is already shown via badges in WhatsAppNumberSection —
-  // avoid a duplicate "number connected" banner above the settings form.
-  if (hasActiveChannel) {
+  if (hasActiveChannel && metaStatusLoading && metaStatus === undefined) {
     return null;
+  }
+
+  if (hasActiveChannel && !reconnectMode) {
+    return (
+      <section dir={dir} style={{ textAlign }} className="mx-auto w-full max-w-4xl px-4 sm:px-6 mb-3">
+        <div className="flex flex-wrap items-center justify-start gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={handleConnectClick}
+            className="text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline disabled:cursor-wait disabled:opacity-70"
+          >
+            {busy ? t.connecting : t.reconnect}
+          </button>
+          {state === "error" && errorMsg ? (
+            <p className="w-full text-xs text-rose-700" role="alert">
+              {errorMsg}
+            </p>
+          ) : null}
+        </div>
+      </section>
+    );
   }
 
   return (
     <section dir={dir} style={{ textAlign }} className="mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4">
-      <div className="rounded-2xl border border-[rgba(113,51,218,0.15)] bg-white/95 p-4">
-        <p className="text-sm font-semibold text-zinc-900">{t.title}</p>
-        <p className="mt-1 text-xs leading-5 text-zinc-500">{t.description}</p>
+      <div
+        className={
+          reconnectMode
+            ? "rounded-2xl border border-amber-200 bg-amber-50/70 p-4"
+            : "rounded-2xl border border-[rgba(113,51,218,0.15)] bg-white/95 p-4"
+        }
+      >
+        <p className={`text-sm font-semibold ${reconnectMode ? "text-amber-950" : "text-zinc-900"}`}>
+          {reconnectMode ? t.reconnectTitle : t.title}
+        </p>
+        <p className={`mt-1 text-xs leading-5 ${reconnectMode ? "text-amber-900" : "text-zinc-500"}`}>
+          {reconnectMode ? t.reconnectDescription : t.description}
+        </p>
         <button
           type="button"
-          disabled={state === "awaiting_login" || state === "submitting"}
+          disabled={busy}
           onClick={handleConnectClick}
           className="mt-3 w-full rounded-full border border-[rgba(113,51,218,0.25)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:cursor-wait disabled:opacity-70"
           style={{ background: "linear-gradient(135deg,#7133da,#ff92ff)" }}
         >
-          {state === "awaiting_login" || state === "submitting" ? t.connecting : t.connect}
+          {busy ? t.connecting : reconnectMode ? t.reconnect : t.connect}
         </button>
         {state === "error" && errorMsg ? (
           <p className="mt-2 text-xs text-rose-700" role="alert">

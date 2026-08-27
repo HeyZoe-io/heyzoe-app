@@ -427,6 +427,7 @@ export const dashboardSettingsI18n = {
       unauthorized: "נדרשת התחברות מחדש.",
       slugRequired: "חסר מזהה עסק.",
       slugTaken: "כתובת העסק תפוסה.",
+      settingsConflict: "ההגדרות השתנו מאז שפתחת את העמוד — רענני לפני השמירה.",
       serverError: (status: number) => `שגיאת שרת (${status})`,
       fileTooBigVideo: (mb: number) => `הקובץ גדול מדי (סרטון: מקסימום ${mb}MB). נסו לכווץ את הקובץ.`,
       fileTooBigImage: (mb: number) => `הקובץ גדול מדי (תמונה: מקסימום ${mb}MB להעלאה).`,
@@ -466,6 +467,7 @@ export const dashboardSettingsI18n = {
       waNumber: "מספר ה‑WhatsApp שלך",
       waNumberHint: "המספר שעליו זואי עונה ללקוחות שלך",
       statusConnected: "המספר מחובר",
+      statusDisconnected: "החיבור נותק",
       statusPendingApproval: "בתהליך אישור",
       statusUnverified: "לא מאומת",
       statusProvisioning: "בהקמה",
@@ -478,6 +480,8 @@ export const dashboardSettingsI18n = {
       zoeToggleFailed: "הפעולה נכשלה, נסו שוב",
       zoeActivateNoNumber: "אין מספר מחובר עדיין. חברו מספר WhatsApp לפני הפעלת זואי.",
       waConnected: "זואי מחוברת ועונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!",
+      waDisconnected:
+        "החיבור ל‑WhatsApp נותק — לרוב אחרי החלפת מכשיר. חברו מחדש את אותו המספר למעלה.",
       waPending:
         "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות - אין צורך בפעולה מצידך.",
       waUnverified: "המספר טרם אומת. אנא צור קשר עם התמיכה של HeyZoe לסיוע.",
@@ -921,6 +925,7 @@ export const dashboardSettingsI18n = {
       unauthorized: "Please sign in again.",
       slugRequired: "Business ID missing.",
       slugTaken: "Business URL is taken.",
+      settingsConflict: "The settings changed since you opened this page — reload before saving.",
       serverError: (status: number) => `Server error (${status})`,
       fileTooBigVideo: (mb: number) => `File too large (video: max ${mb}MB). Try compressing.`,
       fileTooBigImage: (mb: number) => `File too large (image: max ${mb}MB for upload).`,
@@ -960,6 +965,7 @@ export const dashboardSettingsI18n = {
       waNumber: "Your WhatsApp number",
       waNumberHint: "The number Zoe uses to reply to your customers",
       statusConnected: "Number connected",
+      statusDisconnected: "Connection lost",
       statusPendingApproval: "Pending approval",
       statusUnverified: "Unverified",
       statusProvisioning: "Provisioning",
@@ -972,6 +978,8 @@ export const dashboardSettingsI18n = {
       zoeToggleFailed: "Action failed, try again",
       zoeActivateNoNumber: "No WhatsApp number connected yet. Connect a number before activating Zoe.",
       waConnected: "Zoe is connected and replies on this number. Share it with your customers!",
+      waDisconnected:
+        "WhatsApp connection was lost — often after changing phones. Reconnect the same number above.",
       waPending:
         "Number pending WhatsApp approval. This may take up to 24 hours — no action needed.",
       waUnverified: "Number not verified yet. Contact HeyZoe support for help.",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { subscribeWabaToAppWebhooks, fetchPhoneNumbersForWaba } from "@/lib/meta-waba-resolve";
+import { subscribeWabaToAppWebhooks, fetchPhoneNumbersForWaba, registerMetaPhoneNumberWithPin } from "@/lib/meta-waba-resolve";
 import { canWriteForSlug } from "@/lib/onboarding-auth";
 
 export const runtime = "nodejs";
@@ -224,6 +224,22 @@ export async function POST(req: NextRequest) {
         });
       } else {
         console.info(`[embedded-signup] upserted whatsapp_channels for phone_number_id=${effectivePhoneNumberId}`);
+      }
+
+      if (isCoexistence) {
+        const registerToken = process.env.WHATSAPP_SYSTEM_TOKEN?.trim();
+        if (registerToken) {
+          const reg = await registerMetaPhoneNumberWithPin(effectivePhoneNumberId, registerToken, {
+            logPrefix: "[embedded-signup]",
+          });
+          if (!reg.ok) {
+            console.error("[embedded-signup] coexistence /register failed:", {
+              phone_number_id: effectivePhoneNumberId,
+              error: reg.error,
+              status: reg.status,
+            });
+          }
+        }
       }
     }
   }

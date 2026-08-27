@@ -12,7 +12,51 @@ async function requireUser() {
   return data.user ?? null;
 }
 
-type MetaStatus = "CONNECTED" | "PENDING" | "UNVERIFIED";
+type MetaStatus = "CONNECTED" | "PENDING" | "UNVERIFIED" | "DISCONNECTED";
+
+async function resolveMetaPhoneNumberId(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  slug: string,
+  businessId: number | null
+): Promise<string> {
+  const { data: job } = await admin
+    .from("wa_provision_jobs")
+    .select("meta_phone_number_id, status, created_at")
+    .eq("business_slug", slug)
+    .eq("status", "done")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const fromJob = String((job as { meta_phone_number_id?: unknown } | null)?.meta_phone_number_id ?? "").trim();
+  if (fromJob) return fromJob;
+
+  {
+    const { data: channel } = await admin
+      .from("whatsapp_channels")
+      .select("phone_number_id")
+      .eq("business_slug", slug)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const fromSlug = String((channel as { phone_number_id?: unknown } | null)?.phone_number_id ?? "").trim();
+    if (fromSlug) return fromSlug;
+  }
+
+  if (businessId != null && Number.isFinite(businessId)) {
+    const { data: channel } = await admin
+      .from("whatsapp_channels")
+      .select("phone_number_id")
+      .eq("business_id", businessId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return String((channel as { phone_number_id?: unknown } | null)?.phone_number_id ?? "").trim();
+  }
+
+  return "";
+}
 
 export async function GET(req: NextRequest) {
   const user = await requireUser();
@@ -27,17 +71,10 @@ export async function GET(req: NextRequest) {
   });
   const biz = pickBusinessBySlug(accessible, slug);
   if (!biz) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const businessId = Number((biz as { id?: unknown }).id);
+  const bizId = Number.isFinite(businessId) ? businessId : null;
 
-  const { data: job } = await admin
-    .from("wa_provision_jobs")
-    .select("meta_phone_number_id, status, created_at")
-    .eq("business_slug", slug)
-    .eq("status", "done")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const metaPhoneNumberId = String((job as any)?.meta_phone_number_id ?? "").trim();
+  const metaPhoneNumberId = await resolveMetaPhoneNumberId(admin, slug, bizId);
   if (!metaPhoneNumberId) return NextResponse.json({ status: "not_provisioned" });
 
   const token = String(process.env.WHATSAPP_SYSTEM_TOKEN ?? "").trim();
@@ -66,7 +103,10 @@ export async function GET(req: NextRequest) {
 
     const statusRaw = String(j.status ?? "").trim().toUpperCase();
     const status: MetaStatus =
-      statusRaw === "CONNECTED" || statusRaw === "PENDING" || statusRaw === "UNVERIFIED"
+      statusRaw === "CONNECTED" ||
+      statusRaw === "PENDING" ||
+      statusRaw === "UNVERIFIED" ||
+      statusRaw === "DISCONNECTED"
         ? (statusRaw as MetaStatus)
         : "UNVERIFIED";
 
