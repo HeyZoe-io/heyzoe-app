@@ -70,14 +70,20 @@ export async function POST(req: NextRequest) {
       paused: false,
     });
 
-    const { error } = await admin
-      .from("paused_sessions")
-      .delete()
-      .eq("business_slug", businessSlug)
-      .eq("session_id", sessionIdRaw);
+    // Stamp an expired row instead of deleting: pause rows are authoritative, so
+    // an explicit «הפעל בוט» must not be overridden by leftover app-echo state.
+    const until = new Date().toISOString();
+    const { error } = await admin.from("paused_sessions").upsert(
+      {
+        business_slug: businessSlug,
+        session_id: sessionIdRaw,
+        paused_until: until,
+      },
+      { onConflict: "business_slug,session_id" }
+    );
 
     if (error) {
-      console.error("[api/whatsapp/unpause] delete failed:", error.message);
+      console.error("[api/whatsapp/unpause] upsert failed:", error.message);
       return NextResponse.json({ error: "unpause_failed" }, { status: 500 });
     }
 

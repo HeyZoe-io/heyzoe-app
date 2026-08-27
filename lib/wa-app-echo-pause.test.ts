@@ -79,5 +79,7 @@ assert.equal(
 assert.equal(pausedSessionRowsBlockZoe([], now), "unknown");
 assert.equal(pausedSessionRowsBlockZoe(null, now), "unknown");
 assert.equal(pausedSessionRowsBlockZoe([{ paused_until: manual }], now), "paused");
+assert.equal(pausedSessionRowsBlockZoe([], now) === "paused", false);
+assert.equal(pausedSessionRowsBlockZoe([{ paused_until: now.toISOString() }], now) === "paused", false);
 
 console.log("wa-app-echo-pause.test.ts: ok");

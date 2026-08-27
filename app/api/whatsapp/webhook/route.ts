@@ -4946,6 +4946,19 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
     console.info(
       `[WA Webhook] coexistence: skipping wa_provision_jobs release for business_id=${businessId}`
     );
+    try {
+      const { releaseAutoAppEchoPausesForBusiness } = await import("@/lib/wa-app-echo-pause");
+      const released = await releaseAutoAppEchoPausesForBusiness({
+        admin,
+        businessSlug,
+      });
+      console.info("[WA Webhook] coexistence: released auto app-echo pauses", {
+        slug: businessSlug,
+        ...released,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] coexistence: auto-pause release failed:", e);
+    }
   }
 
   if (systemToken) {

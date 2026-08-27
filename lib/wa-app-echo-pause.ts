@@ -126,42 +126,10 @@ export async function isBusinessWaSessionPaused(input: {
     new Date(nowIso)
   );
   if (pauseState === "paused") return true;
-  if (pauseState === "released") return false;
-  const echoed = await hasRecentWaBusinessAppEcho({
-    admin: input.admin,
-    businessSlug: slug,
-    sessionIds,
-  });
-  if (echoed) {
-    console.info("[wa-app-echo-pause] skip via recent WhatsApp-app echo (no pause row)", {
-      business_slug: slug,
-      sessionIds,
-    });
-  }
-  return echoed;
-}
-
-async function hasRecentWaBusinessAppEcho(input: {
-  admin: ReturnType<typeof createSupabaseAdminClient>;
-  businessSlug: string;
-  sessionIds: string[];
-}): Promise<boolean> {
-  const sinceIso = new Date(Date.now() - WA_BUSINESS_APP_PAUSE_MS).toISOString();
-  const { data, error } = await input.admin
-    .from("messages")
-    .select("id")
-    .eq("business_slug", input.businessSlug)
-    .in("session_id", input.sessionIds)
-    .eq("role", "assistant")
-    .eq("model_used", WA_BUSINESS_APP_ECHO_MODEL)
-    .gte("created_at", sinceIso)
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.warn("[wa-app-echo-pause] recent app-echo lookup failed:", error.message);
-    return false;
-  }
-  return Boolean((data as { id?: unknown } | null)?.id);
+  // Pause rows are the only source of truth. A missing row must not inherit 24h
+  // silence from old `wa_business_app` messages — that re-broke reconnect and
+  // dashboard «הפעל בוט» (no row → UI shows unpaused, webhook still skipped).
+  return false;
 }
 
 const RELEASE_IN_CHUNK = 80;
@@ -169,8 +137,6 @@ const RELEASE_IN_CHUNK = 80;
 /**
  * After a coexistence reconnect, phone-app coverage during the outage must not keep
  * Zoe silent for 24h. Expires auto app-echo pauses only (not dashboard «עצור בוט»).
- * Also stamps sessions that have a recent app echo but no pause row, so the echo
- * fallback cannot re-silence them.
  */
 export async function releaseAutoAppEchoPausesForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
