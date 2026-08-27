@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { DashboardLang } from "@/lib/dashboard-lang";
-import { dashboardDir } from "@/lib/dashboard-lang";
 
 /**
  * Same endpoint + SWR key as WhatsAppNumberSection in
@@ -102,22 +103,12 @@ type ConnectState = "idle" | "awaiting_login" | "submitting" | "success" | "erro
 
 const i18n = {
   he: {
-    title: "חיבור מספר WhatsApp",
-    description:
-      "מחברים את חשבון ה־WhatsApp Business שלכם ל־HeyZoe דרך פייסבוק — אפשר לחבר מספר קיים.",
-    connect: "חברו מספר WhatsApp",
-    reconnect: "חברו מחדש",
-    reconnectTitle: "חיבור מחדש ל‑WhatsApp",
-    reconnectDescription:
-      "החלפתם מכשיר או שהחיבור נותק? אפשר לחבר את אותו המספר מחדש דרך פייסבוק.",
+    connectToMeta: "חיבור למטא",
     connecting: "מתחברים…",
-    connectedTitle: "המספר מחובר",
-    successTitle: "התחברתם בהצלחה!",
-    webhookWarningTitle: "שימו לב — חסר רישום Webhook",
+    successTitle: "התחברתם למטא בהצלחה",
     webhookWarning:
       "החיבור למספר הצליח, אך רישום ה-Webhook מול מטא לא הושלם. הודעות עשויות שלא להתקבל עד שזה ייפתר.",
     missingAppId: "חסר מזהה אפליקציית מטא בשרת — לא ניתן להציג את חלון ההתחברות.",
-    error_no_waba: "לא התקבל מזהה WABA מהתחברות פייסבוק. נסו שוב או בדקו את הגדרות אפליקציית מטא.",
     error_cancelled: "החיבור בוטל.",
     error_fb_load: "טעינת פייסבוק נכשלה. נסו שוב.",
     error_popup:
@@ -125,25 +116,14 @@ const i18n = {
     sdkNotReady: "טוענים את פייסבוק… נסו שוב בעוד רגע.",
     error_server: (status: number) => `שגיאת שרת (${status})`,
     error_network: "בעיית רשת בשמירה.",
-    statusLoadFailed: "טעינת סטטוס החיבור נכשלה.",
   },
   en: {
-    title: "Connect a WhatsApp number",
-    description:
-      "Connect your WhatsApp Business account to HeyZoe via Facebook — you can connect an existing number.",
-    connect: "Connect WhatsApp number",
-    reconnect: "Reconnect",
-    reconnectTitle: "Reconnect WhatsApp",
-    reconnectDescription:
-      "Changed phones or lost the connection? You can reconnect the same number via Facebook.",
+    connectToMeta: "Connect to Meta",
     connecting: "Connecting…",
-    connectedTitle: "Number connected",
-    successTitle: "Connected successfully!",
-    webhookWarningTitle: "Attention — webhook registration missing",
+    successTitle: "Connected to Meta",
     webhookWarning:
       "The number connected successfully, but webhook registration with Meta did not complete. Messages may not be received until this is resolved.",
     missingAppId: "Meta app ID missing on the server — the login dialog cannot be shown.",
-    error_no_waba: "WABA ID not received from Facebook login. Try again or check your Meta app settings.",
     error_cancelled: "Connection cancelled.",
     error_fb_load: "Failed to load Facebook. Try again.",
     error_popup:
@@ -151,31 +131,27 @@ const i18n = {
     sdkNotReady: "Loading Facebook… try again in a moment.",
     error_server: (status: number) => `Server error (${status})`,
     error_network: "Network error while saving.",
-    statusLoadFailed: "Failed to load connection status.",
   },
 } as const;
 
 type ConnectWhatsAppSectionProps = {
   slug: string;
   lang?: DashboardLang;
+  compact?: boolean;
   /** Meta Embedded Signup `featureType` extra — defaults to the "connect an existing number" flow. */
   featureType?: string;
-  /** Sit under the WhatsApp number row instead of a full-page banner. */
-  embedded?: boolean;
 };
 
 export default function ConnectWhatsAppSection({
   slug,
   lang = "he",
+  compact = false,
   featureType = "whatsapp_business_app_onboarding",
-  embedded = false,
 }: ConnectWhatsAppSectionProps) {
   const t = i18n[lang];
-  const dir = dashboardDir(lang);
-  const textAlign = lang === "en" ? "left" : "right";
 
   const channelKey = `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`;
-  const { data: channelData, mutate: mutateChannel } = useSWR(
+  const { mutate: mutateChannel } = useSWR(
     channelKey,
     channelFetcher,
     { revalidateOnFocus: false, keepPreviousData: true }
@@ -373,72 +349,49 @@ export default function ConnectWhatsAppSection({
   const handleConnectClick = useCallback(() => {
     handledWabaRef.current = null;
     setErrorMsg(null);
+    setWebhookSubscribed(false);
+    setWebhookError(null);
     launchLogin();
   }, [launchLogin]);
 
-  const hasActiveChannel = channelData?.channel?.is_active === true;
-  const reconnectMode = hasActiveChannel;
   const busy = state === "awaiting_login" || state === "submitting";
-
-  // Post-connect result (including any webhook warning) takes priority over the
-  // generic "connected" badge so a successful-but-unsubscribed WABA is never hidden.
-  if (state === "success") {
-    return (
-      <section
-        dir={dir}
-        style={{ textAlign }}
-        className={embedded ? "mt-3" : "mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4"}
-      >
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-          <p className="text-sm font-semibold text-emerald-800">{t.successTitle}</p>
-          {!webhookSubscribed ? (
-            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm font-medium text-amber-900">{t.webhookWarningTitle}</p>
-              <p className="mt-1 text-xs text-amber-800">
-                {t.webhookWarning}
-                {webhookError ? ` (${webhookError})` : ""}
-              </p>
-            </div>
-          ) : null}
-        </div>
-      </section>
-    );
-  }
+  const feedback =
+    state === "success"
+      ? webhookSubscribed
+        ? t.successTitle
+        : `${t.webhookWarning}${webhookError ? ` (${webhookError})` : ""}`
+      : state === "error" && errorMsg
+        ? errorMsg
+        : null;
+  const feedbackTone =
+    state === "success" ? (webhookSubscribed ? "success" : "warn") : state === "error" ? "error" : null;
 
   return (
-    <section
-      dir={dir}
-      style={{ textAlign }}
-      className={embedded ? "mt-3" : "mx-auto w-full max-w-4xl px-4 sm:px-6 mb-4"}
-    >
-      <div
-        className={
-          reconnectMode
-            ? "rounded-2xl border border-amber-200 bg-amber-50/70 p-4"
-            : "rounded-2xl border border-[rgba(113,51,218,0.15)] bg-white/95 p-4"
-        }
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        className={compact ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-xs"}
+        disabled={busy}
+        onClick={handleConnectClick}
       >
-        <p className={`text-sm font-semibold ${reconnectMode ? "text-amber-950" : "text-zinc-900"}`}>
-          {reconnectMode ? t.reconnectTitle : t.title}
-        </p>
-        <p className={`mt-1 text-xs leading-5 ${reconnectMode ? "text-amber-900" : "text-zinc-500"}`}>
-          {reconnectMode ? t.reconnectDescription : t.description}
-        </p>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={handleConnectClick}
-          className="mt-3 w-full rounded-full border border-[rgba(113,51,218,0.25)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:cursor-wait disabled:opacity-70"
-          style={{ background: "linear-gradient(135deg,#7133da,#ff92ff)" }}
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+        {busy ? t.connecting : t.connectToMeta}
+      </Button>
+      {feedback ? (
+        <p
+          className={`max-w-[16rem] text-end text-[11px] leading-4 ${
+            feedbackTone === "success"
+              ? "text-emerald-700"
+              : feedbackTone === "warn"
+                ? "text-amber-800"
+                : "text-rose-700"
+          }`}
+          role={feedbackTone === "error" || feedbackTone === "warn" ? "alert" : "status"}
         >
-          {busy ? t.connecting : reconnectMode ? t.reconnect : t.connect}
-        </button>
-        {state === "error" && errorMsg ? (
-          <p className="mt-2 text-xs text-rose-700" role="alert">
-            {errorMsg}
-          </p>
-        ) : null}
-      </div>
-    </section>
+          {feedback}
+        </p>
+      ) : null}
+    </div>
   );
 }

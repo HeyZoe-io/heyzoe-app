@@ -821,16 +821,19 @@ function WhatsAppNumberSection({
             </span>
           )}
         </div>
-        <Button
-          type="button"
-          variant={zoeActivated ? "outline" : "default"}
-          className={compact ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-xs"}
-          disabled={zoeToggling}
-          onClick={() => void toggleZoeActivated()}
-        >
-          {zoeToggling ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-          {zoeActivated ? tp.deactivateZoeButton : tp.activateZoeButton}
-        </Button>
+        <div className="flex shrink-0 flex-wrap items-start gap-1.5">
+          <Button
+            type="button"
+            variant={zoeActivated ? "outline" : "default"}
+            className={compact ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-xs"}
+            disabled={zoeToggling}
+            onClick={() => void toggleZoeActivated()}
+          >
+            {zoeToggling ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+            {zoeActivated ? tp.deactivateZoeButton : tp.activateZoeButton}
+          </Button>
+          <ConnectWhatsAppSection slug={slug} lang={lang} compact={compact} />
+        </div>
       </div>
       {zoeToggleError ? (
         <div className="mt-1.5 text-[11px] text-rose-700 text-right">{zoeToggleError}</div>
@@ -3097,8 +3100,6 @@ export default function SlugSettingsPage({
           {busyError}
         </div>
       ) : null}
-
-      <ConnectWhatsAppSection slug={slug} lang={lang} embedded />
 
       <div
         className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}

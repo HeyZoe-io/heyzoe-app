@@ -481,7 +481,7 @@ export const dashboardSettingsI18n = {
       zoeActivateNoNumber: "אין מספר מחובר עדיין. חברו מספר WhatsApp לפני הפעלת זואי.",
       waConnected: "זואי מחוברת ועונה על המספר הזה. אפשר לשתף אותו עם הלקוחות שלך!",
       waDisconnected:
-        "החיבור ל‑WhatsApp נותק — לרוב אחרי החלפת מכשיר. חברו מחדש את אותו המספר למעלה.",
+        "החיבור ל‑WhatsApp נותק — לרוב אחרי החלפת מכשיר. לחצו על «חיבור למטא» ליד כיבוי זואי.",
       waPending:
         "המספר בתהליך אישור מול WhatsApp. זה עשוי לקחת עד 24 שעות - אין צורך בפעולה מצידך.",
       waUnverified: "המספר טרם אומת. אנא צור קשר עם התמיכה של HeyZoe לסיוע.",
@@ -979,7 +979,7 @@ export const dashboardSettingsI18n = {
       zoeActivateNoNumber: "No WhatsApp number connected yet. Connect a number before activating Zoe.",
       waConnected: "Zoe is connected and replies on this number. Share it with your customers!",
       waDisconnected:
-        "WhatsApp connection was lost — often after changing phones. Reconnect the same number above.",
+        "WhatsApp connection was lost — often after changing phones. Use “Connect to Meta” next to Turn Zoe off.",
       waPending:
         "Number pending WhatsApp approval. This may take up to 24 hours — no action needed.",
       waUnverified: "Number not verified yet. Contact HeyZoe support for help.",
