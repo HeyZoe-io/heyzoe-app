@@ -12,29 +12,22 @@ import {
 } from "@/lib/marketing-pipeline-status";
 import { canonicalMarketingSessionId } from "@/lib/marketing-whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 
-export function toPipelineDateOnly(value: unknown): string | null {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return null;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+export { toPipelineDateOnly } from "@/lib/marketing-next-call";
 
 export type MarketingLeadPipelinePatch = {
   human_followup?: boolean;
   status?: MarketingPipelineDropStatus;
   next_call_at?: string | null;
+  next_call_time?: string | null;
 };
 
 export type MarketingLeadPipelineResult = {
   phone: string;
   human_followup_at: string | null;
   next_call_at: string | null;
+  next_call_time: string | null;
   pipeline_status: MarketingPipelineDropStatus | null;
   lead_patch: Partial<LeadRow>;
 };
@@ -112,6 +105,7 @@ function leadPatchFromResult(
   status: MarketingPipelineDropStatus | null,
   humanFollowupAt: string | null,
   nextCallAt: string | null,
+  nextCallTime: string | null,
   atIso: string
 ): Partial<LeadRow> {
   const seed: LeadRow = {
@@ -125,6 +119,7 @@ function leadPatchFromResult(
     human_requested_at: null,
     human_followup_at: humanFollowupAt,
     next_call_at: nextCallAt,
+    next_call_time: nextCallTime,
     session_phase: null,
     trial_registered: false,
     wa_no_response_at: null,
@@ -138,6 +133,7 @@ function leadPatchFromResult(
     return {
       human_followup_at: humanFollowupAt,
       next_call_at: nextCallAt,
+      next_call_time: nextCallTime,
       pipeline_status: null,
     };
   }
@@ -148,6 +144,7 @@ function leadPatchFromResult(
     human_requested_at: applied.human_requested_at,
     human_followup_at: applied.human_followup_at,
     next_call_at: applied.next_call_at,
+    next_call_time: applied.next_call_time ?? nextCallTime,
     trial_registered: applied.trial_registered,
     session_phase: applied.session_phase,
     wa_no_response_at: applied.wa_no_response_at,
@@ -180,17 +177,61 @@ export async function updateMarketingLeadPipeline(
 
   const { data: existing, error: existingErr } = await admin
     .from("marketing_flow_sessions")
-    .select("phone, human_followup_at, next_call_at, pipeline_status")
+    .select("phone, human_followup_at, next_call_at, next_call_time, pipeline_status")
     .eq("phone", phone)
     .maybeSingle();
   if (existingErr) {
-    if (isMissingColumnError(String(existingErr.message ?? ""), "pipeline_status")) {
+    if (isMissingColumnError(String(existingErr.message ?? ""), "next_call_time")) {
       const fallback = await admin
         .from("marketing_flow_sessions")
-        .select("phone, human_followup_at, next_call_at")
+        .select("phone, human_followup_at, next_call_at, pipeline_status")
         .eq("phone", phone)
         .maybeSingle();
       if (fallback.error) {
+        if (isMissingColumnError(String(fallback.error.message ?? ""), "pipeline_status")) {
+          const legacy = await admin
+            .from("marketing_flow_sessions")
+            .select("phone, human_followup_at, next_call_at")
+            .eq("phone", phone)
+            .maybeSingle();
+          if (legacy.error) {
+            if (isMissingColumnError(String(legacy.error.message ?? ""), "human_followup_at|next_call_at")) {
+              console.error("[marketing-lead-pipeline] migration required:", legacy.error.message);
+              throw new Error("migration_required");
+            }
+            console.error("[marketing-lead-pipeline] session load failed:", legacy.error.message);
+            throw new Error("session_lookup_failed");
+          }
+          return applyPipelineUpdate(admin, phone, legacy.data, status, patch, false, false);
+        }
+        console.error("[marketing-lead-pipeline] session load failed:", fallback.error.message);
+        throw new Error("session_lookup_failed");
+      }
+      return applyPipelineUpdate(admin, phone, fallback.data, status, patch, true, false);
+    }
+    if (isMissingColumnError(String(existingErr.message ?? ""), "pipeline_status")) {
+      const fallback = await admin
+        .from("marketing_flow_sessions")
+        .select("phone, human_followup_at, next_call_at, next_call_time")
+        .eq("phone", phone)
+        .maybeSingle();
+      if (fallback.error) {
+        if (isMissingColumnError(String(fallback.error.message ?? ""), "next_call_time")) {
+          const legacy = await admin
+            .from("marketing_flow_sessions")
+            .select("phone, human_followup_at, next_call_at")
+            .eq("phone", phone)
+            .maybeSingle();
+          if (legacy.error) {
+            if (isMissingColumnError(String(legacy.error.message ?? ""), "human_followup_at|next_call_at")) {
+              console.error("[marketing-lead-pipeline] migration required:", legacy.error.message);
+              throw new Error("migration_required");
+            }
+            console.error("[marketing-lead-pipeline] session load failed:", legacy.error.message);
+            throw new Error("session_lookup_failed");
+          }
+          return applyPipelineUpdate(admin, phone, legacy.data, status, patch, false, false);
+        }
         if (isMissingColumnError(String(fallback.error.message ?? ""), "human_followup_at|next_call_at")) {
           console.error("[marketing-lead-pipeline] migration required:", fallback.error.message);
           throw new Error("migration_required");
@@ -198,7 +239,7 @@ export async function updateMarketingLeadPipeline(
         console.error("[marketing-lead-pipeline] session load failed:", fallback.error.message);
         throw new Error("session_lookup_failed");
       }
-      return applyPipelineUpdate(admin, phone, fallback.data, status, patch, false);
+      return applyPipelineUpdate(admin, phone, fallback.data, status, patch, false, true);
     }
     if (isMissingColumnError(String(existingErr.message ?? ""), "human_followup_at|next_call_at")) {
       console.error("[marketing-lead-pipeline] migration required:", existingErr.message);
@@ -208,7 +249,7 @@ export async function updateMarketingLeadPipeline(
     throw new Error("session_lookup_failed");
   }
 
-  return applyPipelineUpdate(admin, phone, existing, status, patch, true);
+  return applyPipelineUpdate(admin, phone, existing, status, patch, true, true);
 }
 
 async function applyPipelineUpdate(
@@ -217,11 +258,13 @@ async function applyPipelineUpdate(
   existing: {
     human_followup_at?: string | null;
     next_call_at?: string | null;
+    next_call_time?: string | null;
     pipeline_status?: string | null;
   } | null,
   status: MarketingPipelineDropStatus | null,
   patch: MarketingLeadPipelinePatch,
-  writePipelineStatus: boolean
+  writePipelineStatus: boolean,
+  writeNextCallTime: boolean
 ): Promise<MarketingLeadPipelineResult> {
   const nowIso = new Date().toISOString();
   if (
@@ -237,6 +280,11 @@ async function applyPipelineUpdate(
   const nextCallAt = isHuman
     ? toPipelineDateOnly(patch.next_call_at) ?? toPipelineDateOnly(existing?.next_call_at)
     : null;
+  const nextCallTime = isHuman
+    ? patch.next_call_time === undefined
+      ? toPipelineTime(existing?.next_call_time)
+      : toPipelineTime(patch.next_call_time)
+    : null;
   const humanFollowupAt = isHuman ? (existing?.human_followup_at as string | null) || nowIso : null;
 
   const update: Record<string, unknown> = {
@@ -245,6 +293,7 @@ async function applyPipelineUpdate(
     next_call_at: nextCallAt,
   };
   if (writePipelineStatus) update.pipeline_status = status;
+  if (writeNextCallTime) update.next_call_time = nextCallTime;
 
   const { data, error } = await admin
     .from("marketing_flow_sessions")
@@ -254,9 +303,13 @@ async function applyPipelineUpdate(
     .single();
 
   if (error) {
+    if (writeNextCallTime && /next_call_time|column/i.test(String(error.message ?? ""))) {
+      console.warn("[marketing-lead-pipeline] next_call_time missing — date only");
+      return applyPipelineUpdate(admin, phone, existing, status, patch, writePipelineStatus, false);
+    }
     if (writePipelineStatus && /pipeline_status|column/i.test(String(error.message ?? ""))) {
       console.warn("[marketing-lead-pipeline] pipeline_status missing — notes/human followup only");
-      return applyPipelineUpdate(admin, phone, existing, status, patch, false);
+      return applyPipelineUpdate(admin, phone, existing, status, patch, false, writeNextCallTime);
     }
     if (isMissingColumnError(String(error.message ?? ""), "human_followup_at|next_call_at")) {
       console.error("[marketing-lead-pipeline] migration required:", error.message);
@@ -275,13 +328,15 @@ async function applyPipelineUpdate(
 
   const resolvedHumanAt = (data.human_followup_at as string | null) ?? humanFollowupAt;
   const resolvedNextCall = toPipelineDateOnly(data.next_call_at) ?? nextCallAt;
+  const resolvedNextTime = writeNextCallTime ? nextCallTime : null;
 
   return {
     phone: String(data.phone ?? phone),
     human_followup_at: resolvedHumanAt,
     next_call_at: resolvedNextCall,
+    next_call_time: resolvedNextTime,
     pipeline_status: status,
-    lead_patch: leadPatchFromResult(status, resolvedHumanAt, resolvedNextCall, nowIso),
+    lead_patch: leadPatchFromResult(status, resolvedHumanAt, resolvedNextCall, resolvedNextTime, nowIso),
   };
 }
 

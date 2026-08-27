@@ -19,6 +19,13 @@ import {
   isMarketingPipelineDropTarget,
   type MarketingPipelineDropStatus,
 } from "@/lib/marketing-pipeline-status";
+import {
+  formatNextCallLabel,
+  isHumanCallOverdue,
+  israelNowHm,
+  nextCallSortMs,
+  toPipelineTime,
+} from "@/lib/marketing-next-call";
 import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersModal";
 
@@ -135,10 +142,7 @@ function pipelineHeaderClass(status: PipelineStatus): string {
 const ALWAYS_VISIBLE: PipelineStatus[] = [...MARKETING_PIPELINE_STATUS_ORDER];
 
 function nextCallMs(c: LeadRow): number {
-  const raw = String(c.next_call_at ?? "").trim();
-  if (!raw) return Number.POSITIVE_INFINITY;
-  const t = new Date(`${raw}T00:00:00`).getTime();
-  return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+  return nextCallSortMs(c.next_call_at, c.next_call_time);
 }
 
 function sortColumnLeads(status: PipelineStatus, rows: LeadRow[]): LeadRow[] {
@@ -167,7 +171,7 @@ function exportPipelineToExcel(rows: LeadRow[]): void {
         c.phone ?? "",
         pipelineLabel(leadStatus(c)),
         formatDateTime(leadConversationAt(c)),
-        c.next_call_at ?? "",
+        formatNextCallLabel(c.next_call_at, c.next_call_time),
       ]
         .map((v) => escapeCsvCell(v))
         .join(",")
@@ -223,6 +227,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   const router = useRouter();
   const todayInput = useMemo(() => toDateInputValue(new Date()), []);
   const todayYmd = useMemo(() => israelTodayYmd(), []);
+  const nowHm = useMemo(() => israelNowHm(), []);
   const [dateFrom, setDateFrom] = useState(() => defaultLast30DaysRange().from);
   const [dateTo, setDateTo] = useState(() => defaultLast30DaysRange().to);
   const [leads, setLeads] = useState(initialContacts);
@@ -233,7 +238,11 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   const [singleContact, setSingleContact] = useState<LeadRow | null>(null);
   const [singleMsg, setSingleMsg] = useState("");
   const [sending, setSending] = useState(false);
-  const [humanModal, setHumanModal] = useState<{ contact: LeadRow; nextCallAt: string } | null>(null);
+  const [humanModal, setHumanModal] = useState<{
+    contact: LeadRow;
+    nextCallAt: string;
+    nextCallTime: string;
+  } | null>(null);
   const [draggingPhone, setDraggingPhone] = useState<string | null>(null);
   const [draggingColumn, setDraggingColumn] = useState<PipelineStatus | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<PipelineStatus | null>(null);
@@ -320,15 +329,19 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   }, [grouped, columnOrder]);
 
   const overdueHuman = useMemo(() => {
-    return (grouped.get("human_followup") ?? []).filter((c) => {
-      const d = String(c.next_call_at ?? "").trim();
-      return d && d < todayYmd;
-    }).length;
-  }, [grouped, todayYmd]);
+    return (grouped.get("human_followup") ?? []).filter((c) =>
+      isHumanCallOverdue(c.next_call_at, c.next_call_time, todayYmd, nowHm)
+    ).length;
+  }, [grouped, todayYmd, nowHm]);
 
   async function savePipeline(
     phone: string,
-    patch: { human_followup?: boolean; status?: MarketingPipelineDropStatus; next_call_at?: string | null }
+    patch: {
+      human_followup?: boolean;
+      status?: MarketingPipelineDropStatus;
+      next_call_at?: string | null;
+      next_call_time?: string | null;
+    }
   ): Promise<boolean> {
     setBusyPhone(phone);
     try {
@@ -340,12 +353,14 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
           human_followup: patch.human_followup,
           status: patch.status,
           next_call_at: patch.next_call_at,
+          next_call_time: patch.next_call_time,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         human_followup_at?: string | null;
         next_call_at?: string | null;
+        next_call_time?: string | null;
         pipeline_status?: string | null;
         lead_patch?: Partial<LeadRow>;
       };
@@ -374,6 +389,10 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                 patch.status === "human_followup"
                   ? (j.next_call_at ?? patch.next_call_at ?? applied.next_call_at)
                   : null,
+              next_call_time:
+                patch.status === "human_followup"
+                  ? (j.next_call_time ?? toPipelineTime(patch.next_call_time) ?? applied.next_call_time ?? null)
+                  : null,
               pipeline_status: patch.status,
             };
           }
@@ -381,11 +400,16 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
             ...row,
             human_followup_at: j.human_followup_at ?? (patch.human_followup ? new Date().toISOString() : null),
             next_call_at: patch.human_followup ? (j.next_call_at ?? patch.next_call_at ?? null) : null,
+            next_call_time: patch.human_followup
+              ? (j.next_call_time ?? toPipelineTime(patch.next_call_time) ?? null)
+              : null,
             pipeline_status: patch.human_followup ? "human_followup" : null,
           };
         })
       );
-      if (patch.status) {
+      if (patch.next_call_time && !j.next_call_time) {
+        showToast("השעה לא נשמרה — הריצו supabase/marketing_flow_sessions_next_call_time.sql");
+      } else if (patch.status) {
         showToast(`הועבר ל«${pipelineLabel(patch.status)}»`);
       } else {
         showToast(patch.human_followup ? "הועבר לפולואפ אנושי" : "הוסר מפולואפ אנושי");
@@ -404,6 +428,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
     if (leadStatus(current) === status) return;
     const snapshot = leads;
     const nextCallAt = status === "human_followup" ? current.next_call_at || tomorrowYmd() : null;
+    const nextCallTime = status === "human_followup" ? toPipelineTime(current.next_call_time) : null;
     setLeads((prev) =>
       prev.map((row) => {
         if (row.phone !== phone) return row;
@@ -411,11 +436,12 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
         return {
           ...applied,
           next_call_at: status === "human_followup" ? nextCallAt : null,
+          next_call_time: status === "human_followup" ? nextCallTime : null,
           pipeline_status: status,
         };
       })
     );
-    const ok = await savePipeline(phone, { status, next_call_at: nextCallAt });
+    const ok = await savePipeline(phone, { status, next_call_at: nextCallAt, next_call_time: nextCallTime });
     if (!ok) setLeads(snapshot);
   }
 
@@ -424,6 +450,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
     setHumanModal({
       contact: c,
       nextCallAt: c.next_call_at || tomorrowYmd(),
+      nextCallTime: toPipelineTime(c.next_call_time) ?? "",
     });
   }
 
@@ -597,7 +624,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                   <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold">{columnLeads.length}</span>
                 </div>
                 {status === "human_followup" ? (
-                  <p className="mt-1 text-[11px] opacity-80">תאריך לשיחה הבאה · ממוין לפי הדחוף ביותר</p>
+                  <p className="mt-1 text-[11px] opacity-80">תאריך ושעה לשיחה הבאה · ממוין לפי הדחוף ביותר</p>
                 ) : (
                   <p className="mt-1 text-[11px] opacity-80">גררו ליד לכאן</p>
                 )}
@@ -607,7 +634,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                   <p className="px-2 py-8 text-center text-xs text-zinc-400">גררו ליד לכאן</p>
                 ) : (
                   columnLeads.map((c) => {
-                    const overdue = Boolean(c.next_call_at && c.next_call_at < todayYmd);
+                    const overdue = isHumanCallOverdue(c.next_call_at, c.next_call_time, todayYmd, nowHm);
                     const busy = busyPhone === c.phone;
                     return (
                       <article
@@ -655,21 +682,45 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                         <p className="mt-1 text-[11px] text-zinc-500">שיחה אחרונה: {formatDateTime(leadConversationAt(c))}</p>
 
                         {status === "human_followup" ? (
-                          <label className="mt-2 flex flex-col gap-1">
+                          <div className="mt-2 space-y-1.5">
                             <span className={`text-[11px] ${overdue ? "font-semibold text-red-700" : "text-zinc-500"}`}>
                               {overdue ? "שיחה באיחור" : "שיחה הבאה"}
                             </span>
-                            <input
-                              type="date"
-                              value={c.next_call_at ?? ""}
-                              disabled={busy || !c.phone}
-                              onChange={(e) => {
-                                if (!c.phone) return;
-                                void savePipeline(c.phone, { human_followup: true, status: "human_followup", next_call_at: e.target.value || null });
-                              }}
-                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs"
-                            />
-                          </label>
+                            <div className="grid grid-cols-2 gap-1">
+                              <input
+                                type="date"
+                                value={c.next_call_at ?? ""}
+                                disabled={busy || !c.phone}
+                                aria-label="תאריך שיחה הבאה"
+                                onChange={(e) => {
+                                  if (!c.phone) return;
+                                  void savePipeline(c.phone, {
+                                    human_followup: true,
+                                    status: "human_followup",
+                                    next_call_at: e.target.value || null,
+                                    next_call_time: toPipelineTime(c.next_call_time),
+                                  });
+                                }}
+                                className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs"
+                              />
+                              <input
+                                type="time"
+                                value={toPipelineTime(c.next_call_time) ?? ""}
+                                disabled={busy || !c.phone}
+                                aria-label="שעת שיחה הבאה"
+                                onChange={(e) => {
+                                  if (!c.phone) return;
+                                  void savePipeline(c.phone, {
+                                    human_followup: true,
+                                    status: "human_followup",
+                                    next_call_at: c.next_call_at || todayYmd,
+                                    next_call_time: e.target.value || null,
+                                  });
+                                }}
+                                className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs"
+                              />
+                            </div>
+                          </div>
                         ) : null}
 
                         <div className="mt-2 flex flex-wrap justify-end gap-1">
@@ -748,15 +799,26 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
               </span>{" "}
               לפולואפ אנושי? זואי תפסיק פולואפים אוטומטיים לליד הזה.
             </p>
-            <label className="flex flex-col gap-1 text-right">
-              <span className="text-xs text-zinc-500">תאריך לשיחה הבאה (אופציונלי)</span>
-              <input
-                type="date"
-                value={humanModal.nextCallAt}
-                onChange={(e) => setHumanModal({ ...humanModal, nextCallAt: e.target.value })}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
-              />
-            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-right">
+                <span className="text-xs text-zinc-500">תאריך לשיחה הבאה</span>
+                <input
+                  type="date"
+                  value={humanModal.nextCallAt}
+                  onChange={(e) => setHumanModal({ ...humanModal, nextCallAt: e.target.value })}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-right">
+                <span className="text-xs text-zinc-500">שעה</span>
+                <input
+                  type="time"
+                  value={humanModal.nextCallTime}
+                  onChange={(e) => setHumanModal({ ...humanModal, nextCallTime: e.target.value })}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setHumanModal(null)}>
                 ביטול
@@ -771,6 +833,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                     human_followup: true,
                     status: "human_followup",
                     next_call_at: humanModal.nextCallAt || null,
+                    next_call_time: humanModal.nextCallTime || null,
                   });
                   setHumanModal(null);
                 }}

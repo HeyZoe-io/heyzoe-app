@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     human_followup?: boolean;
     status?: string;
     next_call_at?: string | null;
+    next_call_time?: string | null;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       status,
       human_followup: body.human_followup,
       next_call_at: body.next_call_at,
+      next_call_time: body.next_call_time,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {

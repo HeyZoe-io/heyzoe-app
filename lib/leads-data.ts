@@ -8,6 +8,7 @@ import { leadConversationAt, sortLeadsByRecentActivity } from "@/lib/lead-activi
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
 import { applyMarketingLeadStatusHints } from "@/lib/marketing-pipeline-status";
+import { toPipelineTime } from "@/lib/marketing-next-call";
 
 export { leadConversationAt } from "@/lib/lead-activity";
 
@@ -237,6 +238,7 @@ export function mapMarketingFlowSessionToLeadRow(
     human_requested_at: null,
     human_followup_at: (s.human_followup_at as string | null) ?? null,
     next_call_at: toDateOnly(s.next_call_at),
+    next_call_time: toPipelineTime(s.next_call_time),
     session_phase: deriveMarketingSessionPhase(
       {
         flow_completed: s.flow_completed as boolean | null,
@@ -317,6 +319,12 @@ async function loadMarketingNoteStatusByPhone(
 export async function loadMarketingAdminLeads(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<LeadRow[]> {
+  const marketingSelectWithCallTime = `
+        phone, full_name, created_at, updated_at, last_user_message_at,
+        flow_completed, current_node_id,
+        followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at,
+        human_followup_at, next_call_at, next_call_time, pipeline_status
+      `;
   const marketingSelectWithPipeline = `
         phone, full_name, created_at, updated_at, last_user_message_at,
         flow_completed, current_node_id,
@@ -338,7 +346,7 @@ export async function loadMarketingAdminLeads(
   const [{ data: sessions, error }, registeredKeys, notesByPhone] = await Promise.all([
     admin
       .from("marketing_flow_sessions")
-      .select(marketingSelectWithPipeline)
+      .select(marketingSelectWithCallTime)
       .order("last_user_message_at", { ascending: false, nullsFirst: false })
       .order("updated_at", { ascending: false })
       .limit(ADMIN_LEADS_LIMIT),
@@ -348,7 +356,36 @@ export async function loadMarketingAdminLeads(
 
   let sessionRows: Record<string, unknown>[] | null = (sessions ?? null) as Record<string, unknown>[] | null;
   if (error) {
-    if (/pipeline_status|column/i.test(String(error.message ?? ""))) {
+    if (/next_call_time/i.test(String(error.message ?? ""))) {
+      console.warn("[leads-data] marketing next_call_time missing — fallback select");
+      const fallback = await admin
+        .from("marketing_flow_sessions")
+        .select(marketingSelectWithPipeline)
+        .order("last_user_message_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
+        .limit(ADMIN_LEADS_LIMIT);
+      if (fallback.error) {
+        if (/pipeline_status|column/i.test(String(fallback.error.message ?? ""))) {
+          console.warn("[leads-data] marketing pipeline_status missing — fallback select");
+          const human = await admin
+            .from("marketing_flow_sessions")
+            .select(marketingSelectLegacyHuman)
+            .order("last_user_message_at", { ascending: false, nullsFirst: false })
+            .order("updated_at", { ascending: false })
+            .limit(ADMIN_LEADS_LIMIT);
+          if (human.error) {
+            console.warn("[leads-data] marketing_flow_sessions load:", human.error.message);
+            return [];
+          }
+          sessionRows = (human.data ?? []) as Record<string, unknown>[];
+        } else {
+          console.warn("[leads-data] marketing_flow_sessions load:", fallback.error.message);
+          return [];
+        }
+      } else {
+        sessionRows = (fallback.data ?? []) as Record<string, unknown>[];
+      }
+    } else if (/pipeline_status|column/i.test(String(error.message ?? ""))) {
       console.warn("[leads-data] marketing pipeline_status missing — fallback select");
       const fallback = await admin
         .from("marketing_flow_sessions")

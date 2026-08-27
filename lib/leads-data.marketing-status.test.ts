@@ -59,4 +59,11 @@ const draggedActive = mapMarketingFlowSessionToLeadRow(
 );
 assert.equal(draggedActive.pipeline_status, "active");
 
+const withCallTime = mapMarketingFlowSessionToLeadRow(
+  { ...session, human_followup_at: nowIso, next_call_at: "2026-08-28", next_call_time: "14:30:00" },
+  false
+);
+assert.equal(withCallTime.next_call_at, "2026-08-28");
+assert.equal(withCallTime.next_call_time, "14:30");
+
 console.log("leads-data.marketing-status.test.ts: ok");

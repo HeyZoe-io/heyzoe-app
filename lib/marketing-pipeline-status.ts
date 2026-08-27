@@ -110,6 +110,7 @@ export function applyManualPipelineStatus(
         session_phase: "registered",
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     case "registered_human_requested":
       return {
@@ -119,6 +120,7 @@ export function applyManualPipelineStatus(
         human_requested_at: at,
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     case "not_relevant":
       return {
@@ -126,6 +128,7 @@ export function applyManualPipelineStatus(
         not_relevant_at: at,
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     case "no_response":
       return {
@@ -133,6 +136,7 @@ export function applyManualPipelineStatus(
         wa_no_response_at: at,
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     case "human_requested":
       return {
@@ -140,6 +144,7 @@ export function applyManualPipelineStatus(
         human_requested_at: at,
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     case "opted_out":
       return {
@@ -147,12 +152,14 @@ export function applyManualPipelineStatus(
         opted_out: true,
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     case "human_followup":
       return {
         ...cleared,
         human_followup_at: row.human_followup_at || at,
         next_call_at: row.next_call_at,
+        next_call_time: row.next_call_time ?? null,
       };
     case "active":
     case "followup":
@@ -162,6 +169,7 @@ export function applyManualPipelineStatus(
         ...cleared,
         human_followup_at: null,
         next_call_at: null,
+        next_call_time: null,
       };
     default:
       return { ...cleared, pipeline_status: status };

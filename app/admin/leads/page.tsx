@@ -42,7 +42,7 @@ export default async function AdminLeadsPage() {
           <div style={{ textAlign: "right" }}>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 400, color: "#1a0a3c" }}>לידים</h1>
             <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6b5b9a" }}>
-              פייפליין לידים מקו זואי אדמין — גררו כרטיסים לשינוי סטטוס, וגררו עמודות לסידור הדשבורד
+              פייפליין לידים מקו זואי אדמין — גררו כרטיסים לשינוי סטטוס, קבעו תאריך ושעה לפולואפ אנושי
             </p>
           </div>
           <AdminNav active="leads" />
