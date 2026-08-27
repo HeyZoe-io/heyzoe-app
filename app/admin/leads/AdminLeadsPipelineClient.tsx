@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   computeContactStatus,
@@ -12,6 +13,12 @@ import {
 } from "@/lib/contact-status";
 import { leadConversationAt } from "@/lib/lead-activity";
 import type { LeadRow } from "@/lib/leads-types";
+import {
+  applyManualPipelineStatus,
+  isMarketingPipelineDropStatus,
+  isMarketingPipelineDropTarget,
+  type MarketingPipelineDropStatus,
+} from "@/lib/marketing-pipeline-status";
 import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersModal";
 
@@ -81,7 +88,38 @@ function matchesConversationDateRange(contactAt: string | null, from: string, to
 }
 
 function leadStatus(c: LeadRow): PipelineStatus {
+  if (isMarketingPipelineDropStatus(c.pipeline_status)) return c.pipeline_status;
   return computeContactStatus(c) ?? "none";
+}
+
+const COLUMN_ORDER_KEY = "heyzoe.admin.leads.columnOrder";
+const LEAD_DRAG_MIME = "application/x-heyzoe-lead";
+const COLUMN_DRAG_MIME = "application/x-heyzoe-column";
+
+function sanitizeColumnOrder(raw: unknown): PipelineStatus[] {
+  const allowed = new Set<string>(MARKETING_PIPELINE_STATUS_ORDER);
+  const seen = new Set<string>();
+  const order: PipelineStatus[] = [];
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item !== "string" || !allowed.has(item) || seen.has(item)) continue;
+      order.push(item as PipelineStatus);
+      seen.add(item);
+    }
+  }
+  for (const status of MARKETING_PIPELINE_STATUS_ORDER) {
+    if (!seen.has(status)) order.push(status);
+  }
+  return order;
+}
+
+function loadColumnOrder(): PipelineStatus[] {
+  if (typeof window === "undefined") return [...MARKETING_PIPELINE_STATUS_ORDER];
+  try {
+    return sanitizeColumnOrder(JSON.parse(localStorage.getItem(COLUMN_ORDER_KEY) || "null"));
+  } catch {
+    return [...MARKETING_PIPELINE_STATUS_ORDER];
+  }
 }
 
 function pipelineLabel(status: PipelineStatus): string {
@@ -94,14 +132,7 @@ function pipelineHeaderClass(status: PipelineStatus): string {
   return CONTACT_STATUS_META[status].badgeClass;
 }
 
-const ALWAYS_VISIBLE: PipelineStatus[] = [
-  "template",
-  "active",
-  "followup",
-  "human_followup",
-  "no_response",
-  "registered",
-];
+const ALWAYS_VISIBLE: PipelineStatus[] = [...MARKETING_PIPELINE_STATUS_ORDER];
 
 function nextCallMs(c: LeadRow): number {
   const raw = String(c.next_call_at ?? "").trim();
@@ -203,10 +234,55 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   const [singleMsg, setSingleMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [humanModal, setHumanModal] = useState<{ contact: LeadRow; nextCallAt: string } | null>(null);
+  const [draggingPhone, setDraggingPhone] = useState<string | null>(null);
+  const [draggingColumn, setDraggingColumn] = useState<PipelineStatus | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<PipelineStatus | null>(null);
+  const [columnOrder, setColumnOrder] = useState<PipelineStatus[]>(() => [...MARKETING_PIPELINE_STATUS_ORDER]);
+  const draggingPhoneRef = useRef<string | null>(null);
+  const draggingColumnRef = useRef<PipelineStatus | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setLeads(initialContacts);
   }, [initialContacts]);
+
+  useEffect(() => {
+    setColumnOrder(loadColumnOrder());
+  }, []);
+
+  useEffect(() => {
+    if (!draggingPhone && !draggingColumn) return;
+    const board = boardRef.current;
+    if (!board) return;
+    const onMove = (e: DragEvent) => {
+      const rect = board.getBoundingClientRect();
+      const edge = 56;
+      if (e.clientX < rect.left + edge) board.scrollLeft -= 22;
+      else if (e.clientX > rect.right - edge) board.scrollLeft += 22;
+    };
+    window.addEventListener("dragover", onMove);
+    return () => window.removeEventListener("dragover", onMove);
+  }, [draggingPhone, draggingColumn]);
+
+  function persistColumnOrder(next: PipelineStatus[]) {
+    setColumnOrder(next);
+    try {
+      localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota */
+    }
+  }
+
+  function reorderColumns(from: PipelineStatus, to: PipelineStatus) {
+    if (from === to) return;
+    const next = [...columnOrder];
+    const fromIdx = next.indexOf(from);
+    const toIdx = next.indexOf(to);
+    if (fromIdx < 0 || toIdx < 0) return;
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, from);
+    persistColumnOrder(next);
+  }
 
   function showToast(text: string) {
     setToast(text);
@@ -215,7 +291,8 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
 
   const filteredLeads = useMemo(() => {
     return leads.filter((c) => {
-      if (c.human_followup_at) return true;
+      const status = leadStatus(c);
+      if (status === "human_followup" || isMarketingPipelineDropStatus(c.pipeline_status)) return true;
       return matchesConversationDateRange(leadConversationAt(c), dateFrom, dateTo);
     });
   }, [leads, dateFrom, dateTo]);
@@ -236,11 +313,11 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   }, [filteredLeads]);
 
   const visibleColumns = useMemo(() => {
-    return MARKETING_PIPELINE_STATUS_ORDER.filter((status) => {
+    return columnOrder.filter((status) => {
       if (ALWAYS_VISIBLE.includes(status)) return true;
       return (grouped.get(status) ?? []).length > 0;
     });
-  }, [grouped]);
+  }, [grouped, columnOrder]);
 
   const overdueHuman = useMemo(() => {
     return (grouped.get("human_followup") ?? []).filter((c) => {
@@ -249,7 +326,10 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
     }).length;
   }, [grouped, todayYmd]);
 
-  async function savePipeline(phone: string, humanFollowup: boolean, nextCallAt: string | null) {
+  async function savePipeline(
+    phone: string,
+    patch: { human_followup?: boolean; status?: MarketingPipelineDropStatus; next_call_at?: string | null }
+  ): Promise<boolean> {
     setBusyPhone(phone);
     try {
       const res = await fetch("/api/admin/marketing/lead-pipeline", {
@@ -257,45 +337,86 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone,
-          human_followup: humanFollowup,
-          next_call_at: nextCallAt,
+          human_followup: patch.human_followup,
+          status: patch.status,
+          next_call_at: patch.next_call_at,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         human_followup_at?: string | null;
         next_call_at?: string | null;
+        pipeline_status?: string | null;
+        lead_patch?: Partial<LeadRow>;
       };
       if (!res.ok) {
         if (j.error === "migration_required") {
-          showToast("חסרה עמודת DB — הריצו supabase/marketing_flow_sessions_human_followup.sql");
-          return;
+          showToast("חסרה עמודת DB — הריצו supabase/marketing_flow_sessions_pipeline_status.sql");
+          return false;
         }
         if (j.error === "lead_not_found") {
           showToast("לא נמצא ליד עם המספר הזה");
-          return;
+          return false;
         }
         showToast("עדכון נכשל. נסו שוב.");
-        return;
+        return false;
       }
       setLeads((prev) =>
-        prev.map((row) =>
-          row.phone === phone
-            ? {
-                ...row,
-                human_followup_at: j.human_followup_at ?? (humanFollowup ? new Date().toISOString() : null),
-                next_call_at: humanFollowup ? (j.next_call_at ?? nextCallAt) : null,
-              }
-            : row
-        )
+        prev.map((row) => {
+          if (row.phone !== phone) return row;
+          const withPatch = { ...row, ...(j.lead_patch ?? {}) };
+          if (patch.status) {
+            const applied = applyManualPipelineStatus(withPatch, patch.status, new Date().toISOString());
+            return {
+              ...applied,
+              human_followup_at: j.human_followup_at ?? applied.human_followup_at,
+              next_call_at:
+                patch.status === "human_followup"
+                  ? (j.next_call_at ?? patch.next_call_at ?? applied.next_call_at)
+                  : null,
+              pipeline_status: patch.status,
+            };
+          }
+          return {
+            ...row,
+            human_followup_at: j.human_followup_at ?? (patch.human_followup ? new Date().toISOString() : null),
+            next_call_at: patch.human_followup ? (j.next_call_at ?? patch.next_call_at ?? null) : null,
+            pipeline_status: patch.human_followup ? "human_followup" : null,
+          };
+        })
       );
-      showToast(humanFollowup ? "הועבר לפולואפ אנושי" : "הוסר מפולואפ אנושי");
+      if (patch.status) {
+        showToast(`הועבר ל«${pipelineLabel(patch.status)}»`);
+      } else {
+        showToast(patch.human_followup ? "הועבר לפולואפ אנושי" : "הוסר מפולואפ אנושי");
+      }
+      return true;
     } catch (e) {
       console.error("[admin/leads] pipeline update failed:", e);
       showToast("עדכון נכשל. נסו שוב.");
+      return false;
     } finally {
       setBusyPhone(null);
     }
+  }
+
+  async function moveLeadToStatus(phone: string, status: MarketingPipelineDropStatus, current: LeadRow) {
+    if (leadStatus(current) === status) return;
+    const snapshot = leads;
+    const nextCallAt = status === "human_followup" ? current.next_call_at || tomorrowYmd() : null;
+    setLeads((prev) =>
+      prev.map((row) => {
+        if (row.phone !== phone) return row;
+        const applied = applyManualPipelineStatus(row, status, new Date().toISOString());
+        return {
+          ...applied,
+          next_call_at: status === "human_followup" ? nextCallAt : null,
+          pipeline_status: status,
+        };
+      })
+    );
+    const ok = await savePipeline(phone, { status, next_call_at: nextCallAt });
+    if (!ok) setLeads(snapshot);
   }
 
   function openHumanModal(c: LeadRow) {
@@ -369,7 +490,9 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
               <span className="mr-2 font-medium text-red-700">· {overdueHuman} שיחות באיחור</span>
             ) : null}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">לידים בפולואפ אנושי מוצגים תמיד, גם מחוץ לטווח התאריכים</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            גררו כרטיס ליד לכל עמודה כדי לעדכן סטטוס (בלי לשלוח הודעה). גררו כותרת עמודה כדי לשנות את סדר הדשבורד.
+          </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-right">
@@ -399,26 +522,89 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
         </div>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-3 [scrollbar-width:thin]">
+      <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-3 [scrollbar-width:thin]">
         {visibleColumns.map((status) => {
           const columnLeads = grouped.get(status) ?? [];
+          const droppable = isMarketingPipelineDropTarget(status);
+          const isOver = droppable && dragOverStatus === status;
           return (
             <section
               key={status}
-              className="flex w-[min(100%,280px)] shrink-0 flex-col rounded-2xl border border-zinc-200 bg-white/90 shadow-[0_10px_24px_rgba(117,90,180,0.08)]"
+              onDragOver={(e) => {
+                if (!droppable) return;
+                const types = Array.from(e.dataTransfer.types);
+                const isLead = Boolean(draggingPhoneRef.current) || types.includes(LEAD_DRAG_MIME);
+                const isCol = Boolean(draggingColumnRef.current) || types.includes(COLUMN_DRAG_MIME);
+                const hasText = types.includes("text/plain") || types.includes("Text");
+                if (!isLead && !isCol && !hasText) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragOverStatus !== status) setDragOverStatus(status);
+              }}
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                if (dragOverStatus === status) setDragOverStatus(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverStatus(null);
+                const rawColumn = e.dataTransfer.getData(COLUMN_DRAG_MIME) || draggingColumnRef.current || "";
+                const columnFromText = e.dataTransfer.getData("text/plain").trim();
+                const droppedColumn = (
+                  rawColumn || (columnFromText.startsWith("column:") ? columnFromText.slice("column:".length) : "")
+                ) as PipelineStatus;
+                const phone =
+                  e.dataTransfer.getData(LEAD_DRAG_MIME).trim() ||
+                  (columnFromText.startsWith("column:") ? "" : columnFromText) ||
+                  draggingPhoneRef.current;
+                draggingPhoneRef.current = null;
+                draggingColumnRef.current = null;
+                setDraggingPhone(null);
+                setDraggingColumn(null);
+                if (droppedColumn && MARKETING_PIPELINE_STATUS_ORDER.includes(droppedColumn)) {
+                  reorderColumns(droppedColumn, status);
+                  return;
+                }
+                if (!phone || !isMarketingPipelineDropTarget(status)) return;
+                const current = leads.find((row) => row.phone === phone);
+                if (!current) return;
+                void moveLeadToStatus(phone, status, current);
+              }}
+              className={`flex w-[min(100%,280px)] shrink-0 flex-col rounded-2xl border bg-white/90 shadow-[0_10px_24px_rgba(117,90,180,0.08)] ${
+                isOver ? "border-[#7133da] ring-2 ring-[#7133da]/30" : "border-zinc-200"
+              } ${draggingColumn === status ? "opacity-60" : ""}`}
             >
-              <header className={`rounded-t-2xl border-b px-3 py-3 ${pipelineHeaderClass(status)}`}>
+              <header
+                draggable
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.setData(COLUMN_DRAG_MIME, status);
+                  e.dataTransfer.setData("text/plain", `column:${status}`);
+                  e.dataTransfer.effectAllowed = "move";
+                  draggingColumnRef.current = status;
+                  requestAnimationFrame(() => setDraggingColumn(status));
+                }}
+                onDragEnd={() => {
+                  draggingColumnRef.current = null;
+                  setDraggingColumn(null);
+                  setDragOverStatus(null);
+                }}
+                className={`cursor-grab rounded-t-2xl border-b px-3 py-3 active:cursor-grabbing ${pipelineHeaderClass(status)}`}
+                title="גררו כדי לשנות סדר עמודות"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="text-sm font-semibold">{pipelineLabel(status)}</h2>
                   <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold">{columnLeads.length}</span>
                 </div>
                 {status === "human_followup" ? (
                   <p className="mt-1 text-[11px] opacity-80">תאריך לשיחה הבאה · ממוין לפי הדחוף ביותר</p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-[11px] opacity-80">גררו ליד לכאן</p>
+                )}
               </header>
-              <div className="max-h-[min(70vh,720px)] space-y-2 overflow-y-auto p-2">
+              <div className="max-h-[min(70vh,720px)] min-h-[140px] space-y-2 overflow-y-auto p-2">
                 {columnLeads.length === 0 ? (
-                  <p className="px-2 py-8 text-center text-xs text-zinc-400">אין לידים</p>
+                  <p className="px-2 py-8 text-center text-xs text-zinc-400">גררו ליד לכאן</p>
                 ) : (
                   columnLeads.map((c) => {
                     const overdue = Boolean(c.next_call_at && c.next_call_at < todayYmd);
@@ -426,11 +612,38 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                     return (
                       <article
                         key={c.phone ?? c.created_at}
+                        draggable={Boolean(c.phone) && !busy}
+                        onDragStart={(e) => {
+                          if (!c.phone) return;
+                          e.stopPropagation();
+                          const target = e.target as HTMLElement | null;
+                          if (target?.closest("button, input, textarea, a, label")) {
+                            e.preventDefault();
+                            return;
+                          }
+                          e.dataTransfer.setData(LEAD_DRAG_MIME, c.phone);
+                          e.dataTransfer.setData("text/plain", c.phone);
+                          e.dataTransfer.effectAllowed = "move";
+                          draggingPhoneRef.current = c.phone;
+                          requestAnimationFrame(() => setDraggingPhone(c.phone));
+                        }}
+                        onDragEnd={() => {
+                          draggingPhoneRef.current = null;
+                          setDraggingPhone(null);
+                          setDragOverStatus(null);
+                        }}
                         className={`rounded-xl border bg-white p-3 text-right shadow-sm ${
                           overdue ? "border-red-300 bg-red-50/40" : "border-zinc-200"
+                        } ${c.phone && !busy ? "cursor-grab active:cursor-grabbing" : ""} ${
+                          draggingPhone === c.phone ? "opacity-50" : ""
                         }`}
                       >
-                        <p className="text-sm font-semibold text-zinc-900">{c.full_name?.trim() || "ליד"}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-semibold text-zinc-900">{c.full_name?.trim() || "ליד"}</p>
+                          {c.phone && !busy ? (
+                            <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-zinc-300" aria-hidden />
+                          ) : null}
+                        </div>
                         <button
                           type="button"
                           className="mt-0.5 text-xs text-[#7133da] underline underline-offset-2"
@@ -452,7 +665,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                               disabled={busy || !c.phone}
                               onChange={(e) => {
                                 if (!c.phone) return;
-                                void savePipeline(c.phone, true, e.target.value || null);
+                                void savePipeline(c.phone, { human_followup: true, status: "human_followup", next_call_at: e.target.value || null });
                               }}
                               className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs"
                             />
@@ -492,7 +705,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                             variant="outline"
                             className="mt-2 h-8 w-full text-xs"
                             disabled={busy || !c.phone}
-                            onClick={() => c.phone && void savePipeline(c.phone, false, null)}
+                            onClick={() => c.phone && void savePipeline(c.phone, { human_followup: false })}
                           >
                             {busy ? "מעדכן…" : "הסר מפולואפ אנושי"}
                           </Button>
@@ -554,7 +767,11 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                 onClick={async () => {
                   const phone = humanModal.contact.phone;
                   if (!phone) return;
-                  await savePipeline(phone, true, humanModal.nextCallAt || null);
+                  await savePipeline(phone, {
+                    human_followup: true,
+                    status: "human_followup",
+                    next_call_at: humanModal.nextCallAt || null,
+                  });
                   setHumanModal(null);
                 }}
               >

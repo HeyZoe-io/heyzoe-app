@@ -18,4 +18,6 @@ export type LeadRow = {
   cta_clicked_at: string | null;
   business_slug?: string | null;
   business_name?: string | null;
+  /** סטטוס ידני בפייפליין אדמין — גובר על החישוב האוטומטי בתצוגה */
+  pipeline_status?: string | null;
 };

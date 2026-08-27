@@ -7,6 +7,7 @@ import {
 import { leadConversationAt, sortLeadsByRecentActivity } from "@/lib/lead-activity";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
+import { applyMarketingLeadStatusHints } from "@/lib/marketing-pipeline-status";
 
 export { leadConversationAt } from "@/lib/lead-activity";
 
@@ -66,8 +67,6 @@ const LEAD_CONTACT_SELECT_BASE =
   "phone, full_name, source, created_at, opted_out, not_relevant_at, not_relevant_reason, session_phase, trial_registered, wa_no_response_at, no_response_notified_at, wa_followup_stage, last_contact_at";
 
 function mapContactRow(row: Record<string, unknown>, extras?: Partial<LeadRow>): LeadRow {
-  const phone = String(row.phone ?? "").trim();
-  const key = phoneKey(phone);
   return {
     phone: row.phone as string | null,
     full_name: row.full_name as string | null,
@@ -198,6 +197,71 @@ function deriveMarketingSessionPhase(
   return null;
 }
 
+/**
+ * `followup_opted_out` עוצר פולואפים אוטומטיים (נרשם / ביקש נציג / לא רלוונטי).
+ * זה לא הסרה מוואטסאפ — עמודת «הסר» בפייפליין היא רק `opted_out`.
+ */
+export function mapMarketingFlowSessionToLeadRow(
+  s: Record<string, unknown>,
+  registeredOrHints: boolean | {
+    registeredFromMessage?: boolean;
+    noteStatus?: string | null;
+    noteUpdatedAt?: string | null;
+    pipelineStatus?: string | null;
+  } = false
+): LeadRow {
+  const hints =
+    typeof registeredOrHints === "boolean"
+      ? { registeredFromMessage: registeredOrHints }
+      : registeredOrHints;
+  const registered = Boolean(hints.registeredFromMessage);
+  const phone = String(s.phone ?? "").trim();
+  const waStage = deriveMarketingWaFollowupStage({
+    followup_1_sent_at: s.followup_1_sent_at as string | null,
+    followup_2_sent_at: s.followup_2_sent_at as string | null,
+    followup_3_sent_at: s.followup_3_sent_at as string | null,
+  });
+  const lastContact =
+    (s.last_user_message_at as string | null) ??
+    (s.updated_at as string | null) ??
+    (s.created_at as string | null);
+
+  const row: LeadRow = {
+    phone: phone || null,
+    full_name: (s.full_name as string | null) ?? null,
+    source: "זואי אדמין",
+    created_at: s.created_at as string | null,
+    opted_out: false,
+    not_relevant_at: null,
+    not_relevant_reason: null,
+    human_requested_at: null,
+    human_followup_at: (s.human_followup_at as string | null) ?? null,
+    next_call_at: toDateOnly(s.next_call_at),
+    session_phase: deriveMarketingSessionPhase(
+      {
+        flow_completed: s.flow_completed as boolean | null,
+        current_node_id: s.current_node_id as string | null,
+      },
+      registered
+    ),
+    trial_registered: registered,
+    wa_no_response_at: null,
+    no_response_notified_at: null,
+    wa_followup_stage: waStage,
+    last_contact_at: lastContact,
+    cta_clicked_at: null,
+    business_slug: MARKETING_CONVERSATIONS_SLUG,
+    business_name: "זואי אדמין",
+    pipeline_status: typeof s.pipeline_status === "string" ? s.pipeline_status : null,
+  };
+  return applyMarketingLeadStatusHints(row, {
+    registeredFromMessage: registered,
+    noteStatus: hints.noteStatus,
+    noteUpdatedAt: hints.noteUpdatedAt,
+    pipelineStatus: hints.pipelineStatus ?? (typeof s.pipeline_status === "string" ? s.pipeline_status : null),
+  });
+}
+
 async function loadMarketingRegisteredPhoneKeys(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<Set<string>> {
@@ -225,11 +289,41 @@ async function loadMarketingRegisteredPhoneKeys(
   return keys;
 }
 
+async function loadMarketingNoteStatusByPhone(
+  admin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<Map<string, { status: string; updatedAt: string | null }>> {
+  const { data, error } = await admin
+    .from("marketing_conversation_notes")
+    .select("phone, status, updated_at")
+    .limit(ADMIN_LEADS_LIMIT);
+  const map = new Map<string, { status: string; updatedAt: string | null }>();
+  if (error) {
+    console.warn("[leads-data] marketing_conversation_notes load:", error.message);
+    return map;
+  }
+  for (const row of data ?? []) {
+    const raw = row as { phone?: string; status?: string; updated_at?: string | null };
+    const key = phoneKey(String(raw.phone ?? "").trim());
+    if (!key) continue;
+    map.set(key, {
+      status: String(raw.status ?? ""),
+      updatedAt: raw.updated_at ?? null,
+    });
+  }
+  return map;
+}
+
 /** לידים מקו זואי אדמין (שיווק) — לא מטבלת contacts של עסקים */
 export async function loadMarketingAdminLeads(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<LeadRow[]> {
   const marketingSelectWithPipeline = `
+        phone, full_name, created_at, updated_at, last_user_message_at,
+        flow_completed, current_node_id,
+        followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at,
+        human_followup_at, next_call_at, pipeline_status
+      `;
+  const marketingSelectLegacyHuman = `
         phone, full_name, created_at, updated_at, last_user_message_at,
         flow_completed, current_node_id,
         followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at,
@@ -241,7 +335,7 @@ export async function loadMarketingAdminLeads(
         followup_opted_out, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at
       `;
 
-  const [{ data: sessions, error }, registeredKeys] = await Promise.all([
+  const [{ data: sessions, error }, registeredKeys, notesByPhone] = await Promise.all([
     admin
       .from("marketing_flow_sessions")
       .select(marketingSelectWithPipeline)
@@ -249,11 +343,41 @@ export async function loadMarketingAdminLeads(
       .order("updated_at", { ascending: false })
       .limit(ADMIN_LEADS_LIMIT),
     loadMarketingRegisteredPhoneKeys(admin),
+    loadMarketingNoteStatusByPhone(admin),
   ]);
 
   let sessionRows: Record<string, unknown>[] | null = (sessions ?? null) as Record<string, unknown>[] | null;
   if (error) {
-    if (/human_followup_at|next_call_at|column/i.test(String(error.message ?? ""))) {
+    if (/pipeline_status|column/i.test(String(error.message ?? ""))) {
+      console.warn("[leads-data] marketing pipeline_status missing — fallback select");
+      const fallback = await admin
+        .from("marketing_flow_sessions")
+        .select(marketingSelectLegacyHuman)
+        .order("last_user_message_at", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false })
+        .limit(ADMIN_LEADS_LIMIT);
+      if (fallback.error) {
+        if (/human_followup_at|next_call_at|column/i.test(String(fallback.error.message ?? ""))) {
+          console.warn("[leads-data] marketing pipeline columns missing — fallback select");
+          const legacy = await admin
+            .from("marketing_flow_sessions")
+            .select(marketingSelectLegacy)
+            .order("last_user_message_at", { ascending: false, nullsFirst: false })
+            .order("updated_at", { ascending: false })
+            .limit(ADMIN_LEADS_LIMIT);
+          if (legacy.error) {
+            console.warn("[leads-data] marketing_flow_sessions load:", legacy.error.message);
+            return [];
+          }
+          sessionRows = (legacy.data ?? []) as Record<string, unknown>[];
+        } else {
+          console.warn("[leads-data] marketing_flow_sessions load:", fallback.error.message);
+          return [];
+        }
+      } else {
+        sessionRows = (fallback.data ?? []) as Record<string, unknown>[];
+      }
+    } else if (/human_followup_at|next_call_at|column/i.test(String(error.message ?? ""))) {
       console.warn("[leads-data] marketing pipeline columns missing — fallback select");
       const fallback = await admin
         .from("marketing_flow_sessions")
@@ -274,46 +398,14 @@ export async function loadMarketingAdminLeads(
 
   const rows = (sessionRows ?? []).map((row) => {
     const s = row as Record<string, unknown>;
-    const phone = String(s.phone ?? "").trim();
-    const key = phoneKey(phone);
-    const registered = key ? registeredKeys.has(key) : false;
-    const waStage = deriveMarketingWaFollowupStage({
-      followup_1_sent_at: s.followup_1_sent_at as string | null,
-      followup_2_sent_at: s.followup_2_sent_at as string | null,
-      followup_3_sent_at: s.followup_3_sent_at as string | null,
+    const key = phoneKey(String(s.phone ?? "").trim());
+    const note = key ? notesByPhone.get(key) : undefined;
+    return mapMarketingFlowSessionToLeadRow(s, {
+      registeredFromMessage: key ? registeredKeys.has(key) : false,
+      noteStatus: note?.status ?? null,
+      noteUpdatedAt: note?.updatedAt ?? null,
+      pipelineStatus: typeof s.pipeline_status === "string" ? s.pipeline_status : null,
     });
-    const lastContact =
-      (s.last_user_message_at as string | null) ??
-      (s.updated_at as string | null) ??
-      (s.created_at as string | null);
-
-    return {
-      phone: phone || null,
-      full_name: (s.full_name as string | null) ?? null,
-      source: "זואי אדמין",
-      created_at: s.created_at as string | null,
-      opted_out: Boolean(s.followup_opted_out),
-      not_relevant_at: null,
-      not_relevant_reason: null,
-      human_requested_at: null,
-      human_followup_at: (s.human_followup_at as string | null) ?? null,
-      next_call_at: toDateOnly(s.next_call_at),
-      session_phase: deriveMarketingSessionPhase(
-        {
-          flow_completed: s.flow_completed as boolean | null,
-          current_node_id: s.current_node_id as string | null,
-        },
-        registered
-      ),
-      trial_registered: registered,
-      wa_no_response_at: null,
-      no_response_notified_at: null,
-      wa_followup_stage: waStage,
-      last_contact_at: lastContact,
-      cta_clicked_at: null,
-      business_slug: MARKETING_CONVERSATIONS_SLUG,
-      business_name: "זואי אדמין",
-    };
   });
   return sortLeadsByRecentActivity(rows);
 }
