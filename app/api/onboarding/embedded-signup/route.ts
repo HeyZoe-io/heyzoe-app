@@ -240,6 +240,19 @@ export async function POST(req: NextRequest) {
             });
           }
         }
+        try {
+          const { releaseAutoAppEchoPausesForBusiness } = await import("@/lib/wa-app-echo-pause");
+          const released = await releaseAutoAppEchoPausesForBusiness({
+            admin,
+            businessSlug,
+          });
+          console.info("[embedded-signup] coexistence: released auto app-echo pauses", {
+            slug: businessSlug,
+            ...released,
+          });
+        } catch (e) {
+          console.error("[embedded-signup] coexistence: auto-pause release failed:", e);
+        }
       }
     }
   }

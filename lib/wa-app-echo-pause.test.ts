@@ -5,6 +5,7 @@ import {
   isAppEchoAutoPause,
   isRecentWaBusinessAppEcho,
   nextPausedUntilForAppEcho,
+  pausedSessionRowsBlockZoe,
   WA_BUSINESS_APP_PAUSE_MS,
 } from "@/lib/wa-app-echo-pause";
 
@@ -68,5 +69,15 @@ const trainerSentAt = "2026-08-23T07:06:06.000Z";
 const eveningThanks = new Date("2026-08-23T15:27:00.000Z");
 assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, eveningThanks), true);
 assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, new Date("2026-08-24T08:00:00.000Z")), false);
+
+assert.equal(pausedSessionRowsBlockZoe([{ paused_until: autoUntil }], now), "paused");
+assert.equal(pausedSessionRowsBlockZoe([{ paused_until: now.toISOString() }], now), "released");
+assert.equal(
+  pausedSessionRowsBlockZoe([{ paused_until: new Date(now.getTime() - 60_000).toISOString() }], now),
+  "released"
+);
+assert.equal(pausedSessionRowsBlockZoe([], now), "unknown");
+assert.equal(pausedSessionRowsBlockZoe(null, now), "unknown");
+assert.equal(pausedSessionRowsBlockZoe([{ paused_until: manual }], now), "paused");
 
 console.log("wa-app-echo-pause.test.ts: ok");
