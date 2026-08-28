@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertHeyzoeSafeTestRecipient } from "@/lib/wa-send-guard";
 
 export const runtime = "nodejs";
 
@@ -26,7 +27,7 @@ export async function GET() {
 
   const body = {
     messaging_product: "whatsapp",
-    to: "972508318162",
+    to: assertHeyzoeSafeTestRecipient("972508318162", "meta-whatsapp-hello"),
     type: "template",
     template: {
       name: "hello_world",

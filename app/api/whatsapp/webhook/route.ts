@@ -274,6 +274,7 @@ import {
   unsupportedInboundPreviewShouldProcessAsText,
   WA_ZOE_ADMIN_TEMPLATE_MODEL,
 } from "@/lib/wa-inbound-unsupported";
+import { shouldSkipStudioAutoReplyPeer } from "@/lib/wa-bot-loop-guard";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import {
   inboundLooksLikeClearKnowledgeQuestion,
@@ -5331,6 +5332,19 @@ async function processIncoming(
     }
   }
   const channelActive = (channel as { is_active?: boolean }).is_active === true;
+
+  if (
+    shouldSkipStudioAutoReplyPeer(
+      msg.from,
+      (channel as { phone_display?: string | null }).phone_display
+    )
+  ) {
+    console.info("[WA Webhook] skip auto-reply — inbound from Zoe admin or this channel's own number", {
+      business_slug,
+      from: msg.from,
+    });
+    return;
+  }
 
   const nowIso = new Date().toISOString();
 

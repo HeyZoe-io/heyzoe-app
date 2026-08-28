@@ -1,5 +1,6 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
+import { assertWhatsAppOutboundAllowed } from "@/lib/wa-send-guard";
 
 export const ADMIN_SUPPORT_ALERT_WHATSAPP =
   process.env.ADMIN_SUPPORT_ALERT_WHATSAPP || "972508318162";
@@ -18,6 +19,14 @@ export async function sendAdminWhatsAppTemplate(input: {
   const phoneNumberId = MARKETING_WA_PHONE_NUMBER_ID;
   const to = String(input.to ?? "").replace(/\D/g, "");
   if (!to) return { ok: false, error: "missing_recipient" };
+
+  try {
+    assertWhatsAppOutboundAllowed({ fromPhoneNumberId: phoneNumberId, to });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[sendAdminWhatsAppTemplate] blocked:", msg);
+    return { ok: false, error: msg };
+  }
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };

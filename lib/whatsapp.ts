@@ -14,6 +14,7 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { assertWhatsAppOutboundAllowed } from "@/lib/wa-send-guard";
 
 function noteWaOutboundSent(content: string): void {
   const t = String(content ?? "").trim();
@@ -942,6 +943,7 @@ export async function sendMetaWhatsAppMessage(
   toE164: string,
   outgoing: MetaWhatsAppOutgoing
 ): Promise<void> {
+  assertWhatsAppOutboundAllowed({ fromPhoneNumberId: phoneNumberId, to: toE164 });
   const metaToken = resolveMetaAccessToken();
   if (!metaToken) {
     throw new Error("[Meta WA send] missing META_ACCESS_TOKEN / WHATSAPP_SYSTEM_TOKEN");
@@ -1060,6 +1062,7 @@ export async function sendWhatsAppMessage(
     return;
   }
 
+  assertWhatsAppOutboundAllowed({ fromPhoneNumberId: fromNumber, to });
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
     From: `whatsapp:${fromNumber}`,
@@ -1135,6 +1138,7 @@ async function sendMetaWhatsAppMediaByLink(
   isVideo: boolean,
   caption?: string
 ): Promise<void> {
+  assertWhatsAppOutboundAllowed({ fromPhoneNumberId: phoneNumberId, to: toDigits });
   const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
   const payload: Record<string, unknown> = {
@@ -1213,6 +1217,7 @@ async function sendMetaWhatsAppMediaByUpload(
   const mediaId = String(uploaded.id ?? "").trim();
   if (!mediaId) throw new Error("[Meta WA upload media] missing media id");
 
+  assertWhatsAppOutboundAllowed({ fromPhoneNumberId: phoneNumberId, to: toDigits });
   const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
   const payload: Record<string, unknown> = {
@@ -1296,6 +1301,7 @@ export async function sendWhatsAppMediaMessage(
     return;
   }
 
+  assertWhatsAppOutboundAllowed({ fromPhoneNumberId: fromNumber, to });
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const body = new URLSearchParams({
     From: `whatsapp:${fromNumber}`,
