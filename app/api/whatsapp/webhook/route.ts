@@ -24,6 +24,10 @@ import {
   type WaIncomingMessage,
   type WaIncomingText,
 } from "@/lib/whatsapp";
+import {
+  approvedTemplateSyncPatch,
+  getWabaTemplateById,
+} from "@/lib/meta-templates";
 import { getBusinessKnowledgePack, buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
 import { knowledgeQaTextBlob, lookupKnowledgeQaAnswerForInbound } from "@/lib/knowledge-qa";
 import { type SfServiceRow } from "@/lib/sf-service-rows";
@@ -4622,6 +4626,7 @@ type MessageTemplateStatusUpdateEvent = {
 /**
  * Parses Meta `message_template_status_update` webhook payloads.
  * `entry.id` is the WABA ID; `value.event` is the new status (APPROVED / REJECTED / …).
+ * On APPROVED, we fetch the template from Meta and sync components into whatsapp_templates.
  */
 export function parseMessageTemplateStatusUpdate(
   payload: unknown
@@ -4690,12 +4695,47 @@ async function writeTemplateStatusAudit(input: {
   }
 }
 
+async function buildTemplateStatusDbUpdate(
+  ev: MessageTemplateStatusUpdateEvent,
+  nowIso: string
+): Promise<Record<string, unknown>> {
+  const update: Record<string, unknown> = {
+    status: ev.event,
+    updated_at: nowIso,
+  };
+
+  const templateId = String(ev.message_template_id ?? "").trim();
+  const isApproved = String(ev.event).trim().toUpperCase() === "APPROVED";
+
+  if (isApproved && templateId) {
+    try {
+      const metaTpl = await getWabaTemplateById(templateId);
+      if (metaTpl) {
+        Object.assign(update, approvedTemplateSyncPatch(metaTpl, ev.event, nowIso));
+      } else {
+        update.waba_template_id = templateId;
+      }
+    } catch (e) {
+      console.error(
+        "[WA Webhook] template_status Meta content fetch failed:",
+        e instanceof Error ? e.message : e
+      );
+      update.waba_template_id = templateId;
+    }
+  } else if (templateId) {
+    update.waba_template_id = templateId;
+  }
+
+  return update;
+}
+
 async function handleMessageTemplateStatusUpdate(
   ev: MessageTemplateStatusUpdateEvent
 ): Promise<void> {
   const admin = createSupabaseAdminClient();
   const nowIso = new Date().toISOString();
   const newStatus = ev.event;
+  const dbUpdate = await buildTemplateStatusDbUpdate(ev, nowIso);
   let businessSlug: string | null = null;
   let matched = 0;
   let matchPath: "waba_template_id" | "name_language" | "none" = "none";
@@ -4703,7 +4743,7 @@ async function handleMessageTemplateStatusUpdate(
   if (ev.message_template_id) {
     const { data, error } = await admin
       .from("whatsapp_templates")
-      .update({ status: newStatus, updated_at: nowIso })
+      .update(dbUpdate)
       .eq("waba_template_id", ev.message_template_id)
       .select("id, business_id");
     if (error) {
@@ -4755,7 +4795,7 @@ async function handleMessageTemplateStatusUpdate(
       businessSlug = String((biz as { slug?: string }).slug ?? "").trim() || null;
       const { data, error } = await admin
         .from("whatsapp_templates")
-        .update({ status: newStatus, updated_at: nowIso })
+        .update(dbUpdate)
         .eq("business_id", biz.id)
         .eq("name", ev.message_template_name)
         .eq("language", ev.message_template_language)
