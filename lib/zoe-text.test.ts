@@ -87,4 +87,13 @@ assert.equal(
   "מצטערת לשמוע, מאחלת החלמה מהירה!"
 );
 
+assert.equal(
+  sanitizeZoeOutboundLanguage("אתם יכולים להירשם לשני שיעורי yoga במועדים שונים"),
+  "אתם יכולים להירשם לשני שיעורי יוגה במועדים שונים"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("I want to try yoga tomorrow"),
+  "I want to try yoga tomorrow"
+);
+
 console.log("zoe-text.test.ts: ok");

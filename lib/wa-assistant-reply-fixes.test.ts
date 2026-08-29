@@ -156,4 +156,37 @@ const keepAfterRegSlot = applyKnownAssistantReplyFixes(
 );
 assert.match(keepAfterRegSlot, /יום רביעי בשעה 18:00/);
 
+const twoClassesOneSlot = applyKnownAssistantReplyFixes(
+  "כן, בדיוק! אתם יכולים להירשם לשני שיעורי yoga ביום שני בשעה 19:00 ב-80 ₪ 🙂",
+  { knowledge }
+);
+assert.equal(
+  twoClassesOneSlot,
+  "כן, בדיוק! אתם יכולים להירשם לשני שיעורי יוגה במועדים שונים! 🙂"
+);
+
+const twoIntroClassesOneSlot = applyKnownAssistantReplyFixes(
+  "כן, בדיוק! אתם יכולים להירשם לשני אימוני היכרות ביום שני בשעה 19:00 ב-80 ₪",
+  { knowledge }
+);
+assert.equal(
+  twoIntroClassesOneSlot,
+  "כן, בדיוק! אתם יכולים להירשם לשני אימוני היכרות במועדים שונים!"
+);
+
+const keepSingleClassSlot = applyKnownAssistantReplyFixes(
+  "אתם יכולים להירשם לשיעור יוגה ביום שני בשעה 19:00",
+  { knowledge }
+);
+assert.match(keepSingleClassSlot, /ביום שני בשעה 19:00/);
+assert.doesNotMatch(keepSingleClassSlot, /במועדים שונים/);
+
+const keepTwoDifferentSlots = applyKnownAssistantReplyFixes(
+  "אתם יכולים להירשם לשני שיעורי יוגה ביום שני בשעה 19:00 וביום רביעי בשעה 18:00",
+  { knowledge }
+);
+assert.match(keepTwoDifferentSlots, /ביום שני בשעה 19:00/);
+assert.match(keepTwoDifferentSlots, /ביום רביעי בשעה 18:00/);
+assert.doesNotMatch(keepTwoDifferentSlots, /במועדים שונים/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");
