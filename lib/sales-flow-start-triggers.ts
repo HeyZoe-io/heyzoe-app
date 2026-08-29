@@ -14,6 +14,7 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
  * איפוס והפעלת פלואו מכירה — בקשת פרטים / «בואו נתחיל» (הקלדה או כפתור).
  * «היי» / «שלום» לבד לא מתחילים פלואו אצל זואי עסק (ברכת זהות נפרדת),
  * חוץ מסאנגה שגם «היי» מתחיל פלואו.
+ * הודעת ברירת מחדל של Click-to-WhatsApp («שלום! אפשר לקבל מידע נוסף על זה?») כן מתחילה פלואו.
  */
 export const SALES_FLOW_START_TRIGGERS = new Set([
   SALES_FLOW_START_BUTTON_LABEL_HE,
@@ -114,13 +115,45 @@ export function shouldAutoStartSalesFlowOnNewInbound(input: {
   return businessStartsSalesFlowOnAnyNewInbound(input.opts);
 }
 
+/**
+ * בקשת מידע כללית בסגנון מודעת Click-to-WhatsApp —
+ * «שלום! אפשר לקבל מידע נוסף על זה?» / "Can I get more information about this?"
+ * לא על שאלה ספציפית («מידע על ביטול», «אפשר לקבל החזר»).
+ */
+export function matchesSalesFlowMoreInfoIntent(raw: string): boolean {
+  const normalized = normalizeSalesFlowGreetingToken(raw)
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const t = stripLeadingCasualGreeting(normalized)
+    .replace(/\s+(?:בבקשה|please)$/u, "")
+    .trim();
+  if (!t || t.length > 80) return false;
+
+  const he = [
+    /^(?:אפשר|אשמח|רוצה)\s+(?:לקבל\s+)?מידע(?:\s+נוסף)?(?:\s+(?:על|לגבי)\s+זה)?$/u,
+    /^(?:אפשר|אשמח|רוצה)\s+(?:לקבל\s+)?(?:פרטים|מידע)\s+נוסף(?:ים)?(?:\s+(?:על|לגבי)\s+זה)?$/u,
+    /^(?:אפשר|אשמח|רוצה)\s+לקבל\s+(?:פרטים|מידע)\s+(?:על|לגבי)\s+זה$/u,
+    /^מידע\s+נוסף(?:\s+(?:על|לגבי)\s+זה)?$/u,
+    /^פרטים\s+נוספים(?:\s+(?:על|לגבי)\s+זה)?$/u,
+  ];
+  if (he.some((re) => re.test(t))) return true;
+
+  const en = [
+    /^(?:can i (?:please )?get|can i have|id like|i would like|i want)\s+(?:some\s+)?(?:more\s+)?(?:info|information)(?:\s+about this)?$/u,
+    /^more (?:info|information)(?: about this)?$/u,
+  ];
+  return en.some((re) => re.test(t));
+}
+
 export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTriggerOpts): boolean {
   const normalized = normalizeSalesFlowGreetingToken(text);
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
   if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   if (withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting)) return true;
-  return matchesSalesFlowRestartIntent(text);
+  if (matchesSalesFlowRestartIntent(text)) return true;
+  return matchesSalesFlowMoreInfoIntent(text);
 }
 
 /** «היי» לבד — ברכת זהות, בלי פלואו מכירה. */

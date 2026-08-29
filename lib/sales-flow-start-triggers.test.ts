@@ -4,6 +4,7 @@ import {
   isCasualHowAreYouGreeting,
   isSalesFlowStartTrigger,
   matchesSalesFlowRestartIntent,
+  matchesSalesFlowMoreInfoIntent,
   buildCasualHiGreetingReply,
   CASUAL_HOW_ARE_YOU_REPLY_HE,
   isOpeningServicePickMenuModel,
@@ -14,6 +15,8 @@ import {
   shouldAutoStartSalesFlowOnNewInbound,
   IKMA_YIGAL_ARBIV_BUSINESS_SLUG,
 } from "@/lib/sales-flow-start-triggers";
+import { isSalesFlowStartInbound } from "@/lib/sales-flow-inbound";
+import { isStudioOverviewIntentText } from "@/lib/wa-studio-overview-intent";
 
 assert.equal(isSalesFlowStartTrigger("היי"), false);
 assert.equal(isSalesFlowStartTrigger("היי", { slug: "info-2815" }), true);
@@ -110,6 +113,53 @@ assert.equal(isSalesFlowStartTrigger("בואו נתחיל"), true);
 assert.equal(isSalesFlowStartTrigger("בואו נתחיל!"), true);
 assert.equal(isSalesFlowStartTrigger("היי אשמח לפרטים"), true);
 assert.equal(isSalesFlowStartTrigger("היי פרטים"), true);
+
+const ctwaMoreInfo = "שלום! אפשר לקבל מידע נוסף על זה?";
+assert.equal(matchesSalesFlowMoreInfoIntent(ctwaMoreInfo), true);
+assert.equal(isSalesFlowStartTrigger(ctwaMoreInfo), true);
+assert.equal(isSalesFlowStartTrigger(ctwaMoreInfo, { slug: "limitless" }), true);
+assert.equal(isCasualHiGreeting(ctwaMoreInfo), false);
+assert.equal(isStudioOverviewIntentText(ctwaMoreInfo), false);
+assert.equal(
+  isSalesFlowStartInbound({
+    type: "text",
+    messageId: "wamid.ctwa",
+    from: "972506663799",
+    toNumber: "123",
+    text: ctwaMoreInfo,
+  }),
+  true
+);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל מידע נוסף על זה"), true);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל מידע נוסף"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח לקבל מידע נוסף על זה"), true);
+assert.equal(isSalesFlowStartTrigger("מידע נוסף על זה"), true);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל מידע"), true);
+assert.equal(isSalesFlowStartTrigger("Hello! Can I get more information about this?"), true);
+assert.equal(isSalesFlowStartTrigger("can i get more info about this"), true);
+assert.equal(isSalesFlowStartTrigger("שלום! אפשר לקבל מידע נוסף על זה? 👋"), true);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל מידע נוסף על זה בבקשה"), true);
+assert.equal(
+  salesFlowGreetingMarkerCountsAsStarted({
+    modelUsed: "greeting",
+    precedingUserText: ctwaMoreInfo,
+  }),
+  true
+);
+assert.equal(
+  sessionCountsAsSalesFlowStarted({
+    greetingMarkerModel: "greeting",
+    precedingUserText: ctwaMoreInfo,
+    lastAssistantModel: "flow_continuation_opening_service_pick",
+  }),
+  true
+);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל החזר?"), false);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל מידע על הביטול"), false);
+assert.equal(isSalesFlowStartTrigger("מידע נוסף על החניה"), false);
+assert.equal(isSalesFlowStartTrigger("אפשר לקבל פרטים"), false);
+assert.equal(isSalesFlowStartTrigger("שלום, אפשר פרטים על החוגים?"), false);
+
 assert.equal(isSalesFlowStartTrigger("תודה"), false);
 assert.equal(isSalesFlowStartTrigger("תודה רבה"), false);
 assert.equal(isSalesFlowStartTrigger("ok"), false);
