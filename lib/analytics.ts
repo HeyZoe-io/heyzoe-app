@@ -296,23 +296,24 @@ export async function fetchRecentSessionMessages(input: {
   business_slug: string;
   session_id: string;
   limit?: number;
-}): Promise<{ role: "user" | "assistant"; content: string }[]> {
+}): Promise<{ role: "user" | "assistant"; content: string; created_at: string }[]> {
   try {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("messages")
-      .select("role, content")
+      .select("role, content, created_at")
       .eq("business_slug", input.business_slug)
       .eq("session_id", input.session_id)
       .order("created_at", { ascending: false })
       .limit(input.limit ?? 28);
     if (error || !data?.length) return [];
-    const out: { role: "user" | "assistant"; content: string }[] = [];
+    const out: { role: "user" | "assistant"; content: string; created_at: string }[] = [];
     for (const row of [...data].reverse()) {
       if (row.role !== "user" && row.role !== "assistant") continue;
       const c = String(row.content ?? "").trim();
       if (!c || c.startsWith("[media]") || c.startsWith("[unsupported]") || isWaReactionLogContent(c)) continue;
-      out.push({ role: row.role, content: c.slice(0, 12_000) });
+      const created_at = String((row as { created_at?: string }).created_at ?? "").trim();
+      out.push({ role: row.role, content: c.slice(0, 12_000), created_at });
     }
     return out;
   } catch (e) {

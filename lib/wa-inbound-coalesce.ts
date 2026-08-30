@@ -11,6 +11,12 @@ export type SessionUserMessageRow = {
   created_at: string;
 };
 
+export type SessionHistoryMessage = {
+  role: string;
+  content: string;
+  created_at?: string;
+};
+
 export async function fetchLatestUserMessageCreatedAt(input: {
   businessSlug: string;
   sessionId: string;
@@ -73,6 +79,46 @@ export async function fetchSessionUserMessagesAfter(input: {
     console.warn("[wa-inbound-coalesce] fetch after exception:", e);
     return [];
   }
+}
+
+/**
+ * Claim the trailing user turn already in the prompt-history snapshot.
+ * Pickup must use the returned throughIso only AFTER a successful inference
+ * so a crash before Claude returns still leaves those rows visible to pickup.
+ */
+export function claimTrailingUserTurnFromHistory(input: {
+  history: SessionHistoryMessage[];
+  promptText: string;
+  throughIso: string;
+}): { text: string; throughIso: string; extraCount: number } {
+  const trailing: SessionUserMessageRow[] = [];
+  for (let i = input.history.length - 1; i >= 0; i--) {
+    const row = input.history[i];
+    if (!row || row.role !== "user") break;
+    const content = String(row.content ?? "").trim();
+    const created_at = String(row.created_at ?? "").trim();
+    if (!content || !created_at) continue;
+    trailing.unshift({ content, created_at });
+  }
+  if (!trailing.length) {
+    return { text: input.promptText, throughIso: input.throughIso, extraCount: 0 };
+  }
+  const promptParts = new Set(
+    String(input.promptText ?? "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+  const extraCount = trailing.filter((row) => !promptParts.has(row.content)).length;
+  let throughIso = input.throughIso;
+  for (const row of trailing) {
+    if (row.created_at > throughIso) throughIso = row.created_at;
+  }
+  return {
+    text: joinInboundUserTexts(input.promptText, trailing),
+    throughIso,
+    extraCount,
+  };
 }
 
 export function joinInboundUserTexts(base: string, extras: { content: string }[]): string {

@@ -482,6 +482,7 @@ import {
 } from "@/lib/wa-cta-compact";
 import { isAddressOrDirectionsIntent } from "@/lib/wa-address-intent";
 import {
+  claimTrailingUserTurnFromHistory,
   coalesceTrailingUserMessages,
   fetchLatestUserMessageCreatedAt,
   fetchSessionUserMessagesAfter,
@@ -6053,6 +6054,7 @@ async function processIncoming(
       });
     }
   }
+  let promptClaimedThroughIso = processedUserThroughIso;
 
   // NOT RELEVANT — רק אחרי נעילה, ורק אמירה מפורשת (לא ניחוש Claude).
   if (
@@ -10488,13 +10490,27 @@ async function processIncoming(
     ) {
       scheduleInterestServiceName = pickedForPrompt.trim();
     }
-    const currentText = msg.text.trim();
     const history = await fetchRecentSessionMessages({
       business_slug,
       session_id: sessionId,
       limit: 10,
     });
     aiSessionHistory = history;
+    const claimed = claimTrailingUserTurnFromHistory({
+      history,
+      promptText: msg.text,
+      throughIso: processedUserThroughIso,
+    });
+    if (claimed.extraCount > 0) {
+      msg.text = claimed.text;
+      console.info("[WA Webhook] claimed trailing inbound already in prompt history", {
+        business_slug,
+        sessionId,
+        extraCount: claimed.extraCount,
+      });
+    }
+    promptClaimedThroughIso = claimed.throughIso;
+    const currentText = claimed.text.trim();
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -10660,6 +10676,9 @@ async function processIncoming(
       replyErrorCode = extractErrorCode(e);
       isFallbackErrorReply = true;
       replyErrorCode = replyErrorCode ?? "claude_failed";
+    }
+    if (didCallClaude && !isFallbackErrorReply) {
+      processedUserThroughIso = promptClaimedThroughIso;
     }
   }
 

@@ -124,10 +124,32 @@ export const REGISTERED_OPEN_QUESTION_HELP_CLOSING =
 export const STANDALONE_OPEN_QUESTION_HELP_CLOSING =
   "יש עוד משהו שאני יכולה לעזור לך איתו?";
 
+const TRAILING_LINE_DECORATION_RE =
+  /(?:[\s\u200B-\u200D\uFEFF"'“”‘’«»]|[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]|[❤♥💜💙💚💛🤍🖤😊🙂😉🙏✨])+?$/gu;
+
+/** Last non-empty line, minus trailing whitespace / emoji / quotes / extra .!… */
+function lastLineWithoutTrailingDecoration(text: string): string {
+  const lines = String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return "";
+  return lines[lines.length - 1]!
+    .replace(TRAILING_LINE_DECORATION_RE, "")
+    .replace(/[.!…]+$/u, "")
+    .trim();
+}
+
+/** True when the reply already ends with a question (closer, helper-offer, or clarifying). */
+export function replyAlreadyEndsWithQuestion(text: string): boolean {
+  return /[?؟]$/u.test(lastLineWithoutTrailingDecoration(text));
+}
+
 function ensureHelpClosing(text: string, closing: string): string {
   const t = String(text ?? "").replace(/\r\n/g, "\n").trim();
   if (!t) return closing;
-  if (/יש עוד משהו.*(עזור|לעזור)/iu.test(t)) return t;
+  if (replyAlreadyEndsWithQuestion(t)) return t;
   return `${t}\n\n${closing}`;
 }
 

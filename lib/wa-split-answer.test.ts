@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import {
+  REGISTERED_OPEN_QUESTION_HELP_CLOSING,
   STANDALONE_OPEN_QUESTION_HELP_CLOSING,
+  ensureRegisteredOpenQuestionClosing,
   ensureStandaloneOpenQuestionClosing,
   ensureStudioOverviewClosing,
   finalizeStandaloneHelpReply,
   isStandaloneWhatsAppOpenQuestion,
   looksLikeLeadQuestion,
+  replyAlreadyEndsWithQuestion,
   stripSalesFlowCtaHookFromAnswer,
+  stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
 import { STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE } from "@/lib/wa-studio-overview-intent";
 
@@ -58,6 +62,59 @@ assert.equal(
     "אין לי את הפרטים על מדיניות הביטול. יש עוד משהו שאני יכולה לעזור לך איתו?"
   ),
   "אין לי את הפרטים על מדיניות הביטול. יש עוד משהו שאני יכולה לעזור לך איתו?"
+);
+
+{
+  const exactCloser =
+    "אין לי את הפרטים על מדיניות הביטול.\n\nיש עוד משהו שאני יכולה לעזור לך איתו?";
+  assert.equal(ensureStandaloneOpenQuestionClosing(exactCloser), exactCloser);
+  assert.equal((exactCloser.match(/יש עוד משהו/g) ?? []).length, 1);
+}
+
+assert.equal(
+  ensureStandaloneOpenQuestionClosing("השיעור בבוקר. אוכל לעזור בעוד משהו?"),
+  "השיעור בבוקר. אוכל לעזור בעוד משהו?"
+);
+
+assert.equal(
+  ensureStandaloneOpenQuestionClosing("מעדיפים בוקר או ערב?"),
+  "מעדיפים בוקר או ערב?"
+);
+
+assert.equal(
+  ensureStandaloneOpenQuestionClosing("ניתן להקפיא את המנוי עד 14 ימים."),
+  `ניתן להקפיא את המנוי עד 14 ימים.\n\n${STANDALONE_OPEN_QUESTION_HELP_CLOSING}`
+);
+
+assert.equal(
+  ensureStandaloneOpenQuestionClosing("יש חניה במקום?\nהחניה בחצר האחורית."),
+  `יש חניה במקום?\nהחניה בחצר האחורית.\n\n${STANDALONE_OPEN_QUESTION_HELP_CLOSING}`
+);
+
+assert.equal(
+  ensureStandaloneOpenQuestionClosing("הציוד אצלנו. יש עוד משהו שאני יכולה לעזור איתו? 🙂"),
+  "הציוד אצלנו. יש עוד משהו שאני יכולה לעזור איתו? 🙂"
+);
+
+assert.equal(
+  ensureRegisteredOpenQuestionClosing("הכתובת היא דם המכבים 36."),
+  `הכתובת היא דם המכבים 36.\n\n${REGISTERED_OPEN_QUESTION_HELP_CLOSING}`
+);
+assert.equal(
+  ensureRegisteredOpenQuestionClosing("מעדיפים בוקר או ערב?"),
+  "מעדיפים בוקר או ערב?"
+);
+
+assert.equal(replyAlreadyEndsWithQuestion("הציוד אצלנו."), false);
+assert.equal(replyAlreadyEndsWithQuestion("הציוד אצלנו?"), true);
+
+assert.equal(
+  finalizeStandaloneHelpReply("בסדר גמור, נתראה בשיעור.", "כבר נרשמתי"),
+  "בסדר גמור, נתראה בשיעור."
+);
+assert.equal(
+  stripTrailingFollowUpQuestion("בסדר גמור, נתראה בשיעור."),
+  "בסדר גמור, נתראה בשיעור."
 );
 
 assert.equal(looksLikeLeadQuestion("מה מדיניות הביטול?"), true);
