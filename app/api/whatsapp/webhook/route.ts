@@ -328,6 +328,7 @@ import {
   tryClaimWarmupAwaitingSend,
 } from "@/lib/wa-warmup-awaiting-cas";
 import { fetchPhoneNumbersForWaba, subscribeWabaToAppWebhooks } from "@/lib/meta-waba-resolve";
+import { shouldUseExistingNumberConnect } from "@/lib/wa-existing-number-connect";
 import {
   addressDirectionsPrefix,
   addressMissingMessage,
@@ -4846,10 +4847,13 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
   const businessSlug = String((business as { slug?: unknown }).slug ?? "")
     .trim()
     .toLowerCase();
+  const storedOnboardingType = String((business as { onboarding_type?: unknown }).onboarding_type ?? "");
   console.info(`[WA Webhook] business found: id=${businessId}, slug=${businessSlug}`);
 
   // Never blanket-activate all channels for the business (resurrects stale/test rows).
   // Prefer Meta CONNECTED pnids only; without a system token, activate only the latest row by phone_number_id.
+  let connectedCount = 0;
+  let firstConnectedDisplay = "";
   if (systemToken) {
     try {
       const numbers = await fetchPhoneNumbersForWaba(wabaId, systemToken);
@@ -4864,6 +4868,8 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
           `[WA Webhook] self-healing: no CONNECTED phone numbers on WABA waba_id=${wabaId}; skipping channel activate/upsert`
         );
       } else {
+        connectedCount = connected.length;
+        firstConnectedDisplay = String(connected[0]?.display_phone_number ?? "").trim();
         for (const num of connected) {
           const { error: upsertErr } = await admin.from("whatsapp_channels").upsert(
             {
@@ -4927,8 +4933,27 @@ async function handlePartnerAddedEvent(waba_id: string): Promise<void> {
     }
   }
 
-  const onboardingType = String((business as { onboarding_type?: unknown }).onboarding_type ?? "");
-  if (onboardingType !== "coexistence") {
+  const isCoexistence = shouldUseExistingNumberConnect({
+    storedOnboardingType,
+    metaPhoneCount: connectedCount,
+  });
+
+  if (firstConnectedDisplay || (isCoexistence && storedOnboardingType !== "coexistence")) {
+    const bizHeal: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (firstConnectedDisplay) bizHeal.whatsapp_number = firstConnectedDisplay;
+    if (isCoexistence && storedOnboardingType !== "coexistence") {
+      bizHeal.onboarding_type = "coexistence";
+    }
+    const { error: bizHealErr } = await admin
+      .from("businesses")
+      .update(bizHeal as any)
+      .eq("id", businessId);
+    if (bizHealErr) {
+      console.error("[WA Webhook] self-healing businesses.whatsapp_number update failed:", bizHealErr.message);
+    }
+  }
+
+  if (!isCoexistence) {
     const { data: releasedJobs, error: releaseErr } = await admin
       .from("wa_provision_jobs")
       .update({ status: "queued", updated_at: new Date().toISOString() } as any)

@@ -180,7 +180,11 @@ export default function ConnectWhatsAppSection({
       setState("submitting");
 
       try {
-        const body: Record<string, string> = { waba_id, businessSlug: slug };
+        const body: Record<string, string> = {
+          waba_id,
+          businessSlug: slug,
+          onboarding_type: "coexistence",
+        };
         if (phone_number_id) body.phone_number_id = phone_number_id;
         if (code) body.code = code;
 
