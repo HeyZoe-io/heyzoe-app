@@ -4741,6 +4741,33 @@ async function handleMessageTemplateStatusUpdate(
     }
   }
 
+  try {
+    let marketingMatched = 0;
+    if (ev.message_template_id) {
+      const mkt = await admin
+        .from("marketing_whatsapp_templates")
+        .update({ status: newStatus, updated_at: nowIso })
+        .eq("waba_template_id", ev.message_template_id)
+        .select("id");
+      if (!mkt.error) marketingMatched = mkt.data?.length ?? 0;
+    }
+    if (marketingMatched === 0 && ev.message_template_name && ev.message_template_language) {
+      const mkt = await admin
+        .from("marketing_whatsapp_templates")
+        .update({ status: newStatus, updated_at: nowIso })
+        .eq("name", ev.message_template_name)
+        .eq("language", ev.message_template_language)
+        .select("id");
+      if (!mkt.error) marketingMatched = mkt.data?.length ?? 0;
+    }
+    if (marketingMatched > 0) {
+      matched += marketingMatched;
+      if (matchPath === "none") matchPath = "name_language";
+    }
+  } catch (e) {
+    console.warn("[WA Webhook] marketing template_status update skipped:", e);
+  }
+
   if (matched === 0 && ev.message_template_name && ev.message_template_language && ev.waba_id) {
     const { data: biz, error: bizErr } = await admin
       .from("businesses")

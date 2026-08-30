@@ -271,3 +271,34 @@ export async function syncWabaTemplatesToDb(
   }
   return rows.length;
 }
+
+/**
+ * Pull Meta templates for the HeyZoe marketing WABA into `marketing_whatsapp_templates`.
+ * Conflict key: (name, language). Does not delete missing rows or overwrite `disabled`.
+ */
+export async function syncMarketingWabaTemplatesToDb(
+  admin: SupabaseClient,
+  wabaId: string
+): Promise<number> {
+  const templates = await listWabaTemplates(wabaId);
+  if (templates.length === 0) return 0;
+
+  const nowIso = new Date().toISOString();
+  const rows = templates.map((t) => ({
+    waba_template_id: t.id,
+    name: t.name,
+    category: t.category,
+    language: t.language,
+    status: t.status,
+    components: t.components ?? [],
+    updated_at: nowIso,
+  }));
+
+  const { error } = await admin.from("marketing_whatsapp_templates").upsert(rows, {
+    onConflict: "name,language",
+  });
+  if (error) {
+    throw new Error(`[syncMarketingWabaTemplatesToDb] upsert failed: ${error.message}`);
+  }
+  return rows.length;
+}

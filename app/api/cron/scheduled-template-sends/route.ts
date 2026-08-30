@@ -24,7 +24,9 @@ import {
 } from "@/lib/template-send-params";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
-/** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET יומי + Authorization: Bearer CRON_SECRET */
+/** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET.
+ *  גם שוטף scheduled_marketing_template_sends (תזכורות/שידורים של קו זואי אדמין).
+ *  מומלץ כל שעה — IO: שאילתה לפי אינדקס (status, due_at), לא סריקת טבלה. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -268,6 +270,47 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    let marketing_fetched = 0;
+    let marketing_sent = 0;
+    let marketing_failed = 0;
+    let marketing_canceled = 0;
+    try {
+      const { data: mktRows, error: mktErr } = await admin
+        .from("scheduled_marketing_template_sends")
+        .select(
+          "id, trigger_id, contact_phone, template_name, due_at, status, dedup_key, body_params, last_error, created_at, updated_at"
+        )
+        .eq("status", "pending")
+        .lte("due_at", nowIso)
+        .order("due_at", { ascending: true })
+        .limit(BATCH_LIMIT);
+      if (mktErr) {
+        if (!/does not exist|schema cache|scheduled_marketing_template_sends/i.test(mktErr.message)) {
+          console.error("[cron/scheduled-template-sends] marketing select failed:", mktErr.message);
+        }
+      } else {
+        const { dispatchDueMarketingScheduledSend } = await import("@/lib/marketing-template-dispatch");
+        const pending = (mktRows ?? []) as import("@/lib/scheduled-marketing-template-sends").ScheduledMarketingTemplateSendRow[];
+        marketing_fetched = pending.length;
+        for (const row of pending) {
+          try {
+            const outcome = await dispatchDueMarketingScheduledSend(admin, row);
+            if (outcome === "sent") marketing_sent += 1;
+            else if (outcome === "failed") marketing_failed += 1;
+            else marketing_canceled += 1;
+          } catch (e) {
+            marketing_failed += 1;
+            const message = e instanceof Error ? e.message : String(e);
+            console.error("[cron/scheduled-template-sends] marketing row threw:", message, {
+              id: row.id,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[cron/scheduled-template-sends] marketing flush failed:", e);
+    }
+
     console.info("[cron/scheduled-template-sends] done", {
       ran_at: ranAt,
       fetched: rows.length,
@@ -275,6 +318,10 @@ export async function GET(req: NextRequest) {
       failed,
       canceled,
       skipped,
+      marketing_fetched,
+      marketing_sent,
+      marketing_failed,
+      marketing_canceled,
       batch_limit: BATCH_LIMIT,
     });
 
@@ -286,6 +333,10 @@ export async function GET(req: NextRequest) {
       failed,
       canceled,
       skipped,
+      marketing_fetched,
+      marketing_sent,
+      marketing_failed,
+      marketing_canceled,
       batch_limit: BATCH_LIMIT,
     });
   } catch (e) {

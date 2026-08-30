@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 export type AdminNavTab =
   | "dashboard"
   | "marketing"
+  | "templates"
   | "analytics"
   | "businesses"
   | "leads";
@@ -11,6 +12,7 @@ export type AdminNavTab =
 const TABS: { key: AdminNavTab; href: string; label: string }[] = [
   { key: "dashboard", href: "/admin/dashboard", label: "ראשי" },
   { key: "marketing", href: "/admin/dashboard?tab=marketing", label: "פלואו שיווקי" },
+  { key: "templates", href: "/admin/templates", label: "טמפלייטים" },
   { key: "analytics", href: "/admin/analytics", label: "analytics" },
   { key: "businesses", href: "/admin/businesses", label: "עסקים" },
   { key: "leads", href: "/admin/leads", label: "לידים" },

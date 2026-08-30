@@ -165,6 +165,22 @@ async function persistMarketingFlowPosition(input: {
       .update(patch)
       .eq("id", input.sessionId);
   }
+  if (patch.flow_completed === true) {
+    try {
+      const { data: sess } = await input.admin
+        .from("marketing_flow_sessions")
+        .select("phone, flow_completed")
+        .eq("id", input.sessionId)
+        .maybeSingle();
+      const phone = String((sess as { phone?: unknown } | null)?.phone ?? "").trim();
+      if (phone && (sess as { flow_completed?: unknown } | null)?.flow_completed === true) {
+        const { onMarketingFlowCompleted } = await import("@/lib/marketing-template-dispatch");
+        await onMarketingFlowCompleted({ phone });
+      }
+    } catch (e) {
+      console.error("[marketing-flow] template dispatch after complete failed:", e);
+    }
+  }
 }
 
 /** ניתוב מחדש לפי כפתור אחר בשאלה האחרונה שנענתה (שאלה אחת אחורה) */
@@ -647,6 +663,16 @@ async function persistMarketingFlowQuestionAnswer(input: {
     answerText: input.userText,
     answerKind: options.length === 0 ? "free_text" : "button",
   });
+  try {
+    const { onMarketingFlowNodeAnswered } = await import("@/lib/marketing-template-dispatch");
+    await onMarketingFlowNodeAnswered({
+      phone: input.phone,
+      questionNodeId: input.questionNode.id,
+      answerText: input.userText,
+    });
+  } catch (e) {
+    console.error("[marketing-flow] template dispatch after answer failed:", e);
+  }
 }
 
 /**

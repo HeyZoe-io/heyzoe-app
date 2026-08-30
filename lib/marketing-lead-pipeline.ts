@@ -330,6 +330,19 @@ async function applyPipelineUpdate(
   const resolvedNextCall = toPipelineDateOnly(data.next_call_at) ?? nextCallAt;
   const resolvedNextTime = writeNextCallTime ? nextCallTime : null;
 
+  if (resolvedNextCall) {
+    try {
+      const { onMarketingCallScheduled } = await import("@/lib/marketing-template-dispatch");
+      await onMarketingCallScheduled({
+        phone,
+        dateYmd: resolvedNextCall,
+        timeHm: resolvedNextTime,
+      });
+    } catch (e) {
+      console.error("[marketing-lead-pipeline] call_day dispatch failed:", e);
+    }
+  }
+
   return {
     phone: String(data.phone ?? phone),
     human_followup_at: resolvedHumanAt,
