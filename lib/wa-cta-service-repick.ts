@@ -79,6 +79,24 @@ function inboundSignificantTokens(text: string): string[] {
     .filter((w) => w.length >= 4 && !PARTIAL_AMBIGUITY_SKIP_TOKENS.has(w));
 }
 
+/** טוקנים מקופלים של הטקסט הנכנס — התאמה במילה שלמה, לא substring («אנשים» ≠ «נשים»). */
+function inboundFoldedTokens(text: string): string[] {
+  return normalizeInboundForServiceMatch(text)
+    .split(/[\s\-–—]+/)
+    .map((w) => foldHebrewServiceToken(w.replace(/^[?!.,;:]+|[?!.,;:]+$/g, "")))
+    .filter((w) => w.length >= 3);
+}
+
+function catalogTokenHitsUser(catalogTok: string, userToks: string[]): boolean {
+  return userToks.some(
+    (u) =>
+      u === catalogTok ||
+      (catalogTok.length >= 4 &&
+        u.length >= 4 &&
+        (u.startsWith(catalogTok) || catalogTok.startsWith(u)))
+  );
+}
+
 /** התאמת טוקן חלקי לשם קטלוג — בלי לשנות את serviceNameMatchesInUserText (חד-משמעי נשאר כפי שהוא). */
 function sharesPartialCatalogToken(menuName: string, userText: string): boolean {
   if (serviceNameMatchesInUserText(menuName, userText)) return false;
@@ -103,19 +121,16 @@ function serviceNameMatchesInUserText(menuName: string, userText: string): boole
   if (t.includes(key)) return true;
   if (key.includes(t) && t.length >= 8) return true;
   const tokens = serviceTokens(key);
-  const userBlob = t
-    .split(/[\s\-–—]+/)
-    .map((w) => foldHebrewServiceToken(w))
-    .join(" ");
+  const userToks = inboundFoldedTokens(t);
   const foldedTokens = tokens.map((w) => foldHebrewServiceToken(w)).filter((w) => w.length >= 3);
   if (foldedTokens.length >= 2) {
-    const hits = foldedTokens.filter((w) => userBlob.includes(w) || t.includes(w)).length;
+    const hits = foldedTokens.filter((w) => catalogTokenHitsUser(w, userToks)).length;
     if (hits >= 2 && hits >= foldedTokens.length - 1) return true;
   }
   if (
     foldedTokens.length === 1 &&
     foldedTokens[0]!.length >= 6 &&
-    (userBlob.includes(foldedTokens[0]!) || t.includes(foldedTokens[0]!))
+    catalogTokenHitsUser(foldedTokens[0]!, userToks)
   ) {
     return true;
   }
@@ -166,6 +181,8 @@ function hasExplicitServiceSwitchIntent(text: string): boolean {
     return true;
   }
   if (/(?:במקום|במקום\s+ה)/u.test(t)) return true;
+  // «לא מעניין אותי אימון אחר» — דחייה, לא בקשת החלפה.
+  if (/לא.{0,40}(?:אימון|שיעור)\s+אחר/u.test(t)) return false;
   if (/(?:אימון|שיעור)\s+אחר|משהו\s+אחר|במקום\s+(?:האימון|השיעור|זה)/iu.test(t)) {
     return true;
   }
@@ -175,11 +192,10 @@ function hasExplicitServiceSwitchIntent(text: string): boolean {
 /** רשת ביטחון — לא מנגנון ראשי לזיהוי מעבר. */
 export function isSalesFlowOpenKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
-  if (!t || hasExplicitServiceSwitchIntent(t) || isExplicitOtherServiceRequest(t)) return false;
+  if (!t || isExplicitOtherServiceRequest(t)) return false;
+  if (isClassSizeKnowledgeQuestion(t)) return true;
+  if (hasExplicitServiceSwitchIntent(t)) return false;
   if (OPEN_QUESTION_LEAD_RE.test(t)) return true;
-  if (/כמה\s+(?:מתאמנים|משתתפים|אנשים|מקומות|נשים|גברים|ילדים)/iu.test(t)) {
-    return true;
-  }
   if (isCatalogSpecificKnowledgeQuestion(t)) return true;
   return false;
 }
@@ -215,7 +231,7 @@ export function isPhaseAgnosticExplicitServiceSwitch(
   const last = String(lastPickedServiceName ?? "").trim();
   const t = String(text ?? "").trim();
   if (!t || t.length > 400 || isNumericServicePickReply(t)) return false;
-  if (isSalesFlowOpenKnowledgeQuestion(t)) return false;
+  if (isSalesFlowOpenKnowledgeQuestion(t) || isCatalogSpecificKnowledgeQuestion(t)) return false;
   if (isCtaServiceFitQuestion(t)) return false;
   if (isExplicitOtherServiceRequest(t)) return true;
   if (!last) return false;
@@ -250,6 +266,14 @@ function isDefinitionalCatalogQuestion(text: string): boolean {
   return /^(?:מה\s+זה|מהו|מה\s+הוא|איך\s+עובד)/u.test(String(text ?? "").trim());
 }
 
+const CLASS_SIZE_KNOWLEDGE_RE =
+  /כמה\s+(?:מתאמנים|משתתפים|אנשים|מקומות|נשים|גברים|ילדים)|כמות\s+(?:משתתפים|אנשים|מתאמנים)|(?:גודל|מספר)\s+(?:ה)?(?:קבוצה|שיעור|אימון)/iu;
+
+/** «כמה אנשים יש בשיעור?» — גודל קבוצה, לא החלפת מוצר. */
+function isClassSizeKnowledgeQuestion(text: string): boolean {
+  return CLASS_SIZE_KNOWLEDGE_RE.test(String(text ?? "").trim());
+}
+
 /** «עמידות ידיים זה שיעור קבוצתי??» — פורמט השיעור, לא בקשה להחליף מוצר. */
 function isClassFormatKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
@@ -275,6 +299,7 @@ const CATALOG_KNOWLEDGE_AUDIENCE_RE =
 export function isCatalogSpecificKnowledgeQuestion(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;
+  if (isClassSizeKnowledgeQuestion(t)) return true;
   if (isDefinitionalCatalogQuestion(t)) return true;
   if (isClassFormatKnowledgeQuestion(t)) return true;
   if (/מה\s+ההבדל|למי\s+(?:זה\s+)?(?:מתאים|מיועד)|איך\s+(?:זה\s+)?עובד/u.test(t)) return true;

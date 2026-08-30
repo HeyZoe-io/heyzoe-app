@@ -27,9 +27,46 @@ export default function DashboardResetPasswordPage() {
     async function run() {
       try {
         const url = new URL(window.location.href);
-        const type = url.searchParams.get("type") ?? "";
+        const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+        const type = url.searchParams.get("type") ?? hashParams.get("type") ?? "";
         const tokenHash = url.searchParams.get("token_hash") ?? "";
         const code = url.searchParams.get("code") ?? "";
+        const accessToken = hashParams.get("access_token") ?? "";
+        const refreshToken = hashParams.get("refresh_token") ?? "";
+
+        const fail = (error: unknown) => {
+          const msg = String((error as { message?: string })?.message ?? "");
+          if (/expired/i.test(msg)) {
+            setExpired(true);
+            setMessage("הקישור פג תוקף");
+          } else if (/flow state|code verifier|pkce/i.test(msg)) {
+            setMessage("פתחו את הקישור באותו מכשיר ובאותו דפדפן שבו לחצתם «שכחת סיסמה».");
+          } else {
+            setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
+          }
+          setReady(true);
+        };
+
+        // Implicit recovery links land as #access_token=...&type=recovery
+        if ((type === "recovery" || hashParams.get("type") === "recovery") && accessToken) {
+          const existing = await supabase.auth.getSession();
+          if (existing.data.session) {
+            setExchanged(true);
+            setReady(true);
+            return;
+          }
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) {
+            fail(error);
+            return;
+          }
+          setExchanged(true);
+          setReady(true);
+          return;
+        }
 
         // Recovery links may arrive as token_hash&type=recovery
         if (type === "recovery" && tokenHash) {
@@ -38,14 +75,7 @@ export default function DashboardResetPasswordPage() {
             token_hash: tokenHash,
           } as any);
           if (error) {
-            const msg = (error as any)?.message ? String((error as any).message) : "";
-            if (/expired/i.test(msg)) {
-              setExpired(true);
-              setMessage("הקישור פג תוקף");
-            } else {
-              setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
-            }
-            setReady(true);
+            fail(error);
             return;
           }
 
@@ -58,14 +88,7 @@ export default function DashboardResetPasswordPage() {
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
-            const msg = (error as any)?.message ? String((error as any).message) : "";
-            if (/expired/i.test(msg)) {
-              setExpired(true);
-              setMessage("הקישור פג תוקף");
-            } else {
-              setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
-            }
-            setReady(true);
+            fail(error);
             return;
           }
 
@@ -74,11 +97,15 @@ export default function DashboardResetPasswordPage() {
           return;
         }
 
-        setMessage("לינק האיפוס לא תקין או שפג תוקפו. בקשו לינק חדש.");
-        setReady(true);
-        return;
+        // detectSessionInUrl may already have persisted a recovery session from the hash
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          setExchanged(true);
+          setReady(true);
+          return;
+        }
 
-        setExchanged(true);
+        setMessage("לינק האיפוס לא תקין או שפג תוקפו. בקשו לינק חדש.");
         setReady(true);
       } catch {
         setMessage("לא הצלחנו לאמת את לינק האיפוס. בקשו לינק חדש.");
@@ -92,7 +119,7 @@ export default function DashboardResetPasswordPage() {
     e.preventDefault();
     setMessage("");
     const pw = password.trim();
-    const hasLetter = /[A-Za-z]/.test(pw);
+    const hasLetter = /[a-zA-Zא-ת]/.test(pw);
     const hasNumber = /\d/.test(pw);
     if (pw.length < 8 || !hasLetter || !hasNumber) {
       setMessage("הסיסמה חייבת להיות לפחות 8 תווים, ולכלול אות ומספר.");

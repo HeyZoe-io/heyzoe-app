@@ -1988,7 +1988,12 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     experience_options_course: c.experience_options_course.map((o) => truncateWaButtonLabel(o)),
     experience_replies_course: [...c.experience_replies_course],
     after_experience_course: c.after_experience_course,
-    greeting_extra_steps: [],
+    greeting_extra_steps: c.greeting_extra_steps.map((s) => ({
+      id: s.id,
+      question: s.question,
+      options: s.options.map((o) => truncateWaButtonLabel(o)),
+      replies: [...s.replies],
+    })),
     opening_extra_steps: c.opening_extra_steps.map((s) => ({
       id: s.id,
       question: s.question,
@@ -2052,7 +2057,12 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
       }
       return row;
     }),
-    cta_extra_steps: [],
+    cta_extra_steps: c.cta_extra_steps.map((s) => ({
+      id: s.id,
+      question: s.question,
+      options: s.options.map((o) => truncateWaButtonLabel(o)),
+      replies: [...s.replies],
+    })),
     followup_after_next_class_body: c.followup_after_next_class_body,
     followup_after_next_class_options: c.followup_after_next_class_options.map((o) =>
       truncateWaButtonLabel(o)

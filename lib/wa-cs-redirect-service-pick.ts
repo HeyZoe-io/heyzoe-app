@@ -1,5 +1,4 @@
-import { logMessage } from "@/lib/analytics";
-import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
+import { ensureSalesFlowStartedMarker, logMessage } from "@/lib/analytics";
 import { salesFlowOpeningResetPatch } from "@/lib/wa-warmup-awaiting-idx";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { BusinessKnowledgePack } from "@/lib/business-context";
@@ -80,6 +79,13 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
   const labels = input.salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
   if (labels.length < 2) return false;
 
+  await ensureSalesFlowStartedMarker({
+    business_slug: input.business_slug,
+    session_id: input.sessionId,
+    businessId: input.businessId,
+    phone: input.msg.from,
+  });
+
   const menuBody = multiServiceQuestionMenuBody(input.knowledge);
   const menuFooter = getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(input.knowledge));
 
@@ -115,12 +121,6 @@ export async function offerServicePickAfterCustomerServiceRedirect(input: {
     .update(salesFlowOpeningResetPatch())
     .eq("business_id", input.businessId)
     .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
-
-  await markContactSalesFlowStarted({
-    supabase: input.supabase,
-    businessId: input.businessId,
-    phone: input.msg.from,
-  });
 
   return true;
 }

@@ -2,7 +2,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { stripTrailingFollowUpQuestion } from "@/lib/wa-split-answer";
 import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
-import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
+import {
+  DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES,
+  withMarketingWordPrecisionGuideline,
+} from "@/lib/marketing-zoe-legal-defaults";
 import { clampMarketingDelaySeconds } from "@/lib/marketing-flow-delay";
 import {
   buildMarketingSupportWaUrl,
@@ -1257,8 +1260,9 @@ async function loadMarketingAiSettings(): Promise<{
     const legalRaw = Array.isArray(row.marketing_legal_guidelines)
       ? row.marketing_legal_guidelines.map((x: unknown) => String(x ?? "").trim()).filter(Boolean)
       : [];
-    const legalGuidelines =
-      legalRaw.length > 0 ? legalRaw : DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES;
+    const legalGuidelines = withMarketingWordPrecisionGuideline(
+      legalRaw.length > 0 ? legalRaw : DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES
+    );
     return { facts, supportPhone, legalGuidelines };
   } catch {
     return {

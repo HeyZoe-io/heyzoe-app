@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
-import { DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES } from "@/lib/marketing-zoe-legal-defaults";
+import {
+  DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES,
+  withMarketingWordPrecisionGuideline,
+} from "@/lib/marketing-zoe-legal-defaults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +47,9 @@ export async function GET() {
     const stored = parseLines(row?.marketing_legal_guidelines);
     const usingDefaults = stored.length === 0;
     return NextResponse.json({
-      lines: usingDefaults ? DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES : stored,
+      lines: usingDefaults
+        ? DEFAULT_MARKETING_ZOE_LEGAL_GUIDELINES
+        : withMarketingWordPrecisionGuideline(stored),
       using_defaults: usingDefaults,
     });
   } catch (e) {

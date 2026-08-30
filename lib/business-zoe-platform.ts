@@ -247,12 +247,61 @@ function upgradeGenderNeutralVerbGuidelineLines(lines: string[]): string[] {
   return [...lines.slice(0, genderIdx + 1), core, natural, ...lines.slice(genderIdx + 1)];
 }
 
+/** דיוק מילים דומות באות אחת — מזריקים לחוקיות בלי שמירה מחדש באדמין. */
+function ensureWordPrecisionGuidelineLines(lines: string[]): string[] {
+  if (lines.some((l) => l.includes("מילים שדומות באות אחת"))) return lines;
+  const wordLine = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("מילים שדומות באות אחת"));
+  if (!wordLine) return lines;
+  const hebrewIdx = lines.findIndex((l) => l.includes("עברית טבעית עם שמות עצם תקינים"));
+  if (hebrewIdx < 0) return lines;
+  return [...lines.slice(0, hebrewIdx + 1), wordLine, ...lines.slice(hebrewIdx + 1)];
+}
+
+/** עיסוי ≠ ספא בטון — מחליפים שורה ישנה בלי שמירה מחדש. */
+function upgradeMassageNotSpaToneGuidelineLines(lines: string[]): string[] {
+  const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("טיפול / wellness / עיסוי") && l.includes("עיסוי זה לא ספא"));
+  if (!replacement) return lines;
+  return lines.map((line) => {
+    const t = line.trim();
+    if (!t.includes("טיפול / wellness / עיסוי") || !t.includes("קול רגוע")) return line;
+    if (t.includes("עיסוי זה לא ספא")) return line;
+    return replacement;
+  });
+}
+
+/** עיסוי ≠ ספא — מזריקים לחוקיות בלי שמירה מחדש באדמין. */
+function ensureNoInventedVenueGuidelineLines(lines: string[]): string[] {
+  if (lines.some((l) => l.includes("עיסוי זה לא ספא"))) return lines;
+  const venueLine = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat()
+    .find((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום"));
+  if (!venueLine) return lines;
+  const namesIdx = lines.findIndex((l) => l.includes("שמות שיעורים/אימונים"));
+  if (namesIdx >= 0) return [...lines.slice(0, namesIdx + 1), venueLine, ...lines.slice(namesIdx + 1)];
+  const inventIdx = lines.findIndex((l) => l.includes("אל תמציאי מחירים"));
+  if (inventIdx >= 0) return [...lines.slice(0, inventIdx + 1), venueLine, ...lines.slice(inventIdx + 1)];
+  return lines;
+}
+
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return upgradeGenderNeutralVerbGuidelineLines(
-    ensureBookingLookupGuidelineLines(
-      upgradeCsPhoneHandoffGuidelineLines(
-        upgradeLegalCsExampleLines(
-          upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+  return ensureNoInventedVenueGuidelineLines(
+    upgradeMassageNotSpaToneGuidelineLines(
+      ensureWordPrecisionGuidelineLines(
+        upgradeGenderNeutralVerbGuidelineLines(
+          ensureBookingLookupGuidelineLines(
+            upgradeCsPhoneHandoffGuidelineLines(
+              upgradeLegalCsExampleLines(
+                upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+              )
+            )
+          )
         )
       )
     )

@@ -196,4 +196,53 @@ assert.equal(
   null
 );
 
+const sanga = [
+  "שיעור יוגה מתחילים",
+  "שיעור יוגה ממשיכים",
+  "שיעור יוגה מתקדמים",
+  "יוגה לכל הרמות",
+  "שיעור יוגה נשים",
+  "קורס מתחילים (8 מפגשים)",
+];
+assert.equal(
+  isCatalogSpecificKnowledgeQuestion("כמה אנשים יש בשיעור?"),
+  true,
+  "class-size question is knowledge"
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("כמה אנשים יש בשיעור?", "שיעור יוגה מתקדמים", sanga),
+  false,
+  "אנשים must not match שיעור יוגה נשים via substring"
+);
+assert.equal(
+  isPhaseAgnosticExplicitServiceSwitch("כמה אנשים יש בשיעור?", "שיעור יוגה מתקדמים", sanga),
+  false
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch(
+    "לא מעניין אותי אימון אחר\nמעניין אותי לדעת כמה אנשים יש בשיעור",
+    "שיעור יוגה מתקדמים",
+    sanga
+  ),
+  false
+);
+assert.equal(
+  isPhaseAgnosticExplicitServiceSwitch(
+    "לא מעניין אותי אימון אחר\nמעניין אותי לדעת כמה אנשים יש בשיעור",
+    "שיעור יוגה מתקדמים",
+    sanga
+  ),
+  false,
+  "rejecting another class while asking class size is not a product switch"
+);
+assert.equal(
+  isPhaseAgnosticExplicitServiceSwitch("רוצה שיעור יוגה נשים", "שיעור יוגה מתקדמים", sanga),
+  true,
+  "explicit request for the women's class still switches"
+);
+assert.equal(
+  isAmbiguousPartialCatalogServiceSwitch("יש שיעור יוגה נשים?", "שיעור יוגה מתקדמים", sanga),
+  true
+);
+
 console.log("wa-cta-service-repick.test.ts: ok");

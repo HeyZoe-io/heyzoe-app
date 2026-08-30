@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { applyKnownAssistantReplyFixes } from "@/lib/wa-assistant-reply-fixes";
+import {
+  applyKnownAssistantReplyFixes,
+  buildWaSpellingAndPhrasingPromptRule,
+} from "@/lib/wa-assistant-reply-fixes";
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 
 const knowledge = {
@@ -155,5 +158,13 @@ const keepAfterRegSlot = applyKnownAssistantReplyFixes(
   { knowledge, trialRegistered: true }
 );
 assert.match(keepAfterRegSlot, /יום רביעי בשעה 18:00/);
+
+const spellingRule = buildWaSpellingAndPhrasingPromptRule(knowledge, {
+  suppressFollowUpQuestion: true,
+});
+assert.match(spellingRule, /מילים שדומות באות אחת/);
+assert.match(spellingRule, /מתוקה/);
+assert.match(spellingRule, /מנוי/);
+assert.match(spellingRule, /עיסוי זה לא ספא/);
 
 console.log("wa-assistant-reply-fixes.test.ts: ok");

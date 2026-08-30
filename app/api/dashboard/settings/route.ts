@@ -13,6 +13,10 @@ import {
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { hasComplimentaryDashboardAccess } from "@/lib/complimentary-dashboard-access";
 import { addCancellationGracePeriod } from "@/lib/subscription-cancellation-grace";
+import {
+  preserveSalesFlowExtraStepsInSocial,
+  settingsUpdatedAtConflicts,
+} from "@/lib/dashboard-settings-save-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -228,7 +232,10 @@ export async function POST(req: NextRequest) {
       ? (existingForUser.social_links as Record<string, unknown>)
       : {};
 
-  const mergedSocial: Record<string, unknown> = { ...prevSocial, ...incomingSocial };
+  const mergedSocial: Record<string, unknown> = preserveSalesFlowExtraStepsInSocial(
+    { ...prevSocial, ...incomingSocial },
+    prevSocial
+  );
   delete mergedSocial.arbox_memberships_url;
   delete mergedSocial.arbox_integration_notes;
   delete mergedSocial.arbox_api_key;
@@ -307,10 +314,20 @@ export async function POST(req: NextRequest) {
     })(),
   };
 
+  const nowIso = new Date().toISOString();
+  if (existingForUser) {
+    const currentUpdatedAt = (existingForUser as { updated_at?: unknown }).updated_at;
+    // Any business-row update since load (settings save, Arbox stamp, CRM) bumps
+    // businesses.updated_at — reject rather than overwrite. Acceptable, safe side.
+    if (settingsUpdatedAtConflicts(body.expected_updated_at, currentUpdatedAt)) {
+      return NextResponse.json({ error: "settings_conflict" }, { status: 409 });
+    }
+  }
+
   const { data: savedBiz, error: bizErr } = await admin
     .from("businesses")
-    .upsert(upsertBusiness, { onConflict: "slug" })
-    .select("id, slug")
+    .upsert({ ...upsertBusiness, updated_at: nowIso }, { onConflict: "slug" })
+    .select("id, slug, updated_at")
     .single();
   if (bizErr || !savedBiz) return NextResponse.json({ error: bizErr?.message ?? "business_save_failed" }, { status: 400 });
 
@@ -471,5 +488,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, slug: savedBiz.slug });
+  return NextResponse.json({ ok: true, slug: savedBiz.slug, updated_at: savedBiz.updated_at ?? nowIso });
 }
