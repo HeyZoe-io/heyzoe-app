@@ -290,7 +290,8 @@ export function buildWaSpellingAndPhrasingPromptRule(
 - אם הליד משתף כוונה/עדכון בלי שאלה («אנסה להגיע בסופ״ש») - אישור קצר וחם בלבד. אסור שיעורי חיים («אל תתנגדי לעצמך») ואסור «בואי תרשמי» - המערכת שולחת CTA בנפרד.
 - אחרי תודה / «חושבת על זה» / שיתוף שקשה עכשיו: אמפתיה קצרה בלבד. אסור «נשמח לראותך ביום X בשעה Y» אלא אם הליד ממש נרשם למועד הזה בשיחה. הצעת מאמן בהיסטוריה אינה הרשמה.
 - איחור / בדרך לשיעור: רק «בסדר גמור אנחנו כאן.» אסור «בטוח שזה יעבוד», אסור «קח את הזמן».
-${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון.` : ""}
+- כשמאשרים שאפשר להירשם לשני שיעורים / שני אימוני היכרות במועדים שונים: בלי יום, בלי שעה ובלי מחיר. נכון: «כן, בדיוק! אתם יכולים להירשם לשני שיעורי יוגה במועדים שונים!» אסור להדביק מועד בודד מהלוח («ביום שני בשעה 19:00 ב-80 ₪»). שמות שיעורים בעברית (יוגה לא yoga).
+${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה כששואלים מתי השיעור: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון. כשמאשרים שני שיעורים במועדים שונים — אל תצייני יום/שעה/מחיר מהלקסיקון.` : ""}
 ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכבר נבחר אימון — ניסוח כמו: «${scheduleExample}» (לא «את מעניינת ב… תוכלי לבחור מהזמנים»).` : ""}`;
 }
 
@@ -399,6 +400,40 @@ const FABRICATED_SEE_YOU_AT_SLOT_RE = new RegExp(
 );
 const FABRICATED_SEE_YOU_FALLBACK = "בכל עת שתצטרכי - אני כאן 💜";
 
+const HE_WEEKDAY_NAME = String.raw`ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת`;
+const HE_CLOCK_TIME = String.raw`\d{1,2}(?::\d{2})?`;
+const TWO_CLASS_NAME =
+  String.raw`[\u0590-\u05FFa-zA-Z][\u0590-\u05FFa-zA-Z'’-]{0,40}(?:\s+[\u0590-\u05FFa-zA-Z][\u0590-\u05FFa-zA-Z'’-]{0,40}){0,3}`;
+const GLUED_PRICE_TAIL = String.raw`(?:\s+ב-?\s*\d+(?:[.,]\d+)?\s*(?:₪|ש["״]?ח|שקלים?))?`;
+const TWO_CLASSES_ONE_SLOT_RE = new RegExp(
+  String.raw`(ל(?:הירשם\s+ל)?שני\s+(?:שיעורי|אימוני)\s+${TWO_CLASS_NAME})\s+ביום\s+(?:${HE_WEEKDAY_NAME})\s+בשעה\s+${HE_CLOCK_TIME}${GLUED_PRICE_TAIL}`,
+  "giu"
+);
+const DAY_HOUR_SLOT_COUNT_RE = new RegExp(
+  String.raw`ביום\s+(?:${HE_WEEKDAY_NAME})\s+בשעה\s+${HE_CLOCK_TIME}`,
+  "giu"
+);
+
+/**
+ * אישור «שני שיעורים» עם מועד בודד («ביום שני בשעה 19:00») — לא הגיוני.
+ * מחליפים ב«במועדים שונים» בלי יום/שעה/מחיר.
+ */
+export function rewriteTwoClassesGluedToSingleSlot(text: string): string {
+  let s = String(text ?? "");
+  if (!s || !/שני\s+(?:שיעורי|אימוני)/u.test(s)) return s;
+  const slotHits = s.match(DAY_HOUR_SLOT_COUNT_RE) ?? [];
+  if (slotHits.length !== 1) return s;
+  TWO_CLASSES_ONE_SLOT_RE.lastIndex = 0;
+  if (!TWO_CLASSES_ONE_SLOT_RE.test(s)) return s;
+  TWO_CLASSES_ONE_SLOT_RE.lastIndex = 0;
+  s = s.replace(TWO_CLASSES_ONE_SLOT_RE, "$1 במועדים שונים!");
+  return s
+    .replace(/במועדים שונים!([.!?])/gu, "במועדים שונים$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,!?])/g, "$1")
+    .trim();
+}
+
 export function stripFabricatedSeeYouAtSlot(text: string): string {
   let s = String(text ?? "").trim();
   if (!s) return s;
@@ -498,6 +533,7 @@ export function applyKnownAssistantReplyFixes(
 
   s = stripFakeScheduleImagePlaceholders(s);
   s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
+  s = rewriteTwoClassesGluedToSingleSlot(s);
   if (input.trialRegistered !== true) {
     s = stripFabricatedSeeYouAtSlot(s);
     s = stripPrematureAfterRegistration(s);
