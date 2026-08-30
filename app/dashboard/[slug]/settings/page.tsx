@@ -77,6 +77,10 @@ import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import ConnectWhatsAppSection from "../../../[slug]/settings/connect-whatsapp-section";
 import { dashboardWhatsAppSendHref } from "@/lib/dashboard-wa-send-href";
 import {
+  dashboardWhatsAppChannelSwrKey,
+  dashboardZoeActivatedSwrKey,
+} from "@/lib/dashboard-whatsapp-channel-swr";
+import {
   useRegisterSettingsUnsaved,
   useSettingsUnsaved,
 } from "@/app/[slug]/settings/settings-unsaved-context";
@@ -537,7 +541,8 @@ function WhatsAppNumberSection({
     return { channel: j.channel ?? null, zoe_activated: Boolean(j.zoe_activated) };
   }, []);
 
-  const key = useMemo(() => `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`, [slug]);
+  const key = useMemo(() => dashboardWhatsAppChannelSwrKey(slug), [slug]);
+  const { mutate: mutateGlobal } = useSWRConfig();
   const { data: channelData, error, isLoading, mutate } = useSWR(key, fetcher, {
     /** מעבר בין טאבי ההגדרות לא אמור «למרר» את הנראות; רענון בפוקוס לא נחוץ */
     revalidateOnFocus: false,
@@ -760,13 +765,14 @@ function WhatsAppNumberSection({
         (prev) => ({ channel: prev?.channel ?? null, zoe_activated: nextActivate }),
         { revalidate: false }
       );
+      await mutateGlobal(dashboardZoeActivatedSwrKey(slug), nextActivate, { revalidate: false });
     } catch (e) {
       console.error("[settings] toggleZoeActivated failed:", e);
       setZoeToggleError(tp.zoeToggleFailed);
     } finally {
       setZoeToggling(false);
     }
-  }, [slug, zoeActivated, mutate, tp.zoeActivateNoNumber, tp.zoeToggleFailed]);
+  }, [slug, zoeActivated, mutate, mutateGlobal, tp.zoeActivateNoNumber, tp.zoeToggleFailed]);
 
   return (
     <div

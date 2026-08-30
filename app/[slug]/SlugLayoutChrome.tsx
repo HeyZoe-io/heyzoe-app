@@ -2,11 +2,17 @@
 
 import { useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import useSWR, { useSWRConfig } from "swr";
 import SlugDashboardNav from "./Nav";
 import { SettingsUnsavedProvider } from "./settings/settings-unsaved-context";
 import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
 import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
 import OwnerWhatsappOptInModal from "@/app/components/OwnerWhatsappOptInModal";
+import {
+  dashboardWhatsAppChannelSwrKey,
+  dashboardZoeActivatedSwrKey,
+  type DashboardWhatsAppChannelSwrData,
+} from "@/lib/dashboard-whatsapp-channel-swr";
 
 export default function SlugLayoutChrome({
   slug,
@@ -23,9 +29,16 @@ export default function SlugLayoutChrome({
   const normSlug = String(slug ?? "").trim().toLowerCase();
   const isAccountArea = normSlug && pathname.includes(`/${normSlug}/account`);
 
-  const [activated, setActivated] = useState(zoeActivated);
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
+  const zoeKey = dashboardZoeActivatedSwrKey(normSlug);
+  const { mutate: mutateGlobal } = useSWRConfig();
+  const { data: activatedFromCache, mutate } = useSWR<boolean>(zoeKey, {
+    fallbackData: zoeActivated,
+    revalidateOnMount: false,
+    revalidateOnFocus: false,
+  });
+  const activated = Boolean(activatedFromCache);
 
   if (isAccountArea) {
     return <>{children}</>;
@@ -48,7 +61,15 @@ export default function SlugLayoutChrome({
         }
         throw new Error(`request_failed (${res.status})`);
       }
-      setActivated(true);
+      await mutate(true, { revalidate: false });
+      await mutateGlobal(
+        dashboardWhatsAppChannelSwrKey(normSlug),
+        (prev: DashboardWhatsAppChannelSwrData | undefined) => ({
+          channel: prev?.channel ?? null,
+          zoe_activated: true,
+        }),
+        { revalidate: false }
+      );
     } catch (e) {
       console.error("[SlugLayoutChrome] activateZoe failed:", e);
       setActivateError("ההפעלה נכשלה, נסו שוב.");

@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DashboardLang } from "@/lib/dashboard-lang";
+import { dashboardWhatsAppChannelSwrKey } from "@/lib/dashboard-whatsapp-channel-swr";
 
 /**
  * Same endpoint + SWR key as WhatsAppNumberSection in
@@ -150,7 +151,7 @@ export default function ConnectWhatsAppSection({
 }: ConnectWhatsAppSectionProps) {
   const t = i18n[lang];
 
-  const channelKey = `/api/dashboard/whatsapp-channel?slug=${encodeURIComponent(slug)}`;
+  const channelKey = dashboardWhatsAppChannelSwrKey(slug);
   const { mutate: mutateChannel } = useSWR(
     channelKey,
     channelFetcher,
