@@ -1394,9 +1394,9 @@ export default function SlugSettingsPage({
   const [waSalesFollowup1, setWaSalesFollowup1] = useState("");
   const [waSalesFollowup2, setWaSalesFollowup2] = useState("");
   const [waSalesFollowup3, setWaSalesFollowup3] = useState("");
-  const [waSalesFollowup1Enabled, setWaSalesFollowup1Enabled] = useState(true);
-  const [waSalesFollowup2Enabled, setWaSalesFollowup2Enabled] = useState(true);
-  const [waSalesFollowup3Enabled, setWaSalesFollowup3Enabled] = useState(true);
+  const [waSalesFollowup1Enabled, setWaSalesFollowup1Enabled] = useState(false);
+  const [waSalesFollowup2Enabled, setWaSalesFollowup2Enabled] = useState(false);
+  const [waSalesFollowup3Enabled, setWaSalesFollowup3Enabled] = useState(false);
 
 
   // ── Step 2: Trial classes (אימון ניסיון) + drag & drop

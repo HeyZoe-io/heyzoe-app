@@ -15,6 +15,7 @@ import {
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
 import { planPriceIls } from "@/lib/plan-prices";
+import { newDashboardWaSalesFollowupEnabledFields } from "@/lib/wa-sales-followup-defaults";
 
 export const runtime = "nodejs";
 
@@ -654,6 +655,7 @@ export async function POST(req: NextRequest) {
               address: String(sessionRow?.address ?? "").trim(),
               tagline: String(sessionRow?.description ?? "").trim(),
               business_description: String(sessionRow?.description ?? "").trim(),
+              ...newDashboardWaSalesFollowupEnabledFields(),
             },
             plan,
             plan_price,
@@ -764,6 +766,7 @@ export async function POST(req: NextRequest) {
         address: String(sessionRow?.address ?? "").trim(),
         tagline: String(sessionRow?.description ?? "").trim(),
         business_description: String(sessionRow?.description ?? "").trim(),
+        ...newDashboardWaSalesFollowupEnabledFields(),
       },
       plan,
       plan_price,
