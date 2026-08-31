@@ -5,6 +5,7 @@ import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent
 import { matchesRegistrationIntentPhrase } from "@/lib/wa-registration-intent";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
+  buildArboxUserMembershipsPath,
   classifyMembershipLookup,
   isInForceMembership,
   mapMembershipLookupReply,
@@ -127,7 +128,7 @@ const TODAY = "2026-08-23";
   assert.equal(isInForceMembership(withDebt, TODAY), true);
 }
 
-/** Classify: ACTIVE / EXPIRED / NOT-FOUND stay distinct. */
+/** Classify: ACTIVE / EXPIRED / NOT-FOUND stay distinct. Full unfiltered set, not empty-filter. */
 {
   const inForce: ArboxUserMembershipRecord = { active: 1, cancelled: 0, end_time: null };
   const expiredRow: ArboxUserMembershipRecord = { active: 0, cancelled: 1, end_time: "2026-01-01" };
@@ -160,6 +161,63 @@ const TODAY = "2026-08-23";
     }),
     "fetch_failed"
   );
+
+  /** 972527020655 live shape: expired session + in-force PRE-Sale → active, not expired. */
+  const amirToday = "2026-08-31";
+  const amirExpired: ArboxUserMembershipRecord = {
+    active: 0,
+    cancelled: 0,
+    end_time: "2026-08-12",
+    membership_type_name: "אימון בודד פילאטיס מכשירים",
+  };
+  const amirActive: ArboxUserMembershipRecord = {
+    active: 1,
+    cancelled: 0,
+    start_time: "2026-08-15",
+    end_time: "2026-10-14",
+    membership_type_name: "PRE- Sale",
+    type: "session",
+  };
+  assert.equal(isInForceMembership(amirActive, amirToday), true);
+  assert.equal(isInForceMembership(amirExpired, amirToday), false);
+  assert.equal(
+    classifyMembershipLookup({
+      userFound: true,
+      records: [amirExpired, amirActive],
+      todayYmd: amirToday,
+    }),
+    "active"
+  );
+  /** Filtered active=2 was empty — that must not be treated as expired when the full set has in-force. */
+  assert.equal(
+    classifyMembershipLookup({ userFound: true, records: [], todayYmd: amirToday }),
+    "expired"
+  );
+
+  /** User in Arbox with only expired/cancelled cards → case 1. */
+  const cancelledOnly: ArboxUserMembershipRecord = {
+    active: 0,
+    cancelled: 1,
+    start_time: "2025-10-13",
+    end_time: "2026-04-11",
+  };
+  assert.equal(
+    classifyMembershipLookup({ userFound: true, records: [cancelledOnly], todayYmd: amirToday }),
+    "expired"
+  );
+
+  /** Phone not in Arbox (no user_id) → case 3, even if leftover records were passed. */
+  assert.equal(
+    classifyMembershipLookup({ userFound: false, records: [amirActive], todayYmd: amirToday }),
+    "not_found"
+  );
+}
+
+/** Memberships path: unfiltered — no `active` query (2 is not "all"). */
+{
+  const path = buildArboxUserMembershipsPath("11009462");
+  assert.equal(path, "/v3/users/memberships?user_id=11009462");
+  assert.equal(path.includes("active="), false);
 }
 
 /** Exact Hebrew copy; hyphen not em-dash; notify flags. */

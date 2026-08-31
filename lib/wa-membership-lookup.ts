@@ -1,8 +1,13 @@
 /**
  * Read-only Arbox membership lookup by phone — on-demand, explicit
  * registration_failed_inquiry only.
- * GET /v3/users/searchUser then GET /v3/users/memberships?user_id=&active=2 (all statuses).
+ * GET /v3/users/searchUser then GET /v3/users/memberships?user_id= (no `active` filter).
  * Always looks up the WhatsApp sender number (msg.from) only. No Arbox writes. No cache.
+ *
+ * Live Arbox (Limitless, Aug 2026): `active=1` = in-force only, `active=0` = inactive only,
+ * `active=2` returns empty (HTTP 200 / JSON 204) even when the user has cards.
+ * Omitting `active` returns the complete set (active + expired/cancelled). Classify from
+ * record fields — never from empty/non-empty of a filtered query.
  *
  * Remaining-sessions and product→category eligibility are not on the record (Phase 0) —
  * do not scan sessionsReport or guess from membership type names.
@@ -16,9 +21,6 @@
 import { arboxPublicFetch, searchArboxUserByPhone } from "@/lib/crm/adapters/arbox";
 import { arboxFlagYes, formatDateYmdIsrael, parseEndDateYmd } from "@/lib/leads/arbox-membership-expiring";
 import { normalizeIsraeliPhoneTail } from "@/lib/phone-normalize";
-
-/** active=2 returns every membership status (0 inactive / 1 active / 2 all). */
-const MEMBERSHIPS_ACTIVE_ALL = "2";
 
 export const MEMBERSHIP_LOOKUP_ACTIVE_REPLY =
   "היי! אני רואה שיש לך מנוי/כרטיסיה בתוקף. אפשר לנסות שוב מהאפליקציה או שאבקש מהצוות שיחזרו אליך! בינתיים אפשר לכתוב לי לאיזה אימון ניסית להירשם?";
@@ -75,7 +77,7 @@ export function parseArboxMembershipRecords(json: unknown): ArboxUserMembershipR
 }
 
 /**
- * In-force = active === 1 AND cancelled !== 1 AND (end_time is null OR end_time >= today).
+ * In-force = active === 1 AND cancelled === 0 AND (end_time is null OR end_time >= today).
  * A null end_time is an open-ended active membership, not expired.
  * Does not inspect type (trial vs regular) or debt.
  */
@@ -87,6 +89,11 @@ export function isInForceMembership(row: ArboxUserMembershipRecord, todayYmd: st
   return endYmd >= todayYmd;
 }
 
+/**
+ * Classify from record fields after a full (unfiltered) memberships fetch.
+ * not_found is only for searchUser miss — never from an empty filtered memberships query.
+ * User exists + no in-force row (including zero memberships) → expired copy (handoff).
+ */
 export function classifyMembershipLookup(input: {
   userFound: boolean;
   records: ArboxUserMembershipRecord[];
@@ -97,6 +104,12 @@ export function classifyMembershipLookup(input: {
   if (!input.userFound) return "not_found";
   if (input.records.some((row) => isInForceMembership(row, input.todayYmd))) return "active";
   return "expired";
+}
+
+/** Full set for one user — do not pass `active` (see file header). */
+export function buildArboxUserMembershipsPath(userId: string): string {
+  const qs = new URLSearchParams({ user_id: String(userId ?? "").trim() });
+  return `/v3/users/memberships?${qs.toString()}`;
 }
 
 export function mapMembershipLookupReply(kind: MembershipLookupReplyKind): MembershipLookupReply {
@@ -147,8 +160,7 @@ export async function fetchArboxUserMemberships(input: {
 > {
   const userId = String(input.userId ?? "").trim();
   if (!userId) return { ok: false, error: "missing_user_id" };
-  const qs = new URLSearchParams({ user_id: userId, active: MEMBERSHIPS_ACTIVE_ALL });
-  const res = await arboxPublicFetch(`/v3/users/memberships?${qs.toString()}`, {
+  const res = await arboxPublicFetch(buildArboxUserMembershipsPath(userId), {
     apiKey: input.apiKey,
   });
   if (!res.ok) {
