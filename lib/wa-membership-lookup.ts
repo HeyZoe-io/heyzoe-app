@@ -12,7 +12,9 @@
  * Remaining-sessions and product→category eligibility are not on the record (Phase 0) —
  * do not scan sessionsReport or guess from membership type names.
  * Trial products are punch-card-like records; v1 copy does not branch on type=trial.
- * `debt` exists on the record (active + debt can block registration) but is out of scope for v1.
+ * `debt` on an in-force record (amount owed, live type number ≥ 0) can block
+ * class registration — that is a sub-branch of ACTIVE (handoff), not a top-level case.
+ * Expired/cancelled cards with debt stay EXPIRED.
  *
  * IO (10x clients): 2 Arbox calls (searchUser + memberships), only when the lead
  * explicitly says registration/booking failed (never per inbound message).
@@ -24,6 +26,8 @@ import { normalizeIsraeliPhoneTail } from "@/lib/phone-normalize";
 
 export const MEMBERSHIP_LOOKUP_ACTIVE_REPLY =
   "היי! אני רואה שיש לך מנוי/כרטיסיה בתוקף. אפשר לנסות שוב מהאפליקציה או שאבקש מהצוות שיחזרו אליך! בינתיים אפשר לכתוב לי לאיזה אימון ניסית להירשם?";
+export const MEMBERSHIP_LOOKUP_ACTIVE_DEBT_REPLY =
+  "אני רואה שיש חוב במערכת, אבל אני לא מעודכנת בכל הפרטים אז אני מעבירה לצוות שיסתכלו 💜";
 export const MEMBERSHIP_LOOKUP_EXPIRED_REPLY =
   "היי! אני רואה שהמנוי/כרטיסיה פג תוקף/לא פעיל. אני אשאיר פנייה שיחזרו אליך בקרוב סבבה?";
 export const MEMBERSHIP_LOOKUP_NOT_FOUND_REPLY =
@@ -32,6 +36,7 @@ export const MEMBERSHIP_LOOKUP_ACTIVE_FOLLOWUP_REPLY =
   "תודה! אבקש מהצוות לחזור אליך בהקדם.";
 
 export const MEMBERSHIP_LOOKUP_ACTIVE_MODEL = "membership_lookup_active";
+export const MEMBERSHIP_LOOKUP_ACTIVE_DEBT_MODEL = "membership_lookup_active_debt";
 export const MEMBERSHIP_LOOKUP_EXPIRED_MODEL = "membership_lookup_expired";
 export const MEMBERSHIP_LOOKUP_NOT_FOUND_MODEL = "membership_lookup_not_found";
 export const MEMBERSHIP_LOOKUP_FETCH_FAILED_MODEL = "membership_lookup_fetch_failed";
@@ -45,12 +50,13 @@ export type ArboxUserMembershipRecord = {
   membership_type_id?: unknown;
   membership_type_name?: unknown;
   type?: unknown;
-  /** Present on live records; not used in v1 classification or copy. */
+  /** Per-membership amount owed. Live type is number ≥ 0; coerce strings. Credit (< 0) is ignored. */
   debt?: unknown;
 };
 
 export type MembershipLookupReplyKind =
   | "active"
+  | "active_debt"
   | "expired"
   | "not_found"
   | "fetch_failed"
@@ -89,10 +95,18 @@ export function isInForceMembership(row: ArboxUserMembershipRecord, todayYmd: st
   return endYmd >= todayYmd;
 }
 
+/** Amount owed on the record. Live Arbox is a non-negative number; coerce strings. Credit (< 0) is not debt. */
+export function hasPositiveMembershipDebt(raw: unknown): boolean {
+  if (raw == null || raw === "") return false;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  return Number.isFinite(n) && n > 0;
+}
+
 /**
  * Classify from record fields after a full (unfiltered) memberships fetch.
  * not_found is only for searchUser miss — never from an empty filtered memberships query.
  * User exists + no in-force row (including zero memberships) → expired copy (handoff).
+ * In-force + any of those rows has debt > 0 → active_debt (ACTIVE sub-branch, team handoff).
  */
 export function classifyMembershipLookup(input: {
   userFound: boolean;
@@ -102,8 +116,10 @@ export function classifyMembershipLookup(input: {
 }): Exclude<MembershipLookupReplyKind, "active_followup"> {
   if (input.fetchFailed) return "fetch_failed";
   if (!input.userFound) return "not_found";
-  if (input.records.some((row) => isInForceMembership(row, input.todayYmd))) return "active";
-  return "expired";
+  const inForce = input.records.filter((row) => isInForceMembership(row, input.todayYmd));
+  if (inForce.length === 0) return "expired";
+  if (inForce.some((row) => hasPositiveMembershipDebt(row.debt))) return "active_debt";
+  return "active";
 }
 
 /** Full set for one user — do not pass `active` (see file header). */
@@ -120,6 +136,13 @@ export function mapMembershipLookupReply(kind: MembershipLookupReplyKind): Membe
         text: MEMBERSHIP_LOOKUP_ACTIVE_REPLY,
         modelUsed: MEMBERSHIP_LOOKUP_ACTIVE_MODEL,
         notifyHumanRequested: false,
+      };
+    case "active_debt":
+      return {
+        kind,
+        text: MEMBERSHIP_LOOKUP_ACTIVE_DEBT_REPLY,
+        modelUsed: MEMBERSHIP_LOOKUP_ACTIVE_DEBT_MODEL,
+        notifyHumanRequested: true,
       };
     case "expired":
       return {

@@ -7,8 +7,11 @@ import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
   buildArboxUserMembershipsPath,
   classifyMembershipLookup,
+  hasPositiveMembershipDebt,
   isInForceMembership,
   mapMembershipLookupReply,
+  MEMBERSHIP_LOOKUP_ACTIVE_DEBT_MODEL,
+  MEMBERSHIP_LOOKUP_ACTIVE_DEBT_REPLY,
   MEMBERSHIP_LOOKUP_ACTIVE_FOLLOWUP_MODEL,
   MEMBERSHIP_LOOKUP_ACTIVE_FOLLOWUP_REPLY,
   MEMBERSHIP_LOOKUP_ACTIVE_MODEL,
@@ -128,6 +131,20 @@ const TODAY = "2026-08-23";
   assert.equal(isInForceMembership(withDebt, TODAY), true);
 }
 
+/** Debt: only Number(debt) > 0. Live Arbox is a non-negative number; strings coerced. Credit is not debt. */
+{
+  assert.equal(hasPositiveMembershipDebt(50), true);
+  assert.equal(hasPositiveMembershipDebt("50"), true);
+  assert.equal(hasPositiveMembershipDebt(400), true);
+  assert.equal(hasPositiveMembershipDebt(0), false);
+  assert.equal(hasPositiveMembershipDebt("0"), false);
+  assert.equal(hasPositiveMembershipDebt(""), false);
+  assert.equal(hasPositiveMembershipDebt(null), false);
+  assert.equal(hasPositiveMembershipDebt(undefined), false);
+  assert.equal(hasPositiveMembershipDebt(-10), false);
+  assert.equal(hasPositiveMembershipDebt("-5"), false);
+}
+
 /** Classify: ACTIVE / EXPIRED / NOT-FOUND stay distinct. Full unfiltered set, not empty-filter. */
 {
   const inForce: ArboxUserMembershipRecord = { active: 1, cancelled: 0, end_time: null };
@@ -211,6 +228,60 @@ const TODAY = "2026-08-23";
     classifyMembershipLookup({ userFound: false, records: [amirActive], todayYmd: amirToday }),
     "not_found"
   );
+
+  /** ACTIVE sub-branch: in-force + debt > 0 (number and string) → active_debt. */
+  assert.equal(
+    classifyMembershipLookup({
+      userFound: true,
+      records: [{ active: 1, cancelled: 0, end_time: null, debt: 50 }],
+      todayYmd: TODAY,
+    }),
+    "active_debt"
+  );
+  assert.equal(
+    classifyMembershipLookup({
+      userFound: true,
+      records: [{ active: 1, cancelled: 0, end_time: null, debt: "50" }],
+      todayYmd: TODAY,
+    }),
+    "active_debt"
+  );
+
+  /** In-force with debt 0 / null / "0" / "" → standard ACTIVE. */
+  for (const debt of [0, "0", "", null, undefined] as const) {
+    assert.equal(
+      classifyMembershipLookup({
+        userFound: true,
+        records: [{ active: 1, cancelled: 0, end_time: null, debt }],
+        todayYmd: TODAY,
+      }),
+      "active",
+      `debt=${JSON.stringify(debt)}`
+    );
+  }
+
+  /** Expired-only with debt on that card → still EXPIRED. */
+  assert.equal(
+    classifyMembershipLookup({
+      userFound: true,
+      records: [{ active: 0, cancelled: 0, end_time: "2026-08-02", debt: 400 }],
+      todayYmd: amirToday,
+    }),
+    "expired"
+  );
+
+  /** In-force debt 0 + expired card with debt → ACTIVE (debt only on in-force rows). */
+  assert.equal(
+    classifyMembershipLookup({
+      userFound: true,
+      records: [
+        { active: 1, cancelled: 0, end_time: null, debt: 0 },
+        { active: 0, cancelled: 0, end_time: "2026-08-02", debt: 400 },
+      ],
+      todayYmd: amirToday,
+    }),
+    "active"
+  );
 }
 
 /** Memberships path: unfiltered — no `active` query (2 is not "all"). */
@@ -234,6 +305,17 @@ const TODAY = "2026-08-23";
   assert.equal(active.text.includes("—"), false);
   assert.equal(active.text.includes("כלול"), false);
   assert.equal(active.text.includes("נותרו"), false);
+
+  const activeDebt = mapMembershipLookupReply("active_debt");
+  assert.equal(activeDebt.kind, "active_debt");
+  assert.equal(activeDebt.modelUsed, MEMBERSHIP_LOOKUP_ACTIVE_DEBT_MODEL);
+  assert.equal(activeDebt.notifyHumanRequested, true);
+  assert.equal(activeDebt.text, MEMBERSHIP_LOOKUP_ACTIVE_DEBT_REPLY);
+  assert.equal(
+    activeDebt.text,
+    "אני רואה שיש חוב במערכת, אבל אני לא מעודכנת בכל הפרטים אז אני מעבירה לצוות שיסתכלו 💜"
+  );
+  assert.equal(activeDebt.text.includes("—"), false);
 
   const expired = mapMembershipLookupReply("expired");
   assert.equal(expired.kind, "expired");
