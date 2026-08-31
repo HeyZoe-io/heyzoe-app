@@ -12,12 +12,12 @@ export const WA_BUSINESS_APP_ECHO_MODEL = "wa_business_app";
 
 /**
  * Per-lead silence after a human send from the phone app. No cron — paused_until expires.
- * 24h covers morning scheduling + same-day evening “thanks for the session” (5h was too short).
+ * 5h from the last WhatsApp Business app send (dashboard «עצור בוט» is unrelated).
  */
-export const WA_BUSINESS_APP_PAUSE_MS = 24 * 60 * 60 * 1000;
+export const WA_BUSINESS_APP_PAUSE_MS = 5 * 60 * 60 * 1000;
 
-/** Dashboard pause is ~100 years. Anything within this window is the auto app-echo pause. */
-export const WA_APP_ECHO_PAUSE_DISPLAY_MAX_MS = 36 * 60 * 60 * 1000;
+/** Dashboard pause is ~100 years. Anything within this window is the 5h app-echo pause. */
+export const WA_APP_ECHO_PAUSE_DISPLAY_MAX_MS = 12 * 60 * 60 * 1000;
 
 export function remainingAppEchoPauseMs(
   pausedUntilIso: string | null | undefined,
@@ -30,8 +30,8 @@ export function remainingAppEchoPauseMs(
 
 /**
  * Pause rows are authoritative: an expired/cleared row must not be overridden by
- * the recent `wa_business_app` echo fallback (otherwise releasing a 24h app-echo
- * pause does nothing until the last phone-app message is also 24h old).
+ * the recent `wa_business_app` echo fallback (otherwise releasing a 5h app-echo
+ * pause does nothing until the last phone-app message is also 5h old).
  */
 export function pausedSessionRowsBlockZoe(
   rows: { paused_until?: string | null }[] | null | undefined,
@@ -77,7 +77,7 @@ export function formatAppEchoPauseRemaining(
 
 /**
  * Dashboard "עצור בוט" sets paused_until ~100 years out. Never shorten that.
- * Otherwise refresh to now + 24h on every app send.
+ * Otherwise refresh to now + 5h on every app send.
  */
 export function nextPausedUntilForAppEcho(
   existingUntilIso: string | null | undefined,
@@ -126,7 +126,7 @@ export async function isBusinessWaSessionPaused(input: {
     new Date(nowIso)
   );
   if (pauseState === "paused") return true;
-  // Pause rows are the only source of truth. A missing row must not inherit 24h
+  // Pause rows are the only source of truth. A missing row must not inherit 5h
   // silence from old `wa_business_app` messages — that re-broke reconnect and
   // dashboard «הפעל בוט» (no row → UI shows unpaused, webhook still skipped).
   return false;
@@ -136,7 +136,7 @@ const RELEASE_IN_CHUNK = 80;
 
 /**
  * After a coexistence reconnect, phone-app coverage during the outage must not keep
- * Zoe silent for 24h. Expires auto app-echo pauses only (not dashboard «עצור בוט»).
+ * Zoe silent for 5h. Expires auto app-echo pauses only (not dashboard «עצור בוט»).
  */
 export async function releaseAutoAppEchoPausesForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -296,7 +296,7 @@ async function pauseBusinessSessionForAppEcho(input: {
 
 /**
  * Coexistence: a human sent from the WhatsApp Business app to a lead.
- * Pause Zoe on that session for 24 hours. Does not touch marketing, and does not
+ * Pause Zoe on that session for 5 hours. Does not touch marketing, and does not
  * set conversations.bot_paused (that flag auto-clears at 15 min).
  */
 export async function handleSmbMessageEchoes(echoes: WaSmbMessageEcho[]): Promise<void> {

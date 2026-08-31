@@ -62,13 +62,12 @@ assert.equal(nextPausedUntilForAppEcho(manual, now), manual);
 assert.equal(isAppEchoAutoPause(autoUntil, now), true);
 assert.equal(isAppEchoAutoPause(manual, now), false);
 assert.equal(isAppEchoAutoPause(null, now), false);
-assert.equal(formatAppEchoPauseRemaining(autoUntil, "he", now), "עוד 24 שע׳");
-assert.equal(formatAppEchoPauseRemaining(autoUntil, "en", now), "24h left");
+assert.equal(formatAppEchoPauseRemaining(autoUntil, "he", now), "עוד 5 שע׳");
+assert.equal(formatAppEchoPauseRemaining(autoUntil, "en", now), "5h left");
 
 const trainerSentAt = "2026-08-23T07:06:06.000Z";
-const eveningThanks = new Date("2026-08-23T15:27:00.000Z");
-assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, eveningThanks), true);
-assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, new Date("2026-08-24T08:00:00.000Z")), false);
+assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, new Date("2026-08-23T11:00:00.000Z")), true);
+assert.equal(isRecentWaBusinessAppEcho(trainerSentAt, new Date("2026-08-23T12:10:00.000Z")), false);
 
 assert.equal(pausedSessionRowsBlockZoe([{ paused_until: autoUntil }], now), "paused");
 assert.equal(pausedSessionRowsBlockZoe([{ paused_until: now.toISOString() }], now), "released");
