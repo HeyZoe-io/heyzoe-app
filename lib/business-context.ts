@@ -651,6 +651,8 @@ export type WhatsAppPromptContext = {
   scheduleInterestServiceName?: string;
   /** מועדי לוח/מחזור לאימון שנבחר — לקסיקון מדויק בפרומפט */
   pickedServiceScheduleLexicon?: string;
+  /** היום/מחר לפי שעון ישראל + מועדים לאותם ימים */
+  israelNowScheduleBlock?: string;
   /** כבר נשלחה בקשת «נסחו שוב» בשיחה — השלב הבא הוא העברה לצוות */
   unclearClarifyAlreadySent?: boolean;
 };
@@ -873,6 +875,10 @@ ${saleFlowExtra}
         ? `הציעי רק את הקישור הזה: ${(knowledge.schedulePublicUrl || knowledge.arboxLink || "").trim()} — אסור לשלוח קישור תשלום / הרשמה / סליקה במקום.`
         : "אין לינק - אל תמציאי."
   }
-- מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר או מיום אחר. אם שאלו על יום/שעה לאימון ואין את המועד בידע — עני רק את המשפט הזה ובלי תוספת: אין בעיה אני מעבירה את הבקשה לצוות.${bookingTruthBlock}
+- מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר או מיום אחר. אם שאלו על יום/שעה לאימון ואין את המועד בידע — עני רק את המשפט הזה ובלי תוספת: אין בעיה אני מעבירה את הבקשה לצוות.${
+    waCtx?.israelNowScheduleBlock?.trim()
+      ? `\n${waCtx.israelNowScheduleBlock.trim()}`
+      : ""
+  }${bookingTruthBlock}
 `;
 }

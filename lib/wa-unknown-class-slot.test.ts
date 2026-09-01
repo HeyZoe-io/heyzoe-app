@@ -171,6 +171,14 @@ assert.equal(
   true
 );
 
+assert.equal(
+  matchCatalogServiceFromFreeText("כיסא", [
+    svc("פילאטיס מכשירים (כסא)", [{ day: "ג", time: "18:30" }]),
+    svc("פילאטיס מזרן", [{ day: "ב", time: "19:00" }]),
+  ]),
+  "פילאטיס מכשירים (כסא)"
+);
+
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 

@@ -1,6 +1,7 @@
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import type { WaSchedulePickSlot } from "@/lib/product-schedule-slots";
 import { foldHebrewServiceToken } from "@/lib/hebrew-service-token";
+import { addIsraelDayLetter, getIsraelWeekday, ISRAEL_DAY_LETTERS } from "@/lib/israel-time";
 
 /** כשאין מועד בידע — לא ממציאים שעה; מעבירים לצוות. */
 export const UNKNOWN_CLASS_SLOT_HANDOFF_REPLY = "אין בעיה אני מעבירה את הבקשה לצוות";
@@ -32,15 +33,38 @@ function foldClassName(raw: string): string {
   let t = String(raw ?? "")
     .toLowerCase()
     .replace(/[׳״"'`]/g, "")
-    .replace(/[&+]/g, " ");
+    .replace(/[&+]/g, " ")
+    .replace(/[()]/g, " ");
   t = t.replace(/פוואר/gu, "power").replace(/פאוור/gu, "power");
   t = t.replace(/הייט/gu, "hiit").replace(/היט/gu, "hiit");
+  t = t.replace(/כיסאות/gu, "כסא").replace(/כיסא/gu, "כסא");
+  t = t.replace(/\bchairs?\b/gi, "כסא");
   t = t.replace(/\bאנד\b/gu, " ").replace(/\band\b/g, " ");
   return t.replace(/\s+/g, " ").trim();
 }
 
-function parseRequestedDays(text: string): DayLetter[] {
+const RELATIVE_DAY_RES: { delta: 0 | 1 | 2; re: RegExp }[] = [
+  { delta: 2, re: /(?:^|[^\p{L}])ו?מחרתיים(?:[^\p{L}]|$)/u },
+  { delta: 1, re: /(?:^|[^\p{L}])ו?(?:מחר|למחר|tomorrow)(?:[^\p{L}]|$)/iu },
+  {
+    delta: 0,
+    re: /(?:^|[^\p{L}])ו?(?:הערב|להערב|הלילה|הבוקר|הצהריים|היום|להיום|tonight|today)(?:[^\p{L}]|$)/iu,
+  },
+];
+
+function relativeDayLettersFromText(text: string, now: Date): DayLetter[] {
+  const today = ISRAEL_DAY_LETTERS[getIsraelWeekday(now)] as DayLetter;
   const found = new Set<DayLetter>();
+  for (const { delta, re } of RELATIVE_DAY_RES) {
+    if (!re.test(text)) continue;
+    found.add(addIsraelDayLetter(today, delta) as DayLetter);
+  }
+  return [...found];
+}
+
+/** ימים שצוינו בטקסט: שלישי / הערב / מחר — לפי שעון ישראל. */
+export function parseRequestedClassDays(text: string, now: Date = new Date()): DayLetter[] {
+  const found = new Set<DayLetter>(relativeDayLettersFromText(text, now));
   for (const { day, re } of DAY_PATTERNS) {
     if (re.test(text)) found.add(day);
   }
@@ -99,7 +123,7 @@ function looksLikeNamedClass(text: string): boolean {
 }
 
 function looksLikeClassTimeQuestion(text: string): boolean {
-  return /להצטרף|להגיע|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|רוצה.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
+  return /להצטרף|להגיע|לבוא|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|עוד\s+אימון|רוצה.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
     text
   );
 }
@@ -141,7 +165,7 @@ export function matchCatalogServicesFromFreeText(
     const distinctive = foldedUser
       .split(" ")
       .map((w) => foldHebrewServiceToken(w))
-      .filter((w) => w.length >= 5);
+      .filter((w) => w.length >= 3);
     const uniqueHits: string[] = [];
     for (const tok of distinctive) {
       const names = services
@@ -185,6 +209,7 @@ export function shouldHandoffUnknownClassSlot(input: {
   services: SfServiceRow[];
   committedServiceName?: string | null;
   sessionPhase?: string | null;
+  now?: Date;
 }): boolean {
   const phase = String(input.sessionPhase ?? "").trim();
   if (phase === "schedule_date" || phase === "schedule_time") return false;
@@ -192,7 +217,7 @@ export function shouldHandoffUnknownClassSlot(input: {
   const text = String(input.text ?? "").trim();
   if (!text || text.length > 500) return false;
 
-  const days = parseRequestedDays(text);
+  const days = parseRequestedClassDays(text, input.now ?? new Date());
   const times = parseRequestedTimes(text);
   const matchedName = matchCatalogServiceFromFreeText(text, input.services);
   const committed = String(input.committedServiceName ?? "").trim();

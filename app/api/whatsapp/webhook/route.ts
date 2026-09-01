@@ -210,8 +210,14 @@ import {
   assistantReplyIsUnknownClassSlotHandoff,
   matchCatalogServiceFromFreeText,
   matchCatalogServicesFromFreeText,
+  parseRequestedClassDays,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
+import {
+  buildIsraelNowSchedulePromptBlock,
+  previousUserTextFromHistory,
+  tryBuildRelativeDayClassSlotsReply,
+} from "@/lib/wa-relative-day-class-slots";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
@@ -6883,6 +6889,50 @@ async function processIncoming(
       });
       return;
     }
+
+    const inboundForDaySlots = msg.text.trim();
+    const shouldCheckRelativeDaySlots =
+      parseRequestedClassDays(inboundForDaySlots).length > 0 ||
+      matchCatalogServiceFromFreeText(inboundForDaySlots, salesFlowServices) != null ||
+      [...inboundForDaySlots].length <= 28;
+    if (shouldCheckRelativeDaySlots) {
+      const recentForDaySlots = await fetchRecentSessionMessages({
+        business_slug,
+        session_id: sessionId,
+        limit: 10,
+      });
+      const prevUserForDaySlots = previousUserTextFromHistory({
+        currentText: inboundForDaySlots,
+        userMessagesOldestFirst: recentForDaySlots.filter((m) => m.role === "user").map((m) => m.content),
+      });
+      const relativeDayReply = tryBuildRelativeDayClassSlotsReply({
+        text: inboundForDaySlots,
+        previousUserText: prevUserForDaySlots,
+        services: salesFlowServices,
+        sessionPhase: contactSessionPhase,
+      });
+      if (relativeDayReply) {
+        try {
+          await sendWhatsAppMessage(
+            msg.toNumber,
+            msg.from,
+            relativeDayReply.text,
+            accountSid,
+            authToken
+          );
+        } catch (e) {
+          console.error("[WA Webhook] Send relative-day class slots failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: relativeDayReply.text,
+          model_used: relativeDayReply.modelUsed,
+          session_id: sessionId,
+        });
+        return;
+      }
+    }
   }
 
   // חריג לחבילת היכרות («אפשר אחד?») בלי תשובה במוצרים/עובדות — לא מנחשים כן/לא
@@ -10543,6 +10593,7 @@ async function processIncoming(
         ctaMultiServiceRepick: contactSessionPhase === "cta" && salesFlowServices.length > 1,
         scheduleInterestServiceName,
         pickedServiceScheduleLexicon,
+        israelNowScheduleBlock: buildIsraelNowSchedulePromptBlock(salesFlowServices),
         unclearClarifyAlreadySent: sessionHasUnclearClarifyAsk(history),
       },
       platformGuidelines,

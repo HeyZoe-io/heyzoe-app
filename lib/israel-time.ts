@@ -102,9 +102,23 @@ export function getIsraelDayStartUtc(year: number, month: number, day: number): 
 export const DAILY_SUMMARY_PERIOD_MS_24H = 24 * 60 * 60 * 1000;
 export const DAILY_SUMMARY_PERIOD_MS_48H = 48 * 60 * 60 * 1000;
 
+/** א׳–ש׳ לפי ראשון=0 … שבת=6 */
+export const ISRAEL_DAY_LETTERS = ["א", "ב", "ג", "ד", "ה", "ו", "ש"] as const;
+export type IsraelDayLetter = (typeof ISRAEL_DAY_LETTERS)[number];
+
 /** יום בשבוע בישראל: 0=ראשון … 6=שבת */
 export function getIsraelWeekday(referenceUtc: Date = new Date()): number {
   return getLocalPartsInTz(referenceUtc, IL_TZ).weekday;
+}
+
+export function getIsraelDayLetter(referenceUtc: Date = new Date()): IsraelDayLetter {
+  return ISRAEL_DAY_LETTERS[getIsraelWeekday(referenceUtc)]!;
+}
+
+export function addIsraelDayLetter(day: IsraelDayLetter, delta: number): IsraelDayLetter {
+  const idx = ISRAEL_DAY_LETTERS.indexOf(day);
+  const n = ISRAEL_DAY_LETTERS.length;
+  return ISRAEL_DAY_LETTERS[((idx + delta) % n + n) % n]!;
 }
 
 export type DailySummaryCronPeriod =
