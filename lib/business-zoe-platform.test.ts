@@ -9,6 +9,8 @@ const defaultLegal =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
     .find((c) => c.id === "personality")
     ?.sections?.find((s) => s.key === "legal_rules")?.lines ?? [];
+assert.ok(defaultLegal.some((l) => l.includes("כשהמשתמש כותב בעברית") && l.includes("באנגלית או ברוסית")));
+assert.ok(defaultLegal.some((l) => l.includes("Hebrew, English, or Russian")));
 assert.ok(defaultLegal.some((l) => l.includes(WORD_PRECISION)));
 assert.ok(defaultLegal.some((l) => l.includes("מתוקה") && l.includes("מצוקה")));
 assert.ok(defaultLegal.some((l) => l.includes("מנוי") && l.includes("מנוע")));
@@ -62,6 +64,8 @@ const mergedLegal =
   merged.categories.find((c) => c.id === "personality")?.sections?.find((s) => s.key === "legal_rules")
     ?.lines ?? [];
 assert.ok(mergedLegal.some((l) => l.includes(WORD_PRECISION)));
+assert.ok(mergedLegal.some((l) => l.includes("כשהמשתמש כותב בעברית") && l.includes("באנגלית או ברוסית")));
+assert.equal(mergedLegal.filter((l) => l.includes("עברית בלבד — כתבי בכתב עברי בלבד.")).length, 0);
 assert.ok(mergedLegal.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")));
 assert.ok(mergedLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
 assert.equal(

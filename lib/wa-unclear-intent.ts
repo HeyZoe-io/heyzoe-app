@@ -1,4 +1,4 @@
-import type { DetectedMessageLanguage } from "@/lib/language-detect";
+import { pickByDetectedLanguage, type DetectedMessageLanguage } from "@/lib/language-detect";
 
 export const WA_UNCLEAR_CLARIFY_MODEL = "wa_unclear_clarify";
 export const WA_UNCLEAR_HANDOFF_MODEL = "wa_unclear_team_handoff";
@@ -12,6 +12,11 @@ export const WA_UNCLEAR_CLARIFY_EN =
   "I'm not sure I fully understood — could you try phrasing that again?";
 export const WA_UNCLEAR_HANDOFF_EN =
   "Okay, I'm not sure I can help, but the team definitely can. I'll pass this along so they can get in touch, sound good?";
+
+export const WA_UNCLEAR_CLARIFY_RU =
+  "Не уверена, что полностью поняла — можно сформулировать ещё раз?";
+export const WA_UNCLEAR_HANDOFF_RU =
+  "Окей, не уверена, что смогу помочь, но команда точно сможет. Передам обращение, чтобы с вами связались, хорошо?";
 
 function normalizeUnclearText(raw: string): string {
   return String(raw ?? "")
@@ -27,6 +32,7 @@ export function isUnclearClarifyAsk(raw: string): boolean {
   if (!t) return false;
   if (t.includes(normalizeUnclearText(WA_UNCLEAR_CLARIFY_HE))) return true;
   if (t.includes(normalizeUnclearText(WA_UNCLEAR_CLARIFY_EN))) return true;
+  if (t.includes(normalizeUnclearText(WA_UNCLEAR_CLARIFY_RU))) return true;
   return (
     /לא בטוחה שהבנתי/.test(t) &&
     /לנסח/.test(t) &&
@@ -39,6 +45,7 @@ export function isUnclearHandoffAsk(raw: string): boolean {
   if (!t) return false;
   if (t.includes(normalizeUnclearText(WA_UNCLEAR_HANDOFF_HE))) return true;
   if (t.includes(normalizeUnclearText(WA_UNCLEAR_HANDOFF_EN))) return true;
+  if (t.includes(normalizeUnclearText(WA_UNCLEAR_HANDOFF_RU))) return true;
   return /אעביר את הפני/.test(t) && /הצוות/.test(t);
 }
 
@@ -72,7 +79,8 @@ export function looksLikeUnclearIntentReply(raw: string): boolean {
     /נסח(?:י|ו)?\s+לי\s+(?:שוב|מחדש)|לנסח(?:ת)?\s+לי\s+(?:שוב|מחדש)/.test(t) ||
     /not sure i (?:fully )?understood|didn['’]?t (?:quite |fully )?understand|try (?:re)?phras/i.test(
       t
-    )
+    ) ||
+    /не уверена.*понял|сформулировать ещё раз|передам обращение/i.test(t)
   );
 }
 
@@ -80,9 +88,18 @@ export function pickUnclearIntentReply(
   kind: "clarify" | "handoff",
   lang: DetectedMessageLanguage
 ): string {
-  const en = lang === "en";
-  if (kind === "handoff") return en ? WA_UNCLEAR_HANDOFF_EN : WA_UNCLEAR_HANDOFF_HE;
-  return en ? WA_UNCLEAR_CLARIFY_EN : WA_UNCLEAR_CLARIFY_HE;
+  if (kind === "handoff") {
+    return pickByDetectedLanguage(lang, {
+      he: WA_UNCLEAR_HANDOFF_HE,
+      en: WA_UNCLEAR_HANDOFF_EN,
+      ru: WA_UNCLEAR_HANDOFF_RU,
+    });
+  }
+  return pickByDetectedLanguage(lang, {
+    he: WA_UNCLEAR_CLARIFY_HE,
+    en: WA_UNCLEAR_CLARIFY_EN,
+    ru: WA_UNCLEAR_CLARIFY_RU,
+  });
 }
 
 export function resolveUnclearIntentAction(
@@ -94,9 +111,9 @@ export function resolveUnclearIntentAction(
 }
 
 const CLEAR_KNOWLEDGE_DOMAIN_RE =
-  /שיעור|אימון|מנוי|כרטיסי|חבילה|הקפא|ביטול|מחיר|יומן|הרשמ|lesson|class|membership|punch\s*card/iu;
+  /שיעור|אימון|מנוי|כרטיסי|חבילה|הקפא|ביטול|מחיר|יומן|הרשמ|lesson|class|membership|punch\s*card|заняти|абонемент|расписан|запис/iu;
 const CLEAR_KNOWLEDGE_QUESTION_RE =
-  /[?؟]|יש מצב|אפשר |ניתן |האם |מה |איך |מתי |למה |כמה |\bcan i\b|\bis there\b|\bhow (?:do|can|much)\b/iu;
+  /[?؟]|יש מצב|אפשר |ניתן |האם |מה |איך |מתי |למה |כמה |\bcan i\b|\bis there\b|\bhow (?:do|can|much)\b|сколько|когда |как |можно /iu;
 
 /**
  * שאלה ברורה על הסטודיו — לא «לא הבנתי». חוסר מידע בידע זה «אין לי את הפרטים».
@@ -110,7 +127,7 @@ export function inboundLooksLikeClearKnowledgeQuestion(raw: string): boolean {
 
 export function buildUnclearIntentPromptRule(alreadyAsked: boolean): string {
   if (alreadyAsked) {
-    return `- כבר ביקשת ניסוח מחדש בשיחה הזו. אם עדיין לא ברור למה הליד מתכוון — עני רק: «${WA_UNCLEAR_HANDOFF_HE}» (או באנגלית: «${WA_UNCLEAR_HANDOFF_EN}»). אל תבקשי ניסוח שוב. אל תוסיפי שאלת «יש עוד משהו».`;
+    return `- כבר ביקשת ניסוח מחדש בשיחה הזו. אם עדיין לא ברור למה הליד מתכוון — עני רק: «${WA_UNCLEAR_HANDOFF_HE}» (EN: «${WA_UNCLEAR_HANDOFF_EN}»; RU: «${WA_UNCLEAR_HANDOFF_RU}»). אל תבקשי ניסוח שוב. אל תוסיפי שאלת «יש עוד משהו».`;
   }
-  return `- אם לא הבנת עד הסוף למה הליד מתכוון (הודעה מעורפלת, חסרה, או לא ברורה) — עני רק: «${WA_UNCLEAR_CLARIFY_HE}» (או באנגלית: «${WA_UNCLEAR_CLARIFY_EN}»). פעם אחת בלבד בשיחה. זה לא חוסר ידע: אם ברור מה שואלים ואין מידע בידע — «אין לי את הפרטים», לא המשפט הזה. ברכת חולין («היי מה קורה», «מה נשמע», «מה המצב», «מה הולך», «מה העניינים») זה לא חוסר הבנה — עני בחביבות: «היי! מעולה, איך אפשר לעזור?». אל תבקשי לנסח מחדש.`;
+  return `- אם לא הבנת עד הסוף למה הליד מתכוון (הודעה מעורפלת, חסרה, או לא ברורה) — עני רק: «${WA_UNCLEAR_CLARIFY_HE}» (EN: «${WA_UNCLEAR_CLARIFY_EN}»; RU: «${WA_UNCLEAR_CLARIFY_RU}»). פעם אחת בלבד בשיחה. זה לא חוסר ידע: אם ברור מה שואלים ואין מידע בידע — «אין לי את הפרטים», לא המשפט הזה. ברכת חולין («היי מה קורה», «מה נשמע», «מה המצב», «מה הולך», «מה העניינים») זה לא חוסר הבנה — עני בחביבות: «היי! מעולה, איך אפשר לעזור?». אל תבקשי לנסח מחדש.`;
 }

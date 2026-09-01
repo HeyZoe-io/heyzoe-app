@@ -365,6 +365,38 @@ function ensureNoInventedVenueGuidelineLines(lines: string[]): string[] {
   return lines;
 }
 
+/** «עברית בלבד» ישן + שורת same-language — מאפשרים מענה בשפת הליד. */
+function upgradeHebrewOnlyLanguageGuidelineLines(lines: string[]): string[] {
+  const defaults = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
+    .flat();
+  const hebrewRule = defaults.find(
+    (l) => l.includes("כשהמשתמש כותב בעברית") && l.includes("באנגלית או ברוסית")
+  );
+  const sameLangRule = defaults.find(
+    (l) => l.includes("Respond in the same language") && l.includes("Russian")
+  );
+  return lines.map((line) => {
+    const t = line.trim();
+    if (
+      hebrewRule &&
+      t.includes("עברית בלבד") &&
+      t.includes("כתב עברי") &&
+      !t.includes("כשהמשתמש כותב בעברית")
+    ) {
+      return hebrewRule;
+    }
+    if (
+      sameLangRule &&
+      t.includes("Respond in the same language as the user's most recent message") &&
+      !t.includes("Russian")
+    ) {
+      return sameLangRule;
+    }
+    return line;
+  });
+}
+
 function upgradeGuidelineLines(lines: string[]): string[] {
   return ensureBirtzonchaDefaultGuidelineLines(
     ensureNeutralCancelHowToGuidelineLines(
@@ -376,7 +408,11 @@ function upgradeGuidelineLines(lines: string[]): string[] {
                 ensureBookingLookupGuidelineLines(
                   upgradeCsPhoneHandoffGuidelineLines(
                     upgradeLegalCsExampleLines(
-                      upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+                      upgradeClassRescheduleGuidelineLines(
+                        upgradeQuotedFactsGuidelineLines(
+                          upgradeHebrewOnlyLanguageGuidelineLines(lines)
+                        )
+                      )
                     )
                   )
                 )

@@ -28,8 +28,8 @@ export const DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES: ZoePlatformGuidelines = {
           label: "חוקיות וכללים",
           hint: "חלים תמיד — בוואטסאפ ובאתר.",
           lines: [
-            "Respond in the same language as the user's most recent message. Detect the language from their last input and use it consistently. If the message is mixed, use the dominant language. Default to Hebrew if unclear.",
-            "עברית בלבד — כתבי בכתב עברי בלבד; אסור אותיות בערבית או בכתבים אחרים (למשל «כל» בעברית, לא «كل»).",
+            "Respond in the same language as the user's most recent message (Hebrew, English, or Russian). Detect the language from their last input and use it consistently. If the message is mixed, use the dominant language. Default to Hebrew if unclear.",
+            "כשהמשתמש כותב בעברית — כתבי בכתב עברי בלבד; אסור אותיות בערבית שמתערבבות בעברית (למשל «כל» בעברית, לא «كل»). כשהמשתמש כותב באנגלית או ברוסית — עני באותה שפה, לא בעברית.",
             "שמות שיעורים/אימונים — העתיקי בדיוק מרשימת «שירותים» בידע העסקי; אל תשני אותיות (למשל «ממשיכים» עם כ לא «ממשיקים» עם ק) ואל תקצרי לשמות שלא מופיעים שם.",
             "אל תמציאי סוג מקום או חוויה שלא מופיעים בידע או בשם השירות. עיסוי זה לא ספא, וגם טיפול רפואי / רקיברי זה לא ספא. בפרגון או ברכה — השתמשי באותה מילה מהשיחה או מהשירותים (עיסוי נשאר עיסוי), אל תשדרגי לקטגוריה קרובה («תהני מהעיסוי», לא «תהני בספא»).",
             "שאלה אם שיעור או אימון הוא קבוצתי / אישי / פרטי — זו שאלת ידע, לא בחירת מוצר. עני לפי הידע. אם אין בידע: השיעורים בסטודיו הם קבוצתיים, אלא אם שם המוצר או הידע אומרים אישי / 1-1 / פרטי.",

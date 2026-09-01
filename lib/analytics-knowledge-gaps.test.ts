@@ -20,6 +20,7 @@ assert.equal(parseMessageUuid("not-a-uuid"), "");
 assert.equal(Number("73149a89-228e-4e53-b0b7-1a806e4cf3a0"), NaN);
 
 assert.equal(isKnowledgeGapAssistantText("אין לי את הפרטים על מדיניות הביטול."), true);
+assert.equal(isKnowledgeGapAssistantText("У меня нет этих деталей."), true);
 assert.equal(
   isKnowledgeGapAssistantText("אין לי כרגע את המידע על מחירי המנויים. מוזמנים לפנות לשירות הלקוחות."),
   true

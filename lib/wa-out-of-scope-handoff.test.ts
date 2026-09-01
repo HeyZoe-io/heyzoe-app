@@ -4,6 +4,7 @@ import {
   buildOutOfScopeTeamHandoffReply,
   matchesOutOfScopeTeamHandoff,
   WA_OUT_OF_SCOPE_HANDOFF_REPLY_HE,
+  WA_OUT_OF_SCOPE_HANDOFF_REPLY_RU,
 } from "@/lib/wa-out-of-scope-handoff";
 
 assert.equal(matchesOutOfScopeTeamHandoff("אני אשלח לך קוח מעודכן"), true);
@@ -26,5 +27,6 @@ assert.equal(
 assert.equal(assistantReplySteersBackToStudioScope("בשיעורי מתחילים לומדים את הבסיס."), false);
 
 assert.equal(buildOutOfScopeTeamHandoffReply("he"), WA_OUT_OF_SCOPE_HANDOFF_REPLY_HE);
+assert.equal(buildOutOfScopeTeamHandoffReply("ru"), WA_OUT_OF_SCOPE_HANDOFF_REPLY_RU);
 
 console.log("wa-out-of-scope-handoff.test.ts: ok");

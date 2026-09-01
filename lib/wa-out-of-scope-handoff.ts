@@ -1,12 +1,17 @@
-import type { DetectedMessageLanguage } from "@/lib/language-detect";
+import { pickByDetectedLanguage, type DetectedMessageLanguage } from "@/lib/language-detect";
 
 /** נושא שזואי לא מטפלת בו — העברה לצוות, בלי להחזיר לאימוני ניסיון. */
 export const WA_OUT_OF_SCOPE_HANDOFF_REPLY_HE = "אין בעיה אעביר את ההודעה לצוות!";
 export const WA_OUT_OF_SCOPE_HANDOFF_REPLY_EN = "No problem — I'll pass the message to the team!";
+export const WA_OUT_OF_SCOPE_HANDOFF_REPLY_RU = "Без проблем, передам сообщение команде!";
 export const WA_OUT_OF_SCOPE_HANDOFF_MODEL = "out_of_scope_team_handoff";
 
 export function buildOutOfScopeTeamHandoffReply(lang?: DetectedMessageLanguage): string {
-  return lang === "en" ? WA_OUT_OF_SCOPE_HANDOFF_REPLY_EN : WA_OUT_OF_SCOPE_HANDOFF_REPLY_HE;
+  return pickByDetectedLanguage(lang, {
+    he: WA_OUT_OF_SCOPE_HANDOFF_REPLY_HE,
+    en: WA_OUT_OF_SCOPE_HANDOFF_REPLY_EN,
+    ru: WA_OUT_OF_SCOPE_HANDOFF_REPLY_RU,
+  });
 }
 
 function normalizeScopeText(raw: string): string {

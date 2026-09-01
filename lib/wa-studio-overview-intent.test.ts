@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   STUDIO_OVERVIEW_COMMUNITY_CLOSING_EN,
   STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE,
+  STUDIO_OVERVIEW_COMMUNITY_CLOSING_RU,
   isStudioOverviewIntentText,
   studioOverviewClosingForInbound,
 } from "@/lib/wa-studio-overview-intent";
@@ -52,5 +53,9 @@ for (const text of no) {
 
 assert.equal(studioOverviewClosingForInbound("ספרו לי על הסטודיו"), STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE);
 assert.equal(studioOverviewClosingForInbound("tell me about the studio"), STUDIO_OVERVIEW_COMMUNITY_CLOSING_EN);
+assert.equal(
+  studioOverviewClosingForInbound("Расскажите про студию"),
+  STUDIO_OVERVIEW_COMMUNITY_CLOSING_RU
+);
 
 console.log("wa-studio-overview-intent.test.ts: ok");

@@ -1,4 +1,8 @@
-import { detectMessageLanguage, type DetectedMessageLanguage } from "@/lib/language-detect";
+import {
+  detectMessageLanguage,
+  pickByDetectedLanguage,
+  type DetectedMessageLanguage,
+} from "@/lib/language-detect";
 import { isAddressOrDirectionsIntent } from "@/lib/wa-address-intent";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
@@ -11,9 +15,14 @@ import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
 export const STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE = "נשמח שתהיו חלק מהקהילה שלנו!";
 export const STUDIO_OVERVIEW_COMMUNITY_CLOSING_EN = "We'd love for you to be part of our community!";
+export const STUDIO_OVERVIEW_COMMUNITY_CLOSING_RU = "Будем рады, если вы станете частью нашего сообщества!";
 
 export function studioOverviewCommunityClosing(lang: DetectedMessageLanguage): string {
-  return lang === "en" ? STUDIO_OVERVIEW_COMMUNITY_CLOSING_EN : STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE;
+  return pickByDetectedLanguage(lang, {
+    he: STUDIO_OVERVIEW_COMMUNITY_CLOSING_HE,
+    en: STUDIO_OVERVIEW_COMMUNITY_CLOSING_EN,
+    ru: STUDIO_OVERVIEW_COMMUNITY_CLOSING_RU,
+  });
 }
 
 function hasPriceAsk(t: string): boolean {

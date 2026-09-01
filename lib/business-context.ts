@@ -27,6 +27,7 @@ import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-f
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { detectMessageLanguage } from "@/lib/language-detect";
+import { studioOverviewCommunityClosing } from "@/lib/wa-studio-overview-intent";
 import { WA_MAX_PRODUCTS } from "@/lib/trial-service";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 import {
@@ -713,6 +714,17 @@ function buildUserLanguagePromptBlock(lastUserMessage?: string): string {
   if (detected === "he") {
     return "המשתמש כותב בעברית. ענה בעברית טבעית וזורמת — בכתב עברי בלבד, בלי אותיות בערבית או בכתבים אחרים.";
   }
+  if (detected === "ru") {
+    return [
+      "שפת תשובה לתר הזה (עדיפות על «עברית בלבד» ועל סגנון עברית מדוברת):",
+      "The user is writing in Russian. You MUST reply in natural, conversational Russian (Cyrillic).",
+      "Ignore any «Hebrew only» / «עברית בלבד» / «כתבי בעברית מדוברת» instruction for this turn — those apply when the user writes Hebrew.",
+      "If a later rule gives an exact Hebrew (or English) sentence to copy, translate its meaning into Russian instead of copying it.",
+      "Keep class/service names exactly as they appear in the business knowledge (do not translate brand or class names unless the user already used a Russian name).",
+      "When the lead's gender is unknown, use polite «вы» and gender-neutral phrasing. You (Zoe) stay feminine in first person («рада», «могу», «извините»).",
+      "No Markdown, no JSON, no asterisks. Short WhatsApp-style lines.",
+    ].join("\n");
+  }
   return "";
 }
 
@@ -749,6 +761,9 @@ export function buildSystemPrompt(
   const waResponseShapeBlock = pickResponseShapeBlock(platform, isWhatsApp, waCtx);
   const legalRules = pickLegalRulesLines(platform);
   const userLanguageBlock = buildUserLanguagePromptBlock(lastUserMessage);
+  const overviewClosingExact = studioOverviewCommunityClosing(
+    detectMessageLanguage(String(lastUserMessage ?? ""))
+  );
   const platformSection = buildZoePlatformPromptSection(platform);
   const toneAnalysis = getZoePlatformCategoryBlock(platform, "tone_analysis");
   const voiceStyle = getZoePlatformCategoryBlock(platform, "voice_style");
@@ -789,7 +804,7 @@ export function buildSystemPrompt(
       : registeredOpenQuestion
         ? "- הלקוח כבר נרשם בריצה הזו ושאל שאלה פתוחה — עני מהידע. אל תוסיפי שאלת סגירה («יש עוד משהו…») — המערכת מוסיפה אותה אם סיימת במשפט. מותר שאלת הבהרה ספציפית. אם זו עובדה/עדכון בלי שאלה — בלי שאלת סגירה."
         : studioOverviewClosing
-          ? "- הלקוח מבקש פרטים על הסטודיו בלי פלואו מכירה — נסחי פסקה קצרה מתיאור העסק, שמות המוצרים, ולמי זה מתאים רק אם מופיע בידע (רמה / מגדר שאינו «הכול» / גיל). בלי מחירים, בלי שאלה, בלי כפתורים. סיימי בדיוק: «נשמח שתהיו חלק מהקהילה שלנו!» (EN: «We'd love for you to be part of our community!»). אל תמציאי קהל יעד."
+          ? `- הלקוח מבקש פרטים על הסטודיו בלי פלואו מכירה — נסחי פסקה קצרה מתיאור העסק, שמות המוצרים, ולמי זה מתאים רק אם מופיע בידע (רמה / מגדר שאינו «הכול» / גיל). בלי מחירים, בלי שאלה, בלי כפתורים. סיימי בדיוק: «${overviewClosingExact}». אל תמציאי קהל יעד.`
           : standaloneHelpClosing
             ? "- זו שאלה רגילה מחוץ למסלול מכירה — עני מהידע. אל תוסיפי שאלת סגירה («יש עוד משהו…») — המערכת מוסיפה אותה אם סיימת במשפט. מותר שאלת הבהרה ספציפית. אם שלח עובדה/עדכון — בלי שאלת סגירה. אל תשלחי תפריט בחירת אימון ואל תזמיני לבחור אימון."
     : postTrial || (phase && phase !== "cta")
