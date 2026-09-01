@@ -1,6 +1,11 @@
 import { firstNameFromFullName, formatLeadTemplateMessageContent } from "@/lib/lead-template";
-import { computeCallDayDueAt, parseMarketingCallSlot } from "@/lib/marketing-call-time";
-import { toPipelineDateOnly } from "@/lib/marketing-next-call";
+import {
+  computeCallDayDueAt,
+  parseMarketingCallDay,
+  parseMarketingCallSlot,
+  resolveCallDayDue,
+} from "@/lib/marketing-call-time";
+import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import {
   resolveMarketingTemplateBodyParams,
   type MarketingTemplateParamSlot,
@@ -20,6 +25,7 @@ import {
   buildMarketingCallDayDedupKey,
   buildMarketingFlowCompletedDedupKey,
   buildMarketingNodeAnsweredDedupKey,
+  callDateYmdFromCallDayDedupKey,
   enqueueScheduledMarketingTemplateSend,
   parseScheduledBodyParams,
   type ScheduledMarketingTemplateSendRow,
@@ -263,20 +269,58 @@ async function saveParsedCallTime(
   admin: AdminClient,
   phone: string,
   dateYmd: string,
-  timeHm: string
+  timeHm: string | null
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  const { error } = await admin
-    .from("marketing_flow_sessions")
-    .update({
-      next_call_at: dateYmd,
-      next_call_time: timeHm,
-      updated_at: nowIso,
-    })
-    .eq("phone", phone);
+  const patch: Record<string, unknown> = {
+    next_call_at: dateYmd,
+    updated_at: nowIso,
+  };
+  if (timeHm) patch.next_call_time = timeHm;
+  const { error } = await admin.from("marketing_flow_sessions").update(patch).eq("phone", phone);
   if (error && !/next_call/i.test(error.message)) {
     console.warn("[marketing-template-dispatch] save next_call failed:", error.message);
   }
+}
+
+async function inferCallDateFromSessionOrAnswers(
+  admin: AdminClient,
+  phone: string,
+  now: Date
+): Promise<{ dateYmd: string; timeHm: string | null } | null> {
+  const { data: answers, error } = await admin
+    .from("marketing_lead_answers")
+    .select("answer_text")
+    .eq("phone", phone)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  if (error) {
+    if (!/does not exist|schema cache/i.test(error.message)) {
+      console.warn("[marketing-template-dispatch] answers lookup failed:", error.message);
+    }
+  } else {
+    for (const row of answers ?? []) {
+      const text = String((row as { answer_text?: unknown }).answer_text ?? "");
+      const slot = parseMarketingCallSlot(text, now);
+      if (slot?.hasDate && slot.dateYmd) return { dateYmd: slot.dateYmd, timeHm: slot.timeHm };
+      const day = parseMarketingCallDay(text, now);
+      if (day) return { dateYmd: day, timeHm: null };
+    }
+  }
+
+  const { data: sess } = await admin
+    .from("marketing_flow_sessions")
+    .select("next_call_at, next_call_time")
+    .eq("phone", phone)
+    .maybeSingle();
+  const existingDate = toPipelineDateOnly(
+    (sess as { next_call_at?: unknown } | null)?.next_call_at
+  );
+  const existingTime = toPipelineTime(
+    (sess as { next_call_time?: unknown } | null)?.next_call_time
+  );
+  if (existingDate) return { dateYmd: existingDate, timeHm: existingTime };
+  return null;
 }
 
 async function enqueueCallDayTriggers(input: {
@@ -286,8 +330,16 @@ async function enqueueCallDayTriggers(input: {
   timeHm: string | null;
   firstName: string;
   now?: Date;
+  sourceNodeId?: string | null;
 }): Promise<void> {
-  const rules = await loadEnabledTriggers(input.admin, "call_day");
+  let rules = await loadEnabledTriggers(input.admin, "call_day");
+  const sourceNodeId = String(input.sourceNodeId ?? "").trim();
+  if (sourceNodeId) {
+    rules = rules.filter((r) => {
+      const bound = String(r.flow_node_id ?? "").trim();
+      return !bound || bound === sourceNodeId;
+    });
+  }
   const now = input.now ?? new Date();
   for (const rule of rules) {
     const dueAt = computeCallDayDueAt({
@@ -297,6 +349,15 @@ async function enqueueCallDayTriggers(input: {
       delayDirection: marketingDelayDirectionForTrigger(rule.trigger_type, rule.delay_direction),
       now,
     });
+    if (!dueAt) {
+      console.info("[marketing-template-dispatch] skip call_day — not the send day", {
+        triggerId: rule.id,
+        phone: input.phone,
+        dateYmd: input.dateYmd,
+        delay_days: rule.delay_days,
+      });
+      continue;
+    }
     await dispatchOrEnqueue({
       admin: input.admin,
       trigger: rule,
@@ -323,17 +384,33 @@ export async function onMarketingFlowNodeAnswered(input: {
   const now = new Date();
   const firstName = await lookupLeadFirstName(admin, phone);
   const parsed = parseMarketingCallSlot(input.answerText, now);
+  const dayOnly = parsed?.hasDate ? null : parseMarketingCallDay(input.answerText, now);
 
-  if (parsed) {
-    await saveParsedCallTime(admin, phone, parsed.dateYmd, parsed.timeHm);
+  let dateYmd: string | null = parsed?.hasDate ? parsed.dateYmd : dayOnly;
+  let timeHm: string | null = parsed?.timeHm ?? null;
+
+  if (parsed && !parsed.hasDate) {
+    const inferred = await inferCallDateFromSessionOrAnswers(admin, phone, now);
+    dateYmd = inferred?.dateYmd ?? null;
+    if (!timeHm) timeHm = inferred?.timeHm ?? null;
+  } else if (dayOnly && !timeHm) {
+    const inferred = await inferCallDateFromSessionOrAnswers(admin, phone, now);
+    timeHm = inferred?.timeHm ?? null;
+  }
+
+  if (dateYmd && timeHm) {
+    await saveParsedCallTime(admin, phone, dateYmd, timeHm);
     await enqueueCallDayTriggers({
       admin,
       phone,
-      dateYmd: parsed.dateYmd,
-      timeHm: parsed.timeHm,
+      dateYmd,
+      timeHm,
       firstName,
       now,
+      sourceNodeId: nodeId,
     });
+  } else if (dateYmd) {
+    await saveParsedCallTime(admin, phone, dateYmd, null);
   }
 
   const answeredRules = (await loadEnabledTriggers(admin, "node_answered")).filter(
@@ -350,7 +427,7 @@ export async function onMarketingFlowNodeAnswered(input: {
       dueAt,
       dedupKey: buildMarketingNodeAnsweredDedupKey(rule.id, phone, eventDay),
       firstName,
-      callTime: parsed?.timeHm ?? null,
+      callTime: timeHm,
       now,
     });
   }
@@ -401,7 +478,7 @@ export async function onMarketingCallScheduled(input: {
 export async function dispatchDueMarketingScheduledSend(
   admin: AdminClient,
   row: ScheduledMarketingTemplateSendRow
-): Promise<"sent" | "failed" | "canceled"> {
+): Promise<"sent" | "failed" | "canceled" | "skipped"> {
   const phone = phoneNorm(row.contact_phone);
   const templateName = String(row.template_name ?? "").trim();
   const approved = await lookupApprovedTemplate(admin, templateName);
@@ -422,6 +499,45 @@ export async function dispatchDueMarketingScheduledSend(
       console.error("[marketing-template-dispatch] status update failed:", error.message, {
         id: row.id,
       });
+    }
+  }
+
+  const callDateYmd = callDateYmdFromCallDayDedupKey(row.dedup_key);
+  if (callDateYmd) {
+    let delayDays = 0;
+    let delayDirection = "after";
+    if (row.trigger_id) {
+      const { data: trig } = await admin
+        .from("marketing_template_triggers")
+        .select("delay_days, delay_direction")
+        .eq("id", row.trigger_id)
+        .maybeSingle();
+      if (trig) {
+        delayDays = Number((trig as { delay_days?: unknown }).delay_days ?? 0);
+        delayDirection = String((trig as { delay_direction?: unknown }).delay_direction ?? "after");
+      }
+    }
+    const resolved = resolveCallDayDue({
+      dateYmd: callDateYmd,
+      delayDays,
+      delayDirection,
+    });
+    if (resolved.kind === "skip_past" || resolved.kind === "invalid") {
+      await mark("canceled", "call_day_not_today");
+      return "canceled";
+    }
+    if (resolved.kind === "schedule") {
+      const { error } = await admin
+        .from("scheduled_marketing_template_sends")
+        .update({ due_at: resolved.at.toISOString(), updated_at: nowIso, last_error: "rescheduled_to_call_day" })
+        .eq("id", row.id)
+        .eq("status", "pending");
+      if (error) {
+        console.error("[marketing-template-dispatch] reschedule call_day failed:", error.message, {
+          id: row.id,
+        });
+      }
+      return "skipped";
     }
   }
 

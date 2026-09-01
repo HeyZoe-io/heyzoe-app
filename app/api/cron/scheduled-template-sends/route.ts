@@ -297,7 +297,7 @@ export async function GET(req: NextRequest) {
             const outcome = await dispatchDueMarketingScheduledSend(admin, row);
             if (outcome === "sent") marketing_sent += 1;
             else if (outcome === "failed") marketing_failed += 1;
-            else marketing_canceled += 1;
+            else if (outcome === "canceled") marketing_canceled += 1;
           } catch (e) {
             marketing_failed += 1;
             const message = e instanceof Error ? e.message : String(e);

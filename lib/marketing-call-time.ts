@@ -18,9 +18,14 @@ const HEBREW_WEEKDAY: Record<string, number> = {
 };
 
 export type ParsedMarketingCallSlot = {
-  dateYmd: string;
+  dateYmd: string | null;
   timeHm: string;
+  hasDate: boolean;
 };
+
+export function israelCalendarYmd(now: Date = new Date()): string {
+  return israelYmd(now);
+}
 
 function israelYmd(now: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -98,10 +103,52 @@ export function israelWallTimeToUtc(ymd: string, hm: string): Date {
   return new Date(guess - (gotUtc - guess));
 }
 
+export type CallDayDueResult =
+  | { kind: "schedule"; at: Date; sendYmd: string }
+  | { kind: "send_now"; at: Date; sendYmd: string }
+  | { kind: "skip_past"; sendYmd: string }
+  | { kind: "invalid" };
+
+export function callDaySendYmd(input: {
+  dateYmd: string;
+  delayDays: number;
+  delayDirection: string;
+}): string | null {
+  const date = toPipelineDateOnly(input.dateYmd);
+  if (!date) return null;
+  const days = Math.max(0, Math.trunc(Number(input.delayDays) || 0));
+  const before = String(input.delayDirection ?? "after").trim().toLowerCase() === "before";
+  return addDaysYmd(date, before ? -days : days);
+}
+
 /**
  * Send time for a call_day trigger: 08:00 Israel on (call date ± delay_days).
- * If that instant is already in the past, returns `now`.
+ * Never collapses a different calendar day into "send now" — that was sending
+ * reminders to leads whose meeting is not today.
  */
+export function resolveCallDayDue(input: {
+  dateYmd: string;
+  timeHm?: string | null;
+  delayDays: number;
+  delayDirection: string;
+  now?: Date;
+  morningHour?: number;
+}): CallDayDueResult {
+  const sendYmd = callDaySendYmd(input);
+  if (!sendYmd) return { kind: "invalid" };
+  const now = input.now ?? new Date();
+  const today = israelYmd(now);
+  if (sendYmd < today) return { kind: "skip_past", sendYmd };
+  const hour = Math.min(23, Math.max(0, Math.trunc(input.morningHour ?? 8)));
+  const due = israelWallTimeToUtc(sendYmd, `${String(hour).padStart(2, "0")}:00`);
+  if (!Number.isFinite(due.getTime())) return { kind: "invalid" };
+  if (sendYmd === today && due.getTime() <= now.getTime()) {
+    return { kind: "send_now", at: now, sendYmd };
+  }
+  return { kind: "schedule", at: due, sendYmd };
+}
+
+/** @returns due Date, or null to skip (past day / invalid). */
 export function computeCallDayDueAt(input: {
   dateYmd: string;
   timeHm?: string | null;
@@ -109,18 +156,10 @@ export function computeCallDayDueAt(input: {
   delayDirection: string;
   now?: Date;
   morningHour?: number;
-}): Date {
-  const date = toPipelineDateOnly(input.dateYmd);
-  if (!date) return new Date(NaN);
-  const days = Math.max(0, Math.trunc(Number(input.delayDays) || 0));
-  const before = String(input.delayDirection ?? "after").trim().toLowerCase() === "before";
-  const shifted = addDaysYmd(date, before ? -days : days);
-  const hour = Math.min(23, Math.max(0, Math.trunc(input.morningHour ?? 8)));
-  const due = israelWallTimeToUtc(shifted, `${String(hour).padStart(2, "0")}:00`);
-  const now = input.now ?? new Date();
-  if (!Number.isFinite(due.getTime())) return now;
-  if (due.getTime() <= now.getTime()) return now;
-  return due;
+}): Date | null {
+  const resolved = resolveCallDayDue(input);
+  if (resolved.kind === "schedule" || resolved.kind === "send_now") return resolved.at;
+  return null;
 }
 
 function extractTimeHm(text: string): string | null {
@@ -170,8 +209,39 @@ function extractWeekdayOffset(text: string, todayWeekday: number): number | null
   return null;
 }
 
+function resolveDateFromCallText(text: string, now: Date): string | null {
+  const todayYmd = israelYmd(now);
+  const todayWeekday = israelWeekday(now);
+  const nowHm = israelHm(now);
+  const timeHm = extractTimeHm(text);
+
+  const absolute = extractAbsoluteDate(text, todayYmd);
+  if (absolute) return absolute;
+
+  if (text.includes("מחרתיים")) return addDaysYmd(todayYmd, 2);
+  if (text.includes("מחר")) return addDaysYmd(todayYmd, 1);
+  if (text.includes("היום")) return todayYmd;
+
+  const weekdayDelta = extractWeekdayOffset(text, todayWeekday);
+  if (weekdayDelta != null) {
+    if (weekdayDelta === 0 && timeHm && timeHm <= nowHm) {
+      return addDaysYmd(todayYmd, 7);
+    }
+    return addDaysYmd(todayYmd, weekdayDelta);
+  }
+  return null;
+}
+
+/** Day-only answers like «רביעי» / «מחר» / «03.09» — no time required. */
+export function parseMarketingCallDay(answerText: string, now: Date = new Date()): string | null {
+  const text = String(answerText ?? "").trim();
+  if (!text) return null;
+  return resolveDateFromCallText(text, now);
+}
+
 /**
  * Parse a marketing-flow answer like "מחר 18:00" / "ראשון 10:00" into a date+time.
+ * Time-only answers («10:00») do not assume today — the caller must attach a known date.
  */
 export function parseMarketingCallSlot(
   answerText: string,
@@ -182,31 +252,7 @@ export function parseMarketingCallSlot(
   const timeHm = extractTimeHm(text);
   if (!timeHm) return null;
 
-  const todayYmd = israelYmd(now);
-  const nowHm = israelHm(now);
-  const todayWeekday = israelWeekday(now);
-
-  const absolute = extractAbsoluteDate(text, todayYmd);
-  if (absolute) return { dateYmd: absolute, timeHm };
-
-  if (text.includes("מחרתיים")) {
-    return { dateYmd: addDaysYmd(todayYmd, 2), timeHm };
-  }
-  if (text.includes("מחר")) {
-    return { dateYmd: addDaysYmd(todayYmd, 1), timeHm };
-  }
-  if (text.includes("היום")) {
-    return { dateYmd: todayYmd, timeHm };
-  }
-
-  const weekdayDelta = extractWeekdayOffset(text, todayWeekday);
-  if (weekdayDelta != null) {
-    if (weekdayDelta === 0 && timeHm <= nowHm) {
-      return { dateYmd: addDaysYmd(todayYmd, 7), timeHm };
-    }
-    return { dateYmd: addDaysYmd(todayYmd, weekdayDelta), timeHm };
-  }
-
-  if (timeHm > nowHm) return { dateYmd: todayYmd, timeHm };
-  return { dateYmd: addDaysYmd(todayYmd, 1), timeHm };
+  const dateYmd = resolveDateFromCallText(text, now);
+  if (dateYmd) return { dateYmd, timeHm, hasDate: true };
+  return { dateYmd: null, timeHm, hasDate: false };
 }

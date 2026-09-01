@@ -50,6 +50,13 @@ export function buildMarketingCallDayDedupKey(
   return `call_day:${String(triggerId).trim()}:${String(phone).trim()}:${String(callDateYmd).trim()}`;
 }
 
+export function callDateYmdFromCallDayDedupKey(dedupKey: string): string | null {
+  const key = String(dedupKey ?? "").trim();
+  if (!key.startsWith("call_day:")) return null;
+  const last = key.split(":").pop() ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(last) ? last : null;
+}
+
 export function buildMarketingBroadcastDedupKey(batchId: string, phone: string): string {
   return `broadcast:${String(batchId).trim()}:${String(phone).trim()}`;
 }
