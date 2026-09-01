@@ -113,11 +113,12 @@ function matchesWarmupOnlyHowToStart(t: string): boolean {
 
 function matchesEnglishJoinSignup(t: string): boolean {
   return (
-    /^how (?:do|can) i (?:sign up|register|join)$/u.test(t) ||
-    /^how to (?:sign up|register|join)$/u.test(t) ||
-    /^i want to (?:register|join|sign up)$/u.test(t) ||
-    /^id like to (?:register|join|sign up)$/u.test(t) ||
-    /^i would like to (?:register|join|sign up)$/u.test(t) ||
+    /how (?:do|can) (?:i|we) (?:sign up|register|join)/u.test(t) ||
+    /how to (?:sign up|register|join)/u.test(t) ||
+    /(?:can you|could you) (?:please )?(?:tell me )?how to (?:sign up|register|join)/u.test(t) ||
+    /tell me how to (?:sign up|register|join)/u.test(t) ||
+    /where (?:do|can) i (?:sign up|register|join)/u.test(t) ||
+    /(?:i want to|id like to|i would like to|i would love to) (?:register|join|sign up)/u.test(t) ||
     /^sign me up$/u.test(t)
   );
 }

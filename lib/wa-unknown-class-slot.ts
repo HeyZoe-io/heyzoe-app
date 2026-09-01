@@ -29,6 +29,47 @@ const DAY_PATTERNS: { day: DayLetter; re: RegExp }[] = [
   { day: "ש", re: /יום\s*ש['׳]?(?!\p{L})/u },
 ];
 
+/** מילים כלליות — לא בוחרות מוצר יחיד («שיעור» ≠ «שיעור אקרו אישי»). */
+const GENERIC_CATALOG_MATCH_TOKENS = new Set([
+  "שיעור",
+  "שיעורים",
+  "שיעורי",
+  "אימון",
+  "אימונים",
+  "אימוני",
+  "ניסיון",
+  "נסיון",
+  "היכרות",
+  "הכרות",
+  "class",
+  "classes",
+  "trial",
+  "intro",
+  "taster",
+  "כמה",
+  "עולה",
+  "מחיר",
+  "עלות",
+  "price",
+  "cost",
+  "רוצה",
+  "אשמח",
+  "אפשר",
+  "מתאים",
+]);
+
+function stripCatalogTokenPunctuation(raw: string): string {
+  return String(raw ?? "")
+    .toLowerCase()
+    .replace(/^[?!.,;:؟،"'`]+|[?!.,;:؟،"'`]+$/g, "")
+    .trim();
+}
+
+function isGenericCatalogMatchToken(raw: string): boolean {
+  const tok = stripCatalogTokenPunctuation(foldHebrewServiceToken(raw));
+  return !tok || tok.length < 3 || GENERIC_CATALOG_MATCH_TOKENS.has(tok);
+}
+
 function foldClassName(raw: string): string {
   let t = String(raw ?? "")
     .toLowerCase()
@@ -71,8 +112,26 @@ export function parseRequestedClassDays(text: string, now: Date = new Date()): D
   return [...found];
 }
 
-function parseRequestedTimes(text: string): string[] {
+function parseAmPmTimes(text: string): string[] {
   const out: string[] = [];
+  const re = /\b([1-9]|1[0-2])(?::([0-5]\d))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    let hour = Number(m[1]);
+    const minute = m[2] ?? "00";
+    const suf = String(m[3] ?? "")
+      .replace(/\./g, "")
+      .replace(/\s/g, "")
+      .toLowerCase();
+    if (suf === "pm" && hour < 12) hour += 12;
+    if (suf === "am" && hour === 12) hour = 0;
+    out.push(`${String(hour).padStart(2, "0")}:${minute}`);
+  }
+  return out;
+}
+
+function parseRequestedTimes(text: string): string[] {
+  const out: string[] = [...parseAmPmTimes(text)];
   const re = /(?:^|[^\d])([01]?\d|2[0-3]):([0-5]\d)(?!\d)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
@@ -164,8 +223,8 @@ export function matchCatalogServicesFromFreeText(
   if (!hits.length) {
     const distinctive = foldedUser
       .split(" ")
-      .map((w) => foldHebrewServiceToken(w))
-      .filter((w) => w.length >= 3);
+      .map((w) => stripCatalogTokenPunctuation(foldHebrewServiceToken(w)))
+      .filter((w) => w.length >= 3 && !isGenericCatalogMatchToken(w));
     const uniqueHits: string[] = [];
     for (const tok of distinctive) {
       const names = services
@@ -196,6 +255,35 @@ export function matchCatalogServiceFromFreeText(
   services: Pick<SfServiceRow, "name">[]
 ): string | null {
   const matches = matchCatalogServicesFromFreeText(text, services);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+/**
+ * שיעורים עם מועד שתואם יום+שעה שצוינו בטקסט (מחר ב-8:00, tomorrow 8am).
+ * בלי יום או בלי שעה — ריק (לא מנחשים).
+ */
+export function matchCatalogServicesByDayAndTime(
+  text: string,
+  services: SfServiceRow[],
+  now: Date = new Date()
+): string[] {
+  const days = parseRequestedClassDays(text, now);
+  const times = parseRequestedTimes(text);
+  if (!days.length || !times.length) return [];
+  const names: string[] = [];
+  for (const s of services) {
+    const hit = days.some((day) => times.some((tm) => serviceHasTime(s, tm, day)));
+    if (hit && s.name) names.push(s.name);
+  }
+  return [...new Set(names)];
+}
+
+export function matchCatalogServiceByDayAndTime(
+  text: string,
+  services: SfServiceRow[],
+  now: Date = new Date()
+): string | null {
+  const matches = matchCatalogServicesByDayAndTime(text, services, now);
   return matches.length === 1 ? matches[0]! : null;
 }
 

@@ -201,6 +201,7 @@ assert.equal(
 assert.equal(isOpeningServicePickMenuModel("flow_continuation_opening_service_pick"), true);
 assert.equal(isOpeningServicePickMenuModel("sales_flow_opening_service_pick_resend"), true);
 assert.equal(isOpeningServicePickMenuModel("sales_flow_cs_redirect_service_pick"), true);
+assert.equal(isOpeningServicePickMenuModel("registration_cta_ask_class"), true);
 assert.equal(isOpeningServicePickMenuModel("greeting"), false);
 assert.equal(
   salesFlowGreetingMarkerCountsAsStarted({

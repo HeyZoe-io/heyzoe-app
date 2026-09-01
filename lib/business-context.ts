@@ -239,6 +239,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
               : [];
             const levelsText =
               meta.levels_enabled === true && levels.length > 0 ? ` | רמות: ${levels.join(", ")}` : "";
+            const payRaw = String(meta.payment_link ?? "").trim();
+            const payText = payRaw ? ` | קישור הרשמה לשיעור הזה: ${truncateText(payRaw, 90)}` : "";
             let slotId = 0;
             const offerKind = offerKindFromServiceMeta(meta);
             let slotsText = "";
@@ -251,13 +253,13 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
                 ? ` | מיקום: אונליין`
                 : ` | מיקום: ${s.location_text ?? "לא צוין"}`;
               slotsText = cyclesFormatted ? ` | מחזורי קורס: ${cyclesFormatted}` : datesOn ? "" : " | ללא תאריכי התחלה/סיום";
-              return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)}${locLabel}${levelsText}${slotsText} | תיאור: ${truncateText(descriptionText, 140)}`;
+              return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)}${locLabel}${levelsText}${slotsText}${payText} | תיאור: ${truncateText(descriptionText, 140)}`;
             } else {
               const slotRows = normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => `s${slotId++}`);
               const slotsFormatted = formatScheduleSlotsForKnowledge(slotRows);
               slotsText = slotsFormatted ? ` | מועדי לוח (שבועי): ${slotsFormatted}` : "";
             }
-            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText}${slotsText} | תיאור: ${truncateText(descriptionText, 140)}`;
+            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText}${slotsText}${payText} | תיאור: ${truncateText(descriptionText, 140)}`;
           })
           .join("\n")
       : "אין שירותים מוגדרים.";
@@ -872,9 +874,10 @@ ${saleFlowExtra}
     knowledge?.scheduleScanImageUrl
       ? "קיימת תמונה — אל תשלחי לינק למערכת שעות."
       : knowledge?.schedulePublicUrl || knowledge?.arboxLink
-        ? `הציעי רק את הקישור הזה: ${(knowledge.schedulePublicUrl || knowledge.arboxLink || "").trim()} — אסור לשלוח קישור תשלום / הרשמה / סליקה במקום.`
+        ? `כשמבקשים לוח/מערכת שעות בלבד הציעי רק את הקישור הזה: ${(knowledge.schedulePublicUrl || knowledge.arboxLink || "").trim()}. כשמבקשים להירשם / how to register — אסור לשלוח את לינק מערכת השעות; שלחי את קישור ההרשמה של השיעור (שדה «קישור הרשמה לשיעור הזה» בידע), או שאלי באיזה שיעור מתעניינים אם לא ברור.`
         : "אין לינק - אל תמציאי."
   }
+- כשמבקשים להירשם: אם יום+שעה מזהים שיעור יחיד בלוח (למשל מחר ב-8:00 = השיעור שיש בלוח באותו מועד) — זה השיעור; המערכת שולחת את לינק ההרשמה שלו. אם לא ברור באיזה שיעור — שאלי באיזה שיעור מתעניינים, בלי לינק מערכת שעות.
 - מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר או מיום אחר. אם שאלו על יום/שעה לאימון ואין את המועד בידע — עני רק את המשפט הזה ובלי תוספת: אין בעיה אני מעבירה את הבקשה לצוות.${
     waCtx?.israelNowScheduleBlock?.trim()
       ? `\n${waCtx.israelNowScheduleBlock.trim()}`

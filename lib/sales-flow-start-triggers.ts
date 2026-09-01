@@ -208,6 +208,7 @@ export const OPENING_SERVICE_PICK_MENU_MODELS = [
   "flow_continuation_opening_service_pick",
   "sales_flow_opening_service_pick_resend",
   "sales_flow_cs_redirect_service_pick",
+  "registration_cta_ask_class",
 ] as const;
 
 export function isOpeningServicePickMenuModel(model: string | null | undefined): boolean {

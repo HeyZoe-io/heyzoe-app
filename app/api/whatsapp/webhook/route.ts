@@ -214,6 +214,12 @@ import {
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 import {
+  REGISTRATION_CTA_ASK_CLASS_MODEL,
+  REGISTRATION_CTA_LINK_MODEL,
+  resolveRegistrationCtaDecision,
+  shouldLookupRegistrationCta,
+} from "@/lib/wa-registration-cta-from-slot";
+import {
   buildIsraelNowSchedulePromptBlock,
   previousUserTextFromHistory,
   tryBuildRelativeDayClassSlotsReply,
@@ -354,6 +360,7 @@ import {
   automaticRegistrationSelfReportedAck,
   trialSignupLinkIntro,
   trialSignupLinkMissing,
+  matchedClassSignupLinkIntro,
 } from "@/lib/business-content-lang";
 
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
@@ -2708,6 +2715,72 @@ async function sendOpeningServicePickMenu(input: {
     content: formatInteractiveConversationLog(logBody, labels, menuFooter),
     model_used: modelUsed,
     session_id: input.sessionId,
+  });
+  return true;
+}
+
+function validRegistrationHttpUrl(url: string): boolean {
+  const u = String(url ?? "").trim();
+  return u.startsWith("https://") || u.startsWith("http://");
+}
+
+async function sendMatchedClassRegistrationLink(input: {
+  service: SfServiceRow;
+  knowledge: BusinessKnowledgePack;
+  inboundText: string;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<boolean> {
+  const url = input.service.paymentLink.trim();
+  if (!validRegistrationHttpUrl(url)) return false;
+  const langDetected = detectMessageLanguage(input.inboundText);
+  const lang = langDetected === "en" || langDetected === "he" ? langDetected : resolveBusinessContentLanguageFromKnowledge(input.knowledge);
+  const intro = matchedClassSignupLinkIntro(lang, input.service.name);
+  const postCtaHint = trialLinkPostCtaMessage(
+    lang,
+    resolveRegistrationConfirmationMode(input.knowledge.salesFlowConfig)
+  );
+  const txt = `${intro}\n${url}`;
+  try {
+    const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+    void markRegistrationCtaClicked({
+      businessId: Number(input.businessId),
+      phone: input.msg.from,
+      sessionId: input.sessionId,
+    });
+  } catch (e) {
+    console.warn("[WA Webhook] markRegistrationCtaClicked (class CTA) failed:", e);
+  }
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken).catch((e) =>
+    console.error("[WA Webhook] Send matched class registration link failed:", e)
+  );
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, postCtaHint, input.accountSid, input.authToken).catch(
+    (e) => console.error("[WA Webhook] Send matched class registration post-CTA hint failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "event",
+    content: `${HEYZOE_SF_SERVICE_PREFIX}${input.service.name}`,
+    model_used: "sf_service_registration_cta_slot",
+    session_id: input.sessionId,
+  });
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: `${txt}\n\n${postCtaHint}`,
+    model_used: REGISTRATION_CTA_LINK_MODEL,
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    phase: "cta",
   });
   return true;
 }
@@ -6364,6 +6437,104 @@ async function processIncoming(
         return;
       }
     }
+    }
+  }
+
+  // לינק הרשמה של השיעור שזוהה (מחר ב-8:00 → Power&HIIT) — לא לינק מערכת שעות.
+  if (
+    msg.type === "text" &&
+    businessId &&
+    knowledge?.salesFlowConfig &&
+    salesFlowServices.length > 0 &&
+    shouldLookupRegistrationCta(msg.text)
+  ) {
+    const recentForRegCta = await fetchRecentSessionMessages({
+      business_slug,
+      session_id: sessionId,
+      limit: 16,
+    });
+    const recentUserForRegCta = recentForRegCta
+      .filter((m) => m.role === "user")
+      .map((m) => m.content);
+    const lastPickedForRegCta =
+      salesFlowServices.length === 1
+        ? salesFlowServices[0]!.name
+        : ((await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })) ?? "");
+    const regCta = resolveRegistrationCtaDecision({
+      currentText: msg.text,
+      recentUserTexts: recentUserForRegCta,
+      services: salesFlowServices,
+      committedServiceName: lastPickedForRegCta,
+      sessionPhase: contactSessionPhase,
+      trialRegistered: contactTrialRegistered === true && !allowTrialCtaThisSession,
+      now: new Date(nowIso),
+    });
+    if (regCta.action === "send_link") {
+      const service =
+        salesFlowServices.find((s) => s.name === regCta.serviceName) ??
+        (salesFlowServices.length === 1 ? salesFlowServices[0]! : null);
+      if (service && validRegistrationHttpUrl(service.paymentLink)) {
+        const sent = await sendMatchedClassRegistrationLink({
+          service,
+          knowledge,
+          inboundText: msg.text,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId: String(businessId),
+          business_slug,
+          sessionId,
+        });
+        if (sent) {
+          contactSessionPhase = "cta";
+          return;
+        }
+      }
+      if (salesFlowServices.length > 1) {
+        await updateContactSessionPhase({
+          supabase,
+          businessId,
+          phone: msg.from,
+          phase: "opening",
+        });
+        contactSessionPhase = "opening";
+        await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: REGISTRATION_CTA_ASK_CLASS_MODEL,
+        });
+        return;
+      }
+    }
+    if (regCta.action === "ask_class") {
+      await updateContactSessionPhase({
+        supabase,
+        businessId,
+        phone: msg.from,
+        phase: "opening",
+      });
+      contactSessionPhase = "opening";
+      await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+        skipScheduleBoard: true,
+        modelUsed: REGISTRATION_CTA_ASK_CLASS_MODEL,
+      });
+      return;
     }
   }
 

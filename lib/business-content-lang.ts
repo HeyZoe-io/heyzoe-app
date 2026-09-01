@@ -71,6 +71,13 @@ export function trialSignupLinkIntro(lang: BusinessContentLanguage): string {
     : "איזו החלטה מדהימה 🙂 נרשמים ממש כאן:";
 }
 
+export function matchedClassSignupLinkIntro(lang: BusinessContentLanguage, serviceName: string): string {
+  const name = String(serviceName ?? "").trim();
+  const intro = trialSignupLinkIntro(lang);
+  if (!name) return intro;
+  return lang === "en" ? `That's ${name} 💜\n${intro}` : `זה ${name} 💜\n${intro}`;
+}
+
 export function trialSignupLinkMissing(lang: BusinessContentLanguage): string {
   return lang === "en"
     ? "We don't have a registration link here right now. Write us a short message and we'll get back to you, or choose View schedule."

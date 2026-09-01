@@ -52,6 +52,8 @@ assert.equal(isJoinSignupIntentText("איך נרשמים"), true);
 assert.equal(isJoinSignupIntentText("רוצה להירשם לשיעור ניסיון"), true);
 assert.equal(isJoinSignupIntentText("אני רוצה להירשם"), true);
 assert.equal(isJoinSignupIntentText("אשמח להירשם"), true);
+assert.equal(isJoinSignupIntentText("Can you tell me how to register ?"), true);
+assert.equal(isJoinSignupIntentText("how to register"), true);
 assert.equal(isJoinSignupIntentText("אני רוצה לבטל את ההרשמה"), false, "cancel must not be join-signup");
 
 const outOfFlowSignup = "היי, איך אני יכולה להירשם לשיעור ניסיון?";

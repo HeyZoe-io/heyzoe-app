@@ -3,6 +3,7 @@ import type { SfServiceRow } from "@/lib/sf-service-rows";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
   assistantReplyIsUnknownClassSlotHandoff,
+  matchCatalogServiceByDayAndTime,
   matchCatalogServiceFromFreeText,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
@@ -179,7 +180,33 @@ assert.equal(
   "פילאטיס מכשירים (כסא)"
 );
 
+const joeLike: SfServiceRow[] = [
+  svc("אקרו יוגה - ליחיד", []),
+  svc("אקרו יוגה - לזוג", []),
+  svc("עמידות ידיים / גמישות", []),
+  svc("שיעור אקרו אישי (1 - 1)", []),
+  svc("קורס אקרויוגה אונליין", []),
+  svc("סדנאות ואירועים מיוחדים", []),
+];
+assert.equal(
+  matchCatalogServiceFromFreeText("כמה עולה שיעור ניסיון?", joeLike),
+  null,
+  "generic class/trial price must not pick private lesson"
+);
+
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
+
+{
+  const tue = new Date("2026-09-01T07:32:00.000Z");
+  const catalog = [
+    svc("Power&HIIT", [
+      { day: "ב", time: "08:00" },
+      { day: "ד", time: "08:00" },
+    ]),
+    svc("אימוני כוח - Strength", [{ day: "א", time: "08:00" }]),
+  ];
+  assert.equal(matchCatalogServiceByDayAndTime("tomorrow at 8am", catalog, tue), "Power&HIIT");
+}
 
 console.log("wa-unknown-class-slot.test.ts: ok");
