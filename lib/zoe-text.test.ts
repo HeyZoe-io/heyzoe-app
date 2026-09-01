@@ -86,5 +86,17 @@ assert.equal(
   sanitizeZoeOutboundLanguage("מצטערת לשמוע, מאחלת בהחלמה מהירה!"),
   "מצטערת לשמוע, מאחלת החלמה מהירה!"
 );
+assert.equal(
+  sanitizeZoeOutboundLanguage("אנחנו כאן כשתהיי רוצה 🙂"),
+  "אנחנו כאן כשתרצי 🙂"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("אם תהיי רוצה, כתבי לי"),
+  "אם תרצי, כתבי לי"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("תהיי רוצה לחזור - אנחנו כאן"),
+  "תרצי לחזור - אנחנו כאן"
+);
 
 console.log("zoe-text.test.ts: ok");

@@ -13,6 +13,13 @@ assert.ok(defaultLegal.some((l) => l.includes(WORD_PRECISION)));
 assert.ok(defaultLegal.some((l) => l.includes("מתוקה") && l.includes("מצוקה")));
 assert.ok(defaultLegal.some((l) => l.includes("מנוי") && l.includes("מנוע")));
 assert.ok(defaultLegal.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")));
+assert.ok(defaultLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
+
+const defaultVoiceExamples =
+  DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .find((c) => c.id === "personality")
+    ?.sections?.find((s) => s.key === "voice_examples")?.lines ?? [];
+assert.ok(defaultVoiceExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
 
 const storedWithoutPrecision = {
   categories: [
@@ -43,6 +50,7 @@ const mergedLegal =
     ?.lines ?? [];
 assert.ok(mergedLegal.some((l) => l.includes(WORD_PRECISION)));
 assert.ok(mergedLegal.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")));
+assert.ok(mergedLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
 assert.equal(
   mergedLegal.filter((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")).length,
   1
@@ -81,5 +89,35 @@ const mergedTone =
     ?.sections?.find((s) => s.key === "tone_analysis")?.lines ?? [];
 assert.ok(mergedTone.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("קול רגוע")));
 assert.equal(mergedTone.filter((l) => l.includes("אל תמציאי סוג מקום")).length, 0);
+
+const storedOldExamples = {
+  categories: [
+    {
+      id: "personality",
+      title: "זהות, חוקיות ואופי",
+      description: "",
+      lines: [],
+      sections: [
+        {
+          key: "voice_examples",
+          label: "דוגמאות טון (few-shot)",
+          lines: ["ליד: «כמה אנשים יש בשיעור?» → זואי: «השיעורים אצלנו קטנים.»"],
+        },
+        {
+          key: "voice_style",
+          label: "סגנון שפה (קול זואי)",
+          lines: ["כתבי בעברית מדוברת וטבעית, כמו ישראלית אמיתית שכותבת בוואטסאפ."],
+        },
+      ],
+    },
+  ],
+};
+const mergedPersonality =
+  mergeWithDefaultZoePlatform(storedOldExamples).categories.find((c) => c.id === "personality")
+    ?.sections ?? [];
+const mergedExamples = mergedPersonality.find((s) => s.key === "voice_examples")?.lines ?? [];
+const mergedStyle = mergedPersonality.find((s) => s.key === "voice_style")?.lines ?? [];
+assert.ok(mergedExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
+assert.ok(mergedStyle.some((l) => l.includes("תהיי רוצה") && l.includes("תרצי")));
 
 console.log("business-zoe-platform.test.ts: ok");

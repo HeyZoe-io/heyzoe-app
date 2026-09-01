@@ -166,5 +166,13 @@ assert.match(spellingRule, /מילים שדומות באות אחת/);
 assert.match(spellingRule, /מתוקה/);
 assert.match(spellingRule, /מנוי/);
 assert.match(spellingRule, /עיסוי זה לא ספא/);
+assert.match(spellingRule, /כשתהיי רוצה/);
+assert.match(spellingRule, /תרצי/);
+
+const wantConjugation = applyKnownAssistantReplyFixes(
+  "מושלם! אנחנו כאן כשתהיי רוצה 🙂",
+  { knowledge }
+);
+assert.equal(wantConjugation, "מושלם! אנחנו כאן כשתרצי 🙂");
 
 console.log("wa-assistant-reply-fixes.test.ts: ok");
