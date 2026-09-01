@@ -130,6 +130,7 @@ export async function loadAllZoeAdminConversationSessions(
       lastAt: at.toISOString(),
       count: 0,
       isOpen: false,
+      lastFromUser: false,
       isPaused: Boolean(pausedUntil),
       pausedUntil,
       phone: formatPhoneDisplay(phone) || phone,

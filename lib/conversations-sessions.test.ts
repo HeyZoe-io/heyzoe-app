@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  aggregateSessionsFromMessages,
   dedupeSessionsByPhone,
   phoneNumberIdsForOwnerDashboard,
+  sessionAwaitingReply,
   sessionIdMatchesWaPhoneNumberIds,
   type SessionSummary,
 } from "@/lib/conversations-sessions";
@@ -115,6 +117,29 @@ function session(partial: Partial<SessionSummary> & Pick<SessionSummary, "sessio
   const variants = waSessionIdVariantsFromSessionId("wa_1144781695390397_+972501111111");
   assert.ok(variants.includes("wa_1144781695390397_972501111111"));
   assert.ok(variants.includes("wa_1144781695390397_+972501111111"));
+}
+
+{
+  const sid = "wa_1144781695390397_972501111111";
+  const newestFirst = aggregateSessionsFromMessages([
+    { session_id: sid, role: "user", created_at: "2026-09-01T12:00:00.000Z" },
+    { session_id: sid, role: "assistant", created_at: "2026-09-01T11:00:00.000Z" },
+  ]);
+  assert.equal(newestFirst[0]?.lastFromUser, true, "newest inbound wins even if rows are descending");
+  assert.equal(sessionAwaitingReply(newestFirst[0]!), true);
+
+  const afterReply = aggregateSessionsFromMessages([
+    { session_id: sid, role: "assistant", created_at: "2026-09-01T12:05:00.000Z" },
+    { session_id: sid, role: "user", created_at: "2026-09-01T12:00:00.000Z" },
+  ]);
+  assert.equal(afterReply[0]?.lastFromUser, false, "assistant reply clears awaiting");
+  assert.equal(sessionAwaitingReply(afterReply[0]!), false);
+
+  const eventAfterUser = aggregateSessionsFromMessages([
+    { session_id: sid, role: "user", created_at: "2026-09-01T12:00:00.000Z" },
+    { session_id: sid, role: "event", created_at: "2026-09-01T12:01:00.000Z" },
+  ]);
+  assert.equal(eventAfterUser[0]?.lastFromUser, true, "event rows do not clear last customer message");
 }
 
 console.log("conversations-sessions.test.ts: ok");

@@ -15,7 +15,7 @@ import {
   WaConversationMessage,
 } from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
-import { sortSessionsByRecentActivity } from "@/lib/conversations-sessions";
+import { sortSessionsByRecentActivity, sessionAwaitingReply } from "@/lib/conversations-sessions";
 import {
   DEFAULT_MARKETING_NOTE_STATUS,
   getMarketingNoteStatusMeta,
@@ -122,6 +122,7 @@ type SessionSummary = {
   lastAt: string;
   count: number;
   isOpen: boolean;
+  lastFromUser?: boolean;
   isPaused: boolean;
   pausedUntil?: string | null;
   phone: string;
@@ -687,7 +688,8 @@ export default function ConversationsClient({
                     ...s,
                     lastAt: nowIso,
                     count: s.count + 1,
-                    isOpen: true,
+                    isOpen: false,
+                    lastFromUser: false,
                   }
                 : s
             )
@@ -701,7 +703,7 @@ export default function ConversationsClient({
           sortSessionsByRecentActivity(
             (prev ?? []).map((s) =>
               s.session_id === selected.session_id
-                ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: true }
+                ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: false, lastFromUser: false }
                 : s
             )
           )
@@ -840,6 +842,7 @@ export default function ConversationsClient({
                 const hasName = Boolean(sessionLeadName(s));
                 const phone = sessionPhoneDisplay(s, t.unavailable);
                 const title = hasName ? sessionLeadName(s) : phone;
+                const awaitingReply = apiScope === "admin" && sessionAwaitingReply(s);
                 return (
                   <button
                     key={s.session_id}
@@ -848,6 +851,7 @@ export default function ConversationsClient({
                     onMouseEnter={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
                     onFocus={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
                     onPointerDown={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
+                    title={awaitingReply ? (lang === "en" ? "Waiting for a reply" : "ממתין למענה") : undefined}
                     className={`flex w-full items-center gap-3 border-b border-[#f0f2f5] px-3 py-3 transition-colors hover:bg-[#f5f6f6] ${
                       active ? "bg-[#f0f2f5]" : "bg-white"
                     }`}
@@ -855,7 +859,13 @@ export default function ConversationsClient({
                     <SessionAvatar session={s} />
                     <div className={`min-w-0 flex-1 ${textAlignClass}`}>
                       <div className="flex min-w-0 items-center gap-2">
-                        <p className="min-w-0 truncate text-[17px] leading-tight text-[#111b21]">{title}</p>
+                        <p
+                          className={`min-w-0 truncate text-[17px] leading-tight ${
+                            awaitingReply ? "font-bold text-[#111b21]" : "font-normal text-[#111b21]"
+                          }`}
+                        >
+                          {title}
+                        </p>
                         {showMarketingNoteStatus ? (
                           <MarketingNoteStatusBadge status={s.noteStatus} />
                         ) : null}
@@ -877,7 +887,13 @@ export default function ConversationsClient({
                       ) : null}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
-                      <span className="text-[12px] text-[#667781]">{formatListTime(s.lastAt)}</span>
+                      <span
+                        className={`text-[12px] ${
+                          awaitingReply ? "font-bold text-[#1fa855]" : "font-normal text-[#667781]"
+                        }`}
+                      >
+                        {formatListTime(s.lastAt)}
+                      </span>
                       <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
                       {s.isPaused ? (
                         <SessionPauseBadge
@@ -919,7 +935,13 @@ export default function ConversationsClient({
                     ) : null}
                     <SessionAvatar session={selected} />
                     <div className={`min-w-0 ${textAlignClass}`}>
-                      <p className="truncate text-[16px] text-[#111b21]">{sessionDisplayTitle(selected)}</p>
+                      <p
+                        className={`truncate text-[16px] text-[#111b21] ${
+                          apiScope === "admin" && sessionAwaitingReply(selected) ? "font-bold" : "font-normal"
+                        }`}
+                      >
+                        {sessionDisplayTitle(selected)}
+                      </p>
                       <p className="truncate text-[13px] text-[#667781]">
                         {sessionLeadName(selected) ? (
                           <span dir="ltr" className="inline-block">

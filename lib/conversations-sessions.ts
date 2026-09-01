@@ -25,6 +25,8 @@ export type SessionSummary = {
   lastAt: string;
   count: number;
   isOpen: boolean;
+  /** ההודעה האחרונה (user/assistant) היא מהלקוח — ממתין למענה */
+  lastFromUser?: boolean;
   isPaused: boolean;
   /** ISO — from paused_sessions.paused_until when the session is currently paused. */
   pausedUntil?: string | null;
@@ -34,6 +36,14 @@ export type SessionSummary = {
   /** סטטוס ליד מטבלת contacts (אותה לוגיקה כמו בדף אנשי קשר) */
   contactStatus?: ContactStatusKey | null;
 };
+
+export function sessionAwaitingReply(session: {
+  lastFromUser?: boolean | null;
+  isOpen?: boolean | null;
+}): boolean {
+  if (typeof session.lastFromUser === "boolean") return session.lastFromUser;
+  return session.isOpen === true;
+}
 
 function phoneLookupKey(phone: string): string {
   const p = String(phone ?? "").trim();
@@ -264,14 +274,18 @@ export function aggregateSessionsFromMessages(
     const sid = String(m.session_id ?? "anon");
     const at = new Date(String(m.created_at ?? ""));
     if (Number.isNaN(at.getTime())) continue;
-    const fromUser = String(m.role ?? "") === "user";
+    const role = String(m.role ?? "");
+    const speaker = role === "user" || role === "assistant";
+    const fromUser = role === "user";
     const existing = bySession.get(sid);
     if (!existing) {
-      bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser });
-    } else {
+      bySession.set(sid, { lastAt: at, count: 1, lastFromUser: speaker ? fromUser : false });
+      continue;
+    }
+    existing.count += 1;
+    if (at >= existing.lastAt) {
       existing.lastAt = at;
-      existing.count += 1;
-      existing.lastFromUser = fromUser;
+      if (speaker) existing.lastFromUser = fromUser;
     }
   }
 
@@ -284,6 +298,7 @@ export function aggregateSessionsFromMessages(
       lastAt: data.lastAt.toISOString(),
       count: data.count,
       isOpen,
+      lastFromUser: data.lastFromUser,
       isPaused: Boolean(pausedUntil),
       pausedUntil,
       phone: normalizePhone(rawPhone) ?? rawPhone,
@@ -359,10 +374,13 @@ function pickPreferredSession(
         ? keep.pausedUntil
         : drop.pausedUntil
       : keep.pausedUntil ?? drop.pausedUntil ?? null;
+  const latest = sameLine && dropMs > keepMs ? drop : keep;
   return {
     ...keep,
     count: sameLine ? keep.count + drop.count : keep.count,
-    lastAt: sameLine && dropMs > keepMs ? drop.lastAt : keep.lastAt,
+    lastAt: latest.lastAt,
+    lastFromUser: latest.lastFromUser ?? latest.isOpen,
+    isOpen: latest.isOpen,
     isPaused: keep.isPaused || drop.isPaused,
     pausedUntil,
     fullName: keep.fullName || drop.fullName,
@@ -402,6 +420,7 @@ function appendTemplateOnlySessions(
       lastAt,
       count: 1,
       isOpen: false,
+      lastFromUser: false,
       isPaused: Boolean(pausedUntil),
       pausedUntil,
       phone: extractPhoneFromSessionId(sessionId) || key,

@@ -232,6 +232,7 @@ export type MarketingSessionSummary = {
   lastAt: string;
   count: number;
   isOpen: boolean;
+  lastFromUser?: boolean;
   isPaused: boolean;
   pausedUntil?: string | null;
   phone: string;
@@ -268,18 +269,22 @@ function ingestMarketingMessage(
   const sid = rawSid === "anon" ? "anon" : canonicalMarketingSessionId(rawSid);
   const at = new Date(String(row.created_at ?? ""));
   if (Number.isNaN(at.getTime())) return;
-  const fromUser = String(row.role ?? "") === "user";
+  const role = String(row.role ?? "");
+  const speaker = role === "user" || role === "assistant";
+  const fromUser = role === "user";
   const phone = formatMarketingPhoneDisplay(
     extractLeadPhoneFromMarketingSession(rawSid) || marketingPhoneDigits(rawSid) || rawSid
   );
   const existing = bySession.get(sid);
   if (!existing) {
-    bySession.set(sid, { lastAt: at, count: 1, lastFromUser: fromUser, phone });
+    bySession.set(sid, { lastAt: at, count: 1, lastFromUser: speaker ? fromUser : false, phone });
     return;
   }
-  existing.lastAt = at > existing.lastAt ? at : existing.lastAt;
   existing.count += 1;
-  existing.lastFromUser = fromUser;
+  if (at >= existing.lastAt) {
+    existing.lastAt = at;
+    if (speaker) existing.lastFromUser = fromUser;
+  }
   if (!existing.phone && phone) existing.phone = phone;
 }
 
@@ -404,6 +409,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     lastAt: data.lastAt.toISOString(),
     count: data.count,
     isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
+    lastFromUser: data.lastFromUser,
     isPaused: pausedUntilByCanonical.has(sid),
     pausedUntil: pausedUntilByCanonical.get(sid) ?? null,
     phone: data.phone,
