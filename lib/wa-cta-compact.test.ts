@@ -15,6 +15,7 @@ import type { SalesFlowCtaButton, SalesFlowConfig } from "@/lib/sales-flow";
 assert.equal(isCtaHaveAQuestionMessage("יש לי שאלה"), true);
 assert.equal(isCtaHaveAQuestionMessage("יש לי  שאלה"), true);
 assert.equal(isCtaHaveAQuestionMessage("I have a question"), true);
+assert.equal(isCtaHaveAQuestionMessage("У меня вопрос"), true);
 assert.equal(isCtaHaveAQuestionMessage("מה ללבוש?"), false);
 assert.equal(isCtaHaveAQuestionMessage("אפשר להקפיא?"), false);
 assert.equal(ctaHaveAQuestionReply("he"), "בשמחה, מה השאלה?");

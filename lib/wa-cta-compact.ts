@@ -9,11 +9,15 @@ export const SALES_FLOW_CTA_HAVE_A_QUESTION_MODEL = "sales_flow_cta_have_a_quest
 const REGISTRATION_CTA_KINDS: SalesFlowCtaKind[] = ["trial", "workshop_purchase", "course_enroll"];
 
 export function ctaHaveAQuestionLabel(lang: BusinessContentLanguage = "he"): string {
-  return lang === "en" ? "I have a question" : "יש לי שאלה";
+  if (lang === "en") return "I have a question";
+  if (lang === "ru") return "У меня вопрос";
+  return "יש לי שאלה";
 }
 
 export function ctaHaveAQuestionReply(lang: BusinessContentLanguage = "he"): string {
-  return lang === "en" ? "Happy to help, what's your question?" : "בשמחה, מה השאלה?";
+  if (lang === "en") return "Happy to help, what's your question?";
+  if (lang === "ru") return "С радостью, какой вопрос?";
+  return "בשמחה, מה השאלה?";
 }
 
 export function ctaCompactFollowupBody(lang: BusinessContentLanguage = "he"): string {
@@ -23,7 +27,11 @@ export function ctaCompactFollowupBody(lang: BusinessContentLanguage = "he"): st
 export function isCtaHaveAQuestionMessage(raw: string): boolean {
   const t = String(raw ?? "").trim();
   if (!t) return false;
-  return waLabelMatches(t, ctaHaveAQuestionLabel("he")) || waLabelMatches(t, ctaHaveAQuestionLabel("en"));
+  return (
+    waLabelMatches(t, ctaHaveAQuestionLabel("he")) ||
+    waLabelMatches(t, ctaHaveAQuestionLabel("en")) ||
+    waLabelMatches(t, ctaHaveAQuestionLabel("ru"))
+  );
 }
 
 export function pickRegistrationCtaButton(
@@ -69,7 +77,9 @@ export function collectSalesFlowCtaChoiceLabels(
   }
   for (const opt of cfg.followup_after_next_class_options ?? []) push(String(opt ?? ""));
   push(ctaHaveAQuestionLabel(lang));
-  push(ctaHaveAQuestionLabel(lang === "en" ? "he" : "en"));
+  push(ctaHaveAQuestionLabel("he"));
+  push(ctaHaveAQuestionLabel("en"));
+  push(ctaHaveAQuestionLabel("ru"));
   return [...new Set(labels)];
 }
 

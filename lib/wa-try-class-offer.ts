@@ -14,14 +14,19 @@ export const TRY_CLASS_OFFER_QUESTION_HE =
   "בא לך שאשלח לך את מידע מסודר על השיעורים ומתי אפשר להגיע לשיעור ניסיון?";
 export const TRY_CLASS_OFFER_QUESTION_EN =
   "Want me to send you organized info about the classes and when you can come to a trial class?";
+export const TRY_CLASS_OFFER_QUESTION_RU =
+  "Отправить вам удобную информацию о занятиях и когда можно прийти на пробное?";
 
 export const TRY_CLASS_OFFER_YES_HE = "כן";
 export const TRY_CLASS_OFFER_NO_HE = "לא תודה";
 export const TRY_CLASS_OFFER_YES_EN = "Yes";
 export const TRY_CLASS_OFFER_NO_EN = "Not now";
+export const TRY_CLASS_OFFER_YES_RU = "Да";
+export const TRY_CLASS_OFFER_NO_RU = "Не сейчас";
 
 export const TRY_CLASS_OFFER_DECLINE_HE = "אין בעיה 🙂 אני כאן אם תרצו.";
 export const TRY_CLASS_OFFER_DECLINE_EN = "No problem 🙂 I'm here if you'd like that later.";
+export const TRY_CLASS_OFFER_DECLINE_RU = "Без проблем 🙂 Я здесь, если захотите.";
 
 const PRICE_OR_WHAT_IS_OPENER = /^(?:כמה\s+עולה|מה\s+המחיר|מה\s+זה|what(?:'s| is) this|how much)/u;
 const REPHRASE_TRAP = /לנסח|מהאפליקציה|מה\s+אפליקציה/u;
@@ -40,22 +45,26 @@ const ENGLISH_TRY_RE =
   /(?:id like to|i would like to|want to|can i|wanna)\s+try(?:\s+(?:a\s+)?(?:class|lesson|yoga|pilates))?/iu;
 
 const NEGATIVE_REPLY =
-  /^(?:לא|לא תודה|לא כרגע|לא צריך|לא בא לי|no|not now|no thanks)$/iu;
+  /^(?:לא|לא תודה|לא כרגע|לא צריך|לא בא לי|no|not now|no thanks|нет|не сейчас|не надо)$/iu;
 
-const AFFIRMATIVE_OPENER = /^(?:כן|בטח|יאללה|אוקיי?|ok|yes|sure)(?:$|\s)/iu;
+const AFFIRMATIVE_OPENER = /^(?:כן|בטח|יאללה|אוקיי?|ok|yes|sure|да|конечно)(?:$|\s)/iu;
 
 export function tryClassInfoOfferQuestion(lang: BusinessContentLanguage): string {
-  return lang === "en" ? TRY_CLASS_OFFER_QUESTION_EN : TRY_CLASS_OFFER_QUESTION_HE;
+  if (lang === "en") return TRY_CLASS_OFFER_QUESTION_EN;
+  if (lang === "ru") return TRY_CLASS_OFFER_QUESTION_RU;
+  return TRY_CLASS_OFFER_QUESTION_HE;
 }
 
 export function tryClassInfoOfferLabels(lang: BusinessContentLanguage): [string, string] {
-  return lang === "en"
-    ? [TRY_CLASS_OFFER_YES_EN, TRY_CLASS_OFFER_NO_EN]
-    : [TRY_CLASS_OFFER_YES_HE, TRY_CLASS_OFFER_NO_HE];
+  if (lang === "en") return [TRY_CLASS_OFFER_YES_EN, TRY_CLASS_OFFER_NO_EN];
+  if (lang === "ru") return [TRY_CLASS_OFFER_YES_RU, TRY_CLASS_OFFER_NO_RU];
+  return [TRY_CLASS_OFFER_YES_HE, TRY_CLASS_OFFER_NO_HE];
 }
 
 export function tryClassInfoOfferDeclineReply(lang: BusinessContentLanguage): string {
-  return lang === "en" ? TRY_CLASS_OFFER_DECLINE_EN : TRY_CLASS_OFFER_DECLINE_HE;
+  if (lang === "en") return TRY_CLASS_OFFER_DECLINE_EN;
+  if (lang === "ru") return TRY_CLASS_OFFER_DECLINE_RU;
+  return TRY_CLASS_OFFER_DECLINE_HE;
 }
 
 export function resolveTryClassOfferLang(
@@ -65,6 +74,7 @@ export function resolveTryClassOfferLang(
   const detected = detectMessageLanguage(inbound);
   if (detected === "en") return "en";
   if (detected === "he") return "he";
+  if (detected === "ru") return "ru";
   return businessLang;
 }
 

@@ -93,6 +93,8 @@ export type BusinessKnowledgePack = {
   membershipsAndCardsText: string;
   salesFlowConfig: SalesFlowConfig | null;
   salesFlowPromptSection: string;
+  /** WhatsApp lead UI language for this request — overrides studio default when set. */
+  leadUiLang?: import("@/lib/business-content-lang").BusinessContentLanguage;
   /** שירותים parsed ל-runtime פלואו ווטסאפ (עד 24, כמו limit הישן ב-webhook) */
   salesFlowServices: SfServiceRow[];
   /** קישור אינסטגרם (social_links.instagram) */

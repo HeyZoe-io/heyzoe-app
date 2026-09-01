@@ -8,13 +8,28 @@ import { HEBREW_DAY_OPTIONS } from "@/lib/product-schedule-slots";
 
 /** תווית כפתור CTA כשמצב «שיחת מכירה» פעיל */
 export const CALL_SCHEDULE_CTA_LABEL = "שיחת מכירה";
+export const CALL_SCHEDULE_CTA_LABEL_EN = "Sales call";
+export const CALL_SCHEDULE_CTA_LABEL_RU = "Созвон";
 
 /** תווית ישנה — עדיין מזוהה בלחיצות לידים קיימות */
 export const CALL_SCHEDULE_CTA_LABEL_LEGACY = "קביעת מועד לשיחה";
 
+export function callScheduleCtaLabel(
+  lang: import("@/lib/business-content-lang").BusinessContentLanguage = "he"
+): string {
+  if (lang === "en") return CALL_SCHEDULE_CTA_LABEL_EN;
+  if (lang === "ru") return CALL_SCHEDULE_CTA_LABEL_RU;
+  return CALL_SCHEDULE_CTA_LABEL;
+}
+
 export function isCallScheduleCtaLabel(label: string): boolean {
   const t = String(label ?? "").trim();
-  return t === CALL_SCHEDULE_CTA_LABEL || t === CALL_SCHEDULE_CTA_LABEL_LEGACY;
+  return (
+    t === CALL_SCHEDULE_CTA_LABEL ||
+    t === CALL_SCHEDULE_CTA_LABEL_EN ||
+    t === CALL_SCHEDULE_CTA_LABEL_RU ||
+    t === CALL_SCHEDULE_CTA_LABEL_LEGACY
+  );
 }
 
 /** שבת — לא מוצעת לקביעת שיחה */
@@ -168,10 +183,10 @@ export function diffCallScheduleSlots(
 /** דורס תווית כפתור trial כשמצב «שיחת מכירה» פעיל */
 export function applyCallScheduleCtaLabelOverride<T extends { kind?: string; label: string }>(
   buttons: T[],
-  enabled: boolean
+  enabled: boolean,
+  lang: import("@/lib/business-content-lang").BusinessContentLanguage = "he"
 ): T[] {
   if (!enabled) return buttons;
-  return buttons.map((b) =>
-    b.kind === "trial" ? { ...b, label: CALL_SCHEDULE_CTA_LABEL } : b
-  );
+  const label = callScheduleCtaLabel(lang);
+  return buttons.map((b) => (b.kind === "trial" ? { ...b, label } : b));
 }

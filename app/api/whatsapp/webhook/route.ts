@@ -63,6 +63,8 @@ import {
   getEffectiveSecondaryOfferCtaButtons,
   applyOnlineCourseCtaButtonLabels,
   ONLINE_COURSE_ENROLL_CTA_LABEL,
+  ONLINE_COURSE_ENROLL_CTA_LABEL_EN,
+  ONLINE_COURSE_ENROLL_CTA_LABEL_RU,
   matchesTrialAlreadyRegisteredMessage,
   matchesTrialRegisteredMessage,
   offerKindFromServiceMeta,
@@ -103,7 +105,10 @@ import {
 import {
   applyCallScheduleCtaLabelOverride,
   CALL_SCHEDULE_CTA_LABEL,
+  CALL_SCHEDULE_CTA_LABEL_EN,
+  CALL_SCHEDULE_CTA_LABEL_RU,
   CALL_SCHEDULE_CTA_LABEL_LEGACY,
+  callScheduleCtaLabel,
   uniqueDaysWithSlots,
 } from "@/lib/call-schedule-slots";
 import {
@@ -361,7 +366,12 @@ import {
   trialSignupLinkIntro,
   trialSignupLinkMissing,
   matchedClassSignupLinkIntro,
+  schedulePickChangeServiceLabel,
+  isSchedulePickChangeServiceLabel,
+  pickScheduleSlotButtonsHint,
 } from "@/lib/business-content-lang";
+import { resolveLeadContentLanguage, parseWaUiLang } from "@/lib/lead-ui-lang";
+import { localizeKnowledgePackForLead } from "@/lib/sales-flow-localize";
 
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
 const SECONDARY_OFFER_PURCHASE_POST_CTA_MESSAGE =
@@ -1499,9 +1509,11 @@ function heDayOfWeekForDm(dm: string): string | null {
   }
 }
 
-function buildScheduleDateQuestion(_knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
-  const serviceName = service?.name?.trim() || "האימון";
-  return [buildScheduleSlotPickQuestion(serviceName), "בחרו מועד מהכפתורים למטה."].join("\n");
+function buildScheduleDateQuestion(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
+  const lang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+  const fallback = lang === "en" ? "the class" : lang === "ru" ? "тренировку" : "האימון";
+  const serviceName = service?.name?.trim() || fallback;
+  return [buildScheduleSlotPickQuestion(serviceName, lang), pickScheduleSlotButtonsHint(lang)].join("\n");
 }
 
 function buildScheduleTimeQuestion(service: SfServiceRow | null): string {
@@ -1821,7 +1833,6 @@ async function sendScheduleSelectionTimeQuestion(input: {
 }
 
 const SCHEDULE_SLOT_PICK_MAX = 10;
-const SCHEDULE_PICK_CHANGE_SERVICE_LABEL = "בחירת אימון אחר";
 
 function scheduleBoardAssetsFromKnowledge(knowledge: BusinessKnowledgePack, blockMedia: boolean) {
   const schedBtn = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
@@ -2739,7 +2750,10 @@ async function sendMatchedClassRegistrationLink(input: {
   const url = input.service.paymentLink.trim();
   if (!validRegistrationHttpUrl(url)) return false;
   const langDetected = detectMessageLanguage(input.inboundText);
-  const lang = langDetected === "en" || langDetected === "he" ? langDetected : resolveBusinessContentLanguageFromKnowledge(input.knowledge);
+  const lang =
+    langDetected === "en" || langDetected === "he" || langDetected === "ru"
+      ? langDetected
+      : resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const intro = matchedClassSignupLinkIntro(lang, input.service.name);
   const postCtaHint = trialLinkPostCtaMessage(
     lang,
@@ -2950,9 +2964,11 @@ async function sendScheduleSlotPickMenu(input: {
   const labels = slots
     .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
     .map((s) => formatSlotPickButtonLabelWithCycle(s, { start_date: s.cycle_start, end_date: s.cycle_end }));
-  labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
-  const serviceName = input.selectedService?.name?.trim() || "האימון";
-  const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName));
+  labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(input.knowledge)));
+  const lang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
+  const fallbackName = lang === "en" ? "the class" : lang === "ru" ? "тренировку" : "האימון";
+  const serviceName = input.selectedService?.name?.trim() || fallbackName;
+  const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName, lang));
 
   const menuFooter = salesFlowMenuFooter(input.knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
@@ -3030,7 +3046,7 @@ async function sendCourseCycleStartPickMenu(input: {
   }
 
   const labels = cyclesForButtons.map((c) => formatCourseCycleStartButtonLabel(c.start_date));
-  labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
+  labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(input.knowledge)));
   const body = stripTrailingNumberedChoiceLines(
     [...introParts, pickQuestion].filter(Boolean).join("\n\n")
   );
@@ -3293,10 +3309,12 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     activeOfferKind === "trial"
       ? getEffectiveSalesFlowCtaButtons(ctaBank, sfEff)
       : getEffectiveSecondaryOfferCtaButtons(ctaBank, sfConsumedKinds ?? []);
-  const filteredLabeled = applyOnlineCourseCtaButtonLabels(filteredRaw, selectedService);
+  const uiLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+  const filteredLabeled = applyOnlineCourseCtaButtonLabels(filteredRaw, selectedService, uiLang);
   const filtered = applyCallScheduleCtaLabelOverride(
     filteredLabeled,
-    knowledge.salesFlowCallSchedulingEnabled === true && activeOfferKind === "trial"
+    knowledge.salesFlowCallSchedulingEnabled === true && activeOfferKind === "trial",
+    uiLang
   );
 
   const ctaLabels = filtered.map((b) => b.label.trim()).filter((l) => l.length > 0).slice(0, 12);
@@ -5578,6 +5596,7 @@ async function processIncoming(
   let contactFlowStep = 0;
   let contactScheduleRequestedDate = "";
   let contactScheduleRequestedTime = "";
+  let contactWaUiLang = "";
   let contactId: string | number | null = null;
   let starterQuotaNoticeMonth: string | null = null;
   /** אל תחזירו הנעה לאינסטגרם לאחר שנשלחה כבר הזמנה לעקוב */
@@ -5677,6 +5696,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
+            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
@@ -5737,6 +5757,7 @@ async function processIncoming(
       contactFlowStep = typeof fs === "number" && Number.isFinite(fs) ? fs : 0;
       contactScheduleRequestedDate = String((contactRow as any)?.sf_requested_date ?? "").trim();
       contactScheduleRequestedTime = String((contactRow as any)?.sf_requested_time ?? "").trim();
+      contactWaUiLang = parseWaUiLang((contactRow as any)?.wa_ui_lang);
 
       const cid = (contactRow as any)?.id;
       contactId = cid !== undefined && cid !== null ? cid : null;
@@ -6003,6 +6024,39 @@ async function processIncoming(
   }
 
   const knowledge = await getBusinessKnowledgePack(business_slug);
+  if (knowledge) {
+    const inboundForLang = msg.type === "text" ? String(msg.text ?? "") : "";
+    const leadLang = resolveLeadContentLanguage({
+      inboundText: inboundForLang,
+      persisted: contactWaUiLang,
+      knowledge,
+    });
+    knowledge.leadUiLang = leadLang;
+    if (leadLang === "ru") {
+      try {
+        await localizeKnowledgePackForLead(knowledge, "ru");
+      } catch (e) {
+        console.error("[WA Webhook] Russian sales-flow localize failed:", e);
+      }
+    }
+    const inboundDetected = parseWaUiLang(detectMessageLanguage(inboundForLang));
+    if (businessId && inboundDetected && inboundDetected !== contactWaUiLang) {
+      contactWaUiLang = inboundDetected;
+      try {
+        const phoneVariants = contactPhoneLookupVariants(msg.from);
+        const { error } = await supabase
+          .from("contacts")
+          .update({ wa_ui_lang: inboundDetected })
+          .eq("business_id", businessId)
+          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+        if (error && !/wa_ui_lang|column/i.test(String(error.message ?? ""))) {
+          console.warn("[WA Webhook] wa_ui_lang persist failed:", error.message);
+        }
+      } catch (e) {
+        console.warn("[WA Webhook] wa_ui_lang persist threw:", e);
+      }
+    }
+  }
   const salesFlowServices = knowledge?.salesFlowServices ?? [];
 
   // Handle unsupported message types (voice note, image, sticker, …).
@@ -8333,12 +8387,16 @@ async function processIncoming(
     salesFlowServices.length > 1 &&
     openingFlowActive
   ) {
-    const label = SCHEDULE_PICK_CHANGE_SERVICE_LABEL;
+    const changeLabels = [
+      schedulePickChangeServiceLabel("he"),
+      schedulePickChangeServiceLabel("en"),
+      schedulePickChangeServiceLabel("ru"),
+    ];
     const incomingResolved =
       msg.metaInteractiveReplyId?.trim()
-        ? resolveMetaInteractiveLabel(msg.metaInteractiveReplyId, msg.text, [label])
+        ? resolveMetaInteractiveLabel(msg.metaInteractiveReplyId, msg.text, changeLabels)
         : msg.text.trim();
-    if (waLabelMatches(incomingResolved, label)) {
+    if (isSchedulePickChangeServiceLabel(incomingResolved)) {
       const phoneVariants = contactPhoneLookupVariants(msg.from);
       await supabase
         .from("contacts")
@@ -8654,14 +8712,14 @@ async function processIncoming(
         );
         if (cyclesForButtons.length > 0) {
           const labels = cyclesForButtons.map((c) => formatCourseCycleStartButtonLabel(c.start_date));
-          labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
+          labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(knowledge)));
           const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
           const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
           const inCoursePickContext =
             !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
             (inSchedulePhase || lastAssistForSchedule === "sales_flow_course_cycle_start_menu");
 
-          if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
+          if (isSchedulePickChangeServiceLabel(resolved)) {
             const phoneVariants = contactPhoneLookupVariants(msg.from);
             await supabase
               .from("contacts")
@@ -8794,7 +8852,7 @@ async function processIncoming(
             .map((s) =>
               formatSlotPickButtonLabelWithCycle(s, { start_date: s.cycle_start, end_date: s.cycle_end })
             );
-          labels.push(SCHEDULE_PICK_CHANGE_SERVICE_LABEL);
+          labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(knowledge)));
           const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
           const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
           // רק כשבאמת בשלב מועד — לא לפי metaInteractiveReplyId (גם CTA/חימום/בחירת שירות הם interactive).
@@ -8802,7 +8860,7 @@ async function processIncoming(
             !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
             (inSchedulePhase || lastAssistForSchedule === "sales_flow_schedule_slot_menu");
 
-          if (waLabelMatches(resolved, SCHEDULE_PICK_CHANGE_SERVICE_LABEL)) {
+          if (isSchedulePickChangeServiceLabel(resolved)) {
           const phoneVariants = contactPhoneLookupVariants(msg.from);
           await supabase
             .from("contacts")
@@ -9072,9 +9130,15 @@ async function processIncoming(
         const activeOfferKind = selectedService?.offerKind ?? "trial";
         const callSchedulingOn =
           knowledge.salesFlowCallSchedulingEnabled === true && activeOfferKind === "trial";
+        const uiLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
         const ctaBs = applyCallScheduleCtaLabelOverride(
-          applyOnlineCourseCtaButtonLabels(ctaButtonsForOfferKind(cfg, activeOfferKind), selectedService),
-          callSchedulingOn
+          applyOnlineCourseCtaButtonLabels(
+            ctaButtonsForOfferKind(cfg, activeOfferKind),
+            selectedService,
+            uiLang
+          ),
+          callSchedulingOn,
+          uiLang
         );
 
         const sfEff: EffectiveSalesFlowCtaInput = {
@@ -9087,7 +9151,7 @@ async function processIncoming(
             ? getEffectiveSalesFlowCtaButtons(ctaBs, sfEff)
             : getEffectiveSecondaryOfferCtaButtons(ctaBs, sfClickedCtaKinds);
         const effFollowLabels = getEffectiveFollowupMenuLabels(cfg.followup_after_next_class_options, sfEff, cfg.cta_buttons).map(
-          (label, idx) => (callSchedulingOn && idx === 0 ? CALL_SCHEDULE_CTA_LABEL : label)
+          (label, idx) => (callSchedulingOn && idx === 0 ? callScheduleCtaLabel(uiLang) : label)
         );
         const contentLangForCta = resolveBusinessContentLanguageFromKnowledge(knowledge);
         const compactCtaLabels = buildCompactCtaMenuLabels(effectiveCtas, contentLangForCta);
@@ -9095,7 +9159,9 @@ async function processIncoming(
           ...ctaBs.map((b) => b.label.trim()),
           ...effFollowLabels.map((x) => String(x ?? "").trim()),
           ...compactCtaLabels,
-          ...(callSchedulingOn ? [CALL_SCHEDULE_CTA_LABEL] : []),
+          ...(callSchedulingOn
+            ? [CALL_SCHEDULE_CTA_LABEL, CALL_SCHEDULE_CTA_LABEL_EN, CALL_SCHEDULE_CTA_LABEL_RU, CALL_SCHEDULE_CTA_LABEL_LEGACY]
+            : []),
         ].filter((l) => l.length > 0);
 
         const fuOptsForNum = effFollowLabels;
@@ -9169,6 +9235,8 @@ async function processIncoming(
             ? waLabelMatches(incomingResolved, trialBtn.label) ||
               (callSchedulingOn &&
                 (waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL) ||
+                  waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL_EN) ||
+                  waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL_RU) ||
                   waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL_LEGACY)))
             : false);
         const wantsSchedule =
@@ -9480,6 +9548,8 @@ async function processIncoming(
           courseEnrollBtn &&
           (waLabelMatches(incomingResolved, courseEnrollBtn.label) ||
             waLabelMatches(incomingResolved, ONLINE_COURSE_ENROLL_CTA_LABEL) ||
+            waLabelMatches(incomingResolved, ONLINE_COURSE_ENROLL_CTA_LABEL_EN) ||
+            waLabelMatches(incomingResolved, ONLINE_COURSE_ENROLL_CTA_LABEL_RU) ||
             waLabelMatches(incomingResolved, "הצטרפות לקורס")) &&
           !consumedSf("course_enroll")
         ) {
@@ -10049,6 +10119,7 @@ async function processIncoming(
     sfAiSelected = salesFlowServices.find((s) => s.name === pick) ?? salesFlowServices[0] ?? null;
   }
   const sfAiOfferKind = sfAiSelected?.offerKind ?? "trial";
+  const sfAiUiLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
   const filteredCtaForAi =
     sfCfgForAi != null && sfAiEff != null
       ? applyCallScheduleCtaLabelOverride(
@@ -10059,9 +10130,11 @@ async function processIncoming(
                   ctaButtonsForOfferKind(sfCfgForAi, sfAiOfferKind),
                   sfClickedCtaKinds
                 ),
-            sfAiSelected
+            sfAiSelected,
+            sfAiUiLang
           ),
-          knowledge?.salesFlowCallSchedulingEnabled === true && sfAiOfferKind === "trial"
+          knowledge?.salesFlowCallSchedulingEnabled === true && sfAiOfferKind === "trial",
+          sfAiUiLang
         )
       : [];
   const effectiveFollowLabelsForPred =
@@ -10069,7 +10142,7 @@ async function processIncoming(
       ? getEffectiveFollowupMenuLabels(sfCfgForAi.followup_after_next_class_options, sfAiEff, sfCfgForAi.cta_buttons).map(
           (label, idx) =>
             knowledge?.salesFlowCallSchedulingEnabled === true && sfAiOfferKind === "trial" && idx === 0
-              ? CALL_SCHEDULE_CTA_LABEL
+              ? callScheduleCtaLabel(sfAiUiLang)
               : label
         )
       : [];

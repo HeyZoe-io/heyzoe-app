@@ -65,7 +65,7 @@ function parseButtonToken(raw: string): WaConversationButton {
 
 function extractFooterHint(text: string): { text: string; footerHint?: string } {
   const t = text.trim();
-  for (const lang of ["he", "en"] as const) {
+  for (const lang of ["he", "en", "ru"] as const) {
     const footer = getZoeWhatsAppMenuFooter(lang).trim();
     if (!footer || !t.includes(footer)) continue;
     const without = t

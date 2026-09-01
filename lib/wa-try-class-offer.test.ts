@@ -79,7 +79,7 @@ assert.equal(
 );
 assert.equal(
   shouldStartProductPickAfterTryClassOffer({
-    inbound: "Yes",
+    inbound: "Да",
     lastAssistantModel: TRY_CLASS_OFFER_MODEL,
   }),
   true

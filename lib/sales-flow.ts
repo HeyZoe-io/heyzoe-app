@@ -414,9 +414,21 @@ export function splitMultiServiceQuestionForWhatsApp(
   };
 }
 
-export function buildScheduleSlotPickQuestion(serviceName: string): string {
-  const name = serviceName.trim() || "האימון";
-  return `מתי נוח לך להגיע ל${name}?`;
+export function buildScheduleSlotPickQuestion(
+  serviceName: string,
+  lang: import("@/lib/business-content-lang").BusinessContentLanguage = "he"
+): string {
+  const name = serviceName.trim();
+  if (lang === "en") {
+    const n = name || "the class";
+    return `When is a good time for you to come to ${n}?`;
+  }
+  if (lang === "ru") {
+    const n = name || "тренировку";
+    return `Когда вам удобно прийти на ${n}?`;
+  }
+  const n = name || "האימון";
+  return `מתי נוח לך להגיע ל${n}?`;
 }
 
 const FRIENDLY: SalesFlowConfig = {
@@ -1129,15 +1141,22 @@ export function ctaButtonsForOfferKind(cfg: SalesFlowConfig, kind: OfferKind): S
 
 /** כפתור הרשמה לקורס אונליין — תווית קבועה בווטסאפ */
 export const ONLINE_COURSE_ENROLL_CTA_LABEL = "לקורס אונליין";
+export const ONLINE_COURSE_ENROLL_CTA_LABEL_EN = "Online course";
+export const ONLINE_COURSE_ENROLL_CTA_LABEL_RU = "Онлайн-курс";
 
 export function applyOnlineCourseCtaButtonLabels(
   buttons: SalesFlowCtaButton[],
-  service: { offerKind?: string; locationMode?: string } | null | undefined
+  service: { offerKind?: string; locationMode?: string } | null | undefined,
+  lang: import("@/lib/business-content-lang").BusinessContentLanguage = "he"
 ): SalesFlowCtaButton[] {
   if (service?.offerKind !== "course" || service.locationMode !== "online") return buttons;
-  return buttons.map((b) =>
-    b.kind === "course_enroll" ? { ...b, label: ONLINE_COURSE_ENROLL_CTA_LABEL } : b
-  );
+  const label =
+    lang === "en"
+      ? ONLINE_COURSE_ENROLL_CTA_LABEL_EN
+      : lang === "ru"
+        ? ONLINE_COURSE_ENROLL_CTA_LABEL_RU
+        : ONLINE_COURSE_ENROLL_CTA_LABEL;
+  return buttons.map((b) => (b.kind === "course_enroll" ? { ...b, label } : b));
 }
 
 /** x כמשתנה תצוגה ישן — בלי \\b אחרי עברית (JS לא מזהה גבול מילה לפני פיסוק). */
@@ -2184,6 +2203,7 @@ function formatGreetingAddressLine(addressText: string, contentLangSample: strin
   if (!addr) return "";
   const lang = detectMessageLanguage(contentLangSample);
   if (lang === "en") return `We're located at ${addr}`;
+  if (lang === "ru") return `Мы находимся по адресу ${addr}`;
   return `כתובתנו היא ${addr}`;
 }
 

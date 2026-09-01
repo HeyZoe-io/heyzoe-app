@@ -1,6 +1,7 @@
 /** טקסט ברירת מחדל לכפתורי quick-reply / פולואפ שמתניעים פלואו מכירה (עברית). */
 export const SALES_FLOW_START_BUTTON_LABEL_HE = "בואו נתחיל";
 export const SALES_FLOW_START_BUTTON_LABEL_EN = "Let's start!";
+export const SALES_FLOW_START_BUTTON_LABEL_RU = "Давайте начнём";
 
 export function normalizeSalesFlowGreetingToken(s: string): string {
   return s
@@ -34,10 +35,26 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
   "let us start",
   "id like details",
   "i would like details",
+  SALES_FLOW_START_BUTTON_LABEL_RU,
+  "давайте начнём",
+  "давайте начнем",
+  "хочу подробности",
+  "можно подробности",
+  "начать",
 ]);
 
 /** ברכות קצרות שאפשר להסיר מתחילת המשפט אם אחריהן נשאר טריגר («היי אשמח לפרטים»). */
-const LEADING_CASUAL_GREETING_PREFIXES = ["היי ", "הי ", "שלום ", "אהלן ", "hello ", "hi ", "hey "] as const;
+const LEADING_CASUAL_GREETING_PREFIXES = [
+  "היי ",
+  "הי ",
+  "שלום ",
+  "אהלן ",
+  "hello ",
+  "hi ",
+  "hey ",
+  "привет ",
+  "здравствуйте ",
+] as const;
 
 /** «היי» / «הי» / «הייי» לפני טריגר — כולל הארכת יו״ד. */
 const LEADING_ELONGATED_HI_RE = /^הי+\s+/u;
