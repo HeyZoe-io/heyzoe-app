@@ -20,6 +20,7 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
   "בוא נתחיל",
   "אשמח לפרטים",
   "הצטרפות למנוי",
+  "אשמח לשמוע",
   "אשמח לשמוע פרטים",
   "אפשר פרטים",
   "אשמח למידע",
@@ -38,7 +39,12 @@ export const SALES_FLOW_START_TRIGGERS = new Set([
 /** ברכות קצרות שאפשר להסיר מתחילת המשפט אם אחריהן נשאר טריגר («היי אשמח לפרטים»). */
 const LEADING_CASUAL_GREETING_PREFIXES = ["היי ", "הי ", "שלום ", "אהלן ", "hello ", "hi ", "hey "] as const;
 
+/** «היי» / «הי» / «הייי» לפני טריגר — כולל הארכת יו״ד. */
+const LEADING_ELONGATED_HI_RE = /^הי+\s+/u;
+
 export function stripLeadingCasualGreeting(normalized: string): string {
+  const withoutElongatedHi = normalized.replace(LEADING_ELONGATED_HI_RE, "").trim();
+  if (withoutElongatedHi !== normalized) return withoutElongatedHi;
   for (const prefix of LEADING_CASUAL_GREETING_PREFIXES) {
     if (normalized.startsWith(prefix)) return normalized.slice(prefix.length).trim();
   }
