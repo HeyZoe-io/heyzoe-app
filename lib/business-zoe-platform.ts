@@ -216,7 +216,7 @@ function upgradeGenderNeutralVerbGuidelineLines(lines: string[]): string[] {
   if (!core || !natural) return lines;
   if (
     lines.some((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("ביכולתך")) &&
-    lines.some((l) => l.includes("גוונ בין הדרכים") && l.includes("מחר ניתן לקבל"))
+    lines.some((l) => l.includes("גוונ בין הדרכים") && l.includes("אם ברצונך לבטל"))
   ) {
     return lines;
   }
@@ -291,6 +291,27 @@ function ensureWantConjugationGuidelineLines(lines: string[]): string[] {
   return lines;
 }
 
+/** ביטול/החלפת שיעור מהאפליקציה — מזריקים בלי שמירה מחדש באדמין. */
+function ensureNeutralCancelHowToGuidelineLines(lines: string[]): string[] {
+  if (lines.some((l) => l.includes("נכנסים, מבטלים את ההרשמה"))) return lines;
+  const defaults = allDefaultGuidelineLines();
+  const legal = defaults.find(
+    (l) => l.includes("הוראות שימוש") && l.includes("נכנסים, מבטלים את ההרשמה")
+  );
+  const example = defaults.find(
+    (l) => l.includes("ליד לא יכולה להגיע מחר") && l.includes("נכנסים, מבטלים")
+  );
+
+  const naturalIdx = lines.findIndex((l) => l.includes("טבעיות") && l.includes("ניסוח ניטרלי"));
+  if (legal && naturalIdx >= 0) {
+    return [...lines.slice(0, naturalIdx + 1), legal, ...lines.slice(naturalIdx + 1)];
+  }
+  if (example && lines.some((l) => l.includes("ליד:") || l.includes("ליד על"))) {
+    return [...lines, example];
+  }
+  return lines;
+}
+
 /** עיסוי ≠ ספא בטון — מחליפים שורה ישנה בלי שמירה מחדש. */
 function upgradeMassageNotSpaToneGuidelineLines(lines: string[]): string[] {
   const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -322,15 +343,17 @@ function ensureNoInventedVenueGuidelineLines(lines: string[]): string[] {
 }
 
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return ensureWantConjugationGuidelineLines(
-    ensureNoInventedVenueGuidelineLines(
-      upgradeMassageNotSpaToneGuidelineLines(
-        ensureWordPrecisionGuidelineLines(
-          upgradeGenderNeutralVerbGuidelineLines(
-            ensureBookingLookupGuidelineLines(
-              upgradeCsPhoneHandoffGuidelineLines(
-                upgradeLegalCsExampleLines(
-                  upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+  return ensureNeutralCancelHowToGuidelineLines(
+    ensureWantConjugationGuidelineLines(
+      ensureNoInventedVenueGuidelineLines(
+        upgradeMassageNotSpaToneGuidelineLines(
+          ensureWordPrecisionGuidelineLines(
+            upgradeGenderNeutralVerbGuidelineLines(
+              ensureBookingLookupGuidelineLines(
+                upgradeCsPhoneHandoffGuidelineLines(
+                  upgradeLegalCsExampleLines(
+                    upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+                  )
                 )
               )
             )

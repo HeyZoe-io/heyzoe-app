@@ -175,4 +175,29 @@ const wantConjugation = applyKnownAssistantReplyFixes(
 );
 assert.equal(wantConjugation, "מושלם! אנחנו כאן כשתרצי 🙂");
 
+const cancelHowTo = applyKnownAssistantReplyFixes(
+  "מצטערת לשמוע! 💜 אם אתה רוצה לבטל את השיעור של מחר או להחליף אותו לשיעור אחר - אפשר לעשות את זה ישירות מהאפליקציה: נכנסת, בוטלת את ההרשמה ונרשמת לשיעור חדש. אם יש בעיה או שאת רוצה עזרה - אני כאן! 🙂",
+  { knowledge }
+);
+assert.equal(
+  cancelHowTo,
+  "מצטערת לשמוע! 💜 אם ברצונך לבטל את השיעור של מחר או להחליף אותו לשיעור אחר - אפשר לעשות את זה ישירות מהאפליקציה: נכנסים, מבטלים את ההרשמה ונרשמים לשיעור חדש. אם יש בעיה או שצריך עזרה - אני כאן! 🙂"
+);
+
+assert.match(spellingRule, /נכנסים, מבטלים/);
+assert.match(spellingRule, /שאת רוצה עזרה/);
+
+const womenKnowledge = {
+  ...knowledge,
+  genderText: "נקבה",
+} as BusinessKnowledgePack;
+const feminineKeepWant = applyKnownAssistantReplyFixes("אם את רוצה לבטל את השיעור", {
+  knowledge: womenKnowledge,
+});
+assert.match(feminineKeepWant, /אם את רוצה/);
+const feminineFixMasculine = applyKnownAssistantReplyFixes("אם אתה רוצה לבטל את השיעור", {
+  knowledge: womenKnowledge,
+});
+assert.match(feminineFixMasculine, /אם ברצונך לבטל/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

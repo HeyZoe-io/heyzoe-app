@@ -14,12 +14,17 @@ assert.ok(defaultLegal.some((l) => l.includes("מתוקה") && l.includes("מצ�
 assert.ok(defaultLegal.some((l) => l.includes("מנוי") && l.includes("מנוע")));
 assert.ok(defaultLegal.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")));
 assert.ok(defaultLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
+assert.ok(defaultLegal.some((l) => l.includes("נכנסים, מבטלים את ההרשמה")));
+assert.ok(defaultLegal.some((l) => l.includes("אם ברצונך לבטל")));
 
 const defaultVoiceExamples =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
     .find((c) => c.id === "personality")
     ?.sections?.find((s) => s.key === "voice_examples")?.lines ?? [];
 assert.ok(defaultVoiceExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
+assert.ok(
+  defaultVoiceExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים"))
+);
 
 const storedWithoutPrecision = {
   categories: [
@@ -118,6 +123,34 @@ const mergedPersonality =
 const mergedExamples = mergedPersonality.find((s) => s.key === "voice_examples")?.lines ?? [];
 const mergedStyle = mergedPersonality.find((s) => s.key === "voice_style")?.lines ?? [];
 assert.ok(mergedExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
+assert.ok(mergedExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים")));
 assert.ok(mergedStyle.some((l) => l.includes("תהיי רוצה") && l.includes("תרצי")));
+
+const storedOldGender = {
+  categories: [
+    {
+      id: "personality",
+      title: "זהות, חוקיות ואופי",
+      description: "",
+      lines: [],
+      sections: [
+        {
+          key: "legal_rules",
+          label: "חוקיות וכללים",
+          lines: [
+            "כתיבה ניטרלית מגדרית: לרוב לא יודעים אם הליד גבר או אישה — ביכולתך.",
+            "טבעיות וחום בניסוח ניטרלי: גוונ בין הדרכים. מחר ניתן לקבל חבילה.",
+          ],
+        },
+      ],
+    },
+  ],
+};
+const mergedOldGender =
+  mergeWithDefaultZoePlatform(storedOldGender)
+    .categories.find((c) => c.id === "personality")
+    ?.sections?.find((s) => s.key === "legal_rules")?.lines ?? [];
+assert.ok(mergedOldGender.some((l) => l.includes("אם ברצונך לבטל")));
+assert.ok(mergedOldGender.some((l) => l.includes("נכנסים, מבטלים את ההרשמה")));
 
 console.log("business-zoe-platform.test.ts: ok");

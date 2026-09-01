@@ -211,6 +211,38 @@ export function fixNeutralLeadPluralAddressing(text: string): string {
   return s;
 }
 
+const HEB_BOUND = String.raw`(?<![\u0590-\u05FF])`;
+const HEB_END = String.raw`(?![\u0590-\u05FF])`;
+
+/**
+ * מגדר לא ידוע: «אתה/את רוצה» → «ברצונך»; הוראות אפליקציה ברבים סתמיים.
+ * «אתה רוצה» מתוקן גם בקהל נשים — פנייה זכר אף פעם לא נכונה שם.
+ */
+export function fixNeutralGenderedWantAndHowTo(
+  text: string,
+  mode: WaReplyAddressingMode = "neutral"
+): string {
+  let s = String(text ?? "");
+  s = s.replace(/או\s+שאתה\s+רוצה\s+עזרה/gu, "או שצריך עזרה");
+  s = s.replace(/אם\s+אתה\s+רוצה/gu, "אם ברצונך");
+  s = s.replace(new RegExp(`${HEB_BOUND}אתה\\s+רוצה${HEB_END}`, "gu"), "ברצונך");
+  s = s.replace(
+    /נכנס,?\s*(?:ביטל|מבטל)\s+את\s+ההרשמה\s+ונרשם/gu,
+    "נכנסים, מבטלים את ההרשמה ונרשמים"
+  );
+  if (mode === "feminine") return s;
+
+  s = s.replace(/או\s+שאת\s+רוצה\s+עזרה/gu, "או שצריך עזרה");
+  s = s.replace(/שאת\s+רוצה\s+עזרה/gu, "שצריך עזרה");
+  s = s.replace(/אם\s+את\s+רוצה/gu, "אם ברצונך");
+  s = s.replace(new RegExp(`${HEB_BOUND}את\\s+רוצה${HEB_END}`, "gu"), "ברצונך");
+  s = s.replace(
+    /נכנסת,?\s*(?:בוטלת|מבטלת)\s+את\s+ההרשמה\s+ונרשמת/gu,
+    "נכנסים, מבטלים את ההרשמה ונרשמים"
+  );
+  return s;
+}
+
 /** סיום ארוך כשהמיקום לא מתאים → ניסוח קבוע. */
 function applyLocationFarClosingFix(text: string): string {
   let s = String(text ?? "");
@@ -274,7 +306,7 @@ export function buildWaSpellingAndPhrasingPromptRule(
   const addressingHint =
     mode === "feminine"
       ? "מותר «מצאת עניין» (קהל נשים מפורש בידע)."
-      : "ניטרלי: גוונ בין שם פועל («ולקבל», «לקבלת אישור»), סתמי («אפשר», «ניתן», «יש ל…»), «ברצונך»/«באפשרותך»/«ביכולתך», או «נחדש לך». לא «אתה רוצה», לא «אתה יכול», לא «ואז תקבל»/«מחר תקבל», לא «שלח בקשה», לא «את מעניינת», לא «תוכלי/אוכלת לבחור». לך/שלך/אותך מותר. פנייה לליד במרובה: «אתם», «לכם», «שאתם מכירים» — לא «אתן», «לאתן», «שאתן», לא «שאתם מכירות».";
+      : "ניטרלי: גוונ בין שם פועל («ולקבל», «לקבלת אישור»), סתמי («אפשר», «ניתן», «יש ל…»), «ברצונך»/«באפשרותך»/«ביכולתך», או «נחדש לך». לא «אתה רוצה», לא «את רוצה», לא «אתה יכול», לא «ואז תקבל»/«מחר תקבל», לא «שלח בקשה», לא «את מעניינת», לא «תוכלי/אוכלת לבחור». לך/שלך/אותך מותר. פנייה לליד במרובה: «אתם», «לכם», «שאתם מכירים» — לא «אתן», «לאתן», «שאתן», לא «שאתם מכירות». הוראות אפליקציה/ביטול: «נכנסים, מבטלים, נרשמים» — לא «נכנסת, בוטלת, נרשמת». «אם ברצונך לבטל». «או שצריך עזרה» — לא «שאת רוצה עזרה».";
 
   return `
 איות וניסוח (חובה לפני סיום התשובה):
@@ -479,7 +511,9 @@ export function applyKnownAssistantReplyFixes(
   s = applyIllnessPhilosophyFix(s);
   s = stripPolicyFluffPreamble(s);
   s = stripCoachingAndUnsolicitedRegisterPush(s);
-  if (resolveWaReplyAddressingMode(input.knowledge) !== "feminine") {
+  const addressingMode = resolveWaReplyAddressingMode(input.knowledge);
+  s = fixNeutralGenderedWantAndHowTo(s, addressingMode);
+  if (addressingMode !== "feminine") {
     s = fixNeutralLeadPluralAddressing(s);
   }
   if (!s) return s;
