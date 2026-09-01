@@ -79,7 +79,7 @@ export async function dispatchCrmEvent(input: {
     const { data: business, error } = await admin
       .from("businesses")
       .select(
-        "crm_type, crm_api_key, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, arbox_lead_creation_enabled"
+        "crm_type, crm_api_key, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled"
       )
       .eq("id", businessId)
       .maybeSingle();
@@ -97,6 +97,10 @@ export async function dispatchCrmEvent(input: {
     ).trim();
     const arboxStatusId = String(
       (business as { crm_arbox_status_id?: unknown } | null)?.crm_arbox_status_id ?? ""
+    ).trim();
+    const arboxHumanRequestTaskTypeId = String(
+      (business as { crm_arbox_human_request_task_type_id?: unknown } | null)
+        ?.crm_arbox_human_request_task_type_id ?? ""
     ).trim();
     const arboxLeadCreationEnabled =
       (business as { arbox_lead_creation_enabled?: unknown } | null)?.arbox_lead_creation_enabled === true;
@@ -143,6 +147,7 @@ export async function dispatchCrmEvent(input: {
         boxId,
         sourceId: arboxSourceId || null,
         statusId: arboxStatusId || null,
+        humanRequestTaskTypeId: arboxHumanRequestTaskTypeId || null,
         leadCreationEnabled: input.skipLeadCreation === true ? false : arboxLeadCreationEnabled,
         phone: leadPhone,
         fullName,

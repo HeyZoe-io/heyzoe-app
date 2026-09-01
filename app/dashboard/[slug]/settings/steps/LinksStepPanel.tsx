@@ -50,6 +50,8 @@ export type LinksStepPanelProps = {
   setCrmArboxSourceId: (v: string) => void;
   crmArboxStatusId: string;
   setCrmArboxStatusId: (v: string) => void;
+  crmArboxHumanRequestTaskTypeId: string;
+  setCrmArboxHumanRequestTaskTypeId: (v: string) => void;
   slug: string;
   arboxTrialMembershipTypeIds: number[];
   setArboxTrialMembershipTypeIds: React.Dispatch<React.SetStateAction<number[]>>;
@@ -59,6 +61,11 @@ export type LinksStepPanelProps = {
 type ArboxMembershipTypeRow = {
   membership_type_id: number;
   membership_type_name: string;
+};
+
+type ArboxTaskTypeRow = {
+  task_type_id: number;
+  task_type_name: string;
 };
 
 function CrmFieldHint({ text, lang, explainAria }: { text: string; lang: DashboardLang; explainAria: string }) {
@@ -138,6 +145,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setCrmArboxSourceId,
     crmArboxStatusId,
     setCrmArboxStatusId,
+    crmArboxHumanRequestTaskTypeId,
+    setCrmArboxHumanRequestTaskTypeId,
     slug,
     arboxTrialMembershipTypeIds,
     setArboxTrialMembershipTypeIds,
@@ -195,6 +204,64 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
       cancelled = true;
     };
   }, [canLoadArboxMembershipTypes, slug, arboxMembershipTypesFetchNonce]);
+
+  const [arboxTaskTypes, setArboxTaskTypes] = useState<ArboxTaskTypeRow[]>([]);
+  const [arboxTaskTypesLoading, setArboxTaskTypesLoading] = useState(false);
+  const [arboxTaskTypesError, setArboxTaskTypesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canLoadArboxMembershipTypes || !slug.trim()) {
+      setArboxTaskTypes([]);
+      setArboxTaskTypesError(null);
+      setArboxTaskTypesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setArboxTaskTypesLoading(true);
+    setArboxTaskTypesError(null);
+
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/dashboard/arbox-task-types?slug=${encodeURIComponent(slug.trim())}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          types?: ArboxTaskTypeRow[];
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setArboxTaskTypes([]);
+          setArboxTaskTypesError(String(json.error ?? "fetch_failed"));
+          return;
+        }
+        setArboxTaskTypes(Array.isArray(json.types) ? json.types : []);
+      } catch {
+        if (!cancelled) {
+          setArboxTaskTypes([]);
+          setArboxTaskTypesError("fetch_failed");
+        }
+      } finally {
+        if (!cancelled) setArboxTaskTypesLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadArboxMembershipTypes, slug, arboxMembershipTypesFetchNonce]);
+
+  const arboxTaskTypeOptions = useMemo(() => {
+    const selectedId = Number.parseInt(crmArboxHumanRequestTaskTypeId.trim(), 10);
+    if (!Number.isFinite(selectedId) || selectedId <= 0) return arboxTaskTypes;
+    if (arboxTaskTypes.some((row) => row.task_type_id === selectedId)) return arboxTaskTypes;
+    return [
+      { task_type_id: selectedId, task_type_name: String(selectedId) },
+      ...arboxTaskTypes,
+    ];
+  }, [arboxTaskTypes, crmArboxHumanRequestTaskTypeId]);
 
   const toggleArboxTrialMembershipType = (id: number) => {
     setArboxTrialMembershipTypeIds((prev) => {
@@ -491,6 +558,98 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                     placeholder="00000"
                     className={cnInputLtr()}
                   />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">
+                      {t.links.humanRequestTask}
+                    </span>
+                    <CrmFieldHint
+                      text={t.links.humanRequestTaskHint}
+                      lang={lang}
+                      explainAria={t.explainAria}
+                    />
+                  </div>
+                  {!canLoadArboxMembershipTypes ? (
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {t.links.humanRequestTaskCredentialsHint}
+                    </p>
+                  ) : arboxTaskTypesLoading ? (
+                    <p className="flex items-center gap-2 text-[11px] text-zinc-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      {t.links.humanRequestTaskLoading}
+                    </p>
+                  ) : arboxTaskTypesError === "missing_crm_credentials" ? (
+                    <p className="text-[11px] leading-snug text-zinc-500">
+                      {t.links.humanRequestTaskCredentialsHint}
+                    </p>
+                  ) : arboxTaskTypesError ? (
+                    <p className="text-[11px] leading-snug text-red-600">
+                      {t.links.humanRequestTaskFetchError}
+                      {arboxTaskTypesError !== "fetch_failed" &&
+                      arboxTaskTypesError !== "arbox_task_types_fetch_failed"
+                        ? ` (${arboxTaskTypesError})`
+                        : null}
+                    </p>
+                  ) : (
+                    <>
+                      <ul
+                        className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2"
+                        dir={dashboardDir(lang)}
+                      >
+                        <li>
+                          <label
+                            htmlFor="arbox-human-request-task-none"
+                            className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                          >
+                            <input
+                              id="arbox-human-request-task-none"
+                              type="radio"
+                              name="arbox-human-request-task-type"
+                              className="mt-0.5 shrink-0"
+                              checked={!crmArboxHumanRequestTaskTypeId.trim()}
+                              onChange={() => setCrmArboxHumanRequestTaskTypeId("")}
+                            />
+                            <span className="text-[12px] leading-snug text-zinc-800">
+                              {t.links.humanRequestTaskNone}
+                            </span>
+                          </label>
+                        </li>
+                        {arboxTaskTypeOptions.map((row) => {
+                          const id = row.task_type_id;
+                          const inputId = `arbox-human-request-task-${id}`;
+                          const selected =
+                            crmArboxHumanRequestTaskTypeId.trim() === String(id);
+                          return (
+                            <li key={id}>
+                              <label
+                                htmlFor={inputId}
+                                className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                              >
+                                <input
+                                  id={inputId}
+                                  type="radio"
+                                  name="arbox-human-request-task-type"
+                                  className="mt-0.5 shrink-0"
+                                  checked={selected}
+                                  onChange={() => setCrmArboxHumanRequestTaskTypeId(String(id))}
+                                />
+                                <span
+                                  className="text-[12px] leading-snug text-zinc-800"
+                                  dir="ltr"
+                                >{`${id} - ${row.task_type_name}`}</span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      {arboxTaskTypes.length === 0 ? (
+                        <p className="mt-1.5 text-[11px] leading-snug text-zinc-500">
+                          {t.links.humanRequestTaskEmpty}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
                 </div>
                 <div>
                   <div className="mb-1.5 flex flex-wrap items-center gap-1.5">

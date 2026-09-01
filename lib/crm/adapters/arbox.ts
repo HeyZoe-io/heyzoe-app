@@ -24,6 +24,81 @@ function parsePositiveIntId(value: string | null | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+export type ArboxTaskTypeRow = {
+  task_type_id: number;
+  task_type_name: string;
+};
+
+function isArboxTaskTypeInactive(active: unknown): boolean {
+  if (active == null || active === "") return false;
+  if (active === false || active === 0) return true;
+  const s = String(active).trim().toLowerCase();
+  return s === "0" || s === "false" || s === "no" || s === "inactive";
+}
+
+/** Parse GET /v3/tasks/types (`TaskTypeResource.data`). */
+export function parseArboxTaskTypes(json: unknown): ArboxTaskTypeRow[] {
+  const rows = (json as ArboxListResponse | null)?.data;
+  if (!Array.isArray(rows)) return [];
+  const out: ArboxTaskTypeRow[] = [];
+  for (const row of rows) {
+    if (isArboxTaskTypeInactive(row.active)) continue;
+    const id = Number.parseInt(String(row.task_type_id ?? row.id ?? ""), 10);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const name = String(row.type ?? row.task_type_name ?? row.name ?? "").trim();
+    out.push({ task_type_id: id, task_type_name: name || String(id) });
+  }
+  out.sort((a, b) => {
+    const na = a.task_type_name.localeCompare(b.task_type_name, "he");
+    if (na !== 0) return na;
+    return a.task_type_id - b.task_type_id;
+  });
+  return out;
+}
+
+export function formatArboxTaskReminder(now: Date): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const pick = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  const year = pick("year");
+  const month = pick("month");
+  const day = pick("day");
+  const hour = pick("hour").padStart(2, "0");
+  const minute = pick("minute").padStart(2, "0");
+  return { date: `${year}-${month}-${day}`, time: `${hour}:${minute}` };
+}
+
+export function buildArboxCreateTaskBody(input: {
+  locationId: number;
+  taskTypeId: number;
+  userId: number;
+  description: string;
+  now?: Date;
+}): Record<string, unknown> {
+  return {
+    location_id: input.locationId,
+    task_type_id: input.taskTypeId,
+    user_id: input.userId,
+    description: input.description,
+    reminder: formatArboxTaskReminder(input.now ?? new Date()),
+  };
+}
+
+export function shouldCreateArboxHumanRequestTask(
+  kind: CrmEventKind,
+  taskTypeId: string | null | undefined
+): boolean {
+  return kind === "human_requested" && parsePositiveIntId(taskTypeId) != null;
+}
+
 function parseLocationId(boxId: string): number | null {
   return parsePositiveIntId(boxId);
 }
@@ -338,13 +413,52 @@ async function appendArboxNote(input: {
   return false;
 }
 
-/** Arbox: חיפוש לפי טלפון → יצירת ליד אם חסר → משימה עם הערת זואי. */
+async function createArboxTask(input: {
+  apiKey: string;
+  locationId: number;
+  taskTypeId: number;
+  userId: string;
+  kind: CrmEventKind;
+  noteText: string;
+}): Promise<boolean> {
+  const userIdNum = Number.parseInt(input.userId, 10);
+  if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
+    console.error("[crm/arbox] create task failed — invalid user_id", { userId: input.userId });
+    return false;
+  }
+
+  const body = buildArboxCreateTaskBody({
+    locationId: input.locationId,
+    taskTypeId: input.taskTypeId,
+    userId: userIdNum,
+    description: buildArboxNoteDescription(input.kind, input.noteText),
+  });
+
+  // קריאה אחת ל-Arbox לכל בקשת נציג (לא Claude/Meta) — זניח גם ב-10x לקוחות.
+  const res = await arboxPublicFetch("/v3/tasks", {
+    apiKey: input.apiKey,
+    method: "POST",
+    body,
+  });
+  if (res.ok) return true;
+
+  console.error("[crm/arbox] create task failed", {
+    status: res.status,
+    userId: input.userId,
+    taskTypeId: input.taskTypeId,
+    body: res.rawText.slice(0, 500),
+  });
+  return false;
+}
+
+/** Arbox: חיפוש לפי טלפון → יצירת ליד אם חסר → הערה, או משימה בבקשת נציג אם הוגדר סוג. */
 export async function submitArboxCrmEvent(input: {
   businessId: number;
   apiKey: string;
   boxId: string;
   sourceId?: string | null;
   statusId?: string | null;
+  humanRequestTaskTypeId?: string | null;
   leadCreationEnabled?: boolean;
   phone: string;
   fullName?: string | null;
@@ -365,6 +479,11 @@ export async function submitArboxCrmEvent(input: {
   const locationId = locationResolved.locationId;
   const sourceId = parsePositiveIntId(input.sourceId);
   const statusId = parsePositiveIntId(input.statusId);
+  const humanRequestTaskTypeId = parsePositiveIntId(input.humanRequestTaskTypeId);
+  const createHumanRequestTask = shouldCreateArboxHumanRequestTask(
+    input.kind,
+    input.humanRequestTaskTypeId
+  );
 
   try {
     let userId = await loadCachedArboxUserId(input.businessId, input.phone);
@@ -408,6 +527,29 @@ export async function submitArboxCrmEvent(input: {
       leadId,
       createdLead,
     });
+
+    if (createdLead && !createHumanRequestTask) {
+      return { ok: true };
+    }
+
+    if (createHumanRequestTask && humanRequestTaskTypeId != null) {
+      const taskOk = await createArboxTask({
+        apiKey,
+        locationId,
+        taskTypeId: humanRequestTaskTypeId,
+        userId,
+        kind: input.kind,
+        noteText,
+      });
+      if (taskOk) return { ok: true };
+      if (createdLead) {
+        return { ok: false, error: "task_create_failed" };
+      }
+      console.warn("[crm/arbox] task create failed — falling back to note", {
+        businessId: input.businessId,
+        phone: maskPhoneForLog(input.phone),
+      });
+    }
 
     if (createdLead) {
       return { ok: true };

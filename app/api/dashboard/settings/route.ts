@@ -161,6 +161,10 @@ export async function GET(req: NextRequest) {
       crm_arbox_status_id: String(
         (business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id ?? ""
       ).trim(),
+      crm_arbox_human_request_task_type_id: String(
+        (business as { crm_arbox_human_request_task_type_id?: unknown })
+          .crm_arbox_human_request_task_type_id ?? ""
+      ).trim(),
       arbox_trial_membership_type_ids: (() => {
         const raw = (business as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids;
         if (!Array.isArray(raw)) return [];
@@ -299,6 +303,17 @@ export async function POST(req: NextRequest) {
         (existingForUser as { crm_arbox_status_id?: unknown } | null)?.crm_arbox_status_id ?? ""
       ).trim();
       return prev || null;
+    })(),
+    crm_arbox_human_request_task_type_id: (() => {
+      if (!Object.prototype.hasOwnProperty.call(business, "crm_arbox_human_request_task_type_id")) {
+        const prev = String(
+          (existingForUser as { crm_arbox_human_request_task_type_id?: unknown } | null)
+            ?.crm_arbox_human_request_task_type_id ?? ""
+        ).trim();
+        return prev || null;
+      }
+      const n = Number.parseInt(String(business.crm_arbox_human_request_task_type_id ?? "").trim(), 10);
+      return Number.isFinite(n) && n > 0 ? String(n) : null;
     })(),
     arbox_trial_membership_type_ids: (() => {
       if (Array.isArray(business.arbox_trial_membership_type_ids)) {

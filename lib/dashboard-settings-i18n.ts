@@ -90,6 +90,16 @@ export const dashboardSettingsI18n = {
       leadStatusHint: "מצאו בהגדרות → לידים → יצירת סטטוס ליד חדש",
       leadSource: "מקור ליד (אופציונלי)",
       leadSourceHint: "צרו מקור לידים לזואי, על ידי הגדרות → לידים → יצירת מקור לידים חדש",
+      humanRequestTask: "יצירת משימה בבקשת נציג",
+      humanRequestTaskHint:
+        "בחרו איזה סוג משימה יווצר בארבוקס כשלקוח מבקש נציג. בלי בחירה — נשארת הערה בלבד, כמו היום.",
+      humanRequestTaskNone: "ללא משימה — הערה בלבד",
+      humanRequestTaskCredentialsHint:
+        "הזינו מפתח API ומזהה סניף, שמרו את ההגדרות — ואז תיטען רשימת סוגי המשימות מארבוקס (לפי המפתח השמור, לא מהטופס לפני השמירה).",
+      humanRequestTaskLoading: "טוען סוגי משימות מארבוקס…",
+      humanRequestTaskEmpty:
+        "לא נמצאו סוגי משימות בארבוקס. צרו סוג משימה בהגדרות → משימות בארבוקס, ואז שמרו שוב.",
+      humanRequestTaskFetchError: "לא הצלחנו לטעון סוגי משימות מארבוקס. בדקו את מפתח ה-API.",
       apiKeySecure: "המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.",
       selectCrm: "בחרו תוכנת CRM כדי להזין מפתח API.",
       trialMembershipTypes: "סוגי שיעור ניסיון",
@@ -586,6 +596,16 @@ export const dashboardSettingsI18n = {
       leadStatusHint: "Find under Settings → Leads → Create new lead status",
       leadSource: "Lead source (optional)",
       leadSourceHint: "Create a Zoe lead source under Settings → Leads → Create new lead source",
+      humanRequestTask: "Create a task on representative request",
+      humanRequestTaskHint:
+        "Choose which Arbox task type to create when a customer asks for a representative. Leave unset to keep a note only, as today.",
+      humanRequestTaskNone: "No task — note only",
+      humanRequestTaskCredentialsHint:
+        "Enter your API key and branch ID, then save settings — the task type list loads from stored credentials, not from the form before you save.",
+      humanRequestTaskLoading: "Loading task types from Arbox…",
+      humanRequestTaskEmpty:
+        "No task types found in Arbox. Create a task type under Settings → Tasks in Arbox, then save again.",
+      humanRequestTaskFetchError: "Could not load task types from Arbox. Check your API key.",
       apiKeySecure: "The key is stored securely and used only to send updates from Zoe to your CRM.",
       selectCrm: "Select a CRM to enter an API key.",
       trialMembershipTypes: "Trial lesson types",
