@@ -29,6 +29,8 @@ const base: LeadRow = {
 };
 
 assert.equal(marketingNoteStatusToPipeline("registered"), "registered");
+assert.equal(marketingNoteStatusToPipeline("not_interested"), "not_interested");
+assert.equal(marketingNoteStatusToPipeline("not_relevant"), "not_relevant");
 assert.equal(marketingNoteStatusToPipeline("in_process"), null);
 
 const elin = applyMarketingLeadStatusHints(base, {
@@ -70,5 +72,25 @@ const pipelineActiveHint = applyMarketingLeadStatusHints(base, {
   noteUpdatedAt: nowIso,
 });
 assert.equal(pipelineActiveHint.pipeline_status, "active");
+
+const noteNotInterested = applyMarketingLeadStatusHints(base, {
+  noteStatus: "not_interested",
+  noteUpdatedAt: nowIso,
+});
+assert.equal(noteNotInterested.pipeline_status, "not_interested");
+assert.equal(noteNotInterested.not_relevant_at, null);
+assert.notEqual(computeContactStatus(noteNotInterested), "not_relevant");
+
+const draggedNotInterested = applyManualPipelineStatus(base, "not_interested", nowIso);
+assert.equal(draggedNotInterested.pipeline_status, "not_interested");
+assert.equal(draggedNotInterested.not_relevant_at, null);
+assert.equal(draggedNotInterested.human_followup_at, null);
+
+const pipelineOverridesNotInterestedNote = applyMarketingLeadStatusHints(base, {
+  noteStatus: "not_interested",
+  pipelineStatus: "not_relevant",
+  noteUpdatedAt: nowIso,
+});
+assert.equal(computeContactStatus(pipelineOverridesNotInterestedNote), "not_relevant");
 
 console.log("marketing-pipeline-status.test.ts: ok");

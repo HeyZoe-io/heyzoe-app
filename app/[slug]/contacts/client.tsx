@@ -557,6 +557,7 @@ export default function ContactsClient({
       human_followup: 0,
       no_response: 0,
       not_relevant: 0,
+      not_interested: 0,
       human_requested: 0,
       registered_human_requested: 0,
       registered: 0,

@@ -368,7 +368,9 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
       };
       if (!res.ok) {
         if (j.error === "migration_required") {
-          showToast("חסרה עמודת DB — הריצו supabase/marketing_flow_sessions_pipeline_status.sql");
+          showToast(
+            "חסרה עמודת DB / ערך סטטוס — הריצו supabase/marketing_flow_sessions_pipeline_status_not_interested.sql"
+          );
           return false;
         }
         if (j.error === "lead_not_found") {

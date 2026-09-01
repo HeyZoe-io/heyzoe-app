@@ -5,6 +5,7 @@ import type { DashboardLang } from "@/lib/dashboard-lang";
 export type ContactStatusKey =
   | "opted_out"
   | "not_relevant"
+  | "not_interested"
   | "human_requested"
   | "registered_human_requested"
   | "registered"
@@ -125,8 +126,13 @@ const CONTACT_STATUS_META_HE: Record<ContactStatusKey, ContactStatusMeta> = {
   },
   not_relevant: {
     label: "לא רלוונטי",
-    tooltip: "הליד ציין שאינו מעוניין / לא רלוונטי — זואי הפסיקה פולואפים",
+    tooltip: "הליד ציין שאינו רלוונטי לעסק — זואי הפסיקה פולואפים",
     badgeClass: "border-slate-300 bg-slate-100 text-slate-800",
+  },
+  not_interested: {
+    label: "לא מעוניין",
+    tooltip: "הליד לא מעוניין כרגע — זואי הפסיקה פולואפים (נשאר בקהל רלוונטי למטא)",
+    badgeClass: "border-rose-200 bg-rose-50 text-rose-800",
   },
   human_requested: {
     label: "ביקש נציג",
@@ -179,8 +185,13 @@ const CONTACT_STATUS_META_EN: Record<ContactStatusKey, ContactStatusMeta> = {
   },
   not_relevant: {
     label: "Not Relevant",
-    tooltip: "Lead indicated not interested / not relevant — Zoe stopped follow-ups",
+    tooltip: "Lead is not relevant to the business — Zoe stopped follow-ups",
     badgeClass: "border-slate-300 bg-slate-100 text-slate-800",
+  },
+  not_interested: {
+    label: "Not Interested",
+    tooltip: "Lead is not interested right now — Zoe stopped follow-ups (stays in Meta relevant audience)",
+    badgeClass: "border-rose-200 bg-rose-50 text-rose-800",
   },
   human_requested: {
     label: "Requested Agent",
@@ -224,6 +235,7 @@ export const MARKETING_PIPELINE_STATUS_ORDER: Array<ContactStatusKey | "none"> =
   "human_requested",
   "registered_human_requested",
   "registered",
+  "not_interested",
   "not_relevant",
   "opted_out",
   "none",

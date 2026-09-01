@@ -14,6 +14,7 @@ export const MARKETING_PIPELINE_DROP_STATUSES: readonly MarketingPipelineDropSta
   "human_requested",
   "registered_human_requested",
   "registered",
+  "not_interested",
   "not_relevant",
   "opted_out",
   "none",
@@ -22,6 +23,7 @@ export const MARKETING_PIPELINE_DROP_STATUSES: readonly MarketingPipelineDropSta
 /** סטטוסים שסוגרים את הליד ב-CRM (הערות + עצירת פולואפים) */
 export const MARKETING_PIPELINE_MANUAL_STATUSES = [
   "registered",
+  "not_interested",
   "not_relevant",
   "no_response",
   "human_requested",
@@ -36,6 +38,7 @@ const DROP_SET = new Set<string>(MARKETING_PIPELINE_DROP_STATUSES);
 const MANUAL_SET = new Set<string>(MARKETING_PIPELINE_MANUAL_STATUSES);
 const STOP_FOLLOWUPS = new Set<string>([
   "registered",
+  "not_interested",
   "not_relevant",
   "no_response",
   "human_requested",
@@ -55,7 +58,8 @@ export function marketingNoteStatusToPipeline(
   status: string | null | undefined
 ): MarketingPipelineManualStatus | null {
   if (status === "registered") return "registered";
-  if (status === "not_relevant" || status === "not_interested") return "not_relevant";
+  if (status === "not_interested") return "not_interested";
+  if (status === "not_relevant") return "not_relevant";
   if (status === "no_response") return "no_response";
   return null;
 }
@@ -64,6 +68,7 @@ export function pipelineStatusToNoteStatus(
   status: MarketingPipelineDropStatus
 ): MarketingNoteStatus | null {
   if (status === "registered" || status === "registered_human_requested") return "registered";
+  if (status === "not_interested") return "not_interested";
   if (status === "not_relevant") return "not_relevant";
   if (status === "no_response") return "no_response";
   if (status === "human_followup") return "requires_call";
@@ -118,6 +123,13 @@ export function applyManualPipelineStatus(
         trial_registered: true,
         session_phase: "registered",
         human_requested_at: at,
+        human_followup_at: null,
+        next_call_at: null,
+        next_call_time: null,
+      };
+    case "not_interested":
+      return {
+        ...cleared,
         human_followup_at: null,
         next_call_at: null,
         next_call_time: null,
@@ -192,7 +204,11 @@ export function applyMarketingLeadStatusHints(row: LeadRow, hints: MarketingLead
     next = applyManualPipelineStatus(next, notePipeline, hints.noteUpdatedAt);
     next = {
       ...next,
-      pipeline_status: isMarketingPipelineDropStatus(row.pipeline_status) ? row.pipeline_status : null,
+      pipeline_status: isMarketingPipelineDropStatus(row.pipeline_status)
+        ? row.pipeline_status
+        : notePipeline === "not_interested"
+          ? "not_interested"
+          : null,
     };
   }
   const pipeline = isMarketingPipelineDropStatus(hints.pipelineStatus) ? hints.pipelineStatus : null;

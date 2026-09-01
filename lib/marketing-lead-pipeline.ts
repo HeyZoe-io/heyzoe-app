@@ -307,6 +307,13 @@ async function applyPipelineUpdate(
       console.warn("[marketing-lead-pipeline] next_call_time missing — date only");
       return applyPipelineUpdate(admin, phone, existing, status, patch, writePipelineStatus, false);
     }
+    if (
+      writePipelineStatus &&
+      /pipeline_status_check|violates check constraint/i.test(String(error.message ?? ""))
+    ) {
+      console.error("[marketing-lead-pipeline] pipeline_status check constraint:", error.message);
+      throw new Error("migration_required");
+    }
     if (writePipelineStatus && /pipeline_status|column/i.test(String(error.message ?? ""))) {
       console.warn("[marketing-lead-pipeline] pipeline_status missing — notes/human followup only");
       return applyPipelineUpdate(admin, phone, existing, status, patch, false, writeNextCallTime);

@@ -21,6 +21,7 @@ alter table public.marketing_flow_sessions
       'human_requested',
       'registered_human_requested',
       'registered',
+      'not_interested',
       'not_relevant',
       'opted_out',
       'none'
