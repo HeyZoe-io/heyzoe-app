@@ -200,4 +200,14 @@ const feminineFixMasculine = applyKnownAssistantReplyFixes("אם אתה רוצה
 });
 assert.match(feminineFixMasculine, /אם ברצונך לבטל/);
 
+assert.equal(
+  applyKnownAssistantReplyFixes("אם אתה רוצה להגיע מחר אפשר לכתוב לי", { knowledge }),
+  "אם ברצונך להגיע מחר אפשר לכתוב לי"
+);
+assert.equal(
+  applyKnownAssistantReplyFixes("אם את רוצה לנסות שיעור אני כאן", { knowledge }),
+  "אם ברצונך לנסות שיעור אני כאן"
+);
+assert.match(spellingRule, /לא רק לחידוש/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");

@@ -211,12 +211,12 @@ function upgradeGenderNeutralVerbGuidelineLines(lines: string[]): string[] {
   const defaults = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
     .flatMap((c) => [c.lines, ...(c.sections ?? []).map((s) => s.lines)])
     .flat();
-  const core = defaults.find((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("ביכולתך"));
-  const natural = defaults.find((l) => l.includes("גוונ בין הדרכים") && l.includes("מחר ניתן לקבל"));
+  const core = defaults.find((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("לא רק לחידוש"));
+  const natural = defaults.find((l) => l.includes("גוונ בין הדרכים") && l.includes("לא רק לחידוש"));
   if (!core || !natural) return lines;
   if (
-    lines.some((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("ביכולתך")) &&
-    lines.some((l) => l.includes("גוונ בין הדרכים") && l.includes("אם ברצונך לבטל"))
+    lines.some((l) => l.includes("כתיבה ניטרלית מגדרית") && l.includes("לא רק לחידוש")) &&
+    lines.some((l) => l.includes("גוונ בין הדרכים") && l.includes("לא רק לחידוש"))
   ) {
     return lines;
   }
@@ -312,6 +312,29 @@ function ensureNeutralCancelHowToGuidelineLines(lines: string[]): string[] {
   return lines;
 }
 
+/** «ברצונך» לכל רצון — מזריקים לסגנון ולדוגמאות בלי שמירה מחדש. */
+function ensureBirtzonchaDefaultGuidelineLines(lines: string[]): string[] {
+  const defaults = allDefaultGuidelineLines();
+  const style = defaults.find((l) => l.includes("לכל משפט של רצון"));
+  const example = defaults.find((l) => l.includes("כל «רוצה» לליד"));
+  if (style && lines.some((l) => l.includes("עברית מדוברת וטבעית"))) {
+    if (!lines.some((l) => l.includes("לכל משפט של רצון"))) {
+      const spokenIdx = lines.findIndex((l) => l.includes("עברית מדוברת וטבעית"));
+      if (spokenIdx >= 0) {
+        return [...lines.slice(0, spokenIdx + 1), style, ...lines.slice(spokenIdx + 1)];
+      }
+    }
+  }
+  if (
+    example &&
+    lines.some((l) => l.includes("ליד:") || l.includes("ליד על")) &&
+    !lines.some((l) => l.includes("כל «רוצה» לליד"))
+  ) {
+    return [...lines, example];
+  }
+  return lines;
+}
+
 /** עיסוי ≠ ספא בטון — מחליפים שורה ישנה בלי שמירה מחדש. */
 function upgradeMassageNotSpaToneGuidelineLines(lines: string[]): string[] {
   const replacement = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -343,16 +366,18 @@ function ensureNoInventedVenueGuidelineLines(lines: string[]): string[] {
 }
 
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return ensureNeutralCancelHowToGuidelineLines(
-    ensureWantConjugationGuidelineLines(
-      ensureNoInventedVenueGuidelineLines(
-        upgradeMassageNotSpaToneGuidelineLines(
-          ensureWordPrecisionGuidelineLines(
-            upgradeGenderNeutralVerbGuidelineLines(
-              ensureBookingLookupGuidelineLines(
-                upgradeCsPhoneHandoffGuidelineLines(
-                  upgradeLegalCsExampleLines(
-                    upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+  return ensureBirtzonchaDefaultGuidelineLines(
+    ensureNeutralCancelHowToGuidelineLines(
+      ensureWantConjugationGuidelineLines(
+        ensureNoInventedVenueGuidelineLines(
+          upgradeMassageNotSpaToneGuidelineLines(
+            ensureWordPrecisionGuidelineLines(
+              upgradeGenderNeutralVerbGuidelineLines(
+                ensureBookingLookupGuidelineLines(
+                  upgradeCsPhoneHandoffGuidelineLines(
+                    upgradeLegalCsExampleLines(
+                      upgradeClassRescheduleGuidelineLines(upgradeQuotedFactsGuidelineLines(lines))
+                    )
                   )
                 )
               )

@@ -15,7 +15,8 @@ assert.ok(defaultLegal.some((l) => l.includes("מנוי") && l.includes("מנו�
 assert.ok(defaultLegal.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")));
 assert.ok(defaultLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
 assert.ok(defaultLegal.some((l) => l.includes("נכנסים, מבטלים את ההרשמה")));
-assert.ok(defaultLegal.some((l) => l.includes("אם ברצונך לבטל")));
+assert.ok(defaultLegal.some((l) => l.includes("לא רק לחידוש")));
+assert.ok(defaultLegal.some((l) => l.includes("אם ברצונך")));
 
 const defaultVoiceExamples =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -25,6 +26,13 @@ assert.ok(defaultVoiceExamples.some((l) => l.includes("כשתהיי רוצה") &
 assert.ok(
   defaultVoiceExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים"))
 );
+assert.ok(defaultVoiceExamples.some((l) => l.includes("כל «רוצה» לליד") && l.includes("אם ברצונך להגיע מחר")));
+
+const defaultVoiceStyle =
+  DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .find((c) => c.id === "personality")
+    ?.sections?.find((s) => s.key === "voice_style")?.lines ?? [];
+assert.ok(defaultVoiceStyle.some((l) => l.includes("לכל משפט של רצון")));
 
 const storedWithoutPrecision = {
   categories: [
@@ -68,6 +76,12 @@ const marketingOld = [
 const marketingInjected = withMarketingWordPrecisionGuideline(marketingOld);
 assert.ok(marketingInjected.some((l) => l.includes(WORD_PRECISION)));
 assert.equal(withMarketingWordPrecisionGuideline(marketingInjected).length, marketingInjected.length);
+
+const marketingOldGender = [
+  "ניסוח נייטרלי לגבי הליד: בלי אתה/את. דוגמאות: «אבל אם ברצונך לחדש».",
+];
+const marketingGenderUpgraded = withMarketingWordPrecisionGuideline(marketingOldGender);
+assert.ok(marketingGenderUpgraded.some((l) => l.includes("לא רק לחידוש") && l.includes("אם ברצונך להגיע")));
 
 const storedOldTone = {
   categories: [
@@ -124,7 +138,9 @@ const mergedExamples = mergedPersonality.find((s) => s.key === "voice_examples")
 const mergedStyle = mergedPersonality.find((s) => s.key === "voice_style")?.lines ?? [];
 assert.ok(mergedExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
 assert.ok(mergedExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים")));
+assert.ok(mergedExamples.some((l) => l.includes("כל «רוצה» לליד") && l.includes("אם ברצונך להגיע מחר")));
 assert.ok(mergedStyle.some((l) => l.includes("תהיי רוצה") && l.includes("תרצי")));
+assert.ok(mergedStyle.some((l) => l.includes("לכל משפט של רצון")));
 
 const storedOldGender = {
   categories: [
@@ -150,7 +166,7 @@ const mergedOldGender =
   mergeWithDefaultZoePlatform(storedOldGender)
     .categories.find((c) => c.id === "personality")
     ?.sections?.find((s) => s.key === "legal_rules")?.lines ?? [];
-assert.ok(mergedOldGender.some((l) => l.includes("אם ברצונך לבטל")));
+assert.ok(mergedOldGender.some((l) => l.includes("לא רק לחידוש")));
 assert.ok(mergedOldGender.some((l) => l.includes("נכנסים, מבטלים את ההרשמה")));
 
 console.log("business-zoe-platform.test.ts: ok");
