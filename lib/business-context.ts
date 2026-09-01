@@ -708,15 +708,31 @@ ${knowledge!.traits.map((t) => `- ${t}`).join("\n")}`;
   return "";
 }
 
-function buildUserLanguagePromptBlock(lastUserMessage?: string): string {
+function buildUserLanguagePromptBlock(
+  lastUserMessage?: string,
+  leadUiLang?: import("@/lib/business-content-lang").BusinessContentLanguage
+): string {
   const detected = detectMessageLanguage(String(lastUserMessage ?? ""));
-  if (detected === "en") {
-    return "The user is writing in English. Respond in clear, natural English.";
+  const lang =
+    detected === "en" || detected === "he" || detected === "ru"
+      ? detected
+      : leadUiLang === "en" || leadUiLang === "he" || leadUiLang === "ru"
+        ? leadUiLang
+        : null;
+  if (lang === "en") {
+    return [
+      "Reply language for this turn (overrides «Hebrew only» / «עברית בלבד» / «כתבי בעברית מדוברת»):",
+      "The user is writing in English. You MUST reply in clear, natural English.",
+      "Ignore any «Hebrew only» / «עברית בלבד» / «כתבי בעברית מדוברת» instruction for this turn — those apply when the user writes Hebrew.",
+      "If a later rule gives an exact Hebrew (or Russian) sentence or after-registration template to copy, translate its meaning into English instead of copying it.",
+      "Keep class/service names exactly as they appear in the business knowledge (do not translate brand or class names unless the user already used an English name).",
+      "You (Zoe) stay feminine in first person where English makes it natural. No Markdown, no JSON, no asterisks. Short WhatsApp-style lines.",
+    ].join("\n");
   }
-  if (detected === "he") {
+  if (lang === "he") {
     return "המשתמש כותב בעברית. ענה בעברית טבעית וזורמת — בכתב עברי בלבד, בלי אותיות בערבית או בכתבים אחרים.";
   }
-  if (detected === "ru") {
+  if (lang === "ru") {
     return [
       "שפת תשובה לתר הזה (עדיפות על «עברית בלבד» ועל סגנון עברית מדוברת):",
       "The user is writing in Russian. You MUST reply in natural, conversational Russian (Cyrillic).",
@@ -762,7 +778,7 @@ export function buildSystemPrompt(
   const phase = waCtx?.sessionPhase;
   const waResponseShapeBlock = pickResponseShapeBlock(platform, isWhatsApp, waCtx);
   const legalRules = pickLegalRulesLines(platform);
-  const userLanguageBlock = buildUserLanguagePromptBlock(lastUserMessage);
+  const userLanguageBlock = buildUserLanguagePromptBlock(lastUserMessage, knowledge?.leadUiLang);
   const overviewClosingExact = studioOverviewCommunityClosing(
     detectMessageLanguage(String(lastUserMessage ?? ""))
   );

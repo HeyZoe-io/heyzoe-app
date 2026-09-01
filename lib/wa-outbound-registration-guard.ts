@@ -1,6 +1,16 @@
 /** מונע הודעת «נרשמת בהצלחה» יחד עם לינק הרשמה, ומוסיף שאלת מועד כשמפרטים שעות. */
 
+import { pickContentCopy, type BusinessContentLanguage } from "@/lib/business-content-lang";
+
 export const SCHEDULE_WHEN_CONVENIENT_QUESTION = "מתי נוח לך להגיע?";
+
+export function scheduleWhenConvenientQuestion(lang: BusinessContentLanguage = "he"): string {
+  return pickContentCopy(lang, {
+    he: SCHEDULE_WHEN_CONVENIENT_QUESTION,
+    en: "When is a good time for you to come?",
+    ru: "Когда вам удобно прийти?",
+  });
+}
 
 const AFTER_REG_START_RE = /כל הכבוד!\s*נרשמת(?:ם)?\s+בהצלחה|נרשמת(?:ם)?\s+בהצלחה\s*🎉/u;
 
@@ -35,11 +45,14 @@ export function stripPrematureAfterRegistration(text: string): string {
 }
 
 /** אם מפרטים לפחות שני מועדים (יום+שעה) בלי שאלת נוחות — מוסיפים אותה בסוף. */
-export function ensureScheduleWhenConvenientQuestion(text: string): string {
+export function ensureScheduleWhenConvenientQuestion(
+  text: string,
+  lang: BusinessContentLanguage = "he"
+): string {
   const s = String(text ?? "").trim();
   if (!s) return s;
   if (WHEN_CONVENIENT_RE.test(s)) return s;
   const matches = s.match(DAY_TIME_RE);
   if (!matches || matches.length < 2) return s;
-  return `${s}\n\n${SCHEDULE_WHEN_CONVENIENT_QUESTION}`;
+  return `${s}\n\n${scheduleWhenConvenientQuestion(lang)}`;
 }

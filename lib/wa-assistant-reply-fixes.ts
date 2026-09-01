@@ -1,4 +1,5 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
+import { pickContentCopy, type BusinessContentLanguage } from "@/lib/business-content-lang";
 import { knowledgeQaTextBlob } from "@/lib/knowledge-qa";
 import { sanitizeZoeOutboundLanguage } from "@/lib/zoe-text";
 import {
@@ -27,6 +28,7 @@ export type ApplyAssistantReplyFixesInput = {
   scheduleDayLabels?: string[];
   /** true אחרי הרשמה אמיתית — לא לחתוך תבנית אחרי-הרשמה */
   trialRegistered?: boolean;
+  language?: BusinessContentLanguage;
 };
 
 export function getScheduleDayLabelsFromSlots(slots: { day: string }[]): string[] {
@@ -431,15 +433,40 @@ const FABRICATED_SEE_YOU_AT_SLOT_RE = new RegExp(
   String.raw`(?:נשמח\s+לראות(?:ך|כם)|נתראה|מחכ(?:ה|ים|ות)\s+ל(?:ך|כם))\s+ב?(?:${HE_SEE_YOU_DAY})\s+(?:בשעה\s+|ב-?)${HE_SEE_YOU_HOUR}\s*[!.]?`,
   "giu"
 );
-const FABRICATED_SEE_YOU_FALLBACK = "בכל עת שתצטרכי - אני כאן 💜";
+const EN_FABRICATED_SEE_YOU_AT_SLOT_RE =
+  /(?:see you|looking forward to seeing you|can'?t wait to see you)\s+(?:tomorrow|today|tonight|(?:on\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*[!.]?/gi;
 
-export function stripFabricatedSeeYouAtSlot(text: string): string {
+function resolveReplyFixLanguage(input: ApplyAssistantReplyFixesInput): BusinessContentLanguage {
+  if (input.language === "en" || input.language === "ru" || input.language === "he") {
+    return input.language;
+  }
+  const fromPack = input.knowledge?.leadUiLang;
+  if (fromPack === "en" || fromPack === "ru" || fromPack === "he") return fromPack;
+  return "he";
+}
+
+function fabricatedSeeYouFallback(lang: BusinessContentLanguage): string {
+  return pickContentCopy(lang, {
+    he: "בכל עת שתצטרכי - אני כאן 💜",
+    en: "I'm here whenever you need 💜",
+    ru: "Я всегда здесь, если понадоблюсь 💜",
+  });
+}
+
+export function stripFabricatedSeeYouAtSlot(
+  text: string,
+  lang: BusinessContentLanguage = "he"
+): string {
   let s = String(text ?? "").trim();
   if (!s) return s;
   FABRICATED_SEE_YOU_AT_SLOT_RE.lastIndex = 0;
-  if (!FABRICATED_SEE_YOU_AT_SLOT_RE.test(s)) return s;
+  EN_FABRICATED_SEE_YOU_AT_SLOT_RE.lastIndex = 0;
+  const hitHe = FABRICATED_SEE_YOU_AT_SLOT_RE.test(s);
+  const hitEn = EN_FABRICATED_SEE_YOU_AT_SLOT_RE.test(s);
+  if (!hitHe && !hitEn) return s;
   FABRICATED_SEE_YOU_AT_SLOT_RE.lastIndex = 0;
-  s = s.replace(FABRICATED_SEE_YOU_AT_SLOT_RE, "").trim();
+  EN_FABRICATED_SEE_YOU_AT_SLOT_RE.lastIndex = 0;
+  s = s.replace(FABRICATED_SEE_YOU_AT_SLOT_RE, "").replace(EN_FABRICATED_SEE_YOU_AT_SLOT_RE, "").trim();
   s = s
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\s+([.,!?])/g, "$1")
@@ -447,7 +474,7 @@ export function stripFabricatedSeeYouAtSlot(text: string): string {
     .replace(/^\s*[-–—.]\s*/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
-  return s || FABRICATED_SEE_YOU_FALLBACK;
+  return s || fabricatedSeeYouFallback(lang);
 }
 
 /** שיעור-חיים / דחיפה להרשמה אחרי «אנסה להגיע» — לא תבנית; Claude ממציא. */
@@ -534,10 +561,11 @@ export function applyKnownAssistantReplyFixes(
 
   s = stripFakeScheduleImagePlaceholders(s);
   s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
+  const lang = resolveReplyFixLanguage(input);
   if (input.trialRegistered !== true) {
-    s = stripFabricatedSeeYouAtSlot(s);
+    s = stripFabricatedSeeYouAtSlot(s, lang);
     s = stripPrematureAfterRegistration(s);
-    s = ensureScheduleWhenConvenientQuestion(s);
+    s = ensureScheduleWhenConvenientQuestion(s, lang);
   }
   return s;
 }

@@ -9,6 +9,10 @@ import { pickContentCopy } from "@/lib/business-content-lang";
 const localized = localizeSalesFlowConfigWithDictionaryOnly(defaultSalesFlowConfig([]));
 assert.equal(localized.greeting_opener.includes("Привет"), true);
 assert.equal(localized.cta_buttons.some((b) => b.label === "Запись на пробное занятие"), true);
+
+const localizedEn = localizeSalesFlowConfigWithDictionaryOnly(defaultSalesFlowConfig([]), new Set(), "en");
+assert.equal(localizedEn.greeting_opener.includes("Hey"), true);
+assert.equal(localizedEn.cta_buttons.some((b) => b.label === "Sign up for a trial class"), true);
 assert.equal(
   localized.cta_buttons.find((b) => b.kind === "schedule")?.label,
   "Смотреть расписание"

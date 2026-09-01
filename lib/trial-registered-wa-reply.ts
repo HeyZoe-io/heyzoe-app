@@ -3,6 +3,8 @@ import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
+import { parseWaUiLang } from "@/lib/lead-ui-lang";
+import { localizeKnowledgePackForLead } from "@/lib/sales-flow-localize";
 import { planIsStarter } from "@/lib/conversation-quota";
 import type { OfferKind } from "@/lib/sales-flow";
 import {
@@ -45,11 +47,11 @@ async function fetchContactScheduleSelection(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   phone: string;
-}): Promise<{ requestedDate: string; requestedTime: string }> {
+}): Promise<{ requestedDate: string; requestedTime: string; waUiLang: string }> {
   const variants = contactPhoneLookupVariants(input.phone);
   const { data } = await input.admin
     .from("contacts")
-    .select("sf_requested_date, sf_requested_time, last_contact_at")
+    .select("sf_requested_date, sf_requested_time, last_contact_at, wa_ui_lang")
     .eq("business_id", input.businessId)
     .in("phone", variants.length ? variants : [input.phone]);
 
@@ -57,8 +59,9 @@ async function fetchContactScheduleSelection(input: {
     sf_requested_date?: string | null;
     sf_requested_time?: string | null;
     last_contact_at?: string | null;
+    wa_ui_lang?: string | null;
   }>;
-  if (!rows.length) return { requestedDate: "", requestedTime: "" };
+  if (!rows.length) return { requestedDate: "", requestedTime: "", waUiLang: "" };
 
   const withBoth = rows.filter((row) => {
     const d = String(row.sf_requested_date ?? "").trim();
@@ -75,6 +78,7 @@ async function fetchContactScheduleSelection(input: {
   return {
     requestedDate: String(row?.sf_requested_date ?? "").trim(),
     requestedTime: String(row?.sf_requested_time ?? "").trim(),
+    waUiLang: String(row?.wa_ui_lang ?? "").trim(),
   };
 }
 
@@ -112,7 +116,7 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const phoneNumberId = latestUser.phoneNumberId;
   const sessionId = buildWaSessionId(phoneNumberId, input.phone) || latestUser.sessionId;
 
-  const knowledge = await getBusinessKnowledgePack(businessSlug);
+  let knowledge = await getBusinessKnowledgePack(businessSlug);
   if (!knowledge) return { sent: false, reason: "send_failed" };
 
   const scheduleState = await fetchContactScheduleSelection({
@@ -120,6 +124,18 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     businessId,
     phone: input.phone,
   });
+  const leadLang = parseWaUiLang(scheduleState.waUiLang);
+  if (leadLang === "en" || leadLang === "ru") {
+    knowledge = { ...knowledge };
+    try {
+      await localizeKnowledgePackForLead(knowledge, leadLang);
+    } catch (e) {
+      console.warn("[trial-registered-wa-reply] sales-flow localize failed:", e);
+      knowledge.leadUiLang = leadLang;
+    }
+  } else if (leadLang) {
+    knowledge.leadUiLang = leadLang;
+  }
   const requestedDate = scheduleState.requestedDate;
   const requestedTime = scheduleState.requestedTime;
   const hasScheduleSelection = Boolean(requestedDate && requestedTime);

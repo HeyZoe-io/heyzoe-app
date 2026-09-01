@@ -145,6 +145,18 @@ const inventedThursday = applyKnownAssistantReplyFixes(
 );
 assert.equal(inventedThursday, "בכל עת שתצטרכי - אני כאן 💜");
 
+const inventedThursdayEn = applyKnownAssistantReplyFixes(
+  "נשמח לראותך ביום חמישי בשעה 18:00",
+  { knowledge, language: "en" }
+);
+assert.equal(inventedThursdayEn, "I'm here whenever you need 💜");
+
+const inventedThursdayEnCopy = applyKnownAssistantReplyFixes(
+  "See you tomorrow at 8am",
+  { knowledge, language: "en" }
+);
+assert.equal(inventedThursdayEnCopy, "I'm here whenever you need 💜");
+
 const keepSeeYouNoTime = applyKnownAssistantReplyFixes("מושלם! אנחנו פה גם בסופ״ש. נשמח לראותך.", {
   knowledge,
 });

@@ -6,8 +6,47 @@ import {
   CLAUDE_WHATSAPP_MODEL,
   resolveClaudeApiKey,
 } from "@/lib/claude";
-import type { SalesFlowConfig, SalesFlowCtaButton, SalesFlowExtraStep } from "@/lib/sales-flow";
+import {
+  formatSalesFlowForPrompt,
+  type SalesFlowConfig,
+  type SalesFlowCtaButton,
+  type SalesFlowExtraStep,
+} from "@/lib/sales-flow";
 import { createHash } from "crypto";
+
+/** Default HeyZoe Hebrew flow lines → English. Custom studio copy goes through Haiku (cached). */
+export const HE_EN_FLOW_DICTIONARY: Record<string, string> = {
+  "היי! איזה כיף שהגעת אלינו 🙂": "Hey! So glad you reached out 🙂",
+  "שמי {botName} מ־{businessName},": "I'm {botName} from {businessName},",
+  "נשמח מאוד לארח אותך אצלנו!": "We'd love to host you!",
+  "נשמח לארח אתכם אצלנו.": "We'd love to host you.",
+  "מה בא לך להשיג באימונים אצלנו?": "What would you like to get out of training with us?",
+  "כוח וחיטוב": "Strength and tone",
+  "הפחתת כאבים": "Pain relief",
+  "הפגת מתחים": "Stress relief",
+  "פאן וגיוון באימונים": "Fun and variety",
+  "מושלם. הגעת למקום הנכון.": "Perfect. You're in the right place.",
+  "הרשמה לשיעור ניסיון": "Sign up for a trial class",
+  "צפייה במערכת השעות": "View the schedule",
+  "מחירי מנויים": "Membership prices",
+  "רכישת סדנה": "Buy workshop",
+  "יצירת קשר": "Get in touch",
+  "הצטרפות לקורס": "Join the course",
+  "שנשריין לך את האימון? 🙂": "Shall I reserve the class for you? 🙂",
+  "אין בעיה! כתבו בטקסט חופשי ואענה 🙂": "No problem! Write in free text and I'll reply 🙂",
+  "מתי נוח לך להתחיל את הקורס?": "When would you like to start the course?",
+  "בואו נתחיל": "Let's start",
+  "יש לי שאלה": "I have a question",
+  "בחירת אימון אחר": "Choose a different class",
+  "שיחת מכירה": "Call",
+  "קביעת מועד לשיחה": "Schedule a call",
+  "לקורס אונליין": "For the online course",
+  "כתובתנו היא": "Our address is",
+  "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?":
+    "So I can match you with the right fit,\nwhich class appeals to you most?",
+  "כאן ניתן לראות את מערכת השעות שלנו": "Here's our class schedule",
+  "כל הכבוד! נרשמת בהצלחה 🎉": "Well done! You're registered 🎉",
+};
 
 /** Default HeyZoe Hebrew flow lines → Russian. Custom studio copy goes through Haiku (cached). */
 export const HE_RU_FLOW_DICTIONARY: Record<string, string> = {
@@ -42,7 +81,9 @@ export const HE_RU_FLOW_DICTIONARY: Record<string, string> = {
   "כאן ניתן לראות את מערכת השעות שלנו": "Здесь можно посмотреть наше расписание",
 };
 
-const flowRuCache = new Map<string, SalesFlowConfig>();
+type FlowLocalizeLang = "en" | "ru";
+
+const flowLangCache = new Map<string, SalesFlowConfig>();
 
 function skipExactSet(knowledge: BusinessKnowledgePack): Set<string> {
   const names = [
@@ -55,21 +96,32 @@ function skipExactSet(knowledge: BusinessKnowledgePack): Set<string> {
   return new Set(names.map((n) => String(n ?? "").trim()).filter(Boolean));
 }
 
-function shouldSkipTranslate(text: string, skipExact: Set<string>): boolean {
+function shouldSkipTranslate(
+  text: string,
+  skipExact: Set<string>,
+  lang: FlowLocalizeLang = "ru"
+): boolean {
   const t = String(text ?? "").trim();
   if (!t) return true;
   if (skipExact.has(t)) return true;
   if (/^https?:\/\//i.test(t)) return true;
   if (/^\{[A-Za-z][A-Za-z0-9_]*\}$/.test(t)) return true;
-  if (!/[\u0590-\u05FF]/.test(t) && !/[A-Za-z]/.test(t)) return true;
+  const hasHebrew = /[\u0590-\u05FF]/.test(t);
+  if (lang === "en" && !hasHebrew) return true;
+  if (!hasHebrew && !/[A-Za-z]/.test(t)) return true;
   return false;
 }
 
-function applyDictionary(text: string): string | null {
+function dictionaryFor(lang: FlowLocalizeLang): Record<string, string> {
+  return lang === "en" ? HE_EN_FLOW_DICTIONARY : HE_RU_FLOW_DICTIONARY;
+}
+
+function applyDictionary(text: string, lang: FlowLocalizeLang = "ru"): string | null {
+  const dict = dictionaryFor(lang);
   const t = String(text ?? "");
-  if (HE_RU_FLOW_DICTIONARY[t]) return HE_RU_FLOW_DICTIONARY[t]!;
+  if (dict[t]) return dict[t]!;
   const trimmed = t.trim();
-  if (HE_RU_FLOW_DICTIONARY[trimmed]) return HE_RU_FLOW_DICTIONARY[trimmed]!;
+  if (dict[trimmed]) return dict[trimmed]!;
   return null;
 }
 
@@ -148,14 +200,18 @@ function mapConfigStrings(cfg: SalesFlowConfig, translate: (s: string) => string
   };
 }
 
-function collectUntranslated(cfg: SalesFlowConfig, skipExact: Set<string>): string[] {
+function collectUntranslated(
+  cfg: SalesFlowConfig,
+  skipExact: Set<string>,
+  lang: FlowLocalizeLang
+): string[] {
   const leftover: string[] = [];
   const seen = new Set<string>();
   mapConfigStrings(cfg, (s) => {
     const raw = String(s ?? "");
     if (!raw.trim()) return raw;
-    if (shouldSkipTranslate(raw, skipExact)) return raw;
-    if (applyDictionary(raw)) return raw;
+    if (shouldSkipTranslate(raw, skipExact, lang)) return raw;
+    if (applyDictionary(raw, lang)) return raw;
     if (!seen.has(raw)) {
       seen.add(raw);
       leftover.push(raw);
@@ -165,13 +221,16 @@ function collectUntranslated(cfg: SalesFlowConfig, skipExact: Set<string>): stri
   return leftover;
 }
 
-function configCacheKey(cfg: SalesFlowConfig, skipExact: Set<string>): string {
+function configCacheKey(cfg: SalesFlowConfig, skipExact: Set<string>, lang: FlowLocalizeLang): string {
   const h = createHash("sha256");
-  h.update(JSON.stringify({ cfg, skip: [...skipExact].sort() }));
+  h.update(JSON.stringify({ lang, cfg, skip: [...skipExact].sort() }));
   return h.digest("hex");
 }
 
-async function translateLeftoversWithClaude(texts: string[]): Promise<Map<string, string>> {
+async function translateLeftoversWithClaude(
+  texts: string[],
+  lang: FlowLocalizeLang
+): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (texts.length === 0) return out;
   const apiKey = resolveClaudeApiKey();
@@ -183,13 +242,13 @@ async function translateLeftoversWithClaude(texts: string[]): Promise<Map<string
   texts.forEach((t, i) => {
     payload[`s${i}`] = t;
   });
+  const target = lang === "en" ? "English" : "Russian";
   try {
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: CLAUDE_WHATSAPP_MODEL,
       max_tokens: Math.min(4096, CLAUDE_WHATSAPP_MAX_TOKENS * 4),
-      system:
-        "Translate WhatsApp sales-flow strings to natural conversational Russian. Keep {placeholders}, emoji, numbers, URLs, and brand/class names unchanged. Return ONLY a JSON object mapping the same keys to translated strings. No markdown.",
+      system: `Translate WhatsApp sales-flow strings to natural conversational ${target}. Keep {placeholders}, emoji, numbers, URLs, and brand/class names unchanged. Return ONLY a JSON object mapping the same keys to translated strings. No markdown.`,
       messages: [{ role: "user", content: JSON.stringify(payload) }],
     });
     const block = response.content.find((b) => b.type === "text");
@@ -207,28 +266,40 @@ async function translateLeftoversWithClaude(texts: string[]): Promise<Map<string
 }
 
 /**
- * Clone the built sales flow into Russian for this lead.
+ * Clone the built sales flow into the lead's language.
  * Dictionary first (no API); leftover custom copy = one Haiku call, cached in-memory by config hash.
+ * ~1 extra Claude call per unique studio flow per language per process (not per message).
  */
+export async function localizeSalesFlowConfigToLanguage(
+  cfg: SalesFlowConfig,
+  skipExact: Set<string>,
+  lang: FlowLocalizeLang
+): Promise<SalesFlowConfig> {
+  const key = configCacheKey(cfg, skipExact, lang);
+  const cached = flowLangCache.get(key);
+  if (cached) return cached;
+
+  const leftovers = collectUntranslated(cfg, skipExact, lang);
+  const claudeMap = leftovers.length
+    ? await translateLeftoversWithClaude(leftovers, lang)
+    : new Map<string, string>();
+  const translate = (s: string) => {
+    const raw = String(s ?? "");
+    if (!raw.trim()) return raw;
+    if (shouldSkipTranslate(raw, skipExact, lang)) return raw;
+    return applyDictionary(raw, lang) ?? claudeMap.get(raw) ?? raw;
+  };
+  const localized = mapConfigStrings(cfg, translate);
+  flowLangCache.set(key, localized);
+  return localized;
+}
+
+/** @deprecated use localizeSalesFlowConfigToLanguage(..., "ru") */
 export async function localizeSalesFlowConfigToRussian(
   cfg: SalesFlowConfig,
   skipExact: Set<string>
 ): Promise<SalesFlowConfig> {
-  const key = configCacheKey(cfg, skipExact);
-  const cached = flowRuCache.get(key);
-  if (cached) return cached;
-
-  const leftovers = collectUntranslated(cfg, skipExact);
-  const claudeMap = leftovers.length ? await translateLeftoversWithClaude(leftovers) : new Map<string, string>();
-  const translate = (s: string) => {
-    const raw = String(s ?? "");
-    if (!raw.trim()) return raw;
-    if (shouldSkipTranslate(raw, skipExact)) return raw;
-    return applyDictionary(raw) ?? claudeMap.get(raw) ?? raw;
-  };
-  const localized = mapConfigStrings(cfg, translate);
-  flowRuCache.set(key, localized);
-  return localized;
+  return localizeSalesFlowConfigToLanguage(cfg, skipExact, "ru");
 }
 
 export async function localizeKnowledgePackForLead(
@@ -236,18 +307,30 @@ export async function localizeKnowledgePackForLead(
   lang: BusinessContentLanguage
 ): Promise<void> {
   knowledge.leadUiLang = lang;
-  if (lang !== "ru") return;
+  if (lang !== "ru" && lang !== "en") return;
   const skipExact = skipExactSet(knowledge);
   const translateOne = async (s: string) => {
     const raw = String(s ?? "");
-    if (!raw.trim() || shouldSkipTranslate(raw, skipExact)) return raw;
-    const dict = applyDictionary(raw);
+    if (!raw.trim() || shouldSkipTranslate(raw, skipExact, lang)) return raw;
+    const dict = applyDictionary(raw, lang);
     if (dict) return dict;
-    const map = await translateLeftoversWithClaude([raw]);
+    const map = await translateLeftoversWithClaude([raw], lang);
     return map.get(raw) ?? raw;
   };
   if (knowledge.salesFlowConfig) {
-    knowledge.salesFlowConfig = await localizeSalesFlowConfigToRussian(knowledge.salesFlowConfig, skipExact);
+    knowledge.salesFlowConfig = await localizeSalesFlowConfigToLanguage(
+      knowledge.salesFlowConfig,
+      skipExact,
+      lang
+    );
+    knowledge.salesFlowPromptSection = formatSalesFlowForPrompt(
+      knowledge.salesFlowConfig,
+      knowledge.serviceNamesForOpening ?? [],
+      new Map(),
+      knowledge.instagramUrl ?? "",
+      knowledge.addressText ?? "",
+      knowledge.directionsText ?? ""
+    );
   }
   if (knowledge.welcomeIntroText) {
     knowledge.welcomeIntroText = await translateOne(knowledge.welcomeIntroText);
@@ -265,11 +348,12 @@ export async function localizeKnowledgePackForLead(
 /** Exposed for tests — dictionary + skip, no API. */
 export function localizeSalesFlowConfigWithDictionaryOnly(
   cfg: SalesFlowConfig,
-  skipExact: Set<string> = new Set()
+  skipExact: Set<string> = new Set(),
+  lang: FlowLocalizeLang = "ru"
 ): SalesFlowConfig {
   return mapConfigStrings(cfg, (s) => {
     const raw = String(s ?? "");
-    if (!raw.trim() || shouldSkipTranslate(raw, skipExact)) return raw;
-    return applyDictionary(raw) ?? raw;
+    if (!raw.trim() || shouldSkipTranslate(raw, skipExact, lang)) return raw;
+    return applyDictionary(raw, lang) ?? raw;
   });
 }

@@ -42,5 +42,10 @@ for (const p of shouldNotMatch) {
 assert.equal(resolveLeadContentLanguage({ inboundText: "אפשר ברוסית?", persisted: "he" }), "ru");
 assert.equal(resolveLeadContentLanguage({ inboundText: "אשמח לפרטים" }), "he");
 assert.equal(resolveLeadContentLanguage({ inboundText: "Привет" }), "ru");
+assert.equal(resolveLeadContentLanguage({ inboundText: "Ok I purchased this!" }), "en");
+assert.equal(
+  resolveLeadContentLanguage({ inboundText: "Thanks for your help !", persisted: "en" }),
+  "en"
+);
 
 console.log("lead-ui-lang.test.ts: ok");

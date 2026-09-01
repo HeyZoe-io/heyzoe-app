@@ -6027,7 +6027,7 @@ async function processIncoming(
     }
   }
 
-  const knowledge = await getBusinessKnowledgePack(business_slug);
+  let knowledge = await getBusinessKnowledgePack(business_slug);
   if (knowledge) {
     const inboundForLang = msg.type === "text" ? String(msg.text ?? "") : "";
     const leadLang = resolveLeadContentLanguage({
@@ -6035,13 +6035,16 @@ async function processIncoming(
       persisted: contactWaUiLang,
       knowledge,
     });
-    knowledge.leadUiLang = leadLang;
-    if (leadLang === "ru") {
+    if (leadLang === "ru" || leadLang === "en") {
+      knowledge = { ...knowledge };
       try {
-        await localizeKnowledgePackForLead(knowledge, "ru");
+        await localizeKnowledgePackForLead(knowledge, leadLang);
       } catch (e) {
-        console.error("[WA Webhook] Russian sales-flow localize failed:", e);
+        console.error("[WA Webhook] sales-flow localize failed:", e);
+        knowledge.leadUiLang = leadLang;
       }
+    } else {
+      knowledge.leadUiLang = leadLang;
     }
     const inboundDetected = wantsRussianFlowRestart
       ? "ru"
