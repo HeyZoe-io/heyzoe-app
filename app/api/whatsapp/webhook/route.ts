@@ -370,7 +370,7 @@ import {
   isSchedulePickChangeServiceLabel,
   pickScheduleSlotButtonsHint,
 } from "@/lib/business-content-lang";
-import { resolveLeadContentLanguage, parseWaUiLang } from "@/lib/lead-ui-lang";
+import { resolveLeadContentLanguage, parseWaUiLang, matchesSwitchToRussianIntent } from "@/lib/lead-ui-lang";
 import { localizeKnowledgePackForLead } from "@/lib/sales-flow-localize";
 
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
@@ -5921,12 +5921,16 @@ async function processIncoming(
     console.error("[WA Webhook] pause-check (early) failed (continuing):", e);
   }
 
+  const wantsRussianFlowRestart =
+    isSalesFlowFreeTextInbound(msg) && matchesSwitchToRussianIntent(msg.text);
+
   if (contactNotRelevantAt) {
     // ליד «לא רלוונטי» ששלח מילת פתיחת פלואו שהוגדרה («אשמח לפרטים» / «בואו נתחיל» וכו׳)
     // — מפעילים אותו מחדש (סטטוס חוזר לפעיל) וממשיכים לפלואו הרגיל.
-    const wantsFlowRestart = isSalesFlowStartInbound(msg, {
-      slug: business_slug,
-    });
+    const wantsFlowRestart =
+      isSalesFlowStartInbound(msg, {
+        slug: business_slug,
+      }) || wantsRussianFlowRestart;
     const inboundText = msg.type === "text" ? msg.text : "";
     const wantsResume = Boolean(inboundText) && leadIndicatesStillRelevant(inboundText);
 
@@ -6039,7 +6043,9 @@ async function processIncoming(
         console.error("[WA Webhook] Russian sales-flow localize failed:", e);
       }
     }
-    const inboundDetected = parseWaUiLang(detectMessageLanguage(inboundForLang));
+    const inboundDetected = wantsRussianFlowRestart
+      ? "ru"
+      : parseWaUiLang(detectMessageLanguage(inboundForLang));
     if (businessId && inboundDetected && inboundDetected !== contactWaUiLang) {
       contactWaUiLang = inboundDetected;
       try {
@@ -6315,7 +6321,8 @@ async function processIncoming(
   // מילת פתיחה («אשמח לפרטים») מפעילה מחדש את פלואו המכירה.
   if (
     contactHumanRequestedAt &&
-    isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName }) &&
+    (isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName }) ||
+      wantsRussianFlowRestart) &&
     businessId
   ) {
     try {
@@ -6933,6 +6940,7 @@ async function processIncoming(
     !isScheduleInquiryIntent(msg.text) &&
     !looksLikeBarePhoneMessage(msg.text) &&
     !isCasualHiGreeting(msg.text) &&
+    !wantsRussianFlowRestart &&
     !isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName })
   ) {
     const lastAssistForMembership = await fetchLastAssistantModelUsed({
@@ -7068,7 +7076,7 @@ async function processIncoming(
   }
 
   // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות
-  if (isSalesFlowFreeTextInbound(msg) && businessId && knowledge) {
+  if (isSalesFlowFreeTextInbound(msg) && !wantsRussianFlowRestart && businessId && knowledge) {
     const lastPickedForSlot =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
@@ -7675,6 +7683,7 @@ async function processIncoming(
   if (msg.type === "text") {
     if (
       isSalesFlowStartInbound(msg, salesFlowStartOpts) ||
+      wantsRussianFlowRestart ||
       shouldAutoStartSalesFlowOnNewInbound({
         salesFlowAlreadyStarted: salesFlowStarted,
         isFreeTextInbound: isSalesFlowFreeTextInbound(msg),

@@ -23,6 +23,10 @@ assert.equal(
   "ru"
 );
 assert.equal(resolveLeadContentLanguage({ inboundText: "היי" }), "he");
+assert.equal(
+  resolveLeadContentLanguage({ inboundText: "אפשר ברוסית?", persisted: "he" }),
+  "ru"
+);
 
 assert.equal(isSalesFlowStartTrigger("Давайте начнём"), true);
 assert.equal(isCtaHaveAQuestionMessage("У меня вопрос"), true);
