@@ -14,7 +14,11 @@ import { templateSendPayload } from "@/lib/template-send-params";
 import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
-import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
+import {
+  buildWaSessionId,
+  canonicalContactPhone,
+  contactPhoneLookupVariants,
+} from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sendTrialRegisteredWhatsAppReplyIfInWindow } from "@/lib/trial-registered-wa-reply";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -391,11 +395,16 @@ export async function handleArboxTrialSaleRegistered(input: {
   }
   existing = byArboxRows?.[0] as ExistingContactRow | undefined;
 
-  const phoneNorm = normalizePhone(input.row.phone);
+  const phoneNorm = canonicalContactPhone(input.row.phone);
   let matchedByPhone = false;
 
   if (!existing && phoneNorm) {
-    const phoneVariants = contactPhoneLookupVariants(phoneNorm);
+    const phoneVariants = [
+      ...new Set([
+        ...contactPhoneLookupVariants(input.row.phone),
+        ...contactPhoneLookupVariants(phoneNorm),
+      ]),
+    ];
     const { data: byPhoneRows, error: byPhoneErr } = await input.admin
       .from("contacts")
       .select(contactSelect)

@@ -101,6 +101,18 @@ export function waSessionIdVariantsFromSessionId(sessionId: string): string[] {
   return [...new Set([sid, ...waSessionIdLookupVariants(parts.phoneNumberId, parts.phone)])];
 }
 
+/**
+ * Phone stored on contacts / used for CRM match.
+ * Israeli mobiles → 9725XXXXXXXX. Other E.164 numbers kept as digits (no +).
+ */
+export function canonicalContactPhone(input: unknown): string | null {
+  const israeli = normalizePhone(input);
+  if (israeli) return israeli;
+  const digits = String(input ?? "").replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return digits;
+}
+
 /** וריאנטים לחיפוש contacts.phone (+972..., 972..., וכו'). */
 export function contactPhoneLookupVariants(input: unknown): string[] {
   const trimmed = String(input ?? "").trim();
@@ -112,7 +124,10 @@ export function contactPhoneLookupVariants(input: unknown): string[] {
 
   out.add(trimmed);
   if (trimmed.startsWith("+")) out.add(trimmed.slice(1));
-  if (digits) out.add(digits);
+  if (digits) {
+    out.add(digits);
+    out.add(`+${digits}`);
+  }
   if (normalized) {
     out.add(normalized);
     out.add(`+${normalized}`);

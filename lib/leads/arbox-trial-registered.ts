@@ -1,6 +1,10 @@
 import { HEYZOE_SF_REGISTERED, logMessage } from "@/lib/analytics";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
-import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
+import {
+  buildWaSessionId,
+  canonicalContactPhone,
+  contactPhoneLookupVariants,
+} from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sendTrialRegisteredWhatsAppReplyIfInWindow } from "@/lib/trial-registered-wa-reply";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -155,7 +159,7 @@ export async function handleArboxTrialClassRegistered(input: {
     return { ok: false, error: "dedup_insert_failed" };
   }
 
-  const phoneNorm = normalizePhone(input.row.phone);
+  const phoneNorm = canonicalContactPhone(input.row.phone);
 
   let existing: ExistingContactRow | undefined;
 
@@ -176,7 +180,12 @@ export async function handleArboxTrialClassRegistered(input: {
   existing = byArboxRows?.[0] as ExistingContactRow | undefined;
 
   if (!existing && phoneNorm) {
-    const phoneVariants = contactPhoneLookupVariants(phoneNorm);
+    const phoneVariants = [
+      ...new Set([
+        ...contactPhoneLookupVariants(input.row.phone),
+        ...contactPhoneLookupVariants(phoneNorm),
+      ]),
+    ];
     const { data: byPhoneRows, error: byPhoneErr } = await input.admin
       .from("contacts")
       .select(

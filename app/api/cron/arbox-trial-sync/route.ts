@@ -7,7 +7,10 @@ import {
 } from "@/lib/leads/arbox-trial-sale-registered";
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
 import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
-import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
+import {
+  canonicalContactPhone,
+  contactPhoneLookupVariants,
+} from "@/lib/phone-normalize";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
@@ -253,10 +256,15 @@ async function findExistingContactIdForSale(input: {
     if (id) return id;
   }
 
-  const phoneNorm = normalizePhone(input.phoneRaw);
+  const phoneNorm = canonicalContactPhone(input.phoneRaw);
   if (!phoneNorm) return null;
 
-  const phoneVariants = contactPhoneLookupVariants(phoneNorm);
+  const phoneVariants = [
+    ...new Set([
+      ...contactPhoneLookupVariants(input.phoneRaw),
+      ...contactPhoneLookupVariants(phoneNorm),
+    ]),
+  ];
   const { data: byPhoneRows, error: byPhoneErr } = await input.admin
     .from("contacts")
     .select("id")
