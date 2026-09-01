@@ -1,4 +1,8 @@
 import { looksLikeLeadQuestion } from "@/lib/wa-split-answer";
+import {
+  isSalesFlowStartTrigger,
+  type SalesFlowStartTriggerOpts,
+} from "@/lib/sales-flow-start-triggers";
 
 function normalizeSalesFlowPauseText(raw: string): string {
   return String(raw ?? "")
@@ -40,10 +44,26 @@ export function leadPausesSalesFlowNow(text: string): boolean {
   return false;
 }
 
+/**
+ * זואי כבר העבירה לצוות — לא ממשיכים את פלואו המכירה, גם אם הליד שאל שאלה.
+ * כולל «הבקשה» (לא רק «הפנייה») כי זה הנוסח בהנחיות.
+ */
+export function assistantReplyIndicatesTeamHandoff(text: string): boolean {
+  const t = normalizeSalesFlowPauseText(text);
+  if (!t) return false;
+  if (/מעביר(?:ה|ים)?\s+את\s+(?:הפני|הבקש|זה)/.test(t)) return true;
+  if (/אעביר\s+את\s+ההודעה\s+לצוות/.test(t)) return true;
+  if (/יצרו\s+איתך\s+קשר/.test(t)) return true;
+  if (/הצוות\s+יצרו/.test(t)) return true;
+  if (/the\s+team\s+will\s+(?:get\s+in\s+touch|contact|reach\s+out)/.test(t)) return true;
+  return false;
+}
+
 /** תשובת זואי שכבר סגרה בנימוס («נחזור כשתהיו מוכנים») — בלי לדחוף לשלב הבא. */
 export function assistantReplyIndicatesSalesFlowPause(text: string): boolean {
   const t = normalizeSalesFlowPauseText(text);
   if (!t) return false;
+  if (assistantReplyIndicatesTeamHandoff(text)) return true;
   if (/כשתהי[הי]\s+מוכנ/.test(t)) return true;
   if (/כשתהיו\s+מוכנים/.test(t)) return true;
   if (/כשיהיה\s+לך\s+(?:מתאים|זמן)/.test(t)) return true;
@@ -51,23 +71,25 @@ export function assistantReplyIndicatesSalesFlowPause(text: string): boolean {
   if (/חזרה\s+בכל\s+עת/.test(t)) return true;
   if (/מוזמנ\S*\s+חזרה/.test(t)) return true;
   if (/we(?:['’]re| are)\s+here\s+when(?:\s+you(?:['’]re| are))?\s+ready/.test(t)) return true;
-  if (/מעביר(?:ה|ים)?\s+את\s+הפני/.test(t)) return true;
-  if (/יצרו\s+איתך\s+קשר/.test(t)) return true;
-  if (/הצוות\s+יצרו/.test(t)) return true;
   return false;
 }
 
 /**
  * לדלג על שליחה מחדש של שלב הפלואו אחרי תשובת AI.
- * שאלה פתוחה אמיתית תמיד ממשיכה את הפלואו — גם אם זואי ניסחה סגירה רכה.
+ * שאלה פתוחה אמיתית ממשיכה את הפלואו גם אם זואי ניסחה סגירה רכה —
+ * חוץ מהעברה לצוות, שאז אסור לדחוף תפריט מועדים/מכירה.
+ * חריג: מילת פתיחה («אשמח לפרטים» / «בואו נתחיל») פותחת מחדש את פלואו המכירה.
  */
 export function shouldPauseSalesFlowPromptResend(input: {
   inboundText?: string;
   assistantReply?: string;
+  salesFlowStartOpts?: SalesFlowStartTriggerOpts;
 }): boolean {
   const inbound = String(input.inboundText ?? "").trim();
   const reply = String(input.assistantReply ?? "").trim();
   if (inbound && leadPausesSalesFlowNow(inbound)) return true;
+  if (inbound && isSalesFlowStartTrigger(inbound, input.salesFlowStartOpts)) return false;
+  if (reply && assistantReplyIndicatesTeamHandoff(reply)) return true;
   if (inbound && looksLikeLeadQuestion(inbound)) return false;
   if (reply && assistantReplyIndicatesSalesFlowPause(reply)) return true;
   return false;

@@ -165,7 +165,10 @@ import {
   replyRefersToCustomerService,
   sendCustomerServiceRedirectWithServicePickFollowUp,
 } from "@/lib/wa-cs-redirect-service-pick";
-import { shouldPauseSalesFlowPromptResend } from "@/lib/sales-flow-pause";
+import {
+  assistantReplyIndicatesTeamHandoff,
+  shouldPauseSalesFlowPromptResend,
+} from "@/lib/sales-flow-pause";
 import {
   buildSalesFlowHumanAgentHandoffReply,
   userRequestedHumanAgent,
@@ -1499,9 +1502,16 @@ function shouldSkipSalesFlowPromptResend(input: {
   knowledge: BusinessKnowledgePack | null | undefined;
   /** ליד «לא רלוונטי» — קלוד עונה, בלי לדחוף מחדש את תפריט הפלואו. */
   leadIsNotRelevant?: boolean;
+  businessSlug?: string;
 }): boolean {
   if (input.leadIsNotRelevant) return true;
   const inbound = String(input.inboundText ?? "").trim();
+  const salesFlowStartOpts = {
+    slug: input.businessSlug,
+    businessName: input.knowledge?.businessName,
+  };
+  // מילת פתיחה פותחת מחדש את הפלואו — גם אחרי העברה לצוות / בקשת נציג.
+  if (inbound && isSalesFlowStartTrigger(inbound, salesFlowStartOpts)) return false;
   if (inbound && userRequestedHumanAgent(inbound)) return true;
   if (inbound && looksLikeBarePhoneMessage(inbound)) return true;
   const csPhone = input.knowledge?.customerServicePhone?.trim() ?? "";
@@ -1510,6 +1520,7 @@ function shouldSkipSalesFlowPromptResend(input: {
   return shouldPauseSalesFlowPromptResend({
     inboundText: inbound,
     assistantReply: input.aiReplyCoreClean,
+    salesFlowStartOpts,
   });
 }
 
@@ -4135,6 +4146,7 @@ async function resendUnansweredSalesFlowPrompt(
       aiReplyCoreClean: input.aiReplyCoreClean,
       knowledge,
       leadIsNotRelevant: input.leadIsNotRelevant,
+      businessSlug: business_slug,
     })
   ) {
     console.info("[WA Webhook] skip flow prompt resend — lead paused or CS/human", {
@@ -4187,6 +4199,7 @@ async function resendUnansweredSalesFlowPrompt(
           aiReplyCoreClean: input.aiReplyCoreClean,
           knowledge,
           leadIsNotRelevant: input.leadIsNotRelevant,
+          businessSlug: business_slug,
         })
       ) {
         return;
@@ -4290,6 +4303,7 @@ async function resendUnansweredSalesFlowPrompt(
         aiReplyCoreClean: input.aiReplyCoreClean,
         knowledge,
         leadIsNotRelevant: input.leadIsNotRelevant,
+        businessSlug: business_slug,
       })
     ) {
       return;
@@ -11076,11 +11090,37 @@ async function processIncoming(
           : "";
 
       const isFreeTextSalesFlowContinuation = isFreeTextSalesFlowAi && !isFallbackErrorReply;
+      if (
+        !isFallbackErrorReply &&
+        businessId &&
+        !contactHumanRequestedAt &&
+        assistantReplyIndicatesTeamHandoff(replyCoreClean) &&
+        !isSalesFlowStartTrigger(incomingRaw, {
+          slug: business_slug,
+          businessName: knowledge?.businessName,
+        })
+      ) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+          contactHumanRequestedAt = nowIso;
+        } catch (e) {
+          console.error("[WA Webhook] team-handoff (claude) human_requested failed:", e);
+        }
+      }
       const skipFlowPromptResend = shouldSkipSalesFlowPromptResend({
         inboundText: incomingRaw,
         aiReplyCoreClean: replyCoreClean,
         knowledge,
         leadIsNotRelevant: Boolean(contactNotRelevantAt),
+        businessSlug: business_slug,
       });
 
       let openingSkipFlowContinuation = !salesFlowStarted;

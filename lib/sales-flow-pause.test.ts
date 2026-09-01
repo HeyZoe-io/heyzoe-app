@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   assistantReplyIndicatesSalesFlowPause,
+  assistantReplyIndicatesTeamHandoff,
   leadPausesSalesFlowNow,
   shouldPauseSalesFlowPromptResend,
 } from "@/lib/sales-flow-pause";
@@ -57,6 +58,57 @@ assert.equal(
     assistantReply: "בשמחה! אפשר לבחור מועד מהכפתורים.",
   }),
   false
+);
+
+const ageMismatchHandoff =
+  "קרב מגע לילדים אצלנו הוא לגילאי 6-8. לילדים בגיל 4 עדיין לא יש מסלול מתאים. אני מעבירה את הבקשה לצוות ויצרו איתך קשר כדי לברר אפשרויות נוספות 💜";
+assert.equal(assistantReplyIndicatesTeamHandoff(ageMismatchHandoff), true);
+assert.equal(
+  shouldPauseSalesFlowPromptResend({
+    inboundText: "היי ולילדים בני 4?",
+    assistantReply: ageMismatchHandoff,
+  }),
+  true,
+  "team handoff after an open question must not resend the schedule menu"
+);
+assert.equal(
+  assistantReplyIndicatesTeamHandoff("אין בעיה אני מעבירה את הבקשה לצוות"),
+  true
+);
+assert.equal(assistantReplyIndicatesTeamHandoff("בשמחה! אפשר לבחור מועד מהכפתורים."), false);
+
+assert.equal(
+  shouldPauseSalesFlowPromptResend({
+    inboundText: "אשמח לפרטים",
+    assistantReply: ageMismatchHandoff,
+  }),
+  false,
+  "flow-start phrase must reopen the sales flow even after a team-handoff reply"
+);
+assert.equal(
+  shouldPauseSalesFlowPromptResend({
+    inboundText: "בואו נתחיל",
+    assistantReply: "אין בעיה אני מעבירה את הבקשה לצוות",
+  }),
+  false
+);
+assert.equal(
+  shouldPauseSalesFlowPromptResend({
+    inboundText: "היי",
+    assistantReply: ageMismatchHandoff,
+    salesFlowStartOpts: { slug: "info-2815" },
+  }),
+  false,
+  "Sanga «היי» is a flow-start trigger"
+);
+assert.equal(
+  shouldPauseSalesFlowPromptResend({
+    inboundText: "היי",
+    assistantReply: ageMismatchHandoff,
+    salesFlowStartOpts: { slug: "master-yigal-arbiv-ikma-israel" },
+  }),
+  true,
+  "IKMA «היי» is not a flow-start trigger — keep the handoff pause"
 );
 
 console.log("sales-flow-pause.test.ts: ok");
