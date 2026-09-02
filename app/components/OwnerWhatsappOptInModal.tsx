@@ -1,12 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { buildOwnerWhatsappConnectUrl } from "@/lib/notifications/owner-opt-in";
 
+const STORAGE_PREFIX = "hz_owner_wa_optin_shown_date";
+
+function israelToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
+}
+
+function storageKey(slug: string) {
+  return `${STORAGE_PREFIX}:${slug}`;
+}
+
+function alreadyShownToday(slug: string): boolean {
+  try {
+    return window.localStorage.getItem(storageKey(slug)) === israelToday();
+  } catch {
+    return false;
+  }
+}
+
+function markShownToday(slug: string) {
+  try {
+    window.localStorage.setItem(storageKey(slug), israelToday());
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function subscribeNoop() {
+  return () => {};
+}
+
 export default function OwnerWhatsappOptInModal({ slug }: { slug: string }) {
+  const shownToday = useSyncExternalStore(
+    subscribeNoop,
+    () => alreadyShownToday(slug),
+    () => true
+  );
   const [dismissed, setDismissed] = useState(false);
-  if (dismissed) return null;
+
+  useEffect(() => {
+    if (shownToday) return;
+    markShownToday(slug);
+  }, [shownToday, slug]);
+
+  if (shownToday || dismissed) return null;
 
   const connectUrl = buildOwnerWhatsappConnectUrl(slug);
 
