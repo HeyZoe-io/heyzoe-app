@@ -114,6 +114,30 @@ function session(partial: Partial<SessionSummary> & Pick<SessionSummary, "sessio
 }
 
 {
+  const livePid = liveHighId.phoneNumberId;
+  const stalePid = staleLowId.phoneNumberId;
+  const collapsed = dedupeSessionsByPhone(
+    [
+      session({
+        session_id: `wa_${stalePid}_972501111111`,
+        phone: "972501111111",
+        lastAt: "2026-08-20T12:00:00.000Z",
+        arboxUserId: "9920528",
+      }),
+      session({
+        session_id: `wa_${livePid}_972501111111`,
+        phone: "972501111111",
+        lastAt: "2026-08-19T09:00:00.000Z",
+        crmType: "arbox",
+      }),
+    ],
+    [livePid]
+  );
+  assert.equal(collapsed[0]?.arboxUserId, "9920528", "keeps arbox id from the dropped duplicate");
+  assert.equal(collapsed[0]?.crmType, "arbox", "keeps crmType from either side");
+}
+
+{
   const variants = waSessionIdVariantsFromSessionId("wa_1144781695390397_+972501111111");
   assert.ok(variants.includes("wa_1144781695390397_972501111111"));
   assert.ok(variants.includes("wa_1144781695390397_+972501111111"));

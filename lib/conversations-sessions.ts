@@ -1,5 +1,6 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { computeContactStatus, type ContactStatusKey } from "@/lib/contact-status";
+import { normalizeCrmType, type CrmType } from "@/lib/crm/types";
 import { leadConversationAt } from "@/lib/lead-activity";
 import { isLeadTemplateOnlyContact } from "@/lib/lead-template";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
@@ -35,6 +36,10 @@ export type SessionSummary = {
   fullName?: string | null;
   /** סטטוס ליד מטבלת contacts (אותה לוגיקה כמו בדף אנשי קשר) */
   contactStatus?: ContactStatusKey | null;
+  /** contacts.arbox_user_id — Arbox manage profile deep-link */
+  arboxUserId?: string | null;
+  /** businesses.crm_type — gate the Arbox profile link */
+  crmType?: CrmType | null;
 };
 
 export function sessionAwaitingReply(session: {
@@ -54,7 +59,13 @@ type ContactPhoneMeta = {
   status: ContactStatusKey | null;
   fullName: string | null;
   lastContactAt: string | null;
+  arboxUserId: string | null;
 };
+
+function contactArboxUserId(row: { arbox_user_id?: unknown }): string | null {
+  const id = String(row.arbox_user_id ?? "").trim();
+  return id || null;
+}
 
 const CONTACT_META_PAGE = 1000;
 const CONTACT_META_CAP = 2000;
@@ -76,6 +87,7 @@ function mergeContactMetaRow(
     status: computeContactStatus(row as Parameters<typeof computeContactStatus>[0]),
     fullName: fullName || null,
     lastContactAt,
+    arboxUserId: contactArboxUserId(row as { arbox_user_id?: unknown }),
   };
   const prev = map.get(key);
   if (!prev) {
@@ -84,7 +96,12 @@ function mergeContactMetaRow(
   }
   const prevAt = sessionRecentActivityMs({ lastAt: prev.lastContactAt });
   const rowAt = sessionRecentActivityMs({ lastAt: lastContactAt });
-  map.set(key, rowAt >= prevAt ? next : prev);
+  const winner = rowAt >= prevAt ? next : prev;
+  const loser = rowAt >= prevAt ? prev : next;
+  map.set(key, {
+    ...winner,
+    arboxUserId: winner.arboxUserId || loser.arboxUserId,
+  });
 }
 
 async function loadContactMetaByPhoneForBusiness(
@@ -96,7 +113,7 @@ async function loadContactMetaByPhoneForBusiness(
     const { data, error } = await admin
       .from("contacts")
       .select(
-        "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at"
+        "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id"
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: false })
@@ -160,6 +177,7 @@ function enrichSessionsWithContactMeta(
       ...s,
       fullName: meta?.fullName ?? s.fullName ?? null,
       contactStatus: meta?.status ?? null,
+      arboxUserId: meta?.arboxUserId ?? s.arboxUserId ?? null,
       lastAt,
     };
   });
@@ -385,6 +403,8 @@ function pickPreferredSession(
     pausedUntil,
     fullName: keep.fullName || drop.fullName,
     contactStatus: keep.contactStatus ?? drop.contactStatus,
+    arboxUserId: keep.arboxUserId || drop.arboxUserId,
+    crmType: keep.crmType || drop.crmType,
   };
 }
 
@@ -426,6 +446,7 @@ function appendTemplateOnlySessions(
       phone: extractPhoneFromSessionId(sessionId) || key,
       fullName: fullName || null,
       contactStatus: "template",
+      arboxUserId: contactArboxUserId(row as { arbox_user_id?: unknown }),
     });
     existingPhones.add(key);
   }
@@ -445,8 +466,9 @@ export async function loadBusinessConversationSessions(
   if (!phoneNumberIds.length) return [];
 
   const norm = String(slug ?? "").trim().toLowerCase();
-  const { data: biz } = await admin.from("businesses").select("id").ilike("slug", norm).maybeSingle();
+  const { data: biz } = await admin.from("businesses").select("id, crm_type").ilike("slug", norm).maybeSingle();
   const businessId = Number((biz as { id?: number } | null)?.id ?? 0);
+  const crmType = normalizeCrmType((biz as { crm_type?: unknown } | null)?.crm_type);
 
   const [{ data: pausedRows }, recentMessages, { data: templateContacts }] = await Promise.all([
     admin
@@ -459,7 +481,7 @@ export async function loadBusinessConversationSessions(
       ? admin
           .from("contacts")
           .select(
-            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, human_requested_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at"
+            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, human_requested_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id"
           )
           .eq("business_id", businessId)
           .in("source", ["meta_lead_ad", "site_lead"])
@@ -483,8 +505,10 @@ export async function loadBusinessConversationSessions(
   }
 
   const metaByPhone = await loadContactMetaByPhoneForBusiness(admin, businessId);
-  return dedupeSessionsByPhone(
+  const enriched = dedupeSessionsByPhone(
     enrichSessionsWithContactMeta(sessions, metaByPhone),
     phoneNumberIds
   ).slice(0, SESSION_LIST_CAP);
+  if (!crmType) return enriched;
+  return enriched.map((s) => ({ ...s, crmType }));
 }

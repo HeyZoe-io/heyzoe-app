@@ -3,7 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ImagePlus, Search, Send, X } from "lucide-react";
+import { ArrowRight, ExternalLink, ImagePlus, Search, Send, X } from "lucide-react";
+import { buildArboxUserProfileUrl } from "@/lib/arbox-profile-url";
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
 import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
@@ -69,6 +70,7 @@ const i18n = {
     emptyChatSubtitle: "בחרו שיחה מהרשימה כדי לצפות בהודעות, לעצור את הבוט או לשלוח מענה ידני.",
     messageCount: (n: number) => `${n} הודעות`,
     backToList: "חזרה לרשימה",
+    openArboxProfile: "פתח כרטיס בארבוקס",
   },
   en: {
     pageTitle: (slug: string) => `Conversations — ${slug}`,
@@ -106,6 +108,7 @@ const i18n = {
     emptyChatSubtitle: "Select a chat from the list to view messages, pause the bot, or send a manual reply.",
     messageCount: (n: number) => `${n} messages`,
     backToList: "Back to list",
+    openArboxProfile: "Open Arbox profile",
   },
 } as const;
 
@@ -128,6 +131,8 @@ type SessionSummary = {
   phone: string;
   fullName?: string | null;
   contactStatus?: ContactStatusKey | null;
+  arboxUserId?: string | null;
+  crmType?: string | null;
   /** טאב זואי אדמין — «כל השיחות» */
   source_slug?: string;
   source_name?: string;
@@ -384,6 +389,9 @@ export default function ConversationsClient({
   }, [sessions, normalizedFilter, searchQuery, apiScope, slug]);
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
+  const arboxProfileUrl = selected
+    ? buildArboxUserProfileUrl({ crmType: selected.crmType, arboxUserId: selected.arboxUserId })
+    : null;
 
   function slugForSession(sessionId: string): string {
     const sess = visibleSessions.find((s) => s.session_id === sessionId);
@@ -960,6 +968,17 @@ export default function ConversationsClient({
                           botPausedLabel={t.botPaused}
                           autoPausedLabel={t.autoPausedApp}
                         />
+                      ) : null}
+                      {arboxProfileUrl ? (
+                        <a
+                          href={arboxProfileUrl}
+                          target="_blank"
+                          rel="noopener"
+                          className="mt-0.5 inline-flex items-center gap-1 text-[12px] font-medium text-[#00a884] hover:underline"
+                        >
+                          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                          {t.openArboxProfile}
+                        </a>
                       ) : null}
                     </div>
                   </div>
