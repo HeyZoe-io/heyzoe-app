@@ -74,7 +74,8 @@ const i18n = {
     optManualDesc: "מעדיפים שנלווה אתכם? הצוות שלנו יחזור אליכם ויחבר את הכל יחד.",
     comingSoon: "בקרוב",
     manualInstructions:
-      "תודה! בחרתם חיבור עם ליווי. הצוות שלנו יחזור אליכם בהקדם כדי לחבר את הווטסאפ יחד. אפשר לסגור את הדף.",
+      "תודה! בחרתם חיבור עם ליווי. הצוות שלנו יחזור אליכם בהקדם כדי לחבר את הווטסאפ יחד. בינתיים אפשר להיכנס לדשבורד ולהתחיל להגדיר.",
+    continueToDashboard: "המשיכו לדשבורד",
     changeChoice: "שינוי בחירה",
     pathSaveError: "שמירת הבחירה נכשלה. נסו שוב.",
     coexPreflightTitle: "לפני שמתחילים — כמה דברים חשובים",
@@ -131,7 +132,8 @@ const i18n = {
     optManualDesc: "Prefer us to guide you? Our team will reach out and connect everything together.",
     comingSoon: "Coming soon",
     manualInstructions:
-      "Thanks! You chose guided setup. Our team will reach out shortly to connect WhatsApp together. You can close this page.",
+      "Thanks! You chose guided setup. Our team will reach out shortly to connect WhatsApp together. Meanwhile you can enter the dashboard and start setting things up.",
+    continueToDashboard: "Continue to dashboard",
     changeChoice: "Change selection",
     pathSaveError: "Couldn't save your selection. Please try again.",
     coexPreflightTitle: "Before we start — a few important things",
@@ -1053,9 +1055,31 @@ export default function OnboardingSuccessClient() {
                   <p style={{ margin: "0 0 10px", fontSize: "15px", fontWeight: 700, color: "#2d1a6e" }}>
                     {t.optManualTitle}
                   </p>
-                  <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
+                  <p style={{ margin: "0 0 14px", fontSize: "13px", lineHeight: 1.55, color: "#6b5b9a" }}>
                     {t.manualInstructions}
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!ready?.slug) return;
+                      redirectToAnalytics(ready.slug);
+                    }}
+                    style={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      borderRadius: 999,
+                      border: "1px solid rgba(113,51,218,0.25)",
+                      background: "linear-gradient(135deg,#7133da,#ff92ff)",
+                      color: "#fff",
+                      padding: "12px 18px",
+                      fontFamily: "inherit",
+                      fontSize: "15px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {t.continueToDashboard}
+                  </button>
                 </div>
                 <button
                   type="button"
