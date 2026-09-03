@@ -12,7 +12,7 @@ import {
   parseRequestedClassDays,
   asksWhichClassesOnDay,
 } from "@/lib/wa-unknown-class-slot";
-import { matchClassCancelPlaybook } from "@/lib/wa-closed-playbook-intents";
+import { classifyInboundSpeechAct } from "@/lib/wa-inbound-speech-act";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
 
@@ -174,14 +174,16 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
 
   const current = String(input.text ?? "").trim();
   if (!current || current.length > 500) return null;
-  if (matchClassCancelPlaybook(current)) return null;
   const prev = String(input.previousUserText ?? "").trim();
   const now = input.now ?? new Date();
+  const act = classifyInboundSpeechAct(current, now);
+  if (act === "booking_mutation" || act === "illness_only") return null;
 
   const daysCurrent = parseRequestedClassDays(current, now);
   const daysPrev = prev ? parseRequestedClassDays(prev, now) : [];
   const days = daysCurrent.length ? daysCurrent : daysPrev;
   if (!days.length) return null;
+  if (act !== "schedule_ask" && !isScheduleAskFragment(current)) return null;
 
   if (isCatalogWideClassDayAsk(current, input.services, now)) {
     const parts: string[] = [];

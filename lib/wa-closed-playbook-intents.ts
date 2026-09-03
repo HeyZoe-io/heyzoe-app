@@ -38,7 +38,7 @@ export function matchesPlainPriceQuestion(raw: string): boolean {
   );
 }
 
-function looksLikePersonalDoItRequest(t: string): boolean {
+export function looksLikePersonalDoItRequest(t: string): boolean {
   return (
     /(?:תבטל(?:י|ו)?|תקפיא(?:י|ו)?|תחזיר(?:י|ו)?|תעשי(?:י)?\s+לי|תטפל(?:י|ו)?\s+(?:לי|בזה))/u.test(t) ||
     /אני\s+רוצ(?:ה|ה)\s+(?:ש)?(?:תבטל|תקפיא|תחזיר|לבטל|להקפיא)/u.test(t) ||
@@ -336,7 +336,6 @@ const DETECTORS: Array<(raw: string) => ClosedPlaybookIntent | null> = [
 export function detectClosedPlaybookIntent(raw: string): ClosedPlaybookIntent | null {
   const t = normalizePlaybookInbound(raw);
   if (tooLongOrEmpty(t)) return null;
-  // «תבטלי את השיעור, היא חולה» is a cancel — not an illness check-in.
   const classCancel = matchClassCancelPlaybook(t);
   if (classCancel) return classCancel;
   if (matchesIllnessCheckIn(t)) return null;
