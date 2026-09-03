@@ -197,6 +197,64 @@ assert.equal(
 assert.equal(assistantReplyIsUnknownClassSlotHandoff(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY), true);
 assert.equal(assistantReplyIsUnknownClassSlotHandoff("אין לי את הפרטים"), false);
 
+const joeWeekly: SfServiceRow[] = [
+  svc("אקרו יוגה - ליחיד", [
+    { day: "ב", time: "19:00" },
+    { day: "ג", time: "19:00" },
+  ]),
+  svc("אקרו יוגה - לזוג", [
+    { day: "ב", time: "19:00" },
+    { day: "ג", time: "19:00" },
+  ]),
+  svc("עמידות ידיים / גמישות", [
+    { day: "א", time: "18:00" },
+    { day: "ב", time: "18:00" },
+  ]),
+  svc("שיעור אקרו אישי (1 - 1)", []),
+  svc("קורס אקרויוגה אונליין", []),
+  svc("סדנאות ואירועים מיוחדים", []),
+];
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "אני יכול רק ביום ראשון. מתי יש אימון?",
+    services: joeWeekly,
+    committedServiceName: "שיעור אקרו אישי (1 - 1)",
+  }),
+  false,
+  "generic Sunday ask must list catalog slots, not handoff the private lesson"
+);
+
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "אני יכול רק ביום ראשון. מתי יש אימון?",
+    services: [
+      svc("אקרו יוגה - ליחיד", [
+        { day: "ב", time: "19:00" },
+        { day: "ג", time: "19:00" },
+      ]),
+      svc("שיעור אקרו אישי (1 - 1)", []),
+    ],
+    committedServiceName: "שיעור אקרו אישי (1 - 1)",
+  }),
+  true,
+  "generic Sunday ask still hands off when no Sunday exists in the catalog"
+);
+
+{
+  const talCouldntSee = `היי כן, 
+אשמח לקבוע אימון שני ניסיון לשבוע הבא ביום שני 
+לא הצלחתי לראות איזה אימונים יש לכן שאלתי אם יש במקרה אימון כוח ביום שני ב19:30?`;
+  assert.equal(
+    shouldHandoffUnknownClassSlot({
+      text: talCouldntSee,
+      services: limitlessLike,
+    }),
+    false,
+    "which-classes-on-Monday with some Monday slots → list them, don't handoff"
+  );
+}
+
 {
   const tue = new Date("2026-09-01T07:32:00.000Z");
   const catalog = [

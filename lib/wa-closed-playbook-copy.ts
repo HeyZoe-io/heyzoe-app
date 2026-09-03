@@ -1,8 +1,15 @@
-import type { ClosedPlaybookCategory } from "@/lib/wa-closed-playbook-types";
+import type { ClosedPlaybookCategory, ClosedPlaybookShape } from "@/lib/wa-closed-playbook-types";
 import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule";
 
 export const CLOSED_PLAYBOOK_CANCELLATION_REPLY =
   "אני מבינה, אני אעביר את הבקשה לביטול לצוות שלנו והם יחזרו אלייך בהקדם 💜";
+
+export const CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY =
+  "ניתן לבטל הרשמה לשיעור דרך האפליקציה, ואם מעניין אימון אחר — נרשמים ישירות אליו. אם המערכת לא נותנת לבטל, כתבו לי «נציג אנושי» ואעביר לצוות.";
+
+/** בקשה שזואי תבטל שיעור רשום — אין גישה ליומן, מעבירים לצוות. */
+export const CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY =
+  "אין לי את הפרטים על השיעור הזה - אני מעבירה את הבקשה לצוות והם יטפלו בזה 💜";
 
 export const CLOSED_PLAYBOOK_FREEZE_REPLY =
   "בשמחה, אני מעבירה את בקשת ההקפאה לצוות - הם יטפלו בזה מולך 💜";
@@ -26,11 +33,16 @@ export const CLOSED_PLAYBOOK_COACH_OWNER_REPLY = "בשמחה, אני מעביר�
 
 export function buildClosedPlaybookDefaultReply(
   category: ClosedPlaybookCategory,
-  botName?: string | null
+  botName?: string | null,
+  shape?: ClosedPlaybookShape
 ): string {
   switch (category) {
     case "reschedule":
       return buildClassRescheduleTeamHandoffReply(botName ?? "");
+    case "class_cancel":
+      return shape === "action"
+        ? CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY
+        : CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY;
     case "cancellation":
       return CLOSED_PLAYBOOK_CANCELLATION_REPLY;
     case "freeze":

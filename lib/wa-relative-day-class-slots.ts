@@ -6,9 +6,13 @@ import {
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import { addIsraelDayLetter, getIsraelDayLetter, type IsraelDayLetter } from "@/lib/israel-time";
 import {
+  isCatalogWideClassDayAsk,
+  looksLikeClassTimeQuestion,
   matchCatalogServiceFromFreeText,
   parseRequestedClassDays,
+  asksWhichClassesOnDay,
 } from "@/lib/wa-unknown-class-slot";
+import { matchClassCancelPlaybook } from "@/lib/wa-closed-playbook-intents";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
 
@@ -62,8 +66,13 @@ function resolveServiceName(input: {
 function looksLikeDayOrClassAsk(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;
-  if (parseRequestedClassDays(t).length > 0) return true;
-  return /להצטרף|להגיע|לבוא|מתי|יש\s+(?:שיעור|אימון)|עוד\s+אימון|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(t);
+  if (looksLikeClassTimeQuestion(t) || asksWhichClassesOnDay(t)) return true;
+  if (parseRequestedClassDays(t).length === 0) return false;
+  return /מתי|יש\s+(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|להגיע|להצטרף|לבוא|מועד|[?؟]/u.test(t);
+}
+
+function isScheduleAskFragment(text: string): boolean {
+  return String(text ?? "").trim().length <= 28;
 }
 
 function formatIsraelNowLine(now: Date): string {
@@ -129,6 +138,26 @@ export function buildRelativeDayClassSlotsReply(input: {
   return `${phrase} יש ${input.serviceName} ${formatTimesPhrase(times)} 💜`;
 }
 
+/** כל האימונים שיש להם מועד ביום ששאלו — בלי להיתקע על אימון שנבחר קודם. */
+export function buildCatalogDaySlotsReply(input: {
+  day: IsraelDayLetter;
+  sourceText: string;
+  services: SfServiceRow[];
+  now: Date;
+}): string | null {
+  const phrase = dayAskPhrase({ text: input.sourceText, day: input.day, now: input.now });
+  const items: string[] = [];
+  for (const s of input.services) {
+    const slots = slotsForDay(s, input.day);
+    if (!slots.length) continue;
+    const times = [...new Set(slots.map((x) => x.time))];
+    items.push(`${s.name} ${formatTimesPhrase(times)}`);
+  }
+  if (!items.length) return null;
+  if (items.length === 1) return `${phrase} יש ${items[0]} 💜`;
+  return `${phrase} יש:\n${items.map((x) => `- ${x}`).join("\n")} 💜`;
+}
+
 /**
  * שאלה על שיעור ספציפי היום/מחר/יום בשבוע — תשובה מהלוח, בלי Claude.
  * ההודעה הקודמת נספרת רק כשהנוכחית חסרה יום או שם אימון (למשל «כיסא» אחרי «הערב»).
@@ -145,6 +174,7 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
 
   const current = String(input.text ?? "").trim();
   if (!current || current.length > 500) return null;
+  if (matchClassCancelPlaybook(current)) return null;
   const prev = String(input.previousUserText ?? "").trim();
   const now = input.now ?? new Date();
 
@@ -152,6 +182,21 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   const daysPrev = prev ? parseRequestedClassDays(prev, now) : [];
   const days = daysCurrent.length ? daysCurrent : daysPrev;
   if (!days.length) return null;
+
+  if (isCatalogWideClassDayAsk(current, input.services, now)) {
+    const parts: string[] = [];
+    for (const day of daysCurrent.length ? daysCurrent : days) {
+      const line = buildCatalogDaySlotsReply({
+        day: day as IsraelDayLetter,
+        sourceText: current,
+        services: input.services,
+        now,
+      });
+      if (line) parts.push(line);
+    }
+    if (!parts.length) return null;
+    return { text: parts.join("\n"), modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
+  }
 
   const serviceName = resolveServiceName({
     currentText: current,
@@ -161,7 +206,9 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   if (!serviceName) return null;
 
   const sourceText = daysCurrent.length ? current : `${prev} ${current}`.trim();
-  const askOk = looksLikeDayOrClassAsk(current) || looksLikeDayOrClassAsk(prev);
+  const askOk =
+    looksLikeDayOrClassAsk(current) ||
+    (isScheduleAskFragment(current) && looksLikeDayOrClassAsk(prev));
   if (!askOk) return null;
 
   // כמה ימים באותה הודעה («היום ומחר») — פסקה לכל יום

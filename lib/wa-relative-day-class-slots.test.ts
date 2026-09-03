@@ -160,4 +160,78 @@ assert.equal(
   assert.match(reply!.text, /19:30/);
 }
 
+const joeWeekly = [
+  svc("אקרו יוגה - ליחיד", [
+    { day: "ב", time: "19:00" },
+    { day: "ג", time: "19:00" },
+  ]),
+  svc("עמידות ידיים / גמישות", [
+    { day: "א", time: "18:00" },
+    { day: "ב", time: "18:00" },
+  ]),
+  svc("שיעור אקרו אישי (1 - 1)", []),
+];
+
+{
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: "אני יכול רק ביום ראשון. מתי יש אימון?",
+    previousUserText: "כמה עולה שיעור ניסיון?",
+    services: joeWeekly,
+    now: tueMorning,
+  });
+  assert.ok(reply, "generic Sunday ask should list catalog classes");
+  assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+  assert.match(reply!.text, /ראשון/);
+  assert.match(reply!.text, /עמידות ידיים/);
+  assert.match(reply!.text, /18:00/);
+  assert.doesNotMatch(reply!.text, /19:00/);
+  assert.doesNotMatch(reply!.text, /אקרו יוגה/);
+}
+
+{
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: "אני יכול רק ביום ראשון. מתי יש אימון?",
+    services: [svc("שיעור אקרו אישי (1 - 1)", [])],
+    now: tueMorning,
+  });
+  assert.equal(reply, null, "no Sunday in catalog → leave to unknown-slot handoff");
+}
+
+{
+  const talCouldntSee = `היי כן, 
+אשמח לקבוע אימון שני ניסיון לשבוע הבא ביום שני 
+לא הצלחתי לראות איזה אימונים יש לכן שאלתי אם יש במקרה אימון כוח ביום שני ב19:30?`;
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: talCouldntSee,
+    services: catalog,
+    now: tueMorning,
+  });
+  assert.ok(reply, "couldn't-see-classes + Monday → catalog Monday slots, not membership lookup");
+  assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+  assert.match(reply!.text, /שני/);
+  assert.match(reply!.text, /18:00/);
+}
+
+{
+  const shirCancel = `היוש, וולקאם באק 🙂 תבטלי את השיעור עם שיר בבקשה. היא חולה.
+היה לי רק שיעןר עם ליאת היום`;
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: shirCancel,
+    previousUserText: "כיסא",
+    services: catalog,
+    now: new Date("2026-09-03T07:00:00.000Z"), // חמישי
+  });
+  assert.equal(reply, null, "cancel-class must not dump today's pilates slot");
+}
+
+{
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: "היה לי רק שיעור עם ליאת היום",
+    previousUserText: "כיסא",
+    services: catalog,
+    now: new Date("2026-09-03T07:00:00.000Z"),
+  });
+  assert.equal(reply, null, "past class with a coach is not a schedule ask");
+}
+
 console.log("wa-relative-day-class-slots.test.ts: ok");

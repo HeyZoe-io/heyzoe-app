@@ -181,8 +181,8 @@ function looksLikeNamedClass(text: string): boolean {
   );
 }
 
-function looksLikeClassTimeQuestion(text: string): boolean {
-  return /להצטרף|להגיע|לבוא|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|עוד\s+אימון|רוצה.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
+export function looksLikeClassTimeQuestion(text: string): boolean {
+  return /להצטרף|להגיע|לבוא|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|יש\s+במקרה|איזה\s+(?:אימונים|שיעורים)|אילו\s+אימונים|אם\s+יש.{0,24}(?:אימון|שיעור)|עוד\s+אימון|רוצה.{0,40}(?:שיעור|אימון)|אשמח.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
     text
   );
 }
@@ -292,6 +292,36 @@ export function assistantReplyIsUnknownClassSlotHandoff(text: string): boolean {
   return t === UNKNOWN_CLASS_SLOT_HANDOFF_REPLY || t.startsWith(UNKNOWN_CLASS_SLOT_HANDOFF_REPLY);
 }
 
+const ONLY_WEEKDAY_RE =
+  /(?:^|[^\p{L}])רק\s+(?:ב)?(?:יום\s+)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)/u;
+
+/** «איזה אימונים יש» / «לא הצלחתי לראות אימונים» — לוח כללי, גם אם הוזכר שם אימון. */
+export function asksWhichClassesOnDay(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  return /איזה\s+אימונים\s+יש|אילו\s+אימונים|איזה\s+שיעורים\s+יש|לראות\s+(?:איזה\s+)?(?:אימונים|שיעורים)|מה\s+יש\s+(?:ביום|ב)/u.test(
+    t
+  );
+}
+
+/**
+ * «מתי יש אימון ביום ראשון?» / «אני יכול רק ביום ראשון» — שאלת לוח כללית,
+ * לא בדיקה מול האימון שנבחר קודם בשיחה.
+ */
+export function isCatalogWideClassDayAsk(
+  text: string,
+  services: Pick<SfServiceRow, "name">[],
+  now: Date = new Date()
+): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  const whichClasses = asksWhichClassesOnDay(t);
+  if (!whichClasses && matchCatalogServiceFromFreeText(t, services)) return false;
+  if (!whichClasses && looksLikeNamedClass(t)) return false;
+  if (parseRequestedClassDays(t, now).length === 0) return false;
+  return looksLikeClassTimeQuestion(t) || ONLY_WEEKDAY_RE.test(t) || whichClasses;
+}
+
 export function shouldHandoffUnknownClassSlot(input: {
   text: string;
   services: SfServiceRow[];
@@ -305,14 +335,32 @@ export function shouldHandoffUnknownClassSlot(input: {
   const text = String(input.text ?? "").trim();
   if (!text || text.length > 500) return false;
 
-  const days = parseRequestedClassDays(text, input.now ?? new Date());
+  const now = input.now ?? new Date();
+  const days = parseRequestedClassDays(text, now);
   const times = parseRequestedTimes(text);
   const matchedName = matchCatalogServiceFromFreeText(text, input.services);
   const committed = String(input.committedServiceName ?? "").trim();
-  const serviceName = matchedName || committed;
-  const service = serviceName
+  const catalogWide = isCatalogWideClassDayAsk(text, input.services, now);
+  if (catalogWide) {
+    return days.length > 0 && !input.services.some((s) => days.some((d) => serviceHasDay(s, d)));
+  }
+
+  let serviceName = matchedName || committed;
+  let service = serviceName
     ? input.services.find((s) => s.name === serviceName) ?? null
     : null;
+
+  // שיעור בלי לוח שבועי (פרטי 1-1) לא אמור לחסום «מה יש ביום ראשון»
+  if (
+    !catalogWide &&
+    !matchedName &&
+    service &&
+    days.length &&
+    (service.scheduleSlots ?? []).length === 0
+  ) {
+    serviceName = "";
+    service = null;
+  }
 
   const timeQuestion = looksLikeClassTimeQuestion(text);
 
@@ -339,7 +387,7 @@ export function shouldHandoffUnknownClassSlot(input: {
     return true;
   }
 
-  if (!service && days.length && timeQuestion && !looksLikeNamedClass(text)) {
+  if (!service && days.length && !looksLikeNamedClass(text) && (timeQuestion || catalogWide)) {
     return !input.services.some((s) => days.some((d) => serviceHasDay(s, d)));
   }
 

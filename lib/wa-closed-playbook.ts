@@ -13,6 +13,8 @@ export type { ClosedPlaybookCategory, ClosedPlaybookIntent, ClosedPlaybookResolu
 export { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 export {
   CLOSED_PLAYBOOK_CANCELLATION_REPLY,
+  CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
+  CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY,
   CLOSED_PLAYBOOK_COACH_OWNER_REPLY,
   CLOSED_PLAYBOOK_COMPLAINT_REPLY,
   CLOSED_PLAYBOOK_DISCOUNT_NO_PROMO_REPLY,
@@ -28,10 +30,8 @@ export {
  * Group: unique catalog product → source catalog (webhook re-sends product pick);
  * else fact; else default. notifyHumanRequested is the webhook notify flag.
  *
- * Policy + fact → fact text, no notify.
- * Policy + no fact → default, notify.
- * Action + fact → fact text, notify.
- * Action + no fact → default, notify.
+ * Class-cancel action (תבטלי את השיעור) → team handoff, no facts, notify.
+ * Class-cancel policy → app how-to fact or default, no notify.
  * Group + unique catalog product → catalog (webhook: product-pick menu), no notify.
  * Discount + relevant promo → promo text, no notify.
  * Coach/owner → default, notify (no facts-check).
@@ -79,6 +79,17 @@ export function resolveClosedPlaybook(opts: {
     };
   }
 
+  if (intent.category === "class_cancel" && intent.shape === "action") {
+    return {
+      category: "class_cancel",
+      shape: "action",
+      reply: buildClosedPlaybookDefaultReply("class_cancel", botName, "action"),
+      modelUsed: closedPlaybookModelUsed("class_cancel", "default"),
+      notifyHumanRequested: true,
+      source: "default",
+    };
+  }
+
   if (intent.category === "group") {
     const catalogName = findMatchingGroupCatalogProduct(opts.inbound, knowledge.salesFlowServices);
     if (catalogName) {
@@ -95,13 +106,14 @@ export function resolveClosedPlaybook(opts: {
   }
 
   const fact = lookupPlaybookFact(intent.category, knowledge);
+  const notifyHumanRequested = intent.shape === "action";
   if (fact) {
     return {
       category: intent.category,
       shape: intent.shape,
       reply: fact,
       modelUsed: closedPlaybookModelUsed(intent.category, "fact"),
-      notifyHumanRequested: intent.shape === "action",
+      notifyHumanRequested,
       source: "fact",
     };
   }
@@ -111,7 +123,7 @@ export function resolveClosedPlaybook(opts: {
     shape: intent.shape,
     reply: buildClosedPlaybookDefaultReply(intent.category, botName),
     modelUsed: closedPlaybookModelUsed(intent.category, "default"),
-    notifyHumanRequested: true,
+    notifyHumanRequested: intent.category === "class_cancel" ? false : true,
     source: "default",
   };
 }

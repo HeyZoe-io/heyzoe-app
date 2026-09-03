@@ -18,7 +18,13 @@ const TOPIC_TERMS: Record<
     /postpone/i,
     /\bswap\b/i,
   ],
-  cancellation: [/ביטול/u, /לבטל/u, /\bcancel(?:lation)?\b/i],
+  class_cancel: [
+    /לבטל.{0,40}(?:הרשמ(?:ה)?\s+ל)?(?:שיעור|אימון)/u,
+    /ביטול.{0,24}(?:הרשמ(?:ה)?\s+ל)?(?:שיעור|אימון)/u,
+    /להחליף\s+(?:את\s+)?ה?(?:שיעור|אימון)/u,
+    /cancel.{0,24}(?:class|session|lesson)/i,
+  ],
+  cancellation: [/ביטול\s+מנוי/u, /לבטל.{0,24}מנוי/u, /מדיניות\s+ה?ביטול/u, /\bcancel(?:lation)?\s+membership\b/i],
   freeze: [/הקפא/u, /קפיא/u, /\bfreeze\b/i],
   refund: [/החזר/u, /\brefund\b/i, /כסף\s+בחזרה/u],
   medical: [/פציע/u, /\binjur/i, /שיקום/u, /\brehab\b/i],
@@ -49,7 +55,16 @@ export function leadFacingFactText(raw: string): string {
     const inner = String(m[1] ?? "").trim();
     if (inner) parts.push(inner);
   }
-  if (parts.length) return parts.join("\n");
+  if (!parts.length) return t;
+  const quoted = parts.join("\n");
+  const longest = Math.max(...parts.map((p) => p.length));
+  const outside = t
+    .replace(/["\u201c\u201d\u201e«»״]([^"\u201c\u201d\u201e«»״]+)["\u201c\u201d\u201e«»״]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Short quotes inside a full customer-facing answer (e.g. «נציג אנושי») are
+  // highlighting, not the whole reply. Long quotes / short prefixes stay extracted.
+  if (longest >= 40 || outside.length <= 48) return quoted;
   return t;
 }
 

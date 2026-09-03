@@ -1,6 +1,7 @@
 /** Intent categories Zoe has no authority to execute — skip Claude, fixed copy. */
 export type ClosedPlaybookCategory =
   | "reschedule"
+  | "class_cancel"
   | "cancellation"
   | "freeze"
   | "refund"

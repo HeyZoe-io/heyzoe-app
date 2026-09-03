@@ -5,6 +5,8 @@ import { matchesOutOfScopeTeamHandoff } from "@/lib/wa-out-of-scope-handoff";
 import { matchesRunningLateStatusUpdate } from "@/lib/wa-running-late";
 import {
   CLOSED_PLAYBOOK_CANCELLATION_REPLY,
+  CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
+  CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY,
   CLOSED_PLAYBOOK_COACH_OWNER_REPLY,
   CLOSED_PLAYBOOK_COMPLAINT_REPLY,
   CLOSED_PLAYBOOK_DISCOUNT_NO_PROMO_REPLY,
@@ -73,8 +75,22 @@ assert.equal(isFreezeBillingAccountDispute("אפשר להקפיא את המנו�
 assert.equal(cat("אפשר להקפיא את המנוי?")?.category, "freeze");
 assert.equal(cat("אפשר להקפיא את המנוי?")?.shape, "policy");
 assert.equal(cat("תקפיאי לי את המנוי")?.shape, "action");
+assert.equal(cat("אני רוצה להקפיא")?.category, "freeze");
+assert.equal(cat("אני רוצה להקפיא")?.shape, "action");
 assert.equal(cat("מה מדיניות ההקפאה")?.shape, "policy");
+assert.equal(cat("אני לא רוצה להקפיא"), null);
 assert.equal(isFreezeBillingAccountDispute("לא הקפאתם לי את המנוי"), true);
+
+const sigalClassCancel =
+  "אני יכולה פשוט לבטל את האימון של היום\nאני לא רוצה להקפיא";
+assert.equal(cat(sigalClassCancel)?.category, "class_cancel");
+assert.equal(cat("אפשר לבטל הרשמה לשיעור?")?.category, "class_cancel");
+assert.equal(cat("אפשר לבטל הרשמה לשיעור?")?.shape, "policy");
+assert.equal(cat("אפשר להחליף שיעור?")?.category, "class_cancel");
+assert.equal(cat("לבטל את השיעור של היום")?.category, "class_cancel");
+assert.equal(cat("תבטלי את השיעור עם שיר בבקשה. היא חולה.")?.category, "class_cancel");
+assert.equal(cat("תבטלי את השיעור עם שיר בבקשה. היא חולה.")?.shape, "action");
+assert.equal(cat("היא חולה"), null, "illness reason alone is not playbook");
 
 // --- 4 refund ---
 assert.equal(cat("אני רוצה החזר")?.category, "refund");
@@ -232,6 +248,12 @@ assert.match(reschedulePolicyFact?.reply ?? "", /12 שעות/);
 
 // quoted fact → inner text only
 assert.equal(leadFacingFactText('פנימי: ״שלום לליד״'), "שלום לליד");
+assert.match(
+  leadFacingFactText(
+    "ניתן לבטל הרשמה לשיעור דרך האפליקציה. רק צריך לכתוב לי ״נציג אנושי״ ואדאג לזה"
+  ),
+  /דרך האפליקציה/
+);
 const quoted = resolveClosedPlaybook({
   inbound: "מה מדיניות הביטול",
   knowledge: {
@@ -243,6 +265,65 @@ assert.equal(quoted?.notifyHumanRequested, false);
 
 assert.equal(lookupPlaybookFact("freeze", freezeFactKnowledge)?.includes("14"), true);
 assert.equal(lookupPlaybookFact("cancellation", freezeFactKnowledge), null);
+
+const classCancelQa = {
+  botName: "זואי",
+  knowledgeQa: [
+    {
+      question: "הקפאת מנוי / ביטול מנוי",
+      answer: "ניתן לבטל מנוי בהתראה של 30 יום. ניתן להקפיא עד 14 ימים.",
+    },
+    {
+      question: "אפשר לבטל הרשמה לשיעור? אפשר להחליף שיעור?",
+      answer:
+        "ניתן לבטל הרשמה לשיעור דרך האפליקציה, ואם מעניין אותך אימון אחר - להירשם ישירות אליו. אם המערכת לא נותנת לך לבטל אני אעביר את הפנייה לצוות. רק צריך לכתוב לי ״נציג אנושי״ ואדאג לזה",
+    },
+  ],
+};
+const sigalResolved = resolveClosedPlaybook({ inbound: sigalClassCancel, knowledge: classCancelQa });
+assert.equal(sigalResolved?.category, "class_cancel");
+assert.equal(sigalResolved?.shape, "action");
+assert.equal(sigalResolved?.source, "default");
+assert.equal(sigalResolved?.notifyHumanRequested, true);
+assert.equal(sigalResolved?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY);
+
+const classCancelPolicy = resolveClosedPlaybook({
+  inbound: "אפשר לבטל הרשמה לשיעור?",
+  knowledge: classCancelQa,
+});
+assert.equal(classCancelPolicy?.shape, "policy");
+assert.equal(classCancelPolicy?.source, "fact");
+assert.equal(classCancelPolicy?.notifyHumanRequested, false);
+assert.match(classCancelPolicy?.reply ?? "", /דרך האפליקציה/);
+
+const classCancelDefault = resolveClosedPlaybook({
+  inbound: "לבטל את האימון של היום",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+});
+assert.equal(classCancelDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY);
+assert.equal(classCancelDefault?.notifyHumanRequested, true);
+assert.equal(classCancelDefault?.modelUsed, "closed_playbook_class_cancel");
+
+const classCancelPolicyDefault = resolveClosedPlaybook({
+  inbound: "אפשר לבטל הרשמה לשיעור?",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+});
+assert.equal(classCancelPolicyDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
+assert.equal(classCancelPolicyDefault?.notifyHumanRequested, false);
+
+const shirCancel = `היוש, וולקאם באק 🙂 תבטלי את השיעור עם שיר בבקשה. היא חולה.
+היה לי רק שיעןר עם ליאת היום`;
+const shirResolved = resolveClosedPlaybook({ inbound: shirCancel, knowledge: classCancelQa });
+assert.equal(shirResolved?.category, "class_cancel");
+assert.equal(shirResolved?.notifyHumanRequested, true);
+assert.equal(shirResolved?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY);
+
+const freezeStillFreeze = resolveClosedPlaybook({
+  inbound: "אפשר להקפיא את המנוי?",
+  knowledge: classCancelQa,
+});
+assert.equal(freezeStillFreeze?.category, "freeze");
+assert.match(freezeStillFreeze?.reply ?? "", /14 ימים/);
 
 // --- promo relevance ---
 assert.equal(

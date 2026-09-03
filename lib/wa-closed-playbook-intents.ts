@@ -84,10 +84,43 @@ function intent(
   return { category, shape };
 }
 
+/** ביטול/החלפת שיעור באפליקציה — לא ביטול מנוי ולא הקפאה. */
+export function matchClassCancelPlaybook(raw: string): ClosedPlaybookIntent | null {
+  const t = normalizePlaybookInbound(raw);
+  if (tooLongOrEmpty(t)) return null;
+  const n = t.toLowerCase();
+
+  if (
+    /לבטל.{0,40}(?:את\s+)?ה?(?:מנוי|כרטיסי[יה]|חבילה)/u.test(t) &&
+    !/(?:שיעור|אימון)/u.test(t)
+  ) {
+    return null;
+  }
+
+  const cancelOrSwitchClass =
+    /לבטל.{0,48}(?:את\s+)?ה?(?:אימון|שיעור)/u.test(t) ||
+    /תבטל(?:י|ו)?\s+(?:לי\s+)?(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
+    /בטל(?:י|ו)\s+(?:לי\s+)?(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
+    /ביטול.{0,24}(?:ה)?(?:אימון|שיעור)/u.test(t) ||
+    /לבטל.{0,32}הרשמ(?:ה)?\s+ל(?:שיעור|אימון)/u.test(t) ||
+    /(?:אפשר|ניתן|איך|כיצד)\s+לבטל.{0,40}(?:שיעור|אימון|הרשמ(?:ה)?\s+ל)/u.test(t) ||
+    /להחליף\s+(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
+    /(?:אפשר|ניתן|איך)\s+להחליף\s+שיעור/u.test(t) ||
+    /cancel.{0,40}(?:a\s+|the\s+|my\s+)?(?:class|session|lesson|spot)\b/i.test(n) ||
+    /please\s+cancel.{0,24}(?:the\s+|my\s+)?(?:class|session|lesson)/i.test(n) ||
+    /how\s+(?:do\s+i|can\s+i)\s+cancel.{0,24}(?:class|session|lesson)/i.test(n);
+
+  if (!cancelOrSwitchClass) return null;
+
+  const policy = looksLikePolicyQuestion(t) || /(?:אפשר|ניתן|איך|כיצד)\s+(?:לבטל|להחליף)/u.test(t);
+  return intent("class_cancel", policy ? "policy" : "action");
+}
+
 /** Cancellation of membership / registration — split out of reschedule. */
 export function matchCancellationPlaybook(raw: string): ClosedPlaybookIntent | null {
   const t = normalizePlaybookInbound(raw);
   if (tooLongOrEmpty(t)) return null;
+  if (matchClassCancelPlaybook(t)) return null;
   const n = t.toLowerCase();
 
   const action =
@@ -99,7 +132,7 @@ export function matchCancellationPlaybook(raw: string): ClosedPlaybookIntent | n
     /רוצ(?:ה|ה)\s+לבטל.{0,32}(?:מנוי|הרשמ|כרטיסי|חבילה)/u.test(t) ||
     /ביטול\s+(?:של\s+)?(?:ה)?(?:מנוי|הרשמ|כרטיסי)/u.test(t) &&
       !/מדיניות/u.test(t) ||
-    /\bcancel\s+(my\s+)?(registration|booking|membership|subscription|class|spot|lesson)\b/i.test(n);
+    /\bcancel\s+(my\s+)?(registration|booking|membership|subscription)\b/i.test(n);
 
   const policy =
     /מדיניות\s+ה?ביטול/u.test(t) ||
@@ -116,6 +149,7 @@ export function matchCancellationPlaybook(raw: string): ClosedPlaybookIntent | n
 export function matchReschedulePlaybook(raw: string): ClosedPlaybookIntent | null {
   const t = normalizePlaybookInbound(raw);
   if (tooLongOrEmpty(t)) return null;
+  if (matchClassCancelPlaybook(t)) return null;
   if (matchCancellationPlaybook(t)) return null;
 
   if (matchesClassRescheduleUpdate(t)) return intent("reschedule", "action");
@@ -134,11 +168,12 @@ export function matchReschedulePlaybook(raw: string): ClosedPlaybookIntent | nul
 export function matchFreezePlaybook(raw: string): ClosedPlaybookIntent | null {
   const t = normalizePlaybookInbound(raw);
   if (tooLongOrEmpty(t)) return null;
+  if (matchClassCancelPlaybook(t)) return null;
   if (!/הקפא|קפיא|\bfreeze\b/iu.test(t)) return null;
 
   const action =
     /תקפיא(?:י|ו)?\s+(?:לי\s+)?את\s+ה?(?:מנוי|כרטיסי)/u.test(t) ||
-    /רוצ(?:ה|ה)\s+להקפיא/u.test(t) ||
+    /(?<!לא\s)רוצ(?:ה|ה)\s+להקפיא/u.test(t) ||
     /להקפיא\s+(?:לי\s+)?את\s+ה?(?:מנוי|כרטיסי)/u.test(t) &&
       !/(?:אפשר|ניתן|מדיניות)/u.test(t) ||
     /please\s+freeze\s+my/i.test(t) ||
@@ -289,6 +324,7 @@ const DETECTORS: Array<(raw: string) => ClosedPlaybookIntent | null> = [
   matchMedicalPlaybook,
   matchComplaintPlaybook,
   matchRefundPlaybook,
+  matchClassCancelPlaybook,
   matchFreezePlaybook,
   matchCancellationPlaybook,
   matchReschedulePlaybook,
@@ -300,6 +336,9 @@ const DETECTORS: Array<(raw: string) => ClosedPlaybookIntent | null> = [
 export function detectClosedPlaybookIntent(raw: string): ClosedPlaybookIntent | null {
   const t = normalizePlaybookInbound(raw);
   if (tooLongOrEmpty(t)) return null;
+  // «תבטלי את השיעור, היא חולה» is a cancel — not an illness check-in.
+  const classCancel = matchClassCancelPlaybook(t);
+  if (classCancel) return classCancel;
   if (matchesIllnessCheckIn(t)) return null;
   if (matchesPlainPriceQuestion(t)) return null;
   for (const detect of DETECTORS) {
