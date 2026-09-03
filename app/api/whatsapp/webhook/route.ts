@@ -314,6 +314,11 @@ import {
   WA_OUT_OF_SCOPE_HANDOFF_MODEL,
 } from "@/lib/wa-out-of-scope-handoff";
 import {
+  buildStudioScopeRedirectReply,
+  matchesBotConfigMetaTalk,
+  WA_BOT_CONFIG_META_MODEL,
+} from "@/lib/wa-bot-config-meta";
+import {
   isJoinSignupIntentText,
   isWarmupSkipIntentText,
   shouldStartSalesFlowFromOutOfFlowSignup,
@@ -7073,6 +7078,28 @@ async function processIncoming(
       role: "assistant",
       content: outOfScopeTxt,
       model_used: WA_OUT_OF_SCOPE_HANDOFF_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  // שיחה על חוקיות / פלואו מכירה / הגדרות בוט — לא ייעוץ מוצר, רק ענייני הסטודיו
+  if (
+    msg.type === "text" &&
+    isSalesFlowFreeTextInbound(msg) &&
+    matchesBotConfigMetaTalk(msg.text)
+  ) {
+    const studioScopeTxt = buildStudioScopeRedirectReply(detectMessageLanguage(msg.text));
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, studioScopeTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send bot-config meta redirect failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: studioScopeTxt,
+      model_used: WA_BOT_CONFIG_META_MODEL,
       session_id: sessionId,
     });
     return;

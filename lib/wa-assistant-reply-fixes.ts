@@ -13,6 +13,10 @@ import {
   ensureScheduleWhenConvenientQuestion,
   stripPrematureAfterRegistration,
 } from "@/lib/wa-outbound-registration-guard";
+import {
+  buildStudioScopeRedirectReply,
+  looksLikeBotConfigMetaReply,
+} from "@/lib/wa-bot-config-meta";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -351,8 +355,7 @@ const CUSTOMER_PLATFORM_LEAK_RE = new RegExp(
   "iu"
 );
 
-const CUSTOMER_PLATFORM_LEAK_FALLBACK =
-  "אני כאן כדי לעזור לגבי השירותים שלנו. במה אפשר לעזור?";
+const CUSTOMER_PLATFORM_LEAK_FALLBACK = buildStudioScopeRedirectReply("he");
 
 export function looksLikeCustomerFacingPlatformLeak(text: string): boolean {
   CUSTOMER_PLATFORM_LEAK_RE.lastIndex = 0;
@@ -560,8 +563,11 @@ export function applyKnownAssistantReplyFixes(
   }
 
   s = stripFakeScheduleImagePlaceholders(s);
-  s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
   const lang = resolveReplyFixLanguage(input);
+  if (looksLikeBotConfigMetaReply(s)) {
+    return buildStudioScopeRedirectReply(lang);
+  }
+  s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
   if (input.trialRegistered !== true) {
     s = stripFabricatedSeeYouAtSlot(s, lang);
     s = stripPrematureAfterRegistration(s);

@@ -24,6 +24,13 @@ const scrubbed = applyKnownAssistantReplyFixes(leaked, { knowledge });
 assert.doesNotMatch(scrubbed, /דף השיחות|כיבוי|HeyZoe|דשבורד/i);
 assert.match(scrubbed, /השירותים שלנו/);
 
+const productAdvice =
+  "בוקר אור! 🙂 זה הצעה טובה מאוד. הגיוני להשנות לחוקיות רגילה - כך זואי לא תפתח פלואו מכירה על כל הודעה. **פעולה מוצעת:** אני מוכן לשנות את זה - תגיד לי וניישם.";
+assert.equal(
+  applyKnownAssistantReplyFixes(productAdvice, { knowledge }),
+  "אני כאן כדי לעזור לגבי השירותים שלנו. במה אפשר לעזור?"
+);
+
 const scheduleKeep = [
   "אפשר לראות את מערכת השעות כאן: https://arbox.example.com/schedule",
   "הלוח המלא בלינק למערכת שעות, ואפשר גם להירשם משם לשיעור ניסיון.",
