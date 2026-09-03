@@ -132,6 +132,7 @@ type SessionSummary = {
   fullName?: string | null;
   contactStatus?: ContactStatusKey | null;
   arboxUserId?: string | null;
+  arboxProfileId?: string | null;
   crmType?: string | null;
   /** טאב זואי אדמין — «כל השיחות» */
   source_slug?: string;
@@ -390,7 +391,7 @@ export default function ConversationsClient({
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
   const arboxProfileUrl = selected
-    ? buildArboxUserProfileUrl({ crmType: selected.crmType, arboxUserId: selected.arboxUserId })
+    ? buildArboxUserProfileUrl({ crmType: selected.crmType, arboxProfileId: selected.arboxProfileId })
     : null;
 
   function slugForSession(sessionId: string): string {

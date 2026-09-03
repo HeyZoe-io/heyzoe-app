@@ -7,6 +7,7 @@ import {
   sessionIdMatchesWaPhoneNumberIds,
   type SessionSummary,
 } from "@/lib/conversations-sessions";
+import { buildArboxUserProfileUrl } from "@/lib/arbox-profile-url";
 import { waSessionIdVariantsFromSessionId } from "@/lib/phone-normalize";
 import type { ActiveWaChannel } from "@/lib/wa-resolve-send-channel";
 
@@ -138,6 +139,31 @@ function session(partial: Partial<SessionSummary> & Pick<SessionSummary, "sessio
 }
 
 {
+  const livePid = liveHighId.phoneNumberId;
+  const stalePid = staleLowId.phoneNumberId;
+  const collapsed = dedupeSessionsByPhone(
+    [
+      session({
+        session_id: `wa_${stalePid}_972501111111`,
+        phone: "972501111111",
+        lastAt: "2026-08-20T12:00:00.000Z",
+        arboxProfileId: "4648373",
+        arboxUserId: "11143101",
+      }),
+      session({
+        session_id: `wa_${livePid}_972501111111`,
+        phone: "972501111111",
+        lastAt: "2026-08-19T09:00:00.000Z",
+        crmType: "arbox",
+      }),
+    ],
+    [livePid]
+  );
+  assert.equal(collapsed[0]?.arboxProfileId, "4648373", "keeps studio profile id from the dropped duplicate");
+  assert.equal(collapsed[0]?.arboxUserId, "11143101", "keeps global user id as-is");
+}
+
+{
   const variants = waSessionIdVariantsFromSessionId("wa_1144781695390397_+972501111111");
   assert.ok(variants.includes("wa_1144781695390397_972501111111"));
   assert.ok(variants.includes("wa_1144781695390397_+972501111111"));
@@ -164,6 +190,16 @@ function session(partial: Partial<SessionSummary> & Pick<SessionSummary, "sessio
     { session_id: sid, role: "event", created_at: "2026-09-01T12:01:00.000Z" },
   ]);
   assert.equal(eventAfterUser[0]?.lastFromUser, true, "event rows do not clear last customer message");
+}
+
+{
+  const withProfile = buildArboxUserProfileUrl({ crmType: "arbox", arboxProfileId: "4648373" });
+  assert.equal(withProfile, "https://manage.arboxapp.com/user-profile/4648373");
+  const userIdOnly = buildArboxUserProfileUrl({
+    crmType: "arbox",
+    arboxProfileId: null,
+  });
+  assert.equal(userIdOnly, null, "no link when arbox_profile_id is missing (arbox_user_id must not gate)");
 }
 
 console.log("conversations-sessions.test.ts: ok");

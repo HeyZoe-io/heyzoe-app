@@ -36,8 +36,10 @@ export type SessionSummary = {
   fullName?: string | null;
   /** סטטוס ליד מטבלת contacts (אותה לוגיקה כמו בדף אנשי קשר) */
   contactStatus?: ContactStatusKey | null;
-  /** contacts.arbox_user_id — Arbox manage profile deep-link */
+  /** contacts.arbox_user_id — global Arbox user_id (lead matching) */
   arboxUserId?: string | null;
+  /** contacts.arbox_profile_id — studio-specific /user-profile/{id} */
+  arboxProfileId?: string | null;
   /** businesses.crm_type — gate the Arbox profile link */
   crmType?: CrmType | null;
 };
@@ -60,10 +62,16 @@ type ContactPhoneMeta = {
   fullName: string | null;
   lastContactAt: string | null;
   arboxUserId: string | null;
+  arboxProfileId: string | null;
 };
 
 function contactArboxUserId(row: { arbox_user_id?: unknown }): string | null {
   const id = String(row.arbox_user_id ?? "").trim();
+  return id || null;
+}
+
+function contactArboxProfileId(row: { arbox_profile_id?: unknown }): string | null {
+  const id = String(row.arbox_profile_id ?? "").trim();
   return id || null;
 }
 
@@ -88,6 +96,7 @@ function mergeContactMetaRow(
     fullName: fullName || null,
     lastContactAt,
     arboxUserId: contactArboxUserId(row as { arbox_user_id?: unknown }),
+    arboxProfileId: contactArboxProfileId(row as { arbox_profile_id?: unknown }),
   };
   const prev = map.get(key);
   if (!prev) {
@@ -101,6 +110,7 @@ function mergeContactMetaRow(
   map.set(key, {
     ...winner,
     arboxUserId: winner.arboxUserId || loser.arboxUserId,
+    arboxProfileId: winner.arboxProfileId || loser.arboxProfileId,
   });
 }
 
@@ -113,7 +123,7 @@ async function loadContactMetaByPhoneForBusiness(
     const { data, error } = await admin
       .from("contacts")
       .select(
-        "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id"
+        "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id, arbox_profile_id"
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: false })
@@ -178,6 +188,7 @@ function enrichSessionsWithContactMeta(
       fullName: meta?.fullName ?? s.fullName ?? null,
       contactStatus: meta?.status ?? null,
       arboxUserId: meta?.arboxUserId ?? s.arboxUserId ?? null,
+      arboxProfileId: meta?.arboxProfileId ?? s.arboxProfileId ?? null,
       lastAt,
     };
   });
@@ -404,6 +415,7 @@ function pickPreferredSession(
     fullName: keep.fullName || drop.fullName,
     contactStatus: keep.contactStatus ?? drop.contactStatus,
     arboxUserId: keep.arboxUserId || drop.arboxUserId,
+    arboxProfileId: keep.arboxProfileId || drop.arboxProfileId,
     crmType: keep.crmType || drop.crmType,
   };
 }
@@ -447,6 +459,7 @@ function appendTemplateOnlySessions(
       fullName: fullName || null,
       contactStatus: "template",
       arboxUserId: contactArboxUserId(row as { arbox_user_id?: unknown }),
+      arboxProfileId: contactArboxProfileId(row as { arbox_profile_id?: unknown }),
     });
     existingPhones.add(key);
   }
@@ -481,7 +494,7 @@ export async function loadBusinessConversationSessions(
       ? admin
           .from("contacts")
           .select(
-            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, human_requested_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id"
+            "phone, full_name, created_at, source, session_phase, opted_out, not_relevant_at, human_requested_at, trial_registered, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id, arbox_profile_id"
           )
           .eq("business_id", businessId)
           .in("source", ["meta_lead_ad", "site_lead"])
