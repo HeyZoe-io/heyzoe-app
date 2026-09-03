@@ -1,98 +1,26 @@
-/** Shared trigger_type catalogs for API + tests (Arbox vs non-Arbox). */
-
-export const ARBOX_TRIGGER_TYPES = [
-  "purchase",
-  "credit_refusal",
-  "trial_attended",
-  "birthday",
-  "membership_expiring",
-  "sessions_expiring",
-  "arbox_new_lead",
-] as const;
-
-export const NON_ARBOX_TRIGGER_TYPES = ["incoming_lead", "no_response"] as const;
-
-/** Canonical type for /api/leads/incoming webhook automation. */
-export const INCOMING_LEAD_TRIGGER_TYPES = ["incoming_lead"] as const;
-
 /**
- * Legacy DB values (pre-merge site_lead / campaign_lead) — still resolved and
- * counted for uniqueness until migration updates rows.
+ * Facade over `lib/trigger-catalog.ts` so existing API/test imports stay stable.
+ * Add/change trigger metadata on the catalog, not here.
  */
-export const LEGACY_INCOMING_LEAD_TRIGGER_TYPES = ["site_lead", "campaign_lead"] as const;
 
-/** All DB trigger_type values that mean "incoming lead" for load/uniqueness. */
-export const INCOMING_LEAD_TRIGGER_TYPES_RESOLVE = [
-  ...INCOMING_LEAD_TRIGGER_TYPES,
-  ...LEGACY_INCOMING_LEAD_TRIGGER_TYPES,
-] as const;
-
-export const TRIGGER_TYPES = [...ARBOX_TRIGGER_TYPES, ...NON_ARBOX_TRIGGER_TYPES] as const;
-
-export type TriggerType = (typeof TRIGGER_TYPES)[number];
-
-export type IncomingLeadTriggerType = (typeof INCOMING_LEAD_TRIGGER_TYPES)[number];
-
-export function isTriggerType(value: string): value is TriggerType {
-  return (TRIGGER_TYPES as readonly string[]).includes(value);
-}
-
-export function isArboxDependentTriggerType(value: TriggerType): boolean {
-  return (ARBOX_TRIGGER_TYPES as readonly string[]).includes(value);
-}
-
-/** Dropdown/create: Arbox-native types (incl. arbox_new_lead) only when CRM=arbox. */
-export function isCreatableTriggerType(value: string, hasArbox: boolean): boolean {
-  if (!isTriggerType(value)) return false;
-  if (!hasArbox && isArboxDependentTriggerType(value)) return false;
-  return true;
-}
-
-/** True for canonical incoming_lead and legacy site_lead / campaign_lead. */
-export function isIncomingLeadTriggerType(value: string): boolean {
-  return (INCOMING_LEAD_TRIGGER_TYPES_RESOLVE as readonly string[]).includes(value);
-}
-
-/** Map legacy site_lead / campaign_lead → incoming_lead for API/UI. */
-export function canonicalizeTriggerType(value: string): string {
-  if (
-    (LEGACY_INCOMING_LEAD_TRIGGER_TYPES as readonly string[]).includes(value)
-  ) {
-    return "incoming_lead";
-  }
-  return value;
-}
-
-/**
- * Event-based types whose send time is after the event (purchase, attendance, refusal).
- * "before" is only valid for known future dates (membership/sessions expiry).
- */
-export function forcesDelayAfter(triggerType: string): boolean {
-  const t = canonicalizeTriggerType(triggerType);
-  return (
-    t === "purchase" ||
-    t === "credit_refusal" ||
-    t === "trial_attended" ||
-    t === "no_response" ||
-    t === "arbox_new_lead" ||
-    isIncomingLeadTriggerType(t)
-  );
-}
-
-/** Expiry reminders may fire before the end date; birthday UI is handled separately. */
-export function allowsDelayBefore(triggerType: string): boolean {
-  const t = canonicalizeTriggerType(triggerType);
-  return t === "membership_expiring" || t === "sessions_expiring";
-}
-
-export function delayDirectionForTrigger(
-  triggerType: string,
-  stored: string | null | undefined
-): "after" | "before" {
-  if (forcesDelayAfter(triggerType)) return "after";
-  const d = String(stored ?? "").trim().toLowerCase();
-  return d === "before" ? "before" : "after";
-}
+export {
+  ARBOX_TRIGGER_TYPES,
+  NON_ARBOX_TRIGGER_TYPES,
+  TRIGGER_TYPES,
+  INCOMING_LEAD_TRIGGER_TYPES,
+  LEGACY_INCOMING_LEAD_TRIGGER_TYPES,
+  INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
+  isTriggerType,
+  isArboxDependentTriggerType,
+  isCreatableTriggerType,
+  isIncomingLeadTriggerType,
+  canonicalizeTriggerType,
+  forcesDelayAfter,
+  allowsDelayBefore,
+  delayDirectionForTrigger,
+  type TriggerType,
+  type IncomingLeadTriggerType,
+} from "@/lib/trigger-catalog";
 
 const TRIGGER_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

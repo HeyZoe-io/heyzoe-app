@@ -10,6 +10,7 @@ import {
 export const TEMPLATE_NAME_FALLBACK = "שלום";
 export const TEMPLATE_BUSINESS_NAME_FALLBACK = "הסטודיו";
 export const TEMPLATE_EXPIRY_FALLBACK = "בקרוב";
+export const TEMPLATE_MEMBERSHIP_TYPE_FALLBACK = "המנוי";
 
 export type TemplateSendParamContext = {
   triggerType: string;
@@ -17,6 +18,7 @@ export type TemplateSendParamContext = {
   firstName?: string | null;
   businessName?: string | null;
   expiryDateYmd?: string | null;
+  membershipTypeName?: string | null;
 };
 
 /** Israel-facing expiry for {{3}} (YYYY-MM-DD → DD.MM.YYYY). */
@@ -27,15 +29,33 @@ export function formatTemplateExpiryDate(ymd: string | null | undefined): string
   return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
-/** Last YYYY-MM-DD segment of membership/sessions expiring dedup keys. */
+/** Last YYYY-MM-DD segment of membership/sessions expiring / membership_cancelled dedup keys. */
 export function expiryYmdFromScheduledDedupKey(dedupKey: string): string | null {
-  const key = String(dedupKey ?? "").trim();
-  if (!key.startsWith("membership_expiring:") && !key.startsWith("sessions_expiring:")) {
+  const key = String(dedupKey ?? "").trim().split("#")[0] ?? "";
+  if (
+    !key.startsWith("membership_expiring:") &&
+    !key.startsWith("sessions_expiring:") &&
+    !key.startsWith("membership_cancelled:")
+  ) {
     return null;
   }
   const parts = key.split(":");
   const last = parts[parts.length - 1] ?? "";
   return /^\d{4}-\d{2}-\d{2}$/.test(last) ? last : null;
+}
+
+/** membership_cancelled delayed send: type name encoded after `#`. */
+export function membershipTypeNameFromScheduledDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("membership_cancelled:")) return null;
+  const hash = raw.indexOf("#");
+  if (hash < 0) return null;
+  try {
+    const decoded = decodeURIComponent(raw.slice(hash + 1).trim());
+    return decoded || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Prefix of scheduled_template_sends.dedup_key → trigger_type (site_lead → incoming_lead). */
@@ -57,6 +77,10 @@ export function resolveTemplateSlotValue(
   if (slot === "business_name") {
     const name = String(ctx.businessName ?? "").trim();
     return name || TEMPLATE_BUSINESS_NAME_FALLBACK;
+  }
+  if (slot === "membership_type_name") {
+    const name = String(ctx.membershipTypeName ?? "").trim();
+    return name || TEMPLATE_MEMBERSHIP_TYPE_FALLBACK;
   }
   const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);
   return formatted || TEMPLATE_EXPIRY_FALLBACK;

@@ -1,3 +1,4 @@
+import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -91,6 +92,32 @@ export function buildSessionsExpiringScheduledDedupKey(
   return `sessions_expiring:${businessId}:${String(triggerId).trim()}:${userId}:${String(startDateYmd).trim()}:${String(endDateYmd).trim()}`;
 }
 
+/**
+ * Membership-cancelled enqueue key.
+ * Last YMD segment = end_date (parsed by expiryYmdFromScheduledDedupKey).
+ * `#` suffix = encodeURIComponent(membership_type_name) for delayed {{1}}.
+ * cancelled_time is tokenized (':' and spaces → '_') so it does not split the key.
+ */
+export function encodeCancelledTimeDedupToken(cancelledTime: string): string {
+  return String(cancelledTime ?? "")
+    .trim()
+    .replace(/[:\s]+/g, "_");
+}
+
+export function buildMembershipCancelledScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  cancelledTime: string,
+  endDateYmd: string | null,
+  membershipTypeName: string
+): string {
+  const endRaw = String(endDateYmd ?? "").trim();
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(endRaw) ? endRaw : "none";
+  const typeEnc = encodeURIComponent(String(membershipTypeName ?? "").trim());
+  return `membership_cancelled:${businessId}:${String(triggerId).trim()}:${userId}:${encodeCancelledTimeDedupToken(cancelledTime)}:${end}#${typeEnc}`;
+}
+
 /** Trial-attended enqueue key: once per business+trigger+user+class_date. */
 export function buildTrialAttendedScheduledDedupKey(
   businessId: number,
@@ -142,6 +169,23 @@ export function isDuePendingScheduledSend(
   const dueMs = Date.parse(row.due_at);
   if (!Number.isFinite(dueMs)) return false;
   return dueMs <= now.getTime();
+}
+
+export type ScheduledDrainDispatchDecision =
+  | { action: "dispatch" }
+  | { action: "hold"; reason: "outside_send_window" };
+
+/**
+ * Drain-time send window — same as wa-followups (`isAllowedWhatsAppSendTimeIsrael`).
+ * Hold means: do not dispatch; leave the row pending. Does not change due_at.
+ */
+export function decideScheduledDrainDispatch(
+  now: Date = new Date()
+): ScheduledDrainDispatchDecision {
+  if (!isAllowedWhatsAppSendTimeIsrael(now)) {
+    return { action: "hold", reason: "outside_send_window" };
+  }
+  return { action: "dispatch" };
 }
 
 /** Pure filter used by tests + mirrors the cron WHERE clause. */

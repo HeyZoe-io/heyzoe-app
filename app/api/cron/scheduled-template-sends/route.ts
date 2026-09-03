@@ -7,7 +7,9 @@ import {
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import {
+  decideScheduledDrainDispatch,
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
   isDuePendingScheduledSend,
@@ -19,14 +21,18 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import {
   expiryYmdFromScheduledDedupKey,
+  membershipTypeNameFromScheduledDedupKey,
   templateSendPayload,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
+import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET.
- *  גם שוטף scheduled_marketing_template_sends (תזכורות/שידורים של קו זואי אדמין).
- *  מומלץ כל שעה — IO: שאילתה לפי אינדקס (status, due_at), לא סריקת טבלה. */
+ *  גם שוטף scheduled_marketing_template_sends ו-manual_bulk_queued_sends.
+ *  חלון שליחה: isAllowedWhatsAppSendTimeIsrael (כמו wa-followups) — מחוץ לחלון לא
+ *  שולחים; השורות נשארות pending. due_at לא משתנה.
+ *  IO: מחוץ לחלון — בלי שאילתות. בתוך החלון — שאילתה לפי אינדקס (status, due_at). */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -99,9 +105,11 @@ async function lookupContactFullName(
  */
 async function dispatchOneScheduledSend(
   admin: ReturnType<typeof createSupabaseAdminClient>,
-  row: ScheduledTemplateSendRow
+  row: ScheduledTemplateSendRow,
+  now: Date
 ): Promise<"sent" | "failed" | "canceled" | "skipped"> {
-  if (!isDuePendingScheduledSend(row)) return "skipped";
+  if (decideScheduledDrainDispatch(now).action === "hold") return "skipped";
+  if (!isDuePendingScheduledSend(row, now)) return "skipped";
 
   const businessId = Number(row.business_id);
   const phone = String(row.contact_phone ?? "").trim();
@@ -169,6 +177,7 @@ async function dispatchOneScheduledSend(
     firstName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     expiryDateYmd: expiryYmdFromScheduledDedupKey(row.dedup_key),
+    membershipTypeName: membershipTypeNameFromScheduledDedupKey(row.dedup_key),
   });
 
   const sendResult = await sendBusinessTemplate({
@@ -226,8 +235,40 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const ranAt = new Date().toISOString();
+  const now = new Date();
+  const ranAt = now.toISOString();
   const nowIso = ranAt;
+
+  const windowDecision = decideScheduledDrainDispatch(now);
+  if (windowDecision.action === "hold") {
+    const nextAllowedAt = nextAllowedWhatsAppSendTimeIsrael(now).toISOString();
+    console.info("[cron/scheduled-template-sends] skip", {
+      skip_reason: "time_window",
+      next_allowed_at: nextAllowedAt,
+    });
+    return NextResponse.json({
+      ok: true,
+      ran_at: ranAt,
+      skipped_window: true,
+      skip_reason: "time_window",
+      next_allowed_at: nextAllowedAt,
+      fetched: 0,
+      sent: 0,
+      failed: 0,
+      canceled: 0,
+      skipped: 0,
+      marketing_fetched: 0,
+      marketing_sent: 0,
+      marketing_failed: 0,
+      marketing_canceled: 0,
+      bulk_fetched: 0,
+      bulk_sent: 0,
+      bulk_failed: 0,
+      bulk_canceled: 0,
+      batch_limit: BATCH_LIMIT,
+    });
+  }
+
   const admin = createSupabaseAdminClient();
 
   try {
@@ -254,7 +295,7 @@ export async function GET(req: NextRequest) {
 
     for (const row of rows) {
       try {
-        const outcome = await dispatchOneScheduledSend(admin, row);
+        const outcome = await dispatchOneScheduledSend(admin, row, now);
         if (outcome === "sent") sent += 1;
         else if (outcome === "failed") failed += 1;
         else if (outcome === "canceled") canceled += 1;
@@ -294,7 +335,10 @@ export async function GET(req: NextRequest) {
         marketing_fetched = pending.length;
         for (const row of pending) {
           try {
-            const outcome = await dispatchDueMarketingScheduledSend(admin, row);
+            const outcome = await dispatchDueMarketingScheduledSend(admin, row, {
+              now,
+              honorSendWindow: true,
+            });
             if (outcome === "sent") marketing_sent += 1;
             else if (outcome === "failed") marketing_failed += 1;
             else if (outcome === "canceled") marketing_canceled += 1;
@@ -311,6 +355,20 @@ export async function GET(req: NextRequest) {
       console.error("[cron/scheduled-template-sends] marketing flush failed:", e);
     }
 
+    let bulk_fetched = 0;
+    let bulk_sent = 0;
+    let bulk_failed = 0;
+    let bulk_canceled = 0;
+    try {
+      const bulk = await flushDueManualBulkSends(admin, nowIso, now);
+      bulk_fetched = bulk.fetched;
+      bulk_sent = bulk.sent;
+      bulk_failed = bulk.failed;
+      bulk_canceled = bulk.canceled;
+    } catch (e) {
+      console.error("[cron/scheduled-template-sends] manual bulk flush failed:", e);
+    }
+
     console.info("[cron/scheduled-template-sends] done", {
       ran_at: ranAt,
       fetched: rows.length,
@@ -322,6 +380,10 @@ export async function GET(req: NextRequest) {
       marketing_sent,
       marketing_failed,
       marketing_canceled,
+      bulk_fetched,
+      bulk_sent,
+      bulk_failed,
+      bulk_canceled,
       batch_limit: BATCH_LIMIT,
     });
 
@@ -337,6 +399,10 @@ export async function GET(req: NextRequest) {
       marketing_sent,
       marketing_failed,
       marketing_canceled,
+      bulk_fetched,
+      bulk_sent,
+      bulk_failed,
+      bulk_canceled,
       batch_limit: BATCH_LIMIT,
     });
   } catch (e) {

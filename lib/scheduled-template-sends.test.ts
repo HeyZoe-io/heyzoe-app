@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
+import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
+import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
+import { dispatchDueMarketingScheduledSend } from "@/lib/marketing-template-dispatch";
 import {
   buildArboxNewLeadScheduledDedupKey,
   buildPurchaseScheduledDedupKey,
   computeDueAt,
+  decideScheduledDrainDispatch,
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
   isDuePendingScheduledSend,
@@ -145,4 +150,98 @@ const eventDate = new Date("2026-08-01T12:00:00.000Z");
   assert.notEqual(after.status, "canceled");
 }
 
-console.log("scheduled-template-sends.test.ts: ok");
+const thu0200 = israelWallTimeToUtc("2026-09-03", "02:00");
+const thu0630 = israelWallTimeToUtc("2026-09-03", "06:30");
+const thu1400 = israelWallTimeToUtc("2026-09-03", "14:00");
+const sat1000 = israelWallTimeToUtc("2026-09-05", "10:00");
+const sat1900 = israelWallTimeToUtc("2026-09-05", "19:00");
+
+function explodingAdmin() {
+  return new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("drain must not query or send when the send window is closed");
+      },
+    }
+  ) as never;
+}
+
+/** due at 02:00 stays due+pending; drain holds (does not dispatch, does not consume) */
+{
+  const row = { status: "pending", due_at: thu0200.toISOString() };
+  assert.equal(isDuePendingScheduledSend(row, thu0200), true);
+  assert.equal(decideScheduledDrainDispatch(thu0200).action, "hold");
+  assert.equal(row.status, "pending");
+
+  const nextTick = nextAllowedWhatsAppSendTimeIsrael(thu0200);
+  assert.equal(nextTick.toISOString(), thu0630.toISOString());
+  assert.equal(decideScheduledDrainDispatch(nextTick).action, "dispatch");
+  assert.equal(isDuePendingScheduledSend(row, nextTick), true);
+}
+
+/** weekday 14:00 is inside the window — drain dispatches */
+{
+  const row = { status: "pending", due_at: thu1400.toISOString() };
+  assert.equal(isDuePendingScheduledSend(row, thu1400), true);
+  assert.equal(decideScheduledDrainDispatch(thu1400).action, "dispatch");
+}
+
+/** Sat morning holds until Sat 19:00 (same window as wa-followups) */
+{
+  const row = { status: "pending", due_at: sat1000.toISOString() };
+  assert.equal(isDuePendingScheduledSend(row, sat1000), true);
+  assert.equal(decideScheduledDrainDispatch(sat1000).action, "hold");
+  assert.equal(row.status, "pending");
+
+  const nextTick = nextAllowedWhatsAppSendTimeIsrael(sat1000);
+  assert.equal(nextTick.toISOString(), sat1900.toISOString());
+  assert.equal(decideScheduledDrainDispatch(nextTick).action, "dispatch");
+  assert.equal(isDuePendingScheduledSend(row, nextTick), true);
+}
+
+/** hold does not rewrite due_at */
+{
+  const eventDate = new Date("2026-08-01T12:00:00.000Z");
+  const due = computeDueAt({ delay_days: 3, delay_direction: "after" }, eventDate);
+  const before = due.toISOString();
+  decideScheduledDrainDispatch(thu0200);
+  assert.equal(due.toISOString(), before);
+}
+
+/** all three drain queues honor the same hold (no DB, status stays pending) */
+void (async () => {
+  const bulk = await flushDueManualBulkSends(explodingAdmin(), thu0200.toISOString(), thu0200);
+  assert.equal(bulk.held, true);
+  assert.equal(bulk.sent, 0);
+  assert.equal(bulk.fetched, 0);
+  assert.equal(bulk.failed, 0);
+  assert.equal(bulk.canceled, 0);
+
+  const marketing = await dispatchDueMarketingScheduledSend(
+    explodingAdmin(),
+    {
+      id: "m1",
+      trigger_id: "t1",
+      contact_phone: "972501234567",
+      template_name: "hello",
+      due_at: thu0200.toISOString(),
+      status: "pending",
+      dedup_key: "k",
+      body_params: null,
+      last_error: null,
+      created_at: thu0200.toISOString(),
+      updated_at: thu0200.toISOString(),
+    },
+    { now: thu0200, honorSendWindow: true }
+  );
+  assert.equal(marketing, "skipped");
+
+  assert.equal(decideScheduledDrainDispatch(thu0200).action, "hold");
+  assert.equal(decideScheduledDrainDispatch(thu1400).action, "dispatch");
+
+  console.log("scheduled-template-sends.test.ts: ok");
+})().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

@@ -7,6 +7,7 @@ import {
 import {
   expiryYmdFromScheduledDedupKey,
   formatTemplateExpiryDate,
+  membershipTypeNameFromScheduledDedupKey,
   resolveTemplateBodyParamValues,
   TEMPLATE_BUSINESS_NAME_FALLBACK,
   TEMPLATE_NAME_FALLBACK,
@@ -26,6 +27,18 @@ import {
   assert.equal(
     expiryYmdFromScheduledDedupKey("sessions_expiring:1:rule-uuid:99:2026-08-01:2026-09-15"),
     "2026-09-15"
+  );
+  assert.equal(
+    expiryYmdFromScheduledDedupKey(
+      "membership_cancelled:1:rule-uuid:44123:2026-08-15_14_30_00:2026-09-01#%D7%9E%D7%A0%D7%95%D7%99"
+    ),
+    "2026-09-01"
+  );
+  assert.equal(
+    membershipTypeNameFromScheduledDedupKey(
+      "membership_cancelled:1:rule-uuid:44123:2026-08-15:2026-09-01#%D7%9E%D7%A0%D7%95%D7%99%20%D7%97%D7%95%D7%93%D7%A9%D7%99"
+    ),
+    "מנוי חודשי"
   );
   assert.equal(triggerTypeFromScheduledDedupKey("site_lead:1:rule:050:2026-08-19"), "incoming_lead");
   assert.equal(triggerTypeFromScheduledDedupKey("arbox_new_lead:1:rule:9"), "arbox_new_lead");
@@ -89,12 +102,13 @@ import {
   assert.deepEqual(missingComponents, ["יוסי"]);
 }
 
-/** Every preset body fills Meta positional params in trigger-type order — {{2}} is never the expiry date. */
+/** Every preset body fills Meta positional params in trigger-type slot order. */
 {
   const ctx = {
     firstName: "דנה כהן",
     businessName: "Limitless",
     expiryDateYmd: "2026-09-15",
+    membershipTypeName: "מנוי חודשי",
   };
   const expected: Record<string, string[]> = {
     incoming_lead: ["Limitless"],
@@ -106,6 +120,7 @@ import {
     membership_expiring: ["דנה", "Limitless", "15.09.2026"],
     sessions_expiring: ["דנה", "Limitless", "15.09.2026"],
     trial_attended: ["דנה"],
+    membership_cancelled: ["מנוי חודשי", "15.09.2026"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -117,6 +132,10 @@ import {
     assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
     assert.deepEqual(values, expected[type], type);
     const slots = paramSlotsForTriggerType(type);
+    if (type === "membership_cancelled") {
+      assert.deepEqual(slots, ["membership_type_name", "expiry_date"]);
+      continue;
+    }
     if (slots.length >= 2) assert.equal(slots[1], "business_name");
     if (slots.includes("expiry_date")) {
       assert.equal(slots.indexOf("expiry_date"), 2);

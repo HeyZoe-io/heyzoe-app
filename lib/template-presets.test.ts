@@ -22,11 +22,18 @@ assert.equal(
   "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:"
 );
 assert.equal(TEMPLATE_PRESETS.purchase.button_text, undefined);
+assert.equal(TEMPLATE_PRESETS.membership_cancelled.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.membership_cancelled.button_text, undefined);
+assert.equal(
+  TEMPLATE_PRESETS.membership_cancelled.body,
+  "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}."
+);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.membership_expiring.body), 3);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trial_attended.body), 1);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.membership_cancelled.body), 2);
 
 assert.deepEqual(paramSlotsForTriggerType("incoming_lead"), ["business_name"]);
 assert.deepEqual(paramSlotsForTriggerType("site_lead"), ["business_name"]);
@@ -36,10 +43,16 @@ assert.deepEqual(paramSlotsForTriggerType("membership_expiring"), [
   "business_name",
   "expiry_date",
 ]);
+assert.deepEqual(paramSlotsForTriggerType("membership_cancelled"), [
+  "membership_type_name",
+  "expiry_date",
+]);
 
 assert.equal(isPresetAvailable("incoming_lead", false), true);
 assert.equal(isPresetAvailable("arbox_new_lead", false), false);
 assert.equal(isPresetAvailable("arbox_new_lead", true), true);
+assert.equal(isPresetAvailable("membership_cancelled", false), false);
+assert.equal(isPresetAvailable("membership_cancelled", true), true);
 
 assert.equal(isMetaTemplateContentEditable("APPROVED"), true);
 assert.equal(isMetaTemplateContentEditable("rejected"), true);

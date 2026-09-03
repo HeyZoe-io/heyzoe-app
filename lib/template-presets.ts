@@ -2,7 +2,11 @@ import { isArboxDependentTriggerType, type TriggerType } from "@/lib/template-tr
 
 export type TemplatePresetCategory = "MARKETING" | "UTILITY";
 
-export type TemplateParamSlot = "first_name" | "business_name" | "expiry_date";
+export type TemplateParamSlot =
+  | "first_name"
+  | "business_name"
+  | "expiry_date"
+  | "membership_type_name";
 
 export type TemplatePreset = {
   name: string;
@@ -22,6 +26,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   membership_expiring: ["first_name", "business_name", "expiry_date"],
   sessions_expiring: ["first_name", "business_name", "expiry_date"],
   trial_attended: ["first_name"],
+  membership_cancelled: ["membership_type_name", "expiry_date"],
 };
 
 const LEAD_OPENING_BODY =
@@ -78,6 +83,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     category: "MARKETING",
     body: "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:",
     button_text: "הצטרפות למנוי",
+  },
+  membership_cancelled: {
+    name: "membership_cancelled",
+    category: "UTILITY",
+    body: "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}.",
   },
 };
 
@@ -219,6 +229,7 @@ export function paramSlotsForTriggerType(triggerType: string): TemplateParamSlot
 export function presetExampleForSlot(slot: TemplateParamSlot): string {
   if (slot === "first_name") return "דנה";
   if (slot === "business_name") return "הסטודיו";
+  if (slot === "membership_type_name") return "מנוי חודשי";
   return "01.09.2026";
 }
 
@@ -228,6 +239,7 @@ export function presetVarHint(triggerType: TriggerType): string {
     first_name: "שם פרטי",
     business_name: "שם העסק",
     expiry_date: "תאריך פקיעה",
+    membership_type_name: "סוג מנוי",
   };
   return slots
     .map((slot, i) => `{{${i + 1}}} = ${labels[slot]}`)

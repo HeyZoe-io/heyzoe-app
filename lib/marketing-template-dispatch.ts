@@ -31,6 +31,7 @@ import {
   type ScheduledMarketingTemplateSendRow,
 } from "@/lib/scheduled-marketing-template-sends";
 import {
+  decideScheduledDrainDispatch,
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
 } from "@/lib/scheduled-template-sends";
@@ -477,8 +478,13 @@ export async function onMarketingCallScheduled(input: {
 
 export async function dispatchDueMarketingScheduledSend(
   admin: AdminClient,
-  row: ScheduledMarketingTemplateSendRow
+  row: ScheduledMarketingTemplateSendRow,
+  opts?: { now?: Date; honorSendWindow?: boolean }
 ): Promise<"sent" | "failed" | "canceled" | "skipped"> {
+  const now = opts?.now ?? new Date();
+  if (opts?.honorSendWindow && decideScheduledDrainDispatch(now).action === "hold") {
+    return "skipped";
+  }
   const phone = phoneNorm(row.contact_phone);
   const templateName = String(row.template_name ?? "").trim();
   const approved = await lookupApprovedTemplate(admin, templateName);
