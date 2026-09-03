@@ -200,6 +200,7 @@ import {
 import {
   detectClosedPlaybookIntent,
   resolveClosedPlaybook,
+  CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
 } from "@/lib/wa-closed-playbook";
 import {
   matchesTrialTopicAdvanceIntent,
@@ -229,6 +230,7 @@ import {
   previousUserTextFromHistory,
   tryBuildRelativeDayClassSlotsReply,
 } from "@/lib/wa-relative-day-class-slots";
+import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
@@ -6895,6 +6897,47 @@ async function processIncoming(
     }
   }
 
+  // בקשת יומן (תבטלי שיעור) שלא נתפסה בפלייבוק — לא לוח, לא קלוד
+  if (
+    msg.type === "text" &&
+    businessId &&
+    isSalesFlowFreeTextInbound(msg) &&
+    classifyInboundSpeechAct(msg.text) === "booking_mutation"
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] booking-mutation human_requested failed:", e);
+    }
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send booking-mutation team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
+      model_used: "wa_booking_mutation_team_handoff",
+      session_id: sessionId,
+    });
+    return;
+  }
+
   // בקשת נציג כללית — אחרי coach/owner playbook כדי לא לדרוס «תעבירי למאמנת»
   if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
     if (knowledge?.salesFlowConfig) {
@@ -7155,9 +7198,10 @@ async function processIncoming(
 
     const inboundForDaySlots = msg.text.trim();
     const shouldCheckRelativeDaySlots =
-      parseRequestedClassDays(inboundForDaySlots).length > 0 ||
-      matchCatalogServiceFromFreeText(inboundForDaySlots, salesFlowServices) != null ||
-      [...inboundForDaySlots].length <= 28;
+      shouldAnswerFromClassTimetable(inboundForDaySlots) &&
+      (parseRequestedClassDays(inboundForDaySlots).length > 0 ||
+        matchCatalogServiceFromFreeText(inboundForDaySlots, salesFlowServices) != null ||
+        [...inboundForDaySlots].length <= 28);
     if (shouldCheckRelativeDaySlots) {
       const recentForDaySlots = await fetchRecentSessionMessages({
         business_slug,

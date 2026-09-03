@@ -46,3 +46,24 @@ export function classifyInboundSpeechAct(raw: string, now: Date = new Date()): I
   if (isScheduleAsk(t, now)) return "schedule_ask";
   return "other";
 }
+
+const TIMETABLE_FRAGMENT_MAX = 28;
+
+function isTimetableFragment(raw: string, now: Date): boolean {
+  const t = normalizeActText(raw);
+  if (!t || t.length > TIMETABLE_FRAGMENT_MAX) return false;
+  if (isScheduleAsk(t, now)) return true;
+  if (parseRequestedClassDays(t, now).length === 0) return true;
+  const compact = t.replace(/[?؟!.\s]/g, "");
+  return compact.length <= 8;
+}
+
+/** לוח שיעורים רק על שאלת לוח, או שבריר («כיסא» / «הערב») אחרי שאלה. */
+export function shouldAnswerFromClassTimetable(raw: string, now: Date = new Date()): boolean {
+  const t = normalizeActText(raw);
+  if (!t) return false;
+  const act = classifyInboundSpeechAct(t, now);
+  if (act === "booking_mutation" || act === "illness_only") return false;
+  if (act === "schedule_ask") return true;
+  return isTimetableFragment(t, now);
+}

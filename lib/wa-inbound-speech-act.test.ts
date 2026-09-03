@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { classifyInboundSpeechAct } from "@/lib/wa-inbound-speech-act";
+import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
 
 const thu = new Date("2026-09-03T07:00:00.000Z");
 
@@ -21,5 +21,12 @@ assert.equal(classifyInboundSpeechAct("אפשר לבוא לעוד אימון ה�
 assert.equal(classifyInboundSpeechAct("היה לי רק שיעור עם ליאת היום", thu), "other");
 assert.equal(classifyInboundSpeechAct("כיסא", thu), "other");
 assert.equal(classifyInboundSpeechAct("אשמח לפרטים", thu), "other");
+
+assert.equal(shouldAnswerFromClassTimetable(shir, thu), false);
+assert.equal(shouldAnswerFromClassTimetable("היה לי רק שיעור עם ליאת היום", thu), false);
+assert.equal(shouldAnswerFromClassTimetable("חולה", thu), false);
+assert.equal(shouldAnswerFromClassTimetable("מתי יש אימון היום?", thu), true);
+assert.equal(shouldAnswerFromClassTimetable("כיסא", thu), true);
+assert.equal(shouldAnswerFromClassTimetable("ומחר?", thu), true);
 
 console.log("wa-inbound-speech-act.test.ts: ok");

@@ -12,7 +12,7 @@ import {
   parseRequestedClassDays,
   asksWhichClassesOnDay,
 } from "@/lib/wa-unknown-class-slot";
-import { classifyInboundSpeechAct } from "@/lib/wa-inbound-speech-act";
+import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
 
@@ -69,10 +69,6 @@ function looksLikeDayOrClassAsk(text: string): boolean {
   if (looksLikeClassTimeQuestion(t) || asksWhichClassesOnDay(t)) return true;
   if (parseRequestedClassDays(t).length === 0) return false;
   return /מתי|יש\s+(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|להגיע|להצטרף|לבוא|מועד|[?؟]/u.test(t);
-}
-
-function isScheduleAskFragment(text: string): boolean {
-  return String(text ?? "").trim().length <= 28;
 }
 
 function formatIsraelNowLine(now: Date): string {
@@ -183,7 +179,7 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   const daysPrev = prev ? parseRequestedClassDays(prev, now) : [];
   const days = daysCurrent.length ? daysCurrent : daysPrev;
   if (!days.length) return null;
-  if (act !== "schedule_ask" && !isScheduleAskFragment(current)) return null;
+  if (!shouldAnswerFromClassTimetable(current, now)) return null;
 
   if (isCatalogWideClassDayAsk(current, input.services, now)) {
     const parts: string[] = [];
@@ -208,9 +204,7 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   if (!serviceName) return null;
 
   const sourceText = daysCurrent.length ? current : `${prev} ${current}`.trim();
-  const askOk =
-    looksLikeDayOrClassAsk(current) ||
-    (isScheduleAskFragment(current) && looksLikeDayOrClassAsk(prev));
+  const askOk = looksLikeDayOrClassAsk(current) || looksLikeDayOrClassAsk(prev);
   if (!askOk) return null;
 
   // כמה ימים באותה הודעה («היום ומחר») — פסקה לכל יום
