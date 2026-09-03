@@ -6,10 +6,17 @@ import {
   resolveAllLeadsReportDateRange,
   seedAllLeadsReportDateRange,
   ARBOX_NEW_LEAD_CONTACT_SOURCE,
-  isArboxUncontactedLeadStatus,
+  decideArboxNewLeadOpener,
   isArboxZoeCreatedLeadSource,
+  shouldSeedArboxNewLeadRow,
   templateComponentsUseFirstName,
 } from "@/lib/leads/arbox-new-lead";
+import {
+  collectArboxCustomerUserIds,
+  isArboxActiveCustomerMembershipStatus,
+  isArboxActiveCustomerSessionStatus,
+  shouldFetchArboxCustomerSet,
+} from "@/lib/leads/arbox-customer-set";
 import { isOpeningTemplateLeadSource } from "@/lib/lead-template";
 import { buildArboxNewLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import { pickArboxNewLeadTemplateTriggerRule } from "@/lib/template-triggers-match";
@@ -84,24 +91,118 @@ import { isArboxDependentTriggerType, isTriggerType } from "@/lib/template-trigg
   assert.equal(stale.toDate, "2026-08-17");
 }
 
-/** Seed-first-run: uncontacted rows are not seeded; other statuses are. */
+/** Seed-first-run: ALL current allLeads user_ids are marked seen; no send. */
 {
-  function shouldSeedRow(status: string, seeded: boolean): boolean {
-    if (seeded) return false;
-    return !isArboxUncontactedLeadStatus(status);
-  }
-  assert.equal(shouldSeedRow("Lost", false), true);
-  assert.equal(shouldSeedRow("לא נוצר קשר", false), false);
-  assert.equal(shouldSeedRow("Converted to Member", false), true);
-  assert.equal(shouldSeedRow("לא נוצר קשר", true), false);
+  assert.equal(shouldSeedArboxNewLeadRow(false), true);
+  assert.equal(shouldSeedArboxNewLeadRow(true), false);
+  const wouldFireIfProcessed = decideArboxNewLeadOpener({
+    seen: false,
+    zoeSource: false,
+    alreadyInApp: false,
+    isCustomer: false,
+  });
+  assert.equal(wouldFireIfProcessed, "fire");
+  assert.equal(
+    decideArboxNewLeadOpener({
+      seen: true,
+      zoeSource: false,
+      alreadyInApp: false,
+      isCustomer: false,
+    }),
+    "already"
+  );
 }
 
-/** Uncontacted status matcher ignores extra whitespace. */
+const fireShape = {
+  seen: false,
+  zoeSource: false,
+  alreadyInApp: false,
+  isCustomer: false,
+};
+
+/** Unseen non-customer non-Zoe not already in-app fires. */
 {
-  assert.equal(isArboxUncontactedLeadStatus("לא נוצר קשר"), true);
-  assert.equal(isArboxUncontactedLeadStatus("  לא  נוצר קשר "), true);
-  assert.equal(isArboxUncontactedLeadStatus("ניסיון 1"), false);
-  assert.equal(isArboxUncontactedLeadStatus("Lost"), false);
+  assert.equal(decideArboxNewLeadOpener(fireShape), "fire");
+}
+
+/** Already-seen does not fire. */
+{
+  assert.equal(decideArboxNewLeadOpener({ ...fireShape, seen: true }), "already");
+}
+
+/** Zoe-sourced does not fire. */
+{
+  assert.equal(decideArboxNewLeadOpener({ ...fireShape, zoeSource: true }), "zoe");
+}
+
+/** Existing customer does not fire. */
+{
+  assert.equal(decideArboxNewLeadOpener({ ...fireShape, isCustomer: true }), "customer");
+}
+
+/** already_in_app is kept: existing Zoe contact is marked seen, no send. */
+{
+  assert.equal(decideArboxNewLeadOpener({ ...fireShape, alreadyInApp: true }), "already_in_app");
+}
+
+/** Seen wins over every other skip reason. */
+{
+  assert.equal(
+    decideArboxNewLeadOpener({ seen: true, zoeSource: true, alreadyInApp: true, isCustomer: true }),
+    "already"
+  );
+}
+
+/**
+ * Status is unused. Hebrew "לא נוצר קשר" still fires when the other conditions
+ * hold — same as "ניסיון 1" / "Lost". No status-string matcher.
+ */
+{
+  for (const status of ["לא נוצר קשר", "ניסיון 1", "Lost"] as const) {
+    assert.equal(decideArboxNewLeadOpener(fireShape), "fire", status);
+  }
+}
+
+/**
+ * Customer-set IO: the "is there a new lead?" check is the count AFTER
+ * sync_log + Zoe-source. A Zoe-only unseen row must not fetch
+ * memberships/sessions. already_in_app is not part of this skip.
+ */
+{
+  function unseenNonZoeCount(rows: Array<{ seen: boolean; zoeSource: boolean }>): number {
+    return rows.filter((r) => !r.seen && !r.zoeSource).length;
+  }
+  assert.equal(shouldFetchArboxCustomerSet(0), false);
+  assert.equal(shouldFetchArboxCustomerSet(1), true);
+  assert.equal(
+    shouldFetchArboxCustomerSet(
+      unseenNonZoeCount([
+        { seen: true, zoeSource: false },
+        { seen: false, zoeSource: true },
+      ])
+    ),
+    false
+  );
+  assert.equal(
+    shouldFetchArboxCustomerSet(unseenNonZoeCount([{ seen: false, zoeSource: false }])),
+    true
+  );
+  const ids = collectArboxCustomerUserIds({
+    membershipRows: [
+      { user_id: 10, status: "active" },
+      { user_id: 11, status: "activeMemberWithFutureCancel" },
+      { user_id: 12, status: "expired" },
+    ],
+    sessionRows: [
+      { user_id: 20, status: "active" },
+      { user_id: 21, status: "expired" },
+    ],
+  });
+  assert.deepEqual([...ids].sort((a, b) => a - b), [10, 11, 20]);
+  assert.equal(isArboxActiveCustomerMembershipStatus("active"), true);
+  assert.equal(isArboxActiveCustomerMembershipStatus("activeMemberWithFutureCancel"), true);
+  assert.equal(isArboxActiveCustomerSessionStatus("active"), true);
+  assert.equal(isArboxActiveCustomerSessionStatus("expired"), false);
 }
 
 /** Zoe-created Arbox leads are skipped (already on WhatsApp). */

@@ -21,6 +21,17 @@ import {
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import {
+  fetchAllLeadsReportRows,
+  parseLeadIdFromUserId,
+} from "@/lib/leads/arbox-all-leads-report";
+import {
+  fetchArboxCustomerUserIds,
+  shouldFetchArboxCustomerSet,
+} from "@/lib/leads/arbox-customer-set";
+
+export { parseLeadIdFromUserId };
+export { buildAllLeadsReportPath } from "@/lib/leads/arbox-all-leads-report";
 
 /**
  * Contact source for Arbox-native new leads.
@@ -34,7 +45,6 @@ const ISRAEL_TZ = "Asia/Jerusalem";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Arbox allLeadsReport: date range must not exceed 31 days (API returns 400). */
 export const MAX_ALL_LEADS_REPORT_SPAN_DAYS = 30;
-const MAX_REPORT_PAGES = 20;
 
 /** Live allLeadsReport row (acrobyjoe, Aug 2026). No separate lead_id — user_id is the stable id. */
 export type ArboxAllLeadsReportRow = {
@@ -66,6 +76,7 @@ export type ArboxNewLeadSyncSummary = {
   skip_reason?: "no_rule" | "missing_credentials";
   fetched: number;
   pages_fetched: number;
+  customer_pages_fetched: number;
   seeded: number;
   processed: number;
   already: number;
@@ -77,18 +88,41 @@ export type ArboxNewLeadSyncSummary = {
   fetch_error?: string;
 };
 
-/** Arbox lead status name for prospects that have not been contacted yet. */
-export const ARBOX_UNCONTACTED_LEAD_STATUS = "לא נוצר קשר";
-
 /** Lead source name Arbox stores when Zoe created the lead from WhatsApp. */
 export const ARBOX_ZOE_LEAD_SOURCE = "זואי";
 
-export function isArboxUncontactedLeadStatus(status: unknown): boolean {
-  return String(status ?? "").replace(/\s+/g, " ").trim() === ARBOX_UNCONTACTED_LEAD_STATUS;
-}
-
 export function isArboxZoeCreatedLeadSource(source: unknown): boolean {
   return String(source ?? "").trim() === ARBOX_ZOE_LEAD_SOURCE;
+}
+
+/**
+ * Appearance-based opener (no status-string match).
+ * Order: seen → Zoe → already_in_app → customer → fire.
+ * Customer-set fetch is skipped unless there is at least one unseen non-Zoe row.
+ */
+export type ArboxNewLeadOpenerDecision =
+  | "fire"
+  | "already"
+  | "zoe"
+  | "already_in_app"
+  | "customer";
+
+export function decideArboxNewLeadOpener(input: {
+  seen: boolean;
+  zoeSource: boolean;
+  alreadyInApp: boolean;
+  isCustomer: boolean;
+}): ArboxNewLeadOpenerDecision {
+  if (input.seen) return "already";
+  if (input.zoeSource) return "zoe";
+  if (input.alreadyInApp) return "already_in_app";
+  if (input.isCustomer) return "customer";
+  return "fire";
+}
+
+/** First-run seed: every valid user_id in the window is marked seen (no status filter). */
+export function shouldSeedArboxNewLeadRow(leadsSeeded: boolean): boolean {
+  return !leadsSeeded;
 }
 
 /** True when a Meta template BODY includes {{1}} (first-name param). */
@@ -168,27 +202,6 @@ export function seedAllLeadsReportDateRange(now: Date): { fromDate: string; toDa
   return { fromDate, toDate };
 }
 
-export function parseLeadIdFromUserId(raw: unknown): number | null {
-  const n = typeof raw === "number" ? raw : Number(String(raw ?? "").trim());
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.trunc(n);
-}
-
-export function buildAllLeadsReportPath(input: {
-  fromDate: string;
-  toDate: string;
-  locationId: string;
-  page?: number;
-}): string {
-  const qs = new URLSearchParams({
-    fromDate: input.fromDate,
-    toDate: input.toDate,
-    location_id: input.locationId,
-  });
-  if (input.page != null && input.page > 1) qs.set("page", String(input.page));
-  return `/v3/reports/allLeadsReport?${qs.toString()}`;
-}
-
 function resolveReportFullName(row: ArboxAllLeadsReportRow): string | null {
   const full = String(row.full_name ?? "").trim();
   if (full) return full;
@@ -207,53 +220,6 @@ function parseCreatedEventDate(raw: unknown): Date {
   }
   const parsed = new Date(s);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-}
-
-async function fetchAllLeadsReportRows(input: {
-  apiKey: string;
-  fromDate: string;
-  toDate: string;
-  locationId: string;
-}): Promise<
-  | { ok: true; rows: ArboxAllLeadsReportRow[]; pagesFetched: number }
-  | { ok: false; error: string; pagesFetched: number }
-> {
-  const rows: ArboxAllLeadsReportRow[] = [];
-  let pagesFetched = 0;
-  let page = 1;
-
-  while (pagesFetched < MAX_REPORT_PAGES) {
-    const path = buildAllLeadsReportPath({
-      fromDate: input.fromDate,
-      toDate: input.toDate,
-      locationId: input.locationId,
-      page,
-    });
-    const res = await arboxPublicFetch(path, { apiKey: input.apiKey, method: "GET" });
-    pagesFetched += 1;
-
-    if (!res.ok) {
-      console.error("[leads/arbox-new-lead] allLeadsReport fetch failed", {
-        status: res.status,
-        body: res.rawText.slice(0, 500),
-        page,
-      });
-      return { ok: false, error: "arbox_all_leads_report_fetch_failed", pagesFetched };
-    }
-
-    const payload = res.json as {
-      data?: Record<string, unknown>[];
-      extra?: { pagination?: { next_page_url?: string | null } };
-    } | null;
-    const pageRows = Array.isArray(payload?.data) ? payload!.data! : [];
-    rows.push(...(pageRows as ArboxAllLeadsReportRow[]));
-
-    const next = String(payload?.extra?.pagination?.next_page_url ?? "").trim();
-    if (!next) break;
-    page += 1;
-  }
-
-  return { ok: true, rows, pagesFetched };
 }
 
 async function fetchArboxUserPhone(
@@ -546,16 +512,17 @@ async function markArboxNewLeadSeen(input: {
 }
 
 /**
- * Arbox allLeadsReport → opening template for uncontacted leads (status «לא נוצר קשר»).
- * Scheduling: same ~15-min cron-job.org job as arbox-trial-sync (separate step).
+ * Arbox allLeadsReport → opening template for a user_id newly appearing to us
+ * (not in sync_log), not a current customer, not Zoe-created, not already in-app.
+ * Language-independent — no status-string match.
  *
- * Historical contacted/lost/converted rows are seeded (marked seen, no WhatsApp).
- * Uncontacted rows are held until the template is APPROVED, then messaged once.
+ * Scheduling: same ~15-min cron-job.org job as arbox-trial-sync (separate step).
+ * Seed: first run marks ALL current allLeads user_ids seen, no WhatsApp.
  * Gated sends (pending template / no channel) do not consume the dedup log.
  *
- * IO at 10x clients: only businesses with an enabled arbox_new_lead rule call Arbox
- * (~1 GET allLeadsReport per 15 min; 30-day window until seeded, then 1–2 days).
- * Profile GET /v3/users/{id} only when the report row has no phone.
+ * IO at 10x clients: 1 GET allLeadsReport per 15 min (paginated, BUG-1 contract).
+ * activeMembershipsReport + sessionsReport only when at least one unseen non-Zoe
+ * lead remains. Profile GET /v3/users/{id} only when the report row has no phone.
  * WhatsApp: 1 template per lead ever (dedup log after successful send).
  */
 export async function syncArboxNewLeadsForBusiness(input: {
@@ -571,6 +538,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
   const summary: ArboxNewLeadSyncSummary = {
     fetched: 0,
     pages_fetched: 0,
+    customer_pages_fetched: 0,
     seeded: 0,
     processed: 0,
     already: 0,
@@ -627,10 +595,10 @@ export async function syncArboxNewLeadsForBusiness(input: {
   }
 
   summary.fetched = report.rows.length;
+  const rows = report.rows as ArboxAllLeadsReportRow[];
 
-  if (!input.leadsSeeded) {
-    for (const row of report.rows) {
-      if (isArboxUncontactedLeadStatus(row.status)) continue;
+  if (shouldSeedArboxNewLeadRow(input.leadsSeeded)) {
+    for (const row of rows) {
       const leadId = parseLeadIdFromUserId(row.user_id);
       if (leadId == null) {
         summary.errors += 1;
@@ -659,11 +627,23 @@ export async function syncArboxNewLeadsForBusiness(input: {
         dispatch: "seeded" satisfies ArboxNewLeadDispatch,
       });
     }
+
+    const { error: flagErr } = await input.admin
+      .from("businesses")
+      .update({ arbox_leads_seeded: true })
+      .eq("id", businessId);
+    if (flagErr) {
+      console.error("[leads/arbox-new-lead] seeded flag update failed:", flagErr.message);
+      summary.errors += 1;
+      summary.fetch_error = "arbox_leads_seeded_flag_failed";
+    }
+    return summary;
   }
 
-  for (const row of report.rows) {
-    if (!isArboxUncontactedLeadStatus(row.status)) continue;
+  type Candidate = { row: ArboxAllLeadsReportRow; leadId: number; userId: string };
+  const unseenNonZoe: Candidate[] = [];
 
+  for (const row of rows) {
     const leadId = parseLeadIdFromUserId(row.user_id);
     const userId = String(row.user_id ?? "").trim();
     if (leadId == null || !userId) {
@@ -671,26 +651,67 @@ export async function syncArboxNewLeadsForBusiness(input: {
       continue;
     }
 
-    try {
-      const { data: existingSeen } = await input.admin
-        .from("arbox_new_lead_sync_log")
-        .select("lead_id")
-        .eq("business_id", businessId)
-        .eq("lead_id", leadId)
-        .maybeSingle();
+    const { data: existingSeen } = await input.admin
+      .from("arbox_new_lead_sync_log")
+      .select("lead_id")
+      .eq("business_id", businessId)
+      .eq("lead_id", leadId)
+      .maybeSingle();
 
-      if (existingSeen) {
-        summary.already += 1;
-        console.info("[leads/arbox-new-lead] dispatch", {
-          businessId,
-          lead_id: leadId,
-          user_id: userId,
-          contact: null,
-          dispatch: "already" satisfies ArboxNewLeadDispatch,
-        });
+    if (existingSeen) {
+      summary.already += 1;
+      console.info("[leads/arbox-new-lead] dispatch", {
+        businessId,
+        lead_id: leadId,
+        user_id: userId,
+        contact: null,
+        dispatch: "already" satisfies ArboxNewLeadDispatch,
+      });
+      continue;
+    }
+
+    if (isArboxZoeCreatedLeadSource(row.lead_source)) {
+      const marked = await markArboxNewLeadSeen({
+        admin: input.admin,
+        businessId,
+        leadId,
+        contactId: null,
+        nowIso,
+      });
+      if (!marked.ok) {
+        summary.errors += 1;
         continue;
       }
+      summary.already += 1;
+      console.info("[leads/arbox-new-lead] dispatch", {
+        businessId,
+        lead_id: leadId,
+        user_id: userId,
+        contact: null,
+        dispatch: "already" satisfies ArboxNewLeadDispatch,
+        reason: "zoe",
+      });
+      continue;
+    }
 
+    unseenNonZoe.push({ row, leadId, userId });
+  }
+
+  if (!shouldFetchArboxCustomerSet(unseenNonZoe.length)) {
+    return summary;
+  }
+
+  const customers = await fetchArboxCustomerUserIds({ apiKey, boxId, now });
+  if (!customers.ok) {
+    summary.fetch_error = customers.error;
+    summary.errors += 1;
+    return summary;
+  }
+  summary.customer_pages_fetched = customers.membershipPages + customers.sessionPages;
+  const customerIds = customers.userIds;
+
+  for (const { row, leadId, userId } of unseenNonZoe) {
+    try {
       const reportPhone =
         normalizePhone(row.phone) ?? normalizePhone(row.additional_phone);
       const existingContact = await findExistingContact({
@@ -700,7 +721,14 @@ export async function syncArboxNewLeadsForBusiness(input: {
         phone: reportPhone,
       });
 
-      if (existingContact?.id || isArboxZoeCreatedLeadSource(row.lead_source)) {
+      const decision = decideArboxNewLeadOpener({
+        seen: false,
+        zoeSource: false,
+        alreadyInApp: Boolean(existingContact?.id),
+        isCustomer: customerIds.has(leadId),
+      });
+
+      if (decision === "already_in_app" || decision === "customer") {
         const marked = await markArboxNewLeadSeen({
           admin: input.admin,
           businessId,
@@ -719,7 +747,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
           user_id: userId,
           contact: null,
           dispatch: "already" satisfies ArboxNewLeadDispatch,
-          reason: "already_in_app",
+          reason: decision,
         });
         continue;
       }
@@ -820,18 +848,6 @@ export async function syncArboxNewLeadsForBusiness(input: {
         user_id: userId,
         error: e instanceof Error ? e.message : String(e),
       });
-    }
-  }
-
-  if (!input.leadsSeeded && summary.gated === 0) {
-    const { error: flagErr } = await input.admin
-      .from("businesses")
-      .update({ arbox_leads_seeded: true })
-      .eq("id", businessId);
-    if (flagErr) {
-      console.error("[leads/arbox-new-lead] seeded flag update failed:", flagErr.message);
-      summary.errors += 1;
-      summary.fetch_error = "arbox_leads_seeded_flag_failed";
     }
   }
 

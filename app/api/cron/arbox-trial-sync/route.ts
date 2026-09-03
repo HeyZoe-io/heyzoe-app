@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
 import {
   arboxSaleHasOutstandingDebt,
   handleArboxTrialSaleRegistered,
@@ -25,26 +25,11 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_REPORT_PAGES = 20;
 const MS_24H = 24 * 60 * 60 * 1000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Arbox salesReport: date range must not exceed 31 days (API returns 400). */
 const MAX_SALES_REPORT_SPAN_DAYS = 30;
 const ISRAEL_TZ = "Asia/Jerusalem";
-
-type ArboxReportResponse = {
-  statusCode?: number;
-  data?: Record<string, unknown>[];
-  extra?: {
-    pagination?: {
-      results_count?: number;
-      results_per_page?: number;
-      current_page?: number;
-      next_page_url?: string | null;
-      prev_page_url?: string | null;
-    };
-  };
-};
 
 type BusinessRow = {
   id: number;
@@ -158,79 +143,6 @@ function filterSalesRowsForMembershipScope(
   scope: PurchaseSaleMembershipScope
 ): Record<string, unknown>[] {
   return rows.filter((row) => saleMembershipTypeInScope(saleMembershipTypeId(row), scope));
-}
-
-function buildSalesReportPath(input: {
-  fromDate: string;
-  toDate: string;
-  locationId: string;
-}): string {
-  const qs = new URLSearchParams({
-    fromDate: input.fromDate,
-    toDate: input.toDate,
-    location_id: input.locationId,
-  });
-  return `/v3/reports/salesReport?${qs.toString()}`;
-}
-
-async function fetchAllSalesReportRows(input: {
-  apiKey: string;
-  fromDate: string;
-  toDate: string;
-  locationId: string;
-}): Promise<
-  | { ok: true; rows: Record<string, unknown>[]; pagesFetched: number }
-  | { ok: false; error: string; status?: number; pagesFetched: number }
-> {
-  let pathOrUrl = buildSalesReportPath({
-    fromDate: input.fromDate,
-    toDate: input.toDate,
-    locationId: input.locationId,
-  });
-
-  const rows: Record<string, unknown>[] = [];
-  let pagesFetched = 0;
-  let hitPageCap = false;
-
-  while (pagesFetched < MAX_REPORT_PAGES) {
-    const res = await arboxPublicFetch(pathOrUrl, { apiKey: input.apiKey, method: "GET" });
-    pagesFetched += 1;
-
-    if (!res.ok) {
-      console.error("[cron/arbox-trial-sync] Arbox salesReport fetch failed", {
-        status: res.status,
-        body: res.rawText.slice(0, 500),
-      });
-      return {
-        ok: false,
-        error: "arbox_report_fetch_failed",
-        status: res.status,
-        pagesFetched,
-      };
-    }
-
-    const payload = res.json as ArboxReportResponse | null;
-    const pageRows = Array.isArray(payload?.data) ? payload!.data! : [];
-    rows.push(...pageRows);
-
-    const nextPageUrl = String(payload?.extra?.pagination?.next_page_url ?? "").trim();
-    if (!nextPageUrl) break;
-
-    if (pagesFetched >= MAX_REPORT_PAGES) {
-      hitPageCap = true;
-      break;
-    }
-    pathOrUrl = nextPageUrl;
-  }
-
-  if (hitPageCap) {
-    console.warn("[cron/arbox-trial-sync] salesReport pagination capped", {
-      max_pages: MAX_REPORT_PAGES,
-      location_id: input.locationId,
-    });
-  }
-
-  return { ok: true, rows, pagesFetched };
 }
 
 async function findExistingContactIdForSale(input: {
@@ -600,6 +512,7 @@ export async function GET(req: NextRequest) {
       summary.new_lead = {
         fetched: 0,
         pages_fetched: 0,
+        customer_pages_fetched: 0,
         seeded: 0,
         processed: 0,
         already: 0,

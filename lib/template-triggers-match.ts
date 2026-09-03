@@ -326,6 +326,84 @@ export async function resolveArboxNewLeadTemplateTrigger(input: {
   return pickArboxNewLeadTemplateTriggerRule(rules);
 }
 
+/** Enabled membership_cancelled rules — product_filter matches membership_type_name via /v3/membershipTypes. */
+export async function loadEnabledMembershipCancelledTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(
+      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+    )
+    .eq("business_id", businessId)
+    .eq("trigger_type", "membership_cancelled")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load membership_cancelled rules failed:",
+      error.message
+    );
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+function normalizeMembershipTypeNameForFilter(raw: unknown): string {
+  return String(raw ?? "")
+    .replace(/\t/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** canceledMembershipsReport has membership_type_name, not membership_type_id. Empty filter = all. */
+export function cancellationRowMatchesProductFilter(
+  rowTypeName: string,
+  rule: PurchaseTemplateTriggerRule,
+  nameById: Map<number, string>
+): boolean {
+  if (!rule.product_filter?.length) return true;
+  const rowNorm = normalizeMembershipTypeNameForFilter(rowTypeName);
+  if (!rowNorm) return false;
+  for (const id of rule.product_filter) {
+    const n = nameById.get(id);
+    if (n && normalizeMembershipTypeNameForFilter(n) === rowNorm) return true;
+  }
+  return false;
+}
+
+/**
+ * Prefer a specific product_filter match over catch-all; tie-break by most recently updated.
+ * Unmatched specific-only rules → null (row is skipped, not marked seen).
+ */
+export function pickMembershipCancelledTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[],
+  rowTypeName: string,
+  nameById: Map<number, string>
+): PurchaseTemplateTriggerRule | null {
+  const withName = rules.filter((rule) => Boolean(rule.template_name?.trim()));
+  const matching = withName.filter((rule) =>
+    cancellationRowMatchesProductFilter(rowTypeName, rule, nameById)
+  );
+  if (!matching.length) return null;
+
+  const specific = matching.filter((rule) => (rule.product_filter?.length ?? 0) > 0);
+  const pool = specific.length ? specific : matching;
+  pool.sort((a, b) => ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a));
+  return pool[0] ?? null;
+}
+
+export async function resolveMembershipCancelledTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledMembershipCancelledTemplateTriggers(input.admin, input.businessId);
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
 /**
  * Enabled incoming_lead rules (plus legacy site_lead / campaign_lead) —
  * pick newest with a template name. Shared by /api/leads/incoming.

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
+import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
 import { syncArboxSessionsExpiringForBusiness } from "@/lib/leads/arbox-sessions-expiring";
 import { syncArboxTrialAttendedForBusiness } from "@/lib/leads/arbox-trial-attended";
@@ -8,7 +9,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps: birthday, membership_expiring, trial_attended, sessions_expiring.
+ * Steps: birthday, membership_expiring, trial_attended, sessions_expiring, membership_cancelled.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -34,6 +35,7 @@ type BusinessRow = {
   slug: string;
   crm_api_key: string;
   crm_box_id: string;
+  arbox_cancellation_seeded: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_api_key, crm_box_id")
+    .select("id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded")
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
     .not("crm_box_id", "is", null);
@@ -64,8 +66,16 @@ export async function GET(req: NextRequest) {
     const slug = String((row as { slug?: unknown }).slug ?? "").trim().toLowerCase();
     const apiKey = String((row as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
     const boxId = String((row as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
+    const cancellationSeeded =
+      (row as { arbox_cancellation_seeded?: unknown }).arbox_cancellation_seeded === true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
-    businesses.push({ id, slug, crm_api_key: apiKey, crm_box_id: boxId });
+    businesses.push({
+      id,
+      slug,
+      crm_api_key: apiKey,
+      crm_box_id: boxId,
+      arbox_cancellation_seeded: cancellationSeeded,
+    });
   }
 
   const summaries: Array<{
@@ -75,6 +85,7 @@ export async function GET(req: NextRequest) {
     membership_expiring?: Awaited<ReturnType<typeof syncArboxMembershipExpiringForBusiness>>;
     trial_attended?: Awaited<ReturnType<typeof syncArboxTrialAttendedForBusiness>>;
     sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
+    membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
     // future: zoe_native?: ...
   }> = [];
 
@@ -214,6 +225,40 @@ export async function GET(req: NextRequest) {
         skipped_no_end_date: 0,
         skipped_outside_horizon: 0,
         no_phone: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: membership_cancelled ---
+    try {
+      entry.membership_cancelled = await syncArboxMembershipCancelledForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        cancellationSeeded: business.arbox_cancellation_seeded,
+        now,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] membership_cancelled step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.membership_cancelled = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        processed: 0,
+        already: 0,
+        skipped_filter: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
         errors: 1,
         fetch_error: message,
       };

@@ -50,7 +50,8 @@ export type TriggerType =
   | "sessions_expiring"
   | "arbox_new_lead"
   | "incoming_lead"
-  | "no_response";
+  | "no_response"
+  | "membership_cancelled";
 
 export type DelayDirection = "after" | "before";
 
@@ -81,6 +82,7 @@ const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
   { value: "birthday", label: "יום הולדת" },
   { value: "membership_expiring", label: "פג תוקף מנוי" },
   { value: "sessions_expiring", label: "פג תוקף כרטיסיה" },
+  { value: "membership_cancelled", label: "ביטול מנוי" },
 ];
 
 function isArboxTriggerType(type: TriggerType): boolean {
@@ -110,7 +112,7 @@ function defaultDelayDays(type: TriggerType): number {
 }
 
 function showsProductFilter(type: TriggerType): boolean {
-  return type === "purchase" || type === "trial_attended";
+  return type === "purchase" || type === "trial_attended" || type === "membership_cancelled";
 }
 
 function formatDelayLabel(
