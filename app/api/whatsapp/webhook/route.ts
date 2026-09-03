@@ -328,6 +328,10 @@ import {
   type WarmupSkipPhase,
 } from "@/lib/wa-warmup-skip-intent";
 import {
+  trialSignupAckForInbound,
+  TRIAL_SIGNUP_INTENT_ACK_MODEL,
+} from "@/lib/wa-trial-signup-intent";
+import {
   isTryClassOfferAffirmative,
   isTryClassOfferNegative,
   matchesTryClassIntent,
@@ -894,6 +898,8 @@ async function beginSalesFlowAtProductPick(input: {
   allowTrialCta?: boolean;
   sfConsumedKinds?: string[];
   instagramFollowPromptSent?: boolean;
+  /** «אני מבינה שבא לך להירשם…» — לפני סשן בחירת מוצר. */
+  preambleText?: string | null;
 }): Promise<{ contactSessionPhase: HeyzoeSessionPhase; contactFlowStep: number }> {
   const resetState = input.resetState !== false;
   const logEntry = input.logEntry !== false;
@@ -926,6 +932,29 @@ async function beginSalesFlowAtProductPick(input: {
       businessId: input.businessId,
       phone: input.msg.from,
     });
+  }
+
+  const preamble = String(input.preambleText ?? "").trim();
+  if (preamble) {
+    try {
+      await sendWhatsAppMessage(
+        input.msg.toNumber,
+        input.msg.from,
+        preamble,
+        input.accountSid,
+        input.authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] trial-signup ack send failed:", e);
+    }
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: preamble,
+      model_used: TRIAL_SIGNUP_INTENT_ACK_MODEL,
+      session_id: input.sessionId,
+    });
+    await sleepMs(400);
   }
 
   await advanceAfterWarmupSessionComplete({
@@ -6463,6 +6492,7 @@ async function processIncoming(
           sessionId,
           blockTrialPickMedia: starterBlocksMedia,
           allowTrialCta: true,
+          preambleText: trialSignupAckForInbound(msg.text),
         });
       } catch (e) {
         console.error("[WA Webhook] try-class offer → product pick failed:", e);
@@ -6637,6 +6667,7 @@ async function processIncoming(
           sessionId,
           blockTrialPickMedia: starterBlocksMedia,
           allowTrialCta: true,
+          preambleText: trialSignupAckForInbound(msg.text),
         });
       } catch (e) {
         console.error("[WA Webhook] out-of-flow signup flow-entry failed:", e);
@@ -6686,10 +6717,11 @@ async function processIncoming(
       const advanceTrial = wantsTrialAdvance || !salesFlowStartedForTrial;
     const qaPair = lookupKnowledgeQaAnswerForInbound(knowledge.knowledgeQa, msg.text);
     const qaReply = qaPair ? leadFacingFactText(qaPair.answer).trim() : "";
+    const trialSignupAck = trialSignupAckForInbound(msg.text);
 
     if (qaReply || (advanceTrial && salesFlowServices.length >= 1)) {
       try {
-        if (qaReply) {
+        if (qaReply && !trialSignupAck) {
           await sendWhatsAppMessage(msg.toNumber, msg.from, qaReply, accountSid, authToken);
           await logMessage({
             business_slug,
@@ -6717,6 +6749,7 @@ async function processIncoming(
             allowTrialCta: allowTrialCtaThisSession,
             sfConsumedKinds: sfClickedCtaKinds,
             instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            preambleText: trialSignupAck,
           });
           contactSessionPhase = started.contactSessionPhase;
           contactFlowStep = started.contactFlowStep;

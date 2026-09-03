@@ -17,7 +17,11 @@ export const TRIAL_NOUN = String.raw`${CLASS_OR_PREP}\s*(?:ה)?(?:ני?סיון|
 
 /** Desire / request cues. */
 export const DESIRE_CUE =
-  String.raw`(?:אשמח|נשמח|מעוניין|מעוניינת|מתעניין|מתעניינת|רוצ(?:ה|ים|ה)|אפשר(?:\s+לבוא\s+ל)?)`;
+  String.raw`(?:אשמח|נשמח|מעוניין|מעוניינת|מתעניין|מתעניינת|רוצ(?:ה|ים|ה)|בא\s+לי|אפשר(?:\s+לבוא\s+ל)?)`;
+
+/** Come / book / register verbs between desire and trial noun. */
+const COME_OR_BOOK_VERB =
+  String.raw`(?:לתאם|לקבוע|לשריין|לשבץ|להגיע|לבוא|לבקר|להירשם|להצטרף)`;
 
 /** Standalone «לנסות קודם» — no trial noun. */
 export const TRY_FIRST_PATTERN = String.raw`^(?:אשמח|נשמח|רוצ(?:ה|ים|ה))\s+לנסות\s+קודם$`;
@@ -57,6 +61,15 @@ const RELAXED_DESIRE_TRIAL = new RegExp(
   "u"
 );
 
+/**
+ * «אשמח לתאם שיעור ניסיון…» / «הייתי רוצה להגיע לאימון ניסיון במוצ״ש»
+ * — desire + come/book/register verb + trial noun (words may follow).
+ */
+const DESIRE_SCHEDULE_TRIAL = new RegExp(
+  String.raw`${DESIRE_CUE}\s+${COME_OR_BOOK_VERB}\s+(?:ל\s*)?${TRIAL_NOUN}`,
+  "u"
+);
+
 /** מתעניינת/מחפשת שיעור או יוגה — כוונת אימון, בלי חובת «ניסיון». */
 const SEEKING_CLASS_RE =
   /(?:מתעניינ(?:ת|ים)|מעוניינ(?:ת|ים)|מחפש(?:ת)?)\s+(?:ב|ל)?(?:שיעור(?:י)?|אימון(?:י)?|יוגה)/u;
@@ -75,13 +88,23 @@ export function matchesClassInterestFlowStart(raw: string): boolean {
 /**
  * Composable trial-signup intent.
  * Does NOT apply price/address traps — callers add those via hasInfoQuestionBlock.
+ * Come/book/register + trial wins even when the message starts with «האם אפשר…».
  */
 export function matchesComposableTrialSignupIntent(raw: string): boolean {
   const s = normalizeTrialSignupIntentText(raw);
   if (!s) return false;
-  if (INFO_QUESTION_OPENER.test(s)) return false;
   if (ANCHORED_PATTERNS.some((re) => re.test(s))) return true;
+  if (DESIRE_SCHEDULE_TRIAL.test(s)) return true;
+  if (INFO_QUESTION_OPENER.test(s)) return false;
   return RELAXED_DESIRE_TRIAL.test(s);
+}
+
+/** Shown before product-pick when Zoe detects trial-class signup intent. */
+export const TRIAL_SIGNUP_INTENT_ACK_HE = "אני מבינה שבא לך להירשם לשיעור ניסיון!";
+export const TRIAL_SIGNUP_INTENT_ACK_MODEL = "trial_signup_intent_ack";
+
+export function trialSignupAckForInbound(raw: string): string | null {
+  return matchesComposableTrialSignupIntent(raw) ? TRIAL_SIGNUP_INTENT_ACK_HE : null;
 }
 
 export const TRIAL_SIGNUP_REGEX_SUMMARY = {

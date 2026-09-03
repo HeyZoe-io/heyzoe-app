@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
   matchesComposableTrialSignupIntent,
+  trialSignupAckForInbound,
+  TRIAL_SIGNUP_INTENT_ACK_HE,
   TRIAL_SIGNUP_REGEX_SUMMARY,
 } from "@/lib/wa-trial-signup-intent";
 import { isJoinSignupIntentText, isWarmupSkipIntentText, shouldStartSalesFlowFromOutOfFlowSignup } from "@/lib/wa-warmup-skip-intent";
@@ -102,6 +104,47 @@ assert.equal(
 assert.equal(isJoinSignupIntentText("מחפשת שיעור יוגה"), true);
 assert.equal(isJoinSignupIntentText("כמה עולה שיעור יוגה למתחילות?"), false);
 assert.equal(isJoinSignupIntentText("מתי יש שיעורי יוגה?"), false);
+
+/** Limitless: book a named trial class — not a price FAQ. */
+const noaBookPilates =
+  "היי אני אשמח לתאם שיעור נסיון פילאטיס מכשירים בשישי בעשר  :)";
+assert.equal(matchesComposableTrialSignupIntent(noaBookPilates), true, "noa composable");
+assert.equal(matchesTrialTopicAdvanceIntent(noaBookPilates), true, "noa advance");
+assert.equal(matchesTrialTopicIntent(noaBookPilates), true, "noa topic");
+
+/** Limitless: want to come to a trial — not the trial-price FAQ. */
+const limitlessComeSaturday =
+  "היי🌸 קיבלתי את המספר שלכן מאחת המתאמנות, הייתי רוצה להגיע לאימון ניסיון במוצ״ש, האם זאת אפשרות?";
+assert.equal(
+  matchesComposableTrialSignupIntent(limitlessComeSaturday),
+  true,
+  "come-to-trial is signup, not price FAQ"
+);
+assert.equal(isJoinSignupIntentText(limitlessComeSaturday), true, "come-to-trial is join-signup");
+assert.equal(
+  matchesTrialTopicAdvanceIntent(limitlessComeSaturday),
+  true,
+  "come-to-trial advances past warmup/FAQ"
+);
+assert.equal(
+  shouldStartSalesFlowFromOutOfFlowSignup({
+    inbound: limitlessComeSaturday,
+    salesFlowStarted: false,
+    trialRegistered: false,
+    sessionPhase: null,
+  }),
+  true,
+  "come-to-trial must enter product pick"
+);
+assert.equal(trialSignupAckForInbound(limitlessComeSaturday), TRIAL_SIGNUP_INTENT_ACK_HE);
+assert.equal(isWarmupSkipIntentText(limitlessComeSaturday, "opening"), true);
+assert.equal(isWarmupSkipIntentText(limitlessComeSaturday, "warmup"), true);
+assert.equal(matchesComposableTrialSignupIntent("הייתי רוצה להגיע לאימון ניסיון"), true);
+assert.equal(matchesComposableTrialSignupIntent("רוצה להגיע לשיעור ניסיון"), true);
+assert.equal(matchesComposableTrialSignupIntent("רוצה להירשם לשיעור ניסיון"), true);
+assert.equal(matchesComposableTrialSignupIntent("האם אפשר להגיע לאימון ניסיון במוצ״ש?"), true);
+assert.equal(trialSignupAckForInbound("כמה עולה שיעור ניסיון?"), null);
+assert.equal(trialSignupAckForInbound("מה זה אימון ניסיון?"), null);
 
 /** Legacy traps unchanged. */
 assert.equal(isWarmupSkipIntentText("רוצה להתחיל", "opening"), false);
