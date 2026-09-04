@@ -9,6 +9,7 @@ import {
   isStandaloneWhatsAppOpenQuestion,
   looksLikeLeadQuestion,
   replyAlreadyEndsWithQuestion,
+  replyAlreadyHasHelpOffer,
   stripSalesFlowCtaHookFromAnswer,
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
@@ -107,6 +108,18 @@ assert.equal(
 
 assert.equal(replyAlreadyEndsWithQuestion("הציוד אצלנו."), false);
 assert.equal(replyAlreadyEndsWithQuestion("הציוד אצלנו?"), true);
+
+{
+  const botAlreadyAsked =
+    "היי! 😊 אני בוט, אז לא דרך טלפון, אבל אני כאן לעזור בווטסאפ! מה אפשר לעזור לך איתו?";
+  assert.equal(replyAlreadyHasHelpOffer(botAlreadyAsked), true);
+  assert.equal(ensureStandaloneOpenQuestionClosing(botAlreadyAsked), botAlreadyAsked);
+  assert.equal(
+    ensureStandaloneOpenQuestionClosing("אני כאן אם יש משהו שאפשר לעזור"),
+    "אני כאן אם יש משהו שאפשר לעזור"
+  );
+  assert.equal(replyAlreadyHasHelpOffer("ניתן להקפיא את המנוי עד 14 ימים."), false);
+}
 
 assert.equal(
   finalizeStandaloneHelpReply("בסדר גמור, נתראה בשיעור.", "כבר נרשמתי"),

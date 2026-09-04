@@ -146,10 +146,23 @@ export function replyAlreadyEndsWithQuestion(text: string): boolean {
   return /[?؟]$/u.test(lastLineWithoutTrailingDecoration(text));
 }
 
+/** Claude already offered more help — don't append a second closer. */
+export function replyAlreadyHasHelpOffer(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/יש עוד משהו.{0,48}(?:עזור|לעזור)/iu.test(t)) return true;
+  if (/(?:מה|איך|במה).{0,24}אפשר לעזור/iu.test(t)) return true;
+  if (/אם יש משהו.{0,32}אפשר לעזור/iu.test(t)) return true;
+  if (/אוכל לעזור בעוד משהו/iu.test(t)) return true;
+  if (/(?:anything else|how can i help|is there anything).{0,24}help/iu.test(t)) return true;
+  return false;
+}
+
 function ensureHelpClosing(text: string, closing: string): string {
   const t = String(text ?? "").replace(/\r\n/g, "\n").trim();
   if (!t) return closing;
   if (replyAlreadyEndsWithQuestion(t)) return t;
+  if (replyAlreadyHasHelpOffer(t)) return t;
   return `${t}\n\n${closing}`;
 }
 
