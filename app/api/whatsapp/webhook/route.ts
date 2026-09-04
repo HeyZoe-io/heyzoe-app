@@ -305,8 +305,6 @@ import {
   WA_UNCLEAR_CLARIFY_MODEL,
   WA_UNCLEAR_HANDOFF_MODEL,
 } from "@/lib/wa-unclear-intent";
-import { extractGeminiCustomerFacingText } from "@/lib/wa-model-thought-strip";
-import { looksLikeStudioMarketingBroadcastInbound } from "@/lib/wa-studio-broadcast-inbound";
 import {
   KNOWLEDGE_GAP_NO_DETAILS_MODEL,
   pickKnowledgeGapNoDetailsReply,
