@@ -7,6 +7,7 @@ import { Check, Copy, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
+  dashboardStepTabClass,
 } from "@/app/dashboard/[slug]/settings/settings-ui";
 import { settingsStepHref } from "@/lib/dashboard-settings-i18n";
 import {
@@ -1169,45 +1170,88 @@ export default function TemplatesClient({
       </section>
 
       <section className="rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="text-right space-y-3">
-          <h2 className="text-base font-semibold text-zinc-900">טריגרים וקמפיינים</h2>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {(["automatic", "manual"] as const).map((act) => (
-              <button
-                key={act}
-                type="button"
-                onClick={() => {
-                  setAxisActivation(act);
-                  setActiveManualCampaign(null);
-                }}
-                className={`rounded-xl border px-3 py-1.5 text-sm ${
-                  axisActivation === act
-                    ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da] font-medium"
-                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                }`}
-              >
-                {ACTIVATION_LABELS_HE[act]}
-              </button>
-            ))}
+        <div className="text-right space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-zinc-900">טריגרים וקמפיינים</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              מציגים כעת: {ACTIVATION_LABELS_HE[axisActivation]} · {AUDIENCE_LABELS_HE[axisAudience]}
+            </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {(["leads", "members", "staff"] as const).map((aud) => (
-              <button
-                key={aud}
-                type="button"
-                onClick={() => {
-                  setAxisAudience(aud);
-                  setActiveManualCampaign(null);
-                }}
-                className={`rounded-xl border px-3 py-1.5 text-sm ${
-                  axisAudience === aud
-                    ? "border-zinc-800 bg-zinc-900 text-white font-medium"
-                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                }`}
+
+          <div className="space-y-3">
+            <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+              <p className="text-[11px] font-medium text-zinc-500">הפעלה</p>
+              <nav
+                className="flex min-w-0 justify-end overflow-x-auto pb-0.5"
+                aria-label="סוג הפעלה"
+                dir="rtl"
               >
-                {AUDIENCE_LABELS_HE[aud]}
-              </button>
-            ))}
+                <div
+                  className="inline-flex min-w-max items-center gap-0.5 rounded-2xl bg-zinc-100/80 p-1 sm:gap-1"
+                  role="tablist"
+                >
+                  {(["automatic", "manual"] as const).map((act) => {
+                    const active = axisActivation === act;
+                    return (
+                      <button
+                        key={act}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => {
+                          setAxisActivation(act);
+                          setActiveManualCampaign(null);
+                        }}
+                        className={[
+                          dashboardStepTabClass(active),
+                          "inline-flex items-center rounded-xl px-3 py-2 sm:px-4",
+                          active ? "bg-white shadow-sm ring-1 ring-[#7133da]/15" : "hover:bg-white/60",
+                        ].join(" ")}
+                      >
+                        {ACTIVATION_LABELS_HE[act]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </nav>
+            </div>
+
+            <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+              <p className="text-[11px] font-medium text-zinc-500">קהל</p>
+              <nav
+                className="flex min-w-0 justify-end overflow-x-auto pb-0.5"
+                aria-label="קהל יעד"
+                dir="rtl"
+              >
+                <div
+                  className="inline-flex min-w-max items-center gap-0.5 rounded-2xl bg-zinc-100/80 p-1 sm:gap-1"
+                  role="tablist"
+                >
+                  {(["leads", "members", "staff"] as const).map((aud) => {
+                    const active = axisAudience === aud;
+                    return (
+                      <button
+                        key={aud}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => {
+                          setAxisAudience(aud);
+                          setActiveManualCampaign(null);
+                        }}
+                        className={[
+                          dashboardStepTabClass(active),
+                          "inline-flex items-center rounded-xl px-3 py-2 sm:px-4",
+                          active ? "bg-white shadow-sm ring-1 ring-[#7133da]/15" : "hover:bg-white/60",
+                        ].join(" ")}
+                      >
+                        {AUDIENCE_LABELS_HE[aud]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </nav>
+            </div>
           </div>
         </div>
 
