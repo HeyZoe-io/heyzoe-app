@@ -302,7 +302,7 @@ export default function TemplatesClient({
     templateName: string;
     purpose: TriggerType | "";
   } | null>(null);
-  const addTriggerSectionRef = useRef<HTMLElement | null>(null);
+  const addTriggerSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [arboxMembershipTypes, setArboxMembershipTypes] = useState<ArboxMembershipTypeRow[]>([]);
   const [arboxMembershipTypesLoading, setArboxMembershipTypesLoading] = useState(false);
@@ -1446,6 +1446,206 @@ export default function TemplatesClient({
                 ) : null}
               </div>
             ) : null}
+
+            <div
+              ref={addTriggerSectionRef}
+              id="add-trigger"
+              className="scroll-mt-28 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 sm:p-4 space-y-3 text-right"
+            >
+              <h3 className="text-sm font-semibold text-zinc-900">
+                הוסף טריגר — {AUDIENCE_LABELS_HE[axisAudience]}
+              </h3>
+
+              {!hasArbox ? (
+                <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+                  טריגרים מבוססי Arbox (רכישה, יום הולדת וכו׳) דורשים חיבור CRM.{" "}
+                  <Link
+                    href={settingsStepHref(`/${encodeURIComponent(slug)}/settings`, 1, "he", {
+                      section: "crm",
+                    })}
+                    className="font-medium text-[#7133da] hover:underline"
+                  >
+                    חברו את Arbox בהגדרות
+                  </Link>
+                  . טריגר «ליד מאתר/קמפיין» זמין תמיד.
+                </p>
+              ) : null}
+
+              {creatableTriggerOptions.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  אין טריגרים נוספים ליצירה בקהל הזה כרגע.
+                </p>
+              ) : (
+                <form className="space-y-4" onSubmit={(e) => void onCreateTrigger(e)}>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-zinc-800">סוג טריגר</label>
+                    <select
+                      value={newTriggerType}
+                      onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
+                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                    >
+                      {creatableTriggerOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {newTriggerType === "arbox_new_lead" && hasExistingArboxNewLead ? (
+                      <p className="text-xs text-amber-800">
+                        כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים ברשימה למעלה במקום ליצור עוד
+                        אחד.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {showNewProductFilter ? (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-800">
+                        סינון מוצרים (אופציונלי)
+                      </label>
+                      <p className="text-xs text-zinc-500">
+                        השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM.
+                      </p>
+                      {arboxMembershipTypesLoading ? (
+                        <p className="flex items-center gap-2 text-xs text-zinc-500">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          טוען מוצרים מארבוקס…
+                        </p>
+                      ) : arboxMembershipTypesError ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                            לא נטענו מוצרים מארבוקס ({arboxMembershipTypesError}). TODO: הזינו מזהי
+                            membership_type מופרדים בפסיק:
+                          </p>
+                          <input
+                            value={newProductFilter.join(",")}
+                            onChange={(e) => {
+                              const ids = e.target.value
+                                .split(",")
+                                .map((s) => Number(s.trim()))
+                                .filter((n) => Number.isFinite(n) && n > 0);
+                              setNewProductFilter([...new Set(ids)].sort((a, b) => a - b));
+                            }}
+                            dir="ltr"
+                            placeholder="123, 456"
+                            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
+                          />
+                        </div>
+                      ) : arboxMembershipTypes.length === 0 ? (
+                        <p className="text-xs text-zinc-500">לא נמצאו מוצרים — יוחל על כל המוצרים.</p>
+                      ) : (
+                        <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
+                          {arboxMembershipTypes.map((row) => {
+                            const id = row.membership_type_id;
+                            const checked = newProductFilter.includes(id);
+                            const inputId = `trigger-product-${id}`;
+                            return (
+                              <li key={id}>
+                                <label
+                                  htmlFor={inputId}
+                                  className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                                >
+                                  <input
+                                    id={inputId}
+                                    type="checkbox"
+                                    className="mt-0.5 shrink-0"
+                                    checked={checked}
+                                    onChange={() => toggleNewProductFilter(id)}
+                                  />
+                                  <span className="text-xs leading-snug text-zinc-800" dir="ltr">
+                                    {`${id} - ${row.membership_type_name}`}
+                                  </span>
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {!isBirthdayFamilyTriggerType(newTriggerType) ? (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-zinc-800">ימים</label>
+                        <input
+                          type="number"
+                          min={newDelayDaysMin}
+                          step={1}
+                          value={newDelayDays}
+                          onChange={(e) =>
+                            setNewDelayDays(
+                              Math.max(
+                                newDelayDaysMin,
+                                Number(e.target.value) || newDelayDaysMin
+                              )
+                            )
+                          }
+                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                        />
+                        {newTriggerType === "no_response" ? (
+                          <p className="text-xs text-zinc-500">
+                            מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {!hideNewDelayDirection ? (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-zinc-800">כיוון</label>
+                        <select
+                          value={newDelayDirection}
+                          onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
+                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                        >
+                          <option value="before">לפני פקיעת התוקף</option>
+                          <option value="after">אחרי פקיעת התוקף</option>
+                        </select>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-zinc-800">טמפלייט</label>
+                    <select
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
+                      dir="rtl"
+                      style={{ textAlignLast: "right" }}
+                    >
+                      <option value="">— ללא טמפלייט —</option>
+                      {selectableTemplates.map((t) => (
+                        <option key={t.name} value={t.name}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
+                      checked={newTriggerEnabled}
+                      onChange={(e) => setNewTriggerEnabled(e.target.checked)}
+                    />
+                    הפעל מיד לאחר הוספה
+                  </label>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={triggerSaving}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0] disabled:opacity-60"
+                    >
+                      {triggerSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      הוסף טריגר
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </>
         ) : null}
 
@@ -1498,206 +1698,6 @@ export default function TemplatesClient({
           </ul>
         ) : null}
       </section>
-
-      {axisActivation === "automatic" && axisAudience !== "staff" ? (
-      <section
-        ref={addTriggerSectionRef}
-        id="add-trigger"
-        className="scroll-mt-28 rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4"
-      >
-        <div className="text-right">
-          <h2 className="text-base font-semibold text-zinc-900">
-            הוסף טריגר — {AUDIENCE_LABELS_HE[axisAudience]}
-          </h2>
-        </div>
-
-        {!hasArbox ? (
-          <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
-            טריגרים מבוססי Arbox (רכישה, יום הולדת וכו׳) דורשים חיבור CRM.{" "}
-            <Link
-              href={settingsStepHref(`/${encodeURIComponent(slug)}/settings`, 1, "he", {
-                section: "crm",
-              })}
-              className="font-medium text-[#7133da] hover:underline"
-            >
-              חברו את Arbox בהגדרות
-            </Link>
-            . טריגר «ליד מאתר/קמפיין» זמין תמיד.
-          </p>
-        ) : null}
-
-        {creatableTriggerOptions.length === 0 ? (
-          <p className="text-sm text-zinc-500 text-right">
-            אין טריגרים נוספים ליצירה בקהל הזה כרגע.
-          </p>
-        ) : (
-        <form
-          className="space-y-4"
-          onSubmit={(e) => void onCreateTrigger(e)}
-        >
-
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-zinc-800">סוג טריגר</label>
-            <select
-              value={newTriggerType}
-              onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
-              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-            >
-              {creatableTriggerOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {newTriggerType === "arbox_new_lead" && hasExistingArboxNewLead ? (
-              <p className="text-xs text-amber-800">
-                כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים ברשימה למעלה במקום ליצור עוד אחד.
-              </p>
-            ) : null}
-          </div>
-
-          {showNewProductFilter ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-800">סינון מוצרים (אופציונלי)</label>
-              <p className="text-xs text-zinc-500">
-                השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM.
-              </p>
-              {arboxMembershipTypesLoading ? (
-                <p className="flex items-center gap-2 text-xs text-zinc-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  טוען מוצרים מארבוקס…
-                </p>
-              ) : arboxMembershipTypesError ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                    לא נטענו מוצרים מארבוקס ({arboxMembershipTypesError}). TODO: הזינו מזהי
-                    membership_type מופרדים בפסיק:
-                  </p>
-                  <input
-                    value={newProductFilter.join(",")}
-                    onChange={(e) => {
-                      const ids = e.target.value
-                        .split(",")
-                        .map((s) => Number(s.trim()))
-                        .filter((n) => Number.isFinite(n) && n > 0);
-                      setNewProductFilter([...new Set(ids)].sort((a, b) => a - b));
-                    }}
-                    dir="ltr"
-                    placeholder="123, 456"
-                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
-                  />
-                </div>
-              ) : arboxMembershipTypes.length === 0 ? (
-                <p className="text-xs text-zinc-500">לא נמצאו מוצרים — יוחל על כל המוצרים.</p>
-              ) : (
-                <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
-                  {arboxMembershipTypes.map((row) => {
-                    const id = row.membership_type_id;
-                    const checked = newProductFilter.includes(id);
-                    const inputId = `trigger-product-${id}`;
-                    return (
-                      <li key={id}>
-                        <label
-                          htmlFor={inputId}
-                          className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
-                        >
-                          <input
-                            id={inputId}
-                            type="checkbox"
-                            className="mt-0.5 shrink-0"
-                            checked={checked}
-                            onChange={() => toggleNewProductFilter(id)}
-                          />
-                          <span className="text-xs leading-snug text-zinc-800" dir="ltr">
-                            {`${id} - ${row.membership_type_name}`}
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {!isBirthdayFamilyTriggerType(newTriggerType) ? (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-800">ימים</label>
-              <input
-                type="number"
-                min={newDelayDaysMin}
-                step={1}
-                value={newDelayDays}
-                onChange={(e) =>
-                  setNewDelayDays(
-                    Math.max(newDelayDaysMin, Number(e.target.value) || newDelayDaysMin)
-                  )
-                }
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-              />
-              {newTriggerType === "no_response" ? (
-                <p className="text-xs text-zinc-500">מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).</p>
-              ) : null}
-            </div>
-            ) : null}
-            {!hideNewDelayDirection ? (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-zinc-800">כיוון</label>
-                <select
-                  value={newDelayDirection}
-                  onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                >
-                  <option value="before">לפני פקיעת התוקף</option>
-                  <option value="after">אחרי פקיעת התוקף</option>
-                </select>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-zinc-800">טמפלייט</label>
-            <select
-              value={newTemplateName}
-              onChange={(e) => setNewTemplateName(e.target.value)}
-              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
-              dir="rtl"
-              style={{ textAlignLast: "right" }}
-            >
-              <option value="">— ללא טמפלייט —</option>
-              {selectableTemplates.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
-              checked={newTriggerEnabled}
-              onChange={(e) => setNewTriggerEnabled(e.target.checked)}
-            />
-            הפעל מיד לאחר הוספה
-          </label>
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={triggerSaving}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0] disabled:opacity-60"
-            >
-              {triggerSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              הוסף טריגר
-            </button>
-          </div>
-        </form>
-        )}
-      </section>
-      ) : null}
 
       {showCreate && (
         <ModalShell
