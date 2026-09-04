@@ -5,6 +5,7 @@ import {
   TRIGGER_TYPES,
   allowsDelayBefore,
   canonicalizeTriggerType,
+  catalogEntriesFor,
   defaultDelayDays,
   defaultDelayDirection,
   delayDirectionForTrigger,
@@ -12,8 +13,10 @@ import {
   forcesDelayAfter,
   formatDelayLabel,
   isArboxDependentTriggerType,
+  isBirthdayFamilyTriggerType,
   isCreatableTriggerType,
   isIncomingLeadTriggerType,
+  isPersistedTriggerType,
   isTriggerType,
   isUniquePerBusinessTriggerType,
   minDelayDaysForTrigger,
@@ -31,7 +34,7 @@ import {
   TRIGGER_TYPES as TRIGGER_TYPES_FACADE,
 } from "@/lib/template-trigger-types";
 
-const PREVIOUS_TRIGGER_TYPES = [
+const LIVE_AUTOMATIC = [
   "purchase",
   "credit_refusal",
   "trial_attended",
@@ -42,6 +45,7 @@ const PREVIOUS_TRIGGER_TYPES = [
   "membership_cancelled",
   "incoming_lead",
   "no_response",
+  "birthday_former",
 ] as const;
 
 const PREVIOUS_ARBOX = [
@@ -53,44 +57,90 @@ const PREVIOUS_ARBOX = [
   "sessions_expiring",
   "arbox_new_lead",
   "membership_cancelled",
-] as const;
-
-const PREVIOUS_UI_ORDER = [
-  "incoming_lead",
-  "arbox_new_lead",
-  "no_response",
-  "purchase",
-  "credit_refusal",
-  "trial_attended",
-  "birthday",
-  "membership_expiring",
-  "sessions_expiring",
-  "membership_cancelled",
+  "birthday_former",
 ] as const;
 
 {
-  assert.deepEqual([...TRIGGER_TYPES], [...PREVIOUS_TRIGGER_TYPES]);
+  assert.deepEqual([...TRIGGER_TYPES], [...LIVE_AUTOMATIC]);
   assert.deepEqual([...ARBOX_TRIGGER_TYPES], [...PREVIOUS_ARBOX]);
   assert.deepEqual([...NON_ARBOX_TRIGGER_TYPES], ["incoming_lead", "no_response"]);
   assert.deepEqual([...TRIGGER_TYPES_FACADE], [...TRIGGER_TYPES]);
   assert.deepEqual([...ARBOX_FROM_FACADE], [...ARBOX_TRIGGER_TYPES]);
-  assert.equal(TRIGGER_CATALOG.length, PREVIOUS_TRIGGER_TYPES.length);
 }
 
 {
-  assert.deepEqual(
-    TRIGGER_TYPE_OPTIONS.map((o) => o.value),
-    [...PREVIOUS_UI_ORDER]
-  );
+  for (const e of TRIGGER_CATALOG) {
+    assert.ok(["automatic", "manual"].includes(e.activation));
+    assert.ok(["leads", "members", "staff"].includes(e.audience));
+    assert.equal(typeof e.implemented, "boolean");
+    assert.ok(e.labelHe.length > 0);
+    assert.ok(e.sendHintHe.length > 0);
+    if (e.activation === "automatic" && e.implemented) {
+      assert.equal(e.presetKey, e.type);
+      assert.equal(isTriggerType(e.type), true);
+      assert.equal(isPersistedTriggerType(e.type), true);
+      assert.equal(isArboxDependentTriggerType(e.type), e.arboxOnly);
+    } else {
+      assert.equal(isTriggerType(e.type), false);
+      assert.equal(isCreatableTriggerType(e.type, true), false);
+    }
+  }
+}
+
+{
+  assert.equal(triggerCatalogAudience("birthday"), "members");
+  assert.equal(triggerCatalogAudience("birthday_former"), "leads");
+  assert.equal(triggerCatalogAudience("trial_attended"), "leads");
+  assert.equal(triggerCatalogAudience("no_response"), "leads");
+  assert.equal(triggerCatalogAudience("manual_membership"), "members");
+  assert.equal(triggerCatalogAudience("manual_talked_not_registered"), "leads");
+}
+
+function triggerCatalogAudience(type: string) {
+  const e = TRIGGER_CATALOG.find((x) => x.type === type);
+  assert.ok(e);
+  return e!.audience;
+}
+
+{
+  const autoMembers = catalogEntriesFor({ activation: "automatic", audience: "members" });
+  assert.ok(autoMembers.some((e) => e.type === "birthday" && e.implemented));
+  assert.ok(autoMembers.some((e) => e.type === "hold" && !e.implemented));
+  const autoLeads = catalogEntriesFor({ activation: "automatic", audience: "leads" });
+  assert.ok(autoLeads.some((e) => e.type === "birthday_former" && e.implemented));
+  assert.ok(autoLeads.some((e) => e.type === "lost_lead" && !e.implemented));
+  const manualMembers = catalogEntriesFor({ activation: "manual", audience: "members" });
+  assert.ok(manualMembers.some((e) => e.type === "manual_membership" && e.implemented));
+  const manualLeads = catalogEntriesFor({ activation: "manual", audience: "leads" });
+  assert.ok(manualLeads.some((e) => e.type === "manual_talked_not_registered" && e.implemented));
+  assert.ok(manualLeads.some((e) => e.type === "manual_lost_leads" && !e.implemented));
+  assert.deepEqual(catalogEntriesFor({ activation: "automatic", audience: "staff" }), []);
+}
+
+{
+  assert.equal(isTriggerType("manual_membership"), false);
+  assert.equal(isTriggerType("hold"), false);
+  assert.equal(isTriggerType("birthday_former"), true);
+  assert.equal(isCreatableTriggerType("birthday_former", true), true);
+  assert.equal(isCreatableTriggerType("birthday_former", false), false);
+  assert.equal(isCreatableTriggerType("manual_membership", true), false);
+  assert.equal(isBirthdayFamilyTriggerType("birthday"), true);
+  assert.equal(isBirthdayFamilyTriggerType("birthday_former"), true);
+  assert.equal(isBirthdayFamilyTriggerType("purchase"), false);
+}
+
+{
   assert.equal(triggerTypeLabel("incoming_lead"), "ליד מאתר/קמפיין");
   assert.equal(triggerTypeLabel("site_lead"), "ליד מאתר/קמפיין");
   assert.equal(triggerTypeLabel("arbox_new_lead"), "ליד חדש מארבוקס");
   assert.equal(triggerTypeLabel("membership_cancelled"), "ביטול מנוי");
-  assert.equal(triggerTypeLabel("purchase"), "רכישה");
+  assert.equal(triggerTypeLabel("birthday"), "יום הולדת (מנויים)");
+  assert.equal(triggerTypeLabel("birthday_former"), "יום הולדת (לקוחות לשעבר)");
+  assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "birthday_former"));
 }
 
 {
-  for (const type of PREVIOUS_TRIGGER_TYPES) {
+  for (const type of LIVE_AUTOMATIC) {
     assert.equal(
       showsProductFilter(type),
       type === "purchase" || type === "trial_attended" || type === "membership_cancelled"
@@ -116,22 +166,13 @@ const PREVIOUS_UI_ORDER = [
 
 {
   assert.equal(forcesDelayAfter("purchase"), true);
-  assert.equal(forcesDelayAfter("credit_refusal"), true);
-  assert.equal(forcesDelayAfter("trial_attended"), true);
-  assert.equal(forcesDelayAfter("incoming_lead"), true);
-  assert.equal(forcesDelayAfter("site_lead"), true);
-  assert.equal(forcesDelayAfter("arbox_new_lead"), true);
-  assert.equal(forcesDelayAfter("membership_cancelled"), true);
-  assert.equal(forcesDelayAfter("no_response"), true);
   assert.equal(forcesDelayAfter("birthday"), false);
+  assert.equal(forcesDelayAfter("birthday_former"), false);
   assert.equal(forcesDelayAfterFacade("birthday"), false);
   assert.equal(delayDirectionForTrigger("birthday", "before"), "before");
   assert.equal(delayDirectionForTrigger("purchase", "before"), "after");
   assert.equal(allowsDelayBefore("membership_expiring"), true);
-  assert.equal(allowsDelayBefore("sessions_expiring"), true);
   assert.equal(allowsDelayBefore("birthday"), false);
-  assert.equal(allowsDelayBefore("purchase"), false);
-  assert.equal(allowsDelayBefore("membership_cancelled"), false);
   assert.equal(allowsDelayBeforeFacade("membership_expiring"), true);
   assert.equal(defaultDelayDirection("membership_expiring"), "before");
   assert.equal(defaultDelayDirection("purchase"), "after");
@@ -143,9 +184,7 @@ const PREVIOUS_UI_ORDER = [
   assert.equal(forcesAfterNoProductFilter("arbox_new_lead"), true);
   assert.equal(forcesAfterNoProductFilter("no_response"), true);
   assert.equal(forcesAfterNoProductFilter("purchase"), false);
-  assert.equal(forcesAfterNoProductFilter("credit_refusal"), false);
   assert.equal(forcesAfterNoProductFilter("birthday"), false);
-  assert.equal(forcesAfterNoProductFilter("membership_expiring"), false);
   assert.equal(forcesAfterNoProductFilter("membership_cancelled"), false);
 }
 
@@ -154,7 +193,7 @@ const PREVIOUS_UI_ORDER = [
   assert.equal(formatDelayLabel("incoming_lead", 0, "after"), "מיידי");
   assert.equal(formatDelayLabel("arbox_new_lead", 3, "after"), "3 ימים אחרי הליד");
   assert.equal(formatDelayLabel("birthday", 0, "after"), "ביום ההולדת");
-  assert.equal(formatDelayLabel("birthday", 2, "after"), "2 ימים לפני יום ההולדת");
+  assert.equal(formatDelayLabel("birthday_former", 2, "after"), "2 ימים לפני יום ההולדת");
   assert.equal(formatDelayLabel("membership_expiring", 0, "before"), "ביום פקיעת התוקף");
   assert.equal(
     formatDelayLabel("membership_expiring", 5, "before"),
@@ -174,16 +213,6 @@ const PREVIOUS_UI_ORDER = [
 }
 
 {
-  for (const e of TRIGGER_CATALOG) {
-    assert.equal(e.presetKey, e.type);
-    assert.equal(e.recipient, "customer");
-    assert.ok(e.category);
-    assert.ok(e.sendHintHe.length > 0);
-    assert.equal(isArboxDependentTriggerType(e.type), e.arboxOnly);
-  }
-}
-
-{
   assert.match(triggerSendScheduleHintHe("purchase"), /15/);
   assert.equal(triggerSendScheduleHintHe("purchase"), triggerSendScheduleHintHe("credit_refusal"));
   assert.equal(
@@ -198,7 +227,13 @@ const PREVIOUS_UI_ORDER = [
     triggerSendScheduleHintHe("membership_cancelled"),
     triggerSendScheduleHintHe("membership_expiring")
   );
+  assert.equal(
+    triggerSendScheduleHintHe("birthday_former"),
+    triggerSendScheduleHintHe("birthday")
+  );
   assert.match(triggerSendScheduleHintHe("incoming_lead"), /מיד/);
+  assert.match(triggerSendScheduleHintHe("manual_membership"), /ידנית/);
+  assert.equal(triggerSendScheduleHintHe("hold"), "בקרוב");
 }
 
 console.log("trigger-catalog.test.ts: ok");

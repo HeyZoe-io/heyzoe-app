@@ -61,14 +61,20 @@ export function buildCreditRefusalScheduledDedupKey(
   return `credit_refusal:${businessId}:${String(triggerId).trim()}:${transactionId}`;
 }
 
-/** Birthday enqueue key: once per business+trigger+user+celebration year. */
+/**
+ * Birthday enqueue key: once per business+trigger+user+celebration year.
+ * Prefix is the trigger_type (`birthday` | `birthday_former`) so member vs former
+ * never share a dedup key (separate messages).
+ */
 export function buildBirthdayScheduledDedupKey(
   businessId: number,
   triggerId: string,
   userId: number,
-  birthdayYear: number
+  birthdayYear: number,
+  triggerType: "birthday" | "birthday_former" = "birthday"
 ): string {
-  return `birthday:${businessId}:${String(triggerId).trim()}:${userId}:${birthdayYear}`;
+  const prefix = triggerType === "birthday_former" ? "birthday_former" : "birthday";
+  return `${prefix}:${businessId}:${String(triggerId).trim()}:${userId}:${birthdayYear}`;
 }
 
 /** Membership-expiring enqueue key: once per business+trigger+membership instance+end_date. */

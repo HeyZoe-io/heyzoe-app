@@ -114,6 +114,8 @@ export async function GET(req: NextRequest) {
       entry.birthday = {
         fetched: 0,
         pages_fetched: 0,
+        customer_membership_pages: 0,
+        customer_session_pages: 0,
         due_today: 0,
         processed: 0,
         dedup: 0,
@@ -122,6 +124,8 @@ export async function GET(req: NextRequest) {
         gated: 0,
         no_phone: 0,
         errors: 1,
+        members_due: 0,
+        former_due: 0,
         fetch_error: message,
       };
     }

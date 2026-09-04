@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  birthdayAudienceKindForUserId,
   birthdayReportFetchWindowForRule,
+  birthdaySyncLogYear,
+  birthdayTriggerTypeForKind,
   buildBirthdayReportPath,
   computeBirthdayTriggerDateYmd,
   celebrationYearIsrael,
@@ -8,6 +11,7 @@ import {
   isBirthdayTriggerDueToday,
   parseBirthdayMonthDay,
 } from "@/lib/leads/arbox-birthday";
+import { buildBirthdayScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import { pickBirthdayTemplateTriggerRule } from "@/lib/template-triggers-match";
 
 /** Parse birthday month/day from Arbox field. */
@@ -21,7 +25,7 @@ import { pickBirthdayTemplateTriggerRule } from "@/lib/template-triggers-match";
 {
   const now = new Date("2026-08-02T15:00:00.000Z");
   const todayYmd = formatDateYmdIsrael(now);
-  const [y, m, d] = todayYmd.split("-");
+  const [, m, d] = todayYmd.split("-");
   const birthday = `1990-${m}-${d}`;
   assert.equal(
     isBirthdayTriggerDueToday(birthday, { delay_days: 0, delay_direction: "after" }, now),
@@ -36,7 +40,6 @@ import { pickBirthdayTemplateTriggerRule } from "@/lib/template-triggers-match";
 /** delay after: trigger = birthday + N; due today when birthday was N days ago. */
 {
   const now = new Date("2026-08-05T12:00:00+03:00");
-  // Israel YMD for this instant
   const today = formatDateYmdIsrael(now);
   assert.equal(today, "2026-08-05");
   assert.equal(
@@ -110,21 +113,43 @@ import { pickBirthdayTemplateTriggerRule } from "@/lib/template-triggers-match";
   );
 }
 
-/** once-per-year dedup key uses celebration year (not birth year). */
+/** Customer-set split: in set → members/birthday; not in set → former/birthday_former. */
+{
+  const set = new Set([10, 20]);
+  assert.equal(birthdayAudienceKindForUserId(10, set), "members");
+  assert.equal(birthdayAudienceKindForUserId(99, set), "former");
+  assert.equal(birthdayTriggerTypeForKind("members"), "birthday");
+  assert.equal(birthdayTriggerTypeForKind("former"), "birthday_former");
+}
+
+/**
+ * Dedup independence (no migration): sync_log year encoding + scheduled key prefix
+ * so member vs former never block each other in the same celebration year.
+ */
 {
   const year = celebrationYearIsrael(new Date("2026-08-02T12:00:00+03:00"));
   assert.equal(year, 2026);
-  // Simulate sync_log PK decision
+  assert.equal(birthdaySyncLogYear(2026, "members"), 2026);
+  assert.equal(birthdaySyncLogYear(2026, "former"), 1_002_026);
+  assert.notEqual(birthdaySyncLogYear(2026, "members"), birthdaySyncLogYear(2026, "former"));
+
   const seen = new Set<string>();
-  function tryProcess(userId: number, birthdayYear: number): "ok" | "dedup" {
-    const key = `1:${userId}:${birthdayYear}`;
+  function tryProcess(userId: number, kind: "members" | "former"): "ok" | "dedup" {
+    const key = `1:${userId}:${birthdaySyncLogYear(year, kind)}`;
     if (seen.has(key)) return "dedup";
     seen.add(key);
     return "ok";
   }
-  assert.equal(tryProcess(99, 2026), "ok");
-  assert.equal(tryProcess(99, 2026), "dedup");
-  assert.equal(tryProcess(99, 2027), "ok");
+  assert.equal(tryProcess(99, "members"), "ok");
+  assert.equal(tryProcess(99, "members"), "dedup");
+  assert.equal(tryProcess(99, "former"), "ok");
+  assert.equal(tryProcess(99, "former"), "dedup");
+
+  const membersKey = buildBirthdayScheduledDedupKey(1, "rule-a", 99, 2026, "birthday");
+  const formerKey = buildBirthdayScheduledDedupKey(1, "rule-b", 99, 2026, "birthday_former");
+  assert.match(membersKey, /^birthday:/);
+  assert.match(formerKey, /^birthday_former:/);
+  assert.notEqual(membersKey, formerKey);
 }
 
 /** no_rule: empty / missing template → null. */

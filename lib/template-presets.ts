@@ -23,6 +23,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   purchase: ["first_name", "business_name"],
   credit_refusal: ["first_name"],
   birthday: ["first_name", "business_name"],
+  birthday_former: ["first_name", "business_name"],
   membership_expiring: ["first_name", "business_name", "expiry_date"],
   sessions_expiring: ["first_name", "business_name", "expiry_date"],
   trial_attended: ["first_name"],
@@ -65,6 +66,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "birthday_wish",
     category: "MARKETING",
     body: "יום הולדת שמח {{1}}! 🎂 כל הצוות ב{{2}} מאחל לך שנה מדהימה, של אושר, נחת, והכי חשוב - גוף חזק ונפש רגועה!",
+  },
+  birthday_former: {
+    name: "birthday_former_wish",
+    category: "MARKETING",
+    body: "יום הולדת שמח {{1}}! 🎂 מתגעגעים אלייך ב{{2}} — נשמח לראותך שוב לאימון 😊",
   },
   membership_expiring: {
     name: "membership_expiring",

@@ -11,6 +11,7 @@ export {
   LEGACY_INCOMING_LEAD_TRIGGER_TYPES,
   INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
   isTriggerType,
+  isPersistedTriggerType,
   isArboxDependentTriggerType,
   isCreatableTriggerType,
   isIncomingLeadTriggerType,
@@ -18,6 +19,7 @@ export {
   forcesDelayAfter,
   allowsDelayBefore,
   delayDirectionForTrigger,
+  isBirthdayFamilyTriggerType,
   type TriggerType,
   type IncomingLeadTriggerType,
 } from "@/lib/trigger-catalog";

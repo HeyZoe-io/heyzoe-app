@@ -5,6 +5,7 @@ import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { fetchArboxCustomerUserIds } from "@/lib/leads/arbox-customer-set";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
@@ -15,6 +16,7 @@ import {
 import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
+  resolveBirthdayFormerTemplateTrigger,
   resolveBirthdayTemplateTrigger,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
@@ -23,6 +25,40 @@ import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 const ISRAEL_TZ = "Asia/Jerusalem";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAX_REPORT_PAGES = 20;
+
+/** Active member vs former lead path for birthdayReport rows. */
+export type BirthdayAudienceKind = "members" | "former";
+
+export type BirthdayTriggerType = "birthday" | "birthday_former";
+
+/**
+ * sync_log PK is (business_id, user_id, birthday_year) — no migration.
+ * Encode audience in birthday_year so member vs former never block each other
+ * (same celebration year → different log rows). Members keep the real year;
+ * former uses year + 1_000_000.
+ */
+export const BIRTHDAY_FORMER_SYNC_YEAR_OFFSET = 1_000_000;
+
+export function birthdaySyncLogYear(
+  celebrationYear: number,
+  kind: BirthdayAudienceKind
+): number {
+  const y = Math.trunc(Number(celebrationYear));
+  if (kind === "former") return y + BIRTHDAY_FORMER_SYNC_YEAR_OFFSET;
+  return y;
+}
+
+export function birthdayTriggerTypeForKind(kind: BirthdayAudienceKind): BirthdayTriggerType {
+  return kind === "members" ? "birthday" : "birthday_former";
+}
+
+/** In customer set → members (active); otherwise → former (leads). */
+export function birthdayAudienceKindForUserId(
+  userId: number,
+  customerUserIds: Set<number>
+): BirthdayAudienceKind {
+  return customerUserIds.has(userId) ? "members" : "former";
+}
 
 export type ArboxBirthdayReportRow = {
   user_id: unknown;
@@ -45,9 +81,11 @@ export type BirthdayDispatch =
 
 export type BirthdaySyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
+  skip_reason?: "no_rule" | "missing_credentials" | "customer_set_failed";
   fetched: number;
   pages_fetched: number;
+  customer_membership_pages: number;
+  customer_session_pages: number;
   due_today: number;
   processed: number;
   dedup: number;
@@ -56,6 +94,8 @@ export type BirthdaySyncSummary = {
   gated: number;
   no_phone: number;
   errors: number;
+  members_due: number;
+  former_due: number;
   fetch_error?: string;
 };
 
@@ -338,6 +378,7 @@ async function sendBirthdayTemplate(input: {
   birthdayYear: number;
   birthdayRaw: unknown;
   rule: PurchaseTemplateTriggerRule;
+  triggerType: BirthdayTriggerType;
   now: Date;
 }): Promise<{ dispatch: BirthdayDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
@@ -362,7 +403,8 @@ async function sendBirthdayTemplate(input: {
         input.businessId,
         input.rule.id,
         input.userId,
-        input.birthdayYear
+        input.birthdayYear,
+        input.triggerType
       ),
     });
     if (!enqueueResult.ok) {
@@ -399,7 +441,7 @@ async function sendBirthdayTemplate(input: {
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
   const { sendComponents, bodyParams } = templateSendPayload({
-    triggerType: "birthday",
+    triggerType: input.triggerType,
     storedComponents,
     firstName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
@@ -435,7 +477,10 @@ async function sendBirthdayTemplate(input: {
 
 /**
  * Daily birthday step for one Arbox business.
- * birthdayReport supports fromDate/toDate — we fetch the single calendar day that maps to "due today" for the rule.
+ * birthdayReport → cross with A1 customer set (activeMemberships + sessions):
+ *   in set → birthday (members); not in set → birthday_former (leads).
+ * IO: birthdayReport pages + always +2 customer report GETs (flat, like A1) when a rule is enabled.
+ * Dedup: member vs former use distinct sync_log years + scheduled dedup prefixes — no migration.
  */
 export async function syncArboxBirthdaysForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -448,6 +493,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
   const summary: BirthdaySyncSummary = {
     fetched: 0,
     pages_fetched: 0,
+    customer_membership_pages: 0,
+    customer_session_pages: 0,
     due_today: 0,
     processed: 0,
     dedup: 0,
@@ -456,6 +503,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
     gated: 0,
     no_phone: 0,
     errors: 0,
+    members_due: 0,
+    former_due: 0,
   };
 
   const businessId = Number(input.businessId);
@@ -463,7 +512,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const now = input.now ?? new Date();
-  const birthdayYear = celebrationYearIsrael(now);
+  const celebrationYear = celebrationYearIsrael(now);
 
   if (!apiKey || !boxId) {
     summary.skipped = true;
@@ -471,11 +520,16 @@ export async function syncArboxBirthdaysForBusiness(input: {
     return summary;
   }
 
-  const rule = await resolveBirthdayTemplateTrigger({ admin: input.admin, businessId });
-  if (!rule?.template_name?.trim()) {
+  const [membersRule, formerRule] = await Promise.all([
+    resolveBirthdayTemplateTrigger({ admin: input.admin, businessId }),
+    resolveBirthdayFormerTemplateTrigger({ admin: input.admin, businessId }),
+  ]);
+  const membersOk = Boolean(membersRule?.template_name?.trim());
+  const formerOk = Boolean(formerRule?.template_name?.trim());
+  if (!membersOk && !formerOk) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
-    console.info("[leads/arbox-birthday] skip — no enabled birthday rule", {
+    console.info("[leads/arbox-birthday] skip — no enabled birthday / birthday_former rule", {
       businessId,
       businessSlug,
       dispatch: "no_rule",
@@ -483,39 +537,76 @@ export async function syncArboxBirthdaysForBusiness(input: {
     return summary;
   }
 
-  const window = birthdayReportFetchWindowForRule(rule, now);
-  const report = await fetchBirthdayReportRows({
+  const customerSet = await fetchArboxCustomerUserIds({
     apiKey,
-    fromDate: window.fromDate,
-    toDate: window.toDate,
-    locationId: boxId,
+    boxId,
+    now,
   });
-  summary.pages_fetched = report.pagesFetched;
-  if (!report.ok) {
-    summary.fetch_error = report.error;
+  if (!customerSet.ok) {
+    summary.skipped = true;
+    summary.skip_reason = "customer_set_failed";
+    summary.fetch_error = customerSet.error;
     summary.errors += 1;
+    console.error("[leads/arbox-birthday] customer set fetch failed", {
+      businessId,
+      businessSlug,
+      error: customerSet.error,
+    });
     return summary;
   }
-  summary.fetched = report.rows.length;
+  summary.customer_membership_pages = customerSet.membershipPages;
+  summary.customer_session_pages = customerSet.sessionPages;
 
-  for (const row of report.rows) {
-    const userIdRaw = Number(row.user_id);
-    if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) {
+  const windowKeys = new Map<string, { fromDate: string; toDate: string }>();
+  for (const rule of [membersOk ? membersRule : null, formerOk ? formerRule : null]) {
+    if (!rule) continue;
+    const w = birthdayReportFetchWindowForRule(rule, now);
+    windowKeys.set(`${w.fromDate}|${w.toDate}`, w);
+  }
+
+  const rowsByUser = new Map<number, ArboxBirthdayReportRow>();
+  for (const w of windowKeys.values()) {
+    const report = await fetchBirthdayReportRows({
+      apiKey,
+      fromDate: w.fromDate,
+      toDate: w.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched += report.pagesFetched;
+    if (!report.ok) {
+      summary.fetch_error = report.error;
       summary.errors += 1;
-      continue;
+      return summary;
     }
-    const userId = Math.trunc(userIdRaw);
+    for (const row of report.rows) {
+      const userIdRaw = Number(row.user_id);
+      if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) continue;
+      rowsByUser.set(Math.trunc(userIdRaw), row);
+    }
+  }
+  summary.fetched = rowsByUser.size;
+
+  for (const [userId, row] of rowsByUser) {
+    const kind = birthdayAudienceKindForUserId(userId, customerSet.userIds);
+    const rule = kind === "members" ? (membersOk ? membersRule : null) : formerOk ? formerRule : null;
+    if (!rule) continue;
 
     if (!isBirthdayTriggerDueToday(row.birthday, rule, now)) {
       console.info("[leads/arbox-birthday] dispatch", {
         businessId,
         user_id: userId,
+        audience: kind,
         contact: null,
         dispatch: "not_due",
       });
       continue;
     }
     summary.due_today += 1;
+    if (kind === "members") summary.members_due += 1;
+    else summary.former_due += 1;
+
+    const triggerType = birthdayTriggerTypeForKind(kind);
+    const syncYear = birthdaySyncLogYear(celebrationYear, kind);
 
     try {
       const { data: existingSeen } = await input.admin
@@ -523,7 +614,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
         .select("user_id")
         .eq("business_id", businessId)
         .eq("user_id", userId)
-        .eq("birthday_year", birthdayYear)
+        .eq("birthday_year", syncYear)
         .maybeSingle();
 
       if (existingSeen) {
@@ -531,6 +622,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
         console.info("[leads/arbox-birthday] dispatch", {
           businessId,
           user_id: userId,
+          audience: kind,
           contact: null,
           dispatch: "dedup",
         });
@@ -547,6 +639,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
         console.info("[leads/arbox-birthday] dispatch", {
           businessId,
           user_id: userId,
+          audience: kind,
           contact: null,
           dispatch: "no_phone",
         });
@@ -560,9 +653,10 @@ export async function syncArboxBirthdaysForBusiness(input: {
         phone: resolved.phone,
         fullName: resolveReportFullName(row) ?? resolved.contact.full_name ?? null,
         userId,
-        birthdayYear,
+        birthdayYear: celebrationYear,
         birthdayRaw: row.birthday,
         rule,
+        triggerType,
         now,
       });
 
@@ -575,6 +669,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
       console.info("[leads/arbox-birthday] dispatch", {
         businessId,
         user_id: userId,
+        audience: kind,
+        trigger_type: triggerType,
         contact: maskPhoneForLog(resolved.phone),
         dispatch: send.dispatch,
       });
@@ -584,7 +680,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
           {
             business_id: businessId,
             user_id: userId,
-            birthday_year: birthdayYear,
+            birthday_year: syncYear,
             contact_id: resolved.contact.id,
             processed_at: now.toISOString(),
           },
@@ -600,6 +696,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
       console.error("[leads/arbox-birthday] row threw", {
         businessId,
         user_id: userId,
+        audience: kind,
         error: e instanceof Error ? e.message : String(e),
       });
     }

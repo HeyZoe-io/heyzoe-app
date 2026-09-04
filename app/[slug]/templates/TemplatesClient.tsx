@@ -21,11 +21,30 @@ import {
   TEMPLATE_PRESETS,
   uniqueTemplateName,
 } from "@/lib/template-presets";
+import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
+import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import {
+  ACTIVATION_LABELS_HE,
+  AUDIENCE_LABELS_HE,
   allowsDelayBefore,
+  catalogEntriesFor,
+  defaultDelayDays,
+  defaultDelayDirection,
+  formatDelayLabel,
   isArboxDependentTriggerType,
+  isBirthdayFamilyTriggerType,
   isCreatableTriggerType,
-} from "@/lib/template-trigger-types";
+  isIncomingLeadTriggerType,
+  minDelayDaysForTrigger,
+  showsProductFilter,
+  TRIGGER_TYPE_OPTIONS,
+  triggerCatalogEntry,
+  triggerSendScheduleHintHe,
+  triggerTypeLabel,
+  type TriggerActivation,
+  type TriggerAudience,
+  type TriggerType,
+} from "@/lib/trigger-catalog";
 
 export type TemplateRow = {
   id?: string;
@@ -41,17 +60,7 @@ export type TemplateRow = {
   updated_at?: string;
 };
 
-export type TriggerType =
-  | "purchase"
-  | "credit_refusal"
-  | "trial_attended"
-  | "birthday"
-  | "membership_expiring"
-  | "sessions_expiring"
-  | "arbox_new_lead"
-  | "incoming_lead"
-  | "no_response"
-  | "membership_cancelled";
+export type { TriggerType };
 
 export type DelayDirection = "after" | "before";
 
@@ -72,71 +81,16 @@ type ArboxMembershipTypeRow = {
   membership_type_name: string;
 };
 
-const TRIGGER_TYPE_OPTIONS: { value: TriggerType; label: string }[] = [
-  { value: "incoming_lead", label: "ליד מאתר/קמפיין" },
-  { value: "arbox_new_lead", label: "ליד חדש מארבוקס" },
-  { value: "no_response", label: "חזרה אחרי שתיקה" },
-  { value: "purchase", label: "רכישה" },
-  { value: "credit_refusal", label: "סירוב אשראי" },
-  { value: "trial_attended", label: "נוכחות בשיעור ניסיון" },
-  { value: "birthday", label: "יום הולדת" },
-  { value: "membership_expiring", label: "פג תוקף מנוי" },
-  { value: "sessions_expiring", label: "פג תוקף כרטיסיה" },
-  { value: "membership_cancelled", label: "ביטול מנוי" },
-];
-
 function isArboxTriggerType(type: TriggerType): boolean {
   return isArboxDependentTriggerType(type);
 }
 
 function isIncomingLeadType(type: string): boolean {
-  return type === "incoming_lead" || type === "site_lead" || type === "campaign_lead";
+  return isIncomingLeadTriggerType(type);
 }
 
 const FIELD_CLASS =
   "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 caret-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]";
-
-function triggerTypeLabel(type: TriggerType): string {
-  if (isIncomingLeadType(type)) return "ליד מאתר/קמפיין";
-  return TRIGGER_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
-}
-
-function defaultDelayDirection(type: TriggerType): DelayDirection {
-  if (type === "membership_expiring" || type === "sessions_expiring") return "before";
-  return "after";
-}
-
-function defaultDelayDays(type: TriggerType): number {
-  if (type === "no_response") return 2;
-  return 0;
-}
-
-function showsProductFilter(type: TriggerType): boolean {
-  return type === "purchase" || type === "trial_attended" || type === "membership_cancelled";
-}
-
-function formatDelayLabel(
-  type: TriggerType,
-  days: number,
-  direction: DelayDirection
-): string {
-  if (type === "no_response") {
-    return `${Math.max(2, days)} ימי שתיקה`;
-  }
-  if (isIncomingLeadType(type) || type === "arbox_new_lead") {
-    return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;
-  }
-  if (type === "birthday") {
-    return days === 0 ? "ביום ההולדת" : `${days} ימים לפני יום ההולדת`;
-  }
-  if (allowsDelayBefore(type)) {
-    if (days === 0) return "ביום פקיעת התוקף";
-    const dir = direction === "before" ? "לפני פקיעת התוקף" : "אחרי פקיעת התוקף";
-    return `${days} ימים ${dir}`;
-  }
-  if (days === 0) return "ביום האירוע";
-  return `${days} ימים אחרי האירוע`;
-}
 
 type Props = {
   slug: string;
@@ -331,6 +285,10 @@ export default function TemplatesClient({
   const [editTemplateName, setEditTemplateName] = useState("");
   const [triggerEditSaving, setTriggerEditSaving] = useState(false);
 
+  const [axisActivation, setAxisActivation] = useState<TriggerActivation>("automatic");
+  const [axisAudience, setAxisAudience] = useState<TriggerAudience>("leads");
+  const [activeManualCampaign, setActiveManualCampaign] = useState<string | null>(null);
+
   const [newTriggerType, setNewTriggerType] = useState<TriggerType>(
     hasArbox ? "purchase" : "incoming_lead"
   );
@@ -367,10 +325,27 @@ export default function TemplatesClient({
     const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
     return TRIGGER_TYPE_OPTIONS.filter((opt) => {
       if (!isCreatableTriggerType(opt.value, hasArbox)) return false;
+      const entry = triggerCatalogEntry(opt.value);
+      if (!entry || entry.audience !== axisAudience) return false;
       if (opt.value === "incoming_lead" && hasIncomingLead) return false;
       return true;
     });
-  }, [hasArbox, triggers]);
+  }, [hasArbox, triggers, axisAudience]);
+
+  const axisCatalogEntries = useMemo(
+    () => catalogEntriesFor({ activation: axisActivation, audience: axisAudience }),
+    [axisActivation, axisAudience]
+  );
+
+  const filteredTriggers = useMemo(() => {
+    if (axisActivation !== "automatic") return [];
+    return triggers.filter((t) => triggerCatalogEntry(t.trigger_type)?.audience === axisAudience);
+  }, [triggers, axisActivation, axisAudience]);
+
+  const marketingTemplates = useMemo(
+    () => templates.filter((t) => isApprovedMarketingTemplate(t)),
+    [templates]
+  );
 
   const enabledIncomingLead = useMemo(
     () => triggers.some((t) => isIncomingLeadType(t.trigger_type) && t.enabled),
@@ -392,7 +367,7 @@ export default function TemplatesClient({
 
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const hideNewDelayDirection = !allowsDelayBefore(newTriggerType);
-  const newDelayDaysMin = newTriggerType === "no_response" ? 2 : 0;
+  const newDelayDaysMin = minDelayDaysForTrigger(newTriggerType);
 
   useEffect(() => {
     if (!creatableTriggerOptions.some((o) => o.value === newTriggerType)) {
@@ -1194,181 +1169,302 @@ export default function TemplatesClient({
       </section>
 
       <section className="rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="text-right">
-          <h2 className="text-base font-semibold text-zinc-900">הטריגרים שלכם</h2>
-        </div>
-
-        {triggers.length === 0 ? (
-          <p className="text-sm text-zinc-500">עדיין אין טריגרים אוטומטיים.</p>
-        ) : (
-          <ul className="space-y-3">
-            {triggers.map((trigger) => (
-              <li
-                key={trigger.id}
-                className={`rounded-xl border px-3 py-3 sm:px-4 ${
-                  trigger.enabled
-                    ? "border-zinc-200 bg-white"
-                    : "border-zinc-100 bg-zinc-50 opacity-80"
+        <div className="text-right space-y-3">
+          <h2 className="text-base font-semibold text-zinc-900">טריגרים וקמפיינים</h2>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {(["automatic", "manual"] as const).map((act) => (
+              <button
+                key={act}
+                type="button"
+                onClick={() => {
+                  setAxisActivation(act);
+                  setActiveManualCampaign(null);
+                }}
+                className={`rounded-xl border px-3 py-1.5 text-sm ${
+                  axisActivation === act
+                    ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da] font-medium"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                 }`}
               >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1.5 text-right min-w-0 flex-1">
-                    <p className="font-medium text-zinc-900">
-                      {triggerTypeLabel(trigger.trigger_type)}
-                    </p>
-                    {showsProductFilter(trigger.trigger_type) ? (
-                      <p className="text-xs text-zinc-600">
-                        מוצרים: {formatProductFilterLabel(trigger.product_filter)}
-                      </p>
-                    ) : null}
-                    <p className="text-xs text-zinc-600">
-                      תזמון:{" "}
-                      {formatDelayLabel(
-                        trigger.trigger_type,
-                        trigger.delay_days,
-                        trigger.delay_direction
-                      )}
-                    </p>
-                    <p className="text-xs text-zinc-600 break-all" dir="ltr">
-                      טמפלייט: {trigger.template_name || "—"}
-                    </p>
-                    {editingTriggerId === trigger.id ? (
-                      <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                        {trigger.trigger_type !== "birthday" ? (
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
-                            <input
-                              type="number"
-                              min={trigger.trigger_type === "no_response" ? 2 : 0}
-                              value={editDelayDays}
-                              onChange={(e) => setEditDelayDays(Number(e.target.value))}
-                              className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                            />
+                {ACTIVATION_LABELS_HE[act]}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {(["leads", "members", "staff"] as const).map((aud) => (
+              <button
+                key={aud}
+                type="button"
+                onClick={() => {
+                  setAxisAudience(aud);
+                  setActiveManualCampaign(null);
+                }}
+                className={`rounded-xl border px-3 py-1.5 text-sm ${
+                  axisAudience === aud
+                    ? "border-zinc-800 bg-zinc-900 text-white font-medium"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                }`}
+              >
+                {AUDIENCE_LABELS_HE[aud]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {axisAudience === "staff" ? (
+          <p className="text-sm text-zinc-500 text-right">
+            טריגרי צוות יגיעו כאן בקרוב.
+          </p>
+        ) : null}
+
+        {axisActivation === "automatic" && axisAudience !== "staff" ? (
+          <>
+            {filteredTriggers.length === 0 ? (
+              <p className="text-sm text-zinc-500 text-right">
+                עדיין אין טריגרים אוטומטיים בקהל הזה.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {filteredTriggers.map((trigger) => (
+                  <li
+                    key={trigger.id}
+                    className={`rounded-xl border px-3 py-3 sm:px-4 ${
+                      trigger.enabled
+                        ? "border-zinc-200 bg-white"
+                        : "border-zinc-100 bg-zinc-50 opacity-80"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="space-y-1.5 text-right min-w-0 flex-1">
+                        <p className="font-medium text-zinc-900">
+                          {triggerTypeLabel(trigger.trigger_type)}
+                        </p>
+                        {showsProductFilter(trigger.trigger_type) ? (
+                          <p className="text-xs text-zinc-600">
+                            מוצרים: {formatProductFilterLabel(trigger.product_filter)}
+                          </p>
+                        ) : null}
+                        <p className="text-xs text-zinc-600">
+                          תזמון:{" "}
+                          {formatDelayLabel(
+                            trigger.trigger_type,
+                            trigger.delay_days,
+                            trigger.delay_direction
+                          )}
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          {triggerSendScheduleHintHe(trigger.trigger_type)}
+                        </p>
+                        <p className="text-xs text-zinc-600 break-all" dir="ltr">
+                          טמפלייט: {trigger.template_name || "—"}
+                        </p>
+                        {editingTriggerId === trigger.id ? (
+                          <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                            {!isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
+                                <input
+                                  type="number"
+                                  min={minDelayDaysForTrigger(trigger.trigger_type)}
+                                  value={editDelayDays}
+                                  onChange={(e) => setEditDelayDays(Number(e.target.value))}
+                                  className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                                />
+                              </div>
+                            ) : null}
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
+                              <select
+                                value={editTemplateName}
+                                onChange={(e) => setEditTemplateName(e.target.value)}
+                                className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-right"
+                                dir="rtl"
+                                style={{ textAlignLast: "right" }}
+                              >
+                                <option value="">— ללא טמפלייט —</option>
+                                {selectableTemplates.map((t) => (
+                                  <option key={t.name} value={t.name}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingTriggerId(null)}
+                                className="rounded-lg border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
+                              >
+                                ביטול
+                              </button>
+                              <button
+                                type="button"
+                                disabled={triggerEditSaving}
+                                onClick={() => void onSaveTriggerEdit(trigger)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-[#7133da] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+                              >
+                                {triggerEditSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                                שמור
+                              </button>
+                            </div>
                           </div>
                         ) : null}
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
-                          <select
-                            value={editTemplateName}
-                            onChange={(e) => setEditTemplateName(e.target.value)}
-                            className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-right"
-                            dir="rtl"
-                            style={{ textAlignLast: "right" }}
-                          >
-                            <option value="">— ללא טמפלייט —</option>
-                            {selectableTemplates.map((t) => (
-                              <option key={t.name} value={t.name}>
-                                {t.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setEditingTriggerId(null)}
-                            className="rounded-lg border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
-                          >
-                            ביטול
-                          </button>
-                          <button
-                            type="button"
-                            disabled={triggerEditSaving}
-                            onClick={() => void onSaveTriggerEdit(trigger)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-[#7133da] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
-                          >
-                            {triggerEditSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                            שמור
-                          </button>
-                        </div>
+                        {!hasArbox && isArboxTriggerType(trigger.trigger_type) ? (
+                          <p className="text-xs text-zinc-500">
+                            {trigger.enabled ? "פעיל" : "מושבת"}
+                          </p>
+                        ) : null}
                       </div>
-                    ) : null}
-                    {!hasArbox && isArboxTriggerType(trigger.trigger_type) ? (
-                      <p className="text-xs text-zinc-500">
-                        {trigger.enabled ? "פעיל" : "מושבת"}
-                      </p>
-                    ) : null}
-                  </div>
-                  {hasArbox || !isArboxTriggerType(trigger.trigger_type) ? (
-                    <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
-                      <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
-                          checked={trigger.enabled}
-                          disabled={triggerTogglingId === trigger.id}
-                          onChange={(e) => void onToggleTrigger(trigger, e.target.checked)}
-                        />
-                        פעיל
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => startEditTrigger(trigger)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-                        aria-label="ערוך טריגר"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        עריכה
-                      </button>
-                      <button
-                        type="button"
-                        disabled={triggerDeletingId === trigger.id}
-                        onClick={() => void onDeleteTrigger(trigger.id)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-red-200 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
-                        aria-label="מחק טריגר"
-                      >
-                        {triggerDeletingId === trigger.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                        מחק
-                      </button>
+                      {hasArbox || !isArboxTriggerType(trigger.trigger_type) ? (
+                        <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
+                          <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
+                              checked={trigger.enabled}
+                              disabled={triggerTogglingId === trigger.id}
+                              onChange={(e) => void onToggleTrigger(trigger, e.target.checked)}
+                            />
+                            פעיל
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => startEditTrigger(trigger)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+                            aria-label="ערוך טריגר"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            עריכה
+                          </button>
+                          <button
+                            type="button"
+                            disabled={triggerDeletingId === trigger.id}
+                            onClick={() => void onDeleteTrigger(trigger.id)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-red-200 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
+                            aria-label="מחק טריגר"
+                          >
+                            {triggerDeletingId === trigger.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                            מחק
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+                  </li>
+                ))}
+              </ul>
+            )}
 
-        {enabledIncomingLead ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3 text-right">
-            <h3 className="text-sm font-semibold text-zinc-900">Webhook — ליד מאתר/קמפיין</h3>
-            <p className="text-xs leading-relaxed text-zinc-700">
-              לאתר עם טופס (Elementor): הדביקו את ה-URL ב-Actions → Webhook.
-            </p>
-            <p className="text-xs leading-relaxed text-zinc-700">
-              לקמפיין פייסבוק/גוגל: חברו דרך Zapier/Make — &apos;ליד חדש → POST ל-URL הזה&apos;.
-            </p>
-            <p className="text-xs leading-relaxed text-zinc-700">
-              שדות:{" "}
-              <span dir="ltr" className="font-mono">
-                full_name
-              </span>
-              ,{" "}
-              <span dir="ltr" className="font-mono">
-                phone
-              </span>
-              .
-            </p>
-            <CopyBlock label="Webhook URL" text={incomingLeadWebhookUrl} />
-            {!leadsWebhookSecret ? (
-              <p className="text-xs text-amber-800">
-                חסר טוקן לעסק — פנו לתמיכה לפני חיבור הטופס או האוטומציה.
-              </p>
+            {axisCatalogEntries.filter((e) => !e.implemented).length > 0 ? (
+              <ul className="space-y-2">
+                {axisCatalogEntries
+                  .filter((e) => !e.implemented)
+                  .map((e) => (
+                    <li
+                      key={e.type}
+                      className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-3 py-3 text-right"
+                    >
+                      <p className="font-medium text-zinc-700">{e.labelHe}</p>
+                      <p className="mt-1 text-xs text-zinc-500">בקרוב</p>
+                    </li>
+                  ))}
+              </ul>
             ) : null}
-          </div>
+
+            {enabledIncomingLead && axisAudience === "leads" ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3 text-right">
+                <h3 className="text-sm font-semibold text-zinc-900">Webhook — ליד מאתר/קמפיין</h3>
+                <p className="text-xs leading-relaxed text-zinc-700">
+                  לאתר עם טופס (Elementor): הדביקו את ה-URL ב-Actions → Webhook.
+                </p>
+                <p className="text-xs leading-relaxed text-zinc-700">
+                  לקמפיין פייסבוק/גוגל: חברו דרך Zapier/Make — &apos;ליד חדש → POST ל-URL הזה&apos;.
+                </p>
+                <p className="text-xs leading-relaxed text-zinc-700">
+                  שדות:{" "}
+                  <span dir="ltr" className="font-mono">
+                    full_name
+                  </span>
+                  ,{" "}
+                  <span dir="ltr" className="font-mono">
+                    phone
+                  </span>
+                  .
+                </p>
+                <CopyBlock label="Webhook URL" text={incomingLeadWebhookUrl} />
+                {!leadsWebhookSecret ? (
+                  <p className="text-xs text-amber-800">
+                    חסר טוקן לעסק — פנו לתמיכה לפני חיבור הטופס או האוטומציה.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        {axisActivation === "manual" && axisAudience !== "staff" ? (
+          <ul className="space-y-3">
+            {axisCatalogEntries.length === 0 ? (
+              <li className="text-sm text-zinc-500 text-right">אין קמפיינים בקהל הזה עדיין.</li>
+            ) : (
+              axisCatalogEntries.map((entry) => {
+                const manualType = "manualAudienceType" in entry ? entry.manualAudienceType : undefined;
+                const open = activeManualCampaign === entry.type;
+                return (
+                  <li
+                    key={entry.type}
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-3 sm:px-4 space-y-3"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-right">
+                      <div>
+                        <p className="font-medium text-zinc-900">{entry.labelHe}</p>
+                        <p className="text-xs text-zinc-500">{entry.sendHintHe}</p>
+                      </div>
+                      {entry.implemented && manualType ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveManualCampaign(open ? null : entry.type)
+                          }
+                          className="inline-flex items-center rounded-xl bg-[#7133da] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5f28c0]"
+                        >
+                          {open ? "סגור" : "שלח קמפיין"}
+                        </button>
+                      ) : (
+                        <span className="inline-flex rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-600">
+                          בקרוב
+                        </span>
+                      )}
+                    </div>
+                    {open && manualType ? (
+                      <CampaignSendPanel
+                        slug={slug}
+                        audienceType={manualType}
+                        templates={marketingTemplates}
+                        onClose={() => setActiveManualCampaign(null)}
+                      />
+                    ) : null}
+                  </li>
+                );
+              })
+            )}
+          </ul>
         ) : null}
       </section>
 
+      {axisActivation === "automatic" && axisAudience !== "staff" ? (
       <section
         ref={addTriggerSectionRef}
         id="add-trigger"
         className="scroll-mt-28 rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4"
       >
         <div className="text-right">
-          <h2 className="text-base font-semibold text-zinc-900">הוסף טריגר</h2>
+          <h2 className="text-base font-semibold text-zinc-900">
+            הוסף טריגר — {AUDIENCE_LABELS_HE[axisAudience]}
+          </h2>
         </div>
 
         {!hasArbox ? (
@@ -1386,6 +1482,11 @@ export default function TemplatesClient({
           </p>
         ) : null}
 
+        {creatableTriggerOptions.length === 0 ? (
+          <p className="text-sm text-zinc-500 text-right">
+            אין טריגרים נוספים ליצירה בקהל הזה כרגע.
+          </p>
+        ) : (
         <form
           className="space-y-4"
           onSubmit={(e) => void onCreateTrigger(e)}
@@ -1476,6 +1577,7 @@ export default function TemplatesClient({
           ) : null}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {!isBirthdayFamilyTriggerType(newTriggerType) ? (
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-zinc-800">ימים</label>
               <input
@@ -1494,6 +1596,7 @@ export default function TemplatesClient({
                 <p className="text-xs text-zinc-500">מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).</p>
               ) : null}
             </div>
+            ) : null}
             {!hideNewDelayDirection ? (
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-zinc-800">כיוון</label>
@@ -1548,7 +1651,9 @@ export default function TemplatesClient({
             </button>
           </div>
         </form>
+        )}
       </section>
+      ) : null}
 
       {showCreate && (
         <ModalShell

@@ -117,6 +117,7 @@ import {
     purchase: ["דנה", "Limitless"],
     credit_refusal: ["דנה"],
     birthday: ["דנה", "Limitless"],
+    birthday_former: ["דנה", "Limitless"],
     membership_expiring: ["דנה", "Limitless", "15.09.2026"],
     sessions_expiring: ["דנה", "Limitless", "15.09.2026"],
     trial_attended: ["דנה"],

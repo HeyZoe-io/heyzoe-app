@@ -137,10 +137,11 @@ export async function resolveCreditRefusalTemplateTrigger(input: {
   return pickCreditRefusalTemplateTriggerRule(rules);
 }
 
-/** Enabled birthday rules — pick newest with a template name. */
-export async function loadEnabledBirthdayTemplateTriggers(
+/** Enabled birthday / birthday_former rules — pick newest with a template name. */
+async function loadEnabledBirthdayFamilyTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number
+  businessId: number,
+  triggerType: "birthday" | "birthday_former"
 ): Promise<PurchaseTemplateTriggerRule[]> {
   const { data, error } = await admin
     .from("template_triggers")
@@ -148,15 +149,32 @@ export async function loadEnabledBirthdayTemplateTriggers(
       "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
     )
     .eq("business_id", businessId)
-    .eq("trigger_type", "birthday")
+    .eq("trigger_type", triggerType)
     .eq("enabled", true);
 
   if (error) {
-    console.error("[template-triggers-match] load birthday rules failed:", error.message);
+    console.error(
+      `[template-triggers-match] load ${triggerType} rules failed:`,
+      error.message
+    );
     return [];
   }
 
   return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export async function loadEnabledBirthdayTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  return loadEnabledBirthdayFamilyTemplateTriggers(admin, businessId, "birthday");
+}
+
+export async function loadEnabledBirthdayFormerTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  return loadEnabledBirthdayFamilyTemplateTriggers(admin, businessId, "birthday_former");
 }
 
 export function pickBirthdayTemplateTriggerRule(
@@ -170,6 +188,14 @@ export async function resolveBirthdayTemplateTrigger(input: {
   businessId: number;
 }): Promise<PurchaseTemplateTriggerRule | null> {
   const rules = await loadEnabledBirthdayTemplateTriggers(input.admin, input.businessId);
+  return pickBirthdayTemplateTriggerRule(rules);
+}
+
+export async function resolveBirthdayFormerTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledBirthdayFormerTemplateTriggers(input.admin, input.businessId);
   return pickBirthdayTemplateTriggerRule(rules);
 }
 

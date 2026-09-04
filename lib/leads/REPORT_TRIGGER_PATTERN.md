@@ -4,6 +4,27 @@ Use this when adding a new daily/frequent trigger that reads an Arbox report
 (the `membership_cancelled` / A9 shape). Do **not** copy one-off quirks from
 older triggers unless this file says so.
 
+## Two-axis registry (templates UI)
+
+`lib/trigger-catalog.ts` is the single source of truth. Each entry has:
+
+| Field | Values | Role |
+|---|---|---|
+| `activation` | `automatic` \| `manual` | Axis 1 — auto-fire vs owner-initiated campaign |
+| `audience` | `leads` \| `members` \| `staff` | Axis 2 — who the campaign targets |
+| `implemented` | `boolean` | Live vs planned («בקרוב» card; no toggle / no send) |
+
+Rules:
+
+- `template_triggers.trigger_type` / `isTriggerType` / `TEMPLATE_PRESETS` =
+  **automatic + implemented only**. Manual (`manual_*`) and planned types never
+  POST/PATCH into `template_triggers`.
+- Manual live entries map to M1 `audience_type` via `manualAudienceType`
+  (`membership` / `talked_not_registered`). UI lives on the templates page
+  (`CampaignSendPanel`); APIs stay under `/api/[slug]/bulk-send/*`.
+- Audience rule of thumb: no active membership → leads; has membership → members.
+- `recipient` (`customer` \| `staff`) stays separate — who receives the WhatsApp.
+
 ## Six layers
 
 1. **Report path + paginator** — dedicated `lib/leads/arbox-*-report.ts` (or
@@ -62,6 +83,21 @@ older triggers unless this file says so.
 - Seed (first enable): mark **all** current allLeads `user_id`s seen, set
   `arbox_leads_seeded`, **return without sending**. Only leads that appear after
   activation get the opener.
+
+## Birthday member vs former (customer-set split)
+
+- Same `birthdayReport` window as before.
+- Cross each `user_id` with the **A1 customer set** (`fetchArboxCustomerUserIds`):
+  - in set → `birthday` (automatic × members)
+  - not in set → `birthday_former` (automatic × leads)
+- Both catalog entries are `implemented: true`. Separate presets / rules /
+  `template_triggers` rows.
+- **IO:** +2 customer report GETs (memberships + sessions), flat per business
+  on the birthday daily step whenever either rule is enabled (same shape as A1).
+- **Dedup (no migration):** PK stays `(business_id, user_id, birthday_year)`.
+  Former path stores `birthday_year + 1_000_000` so member vs former never block
+  each other in the same celebration year. Scheduled keys use prefixes
+  `birthday:` vs `birthday_former:`.
 
 ## Seed vs forward-looking
 
@@ -122,5 +158,6 @@ Existing presets may predate this rule; **new** presets must follow it.
 State the GETs per run: typically **one report GET per business** (plus pages)
 on the shared cron, not a new job. Extra `/v3/membershipTypes` only when
 filtering. New-lead customer reports (memberships + sessions) only when an
-unseen non-Zoe lead remains. WhatsApp/Meta cost = new matching events after
-seed, not the seed window.
+unseen non-Zoe lead remains. Birthday always adds those two customer reports
+when a birthday / birthday_former rule is enabled. WhatsApp/Meta cost = new
+matching events after seed, not the seed window.

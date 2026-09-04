@@ -22,7 +22,9 @@ assert.equal(
   "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:"
 );
 assert.equal(TEMPLATE_PRESETS.purchase.button_text, undefined);
-assert.equal(TEMPLATE_PRESETS.membership_cancelled.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.birthday_former.category, "MARKETING");
+assert.deepEqual(paramSlotsForTriggerType("birthday_former"), ["first_name", "business_name"]);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.birthday_former.body), 2);
 assert.equal(TEMPLATE_PRESETS.membership_cancelled.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.membership_cancelled.body,
