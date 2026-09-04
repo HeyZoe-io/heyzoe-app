@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   exactTypedCatalogServiceName,
   exactTypedCatalogSwitchTarget,
+  resolveMidFlowCatalogSwitchTarget,
   isPhaseAgnosticExplicitServiceSwitch,
   isAmbiguousPartialCatalogServiceSwitch,
   isCatalogSpecificKnowledgeQuestion,
@@ -244,5 +245,82 @@ assert.equal(
   isAmbiguousPartialCatalogServiceSwitch("יש שיעור יוגה נשים?", "שיעור יוגה מתקדמים", sanga),
   true
 );
+
+{
+  const limitlessMenu = [
+    "אימוני כוח - Strength",
+    "Power&HIIT",
+    "Mobility Power",
+    "כוח לנשים בלבד",
+    "פילאטיס מכשירים (כסא)",
+    "פילאטיס מזרן",
+  ];
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "פילאטיס מכשירים (כסא)",
+      lastPickedServiceName: "Power&HIIT",
+      serviceNames: limitlessMenu,
+      isInteractiveReply: true,
+    }),
+    "פילאטיס מכשירים (כסא)",
+    "tapping a previous service list row during schedule must switch product"
+  );
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "פילאטיס מכשירים (כסא)",
+      lastPickedServiceName: "Power&HIIT",
+      serviceNames: limitlessMenu,
+      isInteractiveReply: false,
+    }),
+    "פילאטיס מכשירים (כסא)"
+  );
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "פילאטיס מכשירים (כסא)",
+      lastPickedServiceName: null,
+      serviceNames: limitlessMenu,
+      isInteractiveReply: true,
+    }),
+    null,
+    "first opening list_reply stays on the service-pick handler"
+  );
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "פילאטיס מכשירים (כסא)",
+      lastPickedServiceName: null,
+      serviceNames: limitlessMenu,
+      isInteractiveReply: false,
+    }),
+    "פילאטיס מכשירים (כסא)"
+  );
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "יום שני ב18:30",
+      lastPickedServiceName: "Power&HIIT",
+      serviceNames: limitlessMenu,
+      isInteractiveReply: true,
+    }),
+    null
+  );
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "בחירת אימון אחר",
+      lastPickedServiceName: "Power&HIIT",
+      serviceNames: limitlessMenu,
+      isInteractiveReply: true,
+    }),
+    null
+  );
+  assert.equal(
+    resolveMidFlowCatalogSwitchTarget({
+      inboundText: "Power&HIIT",
+      lastPickedServiceName: "Power&HIIT",
+      serviceNames: limitlessMenu,
+      isInteractiveReply: true,
+    }),
+    null,
+    "re-tapping the current service is not a switch"
+  );
+}
 
 console.log("wa-cta-service-repick.test.ts: ok");

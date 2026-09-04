@@ -143,7 +143,7 @@ import {
   isExplicitOtherServiceRequest,
   isNumericServicePickReply,
   isPhaseAgnosticExplicitServiceSwitch,
-  exactTypedCatalogSwitchTarget,
+  resolveMidFlowCatalogSwitchTarget,
   replyContainsServiceRepickBridge,
   resolveImplicitServiceSwitchFromFreeText,
   withServiceRepickAckPrefix,
@@ -305,6 +305,8 @@ import {
   WA_UNCLEAR_CLARIFY_MODEL,
   WA_UNCLEAR_HANDOFF_MODEL,
 } from "@/lib/wa-unclear-intent";
+import { extractGeminiCustomerFacingText } from "@/lib/wa-model-thought-strip";
+import { looksLikeStudioMarketingBroadcastInbound } from "@/lib/wa-studio-broadcast-inbound";
 import {
   KNOWLEDGE_GAP_NO_DETAILS_MODEL,
   pickKnowledgeGapNoDetailsReply,
@@ -8126,12 +8128,12 @@ async function processIncoming(
   }
 
   // החלפת מוצר בפלואו מכירה פעיל — לא אחרי הרשמה / מצב עזרה
+  // Exact catalog name also from list_reply (tapping a previous service row while in schedule).
   if (
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
     businessId &&
     salesFlowServices.length > 1 &&
-    isSalesFlowFreeTextInbound(msg) &&
     salesFlowStarted &&
     contactTrialRegistered !== true &&
     contactSessionPhase !== "registered" &&
@@ -8143,11 +8145,25 @@ async function processIncoming(
     });
     const serviceNamesForSwitch = salesFlowServices.map((s) => s.name.trim()).filter(Boolean);
     const lastPickedName = String(lastPickedForExplicitSwitch ?? "").trim();
-    const exactSwitchTarget = exactTypedCatalogSwitchTarget(
-      msg.text.trim(),
-      lastPickedForExplicitSwitch,
-      serviceNamesForSwitch
-    );
+    const interactiveCatalogReply = isMetaInteractiveMenuReply(msg);
+    let inboundForExactSwitch = msg.text.trim();
+    if (interactiveCatalogReply) {
+      const catalogIdx = findWaMenuOptionIndex(
+        msg.text.trim(),
+        msg.metaInteractiveReplyId,
+        serviceNamesForSwitch
+      );
+      inboundForExactSwitch =
+        catalogIdx >= 0
+          ? serviceNamesForSwitch[catalogIdx]!
+          : resolveWaMenuChoice(msg.text, msg.metaInteractiveReplyId, serviceNamesForSwitch);
+    }
+    const exactSwitchTarget = resolveMidFlowCatalogSwitchTarget({
+      inboundText: inboundForExactSwitch,
+      lastPickedServiceName: lastPickedForExplicitSwitch,
+      serviceNames: serviceNamesForSwitch,
+      isInteractiveReply: interactiveCatalogReply,
+    });
     if (exactSwitchTarget) {
       contactSessionPhase = await commitImplicitServiceSwitch({
         knowledge,
@@ -8200,6 +8216,7 @@ async function processIncoming(
       return;
     }
     if (
+      isSalesFlowFreeTextInbound(msg) &&
       isPhaseAgnosticExplicitServiceSwitch(
         msg.text.trim(),
         lastPickedForExplicitSwitch,
@@ -8226,6 +8243,7 @@ async function processIncoming(
       return;
     }
     if (
+      isSalesFlowFreeTextInbound(msg) &&
       isAmbiguousPartialCatalogServiceSwitch(
         msg.text.trim(),
         lastPickedForExplicitSwitch,
@@ -10989,6 +11007,9 @@ async function processIncoming(
         const model = genAI.getGenerativeModel({
           model: GEMINI_WHATSAPP_MODEL,
           systemInstruction: systemPrompt,
+          generationConfig: {
+            thinkingConfig: { thinkingBudget: 0 },
+          } as never,
         });
         const geminiRes = await model.generateContent({
           contents: claudeMessages.map((m) => ({
@@ -11149,6 +11170,13 @@ async function processIncoming(
       trialRegistered: contactTrialRegistered === true,
     }
   );
+
+  if (!isFallbackErrorReply && didCallClaude && !String(replyCoreClean ?? "").trim()) {
+    const lang = detectMessageLanguage(incomingRaw);
+    const unclearKind = sessionHasUnclearClarifyAsk(aiSessionHistory) ? "handoff" : "clarify";
+    replyCoreClean = pickUnclearIntentReply(unclearKind, lang);
+    console.error("[WA Webhook] model reply empty after thought-strip; using unclear fallback");
+  }
 
   if (
     !isFallbackErrorReply &&

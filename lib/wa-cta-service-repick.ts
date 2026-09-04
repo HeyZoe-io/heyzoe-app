@@ -388,6 +388,28 @@ export function exactTypedCatalogSwitchTarget(
 }
 
 /**
+ * Mid-flow catalog switch from typed name or tapping a previous service list row.
+ * Interactive replies only count after a prior pick — first list_reply stays on the opening handler.
+ */
+export function resolveMidFlowCatalogSwitchTarget(input: {
+  inboundText: string;
+  lastPickedServiceName: string | null;
+  serviceNames: string[];
+  isInteractiveReply: boolean;
+}): string | null {
+  const exact = exactTypedCatalogSwitchTarget(
+    input.inboundText,
+    input.lastPickedServiceName,
+    input.serviceNames
+  );
+  if (!exact) return null;
+  if (input.isInteractiveReply && !String(input.lastPickedServiceName ?? "").trim()) {
+    return null;
+  }
+  return exact;
+}
+
+/**
  * מעבר שקט/מחדש — רק כשממתינים לבחירת שירות מהתפריט.
  * רק התאמת שם מלא/חד-משמעי; בלי טוקן חלקי / offer-kind.
  */
