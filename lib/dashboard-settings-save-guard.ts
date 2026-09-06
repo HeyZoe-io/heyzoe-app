@@ -53,6 +53,22 @@ export function preserveSalesFlowExtraStepsInSocial(
   };
 }
 
+export function settingsUpdatedAtFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const rec = payload as Record<string, unknown>;
+  const biz = rec.business;
+  const row =
+    biz && typeof biz === "object" && !Array.isArray(biz) ? (biz as Record<string, unknown>) : rec;
+  return String(row.updated_at ?? "").trim();
+}
+
+export function isSettingsConflictResponse(status: number, json: unknown): boolean {
+  if (status !== 409) return false;
+  const error =
+    json && typeof json === "object" ? String((json as { error?: unknown }).error ?? "") : "";
+  return error === "settings_conflict";
+}
+
 /**
  * Any businesses.updated_at change since load is a conflict (acceptable, safe side —
  * CRM stamps, Arbox sync, or another settings save all bump the same column).

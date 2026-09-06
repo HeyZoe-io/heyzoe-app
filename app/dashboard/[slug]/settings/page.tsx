@@ -46,7 +46,16 @@ import {
   syncCourseLegacyDatesFromCycles,
   type CourseCycle,
 } from "@/lib/product-schedule-slots";
-import { dashboardSettingsFetcher, dashboardSettingsKey } from "@/lib/fetchers";
+import {
+  dashboardSettingsFetcher,
+  dashboardSettingsKey,
+  fetchJson,
+  type DashboardSettingsPayload,
+} from "@/lib/fetchers";
+import {
+  isSettingsConflictResponse,
+  settingsUpdatedAtFromPayload,
+} from "@/lib/dashboard-settings-save-guard";
 import { compressImageForWhatsAppIfNeeded } from "@/lib/compress-image-for-whatsapp";
 import { buildCourseSchedulePhraseForCta } from "@/lib/product-schedule-slots";
 import { dashboardMaxUploadBytesForFile } from "@/lib/whatsapp-media-limits";
@@ -2241,7 +2250,27 @@ export default function SlugSettingsPage({
     setSaving(true);
     setSaveErr("");
     try {
-      const res = await postSettings();
+      let res = await postSettings();
+      if (!res.ok) {
+        let peek: { error?: string } = {};
+        try {
+          peek = (await res.clone().json()) as { error?: string };
+        } catch {
+          peek = {};
+        }
+        if (isSettingsConflictResponse(res.status, peek)) {
+          try {
+            const fresh = await fetchJson<DashboardSettingsPayload>(
+              `/api/dashboard/settings?slug=${encodeURIComponent(slug)}`
+            );
+            const token = settingsUpdatedAtFromPayload(fresh);
+            if (token) expectedUpdatedAtRef.current = token;
+            res = await postSettings();
+          } catch {
+            /* keep the original conflict response */
+          }
+        }
+      }
       if (!res.ok) {
         setSaveErr(await readSaveErrorFromResponse(res, t));
         return false;

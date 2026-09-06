@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  isSettingsConflictResponse,
   preserveSalesFlowExtraSteps,
   preserveSalesFlowExtraStepsInSocial,
   settingsUpdatedAtConflicts,
+  settingsUpdatedAtFromPayload,
 } from "@/lib/dashboard-settings-save-guard";
 import { defaultSalesFlowConfig, serializeSalesFlowConfig } from "@/lib/sales-flow";
 
@@ -73,5 +75,13 @@ assert.equal(settingsUpdatedAtConflicts("2026-08-24T10:00:00.000Z", "2026-08-24T
 assert.equal(settingsUpdatedAtConflicts("", "2026-08-24T10:00:00.000Z"), true);
 assert.equal(settingsUpdatedAtConflicts("2026-08-24T10:00:00.000Z", ""), false);
 assert.equal(settingsUpdatedAtConflicts(undefined, "2026-08-24T10:00:00.000Z"), true);
+
+assert.equal(isSettingsConflictResponse(409, { error: "settings_conflict" }), true);
+assert.equal(isSettingsConflictResponse(400, { error: "settings_conflict" }), false);
+assert.equal(isSettingsConflictResponse(409, { error: "slug_taken" }), false);
+assert.equal(
+  settingsUpdatedAtFromPayload({ business: { updated_at: "2026-09-06T10:00:00.000Z" } }),
+  "2026-09-06T10:00:00.000Z"
+);
 
 console.log("dashboard-settings-save-guard.test.ts: ok");
