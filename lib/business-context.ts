@@ -193,8 +193,11 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
   const key = normalizePackKey(slug);
   const now = Date.now();
   const hit = cache.get(key);
-  // Short TTL to keep chats snappy while reflecting dashboard edits quickly.
-  if (hit && now - hit.at < 8_000) {
+  // Same-instance dashboard saves call invalidateBusinessKnowledgePackCache.
+  // 60s bounds cross-instance staleness (matches loadZoePlatformGuidelines).
+  // 8s was too short for WhatsApp: inbound gaps are usually >8s, so the pack
+  // was rebuilt (JSON.parse + prompt assembly) on nearly every message.
+  if (hit && now - hit.at < 60_000) {
     return hit.v;
   }
   try {

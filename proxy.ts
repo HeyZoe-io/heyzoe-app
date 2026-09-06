@@ -47,7 +47,8 @@ function redirectToBillingReactivate(req: NextRequest) {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Never run auth on APIs or Next internals — matcher below may overlap `/api/*` (e.g. webhooks).
+  // Defense in depth: matcher excludes `/api` and `/_next`, but keep the early
+  // return if a future matcher change re-introduces overlap.
   if (pathname.startsWith("/api") || pathname.startsWith("/_next")) {
     return NextResponse.next();
   }
@@ -248,11 +249,17 @@ export const config = {
     "/admin/:path*",
     "/dashboard/:path*",
     "/account/:path*",
+    "/templates",
+    "/templates/:path*",
     /*
-     * Owner shortcuts under `app/[slug]/…` (/studio/analytics etc.).
-     * `/api`, `/_next`, static files & marketing URLs are exited early inside proxy().
+     * Owner shortcuts under `app/[slug]/…` (`/studio`, `/studio/analytics`, …).
+     * Do NOT use `/:slug/:path*` — that also matches `/_next/static/*`, `/api/*`,
+     * and every asset, so proxy CPU was billed on every JS/CSS/image request
+     * (Fluid Active CPU). Public routes that previously matched and immediately
+     * returned `next()` are omitted so they never enter proxy.
      */
-    "/:slug",
-    "/:slug/:path*",
+    "/:slug((?!api|_next|admin|dashboard|account|register|onboarding|privacy|terms|contact|lp-leads|templates)[^/.]+)",
+    "/:slug/(analytics|conversations|contacts|settings|templates)",
+    "/:slug/(analytics|conversations|contacts|settings|templates)/:path*",
   ],
 };

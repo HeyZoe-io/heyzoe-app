@@ -1,6 +1,4 @@
 import { NextRequest, after } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   verifyTwilioSignature,
   parseTwilioWebhook,
@@ -5346,13 +5344,11 @@ export async function POST(req: NextRequest) {
     // Verify Twilio signature (skip in dev if auth token not set)
     if (authToken) {
       const signature = req.headers.get("x-twilio-signature") ?? "";
-      const sortedParamKeys = Object.keys(params).sort();
-      const paramStr = sortedParamKeys.map(k => `${k}=${params[k]}`).join(" | ");
-      const { createHmac } = await import("crypto");
-      const strToSign = signingUrl + sortedParamKeys.map(k => k + (params[k] ?? "")).join("");
-      const computed = createHmac("sha1", authToken).update(strToSign, "utf8").digest("base64");
-      // Avoid logging signature material in production.
       if (process.env.WA_SIGNATURE_DEBUG === "1") {
+        const sortedParamKeys = Object.keys(params).sort();
+        const { createHmac } = await import("crypto");
+        const strToSign = signingUrl + sortedParamKeys.map((k) => k + (params[k] ?? "")).join("");
+        const computed = createHmac("sha1", authToken).update(strToSign, "utf8").digest("base64");
         console.log("[WA Webhook] signature debug:", {
           signingUrl,
           match: computed === signature,
@@ -11073,6 +11069,7 @@ async function processIncoming(
     ) {
       claudeMessages.push({ role: "user" as const, content: currentText });
     }
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
       didCallClaude = true;
@@ -11086,6 +11083,7 @@ async function processIncoming(
       const runGemini = async () => {
         const geminiApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ?? "";
         if (!geminiApiKey) throw new Error("Missing GEMINI_API_KEY");
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
         const genAI = new GoogleGenerativeAI(geminiApiKey);
         const model = genAI.getGenerativeModel({
           model: GEMINI_WHATSAPP_MODEL,
