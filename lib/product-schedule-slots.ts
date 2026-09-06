@@ -77,7 +77,7 @@ export function normalizeProductScheduleSlotsFromMeta(raw: unknown, newId: () =>
     const id = String(o.id ?? "").trim() || newId();
     out.push({ id, day: day || SCHEDULE_SLOT_DAY_UNSET, time });
   }
-  return out;
+  return sortProductScheduleSlots(out);
 }
 
 /** לתצוגה בווטסאפ / שמירה ב־sf_requested_date — למשל «יום ב׳» */

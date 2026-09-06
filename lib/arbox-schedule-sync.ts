@@ -1,6 +1,6 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { businessHasArboxConnection } from "@/lib/crm/types";
-import type { ProductScheduleSlot } from "@/lib/product-schedule-slots";
+import { sortProductScheduleSlots, type ProductScheduleSlot } from "@/lib/product-schedule-slots";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const IL_TZ = "Asia/Jerusalem";
@@ -188,14 +188,14 @@ export function weeklySlotsFromOccurrences(
     seen.add(k);
     out.push({ day, time });
   }
-  return out;
+  return sortProductScheduleSlots(out);
 }
 
 export function slotsToProductScheduleSlots(
   slots: Array<{ day: string; time: string }>,
   newId: () => string
 ): ProductScheduleSlot[] {
-  return slots.map((s) => ({ id: newId(), day: s.day, time: s.time }));
+  return sortProductScheduleSlots(slots.map((s) => ({ id: newId(), day: s.day, time: s.time })));
 }
 
 export function shouldNotifyRemovedClass(input: {

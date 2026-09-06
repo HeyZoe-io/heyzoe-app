@@ -38,6 +38,23 @@ assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
 }
 
 {
+  const slots = weeklySlotsFromOccurrences([
+    { date: "2026-08-26", start_time: "19:30" }, // Wednesday
+    { date: "2026-08-23", start_time: "18:00" }, // Sunday evening
+    { date: "2026-08-24", start_time: "07:00" }, // Monday morning
+    { date: "2026-08-23", start_time: "09:00" }, // Sunday morning
+    { date: "2026-08-25", start_time: "12:15" }, // Tuesday
+  ]);
+  assert.deepEqual(slots, [
+    { day: "א", time: "09:00" },
+    { day: "א", time: "18:00" },
+    { day: "ב", time: "07:00" },
+    { day: "ג", time: "12:15" },
+    { day: "ד", time: "19:30" },
+  ]);
+}
+
+{
   const catalog = catalogFromBoxCategoryRows([
     { box_category_id: 53273, name: "Handstand (Beginner)" },
     { box_category_id: 58510, name: "Open Jam" },
