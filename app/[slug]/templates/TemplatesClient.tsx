@@ -29,12 +29,12 @@ import {
   AUDIENCE_LABELS_HE,
   allowsDelayBefore,
   catalogEntriesFor,
+  creatableTriggerOptionsForCell,
   defaultDelayDays,
   defaultDelayDirection,
   formatDelayLabel,
   isArboxDependentTriggerType,
   isBirthdayFamilyTriggerType,
-  isCreatableTriggerType,
   isImmediateDelayTrigger,
   isIncomingLeadTriggerType,
   minDelayDaysForTrigger,
@@ -332,14 +332,13 @@ export default function TemplatesClient({
 
   const creatableTriggerOptions = useMemo(() => {
     const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
-    return TRIGGER_TYPE_OPTIONS.filter((opt) => {
-      if (!isCreatableTriggerType(opt.value, hasArbox)) return false;
-      const entry = triggerCatalogEntry(opt.value);
-      if (!entry || entry.audience !== axisAudience) return false;
-      if (opt.value === "incoming_lead" && hasIncomingLead) return false;
-      return true;
-    });
-  }, [hasArbox, triggers, axisAudience]);
+    // Cell-scoped: activation × audience × implemented creatable (not the flat catalog).
+    return creatableTriggerOptionsForCell({
+      activation: axisActivation,
+      audience: axisAudience,
+      hasArbox,
+    }).filter((opt) => !(opt.value === "incoming_lead" && hasIncomingLead));
+  }, [hasArbox, triggers, axisActivation, axisAudience]);
 
   const axisCatalogEntries = useMemo(
     () => catalogEntriesFor({ activation: axisActivation, audience: axisAudience }),

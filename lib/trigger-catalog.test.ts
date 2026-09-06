@@ -6,6 +6,7 @@ import {
   allowsDelayBefore,
   canonicalizeTriggerType,
   catalogEntriesFor,
+  creatableTriggerOptionsForCell,
   defaultDelayDays,
   defaultDelayDirection,
   delayDirectionForTrigger,
@@ -117,6 +118,61 @@ function triggerCatalogAudience(type: string) {
   assert.ok(manualLeads.some((e) => e.type === "manual_talked_not_registered" && e.implemented));
   assert.ok(manualLeads.some((e) => e.type === "manual_lost_leads" && !e.implemented));
   assert.deepEqual(catalogEntriesFor({ activation: "automatic", audience: "staff" }), []);
+}
+
+/** Create dropdown is cell-scoped — not the flat TRIGGER_TYPE_OPTIONS catalog. */
+{
+  const memberTypes = creatableTriggerOptionsForCell({
+    activation: "automatic",
+    audience: "members",
+    hasArbox: true,
+  }).map((o) => o.value);
+  assert.ok(memberTypes.includes("purchase"));
+  assert.ok(memberTypes.includes("birthday"));
+  assert.ok(memberTypes.includes("membership_cancelled"));
+  assert.ok(!memberTypes.includes("incoming_lead"));
+  assert.ok(!memberTypes.includes("trial_attended"));
+  assert.ok(!memberTypes.includes("arbox_new_lead"));
+  assert.ok(!memberTypes.includes("hold"), "planned hold is not creatable");
+  assert.ok(!memberTypes.includes("manual_membership"), "manual not in automatic create");
+
+  const leadTypes = creatableTriggerOptionsForCell({
+    activation: "automatic",
+    audience: "leads",
+    hasArbox: true,
+  }).map((o) => o.value);
+  assert.ok(leadTypes.includes("incoming_lead"));
+  assert.ok(leadTypes.includes("trial_attended"));
+  assert.ok(leadTypes.includes("birthday_former"));
+  assert.ok(!leadTypes.includes("purchase"));
+  assert.ok(!leadTypes.includes("birthday"));
+  assert.ok(!leadTypes.includes("lost_lead"), "planned lost_lead is not creatable");
+
+  assert.deepEqual(
+    creatableTriggerOptionsForCell({
+      activation: "automatic",
+      audience: "staff",
+      hasArbox: true,
+    }),
+    []
+  );
+  assert.deepEqual(
+    creatableTriggerOptionsForCell({
+      activation: "manual",
+      audience: "members",
+      hasArbox: true,
+    }),
+    [],
+    "manual cell uses campaign flow, not trigger create dropdown"
+  );
+  assert.deepEqual(
+    creatableTriggerOptionsForCell({
+      activation: "manual",
+      audience: "leads",
+      hasArbox: true,
+    }),
+    []
+  );
 }
 
 {

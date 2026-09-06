@@ -565,6 +565,23 @@ export function catalogEntriesFor(input: {
   ).sort((a, b) => a.uiOrder - b.uiOrder);
 }
 
+/**
+ * Create-dropdown options for one activation×audience cell.
+ * Reads the catalog only — planned / manual / other-cell types never appear.
+ */
+export function creatableTriggerOptionsForCell(input: {
+  activation: TriggerActivation;
+  audience: TriggerAudience;
+  hasArbox: boolean;
+}): { value: TriggerType; label: string }[] {
+  return catalogEntriesFor({
+    activation: input.activation,
+    audience: input.audience,
+  })
+    .filter((e) => isCreatableTriggerType(e.type, input.hasArbox))
+    .map((e) => ({ value: e.type as TriggerType, label: e.labelHe }));
+}
+
 export function isBirthdayFamilyTriggerType(value: string): boolean {
   const t = canonicalizeTriggerType(value);
   return t === "birthday" || t === "birthday_former";
