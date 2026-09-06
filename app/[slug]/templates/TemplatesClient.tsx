@@ -57,6 +57,14 @@ import {
   type TriggerAudience,
   type TriggerType,
 } from "@/lib/trigger-catalog";
+import {
+  buildInlineTemplateDraft,
+  defaultTriggerTemplateMode,
+  isApprovedTemplateRow,
+  shouldShowTriggerPendingPill,
+  templateStatusForTriggerName,
+  type TriggerTemplateMode,
+} from "@/lib/trigger-inline-template";
 
 export type TemplateRow = {
   id?: string;
@@ -310,6 +318,11 @@ export default function TemplatesClient({
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTriggerEnabled, setNewTriggerEnabled] = useState(true);
+  const [newTemplateMode, setNewTemplateMode] = useState<TriggerTemplateMode>("create_new");
+  const [inlineTplName, setInlineTplName] = useState("");
+  const [inlineTplBody, setInlineTplBody] = useState("");
+  const [inlineTplCategory, setInlineTplCategory] = useState<"MARKETING" | "UTILITY">("MARKETING");
+  const [inlineTplButton, setInlineTplButton] = useState("");
   const [connectPrompt, setConnectPrompt] = useState<{
     templateName: string;
     purpose: TriggerType | "";
@@ -326,6 +339,12 @@ export default function TemplatesClient({
         const st = String(t.status).toUpperCase();
         return t.disabled !== true && (st === "APPROVED" || st === "PENDING");
       }),
+    [templates]
+  );
+
+  /** "Use existing" path — only APPROVED (no Meta re-submit / wait). */
+  const approvedSelectableTemplates = useMemo(
+    () => templates.filter((t) => isApprovedTemplateRow(t)),
     [templates]
   );
 
@@ -503,61 +522,181 @@ export default function TemplatesClient({
     return types.map((t) => PURCHASE_ITEM_TYPE_LABELS_HE[t] ?? t).join(", ");
   }
 
+  function applyInlinePresetForType(type: TriggerType) {
+    const draft = buildInlineTemplateDraft(
+      type,
+      templates.map((t) => t.name)
+    );
+    if (!draft) {
+      setInlineTplName("");
+      setInlineTplBody("");
+      setInlineTplCategory("MARKETING");
+      setInlineTplButton("");
+      return;
+    }
+    setInlineTplName(draft.name);
+    setInlineTplBody(draft.body);
+    setInlineTplCategory(draft.category);
+    setInlineTplButton(draft.buttonText);
+  }
+
+  async function postTriggerRow(input: {
+    trigger_type: TriggerType;
+    template_name: string | null;
+    enabled: boolean;
+  }): Promise<TriggerRow | null> {
+    const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trigger_type: input.trigger_type,
+        product_filter: showNewProductFilter && newProductFilter.length > 0 ? newProductFilter : null,
+        item_type_filter:
+          showNewItemTypeFilter && newItemTypeFilter.length > 0 ? newItemTypeFilter : null,
+        delay_days: isNewImmediateDelay
+          ? 0
+          : Math.max(newDelayDaysMin, newDelayDays),
+        delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
+        template_name: input.template_name,
+        enabled: input.enabled,
+      }),
+    });
+    const j = (await res.json().catch(() => ({}))) as {
+      trigger?: TriggerRow;
+      error?: string;
+    };
+    if (!res.ok) {
+      if (j.error === "template_not_approved") {
+        throw new Error("הטמפלייט לא זמין לטריגר — בחרו טמפלייט אחר");
+      }
+      if (j.error === "template_disabled") {
+        throw new Error("הטמפלייט מושבת — בחרו טמפלייט פעיל או הפעילו מחדש");
+      }
+      if (j.error === "min_delay_days") {
+        throw new Error("לחזרה אחרי שתיקה נדרשים לפחות 2 ימים");
+      }
+      if (j.error === "arbox_not_connected") {
+        throw new Error("יש לחבר Arbox בהגדרות לפני יצירת טריגרים");
+      }
+      if (j.error === "incoming_lead_exists") {
+        throw new Error("כבר קיים טריגר ליד");
+      }
+      if (j.error === "arbox_new_lead_exists") {
+        throw new Error("כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים במקום ליצור עוד אחד");
+      }
+      throw new Error(j.error || `http_${res.status}`);
+    }
+    return j.trigger ?? null;
+  }
+
   async function onCreateTrigger(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
     setTriggerSaving(true);
     try {
-      const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trigger_type: newTriggerType,
-          product_filter: showNewProductFilter && newProductFilter.length > 0 ? newProductFilter : null,
-          item_type_filter:
-            showNewItemTypeFilter && newItemTypeFilter.length > 0 ? newItemTypeFilter : null,
-          delay_days: isNewImmediateDelay
-            ? 0
-            : Math.max(newDelayDaysMin, newDelayDays),
-          delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
-          template_name: newTemplateName.trim() || null,
-          enabled: newTriggerEnabled,
-        }),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        trigger?: TriggerRow;
-        error?: string;
-      };
-      if (!res.ok) {
-        if (j.error === "template_not_approved") {
-          throw new Error("הטמפלייט לא זמין לטריגר — בחרו טמפלייט אחר");
+      let templateName =
+        newTemplateMode === "use_existing" ? newTemplateName.trim() || null : null;
+
+      if (newTemplateMode === "create_new") {
+        if (!hasWaba) {
+          throw new Error("אין WABA מחובר לעסק — חברו WhatsApp לפני יצירת טמפלייט");
         }
-        if (j.error === "template_disabled") {
-          throw new Error("הטמפלייט מושבת — בחרו טמפלייט פעיל או הפעילו מחדש");
+        const name = inlineTplName.trim().toLowerCase();
+        if (!TEMPLATE_NAME_RE.test(name)) {
+          throw new Error("שם טמפלייט לא תקין (a-z, 0-9 ו־_ בלבד)");
         }
-        if (j.error === "min_delay_days") {
-          throw new Error("לחזרה אחרי שתיקה נדרשים לפחות 2 ימים");
+        if (!inlineTplBody.trim()) {
+          throw new Error("גוף ההודעה חובה");
         }
-        if (j.error === "arbox_not_connected") {
-          throw new Error("יש לחבר Arbox בהגדרות לפני יצירת טריגרים");
+        const exampleValues = paramSlotsForTriggerType(newTriggerType).map(presetExampleForSlot);
+        const buttons: ButtonDraft[] = inlineTplButton.trim()
+          ? [{ kind: "QUICK_REPLY", text: inlineTplButton.trim(), url: "" }]
+          : [{ kind: "QUICK_REPLY", text: "", url: "" }];
+        const components = buildMetaComponents({
+          body: inlineTplBody,
+          header: "",
+          footer: "",
+          buttons,
+          exampleValues,
+        });
+        const tplRes = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            category: inlineTplCategory,
+            language: "he",
+            components,
+          }),
+        });
+        const tplJson = (await tplRes.json().catch(() => ({}))) as {
+          template?: TemplateRow;
+          error?: string;
+          detail?: string;
+        };
+        if (!tplRes.ok) {
+          if (tplJson.error === "invalid_template_name") {
+            throw new Error("שם טמפלייט לא תקין");
+          }
+          if (tplJson.error === "no_waba") {
+            throw new Error("אין WABA מחובר לעסק — חברו WhatsApp קודם");
+          }
+          throw new Error(tplJson.detail || tplJson.error || `http_${tplRes.status}`);
         }
-        if (j.error === "incoming_lead_exists") {
-          throw new Error("כבר קיים טריגר ליד");
+        const created = tplJson.template;
+        if (created) {
+          setTemplates((prev) => {
+            const without = prev.filter((t) => t.name !== created.name);
+            return [created, ...without];
+          });
         }
-        if (j.error === "arbox_new_lead_exists") {
-          throw new Error("כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים במקום ליצור עוד אחד");
+        templateName = String(created?.name ?? name).trim();
+        try {
+          const trigger = await postTriggerRow({
+            trigger_type: newTriggerType,
+            template_name: templateName,
+            enabled: newTriggerEnabled,
+          });
+          if (trigger) {
+            setTriggers((prev) =>
+              [...prev, trigger].sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              )
+            );
+          } else {
+            await reloadTriggers();
+          }
+          setSuccess(
+            newTriggerEnabled
+              ? "הטריגר נוסף — ישלח אוטומטית אחרי אישור Meta לטמפלייט"
+              : "הטריגר נוסף (כבוי) עם טמפלייט ממתין לאישור Meta"
+          );
+        } catch (triggerErr) {
+          setNewTemplateMode("use_existing");
+          setNewTemplateName(templateName);
+          throw new Error(
+            `${triggerErr instanceof Error ? triggerErr.message : "שמירת טריגר נכשלה"} — הטמפלייט «${templateName}» כבר נוצר במטא; בחרו אותו ב«טמפלייט קיים» ונסו שוב.`
+          );
         }
-        throw new Error(j.error || `http_${res.status}`);
-      }
-      if (j.trigger) {
-        setTriggers((prev) => [...prev, j.trigger!].sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        ));
       } else {
-        await reloadTriggers();
+        const trigger = await postTriggerRow({
+          trigger_type: newTriggerType,
+          template_name: templateName,
+          enabled: newTriggerEnabled,
+        });
+        if (trigger) {
+          setTriggers((prev) =>
+            [...prev, trigger].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            )
+          );
+        } else {
+          await reloadTriggers();
+        }
+        setSuccess("הטריגר נוסף");
       }
-      setSuccess("הטריגר נוסף");
+
       setCreateFormOpenFor(null);
       setNewProductFilter([]);
       setNewProductFilterQuery("");
@@ -566,6 +705,10 @@ export default function TemplatesClient({
       setNewDelayDirection("after");
       setNewTemplateName("");
       setNewTriggerEnabled(true);
+      setNewTemplateMode("create_new");
+      setInlineTplName("");
+      setInlineTplBody("");
+      setInlineTplButton("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "שמירת טריגר נכשלה");
     } finally {
@@ -1035,23 +1178,41 @@ export default function TemplatesClient({
     setConnectPrompt(null);
   }
 
-  function startCreateTrigger(type: TriggerType) {
+  function startCreateTrigger(type: TriggerType, opts?: { preferExistingName?: string }) {
     setError(null);
     setNewTriggerType(type);
     setCreateFormOpenFor(type);
+    applyInlinePresetForType(type);
+    const mode = defaultTriggerTemplateMode({
+      preferExistingName: opts?.preferExistingName,
+      hasApprovedTemplate: approvedSelectableTemplates.length > 0,
+    });
+    setNewTemplateMode(mode);
+    if (mode === "use_existing" && opts?.preferExistingName) {
+      setNewTemplateName(opts.preferExistingName);
+    } else {
+      setNewTemplateName("");
+    }
   }
 
   function closeCreateTriggerForm() {
     setCreateFormOpenFor(null);
+    setNewTemplateMode("create_new");
+    setInlineTplName("");
+    setInlineTplBody("");
+    setInlineTplButton("");
+    setNewTemplateName("");
   }
 
   function onConnectToTrigger() {
     const prompt = connectPrompt;
     setConnectPrompt(null);
     if (prompt?.purpose && creatableCatalogEntries.some((e) => e.type === prompt.purpose)) {
-      startCreateTrigger(prompt.purpose);
-    }
-    if (prompt?.templateName) {
+      startCreateTrigger(prompt.purpose, {
+        preferExistingName: prompt.templateName || undefined,
+      });
+    } else if (prompt?.templateName) {
+      setNewTemplateMode("use_existing");
       setNewTemplateName(prompt.templateName);
     }
     window.setTimeout(() => {
@@ -1390,6 +1551,17 @@ export default function TemplatesClient({
                       <p className="text-xs text-zinc-600 break-all" dir="ltr">
                         טמפלייט: {trigger.template_name || "—"}
                       </p>
+                      {shouldShowTriggerPendingPill(
+                        templateStatusForTriggerName(templates, trigger.template_name)
+                      ) ? (
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(
+                            "PENDING"
+                          )}`}
+                        >
+                          ממתין לאישור
+                        </span>
+                      ) : null}
                       {editingTriggerId === trigger.id ? (
                         <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
                           {isImmediateDelayTrigger(trigger.trigger_type) ? (
@@ -1748,22 +1920,125 @@ export default function TemplatesClient({
                           </div>
                         )}
 
-                        <div className="space-y-1.5">
-                          <label className="text-sm font-medium text-zinc-800">טמפלייט</label>
-                          <select
-                            value={newTemplateName}
-                            onChange={(e) => setNewTemplateName(e.target.value)}
-                            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
-                            dir="rtl"
-                            style={{ textAlignLast: "right" }}
-                          >
-                            <option value="">— ללא טמפלייט —</option>
-                            {selectableTemplates.map((t) => (
-                              <option key={t.name} value={t.name}>
-                                {t.name}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-zinc-800">טמפלייט</p>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewTemplateMode("create_new");
+                                applyInlinePresetForType(newTriggerType);
+                              }}
+                              className={`rounded-xl px-3 py-1.5 text-xs font-medium border ${
+                                newTemplateMode === "create_new"
+                                  ? "border-[#7133da] bg-[#7133da] text-white"
+                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                              }`}
+                            >
+                              צור חדש (מטא)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewTemplateMode("use_existing")}
+                              className={`rounded-xl px-3 py-1.5 text-xs font-medium border ${
+                                newTemplateMode === "use_existing"
+                                  ? "border-[#7133da] bg-[#7133da] text-white"
+                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                              }`}
+                            >
+                              טמפלייט קיים
+                            </button>
+                          </div>
+
+                          {newTemplateMode === "create_new" ? (
+                            <div className="space-y-3 rounded-xl border border-zinc-200 bg-white p-3">
+                              {!hasWaba ? (
+                                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                                  אין WhatsApp מחובר — חברו WABA לפני יצירת טמפלייט חדש, או בחרו
+                                  «טמפלייט קיים».
+                                </p>
+                              ) : null}
+                              <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-zinc-700">
+                                  שם הטמפלייט
+                                </label>
+                                <input
+                                  value={inlineTplName}
+                                  onChange={(e) => {
+                                    const next = e.target.value
+                                      .toLowerCase()
+                                      .replace(/[^a-z0-9_]/g, "");
+                                    setInlineTplName(next);
+                                  }}
+                                  className={`${FIELD_CLASS} text-left`}
+                                  dir="ltr"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  required={newTemplateMode === "create_new"}
+                                />
+                              </div>
+                              <p className="text-xs text-zinc-500">
+                                קטגוריה: {inlineTplCategory === "UTILITY" ? "Utility" : "Marketing"}{" "}
+                                (לפי סוג הטריגר)
+                                {inlineTplBody
+                                  ? ` · ${presetVarHint(newTriggerType)}`
+                                  : ""}
+                              </p>
+                              <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-zinc-700">
+                                  גוף ההודעה
+                                </label>
+                                <textarea
+                                  value={inlineTplBody}
+                                  onChange={(e) => setInlineTplBody(e.target.value)}
+                                  rows={4}
+                                  className={FIELD_CLASS}
+                                  required={newTemplateMode === "create_new"}
+                                />
+                              </div>
+                              {inlineTplButton ? (
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-medium text-zinc-700">
+                                    טקסט כפתור
+                                  </label>
+                                  <input
+                                    value={inlineTplButton}
+                                    onChange={(e) => setInlineTplButton(e.target.value)}
+                                    className={FIELD_CLASS}
+                                  />
+                                </div>
+                              ) : null}
+                              <p className="text-xs text-zinc-500 leading-relaxed">
+                                יישלח לאישור Meta. הטריגר יופעל אוטומטית אחרי האישור (בלי צורך
+                                לחזור לכאן). עד אז הקרון לא שולח.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium text-zinc-800 sr-only">
+                                טמפלייט מאושר
+                              </label>
+                              <select
+                                value={newTemplateName}
+                                onChange={(e) => setNewTemplateName(e.target.value)}
+                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
+                                dir="rtl"
+                                style={{ textAlignLast: "right" }}
+                              >
+                                <option value="">— ללא טמפלייט —</option>
+                                {approvedSelectableTemplates.map((t) => (
+                                  <option key={t.name} value={t.name}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {approvedSelectableTemplates.length === 0 ? (
+                                <p className="text-xs text-zinc-500">
+                                  אין טמפלייט מאושר עדיין — צרו חדש במסלול «צור חדש».
+                                </p>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
 
                         <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
@@ -1775,15 +2050,25 @@ export default function TemplatesClient({
                           />
                           הפעל מיד לאחר הוספה
                         </label>
+                        {newTemplateMode === "create_new" && newTriggerEnabled ? (
+                          <p className="text-xs text-zinc-500 -mt-2">
+                            השליחה תתחיל אוטומטית אחרי ש־Meta יאשר את הטמפלייט.
+                          </p>
+                        ) : null}
 
                         <div className="flex justify-end">
                           <button
                             type="submit"
-                            disabled={triggerSaving}
+                            disabled={
+                              triggerSaving ||
+                              (newTemplateMode === "create_new" && !hasWaba)
+                            }
                             className="inline-flex items-center gap-1.5 rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0] disabled:opacity-60"
                           >
                             {triggerSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                            צור טריגר
+                            {newTemplateMode === "create_new"
+                              ? "צור טמפלייט + טריגר"
+                              : "צור טריגר"}
                           </button>
                         </div>
                       </form>
