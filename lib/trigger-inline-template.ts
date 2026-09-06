@@ -5,19 +5,14 @@
 import {
   TEMPLATE_PRESETS,
   uniqueTemplateName,
-  type TemplatePresetCategory,
 } from "@/lib/template-presets";
 import type { TriggerType } from "@/lib/trigger-catalog";
+import {
+  EMPTY_TEMPLATE_BUTTONS,
+  type TemplateDraftValue,
+} from "@/app/[slug]/templates/TemplateDraftFields";
 
 export type TriggerTemplateMode = "create_new" | "use_existing";
-
-export type InlineTemplateDraft = {
-  name: string;
-  category: TemplatePresetCategory;
-  body: string;
-  buttonText: string;
-  language: string;
-};
 
 /** Prefer create-new (unified flow); use-existing when returning with a known template name. */
 export function defaultTriggerTemplateMode(input: {
@@ -32,10 +27,11 @@ export function defaultTriggerTemplateMode(input: {
   return "create_new";
 }
 
+/** Full Meta template draft from TEMPLATE_PRESETS — same shape as the standalone creator. */
 export function buildInlineTemplateDraft(
   triggerType: TriggerType,
   existingTemplateNames: readonly string[]
-): InlineTemplateDraft | null {
+): TemplateDraftValue | null {
   const preset = TEMPLATE_PRESETS[triggerType];
   if (!preset) return null;
   return {
@@ -45,8 +41,12 @@ export function buildInlineTemplateDraft(
     ),
     category: preset.category,
     body: preset.body,
-    buttonText: String(preset.button_text ?? "").trim(),
     language: "he",
+    header: "",
+    footer: "",
+    buttons: preset.button_text
+      ? [{ kind: "QUICK_REPLY", text: String(preset.button_text).trim(), url: "" }]
+      : [...EMPTY_TEMPLATE_BUTTONS],
   };
 }
 

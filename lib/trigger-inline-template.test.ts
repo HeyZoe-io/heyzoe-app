@@ -29,6 +29,8 @@ assert.equal(
   assert.equal(draft!.category, TEMPLATE_PRESETS.freeze_created.category);
   assert.equal(draft!.body, TEMPLATE_PRESETS.freeze_created.body);
   assert.equal(draft!.language, "he");
+  assert.equal(draft!.header, "");
+  assert.equal(draft!.footer, "");
   assert.match(draft!.name, /^freeze_created/);
   assert.notEqual(draft!.name, "freeze_created", "unique suffix when name taken");
 }
@@ -37,7 +39,8 @@ assert.equal(
   const draft = buildInlineTemplateDraft("attendance_gap", []);
   assert.ok(draft);
   assert.equal(draft!.category, "MARKETING");
-  assert.equal(draft!.buttonText, "אשמח לחזור");
+  assert.equal(draft!.buttons[0]?.kind, "QUICK_REPLY");
+  assert.equal(draft!.buttons[0]?.text, "אשמח לחזור");
 }
 
 {

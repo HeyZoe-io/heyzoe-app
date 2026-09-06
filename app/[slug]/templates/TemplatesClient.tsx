@@ -23,6 +23,14 @@ import {
   uniqueTemplateName,
 } from "@/lib/template-presets";
 import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
+import {
+  EMPTY_TEMPLATE_BUTTONS,
+  EMPTY_TEMPLATE_DRAFT,
+  TEMPLATE_NAME_RE,
+  TemplateDraftFields,
+  type TemplateButtonDraft,
+  type TemplateDraftValue,
+} from "@/app/[slug]/templates/TemplateDraftFields";
 import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import {
   filterArboxMembershipTypesByWords,
@@ -105,9 +113,6 @@ function isIncomingLeadType(type: string): boolean {
   return isIncomingLeadTriggerType(type);
 }
 
-const FIELD_CLASS =
-  "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 caret-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]";
-
 type Props = {
   slug: string;
   initialTemplates: TemplateRow[];
@@ -117,14 +122,6 @@ type Props = {
   hasWaba: boolean;
   hasArbox: boolean;
 };
-
-type ButtonDraft = {
-  kind: "QUICK_REPLY" | "URL";
-  text: string;
-  url: string;
-};
-
-const TEMPLATE_NAME_RE = /^[a-z0-9_]+$/;
 
 function statusBadgeClass(status: string): string {
   const s = status.toUpperCase();
@@ -145,7 +142,7 @@ function buildMetaComponents(input: {
   body: string;
   header: string;
   footer: string;
-  buttons: ButtonDraft[];
+  buttons: TemplateButtonDraft[];
   exampleValues?: string[];
 }): unknown[] {
   const components: Record<string, unknown>[] = [];
@@ -319,10 +316,7 @@ export default function TemplatesClient({
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTriggerEnabled, setNewTriggerEnabled] = useState(true);
   const [newTemplateMode, setNewTemplateMode] = useState<TriggerTemplateMode>("create_new");
-  const [inlineTplName, setInlineTplName] = useState("");
-  const [inlineTplBody, setInlineTplBody] = useState("");
-  const [inlineTplCategory, setInlineTplCategory] = useState<"MARKETING" | "UTILITY">("MARKETING");
-  const [inlineTplButton, setInlineTplButton] = useState("");
+  const [inlineDraft, setInlineDraft] = useState<TemplateDraftValue>(EMPTY_TEMPLATE_DRAFT);
   const [connectPrompt, setConnectPrompt] = useState<{
     templateName: string;
     purpose: TriggerType | "";
@@ -527,17 +521,7 @@ export default function TemplatesClient({
       type,
       templates.map((t) => t.name)
     );
-    if (!draft) {
-      setInlineTplName("");
-      setInlineTplBody("");
-      setInlineTplCategory("MARKETING");
-      setInlineTplButton("");
-      return;
-    }
-    setInlineTplName(draft.name);
-    setInlineTplBody(draft.body);
-    setInlineTplCategory(draft.category);
-    setInlineTplButton(draft.buttonText);
+    setInlineDraft(draft ?? EMPTY_TEMPLATE_DRAFT);
   }
 
   async function postTriggerRow(input: {
@@ -602,22 +586,19 @@ export default function TemplatesClient({
         if (!hasWaba) {
           throw new Error("אין WABA מחובר לעסק — חברו WhatsApp לפני יצירת טמפלייט");
         }
-        const name = inlineTplName.trim().toLowerCase();
+        const name = inlineDraft.name.trim().toLowerCase();
         if (!TEMPLATE_NAME_RE.test(name)) {
           throw new Error("שם טמפלייט לא תקין (a-z, 0-9 ו־_ בלבד)");
         }
-        if (!inlineTplBody.trim()) {
+        if (!inlineDraft.body.trim()) {
           throw new Error("גוף ההודעה חובה");
         }
         const exampleValues = paramSlotsForTriggerType(newTriggerType).map(presetExampleForSlot);
-        const buttons: ButtonDraft[] = inlineTplButton.trim()
-          ? [{ kind: "QUICK_REPLY", text: inlineTplButton.trim(), url: "" }]
-          : [{ kind: "QUICK_REPLY", text: "", url: "" }];
         const components = buildMetaComponents({
-          body: inlineTplBody,
-          header: "",
-          footer: "",
-          buttons,
+          body: inlineDraft.body,
+          header: inlineDraft.header,
+          footer: inlineDraft.footer,
+          buttons: inlineDraft.buttons,
           exampleValues,
         });
         const tplRes = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
@@ -625,8 +606,8 @@ export default function TemplatesClient({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name,
-            category: inlineTplCategory,
-            language: "he",
+            category: inlineDraft.category,
+            language: inlineDraft.language || "he",
             components,
           }),
         });
@@ -706,9 +687,7 @@ export default function TemplatesClient({
       setNewTemplateName("");
       setNewTriggerEnabled(true);
       setNewTemplateMode("create_new");
-      setInlineTplName("");
-      setInlineTplBody("");
-      setInlineTplButton("");
+      setInlineDraft(EMPTY_TEMPLATE_DRAFT);
     } catch (err) {
       setError(err instanceof Error ? err.message : "שמירת טריגר נכשלה");
     } finally {
@@ -829,9 +808,7 @@ export default function TemplatesClient({
   const [body, setBody] = useState("");
   const [header, setHeader] = useState("");
   const [footer, setFooter] = useState("");
-  const [buttons, setButtons] = useState<ButtonDraft[]>([
-    { kind: "QUICK_REPLY", text: "", url: "" },
-  ]);
+  const [buttons, setButtons] = useState<TemplateButtonDraft[]>(EMPTY_TEMPLATE_BUTTONS);
   const [purposeTrigger, setPurposeTrigger] = useState<TriggerType | "">("");
   const isEditing = editingTemplate != null;
   const categoryLocked =
@@ -853,7 +830,7 @@ export default function TemplatesClient({
     if (preset.button_text) {
       setButtons([{ kind: "QUICK_REPLY", text: preset.button_text, url: "" }]);
     } else {
-      setButtons([{ kind: "QUICK_REPLY", text: "", url: "" }]);
+      setButtons([...EMPTY_TEMPLATE_BUTTONS]);
     }
   }
 
@@ -862,7 +839,7 @@ export default function TemplatesClient({
     setBody("");
     setHeader("");
     setFooter("");
-    setButtons([{ kind: "QUICK_REPLY", text: "", url: "" }]);
+    setButtons([...EMPTY_TEMPLATE_BUTTONS]);
     setCategory("MARKETING");
     setLanguage("he");
     setPurposeTrigger("");
@@ -916,7 +893,6 @@ export default function TemplatesClient({
     setShowCreate(true);
   }
 
-  const nameValid = !name || TEMPLATE_NAME_RE.test(name);
   const canSubmitCreate =
     (isEditing || TEMPLATE_NAME_RE.test(name)) &&
     body.trim().length > 0 &&
@@ -1198,9 +1174,7 @@ export default function TemplatesClient({
   function closeCreateTriggerForm() {
     setCreateFormOpenFor(null);
     setNewTemplateMode("create_new");
-    setInlineTplName("");
-    setInlineTplBody("");
-    setInlineTplButton("");
+    setInlineDraft(EMPTY_TEMPLATE_DRAFT);
     setNewTemplateName("");
   }
 
@@ -1958,56 +1932,11 @@ export default function TemplatesClient({
                                   «טמפלייט קיים».
                                 </p>
                               ) : null}
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-zinc-700">
-                                  שם הטמפלייט
-                                </label>
-                                <input
-                                  value={inlineTplName}
-                                  onChange={(e) => {
-                                    const next = e.target.value
-                                      .toLowerCase()
-                                      .replace(/[^a-z0-9_]/g, "");
-                                    setInlineTplName(next);
-                                  }}
-                                  className={`${FIELD_CLASS} text-left`}
-                                  dir="ltr"
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                  required={newTemplateMode === "create_new"}
-                                />
-                              </div>
-                              <p className="text-xs text-zinc-500">
-                                קטגוריה: {inlineTplCategory === "UTILITY" ? "Utility" : "Marketing"}{" "}
-                                (לפי סוג הטריגר)
-                                {inlineTplBody
-                                  ? ` · ${presetVarHint(newTriggerType)}`
-                                  : ""}
-                              </p>
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-zinc-700">
-                                  גוף ההודעה
-                                </label>
-                                <textarea
-                                  value={inlineTplBody}
-                                  onChange={(e) => setInlineTplBody(e.target.value)}
-                                  rows={4}
-                                  className={FIELD_CLASS}
-                                  required={newTemplateMode === "create_new"}
-                                />
-                              </div>
-                              {inlineTplButton ? (
-                                <div className="space-y-1.5">
-                                  <label className="text-xs font-medium text-zinc-700">
-                                    טקסט כפתור
-                                  </label>
-                                  <input
-                                    value={inlineTplButton}
-                                    onChange={(e) => setInlineTplButton(e.target.value)}
-                                    className={FIELD_CLASS}
-                                  />
-                                </div>
-                              ) : null}
+                              <TemplateDraftFields
+                                value={inlineDraft}
+                                onChange={setInlineDraft}
+                                bodyHint={`אפשר להשתמש ב־{{1}}, {{2}} וכו׳. ${presetVarHint(newTriggerType)}.`}
+                              />
                               <p className="text-xs text-zinc-500 leading-relaxed">
                                 יישלח לאישור Meta. הטריגר יופעל אוטומטית אחרי האישור (בלי צורך
                                 לחזור לכאן). עד אז הקרון לא שולח.
@@ -2206,161 +2135,26 @@ export default function TemplatesClient({
             </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-800">שם הטמפלייט</label>
-              <input
-                value={name}
-                onChange={(e) => {
-                  const next = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
-                  setName(next);
-                }}
-                className={`${FIELD_CLASS} text-left disabled:bg-zinc-50 disabled:text-zinc-500`}
-                dir="ltr"
-                placeholder="lead_welcome"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                required
-                disabled={isEditing}
-              />
-              <p className="text-xs text-zinc-500">
-                {isEditing
-                  ? "השם נשאר כמו במטא — אי אפשר לשנות אותו בעריכה."
-                  : "שם באנגלית בלבד, אותיות קטנות, מספרים וקו תחתון (_). ללא רווחים ועברית."}
-              </p>
-              {!nameValid && (
-                <p className="text-xs text-red-600">השם יכול לכלול רק a-z, 0-9 ו־_</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-zinc-800">קטגוריה</label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as "MARKETING" | "UTILITY")}
-                  disabled={categoryLocked}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-500"
-                >
-                  <option value="MARKETING">MARKETING</option>
-                  <option value="UTILITY">UTILITY</option>
-                </select>
-                {categoryLocked ? (
-                  <p className="text-xs text-zinc-500">לא ניתן לשנות קטגוריה של טמפלייט שכבר אושר.</p>
-                ) : null}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-zinc-800">שפה</label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  disabled={isEditing}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-500"
-                >
-                  <option value="he">he</option>
-                  <option value="en">en</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-800">גוף ההודעה (חובה)</label>
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={4}
-                required
-                className={FIELD_CLASS}
-                placeholder={"היי {{1}}, תודה שהשארת פרטים — נשמח לחזור אליך!"}
-              />
-              <p className="text-xs text-zinc-500">
-                אפשר להשתמש ב־{"{{1}}"}, {"{{2}}"} וכו׳.
-                {purposeTrigger
-                  ? ` ${presetVarHint(purposeTrigger)}.`
-                  : " {{1}} הוא בדרך כלל שם פרטי של הליד."}
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-800">כותרת (אופציונלי)</label>
-              <input
-                value={header}
-                onChange={(e) => setHeader(e.target.value)}
-                className={FIELD_CLASS}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-800">פוטר (אופציונלי)</label>
-              <input
-                value={footer}
-                onChange={(e) => setFooter(e.target.value)}
-                className={FIELD_CLASS}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-sm font-medium text-zinc-800">כפתורים (אופציונלי)</label>
-                {buttons.length < 2 && (
-                  <button
-                    type="button"
-                    className="text-xs text-[#7133da] hover:underline"
-                    onClick={() =>
-                      setButtons((prev) => [...prev, { kind: "QUICK_REPLY", text: "", url: "" }])
-                    }
-                  >
-                    + כפתור
-                  </button>
-                )}
-              </div>
-              {buttons.map((b, idx) => (
-                <div key={idx} className="rounded-xl border border-zinc-100 p-3 space-y-2">
-                  <div className="flex gap-2">
-                    <select
-                      value={b.kind}
-                      onChange={(e) => {
-                        const kind = e.target.value as ButtonDraft["kind"];
-                        setButtons((prev) =>
-                          prev.map((row, i) => (i === idx ? { ...row, kind } : row))
-                        );
-                      }}
-                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs"
-                    >
-                      <option value="QUICK_REPLY">Quick reply</option>
-                      <option value="URL">URL</option>
-                    </select>
-                    <input
-                      value={b.text}
-                      onChange={(e) =>
-                        setButtons((prev) =>
-                          prev.map((row, i) =>
-                            i === idx ? { ...row, text: e.target.value } : row
-                          )
-                        )
-                      }
-                      placeholder="טקסט כפתור"
-                      className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]"
-                    />
-                  </div>
-                  {b.kind === "URL" && (
-                    <input
-                      value={b.url}
-                      onChange={(e) =>
-                        setButtons((prev) =>
-                          prev.map((row, i) =>
-                            i === idx ? { ...row, url: e.target.value } : row
-                          )
-                        )
-                      }
-                      placeholder="https://"
-                      dir="ltr"
-                      className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-left text-zinc-900 placeholder:text-zinc-400 placeholder:opacity-100 [-webkit-text-fill-color:#18181b] placeholder:[-webkit-text-fill-color:#a1a1aa]"
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
+            <TemplateDraftFields
+              value={{ name, category, language, body, header, footer, buttons }}
+              onChange={(next) => {
+                setName(next.name);
+                setCategory(next.category);
+                setLanguage(next.language);
+                setBody(next.body);
+                setHeader(next.header);
+                setFooter(next.footer);
+                setButtons(next.buttons);
+              }}
+              nameDisabled={isEditing}
+              languageDisabled={isEditing}
+              categoryLocked={categoryLocked}
+              bodyHint={
+                purposeTrigger
+                  ? `אפשר להשתמש ב־{{1}}, {{2}} וכו׳. ${presetVarHint(purposeTrigger)}.`
+                  : undefined
+              }
+            />
 
             {createSuccess && (
               <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
