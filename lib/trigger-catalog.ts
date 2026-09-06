@@ -34,7 +34,8 @@ type TriggerCatalogEntryShape = {
 
 const SEND_HINT_FREQUENT_HE =
   "נשלח עד כ־15 דקות אחרי האירוע, בכל שעות היום";
-const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעת הקרון הקבועה";
+const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון ישראל)";
+const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
 const SEND_HINT_WEBHOOK_HE = "נשלח מיד כשמגיע ליד מהאתר או מהקמפיין";
 const SEND_HINT_MANUAL_HE = "שליחה ידנית — תצוגה מקדימה, אישור, ותזמון לתור";
 const SEND_HINT_PLANNED_HE = "בקרוב";
@@ -223,7 +224,7 @@ export const TRIGGER_CATALOG = [
     recipient: "customer",
     presetKey: "no_response",
     uiOrder: 3,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe: SEND_HINT_NO_RESPONSE_HE,
   },
   {
     type: "birthday_former",

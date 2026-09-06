@@ -434,6 +434,10 @@ function triggerCatalogAudience(type: string) {
   );
   assert.match(triggerSendScheduleHintHe("incoming_lead"), /מיד/);
   assert.match(triggerSendScheduleHintHe("manual_membership"), /ידנית/);
+  assert.match(triggerSendScheduleHintHe("membership_expiring"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("attendance_gap"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("freeze_created"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("no_response"), /11:00/);
   assert.equal(
     triggerSendScheduleHintHe("freeze_created"),
     triggerSendScheduleHintHe("membership_expiring")
