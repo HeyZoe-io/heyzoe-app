@@ -5,6 +5,7 @@ import {
   TEMPLATE_PRESETS,
 } from "@/lib/template-presets";
 import {
+  classNameFromScheduledDedupKey,
   expiryYmdFromScheduledDedupKey,
   formatTemplateExpiryDate,
   membershipTypeNameFromScheduledDedupKey,
@@ -40,8 +41,16 @@ import {
     ),
     "מנוי חודשי"
   );
+  assert.equal(
+    classNameFromScheduledDedupKey(
+      "missed_class:1:rule:44123:2026-09-05:18%3A00#%D7%99%D7%95%D7%92%D7%94"
+    ),
+    "יוגה"
+  );
+  assert.equal(classNameFromScheduledDedupKey("trial_attended:1:rule:9:2026-09-05"), null);
   assert.equal(triggerTypeFromScheduledDedupKey("site_lead:1:rule:050:2026-08-19"), "incoming_lead");
   assert.equal(triggerTypeFromScheduledDedupKey("arbox_new_lead:1:rule:9"), "arbox_new_lead");
+  assert.equal(triggerTypeFromScheduledDedupKey("missed_trial:1:rule:9:2026-09-05:10%3A00#x"), "missed_trial");
 }
 
 {
@@ -122,6 +131,8 @@ import {
     sessions_expiring: ["דנה", "Limitless", "15.09.2026"],
     trial_attended: ["דנה"],
     membership_cancelled: ["מנוי חודשי", "15.09.2026"],
+    missed_class: ["דנה", "יוגה"],
+    missed_trial: ["דנה", "יוגה"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -129,12 +140,17 @@ import {
       triggerType: type,
       storedComponents: [{ type: "BODY", text: preset.body }],
       ...ctx,
+      className: "יוגה",
     });
     assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
     assert.deepEqual(values, expected[type], type);
     const slots = paramSlotsForTriggerType(type);
     if (type === "membership_cancelled") {
       assert.deepEqual(slots, ["membership_type_name", "expiry_date"]);
+      continue;
+    }
+    if (type === "missed_class" || type === "missed_trial") {
+      assert.deepEqual(slots, ["first_name", "class_name"]);
       continue;
     }
     if (slots.length >= 2) assert.equal(slots[1], "business_name");

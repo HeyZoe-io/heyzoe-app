@@ -5,7 +5,7 @@ import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /** OpenAPI: https://arboxserver.arboxapp.com/docs/api */
-const ARBOX_API_BASE = "https://arboxserver.arboxapp.com/api/public";
+export const ARBOX_API_BASE = "https://arboxserver.arboxapp.com/api/public";
 
 type ArboxListResponse = {
   statusCode?: number;

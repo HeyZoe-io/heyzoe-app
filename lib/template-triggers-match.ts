@@ -362,6 +362,72 @@ export async function resolveTrialAttendedTemplateTrigger(input: {
   return pickTrialAttendedTemplateTriggerRule(rules);
 }
 
+/** Enabled missed_class (C3) rules — pick newest with a template name. */
+export async function loadEnabledMissedClassTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "missed_class")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load missed_class rules failed:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickMissedClassTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveMissedClassTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledMissedClassTemplateTriggers(input.admin, input.businessId);
+  return pickMissedClassTemplateTriggerRule(rules);
+}
+
+/** Enabled missed_trial (C4) rules — product_filter scopes trial types like trial_attended. */
+export async function loadEnabledMissedTrialTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "missed_trial")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load missed_trial rules failed:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickMissedTrialTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveMissedTrialTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledMissedTrialTemplateTriggers(input.admin, input.businessId);
+  return pickMissedTrialTemplateTriggerRule(rules);
+}
+
 /** Enabled arbox_new_lead rules — pick newest with a template name. */
 export async function loadEnabledArboxNewLeadTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,

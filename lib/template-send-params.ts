@@ -19,6 +19,7 @@ export type TemplateSendParamContext = {
   businessName?: string | null;
   expiryDateYmd?: string | null;
   membershipTypeName?: string | null;
+  className?: string | null;
 };
 
 /** Israel-facing expiry for {{3}} (YYYY-MM-DD → DD.MM.YYYY). */
@@ -58,6 +59,20 @@ export function membershipTypeNameFromScheduledDedupKey(dedupKey: string): strin
   }
 }
 
+/** missed_class / missed_trial delayed send: class name encoded after `#`. */
+export function classNameFromScheduledDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("missed_class:") && !raw.startsWith("missed_trial:")) return null;
+  const hash = raw.indexOf("#");
+  if (hash < 0) return null;
+  try {
+    const decoded = decodeURIComponent(raw.slice(hash + 1).trim());
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Prefix of scheduled_template_sends.dedup_key → trigger_type (site_lead → incoming_lead). */
 export function triggerTypeFromScheduledDedupKey(dedupKey: string): string | null {
   const prefix = String(dedupKey ?? "").split(":")[0]?.trim() || "";
@@ -81,6 +96,10 @@ export function resolveTemplateSlotValue(
   if (slot === "membership_type_name") {
     const name = String(ctx.membershipTypeName ?? "").trim();
     return name || TEMPLATE_MEMBERSHIP_TYPE_FALLBACK;
+  }
+  if (slot === "class_name") {
+    const name = String(ctx.className ?? "").trim();
+    return name || "השיעור";
   }
   const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);
   return formatted || TEMPLATE_EXPIRY_FALLBACK;

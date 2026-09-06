@@ -168,11 +168,31 @@ Calibration:
 
 - חידוש מנוי + יום הולדת עם הטבה → **MARKETING**
 - אישור רכישה + הקפאה + ביטול מנוי → **UTILITY**
+- אי־הגעה לשיעור (מנוי, בלי CTA) → **UTILITY**
+- אי־הגעה לניסיון עם «מתי נוח לקבוע מחדש» → **MARKETING** (win-back)
 
 Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
 A dry system confirmation must stay UTILITY so Meta approval is reliable.
 
 Existing presets may predate this rule; **new** presets must follow it.
+
+## Missed class / missed trial (C3 / C4)
+
+- Source: `bookingsReport`, paginated (`?page=N`). Missed = past `date` (Israel YMD
+  `< today`) **and** `check_in === "No"` (string; not empty, not truthiness).
+- C3 `missed_class` (automatic × members): non-trial bookings. Preset **UTILITY**.
+- C4 `missed_trial` (automatic × leads): trial product filter (same name/id scope as
+  `trial_attended`). Preset **MARKETING**.
+- **Shared fetch** with `trial_attended` on `arbox-daily-triggers`: one GET loop when any
+  of the three rules is enabled; handlers split in memory.
+  - Seed window (30d) only when a `missed_*` rule is enabled and
+    `arbox_missed_class_seeded` is false — not when only `trial_attended` is live.
+  - `trial_attended` filters the shared rows to its own lookback in memory.
+- Dedup: `arbox_missed_class_sync_log` PK
+  `(business_id, user_id, class_date, class_time, class_name)` — no `event_kind`.
+- Seed: `businesses.arbox_missed_class_seeded` — first enable marks past no-shows without
+  WhatsApp. Retry: A9 `attempts`/`status` (`gated` does not count).
+- Migration: `supabase/arbox_missed_class_sync_log.sql` (run before deploy).
 
 ## IO (10 businesses)
 

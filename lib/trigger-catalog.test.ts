@@ -49,6 +49,8 @@ const LIVE_AUTOMATIC = [
   "incoming_lead",
   "no_response",
   "birthday_former",
+  "missed_class",
+  "missed_trial",
 ] as const;
 
 const PREVIOUS_ARBOX = [
@@ -61,6 +63,8 @@ const PREVIOUS_ARBOX = [
   "arbox_new_lead",
   "membership_cancelled",
   "birthday_former",
+  "missed_class",
+  "missed_trial",
 ] as const;
 
 {
@@ -126,12 +130,14 @@ function triggerCatalogAudience(type: string) {
     activation: "automatic",
     audience: "members",
     hasArbox: true,
-  }).map((o) => o.value);
+  }).map((o) => o.value as string);
   assert.ok(memberTypes.includes("purchase"));
   assert.ok(memberTypes.includes("birthday"));
   assert.ok(memberTypes.includes("membership_cancelled"));
+  assert.ok(memberTypes.includes("missed_class"));
   assert.ok(!memberTypes.includes("incoming_lead"));
   assert.ok(!memberTypes.includes("trial_attended"));
+  assert.ok(!memberTypes.includes("missed_trial"));
   assert.ok(!memberTypes.includes("arbox_new_lead"));
   assert.ok(!memberTypes.includes("hold"), "planned hold is not creatable");
   assert.ok(!memberTypes.includes("manual_membership"), "manual not in automatic create");
@@ -140,12 +146,14 @@ function triggerCatalogAudience(type: string) {
     activation: "automatic",
     audience: "leads",
     hasArbox: true,
-  }).map((o) => o.value);
+  }).map((o) => o.value as string);
   assert.ok(leadTypes.includes("incoming_lead"));
   assert.ok(leadTypes.includes("trial_attended"));
   assert.ok(leadTypes.includes("birthday_former"));
+  assert.ok(leadTypes.includes("missed_trial"));
   assert.ok(!leadTypes.includes("purchase"));
   assert.ok(!leadTypes.includes("birthday"));
+  assert.ok(!leadTypes.includes("missed_class"));
   assert.ok(!leadTypes.includes("lost_lead"), "planned lost_lead is not creatable");
 
   assert.deepEqual(
@@ -201,7 +209,10 @@ function triggerCatalogAudience(type: string) {
   for (const type of LIVE_AUTOMATIC) {
     assert.equal(
       showsProductFilter(type),
-      type === "purchase" || type === "trial_attended" || type === "membership_cancelled"
+      type === "purchase" ||
+        type === "trial_attended" ||
+        type === "membership_cancelled" ||
+        type === "missed_trial"
     );
   }
 }

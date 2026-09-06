@@ -134,6 +134,21 @@ export function buildTrialAttendedScheduledDedupKey(
   return `trial_attended:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}`;
 }
 
+/** Missed-class / missed-trial enqueue key (shared bookings grain). */
+export function buildMissedClassScheduledDedupKey(
+  kind: "missed_class" | "missed_trial",
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  classDateYmd: string,
+  classTime: string,
+  className: string
+): string {
+  const timeEnc = encodeURIComponent(String(classTime ?? "").trim());
+  const nameEnc = encodeURIComponent(String(className ?? "").trim());
+  return `${kind}:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}:${timeEnc}#${nameEnc}`;
+}
+
 /** Arbox new-lead enqueue key: once per business+trigger+Arbox user_id (allLeadsReport). */
 export function buildArboxNewLeadScheduledDedupKey(
   businessId: number,

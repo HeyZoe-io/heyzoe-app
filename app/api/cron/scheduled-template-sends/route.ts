@@ -20,6 +20,7 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import {
+  classNameFromScheduledDedupKey,
   expiryYmdFromScheduledDedupKey,
   membershipTypeNameFromScheduledDedupKey,
   templateSendPayload,
@@ -178,6 +179,7 @@ async function dispatchOneScheduledSend(
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     expiryDateYmd: expiryYmdFromScheduledDedupKey(row.dedup_key),
     membershipTypeName: membershipTypeNameFromScheduledDedupKey(row.dedup_key),
+    className: classNameFromScheduledDedupKey(row.dedup_key),
   });
 
   const sendResult = await sendBusinessTemplate({

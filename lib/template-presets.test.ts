@@ -30,6 +30,23 @@ assert.equal(
   TEMPLATE_PRESETS.membership_cancelled.body,
   "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}."
 );
+assert.equal(TEMPLATE_PRESETS.missed_class.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.missed_class.button_text, undefined);
+assert.equal(
+  TEMPLATE_PRESETS.missed_class.body,
+  "היי {{1}}, ראינו שנרשמת ל{{2}} ולא הגעת, הכל בסדר?"
+);
+assert.equal(TEMPLATE_PRESETS.missed_trial.category, "MARKETING");
+assert.equal(
+  TEMPLATE_PRESETS.missed_trial.body,
+  "היי {{1}}, ראינו שנרשמת לשיעור ניסיון ({{2}}) ולא הגעת. מה קרה? מתי נוח לקבוע מחדש?"
+);
+assert.deepEqual(paramSlotsForTriggerType("missed_class"), ["first_name", "class_name"]);
+assert.deepEqual(paramSlotsForTriggerType("missed_trial"), ["first_name", "class_name"]);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.missed_class.body), 2);
+assert.equal(isPresetAvailable("missed_class", false), false);
+assert.equal(isPresetAvailable("missed_class", true), true);
+assert.equal(isPresetAvailable("missed_trial", true), true);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);

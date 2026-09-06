@@ -2,14 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
+import {
+  bookingsReportSharedLookbackWindow,
+  businessNeedsBookingsReportFetch,
+  syncArboxMissedClassForBusiness,
+} from "@/lib/leads/arbox-missed-class";
 import { syncArboxSessionsExpiringForBusiness } from "@/lib/leads/arbox-sessions-expiring";
-import { syncArboxTrialAttendedForBusiness } from "@/lib/leads/arbox-trial-attended";
+import {
+  fetchArboxBookingsReport,
+  syncArboxTrialAttendedForBusiness,
+  type ArboxBookingReportRow,
+} from "@/lib/leads/arbox-trial-attended";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps: birthday, membership_expiring, trial_attended, sessions_expiring, membership_cancelled.
+ * Steps: birthday, membership_expiring, bookingsReport (trial_attended + missed_*),
+ * sessions_expiring, membership_cancelled.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -36,6 +46,7 @@ type BusinessRow = {
   crm_api_key: string;
   crm_box_id: string;
   arbox_cancellation_seeded: boolean;
+  arbox_missed_class_seeded: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -50,7 +61,9 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded")
+    .select(
+      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded"
+    )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
     .not("crm_box_id", "is", null);
@@ -68,6 +81,8 @@ export async function GET(req: NextRequest) {
     const boxId = String((row as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     const cancellationSeeded =
       (row as { arbox_cancellation_seeded?: unknown }).arbox_cancellation_seeded === true;
+    const missedClassSeeded =
+      (row as { arbox_missed_class_seeded?: unknown }).arbox_missed_class_seeded === true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -75,6 +90,7 @@ export async function GET(req: NextRequest) {
       crm_api_key: apiKey,
       crm_box_id: boxId,
       arbox_cancellation_seeded: cancellationSeeded,
+      arbox_missed_class_seeded: missedClassSeeded,
     });
   }
 
@@ -84,9 +100,9 @@ export async function GET(req: NextRequest) {
     birthday?: Awaited<ReturnType<typeof syncArboxBirthdaysForBusiness>>;
     membership_expiring?: Awaited<ReturnType<typeof syncArboxMembershipExpiringForBusiness>>;
     trial_attended?: Awaited<ReturnType<typeof syncArboxTrialAttendedForBusiness>>;
+    missed_class?: Awaited<ReturnType<typeof syncArboxMissedClassForBusiness>>;
     sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
     membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
-    // future: zoe_native?: ...
   }> = [];
 
   for (const business of businesses) {
@@ -164,6 +180,43 @@ export async function GET(req: NextRequest) {
       };
     }
 
+    // --- Shared bookingsReport fetch (trial_attended + missed_class + missed_trial) ---
+    let prefetchedRows: ArboxBookingReportRow[] | undefined;
+    let prefetchedPages = 0;
+    let lookbackFrom: string | undefined;
+    let lookbackTo: string | undefined;
+    try {
+      const plan = await businessNeedsBookingsReportFetch(admin, business.id);
+      if (plan.needsFetch) {
+        const window = bookingsReportSharedLookbackWindow({
+          now,
+          missedNeedsSeed: plan.hasMissedRule && !business.arbox_missed_class_seeded,
+        });
+        lookbackFrom = window.fromDate;
+        lookbackTo = window.toDate;
+        const report = await fetchArboxBookingsReport({
+          apiKey: business.crm_api_key,
+          fromDate: window.fromDate,
+          toDate: window.toDate,
+          locationId: business.crm_box_id,
+        });
+        prefetchedPages = report.pagesFetched;
+        if (report.ok) {
+          prefetchedRows = report.rows;
+        } else {
+          console.error("[cron/arbox-daily-triggers] shared bookingsReport failed", {
+            slug: business.slug,
+            error: report.error,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[cron/arbox-daily-triggers] shared bookings prefetch threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     // --- Step: trial_attended ---
     try {
       entry.trial_attended = await syncArboxTrialAttendedForBusiness({
@@ -173,6 +226,10 @@ export async function GET(req: NextRequest) {
         apiKey: business.crm_api_key,
         boxId: business.crm_box_id,
         now,
+        prefetchedRows,
+        prefetchedPages,
+        lookbackFrom,
+        lookbackTo,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -193,6 +250,46 @@ export async function GET(req: NextRequest) {
         gated: 0,
         not_attended: 0,
         no_phone: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: missed_class + missed_trial (shared handler) ---
+    try {
+      entry.missed_class = await syncArboxMissedClassForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        missedClassSeeded: business.arbox_missed_class_seeded,
+        now,
+        prefetchedRows,
+        prefetchedPages,
+        lookbackFrom,
+        lookbackTo,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] missed_class step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.missed_class = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        missed_rows: 0,
+        routed_class: 0,
+        routed_trial: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
         errors: 1,
         fetch_error: message,
       };
@@ -267,8 +364,6 @@ export async function GET(req: NextRequest) {
         fetch_error: message,
       };
     }
-
-    // --- Step: zoe_native (future) ---
 
     summaries.push(entry);
   }

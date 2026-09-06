@@ -463,6 +463,11 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   boxId: string;
   now?: Date;
   lookbackDays?: number;
+  /** Shared cron prefetch (may be wider than trial lookback when missed_* is seeding). */
+  prefetchedRows?: ArboxBookingReportRow[];
+  prefetchedPages?: number;
+  lookbackFrom?: string;
+  lookbackTo?: string;
 }): Promise<TrialAttendedSyncSummary> {
   const summary: TrialAttendedSyncSummary = {
     fetched: 0,
@@ -547,26 +552,38 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   }
 
   const window = trialAttendedLookbackWindow(now, lookbackDays);
+  // Always report the trial window in summary — even when shared prefetch is wider (missed seed).
   summary.lookback_from = window.fromDate;
   summary.lookback_to = window.toDate;
 
-  const report = await fetchArboxBookingsReport({
-    apiKey,
-    fromDate: window.fromDate,
-    toDate: window.toDate,
-    locationId: boxId,
-  });
-  summary.pages_fetched = report.pagesFetched;
-  if (!report.ok) {
-    summary.fetch_error = report.error;
-    summary.errors += 1;
-    return summary;
+  let reportRows: ArboxBookingReportRow[];
+  if (input.prefetchedRows) {
+    reportRows = input.prefetchedRows.filter((row) => {
+      const ymd = parseClassDateYmd(row.date);
+      return Boolean(ymd && ymd >= window.fromDate && ymd <= window.toDate);
+    });
+    summary.pages_fetched = input.prefetchedPages ?? 0;
+    summary.fetched = reportRows.length;
+  } else {
+    const report = await fetchArboxBookingsReport({
+      apiKey,
+      fromDate: window.fromDate,
+      toDate: window.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched = report.pagesFetched;
+    if (!report.ok) {
+      summary.fetch_error = report.error;
+      summary.errors += 1;
+      return summary;
+    }
+    reportRows = report.rows;
+    summary.fetched = reportRows.length;
   }
-  summary.fetched = report.rows.length;
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
 
-  for (const row of report.rows) {
+  for (const row of reportRows) {
     const userIdRaw = Number(row.user_id);
     if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) {
       summary.errors += 1;
