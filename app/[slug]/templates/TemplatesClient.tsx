@@ -1253,10 +1253,10 @@ export default function TemplatesClient({
           </div>
 
           <div className="space-y-3">
-            <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+            <div className="flex flex-col items-start gap-1.5">
               <p className="text-[11px] font-medium text-zinc-500">הפעלה</p>
               <nav
-                className="flex min-w-0 justify-end overflow-x-auto pb-0.5"
+                className="flex min-w-0 justify-start overflow-x-auto pb-0.5"
                 aria-label="סוג הפעלה"
                 dir="rtl"
               >
@@ -1290,10 +1290,10 @@ export default function TemplatesClient({
               </nav>
             </div>
 
-            <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+            <div className="flex flex-col items-start gap-1.5">
               <p className="text-[11px] font-medium text-zinc-500">קהל</p>
               <nav
-                className="flex min-w-0 justify-end overflow-x-auto pb-0.5"
+                className="flex min-w-0 justify-start overflow-x-auto pb-0.5"
                 aria-label="קהל יעד"
                 dir="rtl"
               >
