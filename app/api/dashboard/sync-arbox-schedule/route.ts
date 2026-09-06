@@ -90,11 +90,12 @@ export async function POST(req: NextRequest) {
       businessId,
       classes: pulled.classes,
     });
-    await markArboxScheduleSyncedAt(admin, businessId, new Date().toISOString());
+    const updatedAt = await markArboxScheduleSyncedAt(admin, businessId, new Date().toISOString());
     return NextResponse.json({
       ok: true,
       created: persisted.created,
       updated: persisted.updated,
+      updated_at: updatedAt,
       classes: pulled.classes.length,
       unmatched: pulled.unmatchedSessionNames,
       services: persisted.services.map((s) => ({

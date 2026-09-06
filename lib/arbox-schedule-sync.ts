@@ -585,16 +585,31 @@ export async function persistCronArboxScheduleSync(input: {
   return { updated, cleared, notified };
 }
 
+/** Stamp timetable sync without treating it as a dashboard settings edit. */
 export async function markArboxScheduleSyncedAt(
   admin: AdminClient,
   businessId: number,
   atIso: string
-): Promise<void> {
-  const { error } = await admin
+): Promise<string | null> {
+  const { data: current, error: readErr } = await admin
     .from("businesses")
-    .update({ arbox_schedule_synced_at: atIso })
-    .eq("id", businessId);
+    .select("updated_at")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  const keepUpdatedAt = String(
+    (current as { updated_at?: unknown } | null)?.updated_at ?? ""
+  ).trim();
+  const patch: Record<string, unknown> = { arbox_schedule_synced_at: atIso };
+  if (keepUpdatedAt) patch.updated_at = keepUpdatedAt;
+  const { data, error } = await admin
+    .from("businesses")
+    .update(patch)
+    .eq("id", businessId)
+    .select("updated_at")
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  return String((data as { updated_at?: unknown } | null)?.updated_at ?? keepUpdatedAt).trim() || null;
 }
 
 export async function dismissArboxRemovedNotice(input: {

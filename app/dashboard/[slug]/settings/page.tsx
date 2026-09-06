@@ -2982,6 +2982,7 @@ export default function SlugSettingsPage({
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         services?: Record<string, unknown>[];
+        updated_at?: unknown;
       };
       if (!res.ok || !Array.isArray(j.services)) {
         setArboxScheduleScanError(
@@ -2989,6 +2990,8 @@ export default function SlugSettingsPage({
         );
         return;
       }
+      const scanUpdatedAt = String(j.updated_at ?? "").trim();
+      if (scanUpdatedAt) expectedUpdatedAtRef.current = scanUpdatedAt;
       arboxScanSyncSnapshotRef.current = true;
       setServices(dashboardApiRowsToServiceItems(j.services));
       setServicesHydrated(true);
