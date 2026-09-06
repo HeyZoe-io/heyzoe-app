@@ -1,4 +1,8 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  isPurchaseItemType,
+  type PurchaseItemType,
+} from "@/lib/trigger-catalog";
 
 export type PurchaseTemplateTriggerRule = {
   /** UUID string from template_triggers.id — do not coerce with Number(). */
@@ -6,6 +10,8 @@ export type PurchaseTemplateTriggerRule = {
   business_id: number;
   trigger_type: string;
   product_filter: number[] | null;
+  /** Purchase: optional salesReport item_type include-list; null/empty = all classes. */
+  item_type_filter: PurchaseItemType[] | null;
   delay_days: number;
   delay_direction: string;
   template_name: string | null;
@@ -26,12 +32,29 @@ function parseProductFilter(raw: unknown): number[] | null {
   return [...new Set(ids)].sort((a, b) => a - b);
 }
 
+export function parseItemTypeFilter(raw: unknown): PurchaseItemType[] | null {
+  if (raw === null || raw === undefined) return null;
+  if (!Array.isArray(raw)) return null;
+  const types: PurchaseItemType[] = [];
+  for (const item of raw) {
+    const s = String(item ?? "")
+      .trim()
+      .toLowerCase();
+    if (!s) continue;
+    if (!isPurchaseItemType(s)) continue;
+    types.push(s);
+  }
+  if (!types.length) return null;
+  return [...new Set(types)].sort();
+}
+
 function normalizeRule(row: Record<string, unknown>): PurchaseTemplateTriggerRule {
   return {
     id: String(row.id ?? "").trim(),
     business_id: Number(row.business_id),
     trigger_type: String(row.trigger_type ?? ""),
     product_filter: parseProductFilter(row.product_filter),
+    item_type_filter: parseItemTypeFilter(row.item_type_filter),
     delay_days: Number(row.delay_days ?? 0),
     delay_direction: String(row.delay_direction ?? "after"),
     template_name: row.template_name != null ? String(row.template_name).trim() || null : null,
@@ -57,25 +80,50 @@ export function purchaseTriggerRuleMatchesMembershipType(
   return filter.includes(membershipTypeId);
 }
 
+/** True when item_type_filter is null/empty, or sale item_type is in the list. */
+export function purchaseTriggerRuleMatchesItemType(
+  rule: PurchaseTemplateTriggerRule,
+  itemType: string | null | undefined
+): boolean {
+  const filter = rule.item_type_filter;
+  if (!filter?.length) return true;
+  const normalized = String(itemType ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized || !isPurchaseItemType(normalized)) return false;
+  return filter.includes(normalized);
+}
+
+function purchaseRuleSpecificity(rule: PurchaseTemplateTriggerRule): number {
+  return (rule.product_filter?.length ? 2 : 0) + (rule.item_type_filter?.length ? 1 : 0);
+}
+
 /**
- * Among enabled purchase rules, pick the best match for a sale membership_type_id.
- * Prefer specific product_filter over catch-all; tie-break by most recently updated.
+ * Among enabled purchase rules, pick the best match for a sale.
+ * Prefer more specific filters (ids > item_type > catch-all); tie-break by most recently updated.
  */
 export function pickPurchaseTemplateTriggerRule(
   rules: PurchaseTemplateTriggerRule[],
-  membershipTypeId: number
+  membershipTypeId: number,
+  itemType?: string | null
 ): PurchaseTemplateTriggerRule | null {
-  const matching = rules.filter((rule) =>
-    purchaseTriggerRuleMatchesMembershipType(rule, membershipTypeId)
+  const matching = rules.filter(
+    (rule) =>
+      purchaseTriggerRuleMatchesMembershipType(rule, membershipTypeId) &&
+      purchaseTriggerRuleMatchesItemType(rule, itemType)
   );
   if (!matching.length) return null;
 
-  const specific = matching.filter((rule) => (rule.product_filter?.length ?? 0) > 0);
-  const pool = specific.length ? specific : matching;
-
-  pool.sort((a, b) => ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a));
-  return pool[0] ?? null;
+  matching.sort((a, b) => {
+    const d = purchaseRuleSpecificity(b) - purchaseRuleSpecificity(a);
+    if (d !== 0) return d;
+    return ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a);
+  });
+  return matching[0] ?? null;
 }
+
+const PURCHASE_RULE_SELECT =
+  "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at";
 
 export async function loadEnabledPurchaseTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -83,9 +131,7 @@ export async function loadEnabledPurchaseTemplateTriggers(
 ): Promise<PurchaseTemplateTriggerRule[]> {
   const { data, error } = await admin
     .from("template_triggers")
-    .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
-    )
+    .select(PURCHASE_RULE_SELECT)
     .eq("business_id", businessId)
     .eq("trigger_type", "purchase")
     .eq("enabled", true);
@@ -106,7 +152,7 @@ export async function loadEnabledCreditRefusalTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "credit_refusal")
@@ -146,7 +192,7 @@ async function loadEnabledBirthdayFamilyTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", triggerType)
@@ -207,7 +253,7 @@ export async function loadEnabledMembershipExpiringTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "membership_expiring")
@@ -246,7 +292,7 @@ export async function loadEnabledSessionsExpiringTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "sessions_expiring")
@@ -288,7 +334,7 @@ export async function loadEnabledTrialAttendedTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "trial_attended")
@@ -324,7 +370,7 @@ export async function loadEnabledArboxNewLeadTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "arbox_new_lead")
@@ -360,7 +406,7 @@ export async function loadEnabledMembershipCancelledTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "membership_cancelled")
@@ -441,7 +487,7 @@ export async function loadEnabledSiteLeadTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .in("trigger_type", ["incoming_lead", "site_lead", "campaign_lead"])
@@ -480,7 +526,7 @@ export async function loadEnabledNoResponseTemplateTriggers(
   const { data, error } = await admin
     .from("template_triggers")
     .select(
-      "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      PURCHASE_RULE_SELECT
     )
     .eq("business_id", businessId)
     .eq("trigger_type", "no_response")
@@ -512,16 +558,25 @@ export async function resolvePurchaseTemplateTriggerForSale(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   membershipTypeId: number | null;
+  itemType?: string | null;
 }): Promise<PurchaseTemplateTriggerRule | null> {
   const rules = await loadEnabledPurchaseTemplateTriggers(input.admin, input.businessId);
   if (!rules.length) return null;
   if (input.membershipTypeId == null) {
-    const catchAll = rules.filter((rule) => !rule.product_filter?.length);
+    const catchAll = rules.filter(
+      (rule) =>
+        !rule.product_filter?.length &&
+        purchaseTriggerRuleMatchesItemType(rule, input.itemType)
+    );
     if (!catchAll.length) return null;
-    catchAll.sort((a, b) => ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a));
+    catchAll.sort((a, b) => {
+      const d = purchaseRuleSpecificity(b) - purchaseRuleSpecificity(a);
+      if (d !== 0) return d;
+      return ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a);
+    });
     return catchAll[0] ?? null;
   }
-  return pickPurchaseTemplateTriggerRule(rules, input.membershipTypeId);
+  return pickPurchaseTemplateTriggerRule(rules, input.membershipTypeId, input.itemType);
 }
 
 /**

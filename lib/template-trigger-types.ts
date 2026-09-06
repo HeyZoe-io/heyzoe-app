@@ -20,8 +20,12 @@ export {
   allowsDelayBefore,
   delayDirectionForTrigger,
   isBirthdayFamilyTriggerType,
+  isImmediateDelayTrigger,
+  showsItemTypeFilter,
+  isPurchaseItemType,
   type TriggerType,
   type IncomingLeadTriggerType,
+  type PurchaseItemType,
 } from "@/lib/trigger-catalog";
 
 const TRIGGER_UUID_RE =

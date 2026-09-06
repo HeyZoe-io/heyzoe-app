@@ -35,6 +35,7 @@ function rule(
     business_id: 1,
     trigger_type: "membership_cancelled",
     product_filter: null,
+    item_type_filter: null,
     delay_days: 0,
     delay_direction: "after",
     template_name: "membership_cancelled",

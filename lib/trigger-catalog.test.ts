@@ -21,6 +21,8 @@ import {
   isUniquePerBusinessTriggerType,
   minDelayDaysForTrigger,
   showsProductFilter,
+  showsItemTypeFilter,
+  isImmediateDelayTrigger,
   TRIGGER_CATALOG,
   TRIGGER_TYPE_OPTIONS,
   triggerTypeLabel,
@@ -165,10 +167,19 @@ function triggerCatalogAudience(type: string) {
 }
 
 {
-  assert.equal(forcesDelayAfter("purchase"), true);
+  assert.equal(forcesDelayAfter("purchase"), false);
+  assert.equal(forcesDelayAfter("credit_refusal"), false);
+  assert.equal(forcesDelayAfter("membership_cancelled"), false);
+  assert.equal(forcesDelayAfter("trial_attended"), true);
   assert.equal(forcesDelayAfter("birthday"), false);
   assert.equal(forcesDelayAfter("birthday_former"), false);
   assert.equal(forcesDelayAfterFacade("birthday"), false);
+  assert.equal(isImmediateDelayTrigger("purchase"), true);
+  assert.equal(isImmediateDelayTrigger("credit_refusal"), true);
+  assert.equal(isImmediateDelayTrigger("membership_cancelled"), true);
+  assert.equal(isImmediateDelayTrigger("trial_attended"), false);
+  assert.equal(showsItemTypeFilter("purchase"), true);
+  assert.equal(showsItemTypeFilter("credit_refusal"), false);
   assert.equal(delayDirectionForTrigger("birthday", "before"), "before");
   assert.equal(delayDirectionForTrigger("purchase", "before"), "after");
   assert.equal(allowsDelayBefore("membership_expiring"), true);
@@ -205,9 +216,9 @@ function triggerCatalogAudience(type: string) {
     formatDelayLabel("membership_expiring", 5, "before"),
     "5 ימים לפני פקיעת התוקף"
   );
-  assert.equal(formatDelayLabel("purchase", 0, "after"), "ביום האירוע");
-  assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "ביום האירוע");
-  assert.equal(formatDelayLabel("purchase", 1, "after"), "1 ימים אחרי האירוע");
+  assert.equal(formatDelayLabel("purchase", 0, "after"), "נשלח מיד");
+  assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "נשלח מיד");
+  assert.equal(formatDelayLabel("credit_refusal", 1, "after"), "נשלח מיד");
 }
 
 {

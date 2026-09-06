@@ -35,13 +35,18 @@ import {
   isArboxDependentTriggerType,
   isBirthdayFamilyTriggerType,
   isCreatableTriggerType,
+  isImmediateDelayTrigger,
   isIncomingLeadTriggerType,
   minDelayDaysForTrigger,
+  PURCHASE_ITEM_TYPE_LABELS_HE,
+  PURCHASE_ITEM_TYPE_VALUES,
+  showsItemTypeFilter,
   showsProductFilter,
   TRIGGER_TYPE_OPTIONS,
   triggerCatalogEntry,
   triggerSendScheduleHintHe,
   triggerTypeLabel,
+  type PurchaseItemType,
   type TriggerActivation,
   type TriggerAudience,
   type TriggerType,
@@ -70,6 +75,7 @@ export type TriggerRow = {
   business_id: number;
   trigger_type: TriggerType;
   product_filter: number[] | null;
+  item_type_filter: PurchaseItemType[] | null;
   delay_days: number;
   delay_direction: DelayDirection;
   template_name: string | null;
@@ -295,6 +301,7 @@ export default function TemplatesClient({
     hasArbox ? "purchase" : "incoming_lead"
   );
   const [newProductFilter, setNewProductFilter] = useState<number[]>([]);
+  const [newItemTypeFilter, setNewItemTypeFilter] = useState<PurchaseItemType[]>([]);
   const [newDelayDays, setNewDelayDays] = useState(0);
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
   const [newTemplateName, setNewTemplateName] = useState("");
@@ -368,7 +375,9 @@ export default function TemplatesClient({
   }, [arboxMembershipTypes]);
 
   const showNewProductFilter = showsProductFilter(newTriggerType);
-  const hideNewDelayDirection = !allowsDelayBefore(newTriggerType);
+  const showNewItemTypeFilter = showsItemTypeFilter(newTriggerType);
+  const isNewImmediateDelay = isImmediateDelayTrigger(newTriggerType);
+  const hideNewDelayDirection = !allowsDelayBefore(newTriggerType) || isNewImmediateDelay;
   const newDelayDaysMin = minDelayDaysForTrigger(newTriggerType);
 
   useEffect(() => {
@@ -382,6 +391,9 @@ export default function TemplatesClient({
     setNewDelayDays(defaultDelayDays(newTriggerType));
     if (!showsProductFilter(newTriggerType)) {
       setNewProductFilter([]);
+    }
+    if (!showsItemTypeFilter(newTriggerType)) {
+      setNewItemTypeFilter([]);
     }
   }, [newTriggerType]);
 
@@ -444,6 +456,14 @@ export default function TemplatesClient({
     });
   }
 
+  function toggleNewItemTypeFilter(value: PurchaseItemType) {
+    setNewItemTypeFilter((prev) => {
+      const has = prev.includes(value);
+      const next = has ? prev.filter((x) => x !== value) : [...prev, value];
+      return next.sort();
+    });
+  }
+
   function formatProductFilterLabel(ids: number[] | null): string {
     if (!ids || ids.length === 0) return "כל המוצרים";
     return ids
@@ -452,6 +472,11 @@ export default function TemplatesClient({
         return name ? `${id} — ${name}` : String(id);
       })
       .join(", ");
+  }
+
+  function formatItemTypeFilterLabel(types: PurchaseItemType[] | null | undefined): string {
+    if (!types || types.length === 0) return "כל הסוגים";
+    return types.map((t) => PURCHASE_ITEM_TYPE_LABELS_HE[t] ?? t).join(", ");
   }
 
   async function onCreateTrigger(e: React.FormEvent) {
@@ -466,8 +491,11 @@ export default function TemplatesClient({
         body: JSON.stringify({
           trigger_type: newTriggerType,
           product_filter: showNewProductFilter && newProductFilter.length > 0 ? newProductFilter : null,
-          delay_days:
-            newTriggerType === "no_response"
+          item_type_filter:
+            showNewItemTypeFilter && newItemTypeFilter.length > 0 ? newItemTypeFilter : null,
+          delay_days: isNewImmediateDelay
+            ? 0
+            : newTriggerType === "no_response"
               ? Math.max(2, newDelayDays)
               : newDelayDays,
           delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
@@ -510,6 +538,7 @@ export default function TemplatesClient({
       setSuccess("הטריגר נוסף");
       setNewTriggerType("purchase");
       setNewProductFilter([]);
+      setNewItemTypeFilter([]);
       setNewDelayDays(0);
       setNewDelayDirection("after");
       setNewTemplateName("");
@@ -581,14 +610,17 @@ export default function TemplatesClient({
     setSuccess(null);
     setTriggerEditSaving(true);
     try {
+      const immediate = isImmediateDelayTrigger(trigger.trigger_type);
       const delayMin = trigger.trigger_type === "no_response" ? 2 : 0;
-      const delayDays = Math.max(delayMin, Math.trunc(Number(editDelayDays) || 0));
+      const delayDays = immediate
+        ? 0
+        : Math.max(delayMin, Math.trunc(Number(editDelayDays) || 0));
       const body: Record<string, unknown> = {
         id: trigger.id,
         delay_days: delayDays,
         template_name: editTemplateName.trim() || null,
       };
-      if (allowsDelayBefore(trigger.trigger_type)) {
+      if (allowsDelayBefore(trigger.trigger_type) && !immediate) {
         body.delay_direction = editDelayDirection;
       }
       const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
@@ -1296,6 +1328,11 @@ export default function TemplatesClient({
                             מוצרים: {formatProductFilterLabel(trigger.product_filter)}
                           </p>
                         ) : null}
+                        {showsItemTypeFilter(trigger.trigger_type) ? (
+                          <p className="text-xs text-zinc-600">
+                            סוג רכישה: {formatItemTypeFilterLabel(trigger.item_type_filter)}
+                          </p>
+                        ) : null}
                         <p className="text-xs text-zinc-600">
                           תזמון:{" "}
                           {formatDelayLabel(
@@ -1312,42 +1349,46 @@ export default function TemplatesClient({
                         </p>
                         {editingTriggerId === trigger.id ? (
                           <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <div className="space-y-1">
-                                <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
-                                <input
-                                  type="number"
-                                  min={minDelayDaysForTrigger(trigger.trigger_type)}
-                                  value={editDelayDays}
-                                  onChange={(e) => setEditDelayDays(Number(e.target.value))}
-                                  className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                                />
-                              </div>
-                              {allowsDelayBefore(trigger.trigger_type) ? (
+                            {isImmediateDelayTrigger(trigger.trigger_type) ? (
+                              <p className="text-xs text-zinc-600">נשלח מיד עם האירוע.</p>
+                            ) : (
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 <div className="space-y-1">
-                                  <label className="text-xs font-medium text-zinc-700">כיוון</label>
-                                  <select
-                                    value={editDelayDirection}
-                                    onChange={(e) =>
-                                      setEditDelayDirection(e.target.value as DelayDirection)
-                                    }
+                                  <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
+                                  <input
+                                    type="number"
+                                    min={minDelayDaysForTrigger(trigger.trigger_type)}
+                                    value={editDelayDays}
+                                    onChange={(e) => setEditDelayDays(Number(e.target.value))}
                                     className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                                  >
-                                    {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
-                                      <>
-                                        <option value="before">לפני יום ההולדת</option>
-                                        <option value="after">אחרי יום ההולדת</option>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <option value="before">לפני פקיעת התוקף</option>
-                                        <option value="after">אחרי פקיעת התוקף</option>
-                                      </>
-                                    )}
-                                  </select>
+                                  />
                                 </div>
-                              ) : null}
-                            </div>
+                                {allowsDelayBefore(trigger.trigger_type) ? (
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-zinc-700">כיוון</label>
+                                    <select
+                                      value={editDelayDirection}
+                                      onChange={(e) =>
+                                        setEditDelayDirection(e.target.value as DelayDirection)
+                                      }
+                                      className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                                    >
+                                      {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
+                                        <>
+                                          <option value="before">לפני יום ההולדת</option>
+                                          <option value="after">אחרי יום ההולדת</option>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <option value="before">לפני פקיעת התוקף</option>
+                                          <option value="after">אחרי פקיעת התוקף</option>
+                                        </>
+                                      )}
+                                    </select>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
                             <div className="space-y-1">
                               <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
                               <select
@@ -1596,6 +1637,52 @@ export default function TemplatesClient({
                     </div>
                   ) : null}
 
+                  {showNewItemTypeFilter ? (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-zinc-800">
+                        סוג רכישה (אופציונלי)
+                      </label>
+                      <p className="text-xs text-zinc-500">
+                        השאירו ריק לכל הסוגים. בחרו מנוי / כרטיסייה / שירות / ניסיון כדי לפצל
+                        טמפלייטים בלי לרשום מזהי מוצר.
+                      </p>
+                      <ul className="space-y-2 rounded-xl border border-zinc-200 bg-white p-2">
+                        {PURCHASE_ITEM_TYPE_VALUES.map((value) => {
+                          const inputId = `trigger-item-type-${value}`;
+                          const checked = newItemTypeFilter.includes(value);
+                          return (
+                            <li key={value}>
+                              <label
+                                htmlFor={inputId}
+                                className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                              >
+                                <input
+                                  id={inputId}
+                                  type="checkbox"
+                                  className="shrink-0"
+                                  checked={checked}
+                                  onChange={() => toggleNewItemTypeFilter(value)}
+                                />
+                                <span className="text-xs text-zinc-800">
+                                  {PURCHASE_ITEM_TYPE_LABELS_HE[value]}
+                                  <span className="text-zinc-400" dir="ltr">
+                                    {" "}
+                                    ({value})
+                                  </span>
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {isNewImmediateDelay ? (
+                    <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                      נשלח מיד עם האירוע — אין השהייה של ימים.
+                    </p>
+                  ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-zinc-800">ימים</label>
@@ -1647,6 +1734,7 @@ export default function TemplatesClient({
                       </div>
                     ) : null}
                   </div>
+                  )}
 
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-zinc-800">טמפלייט</label>

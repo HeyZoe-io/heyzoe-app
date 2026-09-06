@@ -33,6 +33,7 @@ export type ArboxSalesReportRow = {
   last_name?: unknown;
   date?: unknown;
   membership_type_id: unknown;
+  item_type?: unknown;
   item_name?: unknown;
   paid?: unknown;
   debt?: unknown;
@@ -143,6 +144,7 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   saleId: number;
   saleDate: unknown;
   membershipTypeId: number | null;
+  itemType: string | null;
   phoneNumberId: string;
   fullName: string | null;
   sessionId: string | null;
@@ -151,6 +153,7 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
     admin: input.admin,
     businessId: input.businessId,
     membershipTypeId: input.membershipTypeId,
+    itemType: input.itemType,
   });
 
   const templateName = matchedRule?.template_name?.trim() || null;
@@ -355,6 +358,7 @@ export async function handleArboxTrialSaleRegistered(input: {
 
   const fullName = resolveReportFullName(input.row);
   const membershipTypeId = parseMembershipTypeId(input.row.membership_type_id);
+  const itemTypeRaw = String(input.row.item_type ?? "").trim().toLowerCase() || null;
 
   // 1) Seen check — per sale
   const { data: existingSeen, error: seenErr } = await input.admin
@@ -639,6 +643,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         saleId,
         saleDate: input.row.date,
         membershipTypeId,
+        itemType: itemTypeRaw,
         phoneNumberId,
         fullName,
         sessionId,
@@ -655,6 +660,7 @@ export async function handleArboxTrialSaleRegistered(input: {
       saleId,
       saleDate: input.row.date,
       membershipTypeId,
+      itemType: itemTypeRaw,
       phoneNumberId,
       fullName,
       sessionId,

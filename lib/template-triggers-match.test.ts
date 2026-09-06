@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   pickPurchaseTemplateTriggerRule,
   purchaseSaleMembershipScopeIsEmpty,
+  purchaseTriggerRuleMatchesItemType,
   purchaseTriggerRuleMatchesMembershipType,
   resolvePurchaseSaleMembershipScope,
   saleMembershipTypeInScope,
@@ -15,6 +16,7 @@ function rule(
   return {
     business_id: 1,
     trigger_type: "purchase",
+    item_type_filter: null,
     delay_days: 0,
     delay_direction: "after",
     enabled: true,
@@ -89,6 +91,60 @@ const rules = [trialRule, membershipRule];
   assert.equal(picked?.template_name, "T_any");
 }
 
+/** item_type_filter: plan-only vs session-only for the same id set. */
+{
+  const planOnly = rule({
+    id: "rule-plan",
+    product_filter: null,
+    item_type_filter: ["plan"],
+    template_name: "T_plan",
+    updated_at: "2026-07-01T00:00:00.000Z",
+  });
+  const sessionOnly = rule({
+    id: "rule-session",
+    product_filter: null,
+    item_type_filter: ["session"],
+    template_name: "T_session",
+    updated_at: "2026-07-02T00:00:00.000Z",
+  });
+  assert.equal(purchaseTriggerRuleMatchesItemType(planOnly, "plan"), true);
+  assert.equal(purchaseTriggerRuleMatchesItemType(planOnly, "session"), false);
+  assert.equal(purchaseTriggerRuleMatchesItemType(planOnly, "trial"), false);
+  assert.equal(pickPurchaseTemplateTriggerRule([planOnly, sessionOnly], 90001, "plan")?.id, "rule-plan");
+  assert.equal(
+    pickPurchaseTemplateTriggerRule([planOnly, sessionOnly], 90001, "session")?.id,
+    "rule-session"
+  );
+  assert.equal(pickPurchaseTemplateTriggerRule([planOnly, sessionOnly], 90001, "service"), null);
+  assert.equal(pickPurchaseTemplateTriggerRule([planOnly, sessionOnly], 90001, null), null);
+}
+
+/** item_type + product_filter both apply; more specific wins over class-only. */
+{
+  const planAny = rule({
+    id: "rule-plan-any",
+    product_filter: null,
+    item_type_filter: ["plan"],
+    template_name: "T_plan_any",
+    updated_at: "2026-08-01T00:00:00.000Z",
+  });
+  const planSpecific = rule({
+    id: "rule-plan-id",
+    product_filter: [90001],
+    item_type_filter: ["plan"],
+    template_name: "T_plan_id",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  });
+  assert.equal(
+    pickPurchaseTemplateTriggerRule([planAny, planSpecific], 90001, "plan")?.id,
+    "rule-plan-id"
+  );
+  assert.equal(
+    pickPurchaseTemplateTriggerRule([planAny, planSpecific], 90002, "plan")?.id,
+    "rule-plan-any"
+  );
+}
+
 /** Cron scope: union of trial IDs + purchase rule product filters. */
 {
   const scope = resolvePurchaseSaleMembershipScope({
@@ -104,12 +160,13 @@ const rules = [trialRule, membershipRule];
   assert.equal(saleMembershipTypeInScope(11111, scope), false);
 }
 
-/** Cron scope: empty product_filter catch-all → all sales. */
+/** Cron scope: empty product_filter catch-all → all sales (incl. item_type-only rules). */
 {
   const catchAll = rule({
     id: "rule-catch-all",
     product_filter: null,
-    template_name: "T_any",
+    item_type_filter: ["plan"],
+    template_name: "T_plan",
   });
   const scope = resolvePurchaseSaleMembershipScope({
     trialMembershipTypeIds: [],

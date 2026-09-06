@@ -100,6 +100,7 @@ import { pickTrialAttendedTemplateTriggerRule } from "@/lib/template-triggers-ma
       business_id: 1,
       trigger_type: "trial_attended",
       product_filter: [80601],
+      item_type_filter: null,
       delay_days: 0,
       delay_direction: "after",
       template_name: "T_attended",

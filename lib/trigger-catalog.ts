@@ -54,7 +54,7 @@ export const TRIGGER_CATALOG = [
     audience: "members",
     implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "none",
     showProductFilter: true,
     uniquePerBusiness: false,
     minDelayDays: 0,
@@ -70,7 +70,7 @@ export const TRIGGER_CATALOG = [
     audience: "members",
     implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "none",
     showProductFilter: false,
     uniquePerBusiness: false,
     minDelayDays: 0,
@@ -102,7 +102,7 @@ export const TRIGGER_CATALOG = [
     audience: "members",
     implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "either",
     showProductFilter: false,
     uniquePerBusiness: false,
     minDelayDays: 0,
@@ -167,7 +167,7 @@ export const TRIGGER_CATALOG = [
     audience: "members",
     implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "none",
     showProductFilter: true,
     uniquePerBusiness: false,
     minDelayDays: 0,
@@ -216,7 +216,7 @@ export const TRIGGER_CATALOG = [
     audience: "leads",
     implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "either",
     showProductFilter: false,
     uniquePerBusiness: false,
     minDelayDays: 0,
@@ -573,12 +573,18 @@ export function isBirthdayFamilyTriggerType(value: string): boolean {
 /**
  * Event-based types whose send time is after the event.
  * Birthday must NOT coerce a stored `before` (matcher honors before/after).
+ * Immediate (`delay: none`) confirmations are not "after" — they force delay_days=0 in UI/API.
  */
 export function forcesDelayAfter(triggerType: string): boolean {
   const e = triggerCatalogEntry(triggerType);
   if (!e || e.delay !== "after") return false;
   if (isBirthdayFamilyTriggerType(e.type)) return false;
   return true;
+}
+
+/** Purchase / credit_refusal / membership_cancelled (+ manual): no before/after picker. */
+export function isImmediateDelayTrigger(triggerType: string): boolean {
+  return triggerCatalogEntry(triggerType)?.delay === "none";
 }
 
 /** Expiry reminders and birthday may fire before the calendar day. */
@@ -589,11 +595,31 @@ export function allowsDelayBefore(triggerType: string): boolean {
   return isBirthdayFamilyTriggerType(e.type);
 }
 
+/** salesReport item_type values used by purchase item_type_filter. */
+export const PURCHASE_ITEM_TYPE_VALUES = ["plan", "session", "service", "trial"] as const;
+export type PurchaseItemType = (typeof PURCHASE_ITEM_TYPE_VALUES)[number];
+
+export const PURCHASE_ITEM_TYPE_LABELS_HE: Record<PurchaseItemType, string> = {
+  plan: "מנוי",
+  session: "כרטיסייה",
+  service: "שירות",
+  trial: "ניסיון",
+};
+
+export function isPurchaseItemType(value: string): value is PurchaseItemType {
+  return (PURCHASE_ITEM_TYPE_VALUES as readonly string[]).includes(value);
+}
+
+/** Purchase only — class filter (plan/session/service/trial) alongside product_filter ids. */
+export function showsItemTypeFilter(triggerType: string): boolean {
+  return triggerCatalogEntry(triggerType)?.type === "purchase";
+}
+
 export function delayDirectionForTrigger(
   triggerType: string,
   stored: string | null | undefined
 ): DelayDirection {
-  if (forcesDelayAfter(triggerType)) return "after";
+  if (forcesDelayAfter(triggerType) || isImmediateDelayTrigger(triggerType)) return "after";
   const d = String(stored ?? "").trim().toLowerCase();
   return d === "before" ? "before" : "after";
 }
@@ -613,6 +639,7 @@ export function defaultDelayDays(triggerType: string): number {
 export function defaultDelayDirection(triggerType: string): DelayDirection {
   // Birthday defaults to on-day (after + 0); expiry defaults to before.
   if (isBirthdayFamilyTriggerType(triggerType)) return "after";
+  if (isImmediateDelayTrigger(triggerType)) return "after";
   return allowsDelayBefore(triggerType) ? "before" : "after";
 }
 
@@ -650,6 +677,9 @@ export function formatDelayLabel(
   days: number,
   direction: DelayDirection
 ): string {
+  if (isImmediateDelayTrigger(type)) {
+    return "נשלח מיד";
+  }
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;
   }

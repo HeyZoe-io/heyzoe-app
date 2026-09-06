@@ -8,9 +8,13 @@ import {
   forcesDelayAfter,
   INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
   isArboxDependentTriggerType,
+  isImmediateDelayTrigger,
   isIncomingLeadTriggerType,
+  isPurchaseItemType,
   isTriggerType,
   parseTriggerId,
+  showsItemTypeFilter,
+  type PurchaseItemType,
   type TriggerType,
 } from "@/lib/template-trigger-types";
 
@@ -36,6 +40,7 @@ type TriggerRow = {
   business_id: number;
   trigger_type: TriggerType;
   product_filter: number[] | null;
+  item_type_filter: PurchaseItemType[] | null;
   delay_days: number;
   delay_direction: DelayDirection;
   template_name: string | null;
@@ -96,6 +101,22 @@ function parseProductFilter(raw: unknown): number[] | null | "invalid" {
   return [...new Set(ids)].sort((a, b) => a - b);
 }
 
+function parseItemTypeFilter(raw: unknown): PurchaseItemType[] | null | "invalid" {
+  if (raw === null || raw === undefined) return null;
+  if (!Array.isArray(raw)) return "invalid";
+  const types: PurchaseItemType[] = [];
+  for (const item of raw) {
+    const s = String(item ?? "")
+      .trim()
+      .toLowerCase();
+    if (!s) continue;
+    if (!isPurchaseItemType(s)) return "invalid";
+    types.push(s);
+  }
+  if (!types.length) return null;
+  return [...new Set(types)].sort();
+}
+
 function parseDelayDays(raw: unknown): number | "invalid" {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return "invalid";
@@ -152,6 +173,7 @@ async function verifyTriggerTemplate(
 
 function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
   const productFilter = parseProductFilter(row.product_filter);
+  const itemTypeFilter = parseItemTypeFilter(row.item_type_filter);
   const rawType = String(row.trigger_type ?? "");
   const canonicalType = canonicalizeTriggerType(rawType) as TriggerType;
   const id = parseTriggerId(row.id) ?? String(row.id ?? "").trim();
@@ -161,8 +183,12 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
     business_id: Number(row.business_id),
     trigger_type: canonicalType,
     product_filter: productFilter === "invalid" ? null : productFilter,
+    item_type_filter: itemTypeFilter === "invalid" ? null : itemTypeFilter,
     delay_days: Number(row.delay_days ?? 0),
-    delay_direction: forcesDelayAfter(canonicalType) ? "after" : storedDirection,
+    delay_direction:
+      forcesDelayAfter(canonicalType) || isImmediateDelayTrigger(canonicalType)
+        ? "after"
+        : storedDirection,
     template_name: row.template_name != null ? String(row.template_name) : null,
     enabled: Boolean(row.enabled),
     created_at: String(row.created_at ?? ""),
@@ -223,7 +249,7 @@ async function findExistingArboxNewLeadRule(
 }
 
 const TRIGGER_SELECT =
-  "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at";
+  "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at";
 
 /**
  * GET /api/[slug]/triggers — list automation rules for the business.
@@ -308,16 +334,19 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   let delayDirection = String(body.delay_direction ?? "").trim();
-  if (forcesDelayAfter(triggerType)) {
+  if (forcesDelayAfter(triggerType) || isImmediateDelayTrigger(triggerType)) {
     delayDirection = "after";
   }
   if (!isDelayDirection(delayDirection)) {
     return NextResponse.json({ error: "invalid_delay_direction" }, { status: 400 });
   }
 
-  const delayDays = parseDelayDays(body.delay_days);
+  let delayDays = parseDelayDays(body.delay_days);
   if (delayDays === "invalid") {
     return NextResponse.json({ error: "invalid_delay_days" }, { status: 400 });
+  }
+  if (isImmediateDelayTrigger(triggerType)) {
+    delayDays = 0;
   }
   if (triggerType === "no_response" && delayDays < 2) {
     return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
@@ -329,6 +358,14 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
   if (forcesAfterNoProductFilter(triggerType)) {
     productFilter = null;
+  }
+
+  let itemTypeFilter = parseItemTypeFilter(body.item_type_filter);
+  if (itemTypeFilter === "invalid") {
+    return NextResponse.json({ error: "invalid_item_type_filter" }, { status: 400 });
+  }
+  if (!showsItemTypeFilter(triggerType)) {
+    itemTypeFilter = null;
   }
 
   const templateNameRaw = body.template_name;
@@ -350,6 +387,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     business_id: business.id,
     trigger_type: triggerType,
     product_filter: productFilter,
+    item_type_filter: itemTypeFilter,
     delay_days: delayDays,
     delay_direction: delayDirection,
     template_name: templateName,
@@ -411,8 +449,15 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     if (forcesAfterNoProductFilter(triggerType)) {
       patch.delay_direction = "after";
       patch.product_filter = null;
-    } else if (forcesDelayAfter(triggerType)) {
+      patch.item_type_filter = null;
+    } else if (forcesDelayAfter(triggerType) || isImmediateDelayTrigger(triggerType)) {
       patch.delay_direction = "after";
+    }
+    if (isImmediateDelayTrigger(triggerType)) {
+      patch.delay_days = 0;
+    }
+    if (!showsItemTypeFilter(triggerType)) {
+      patch.item_type_filter = null;
     }
   }
 
@@ -431,7 +476,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
         (existingForDelay as { trigger_type?: unknown } | null)?.trigger_type ?? ""
       );
     }
-    if (forcesDelayAfter(typeForDelay)) {
+    if (forcesDelayAfter(typeForDelay) || isImmediateDelayTrigger(typeForDelay)) {
       delayDirection = "after";
     }
     if (!isDelayDirection(delayDirection)) {
@@ -441,9 +486,25 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   }
 
   if (body.delay_days !== undefined) {
-    const delayDays = parseDelayDays(body.delay_days);
+    let delayDays = parseDelayDays(body.delay_days);
     if (delayDays === "invalid") {
       return NextResponse.json({ error: "invalid_delay_days" }, { status: 400 });
+    }
+    let typeForDelayDays =
+      patch.trigger_type != null ? String(patch.trigger_type) : null;
+    if (typeForDelayDays == null) {
+      const { data: existingForDelay } = await admin
+        .from("template_triggers")
+        .select("trigger_type")
+        .eq("id", id)
+        .eq("business_id", business.id)
+        .maybeSingle();
+      typeForDelayDays = String(
+        (existingForDelay as { trigger_type?: unknown } | null)?.trigger_type ?? ""
+      );
+    }
+    if (isImmediateDelayTrigger(typeForDelayDays)) {
+      delayDays = 0;
     }
     patch.delay_days = delayDays;
   }
@@ -457,6 +518,27 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       patch.trigger_type != null && forcesAfterNoProductFilter(String(patch.trigger_type))
         ? null
         : productFilter;
+  }
+
+  if (body.item_type_filter !== undefined) {
+    const itemTypeFilter = parseItemTypeFilter(body.item_type_filter);
+    if (itemTypeFilter === "invalid") {
+      return NextResponse.json({ error: "invalid_item_type_filter" }, { status: 400 });
+    }
+    let typeForItem =
+      patch.trigger_type != null ? String(patch.trigger_type) : null;
+    if (typeForItem == null) {
+      const { data: existingForItem } = await admin
+        .from("template_triggers")
+        .select("trigger_type")
+        .eq("id", id)
+        .eq("business_id", business.id)
+        .maybeSingle();
+      typeForItem = String(
+        (existingForItem as { trigger_type?: unknown } | null)?.trigger_type ?? ""
+      );
+    }
+    patch.item_type_filter = showsItemTypeFilter(typeForItem) ? itemTypeFilter : null;
   }
 
   if (body.template_name !== undefined) {

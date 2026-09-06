@@ -44,7 +44,7 @@ export default async function TemplatesPage({ params }: Props) {
     admin
       .from("template_triggers")
       .select(
-        "id, business_id, trigger_type, product_filter, delay_days, delay_direction, template_name, enabled, created_at"
+        "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at"
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: true }),

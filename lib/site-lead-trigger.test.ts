@@ -54,10 +54,10 @@ import { buildSiteLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
   assert.equal(isCreatableTriggerType("arbox_new_lead", true), true);
 }
 
-/** purchase / credit_refusal / trial_attended cannot fire before the event date */
+/** purchase / credit_refusal / membership_cancelled are immediate (delay: none) */
 {
-  assert.equal(forcesDelayAfter("purchase"), true);
-  assert.equal(forcesDelayAfter("credit_refusal"), true);
+  assert.equal(forcesDelayAfter("purchase"), false);
+  assert.equal(forcesDelayAfter("credit_refusal"), false);
   assert.equal(forcesDelayAfter("trial_attended"), true);
   assert.equal(forcesDelayAfter("incoming_lead"), true);
   assert.equal(allowsDelayBefore("purchase"), false);
@@ -79,6 +79,7 @@ function rule(
     business_id: 1,
     trigger_type: "incoming_lead",
     product_filter: null,
+    item_type_filter: null,
     delay_days: 0,
     delay_direction: "after",
     enabled: true,

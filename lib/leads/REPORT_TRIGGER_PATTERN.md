@@ -129,10 +129,31 @@ Rules:
 
 ## Product filter
 
-- Empty `product_filter` = all types.
+- Empty `product_filter` = all membership_type_ids.
 - Reports that lack `membership_type_id` match by `membership_type_name`
   resolved via `GET /v3/membershipTypes` (one extra GET per business per run,
   only when a filter is set).
+
+## Purchase `item_type_filter` (salesReport class)
+
+- Expiring membership vs punch-card uses **two Arbox reports**
+  (`expiringMembershipsReport` / `expiringSessionsReport`). Purchase cannot —
+  the v3 report enum has a single `salesReport` (no per-class sales report).
+- `template_triggers.item_type_filter text[] null` = optional include-list of
+  salesReport `item_type`: `plan` | `session` | `service` | `trial`.
+  NULL/empty = all classes. Coexists with `product_filter` (ids).
+- Matching prefers more specific rules (ids > item_type > catch-all).
+- **No extra Arbox IO** — filter on rows already fetched.
+- Migration: `supabase/template_triggers_item_type_filter.sql` (run before deploy).
+
+## Delay mode `none` (immediate confirmations)
+
+- Catalog `delay: "none"` for `purchase`, `credit_refusal`,
+  `membership_cancelled` (and manual campaigns). UI hides before/after + days;
+  shows «נשלח מיד»; create/edit force `delay_days=0`.
+- Runtime still honors a stored `delay_days > 0` if present (no backfill) —
+  existing rows are unchanged.
+- Other modes: `after` / `before` / `either` unchanged (`birthday*` → `either`).
 
 ## Meta template category (all presets)
 
