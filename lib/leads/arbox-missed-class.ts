@@ -111,7 +111,7 @@ export function parseClassDateAsEventDate(classDateYmd: string): Date {
 export function bookingsReportSharedLookbackWindow(input: {
   now: Date;
   missedNeedsSeed: boolean;
-  /** C1/C2 need the full past span whenever a gap rule is live (not only on seed). */
+  /** attendance_gap needs the full past span whenever a gap rule is live (not only on seed). */
   forceWidePast?: boolean;
   lookbackDays?: number;
 }): { fromDate: string; toDate: string } {
@@ -391,7 +391,7 @@ export type BookingsReportFetchPlan = {
   needsFetch: boolean;
   /** Expand lookback to the 30d seed window only when a missed_* rule is live + unseeded. */
   hasMissedRule: boolean;
-  /** Force 30d past whenever C1/C2 is live (gap needs last Yes in window). */
+  /** Force 30d past whenever attendance_gap is live (gap needs last Yes in window). */
   hasAttendanceGapRule: boolean;
   /** C5/C6 post-trial follow-up — widen past + sales join on daily cron. */
   hasPostTrialFollowupRule: boolean;
@@ -413,8 +413,7 @@ export async function businessNeedsBookingsReportFetch(
     .in("trigger_type", [
       "missed_class",
       "missed_trial",
-      "attendance_gap_booked",
-      "attendance_gap_unbooked",
+      "attendance_gap",
       "registered_after_trial",
       "not_registered_after_trial",
     ])
@@ -439,7 +438,7 @@ export async function businessNeedsBookingsReportFetch(
     }),
     hasAttendanceGapRule: live.some((r) => {
       const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
-      return t === "attendance_gap_booked" || t === "attendance_gap_unbooked";
+      return t === "attendance_gap";
     }),
     hasPostTrialFollowupRule: live.some((r) => {
       const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");

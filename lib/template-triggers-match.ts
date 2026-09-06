@@ -472,8 +472,8 @@ export async function resolveMissedTrialTemplateTrigger(input: {
   return pickMissedTrialTemplateTriggerRule(rules);
 }
 
-/** Enabled attendance_gap_booked (C1) rules — multiple tiers via delay_days. */
-export async function loadEnabledAttendanceGapBookedTemplateTriggers(
+/** Enabled attendance_gap rules — multiple tiers via delay_days. */
+export async function loadEnabledAttendanceGapTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
 ): Promise<PurchaseTemplateTriggerRule[]> {
@@ -481,34 +481,12 @@ export async function loadEnabledAttendanceGapBookedTemplateTriggers(
     .from("template_triggers")
     .select(PURCHASE_RULE_SELECT)
     .eq("business_id", businessId)
-    .eq("trigger_type", "attendance_gap_booked")
+    .eq("trigger_type", "attendance_gap")
     .eq("enabled", true);
 
   if (error) {
     console.error(
-      "[template-triggers-match] load attendance_gap_booked rules failed:",
-      error.message
-    );
-    return [];
-  }
-  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
-}
-
-/** Enabled attendance_gap_unbooked (C2) rules — multiple tiers via delay_days. */
-export async function loadEnabledAttendanceGapUnbookedTemplateTriggers(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number
-): Promise<PurchaseTemplateTriggerRule[]> {
-  const { data, error } = await admin
-    .from("template_triggers")
-    .select(PURCHASE_RULE_SELECT)
-    .eq("business_id", businessId)
-    .eq("trigger_type", "attendance_gap_unbooked")
-    .eq("enabled", true);
-
-  if (error) {
-    console.error(
-      "[template-triggers-match] load attendance_gap_unbooked rules failed:",
+      "[template-triggers-match] load attendance_gap rules failed:",
       error.message
     );
     return [];

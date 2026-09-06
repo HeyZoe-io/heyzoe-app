@@ -291,8 +291,8 @@ export const TRIGGER_CATALOG = [
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
-    type: "attendance_gap_booked",
-    labelHe: "פער נוכחות (עם הזמנה)",
+    type: "attendance_gap",
+    labelHe: "פער נוכחות ללא רישום עתידי",
     activation: "automatic",
     audience: "members",
     implemented: true,
@@ -302,24 +302,8 @@ export const TRIGGER_CATALOG = [
     uniquePerBusiness: false,
     minDelayDays: 7,
     recipient: "customer",
-    presetKey: "attendance_gap_booked",
+    presetKey: "attendance_gap",
     uiOrder: 13,
-    sendHintHe: SEND_HINT_DAILY_HE,
-  },
-  {
-    type: "attendance_gap_unbooked",
-    labelHe: "פער נוכחות (בלי הזמנה)",
-    activation: "automatic",
-    audience: "members",
-    implemented: true,
-    arboxOnly: true,
-    delay: "gap_days",
-    showProductFilter: false,
-    uniquePerBusiness: false,
-    minDelayDays: 7,
-    recipient: "customer",
-    presetKey: "attendance_gap_unbooked",
-    uiOrder: 14,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
@@ -665,10 +649,9 @@ export function isPostTrialFollowupTriggerType(value: string): boolean {
   return t === "registered_after_trial" || t === "not_registered_after_trial";
 }
 
-/** C1/C2 — delay_days is absence-tier days, not event+N. */
+/** attendance_gap — delay_days is absence-tier days, not event+N. */
 export function isAttendanceGapTriggerType(value: string): boolean {
-  const t = canonicalizeTriggerType(value);
-  return t === "attendance_gap_booked" || t === "attendance_gap_unbooked";
+  return canonicalizeTriggerType(value) === "attendance_gap";
 }
 
 /** C14/C15 — delay_days is days before end_suspend. */

@@ -1,7 +1,7 @@
--- Attendance-gap triggers C1/C2 (bookingsReport last check_in=Yes + future booking split).
+-- attendance_gap (bookingsReport last check_in=Yes; no future-booking split).
 -- Scheduling: cron-job.org → GET /api/cron/arbox-daily-triggers (not Vercel crons — Hobby).
--- Shared by attendance_gap_booked (C1) and attendance_gap_unbooked (C2).
 -- Grain: (user_id, variant, gap_start_date=last Yes date, tier=delay_days).
+-- variant is always 'unbooked' (column kept in PK; booked path removed — no migration).
 -- First enable seeds current gap states without WhatsApp (arbox_attendance_gap_seeded).
 -- Soft-seed: a newly added tier with zero sync_log rows is seeded without send.
 -- Retry cap: attempts + status (gated does not increment; only send_failed).
@@ -13,7 +13,7 @@ alter table public.businesses
   add column if not exists arbox_attendance_gap_seeded boolean not null default false;
 
 comment on column public.businesses.arbox_attendance_gap_seeded is
-  'True after the first attendance_gap_* bookingsReport pass seeded current gap states without sending WhatsApp.';
+  'True after the first attendance_gap bookingsReport pass seeded current gap states without sending WhatsApp.';
 
 create table if not exists public.arbox_attendance_gap_sync_log (
   business_id bigint not null references public.businesses (id) on delete cascade,
@@ -44,7 +44,7 @@ comment on table public.arbox_attendance_gap_sync_log is
   'Attendance-gap tiers already processed/seeded. PK includes gap_start_date (last Yes) so a new episode after re-attendance can fire again.';
 
 comment on column public.arbox_attendance_gap_sync_log.variant is
-  'booked = C1 (has future booking); unbooked = C2 (no future booking).';
+  'Always unbooked for attendance_gap (booked path removed). Kept in PK for compatibility.';
 
 comment on column public.arbox_attendance_gap_sync_log.gap_start_date is
   'Date of last check_in=Yes that started this quiet episode (not registration/No).';

@@ -173,7 +173,7 @@ Calibration:
 
 - Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
 - A dry system confirmation must stay UTILITY so Meta approval is reliable.
-- פער נוכחות עם/בלי הזמנה (C1/C2) → **MARKETING**
+- פער נוכחות ללא רישום עתידי (`attendance_gap`) → **MARKETING**
 - סיום הקפאה בלי הזמנה (C14) → **MARKETING**; עם הזמנה (C15) → **UTILITY**
 
 Existing presets may predate this rule; **new** presets must follow it.
@@ -215,31 +215,28 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - Seed: `businesses.arbox_post_trial_followup_seeded` + soft-seed per outcome. A9 retry.
 - Migration: `supabase/arbox_post_trial_followup_sync_log.sql` (run before deploy).
 
-## Attendance gap booked / unbooked (C1 / C2)
+## Attendance gap (no future registration)
 
 - Source: `bookingsReport`. Per `user_id`:
   - `last_yes` = max past `date` with **`check_in === "Yes"`** only (registration /
     `check_in="No"` does **not** count as attendance).
   - `gap_days` = Israel YMD `today − last_yes`.
-  - `has_future` = any row with `date > today` (separate short future GET).
-  - C1 `attendance_gap_booked` when `gap_days >= tier` and `has_future`.
-  - C2 `attendance_gap_unbooked` when `gap_days >= tier` and `!has_future`.
+  - `attendance_gap` when `gap_days >= tier` — **no** future-booking filter (former C1
+    booked path removed: someone already booked is coming back; messaging is noise).
 - **Window ceiling ~30 days:** past fetch is ≤30d (Arbox span cap). A member with no
   `check_in="Yes"` inside that window has no `last_yes` → skipped here. Gaps older than
-  ~30d are **out of scope** for C1/C2; they belong to a future lost / win-back trigger,
-  not attendance-gap.
+  ~30d are **out of scope** for this trigger; they belong to a future lost / win-back
+  trigger.
 - Tiers: separate `template_triggers` rows; `delay_days` = absence tier (7/14/21). UI
   label **«ימי היעדרות»**. Send is **immediate on detection day** (not event+N).
-- Two GETs when a gap rule is live: shared past (forced 30d with trial/missed) + future
-  `today+1…today+14`.
+- One past GET when a gap rule is live (shared with trial/missed). **No** future
+  bookings GET for attendance gap — that GET is only for freeze ending C14/C15.
 - Dedup: `arbox_attendance_gap_sync_log` PK
   `(business_id, user_id, variant, gap_start_date, tier)` where `gap_start_date = last_yes`
-  so re-attendance starts a new episode.
+  and `variant` is always `'unbooked'` (column kept; booked path gone — no migration).
 - Seed: `businesses.arbox_attendance_gap_seeded` — first enable marks current gaps without
-  WhatsApp. **Soft-seed:** after the flag is true, a new `(variant, tier)` with zero
-  sync_log rows seeds the current cohort (or a `user_id=0` sentinel if empty) without
-  send. Retry: A9 `attempts`/`status`.
-- Presets: both **MARKETING**. Migration: `supabase/arbox_attendance_gap_sync_log.sql`
+  WhatsApp. Soft-seed for new tiers with zero sync_log rows. Retry: A9 `attempts`/`status`.
+- Preset: **MARKETING**. Migration: `supabase/arbox_attendance_gap_sync_log.sql`
   (run before deploy).
 
 ## Freeze created / ending (A8 / C14 / C15)
@@ -251,7 +248,8 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - A8 `freeze_created` — UTILITY confirmation for a new unseen `membership_hold_id`.
 - C14 `freeze_ending_unbooked` / C15 `freeze_ending_booked` — `end_suspend_ymd > today`
   and due by `delay_days` **before** end; split by future booking
-  (`today+1…today+14`, shared GET with C1/C2).
+  (`today+1…today+14`). Cron prefetches that future GET only when freeze ending
+  needs it — not when only `attendance_gap` is live.
 - **Past ends:** rows with `end_suspend_time` ≤ today are never sent for C14/C15
   (`skipped_ended`).
 - Dedup:
@@ -276,5 +274,5 @@ unseen non-Zoe lead remains. Birthday always adds those two customer reports
 when a birthday / birthday_former rule is enabled. **C5/C6 add one salesReport
 GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
 events after seed, not the seed window. **Freeze A8/C14/C15:** +1
-`membersOnHoldReport` GET when any freeze rule is live; future bookings GET is
-shared with C1/C2 when either needs it (not doubled).
+`membersOnHoldReport` GET when any freeze rule is live; future bookings GET only
+when freeze ending needs it (not when only attendance_gap is live).

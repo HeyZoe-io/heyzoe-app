@@ -55,8 +55,7 @@ const LIVE_AUTOMATIC = [
   "freeze_created",
   "freeze_ending_unbooked",
   "freeze_ending_booked",
-  "attendance_gap_booked",
-  "attendance_gap_unbooked",
+  "attendance_gap",
   "missed_class",
   "missed_trial",
 ] as const;
@@ -75,8 +74,7 @@ const PREVIOUS_ARBOX = [
   "freeze_created",
   "freeze_ending_unbooked",
   "freeze_ending_booked",
-  "attendance_gap_booked",
-  "attendance_gap_unbooked",
+  "attendance_gap",
   "missed_class",
   "missed_trial",
 ] as const;
@@ -156,8 +154,9 @@ function triggerCatalogAudience(type: string) {
   assert.ok(memberTypes.includes("birthday"));
   assert.ok(memberTypes.includes("membership_cancelled"));
   assert.ok(memberTypes.includes("missed_class"));
-  assert.ok(memberTypes.includes("attendance_gap_booked"));
-  assert.ok(memberTypes.includes("attendance_gap_unbooked"));
+  assert.ok(memberTypes.includes("attendance_gap"));
+  assert.ok(!(memberTypes as string[]).includes("attendance_gap_booked"));
+  assert.ok(!(memberTypes as string[]).includes("attendance_gap_unbooked"));
   assert.ok(!memberTypes.includes("registered_after_trial"));
   assert.ok(!memberTypes.includes("incoming_lead"));
   assert.ok(!memberTypes.includes("missed_trial"));
@@ -250,7 +249,8 @@ function triggerCatalogAudience(type: string) {
   }).map((e) => e.type);
   assert.ok(membersWithPurchase.includes("purchase"), "non-unique: create-another card stays");
   assert.ok(membersWithPurchase.includes("missed_class"));
-  assert.ok(membersWithPurchase.includes("attendance_gap_booked"));
+  assert.ok(membersWithPurchase.includes("attendance_gap"));
+  assert.ok(!(membersWithPurchase as string[]).includes("attendance_gap_booked"));
 
   const plannedMembers = plannedCatalogEntriesForCell({
     activation: "automatic",
@@ -260,7 +260,7 @@ function triggerCatalogAudience(type: string) {
   assert.ok(!plannedMembers.includes("freeze_created"));
   assert.ok(!(plannedMembers as string[]).includes("freeze_ending"));
   assert.ok(!(plannedMembers as string[]).includes("attendance_gap"));
-  assert.ok(!plannedMembers.includes("attendance_gap_booked"));
+  assert.ok(!(plannedMembers as string[]).includes("attendance_gap_booked"));
   assert.ok(!plannedMembers.includes("missed_class"));
 
   const plannedLeads = plannedCatalogEntriesForCell({
@@ -400,9 +400,9 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("purchase", 0, "after"), "נשלח מיד");
   assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "נשלח מיד");
   assert.equal(formatDelayLabel("credit_refusal", 1, "after"), "נשלח מיד");
-  assert.equal(formatDelayLabel("attendance_gap_booked", 7, "after"), "7 ימי היעדרות");
-  assert.equal(formatDelayLabel("attendance_gap_unbooked", 21, "after"), "21 ימי היעדרות");
-  assert.equal(minDelayDaysForTrigger("attendance_gap_booked"), 7);
+  assert.equal(formatDelayLabel("attendance_gap", 7, "after"), "7 ימי היעדרות");
+  assert.equal(formatDelayLabel("attendance_gap", 21, "after"), "21 ימי היעדרות");
+  assert.equal(minDelayDaysForTrigger("attendance_gap"), 7);
 }
 
 {

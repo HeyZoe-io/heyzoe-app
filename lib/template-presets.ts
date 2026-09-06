@@ -33,8 +33,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   membership_cancelled: ["membership_type_name", "expiry_date"],
   missed_class: ["first_name", "class_name"],
   missed_trial: ["first_name", "class_name"],
-  attendance_gap_booked: ["first_name", "class_name"],
-  attendance_gap_unbooked: ["first_name", "business_name"],
+  attendance_gap: ["first_name", "business_name"],
   freeze_created: ["first_name", "start_date", "expiry_date"],
   freeze_ending_unbooked: ["first_name", "expiry_date"],
   freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
@@ -121,14 +120,8 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     category: "MARKETING",
     body: "היי {{1}}, ראינו שנרשמת לשיעור ניסיון ({{2}}) ולא הגעת. מה קרה? מתי נוח לקבוע מחדש?",
   },
-  attendance_gap_booked: {
-    name: "attendance_gap_booked",
-    category: "MARKETING",
-    body: "היי {{1}}, מתגעגעים אלייך! לא ראינו אותך לאחרונה, אבל שמחנו לראות שנרשמת ל{{2}} — נתראה שם 😊",
-    button_text: "אשמח לפרטים",
-  },
-  attendance_gap_unbooked: {
-    name: "attendance_gap_unbooked",
+  attendance_gap: {
+    name: "attendance_gap",
     category: "MARKETING",
     body: "היי {{1}}, כבר לא ראינו אותך ב{{2}} זמן מה. בא לך שנמצא יחד שיעור שמתאים לך לחזור?",
     button_text: "אשמח לחזור",

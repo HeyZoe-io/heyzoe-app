@@ -1,6 +1,7 @@
 /**
  * Freeze cluster: A8 freeze_created + C14 freeze_ending_unbooked + C15 freeze_ending_booked.
- * Shared membersOnHoldReport; future bookings split for ending (shared with C1/C2 prefetch).
+ * Shared membersOnHoldReport; future bookings split for ending (cron prefetch when
+ * freeze ending needs it — not shared with attendance_gap).
  */
 import { logMessage } from "@/lib/analytics";
 import {

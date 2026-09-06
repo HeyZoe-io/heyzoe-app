@@ -134,8 +134,7 @@ import {
     membership_cancelled: ["מנוי חודשי", "15.09.2026"],
     missed_class: ["דנה", "יוגה"],
     missed_trial: ["דנה", "יוגה"],
-    attendance_gap_booked: ["דנה", "יוגה"],
-    attendance_gap_unbooked: ["דנה", "Limitless"],
+    attendance_gap: ["דנה", "Limitless"],
     freeze_created: ["דנה", "01.09.2026", "15.09.2026"],
     freeze_ending_unbooked: ["דנה", "15.09.2026"],
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
@@ -171,11 +170,14 @@ import {
     if (
       type === "missed_class" ||
       type === "missed_trial" ||
-      type === "attendance_gap_booked" ||
       type === "registered_after_trial" ||
       type === "not_registered_after_trial"
     ) {
       assert.deepEqual(slots, ["first_name", "class_name"]);
+      continue;
+    }
+    if (type === "attendance_gap") {
+      assert.deepEqual(slots, ["first_name", "business_name"]);
       continue;
     }
     if (slots.length >= 2) assert.equal(slots[1], "business_name");

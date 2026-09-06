@@ -149,20 +149,15 @@ export function buildMissedClassScheduledDedupKey(
   return `${kind}:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}:${timeEnc}#${nameEnc}`;
 }
 
-/** Attendance-gap enqueue key: variant + gap_start_date + tier (+ optional future class name). */
+/** Attendance-gap enqueue key: gap_start_date + tier. */
 export function buildAttendanceGapScheduledDedupKey(
-  variant: "booked" | "unbooked",
   businessId: number,
   triggerId: string,
   userId: number,
   gapStartDateYmd: string,
-  tier: number,
-  className?: string | null
+  tier: number
 ): string {
-  const kind = variant === "booked" ? "attendance_gap_booked" : "attendance_gap_unbooked";
-  const nameEnc = encodeURIComponent(String(className ?? "").trim());
-  const base = `${kind}:${businessId}:${String(triggerId).trim()}:${userId}:${String(gapStartDateYmd).trim()}:${Math.trunc(tier)}`;
-  return nameEnc ? `${base}#${nameEnc}` : base;
+  return `attendance_gap:${businessId}:${String(triggerId).trim()}:${userId}:${String(gapStartDateYmd).trim()}:${Math.trunc(tier)}`;
 }
 
 /** Post-trial C5/C6 enqueue key: one per attendance (+ optional class name). */

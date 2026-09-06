@@ -1,7 +1,8 @@
 /**
- * C1 attendance_gap_booked + C2 attendance_gap_unbooked:
- * days since last check_in="Yes", split by future booking presence.
+ * attendance_gap: days since last check_in="Yes" with no future-booking split.
+ * (Former C2 only — C1 booked path removed; messaging someone already booked is noise.)
  * Tiers = template_triggers.delay_days (7/14/21). Dedup includes gap_start_date for re-entry.
+ * sync_log still stores variant='unbooked' (PK column kept; no migration).
  */
 import { logMessage } from "@/lib/analytics";
 import {
@@ -32,8 +33,7 @@ import {
 import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
-  loadEnabledAttendanceGapBookedTemplateTriggers,
-  loadEnabledAttendanceGapUnbookedTemplateTriggers,
+  loadEnabledAttendanceGapTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -41,19 +41,22 @@ import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Past window for last Yes (Arbox report span cap). Gaps older than this are out of scope. */
 export const ATTENDANCE_GAP_PAST_SPAN_DAYS = 30;
-/** Future bookings horizon for C1 (separate GET; keeps total past+future within API limits). */
+/**
+ * Future bookings horizon used by freeze ending (C14/C15) shared cron prefetch.
+ * Attendance gap itself no longer fetches future bookings.
+ */
 export const ATTENDANCE_GAP_FUTURE_SPAN_DAYS = 14;
 
-export type AttendanceGapVariant = "booked" | "unbooked";
-export type AttendanceGapTriggerType = "attendance_gap_booked" | "attendance_gap_unbooked";
+/** Fixed sync_log variant — column kept in PK; booked path removed. */
+export const ATTENDANCE_GAP_SYNC_VARIANT = "unbooked" as const;
+
+export type AttendanceGapTriggerType = "attendance_gap";
 
 export type AttendanceGapUserState = {
   userId: number;
   lastYesYmd: string;
   gapDays: number;
-  hasFuture: boolean;
-  nextFutureClassName: string | null;
-  /** Any past/future row used for phone / name resolution. */
+  /** Any past row used for phone / name resolution. */
   sampleRow: ArboxBookingReportRow;
 };
 
@@ -62,10 +65,7 @@ export type AttendanceGapSyncSummary = {
   skip_reason?: "no_rule" | "missing_credentials";
   lookback_from?: string;
   lookback_to?: string;
-  future_from?: string;
-  future_to?: string;
   fetched_past: number;
-  fetched_future: number;
   pages_fetched: number;
   users_with_gap: number;
   seeded: number;
@@ -92,6 +92,7 @@ export function attendanceGapPastWindow(now: Date = new Date()): { fromDate: str
   return { fromDate: `${yy}-${mm}-${dd}`, toDate };
 }
 
+/** Shared with freeze ending cron prefetch (today+1 … today+14). */
 export function attendanceGapFutureWindow(now: Date = new Date()): {
   fromDate: string;
   toDate: string;
@@ -125,14 +126,6 @@ export function parseAttendanceGapUserId(raw: unknown): number | null {
   return Math.trunc(n);
 }
 
-export function variantForGap(hasFuture: boolean): AttendanceGapVariant {
-  return hasFuture ? "booked" : "unbooked";
-}
-
-export function triggerTypeForVariant(variant: AttendanceGapVariant): AttendanceGapTriggerType {
-  return variant === "booked" ? "attendance_gap_booked" : "attendance_gap_unbooked";
-}
-
 /**
  * After the business seed flag is true: tiers with zero sync_log rows need soft-seed
  * (mark current cohort, no WhatsApp). Empty cohort still needs a one-shot sentinel.
@@ -146,24 +139,20 @@ export function attendanceGapTiersNeedingSoftSeed(input: {
   return input.configuredTiers.filter((t) => !input.tiersWithAnySyncLog.has(t));
 }
 
-/** Users in a seed/soft-seed pass for one variant+tier (no WhatsApp). */
+/** Users in a seed/soft-seed pass for one tier (no WhatsApp). */
 export function attendanceGapSeedCandidates(input: {
   states: readonly AttendanceGapUserState[];
-  variant: AttendanceGapVariant;
   tier: number;
 }): AttendanceGapUserState[] {
-  return input.states.filter(
-    (s) => variantForGap(s.hasFuture) === input.variant && s.gapDays >= input.tier
-  );
+  return input.states.filter((s) => s.gapDays >= input.tier);
 }
 
 /**
- * Per-user last real attendance (check_in Yes only — registration/No does not count)
- * and whether they have any future booking in the future rows.
+ * Per-user last real attendance (check_in Yes only — registration/No does not count).
+ * No future-booking filter: anyone past the absence tier is a candidate.
  */
 export function computeAttendanceGapStates(input: {
   pastRows: readonly ArboxBookingReportRow[];
-  futureRows: readonly ArboxBookingReportRow[];
   todayYmd: string;
 }): AttendanceGapUserState[] {
   type Acc = {
@@ -193,44 +182,16 @@ export function computeAttendanceGapStates(input: {
     }
   }
 
-  const futureByUser = new Map<number, { hasFuture: boolean; nextClassName: string | null; nextDate: string | null; sampleRow: ArboxBookingReportRow | null }>();
-  for (const row of input.futureRows) {
-    const userId = parseAttendanceGapUserId(row.user_id);
-    const classDateYmd = parseClassDateYmd(row.date);
-    if (userId == null || !classDateYmd) continue;
-    if (classDateYmd <= input.todayYmd) continue;
-    let acc = futureByUser.get(userId);
-    if (!acc) {
-      acc = {
-        hasFuture: true,
-        nextClassName: String(row.class_name ?? "").trim() || null,
-        nextDate: classDateYmd,
-        sampleRow: row,
-      };
-      futureByUser.set(userId, acc);
-    } else {
-      acc.hasFuture = true;
-      if (!acc.nextDate || classDateYmd < acc.nextDate) {
-        acc.nextDate = classDateYmd;
-        acc.nextClassName = String(row.class_name ?? "").trim() || null;
-        acc.sampleRow = row;
-      }
-    }
-  }
-
   const out: AttendanceGapUserState[] = [];
   for (const [userId, past] of pastByUser) {
     if (!past.lastYesYmd || !past.sampleRow) continue;
     const gapDays = ymdDiffDays(input.todayYmd, past.lastYesYmd);
     if (gapDays == null || gapDays < 1) continue;
-    const fut = futureByUser.get(userId);
     out.push({
       userId,
       lastYesYmd: past.lastYesYmd,
       gapDays,
-      hasFuture: Boolean(fut?.hasFuture),
-      nextFutureClassName: fut?.nextClassName ?? null,
-      sampleRow: fut?.sampleRow ?? past.sampleRow,
+      sampleRow: past.sampleRow,
     });
   }
   return out;
@@ -329,7 +290,6 @@ async function upsertGapSyncLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   userId: number;
-  variant: AttendanceGapVariant;
   gapStartDate: string;
   tier: number;
   contactId: string | null;
@@ -341,7 +301,7 @@ async function upsertGapSyncLog(input: {
     {
       business_id: input.businessId,
       user_id: input.userId,
-      variant: input.variant,
+      variant: ATTENDANCE_GAP_SYNC_VARIANT,
       gap_start_date: input.gapStartDate,
       tier: input.tier,
       contact_id: input.contactId,
@@ -364,18 +324,15 @@ async function dispatchGapTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
-  className: string | null;
   userId: number;
   gapStartDate: string;
   tier: number;
-  variant: AttendanceGapVariant;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
 }): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "send_failed" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
-  const triggerType = triggerTypeForVariant(input.variant);
   // Tier lives in delay_days; send is immediate on detection day (not event+N).
   const dueAt = computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now);
 
@@ -388,13 +345,11 @@ async function dispatchGapTemplate(input: {
       templateName,
       dueAt,
       dedupKey: buildAttendanceGapScheduledDedupKey(
-        input.variant,
         input.businessId,
         input.rule.id,
         input.userId,
         input.gapStartDate,
-        input.tier,
-        input.className
+        input.tier
       ),
     });
     if (!enqueueResult.ok) {
@@ -431,11 +386,10 @@ async function dispatchGapTemplate(input: {
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
   const { sendComponents, bodyParams } = templateSendPayload({
-    triggerType,
+    triggerType: "attendance_gap",
     storedComponents,
     firstName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
-    className: input.className,
   });
 
   const sendResult = await sendBusinessTemplate({
@@ -466,12 +420,12 @@ async function dispatchGapTemplate(input: {
   return { dispatch: "immediate", ok: true };
 }
 
-function normalizeTierFromRules(rules: PurchaseTemplateTriggerRule[]): number[] {
+function normalizeTiersFromRules(rules: PurchaseTemplateTriggerRule[]): number[] {
   const tiers = new Set<number>();
-  for (const rule of rules) {
-    if (!rule.template_name?.trim()) continue;
-    const t = Math.max(1, Math.trunc(Number(rule.delay_days) || 0));
-    if (t > 0) tiers.add(t);
+  for (const r of rules) {
+    if (!r.template_name?.trim()) continue;
+    const t = Math.max(1, Math.trunc(Number(r.delay_days) || 0));
+    tiers.add(t);
   }
   return [...tiers].sort((a, b) => a - b);
 }
@@ -486,11 +440,10 @@ function pickRuleForTier(
   return matching[0] ?? null;
 }
 
-/** Soft-seed: tiers with zero sync_log rows for this business+variant after global seed. */
+/** Soft-seed: tiers with zero sync_log rows for this business after global seed. */
 export async function findAttendanceGapTiersNeedingSoftSeed(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
-  variant: AttendanceGapVariant;
   tiers: number[];
 }): Promise<number[]> {
   const withRows = new Set<number>();
@@ -499,7 +452,7 @@ export async function findAttendanceGapTiersNeedingSoftSeed(input: {
       .from("arbox_attendance_gap_sync_log")
       .select("user_id", { count: "exact", head: true })
       .eq("business_id", input.businessId)
-      .eq("variant", input.variant)
+      .eq("variant", ATTENDANCE_GAP_SYNC_VARIANT)
       .eq("tier", tier);
     if (error) {
       console.error("[leads/arbox-attendance-gap] soft-seed count failed:", error.message);
@@ -527,13 +480,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   prefetchedPastPages?: number;
   lookbackFrom?: string;
   lookbackTo?: string;
-  /** Future bookingsReport rows (shared cron prefetch with freeze ending preferred). */
-  prefetchedFutureRows?: ArboxBookingReportRow[];
-  prefetchedFuturePages?: number;
 }): Promise<AttendanceGapSyncSummary> {
   const summary: AttendanceGapSyncSummary = {
     fetched_past: 0,
-    fetched_future: 0,
     pages_fetched: 0,
     users_with_gap: 0,
     seeded: 0,
@@ -562,13 +511,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     return summary;
   }
 
-  const [bookedRules, unbookedRules] = await Promise.all([
-    loadEnabledAttendanceGapBookedTemplateTriggers(input.admin, businessId),
-    loadEnabledAttendanceGapUnbookedTemplateTriggers(input.admin, businessId),
-  ]);
-  const bookedTiers = normalizeTierFromRules(bookedRules);
-  const unbookedTiers = normalizeTierFromRules(unbookedRules);
-  if (!bookedTiers.length && !unbookedTiers.length) {
+  const rules = await loadEnabledAttendanceGapTemplateTriggers(input.admin, businessId);
+  const tiers = normalizeTiersFromRules(rules);
+  if (!tiers.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
@@ -600,113 +545,66 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   }
   summary.fetched_past = pastRows.length;
 
-  const futureWindow = attendanceGapFutureWindow(now);
-  summary.future_from = futureWindow.fromDate;
-  summary.future_to = futureWindow.toDate;
-  let futureRows: ArboxBookingReportRow[];
-  if (input.prefetchedFutureRows) {
-    futureRows = input.prefetchedFutureRows;
-    summary.pages_fetched += input.prefetchedFuturePages ?? 0;
-  } else {
-    const futureReport = await fetchArboxBookingsReport({
-      apiKey,
-      fromDate: futureWindow.fromDate,
-      toDate: futureWindow.toDate,
-      locationId: boxId,
-    });
-    summary.pages_fetched += futureReport.pagesFetched;
-    if (!futureReport.ok) {
-      summary.fetch_error = futureReport.error;
-      summary.errors += 1;
-      return summary;
-    }
-    futureRows = futureReport.rows;
-  }
-  summary.fetched_future = futureRows.length;
-
   const states = computeAttendanceGapStates({
     pastRows,
-    futureRows,
     todayYmd,
   });
   summary.users_with_gap = states.length;
 
-  const seedTargets: Array<{ variant: AttendanceGapVariant; tiers: number[] }> = [];
-
+  let seedTiers: number[] = [];
   if (!input.attendanceGapSeeded) {
-    if (bookedTiers.length) seedTargets.push({ variant: "booked", tiers: bookedTiers });
-    if (unbookedTiers.length) seedTargets.push({ variant: "unbooked", tiers: unbookedTiers });
+    seedTiers = tiers;
   } else {
-    if (bookedTiers.length) {
-      const soft = await findAttendanceGapTiersNeedingSoftSeed({
-        admin: input.admin,
-        businessId,
-        variant: "booked",
-        tiers: bookedTiers,
-      });
-      if (soft.length) seedTargets.push({ variant: "booked", tiers: soft });
-    }
-    if (unbookedTiers.length) {
-      const soft = await findAttendanceGapTiersNeedingSoftSeed({
-        admin: input.admin,
-        businessId,
-        variant: "unbooked",
-        tiers: unbookedTiers,
-      });
-      if (soft.length) seedTargets.push({ variant: "unbooked", tiers: soft });
-    }
+    seedTiers = await findAttendanceGapTiersNeedingSoftSeed({
+      admin: input.admin,
+      businessId,
+      tiers,
+    });
   }
 
   const isFullSeed = !input.attendanceGapSeeded;
 
-  for (const target of seedTargets) {
-    for (const tier of target.tiers) {
-      let wroteForTier = 0;
-      for (const state of states) {
-        if (variantForGap(state.hasFuture) !== target.variant) continue;
-        if (state.gapDays < tier) continue;
-        const resolved = await resolveOrCreateContact({
-          admin: input.admin,
-          businessId,
-          row: state.sampleRow,
-          source: "arbox_attendance_gap_seed",
-        });
-        const up = await upsertGapSyncLog({
-          admin: input.admin,
-          businessId,
-          userId: state.userId,
-          variant: target.variant,
-          gapStartDate: state.lastYesYmd,
-          tier,
-          contactId: resolved.contact?.id ?? null,
-          attempts: 0,
-          status: "seeded",
-          nowIso,
-        });
-        if (up.ok) {
-          wroteForTier += 1;
-          if (isFullSeed) summary.seeded += 1;
-          else summary.soft_seeded += 1;
-        } else summary.errors += 1;
-      }
-      // Soft-seed must be one-shot even with an empty cohort, else a new tier
-      // would soft-seed forever and block forward sends. user_id=0 is a sentinel.
-      if (!isFullSeed && wroteForTier === 0) {
-        const sentinel = await upsertGapSyncLog({
-          admin: input.admin,
-          businessId,
-          userId: 0,
-          variant: target.variant,
-          gapStartDate: todayYmd,
-          tier,
-          contactId: null,
-          attempts: 0,
-          status: "seeded",
-          nowIso,
-        });
-        if (sentinel.ok) summary.soft_seeded += 1;
-        else summary.errors += 1;
-      }
+  for (const tier of seedTiers) {
+    let wroteForTier = 0;
+    for (const state of attendanceGapSeedCandidates({ states, tier })) {
+      const resolved = await resolveOrCreateContact({
+        admin: input.admin,
+        businessId,
+        row: state.sampleRow,
+        source: "arbox_attendance_gap_seed",
+      });
+      const up = await upsertGapSyncLog({
+        admin: input.admin,
+        businessId,
+        userId: state.userId,
+        gapStartDate: state.lastYesYmd,
+        tier,
+        contactId: resolved.contact?.id ?? null,
+        attempts: 0,
+        status: "seeded",
+        nowIso,
+      });
+      if (up.ok) {
+        wroteForTier += 1;
+        if (isFullSeed) summary.seeded += 1;
+        else summary.soft_seeded += 1;
+      } else summary.errors += 1;
+    }
+    // Soft-seed must be one-shot even with an empty cohort.
+    if (!isFullSeed && wroteForTier === 0) {
+      const sentinel = await upsertGapSyncLog({
+        admin: input.admin,
+        businessId,
+        userId: 0,
+        gapStartDate: todayYmd,
+        tier,
+        contactId: null,
+        attempts: 0,
+        status: "seeded",
+        nowIso,
+      });
+      if (sentinel.ok) summary.soft_seeded += 1;
+      else summary.errors += 1;
     }
   }
 
@@ -727,27 +625,19 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     return summary;
   }
 
-  if (seedTargets.length) {
+  if (seedTiers.length) {
     console.info("[leads/arbox-attendance-gap] soft-seeded new tiers", {
       businessId,
       businessSlug,
       soft_seeded: summary.soft_seeded,
-      targets: seedTargets,
+      tiers: seedTiers,
     });
   }
 
   for (const state of states) {
-    const variant = variantForGap(state.hasFuture);
-    const rules = variant === "booked" ? bookedRules : unbookedRules;
-    const tiers = variant === "booked" ? bookedTiers : unbookedTiers;
     for (const tier of tiers) {
       if (state.gapDays < tier) continue;
-      // Skip tiers that were just soft-seeded this run (already marked seeded).
-      if (
-        seedTargets.some((t) => t.variant === variant && t.tiers.includes(tier))
-      ) {
-        continue;
-      }
+      if (seedTiers.includes(tier)) continue;
 
       const rule = pickRuleForTier(rules, tier);
       if (!rule) continue;
@@ -758,7 +648,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           .select("status, attempts, contact_id")
           .eq("business_id", businessId)
           .eq("user_id", state.userId)
-          .eq("variant", variant)
+          .eq("variant", ATTENDANCE_GAP_SYNC_VARIANT)
           .eq("gap_start_date", state.lastYesYmd)
           .eq("tier", tier)
           .maybeSingle();
@@ -776,7 +666,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           admin: input.admin,
           businessId,
           row: state.sampleRow,
-          source: `arbox_${triggerTypeForVariant(variant)}`,
+          source: "arbox_attendance_gap",
         });
         if (!resolved.phone || !resolved.contact?.id) {
           summary.no_phone += 1;
@@ -784,7 +674,6 @@ export async function syncArboxAttendanceGapForBusiness(input: {
             admin: input.admin,
             businessId,
             userId: state.userId,
-            variant,
             gapStartDate: state.lastYesYmd,
             tier,
             contactId: resolved.contact?.id ?? null,
@@ -801,11 +690,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           businessSlug,
           phone: resolved.phone,
           fullName: resolveReportFullName(state.sampleRow) ?? resolved.contact.full_name ?? null,
-          className: state.nextFutureClassName,
           userId: state.userId,
           gapStartDate: state.lastYesYmd,
           tier,
-          variant,
           rule,
           now,
         });
@@ -829,7 +716,6 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           admin: input.admin,
           businessId,
           userId: state.userId,
-          variant,
           gapStartDate: state.lastYesYmd,
           tier,
           contactId: resolved.contact.id,
@@ -849,7 +735,6 @@ export async function syncArboxAttendanceGapForBusiness(input: {
 
         console.info("[leads/arbox-attendance-gap] dispatch", {
           businessId,
-          variant,
           tier,
           user_id: state.userId,
           gap_days: state.gapDays,

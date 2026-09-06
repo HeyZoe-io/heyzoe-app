@@ -26,9 +26,9 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap_* +
+ * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap +
  * post-trial C5/C6), freeze cluster A8/C14/C15, sessions_expiring, membership_cancelled.
- * Future bookings GET is shared when attendance_gap or freeze_ending is live.
+ * Future bookings GET only when freeze_ending needs it (attendance_gap does not need it).
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -244,13 +244,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // --- Shared future bookings (C1/C2 + C14/C15) ---
+    // --- Shared future bookings (C14/C15 freeze ending only; attendance_gap does not need it) ---
     let prefetchedFutureRows: ArboxBookingReportRow[] | undefined;
     let prefetchedFuturePages = 0;
     let freezePlan = { needsFreeze: false, needsEndingFuture: false };
     try {
       freezePlan = await businessNeedsFreezeSync(admin, business.id);
-      if (hasAttendanceGapRule || freezePlan.needsEndingFuture) {
+      if (freezePlan.needsEndingFuture) {
         const futureWindow = attendanceGapFutureWindow(now);
         const futureReport = await fetchArboxBookingsReport({
           apiKey: business.crm_api_key,
@@ -360,7 +360,7 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // --- Step: attendance_gap_booked + attendance_gap_unbooked (C1/C2) ---
+    // --- Step: attendance_gap ---
     try {
       entry.attendance_gap = await syncArboxAttendanceGapForBusiness({
         admin,
@@ -378,12 +378,6 @@ export async function GET(req: NextRequest) {
               lookbackTo,
             }
           : {}),
-        ...(hasAttendanceGapRule && prefetchedFutureRows
-          ? {
-              prefetchedFutureRows,
-              prefetchedFuturePages,
-            }
-          : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -393,7 +387,6 @@ export async function GET(req: NextRequest) {
       });
       entry.attendance_gap = {
         fetched_past: 0,
-        fetched_future: 0,
         pages_fetched: 0,
         users_with_gap: 0,
         seeded: 0,
