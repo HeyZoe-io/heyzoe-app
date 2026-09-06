@@ -14,6 +14,10 @@ import {
   SalesPathStepShell,
   useSalesPathSections,
 } from "./sales-path-shell";
+import {
+  filterArboxMembershipTypesByWords,
+  type ArboxMembershipTypeRow,
+} from "@/lib/arbox-membership-types";
 
 type SectionId = "website" | "booking" | "crm" | "social";
 
@@ -57,19 +61,6 @@ export type LinksStepPanelProps = {
   setArboxTrialMembershipTypeIds: React.Dispatch<React.SetStateAction<number[]>>;
   arboxMembershipTypesFetchNonce: number;
 };
-
-type ArboxMembershipTypeRow = {
-  membership_type_id: number;
-  membership_type_name: string;
-};
-
-/** All query words must appear in the id or name (order-independent). */
-function arboxMembershipTypeMatchesWords(row: ArboxMembershipTypeRow, query: string): boolean {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return true;
-  const haystack = `${row.membership_type_id} ${row.membership_type_name}`.toLowerCase();
-  return words.every((word) => haystack.includes(word));
-}
 
 type ArboxTaskTypeRow = {
   task_type_id: number;
@@ -272,17 +263,15 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     ];
   }, [arboxTaskTypes, crmArboxHumanRequestTaskTypeId]);
 
-  const visibleArboxMembershipTypes = useMemo(() => {
-    const matching = arboxMembershipTypes.filter((row) =>
-      arboxMembershipTypeMatchesWords(row, arboxTrialMembershipFilter)
-    );
-    if (!arboxTrialMembershipFilter.trim()) return matching;
-    const selected = new Set(arboxTrialMembershipTypeIds);
-    const selectedRows = arboxMembershipTypes.filter((row) => selected.has(row.membership_type_id));
-    const selectedIds = new Set(selectedRows.map((row) => row.membership_type_id));
-    const rest = matching.filter((row) => !selectedIds.has(row.membership_type_id));
-    return [...selectedRows, ...rest];
-  }, [arboxMembershipTypes, arboxTrialMembershipFilter, arboxTrialMembershipTypeIds]);
+  const visibleArboxMembershipTypes = useMemo(
+    () =>
+      filterArboxMembershipTypesByWords(
+        arboxMembershipTypes,
+        arboxTrialMembershipFilter,
+        arboxTrialMembershipTypeIds
+      ),
+    [arboxMembershipTypes, arboxTrialMembershipFilter, arboxTrialMembershipTypeIds]
+  );
 
   const toggleArboxTrialMembershipType = (id: number) => {
     setArboxTrialMembershipTypeIds((prev) => {

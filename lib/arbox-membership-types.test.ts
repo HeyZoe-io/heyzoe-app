@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   ARBOX_MEMBERSHIP_TYPES_PAGE_SIZE,
+  arboxMembershipTypeMatchesWords,
   buildArboxMembershipTypesPath,
   fetchAllArboxMembershipTypes,
+  filterArboxMembershipTypesByWords,
   membershipTypeNameById,
   parseArboxMembershipTypeRows,
 } from "@/lib/arbox-membership-types";
@@ -127,6 +129,44 @@ async function main() {
     );
     assert.equal(result.types.length, ARBOX_MEMBERSHIP_TYPES_PAGE_SIZE + 1);
   }
+}
+
+{
+  assert.equal(
+    arboxMembershipTypeMatchesWords(
+      { membership_type_id: 1, membership_type_name: "שיעור ניסיון יוגה" },
+      "ניסיון"
+    ),
+    true
+  );
+  assert.equal(
+    arboxMembershipTypeMatchesWords(
+      { membership_type_id: 1, membership_type_name: "מנוי חודשי" },
+      "ניסיון"
+    ),
+    false
+  );
+  assert.equal(
+    arboxMembershipTypeMatchesWords(
+      { membership_type_id: 80601, membership_type_name: "Trial class" },
+      "80601"
+    ),
+    true
+  );
+  const filtered = filterArboxMembershipTypesByWords(
+    [
+      { membership_type_id: 1, membership_type_name: "מנוי" },
+      { membership_type_id: 2, membership_type_name: "שיעור ניסיון" },
+      { membership_type_id: 3, membership_type_name: "כרטיסייה" },
+    ],
+    "ניסיון",
+    [1]
+  );
+  assert.deepEqual(
+    filtered.map((r) => r.membership_type_id),
+    [1, 2],
+    "selected stay visible while filtering"
+  );
 }
 
 void main().then(() => {

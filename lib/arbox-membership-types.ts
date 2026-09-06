@@ -128,3 +128,30 @@ export async function fetchAllArboxMembershipTypes(input: {
     hitPageCap,
   };
 }
+
+/** All query words must appear in the id or name (order-independent). Empty query → match all. */
+export function arboxMembershipTypeMatchesWords(
+  row: Pick<ArboxMembershipTypeRow, "membership_type_id" | "membership_type_name">,
+  query: string
+): boolean {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const haystack = `${row.membership_type_id} ${row.membership_type_name}`.toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
+/**
+ * Filter membership types by words. When filtering, keep already-selected rows visible
+ * at the top even if they no longer match the query.
+ */
+export function filterArboxMembershipTypesByWords<
+  T extends Pick<ArboxMembershipTypeRow, "membership_type_id" | "membership_type_name">,
+>(types: readonly T[], query: string, selectedIds: readonly number[] = []): T[] {
+  const matching = types.filter((row) => arboxMembershipTypeMatchesWords(row, query));
+  if (!query.trim()) return matching;
+  const selected = new Set(selectedIds);
+  const selectedRows = types.filter((row) => selected.has(row.membership_type_id));
+  const selectedIdSet = new Set(selectedRows.map((row) => row.membership_type_id));
+  const rest = matching.filter((row) => !selectedIdSet.has(row.membership_type_id));
+  return [...selectedRows, ...rest];
+}

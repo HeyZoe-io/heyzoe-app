@@ -25,6 +25,10 @@ import {
 import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
 import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import {
+  filterArboxMembershipTypesByWords,
+  type ArboxMembershipTypeRow,
+} from "@/lib/arbox-membership-types";
+import {
   ACTIVATION_LABELS_HE,
   AUDIENCE_LABELS_HE,
   allowsDelayBefore,
@@ -82,11 +86,6 @@ export type TriggerRow = {
   template_name: string | null;
   enabled: boolean;
   created_at: string;
-};
-
-type ArboxMembershipTypeRow = {
-  membership_type_id: number;
-  membership_type_name: string;
 };
 
 function isArboxTriggerType(type: TriggerType): boolean {
@@ -304,6 +303,7 @@ export default function TemplatesClient({
   /** When set, inline create form is open on that creatable card (no dropdown). */
   const [createFormOpenFor, setCreateFormOpenFor] = useState<TriggerType | null>(null);
   const [newProductFilter, setNewProductFilter] = useState<number[]>([]);
+  const [newProductFilterQuery, setNewProductFilterQuery] = useState("");
   const [newItemTypeFilter, setNewItemTypeFilter] = useState<PurchaseItemType[]>([]);
   const [newDelayDays, setNewDelayDays] = useState(0);
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
@@ -381,6 +381,16 @@ export default function TemplatesClient({
     return map;
   }, [arboxMembershipTypes]);
 
+  const visibleNewProductFilterTypes = useMemo(
+    () =>
+      filterArboxMembershipTypesByWords(
+        arboxMembershipTypes,
+        newProductFilterQuery,
+        newProductFilter
+      ),
+    [arboxMembershipTypes, newProductFilterQuery, newProductFilter]
+  );
+
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const showNewItemTypeFilter = showsItemTypeFilter(newTriggerType);
   const isNewImmediateDelay = isImmediateDelayTrigger(newTriggerType);
@@ -403,6 +413,7 @@ export default function TemplatesClient({
     setNewDelayDays(defaultDelayDays(newTriggerType));
     if (!showsProductFilter(newTriggerType)) {
       setNewProductFilter([]);
+      setNewProductFilterQuery("");
     }
     if (!showsItemTypeFilter(newTriggerType)) {
       setNewItemTypeFilter([]);
@@ -550,6 +561,7 @@ export default function TemplatesClient({
       setSuccess("הטריגר נוסף");
       setCreateFormOpenFor(null);
       setNewProductFilter([]);
+      setNewProductFilterQuery("");
       setNewItemTypeFilter([]);
       setNewDelayDays(0);
       setNewDelayDirection("after");
@@ -1580,32 +1592,47 @@ export default function TemplatesClient({
                             ) : arboxMembershipTypes.length === 0 ? (
                               <p className="text-xs text-zinc-500">לא נמצאו מוצרים — יוחל על כל המוצרים.</p>
                             ) : (
-                              <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
-                                {arboxMembershipTypes.map((row) => {
-                                  const id = row.membership_type_id;
-                                  const checked = newProductFilter.includes(id);
-                                  const inputId = `trigger-product-${type}-${id}`;
-                                  return (
-                                    <li key={id}>
-                                      <label
-                                        htmlFor={inputId}
-                                        className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
-                                      >
-                                        <input
-                                          id={inputId}
-                                          type="checkbox"
-                                          className="mt-0.5 shrink-0"
-                                          checked={checked}
-                                          onChange={() => toggleNewProductFilter(id)}
-                                        />
-                                        <span className="text-xs leading-snug text-zinc-800" dir="ltr">
-                                          {`${id} - ${row.membership_type_name}`}
-                                        </span>
-                                      </label>
-                                    </li>
-                                  );
-                                })}
-                              </ul>
+                              <div className="space-y-2">
+                                <input
+                                  type="search"
+                                  value={newProductFilterQuery}
+                                  onChange={(e) => setNewProductFilterQuery(e.target.value)}
+                                  placeholder="סינון לפי מילים…"
+                                  aria-label="סינון מוצרים לפי מילים"
+                                  autoComplete="off"
+                                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                                />
+                                {visibleNewProductFilterTypes.length === 0 ? (
+                                  <p className="text-xs text-zinc-500">אין מוצרים שמתאימים לסינון.</p>
+                                ) : (
+                                  <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
+                                    {visibleNewProductFilterTypes.map((row) => {
+                                      const id = row.membership_type_id;
+                                      const checked = newProductFilter.includes(id);
+                                      const inputId = `trigger-product-${type}-${id}`;
+                                      return (
+                                        <li key={id}>
+                                          <label
+                                            htmlFor={inputId}
+                                            className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                                          >
+                                            <input
+                                              id={inputId}
+                                              type="checkbox"
+                                              className="mt-0.5 shrink-0"
+                                              checked={checked}
+                                              onChange={() => toggleNewProductFilter(id)}
+                                            />
+                                            <span className="text-xs leading-snug text-zinc-800" dir="ltr">
+                                              {`${id} - ${row.membership_type_name}`}
+                                            </span>
+                                          </label>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </div>
                             )}
                           </div>
                         ) : null}
