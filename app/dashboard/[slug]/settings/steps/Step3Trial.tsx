@@ -296,9 +296,10 @@ export default function Step3Trial(props: {
   websiteUrl: string;
   address: string;
   fetchingUrl: boolean;
+  fetchSiteError?: string;
   services: ServiceItem[];
   setServices: React.Dispatch<React.SetStateAction<ServiceItem[]>>;
-  fetchSite: (nextStepAfterScan?: number) => Promise<void>;
+  onWebsiteScheduleScan: () => void | Promise<void>;
   onDragOver: (e: React.DragEvent, index: number) => void;
   onDragStart: (index: number) => void;
   onDragEnd: () => void;
@@ -330,9 +331,10 @@ export default function Step3Trial(props: {
     websiteUrl,
     address,
     fetchingUrl,
+    fetchSiteError = "",
     services,
     setServices,
-    fetchSite,
+    onWebsiteScheduleScan,
     onDragOver,
     onDragStart,
     onDragEnd,
@@ -545,44 +547,41 @@ export default function Step3Trial(props: {
               ) : null}
             </div>
           ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-zinc-900">{t.products.scanProducts}</p>
+          <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 gap-2 border-[#7133da]/30 bg-white text-xs"
+              onClick={() => void onWebsiteScheduleScan()}
+              disabled={!websiteUrl.trim() || fetchingUrl}
+            >
+              {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {fetchingUrl ? t.scanning : t.products.scanSchedule}
+            </Button>
+            <p className="mt-2 text-[11px] font-medium leading-snug text-zinc-600">
+              {!websiteUrl.trim()
+                ? t.products.scanProductsNoUrl
+                : t.products.scanScheduleFromSiteNote}
+            </p>
+            {fetchSiteError ? (
+              <p className="mt-2 text-sm text-red-600" role="alert">
+                {fetchSiteError}
+              </p>
+            ) : null}
+
+            {scheduleDirectRegistration === false ? (
+              <div className="mt-4 border-t border-[#7133da]/15 pt-3">
                 <Button
                   type="button"
                   variant="outline"
-                  className="gap-2 h-9 text-xs shadow-sm border-[#7133da]/25 bg-white hover:bg-[#f7f3ff]"
-                  onClick={() => void fetchSite(3)}
-                  disabled={!websiteUrl.trim() || fetchingUrl}
+                  className="h-9 gap-2 border-[#7133da]/30 bg-white text-xs"
+                  disabled={scheduleExtractBusy || !scheduleUrl.trim() || !namedServices.length}
+                  onClick={() => void runScheduleSlotsExtract()}
                 >
-                  {fetchingUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {fetchingUrl ? t.scanning : t.scanFromSite}
+                  {scheduleExtractBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
+                  {scheduleExtractBusy ? t.scanning : t.scan}
                 </Button>
-              </div>
-              <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
-                {!websiteUrl.trim()
-                  ? t.products.scanProductsNoUrl
-                  : t.products.scanProductsNote}
-              </p>
-            </div>
-
-            {scheduleDirectRegistration === false ? (
-              <div className="rounded-xl border border-[#7133da]/20 bg-[#f9f6ff]/70 p-4 text-right">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-zinc-900">{t.products.scanSchedule}</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-2 h-9 border-[#7133da]/30 bg-white text-xs"
-                    disabled={scheduleExtractBusy || !scheduleUrl.trim() || !namedServices.length}
-                    onClick={() => void runScheduleSlotsExtract()}
-                  >
-                    {scheduleExtractBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link className="h-4 w-4" />}
-                    {scheduleExtractBusy ? t.scanning : t.scan}
-                  </Button>
-                </div>
-                <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
+                <p className="mt-2 text-[11px] font-medium leading-snug text-zinc-600">
                   {t.products.scanScheduleNote}
                 </p>
                 {!scheduleUrl.trim() ? (
@@ -594,14 +593,7 @@ export default function Step3Trial(props: {
                   </p>
                 ) : null}
               </div>
-            ) : (
-              <div className="rounded-xl border border-zinc-200/70 bg-white/70 p-4 text-right">
-                <p className="text-sm font-semibold text-zinc-900">{t.products.scanSchedule}</p>
-                <p className="mt-2 text-[11px] text-zinc-600 leading-snug">
-                  {t.products.scanScheduleDirect}
-                </p>
-              </div>
-            )}
+            ) : null}
           </div>
           )}
         </div>

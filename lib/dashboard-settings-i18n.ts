@@ -185,6 +185,8 @@ export const dashboardSettingsI18n = {
       scanProductsNoUrl: "הוסיפו כתובת אתר בטאב «לינקים» כדי לסרוק מוצרים.",
       scanProductsNote: "הסריקה לא תדרוס מוצרים קיימים — רק תוסיף חדשים אם זוהו.",
       scanSchedule: "סריקת מערכת שעות",
+      scanScheduleFromSiteNote:
+        "מושך שיעורים מהאתר לדף המוצרים. לא דורס מוצרים קיימים — רק מוסיף חדשים אם זוהו.",
       scanScheduleNote:
         "מושך מועדים מהלינק/תמונה שהוגדרו בטאב «לינקים», ומשייך אותם לכל מוצר.",
       scanScheduleMissing: "חסר לינק/תמונה למערכת שעות בטאב לינקים.",
@@ -694,6 +696,8 @@ export const dashboardSettingsI18n = {
       scanProductsNoUrl: "Add a website URL in the Links tab to scan products.",
       scanProductsNote: "Scan won't overwrite existing products — only adds new ones if found.",
       scanSchedule: "Schedule scan",
+      scanScheduleFromSiteNote:
+        "Pulls classes from the website into the products page. Won't overwrite existing products — only adds new ones if found.",
       scanScheduleNote:
         "Pulls times from the link/image set in Links, and assigns them to each product.",
       scanScheduleMissing: "Missing schedule link/image in the Links tab.",

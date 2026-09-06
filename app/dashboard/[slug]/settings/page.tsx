@@ -1344,6 +1344,12 @@ export default function SlugSettingsPage({
   const [focusProductUiId, setFocusProductUiId] = useState<string | null>(null);
   const [arboxRemovedSnoozedUiIds, setArboxRemovedSnoozedUiIds] = useState<string[]>([]);
   const arboxScanSyncSnapshotRef = useRef(false);
+  /** תוצאת סריקת אתר — לא ממלאים מוצרים עד לחיצה על «סריקת מערכת שעות» (ולא לקוח ארבוקס) */
+  const lastWebsiteScanRef = useRef<{
+    websiteUrl: string;
+    products: unknown[];
+    addrFallback: string;
+  } | null>(null);
   const [crmBoxId, setCrmBoxId] = useState("");
   const [crmArboxSourceId, setCrmArboxSourceId] = useState("");
   const [crmArboxStatusId, setCrmArboxStatusId] = useState("");
@@ -1708,6 +1714,7 @@ export default function SlugSettingsPage({
       salesFlowUserEditCountRef.current = 0;
       salesFlowHydrationBaselineRef.current = 0;
       expectedUpdatedAtRef.current = "";
+      lastWebsiteScanRef.current = null;
     }
 
     let serialized = "";
@@ -2874,7 +2881,15 @@ export default function SlugSettingsPage({
 
   // ─── Fetch site ────────────────────────────────────────────────────────────
 
-  async function fetchSite(nextStepAfterScan = 1) {
+  function applyWebsiteScanProducts(products: unknown[], addrFallback: string) {
+    if (!Array.isArray(products) || products.length === 0) return;
+    setServicesFromUser((prev) =>
+      mergeTrialServicesWithScannedProducts(prev, products, addrFallback)
+    );
+    setServicesHydrated(true);
+  }
+
+  async function fetchSite(nextStepAfterScan = 1, applyProducts = false) {
     if (!websiteUrl) return;
     setFetchingUrl(true);
     setFetchSiteError("");
@@ -2965,16 +2980,34 @@ export default function SlugSettingsPage({
       }
       const addrFallback =
         (typeof j.address === "string" && j.address.trim()) ? j.address.trim() : address;
-      if (Array.isArray(j.products) && j.products.length > 0) {
-        setServicesFromUser((prev) =>
-          mergeTrialServicesWithScannedProducts(prev, j.products as unknown[], addrFallback)
-        );
-        setServicesHydrated(true);
+      if (Array.isArray(j.products)) {
+        lastWebsiteScanRef.current = {
+          websiteUrl: websiteUrl.trim(),
+          products: j.products as unknown[],
+          addrFallback,
+        };
+      }
+      // סריקת אתר ממלאת פרטי עסק בלבד. מוצרים — רק בלחיצה על «סריקת מערכת שעות» למי שאינו ארבוקס.
+      if (applyProducts) {
+        applyWebsiteScanProducts(Array.isArray(j.products) ? (j.products as unknown[]) : [], addrFallback);
       }
       setStep(nextStepAfterScan);
     } finally {
       setFetchingUrl(false);
     }
+  }
+
+  async function runWebsiteScheduleScan() {
+    const url = websiteUrl.trim();
+    if (!url) return;
+    const cached = lastWebsiteScanRef.current;
+    if (cached && cached.websiteUrl === url && Array.isArray(cached.products) && cached.products.length > 0) {
+      setFetchSiteError("");
+      applyWebsiteScanProducts(cached.products, cached.addrFallback || address);
+      setStep(3);
+      return;
+    }
+    await fetchSite(3, true);
   }
 
   // ─── Services drag & drop ──────────────────────────────────────────────────
@@ -3252,9 +3285,10 @@ export default function SlugSettingsPage({
             websiteUrl={websiteUrl}
             address={address}
             fetchingUrl={fetchingUrl}
+            fetchSiteError={fetchSiteError}
             services={services}
             setServices={setServicesFromUser}
-            fetchSite={fetchSite}
+            onWebsiteScheduleScan={() => void runWebsiteScheduleScan()}
             onDragOver={onDragOver}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
