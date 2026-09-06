@@ -6,6 +6,7 @@ import {
   allowsDelayBefore,
   canonicalizeTriggerType,
   catalogEntriesFor,
+  creatableCatalogEntriesForCell,
   creatableTriggerOptionsForCell,
   defaultDelayDays,
   defaultDelayDirection,
@@ -21,6 +22,7 @@ import {
   isTriggerType,
   isUniquePerBusinessTriggerType,
   minDelayDaysForTrigger,
+  plannedCatalogEntriesForCell,
   showsProductFilter,
   showsItemTypeFilter,
   isImmediateDelayTrigger,
@@ -181,6 +183,70 @@ function triggerCatalogAudience(type: string) {
     }),
     []
   );
+}
+
+/** Card UI: unique types hide create card once present; non-unique keep create-another. */
+{
+  const leadsEmpty = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+    hasArbox: true,
+    existingTriggerTypes: [],
+  }).map((e) => e.type);
+  assert.ok(leadsEmpty.includes("incoming_lead"));
+  assert.ok(leadsEmpty.includes("trial_attended"));
+  assert.ok(leadsEmpty.includes("missed_trial"));
+
+  const leadsWithIncoming = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+    hasArbox: true,
+    existingTriggerTypes: ["site_lead"],
+  }).map((e) => e.type);
+  assert.ok(!leadsWithIncoming.includes("incoming_lead"), "unique incoming_lead: no create card");
+  assert.ok(leadsWithIncoming.includes("trial_attended"), "non-unique still creatable");
+
+  const leadsWithArboxNew = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+    hasArbox: true,
+    existingTriggerTypes: ["arbox_new_lead"],
+  }).map((e) => e.type);
+  assert.ok(!leadsWithArboxNew.includes("arbox_new_lead"));
+
+  const membersWithPurchase = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "members",
+    hasArbox: true,
+    existingTriggerTypes: ["purchase", "purchase"],
+  }).map((e) => e.type);
+  assert.ok(membersWithPurchase.includes("purchase"), "non-unique: create-another card stays");
+  assert.ok(membersWithPurchase.includes("missed_class"));
+
+  const plannedLeads = plannedCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+  }).map((e) => e.type);
+  assert.ok(plannedLeads.includes("lost_lead"));
+  assert.ok(!plannedLeads.includes("incoming_lead"));
+  assert.ok(!plannedLeads.includes("missed_trial"));
+
+  const creatableOrders = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+    hasArbox: true,
+    existingTriggerTypes: [],
+  }).map((e) => e.uiOrder);
+  for (let i = 1; i < creatableOrders.length; i += 1) {
+    assert.ok(creatableOrders[i]! >= creatableOrders[i - 1]!);
+  }
+  const plannedOrders = plannedCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+  }).map((e) => e.uiOrder);
+  for (let i = 1; i < plannedOrders.length; i += 1) {
+    assert.ok(plannedOrders[i]! >= plannedOrders[i - 1]!);
+  }
 }
 
 {

@@ -29,7 +29,7 @@ import {
   AUDIENCE_LABELS_HE,
   allowsDelayBefore,
   catalogEntriesFor,
-  creatableTriggerOptionsForCell,
+  creatableCatalogEntriesForCell,
   defaultDelayDays,
   defaultDelayDirection,
   formatDelayLabel,
@@ -38,6 +38,7 @@ import {
   isImmediateDelayTrigger,
   isIncomingLeadTriggerType,
   minDelayDaysForTrigger,
+  plannedCatalogEntriesForCell,
   PURCHASE_ITEM_TYPE_LABELS_HE,
   PURCHASE_ITEM_TYPE_VALUES,
   showsItemTypeFilter,
@@ -300,6 +301,8 @@ export default function TemplatesClient({
   const [newTriggerType, setNewTriggerType] = useState<TriggerType>(
     hasArbox ? "purchase" : "incoming_lead"
   );
+  /** When set, inline create form is open on that creatable card (no dropdown). */
+  const [createFormOpenFor, setCreateFormOpenFor] = useState<TriggerType | null>(null);
   const [newProductFilter, setNewProductFilter] = useState<number[]>([]);
   const [newItemTypeFilter, setNewItemTypeFilter] = useState<PurchaseItemType[]>([]);
   const [newDelayDays, setNewDelayDays] = useState(0);
@@ -310,7 +313,7 @@ export default function TemplatesClient({
     templateName: string;
     purpose: TriggerType | "";
   } | null>(null);
-  const addTriggerSectionRef = useRef<HTMLDivElement | null>(null);
+  const addTriggerSectionRef = useRef<HTMLLIElement | null>(null);
 
   const [arboxMembershipTypes, setArboxMembershipTypes] = useState<ArboxMembershipTypeRow[]>([]);
   const [arboxMembershipTypesLoading, setArboxMembershipTypesLoading] = useState(false);
@@ -325,20 +328,25 @@ export default function TemplatesClient({
     [templates]
   );
 
-  const hasExistingArboxNewLead = useMemo(
-    () => triggers.some((t) => t.trigger_type === "arbox_new_lead"),
-    [triggers]
+  const creatableCatalogEntries = useMemo(
+    () =>
+      creatableCatalogEntriesForCell({
+        activation: axisActivation,
+        audience: axisAudience,
+        hasArbox,
+        existingTriggerTypes: triggers.map((t) => t.trigger_type),
+      }),
+    [hasArbox, triggers, axisActivation, axisAudience]
   );
 
-  const creatableTriggerOptions = useMemo(() => {
-    const hasIncomingLead = triggers.some((t) => isIncomingLeadType(t.trigger_type));
-    // Cell-scoped: activation × audience × implemented creatable (not the flat catalog).
-    return creatableTriggerOptionsForCell({
-      activation: axisActivation,
-      audience: axisAudience,
-      hasArbox,
-    }).filter((opt) => !(opt.value === "incoming_lead" && hasIncomingLead));
-  }, [hasArbox, triggers, axisActivation, axisAudience]);
+  const plannedCatalogEntries = useMemo(
+    () =>
+      plannedCatalogEntriesForCell({
+        activation: axisActivation,
+        audience: axisAudience,
+      }),
+    [axisActivation, axisAudience]
+  );
 
   const axisCatalogEntries = useMemo(
     () => catalogEntriesFor({ activation: axisActivation, audience: axisAudience }),
@@ -380,10 +388,15 @@ export default function TemplatesClient({
   const newDelayDaysMin = minDelayDaysForTrigger(newTriggerType);
 
   useEffect(() => {
-    if (!creatableTriggerOptions.some((o) => o.value === newTriggerType)) {
-      setNewTriggerType(creatableTriggerOptions[0]?.value ?? "incoming_lead");
+    if (createFormOpenFor == null) return;
+    if (!creatableCatalogEntries.some((e) => e.type === createFormOpenFor)) {
+      setCreateFormOpenFor(null);
+      return;
     }
-  }, [creatableTriggerOptions, newTriggerType]);
+    if (newTriggerType !== createFormOpenFor) {
+      setNewTriggerType(createFormOpenFor);
+    }
+  }, [creatableCatalogEntries, createFormOpenFor, newTriggerType]);
 
   useEffect(() => {
     setNewDelayDirection(defaultDelayDirection(newTriggerType));
@@ -535,7 +548,7 @@ export default function TemplatesClient({
         await reloadTriggers();
       }
       setSuccess("הטריגר נוסף");
-      setNewTriggerType("purchase");
+      setCreateFormOpenFor(null);
       setNewProductFilter([]);
       setNewItemTypeFilter([]);
       setNewDelayDays(0);
@@ -1011,11 +1024,21 @@ export default function TemplatesClient({
     setConnectPrompt(null);
   }
 
+  function startCreateTrigger(type: TriggerType) {
+    setError(null);
+    setNewTriggerType(type);
+    setCreateFormOpenFor(type);
+  }
+
+  function closeCreateTriggerForm() {
+    setCreateFormOpenFor(null);
+  }
+
   function onConnectToTrigger() {
     const prompt = connectPrompt;
     setConnectPrompt(null);
-    if (prompt?.purpose && creatableTriggerOptions.some((o) => o.value === prompt.purpose)) {
-      setNewTriggerType(prompt.purpose);
+    if (prompt?.purpose && creatableCatalogEntries.some((e) => e.type === prompt.purpose)) {
+      startCreateTrigger(prompt.purpose);
     }
     if (prompt?.templateName) {
       setNewTemplateName(prompt.templateName);
@@ -1302,193 +1325,444 @@ export default function TemplatesClient({
 
         {axisActivation === "automatic" && axisAudience !== "staff" ? (
           <>
-            {filteredTriggers.length === 0 ? (
-              <p className="text-sm text-zinc-500 text-right">
-                עדיין אין טריגרים אוטומטיים בקהל הזה.
+            {!hasArbox ? (
+              <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-right">
+                טריגרים מבוססי Arbox (רכישה, יום הולדת וכו׳) דורשים חיבור CRM.{" "}
+                <Link
+                  href={settingsStepHref(`/${encodeURIComponent(slug)}/settings`, 1, "he", {
+                    section: "crm",
+                  })}
+                  className="font-medium text-[#7133da] hover:underline"
+                >
+                  חברו את Arbox בהגדרות
+                </Link>
+                . טריגר «ליד מאתר/קמפיין» זמין תמיד.
               </p>
-            ) : (
-              <ul className="space-y-3">
-                {filteredTriggers.map((trigger) => (
-                  <li
-                    key={trigger.id}
-                    className={`rounded-xl border px-3 py-3 sm:px-4 ${
-                      trigger.enabled
-                        ? "border-zinc-200 bg-white"
-                        : "border-zinc-100 bg-zinc-50 opacity-80"
-                    }`}
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1.5 text-right min-w-0 flex-1">
-                        <p className="font-medium text-zinc-900">
-                          {triggerTypeLabel(trigger.trigger_type)}
-                        </p>
-                        {showsProductFilter(trigger.trigger_type) ? (
-                          <p className="text-xs text-zinc-600">
-                            מוצרים: {formatProductFilterLabel(trigger.product_filter)}
-                          </p>
-                        ) : null}
-                        {showsItemTypeFilter(trigger.trigger_type) ? (
-                          <p className="text-xs text-zinc-600">
-                            סוג רכישה: {formatItemTypeFilterLabel(trigger.item_type_filter)}
-                          </p>
-                        ) : null}
+            ) : null}
+
+            <ul className="space-y-3">
+              {filteredTriggers.map((trigger) => (
+                <li
+                  key={trigger.id}
+                  className={`rounded-xl border px-3 py-3 sm:px-4 ${
+                    trigger.enabled
+                      ? "border-zinc-200 bg-white"
+                      : "border-zinc-100 bg-zinc-50 opacity-80"
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1.5 text-right min-w-0 flex-1">
+                      <p className="font-medium text-zinc-900">
+                        {triggerTypeLabel(trigger.trigger_type)}
+                      </p>
+                      {showsProductFilter(trigger.trigger_type) ? (
                         <p className="text-xs text-zinc-600">
-                          תזמון:{" "}
-                          {formatDelayLabel(
-                            trigger.trigger_type,
-                            trigger.delay_days,
-                            trigger.delay_direction
-                          )}
+                          מוצרים: {formatProductFilterLabel(trigger.product_filter)}
                         </p>
-                        <p className="text-xs text-zinc-500">
-                          {triggerSendScheduleHintHe(trigger.trigger_type)}
+                      ) : null}
+                      {showsItemTypeFilter(trigger.trigger_type) ? (
+                        <p className="text-xs text-zinc-600">
+                          סוג רכישה: {formatItemTypeFilterLabel(trigger.item_type_filter)}
                         </p>
-                        <p className="text-xs text-zinc-600 break-all" dir="ltr">
-                          טמפלייט: {trigger.template_name || "—"}
-                        </p>
-                        {editingTriggerId === trigger.id ? (
-                          <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                            {isImmediateDelayTrigger(trigger.trigger_type) ? (
-                              <p className="text-xs text-zinc-600">נשלח מיד עם האירוע.</p>
-                            ) : (
-                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                <div className="space-y-1">
-                                  <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
-                                  <input
-                                    type="number"
-                                    min={minDelayDaysForTrigger(trigger.trigger_type)}
-                                    value={editDelayDays}
-                                    onChange={(e) => setEditDelayDays(Number(e.target.value))}
-                                    className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                                  />
-                                </div>
-                                {allowsDelayBefore(trigger.trigger_type) ? (
-                                  <div className="space-y-1">
-                                    <label className="text-xs font-medium text-zinc-700">כיוון</label>
-                                    <select
-                                      value={editDelayDirection}
-                                      onChange={(e) =>
-                                        setEditDelayDirection(e.target.value as DelayDirection)
-                                      }
-                                      className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                                    >
-                                      {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
-                                        <>
-                                          <option value="before">לפני יום ההולדת</option>
-                                          <option value="after">אחרי יום ההולדת</option>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <option value="before">לפני פקיעת התוקף</option>
-                                          <option value="after">אחרי פקיעת התוקף</option>
-                                        </>
-                                      )}
-                                    </select>
-                                  </div>
-                                ) : null}
+                      ) : null}
+                      <p className="text-xs text-zinc-600">
+                        תזמון:{" "}
+                        {formatDelayLabel(
+                          trigger.trigger_type,
+                          trigger.delay_days,
+                          trigger.delay_direction
+                        )}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {triggerSendScheduleHintHe(trigger.trigger_type)}
+                      </p>
+                      <p className="text-xs text-zinc-600 break-all" dir="ltr">
+                        טמפלייט: {trigger.template_name || "—"}
+                      </p>
+                      {editingTriggerId === trigger.id ? (
+                        <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                          {isImmediateDelayTrigger(trigger.trigger_type) ? (
+                            <p className="text-xs text-zinc-600">נשלח מיד עם האירוע.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
+                                <input
+                                  type="number"
+                                  min={minDelayDaysForTrigger(trigger.trigger_type)}
+                                  value={editDelayDays}
+                                  onChange={(e) => setEditDelayDays(Number(e.target.value))}
+                                  className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                                />
                               </div>
-                            )}
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
-                              <select
-                                value={editTemplateName}
-                                onChange={(e) => setEditTemplateName(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-right"
-                                dir="rtl"
-                                style={{ textAlignLast: "right" }}
-                              >
-                                <option value="">— ללא טמפלייט —</option>
-                                {selectableTemplates.map((t) => (
-                                  <option key={t.name} value={t.name}>
-                                    {t.name}
-                                  </option>
-                                ))}
-                              </select>
+                              {allowsDelayBefore(trigger.trigger_type) ? (
+                                <div className="space-y-1">
+                                  <label className="text-xs font-medium text-zinc-700">כיוון</label>
+                                  <select
+                                    value={editDelayDirection}
+                                    onChange={(e) =>
+                                      setEditDelayDirection(e.target.value as DelayDirection)
+                                    }
+                                    className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                                  >
+                                    {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
+                                      <>
+                                        <option value="before">לפני יום ההולדת</option>
+                                        <option value="after">אחרי יום ההולדת</option>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <option value="before">לפני פקיעת התוקף</option>
+                                        <option value="after">אחרי פקיעת התוקף</option>
+                                      </>
+                                    )}
+                                  </select>
+                                </div>
+                              ) : null}
                             </div>
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setEditingTriggerId(null)}
-                                className="rounded-lg border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
-                              >
-                                ביטול
-                              </button>
-                              <button
-                                type="button"
-                                disabled={triggerEditSaving}
-                                onClick={() => void onSaveTriggerEdit(trigger)}
-                                className="inline-flex items-center gap-1 rounded-lg bg-[#7133da] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
-                              >
-                                {triggerEditSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                                שמור
-                              </button>
-                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
+                            <select
+                              value={editTemplateName}
+                              onChange={(e) => setEditTemplateName(e.target.value)}
+                              className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm text-right"
+                              dir="rtl"
+                              style={{ textAlignLast: "right" }}
+                            >
+                              <option value="">— ללא טמפלייט —</option>
+                              {selectableTemplates.map((t) => (
+                                <option key={t.name} value={t.name}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </select>
                           </div>
-                        ) : null}
-                        {!hasArbox && isArboxTriggerType(trigger.trigger_type) ? (
-                          <p className="text-xs text-zinc-500">
-                            {trigger.enabled ? "פעיל" : "מושבת"}
-                          </p>
-                        ) : null}
-                      </div>
-                      {hasArbox || !isArboxTriggerType(trigger.trigger_type) ? (
-                        <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
-                          <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
-                              checked={trigger.enabled}
-                              disabled={triggerTogglingId === trigger.id}
-                              onChange={(e) => void onToggleTrigger(trigger, e.target.checked)}
-                            />
-                            פעיל
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => startEditTrigger(trigger)}
-                            className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-                            aria-label="ערוך טריגר"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            עריכה
-                          </button>
-                          <button
-                            type="button"
-                            disabled={triggerDeletingId === trigger.id}
-                            onClick={() => void onDeleteTrigger(trigger.id)}
-                            className="inline-flex items-center gap-1 rounded-xl border border-red-200 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
-                            aria-label="מחק טריגר"
-                          >
-                            {triggerDeletingId === trigger.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                            מחק
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTriggerId(null)}
+                              className="rounded-lg border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
+                            >
+                              ביטול
+                            </button>
+                            <button
+                              type="button"
+                              disabled={triggerEditSaving}
+                              onClick={() => void onSaveTriggerEdit(trigger)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-[#7133da] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-60"
+                            >
+                              {triggerEditSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                              שמור
+                            </button>
+                          </div>
                         </div>
                       ) : null}
+                      {!hasArbox && isArboxTriggerType(trigger.trigger_type) ? (
+                        <p className="text-xs text-zinc-500">
+                          {trigger.enabled ? "פעיל" : "מושבת"}
+                        </p>
+                      ) : null}
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+                    {hasArbox || !isArboxTriggerType(trigger.trigger_type) ? (
+                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
+                        <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
+                            checked={trigger.enabled}
+                            disabled={triggerTogglingId === trigger.id}
+                            onChange={(e) => void onToggleTrigger(trigger, e.target.checked)}
+                          />
+                          פעיל
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => startEditTrigger(trigger)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+                          aria-label="ערוך טריגר"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          עריכה
+                        </button>
+                        <button
+                          type="button"
+                          disabled={triggerDeletingId === trigger.id}
+                          onClick={() => void onDeleteTrigger(trigger.id)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-red-200 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          aria-label="מחק טריגר"
+                        >
+                          {triggerDeletingId === trigger.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                          מחק
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
 
-            {axisCatalogEntries.filter((e) => !e.implemented).length > 0 ? (
-              <ul className="space-y-2">
-                {axisCatalogEntries
-                  .filter((e) => !e.implemented)
-                  .map((e) => (
-                    <li
-                      key={e.type}
-                      className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-3 py-3 text-right"
-                    >
-                      <p className="font-medium text-zinc-700">{e.labelHe}</p>
-                      <p className="mt-1 text-xs text-zinc-500">בקרוב</p>
-                    </li>
-                  ))}
-              </ul>
-            ) : null}
+              {creatableCatalogEntries.map((entry) => {
+                const type = entry.type as TriggerType;
+                const open = createFormOpenFor === type;
+                const alreadyHas = filteredTriggers.some(
+                  (t) => t.trigger_type === type || (type === "incoming_lead" && isIncomingLeadType(t.trigger_type))
+                );
+                return (
+                  <li
+                    key={`create-${entry.type}`}
+                    ref={open ? addTriggerSectionRef : undefined}
+                    id={open ? "add-trigger" : undefined}
+                    className="scroll-mt-28 rounded-xl border border-[#7133da]/25 bg-[#7133da]/5 px-3 py-3 sm:px-4 text-right"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium text-zinc-900">{entry.labelHe}</p>
+                        <p className="text-xs text-zinc-500">{entry.sendHintHe}</p>
+                      </div>
+                      {!open ? (
+                        <button
+                          type="button"
+                          onClick={() => startCreateTrigger(type)}
+                          className="inline-flex shrink-0 items-center rounded-xl bg-[#7133da] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5f28c0]"
+                        >
+                          {alreadyHas ? "צור עוד" : "צור טריגר"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={closeCreateTriggerForm}
+                          className="inline-flex shrink-0 items-center rounded-xl border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+                        >
+                          ביטול
+                        </button>
+                      )}
+                    </div>
+
+                    {open ? (
+                      <form className="mt-3 space-y-4 border-t border-zinc-200/80 pt-3" onSubmit={(e) => void onCreateTrigger(e)}>
+                        {showNewProductFilter ? (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-800">
+                              סינון מוצרים (אופציונלי)
+                            </label>
+                            <p className="text-xs text-zinc-500">
+                              השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM.
+                            </p>
+                            {arboxMembershipTypesLoading ? (
+                              <p className="flex items-center gap-2 text-xs text-zinc-500">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                טוען מוצרים מארבוקס…
+                              </p>
+                            ) : arboxMembershipTypesError ? (
+                              <div className="space-y-2">
+                                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                                  לא נטענו מוצרים מארבוקס ({arboxMembershipTypesError}). TODO: הזינו מזהי
+                                  membership_type מופרדים בפסיק:
+                                </p>
+                                <input
+                                  value={newProductFilter.join(",")}
+                                  onChange={(e) => {
+                                    const ids = e.target.value
+                                      .split(",")
+                                      .map((s) => Number(s.trim()))
+                                      .filter((n) => Number.isFinite(n) && n > 0);
+                                    setNewProductFilter([...new Set(ids)].sort((a, b) => a - b));
+                                  }}
+                                  dir="ltr"
+                                  placeholder="123, 456"
+                                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
+                                />
+                              </div>
+                            ) : arboxMembershipTypes.length === 0 ? (
+                              <p className="text-xs text-zinc-500">לא נמצאו מוצרים — יוחל על כל המוצרים.</p>
+                            ) : (
+                              <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
+                                {arboxMembershipTypes.map((row) => {
+                                  const id = row.membership_type_id;
+                                  const checked = newProductFilter.includes(id);
+                                  const inputId = `trigger-product-${type}-${id}`;
+                                  return (
+                                    <li key={id}>
+                                      <label
+                                        htmlFor={inputId}
+                                        className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                                      >
+                                        <input
+                                          id={inputId}
+                                          type="checkbox"
+                                          className="mt-0.5 shrink-0"
+                                          checked={checked}
+                                          onChange={() => toggleNewProductFilter(id)}
+                                        />
+                                        <span className="text-xs leading-snug text-zinc-800" dir="ltr">
+                                          {`${id} - ${row.membership_type_name}`}
+                                        </span>
+                                      </label>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {showNewItemTypeFilter ? (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-800">
+                              סוג רכישה (אופציונלי)
+                            </label>
+                            <p className="text-xs text-zinc-500">
+                              השאירו ריק לכל הסוגים. בחרו מנוי / כרטיסייה / שירות / ניסיון כדי לפצל
+                              טמפלייטים בלי לרשום מזהי מוצר.
+                            </p>
+                            <ul className="space-y-2 rounded-xl border border-zinc-200 bg-white p-2">
+                              {PURCHASE_ITEM_TYPE_VALUES.map((value) => {
+                                const inputId = `trigger-item-type-${type}-${value}`;
+                                const checked = newItemTypeFilter.includes(value);
+                                return (
+                                  <li key={value}>
+                                    <label
+                                      htmlFor={inputId}
+                                      className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                                    >
+                                      <input
+                                        id={inputId}
+                                        type="checkbox"
+                                        className="shrink-0"
+                                        checked={checked}
+                                        onChange={() => toggleNewItemTypeFilter(value)}
+                                      />
+                                      <span className="text-xs text-zinc-800">
+                                        {PURCHASE_ITEM_TYPE_LABELS_HE[value]}
+                                        <span className="text-zinc-400" dir="ltr">
+                                          {" "}
+                                          ({value})
+                                        </span>
+                                      </span>
+                                    </label>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        ) : null}
+
+                        {isNewImmediateDelay ? (
+                          <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                            נשלח מיד עם האירוע — אין השהייה של ימים.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <label className="text-sm font-medium text-zinc-800">ימים</label>
+                              <input
+                                type="number"
+                                min={newDelayDaysMin}
+                                step={1}
+                                value={newDelayDays}
+                                onChange={(e) =>
+                                  setNewDelayDays(
+                                    Math.max(
+                                      newDelayDaysMin,
+                                      Number(e.target.value) || newDelayDaysMin
+                                    )
+                                  )
+                                }
+                                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                              />
+                              {newTriggerType === "no_response" ? (
+                                <p className="text-xs text-zinc-500">
+                                  מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).
+                                </p>
+                              ) : isBirthdayFamilyTriggerType(newTriggerType) ? (
+                                <p className="text-xs text-zinc-500">
+                                  0 = ביום ההולדת. לברכה לפני — בחרו «לפני» ומספר ימים (למשל 14).
+                                </p>
+                              ) : null}
+                            </div>
+                            {!hideNewDelayDirection ? (
+                              <div className="space-y-1.5">
+                                <label className="text-sm font-medium text-zinc-800">כיוון</label>
+                                <select
+                                  value={newDelayDirection}
+                                  onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
+                                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                                >
+                                  {isBirthdayFamilyTriggerType(newTriggerType) ? (
+                                    <>
+                                      <option value="before">לפני יום ההולדת</option>
+                                      <option value="after">אחרי יום ההולדת</option>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <option value="before">לפני פקיעת התוקף</option>
+                                      <option value="after">אחרי פקיעת התוקף</option>
+                                    </>
+                                  )}
+                                </select>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                          <label className="text-sm font-medium text-zinc-800">טמפלייט</label>
+                          <select
+                            value={newTemplateName}
+                            onChange={(e) => setNewTemplateName(e.target.value)}
+                            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
+                            dir="rtl"
+                            style={{ textAlignLast: "right" }}
+                          >
+                            <option value="">— ללא טמפלייט —</option>
+                            {selectableTemplates.map((t) => (
+                              <option key={t.name} value={t.name}>
+                                {t.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
+                            checked={newTriggerEnabled}
+                            onChange={(e) => setNewTriggerEnabled(e.target.checked)}
+                          />
+                          הפעל מיד לאחר הוספה
+                        </label>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={triggerSaving}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0] disabled:opacity-60"
+                          >
+                            {triggerSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            צור טריגר
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
+                  </li>
+                );
+              })}
+
+              {plannedCatalogEntries.map((e) => (
+                <li
+                  key={`planned-${e.type}`}
+                  className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-3 py-3 text-right"
+                >
+                  <p className="font-medium text-zinc-700">{e.labelHe}</p>
+                  <p className="mt-1 text-xs text-zinc-500">בקרוב</p>
+                </li>
+              ))}
+            </ul>
 
             {enabledIncomingLead && axisAudience === "leads" ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3 text-right">
@@ -1518,264 +1792,6 @@ export default function TemplatesClient({
                 ) : null}
               </div>
             ) : null}
-
-            <div
-              ref={addTriggerSectionRef}
-              id="add-trigger"
-              className="scroll-mt-28 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 sm:p-4 space-y-3 text-right"
-            >
-              <h3 className="text-sm font-semibold text-zinc-900">
-                הוסף טריגר — {AUDIENCE_LABELS_HE[axisAudience]}
-              </h3>
-
-              {!hasArbox ? (
-                <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
-                  טריגרים מבוססי Arbox (רכישה, יום הולדת וכו׳) דורשים חיבור CRM.{" "}
-                  <Link
-                    href={settingsStepHref(`/${encodeURIComponent(slug)}/settings`, 1, "he", {
-                      section: "crm",
-                    })}
-                    className="font-medium text-[#7133da] hover:underline"
-                  >
-                    חברו את Arbox בהגדרות
-                  </Link>
-                  . טריגר «ליד מאתר/קמפיין» זמין תמיד.
-                </p>
-              ) : null}
-
-              {creatableTriggerOptions.length === 0 ? (
-                <p className="text-sm text-zinc-500">
-                  אין טריגרים נוספים ליצירה בקהל הזה כרגע.
-                </p>
-              ) : (
-                <form className="space-y-4" onSubmit={(e) => void onCreateTrigger(e)}>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-zinc-800">סוג טריגר</label>
-                    <select
-                      value={newTriggerType}
-                      onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
-                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                    >
-                      {creatableTriggerOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                    {newTriggerType === "arbox_new_lead" && hasExistingArboxNewLead ? (
-                      <p className="text-xs text-amber-800">
-                        כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים ברשימה למעלה במקום ליצור עוד
-                        אחד.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  {showNewProductFilter ? (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-800">
-                        סינון מוצרים (אופציונלי)
-                      </label>
-                      <p className="text-xs text-zinc-500">
-                        השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM.
-                      </p>
-                      {arboxMembershipTypesLoading ? (
-                        <p className="flex items-center gap-2 text-xs text-zinc-500">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          טוען מוצרים מארבוקס…
-                        </p>
-                      ) : arboxMembershipTypesError ? (
-                        <div className="space-y-2">
-                          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                            לא נטענו מוצרים מארבוקס ({arboxMembershipTypesError}). TODO: הזינו מזהי
-                            membership_type מופרדים בפסיק:
-                          </p>
-                          <input
-                            value={newProductFilter.join(",")}
-                            onChange={(e) => {
-                              const ids = e.target.value
-                                .split(",")
-                                .map((s) => Number(s.trim()))
-                                .filter((n) => Number.isFinite(n) && n > 0);
-                              setNewProductFilter([...new Set(ids)].sort((a, b) => a - b));
-                            }}
-                            dir="ltr"
-                            placeholder="123, 456"
-                            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
-                          />
-                        </div>
-                      ) : arboxMembershipTypes.length === 0 ? (
-                        <p className="text-xs text-zinc-500">לא נמצאו מוצרים — יוחל על כל המוצרים.</p>
-                      ) : (
-                        <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
-                          {arboxMembershipTypes.map((row) => {
-                            const id = row.membership_type_id;
-                            const checked = newProductFilter.includes(id);
-                            const inputId = `trigger-product-${id}`;
-                            return (
-                              <li key={id}>
-                                <label
-                                  htmlFor={inputId}
-                                  className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
-                                >
-                                  <input
-                                    id={inputId}
-                                    type="checkbox"
-                                    className="mt-0.5 shrink-0"
-                                    checked={checked}
-                                    onChange={() => toggleNewProductFilter(id)}
-                                  />
-                                  <span className="text-xs leading-snug text-zinc-800" dir="ltr">
-                                    {`${id} - ${row.membership_type_name}`}
-                                  </span>
-                                </label>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  ) : null}
-
-                  {showNewItemTypeFilter ? (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-800">
-                        סוג רכישה (אופציונלי)
-                      </label>
-                      <p className="text-xs text-zinc-500">
-                        השאירו ריק לכל הסוגים. בחרו מנוי / כרטיסייה / שירות / ניסיון כדי לפצל
-                        טמפלייטים בלי לרשום מזהי מוצר.
-                      </p>
-                      <ul className="space-y-2 rounded-xl border border-zinc-200 bg-white p-2">
-                        {PURCHASE_ITEM_TYPE_VALUES.map((value) => {
-                          const inputId = `trigger-item-type-${value}`;
-                          const checked = newItemTypeFilter.includes(value);
-                          return (
-                            <li key={value}>
-                              <label
-                                htmlFor={inputId}
-                                className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
-                              >
-                                <input
-                                  id={inputId}
-                                  type="checkbox"
-                                  className="shrink-0"
-                                  checked={checked}
-                                  onChange={() => toggleNewItemTypeFilter(value)}
-                                />
-                                <span className="text-xs text-zinc-800">
-                                  {PURCHASE_ITEM_TYPE_LABELS_HE[value]}
-                                  <span className="text-zinc-400" dir="ltr">
-                                    {" "}
-                                    ({value})
-                                  </span>
-                                </span>
-                              </label>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {isNewImmediateDelay ? (
-                    <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
-                      נשלח מיד עם האירוע — אין השהייה של ימים.
-                    </p>
-                  ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-medium text-zinc-800">ימים</label>
-                      <input
-                        type="number"
-                        min={newDelayDaysMin}
-                        step={1}
-                        value={newDelayDays}
-                        onChange={(e) =>
-                          setNewDelayDays(
-                            Math.max(
-                              newDelayDaysMin,
-                              Number(e.target.value) || newDelayDaysMin
-                            )
-                          )
-                        }
-                        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                      />
-                      {newTriggerType === "no_response" ? (
-                        <p className="text-xs text-zinc-500">
-                          מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).
-                        </p>
-                      ) : isBirthdayFamilyTriggerType(newTriggerType) ? (
-                        <p className="text-xs text-zinc-500">
-                          0 = ביום ההולדת. לברכה לפני — בחרו «לפני» ומספר ימים (למשל 14).
-                        </p>
-                      ) : null}
-                    </div>
-                    {!hideNewDelayDirection ? (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-zinc-800">כיוון</label>
-                        <select
-                          value={newDelayDirection}
-                          onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        >
-                          {isBirthdayFamilyTriggerType(newTriggerType) ? (
-                            <>
-                              <option value="before">לפני יום ההולדת</option>
-                              <option value="after">אחרי יום ההולדת</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value="before">לפני פקיעת התוקף</option>
-                              <option value="after">אחרי פקיעת התוקף</option>
-                            </>
-                          )}
-                        </select>
-                      </div>
-                    ) : null}
-                  </div>
-                  )}
-
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-zinc-800">טמפלייט</label>
-                    <select
-                      value={newTemplateName}
-                      onChange={(e) => setNewTemplateName(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right"
-                      dir="rtl"
-                      style={{ textAlignLast: "right" }}
-                    >
-                      <option value="">— ללא טמפלייט —</option>
-                      {selectableTemplates.map((t) => (
-                        <option key={t.name} value={t.name}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-zinc-300 text-[#7133da] focus:ring-[#7133da]"
-                      checked={newTriggerEnabled}
-                      onChange={(e) => setNewTriggerEnabled(e.target.checked)}
-                    />
-                    הפעל מיד לאחר הוספה
-                  </label>
-
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={triggerSaving}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0] disabled:opacity-60"
-                    >
-                      {triggerSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      הוסף טריגר
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
           </>
         ) : null}
 

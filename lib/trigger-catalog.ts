@@ -568,6 +568,7 @@ export function catalogEntriesFor(input: {
 /**
  * Create-dropdown options for one activation×audience cell.
  * Reads the catalog only — planned / manual / other-cell types never appear.
+ * Prefer {@link creatableCatalogEntriesForCell} for the card UI (respects uniqueness).
  */
 export function creatableTriggerOptionsForCell(input: {
   activation: TriggerActivation;
@@ -580,6 +581,46 @@ export function creatableTriggerOptionsForCell(input: {
   })
     .filter((e) => isCreatableTriggerType(e.type, input.hasArbox))
     .map((e) => ({ value: e.type as TriggerType, label: e.labelHe }));
+}
+
+/**
+ * Implemented creatable catalog entries for a cell that should show a «צור טריגר» card.
+ * Unique types already present in `existingTriggerTypes` are omitted (no second create card).
+ * Non-unique types always appear (create-another), even when active rows exist.
+ */
+export function creatableCatalogEntriesForCell(input: {
+  activation: TriggerActivation;
+  audience: TriggerAudience;
+  hasArbox: boolean;
+  existingTriggerTypes: readonly string[];
+}): TriggerCatalogEntry[] {
+  const existingCanonical = new Set(
+    input.existingTriggerTypes.map((t) => canonicalizeTriggerType(String(t ?? "").trim()))
+  );
+  const hasIncomingLead = input.existingTriggerTypes.some((t) =>
+    isIncomingLeadTriggerType(String(t ?? ""))
+  );
+
+  return catalogEntriesFor({
+    activation: input.activation,
+    audience: input.audience,
+  }).filter((e) => {
+    if (!isCreatableTriggerType(e.type, input.hasArbox)) return false;
+    if (!e.uniquePerBusiness) return true;
+    if (e.type === "incoming_lead") return !hasIncomingLead;
+    return !existingCanonical.has(e.type);
+  });
+}
+
+/** Planned («בקרוב») entries for a cell — not implemented. */
+export function plannedCatalogEntriesForCell(input: {
+  activation: TriggerActivation;
+  audience: TriggerAudience;
+}): TriggerCatalogEntry[] {
+  return catalogEntriesFor({
+    activation: input.activation,
+    audience: input.audience,
+  }).filter((e) => !e.implemented);
 }
 
 export function isBirthdayFamilyTriggerType(value: string): boolean {
