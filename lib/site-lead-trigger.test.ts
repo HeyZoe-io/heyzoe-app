@@ -58,16 +58,16 @@ import { buildSiteLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 {
   assert.equal(forcesDelayAfter("purchase"), false);
   assert.equal(forcesDelayAfter("credit_refusal"), false);
-  assert.equal(forcesDelayAfter("trial_attended"), true);
+  assert.equal(forcesDelayAfter("registered_after_trial"), true);
   assert.equal(forcesDelayAfter("incoming_lead"), true);
   assert.equal(allowsDelayBefore("purchase"), false);
   assert.equal(allowsDelayBefore("credit_refusal"), false);
-  assert.equal(allowsDelayBefore("trial_attended"), false);
+  assert.equal(allowsDelayBefore("registered_after_trial"), false);
   assert.equal(allowsDelayBefore("membership_expiring"), true);
   assert.equal(allowsDelayBefore("sessions_expiring"), true);
   assert.equal(delayDirectionForTrigger("purchase", "before"), "after");
   assert.equal(delayDirectionForTrigger("credit_refusal", "before"), "after");
-  assert.equal(delayDirectionForTrigger("trial_attended", "before"), "after");
+  assert.equal(delayDirectionForTrigger("registered_after_trial", "before"), "after");
   assert.equal(delayDirectionForTrigger("membership_expiring", "before"), "before");
 }
 

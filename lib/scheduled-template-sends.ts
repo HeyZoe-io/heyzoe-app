@@ -165,6 +165,22 @@ export function buildAttendanceGapScheduledDedupKey(
   return nameEnc ? `${base}#${nameEnc}` : base;
 }
 
+/** Post-trial C5/C6 enqueue key: one per attendance (+ optional class name). */
+export function buildPostTrialFollowupScheduledDedupKey(
+  outcome: "registered" | "not_registered",
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  classDateYmd: string,
+  className?: string | null
+): string {
+  const kind =
+    outcome === "registered" ? "registered_after_trial" : "not_registered_after_trial";
+  const nameEnc = encodeURIComponent(String(className ?? "").trim());
+  const base = `${kind}:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}`;
+  return nameEnc ? `${base}#${nameEnc}` : base;
+}
+
 /** Arbox new-lead enqueue key: once per business+trigger+Arbox user_id (allLeadsReport). */
 export function buildArboxNewLeadScheduledDedupKey(
   businessId: number,

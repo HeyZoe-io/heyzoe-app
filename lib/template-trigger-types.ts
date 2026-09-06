@@ -21,6 +21,7 @@ export {
   delayDirectionForTrigger,
   isBirthdayFamilyTriggerType,
   isAttendanceGapTriggerType,
+  isPostTrialFollowupTriggerType,
   isImmediateDelayTrigger,
   showsItemTypeFilter,
   isPurchaseItemType,

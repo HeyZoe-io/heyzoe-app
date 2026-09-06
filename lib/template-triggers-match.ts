@@ -362,6 +362,50 @@ export async function resolveTrialAttendedTemplateTrigger(input: {
   return pickTrialAttendedTemplateTriggerRule(rules);
 }
 
+/** Enabled registered_after_trial (C5) rules. */
+export async function loadEnabledRegisteredAfterTrialTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "registered_after_trial")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load registered_after_trial rules failed:",
+      error.message
+    );
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+/** Enabled not_registered_after_trial (C6) rules. */
+export async function loadEnabledNotRegisteredAfterTrialTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "not_registered_after_trial")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load not_registered_after_trial rules failed:",
+      error.message
+    );
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
 /** Enabled missed_class (C3) rules — pick newest with a template name. */
 export async function loadEnabledMissedClassTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,

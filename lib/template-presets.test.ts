@@ -12,15 +12,17 @@ import {
 assert.equal(TEMPLATE_PRESETS.incoming_lead.body, TEMPLATE_PRESETS.arbox_new_lead.body);
 assert.equal(TEMPLATE_PRESETS.incoming_lead.category, "MARKETING");
 assert.equal(TEMPLATE_PRESETS.arbox_new_lead.category, "MARKETING");
-assert.equal(TEMPLATE_PRESETS.trial_attended.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.registered_after_trial.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.registered_after_trial.button_text, "אשמח לפרטים");
+assert.equal(
+  TEMPLATE_PRESETS.registered_after_trial.body,
+  "היי {{1}}, איך היה בשיעור הניסיון ({{2}})? שמחנו לראות שנרשמת להמשך — איך אפשר לעזור?"
+);
+assert.equal(TEMPLATE_PRESETS.not_registered_after_trial.category, "MARKETING");
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.registered_after_trial.body), 2);
 assert.equal(TEMPLATE_PRESETS.no_response.button_text, "אשמח לפרטים");
 assert.equal(TEMPLATE_PRESETS.membership_expiring.button_text, "חידוש מנוי");
 assert.equal(TEMPLATE_PRESETS.sessions_expiring.button_text, "חידוש כרטיסיה");
-assert.equal(TEMPLATE_PRESETS.trial_attended.button_text, "הצטרפות למנוי");
-assert.equal(
-  TEMPLATE_PRESETS.trial_attended.body,
-  "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:"
-);
 assert.equal(TEMPLATE_PRESETS.purchase.button_text, undefined);
 assert.equal(TEMPLATE_PRESETS.birthday_former.category, "MARKETING");
 assert.deepEqual(paramSlotsForTriggerType("birthday_former"), ["first_name", "business_name"]);
@@ -63,7 +65,7 @@ assert.equal(isPresetAvailable("attendance_gap_booked", true), true);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.membership_expiring.body), 3);
-assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trial_attended.body), 1);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.registered_after_trial.body), 2);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.membership_cancelled.body), 2);
 
 assert.deepEqual(paramSlotsForTriggerType("incoming_lead"), ["business_name"]);

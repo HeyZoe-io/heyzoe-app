@@ -129,7 +129,8 @@ import {
     birthday_former: ["דנה", "Limitless"],
     membership_expiring: ["דנה", "Limitless", "15.09.2026"],
     sessions_expiring: ["דנה", "Limitless", "15.09.2026"],
-    trial_attended: ["דנה"],
+    registered_after_trial: ["דנה", "יוגה"],
+    not_registered_after_trial: ["דנה", "יוגה"],
     membership_cancelled: ["מנוי חודשי", "15.09.2026"],
     missed_class: ["דנה", "יוגה"],
     missed_trial: ["דנה", "יוגה"],
@@ -154,7 +155,9 @@ import {
     if (
       type === "missed_class" ||
       type === "missed_trial" ||
-      type === "attendance_gap_booked"
+      type === "attendance_gap_booked" ||
+      type === "registered_after_trial" ||
+      type === "not_registered_after_trial"
     ) {
       assert.deepEqual(slots, ["first_name", "class_name"]);
       continue;

@@ -59,13 +59,15 @@ export function membershipTypeNameFromScheduledDedupKey(dedupKey: string): strin
   }
 }
 
-/** missed_class / missed_trial / attendance_gap_booked delayed send: class name after `#`. */
+/** missed_class / missed_trial / attendance_gap_booked / post-trial delayed send: class after `#`. */
 export function classNameFromScheduledDedupKey(dedupKey: string): string | null {
   const raw = String(dedupKey ?? "");
   if (
     !raw.startsWith("missed_class:") &&
     !raw.startsWith("missed_trial:") &&
-    !raw.startsWith("attendance_gap_booked:")
+    !raw.startsWith("attendance_gap_booked:") &&
+    !raw.startsWith("registered_after_trial:") &&
+    !raw.startsWith("not_registered_after_trial:")
   ) {
     return null;
   }

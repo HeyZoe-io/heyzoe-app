@@ -42,7 +42,8 @@ import {
 const LIVE_AUTOMATIC = [
   "purchase",
   "credit_refusal",
-  "trial_attended",
+  "registered_after_trial",
+  "not_registered_after_trial",
   "birthday",
   "membership_expiring",
   "sessions_expiring",
@@ -60,7 +61,8 @@ const LIVE_AUTOMATIC = [
 const PREVIOUS_ARBOX = [
   "purchase",
   "credit_refusal",
-  "trial_attended",
+  "registered_after_trial",
+  "not_registered_after_trial",
   "birthday",
   "membership_expiring",
   "sessions_expiring",
@@ -103,7 +105,8 @@ const PREVIOUS_ARBOX = [
 {
   assert.equal(triggerCatalogAudience("birthday"), "members");
   assert.equal(triggerCatalogAudience("birthday_former"), "leads");
-  assert.equal(triggerCatalogAudience("trial_attended"), "leads");
+  assert.equal(triggerCatalogAudience("registered_after_trial"), "leads");
+  assert.equal(triggerCatalogAudience("not_registered_after_trial"), "leads");
   assert.equal(triggerCatalogAudience("no_response"), "leads");
   assert.equal(triggerCatalogAudience("manual_membership"), "members");
   assert.equal(triggerCatalogAudience("manual_talked_not_registered"), "leads");
@@ -143,8 +146,8 @@ function triggerCatalogAudience(type: string) {
   assert.ok(memberTypes.includes("missed_class"));
   assert.ok(memberTypes.includes("attendance_gap_booked"));
   assert.ok(memberTypes.includes("attendance_gap_unbooked"));
+  assert.ok(!memberTypes.includes("registered_after_trial"));
   assert.ok(!memberTypes.includes("incoming_lead"));
-  assert.ok(!memberTypes.includes("trial_attended"));
   assert.ok(!memberTypes.includes("missed_trial"));
   assert.ok(!memberTypes.includes("arbox_new_lead"));
   assert.ok(!memberTypes.includes("hold"), "planned hold is not creatable");
@@ -156,13 +159,16 @@ function triggerCatalogAudience(type: string) {
     hasArbox: true,
   }).map((o) => o.value as string);
   assert.ok(leadTypes.includes("incoming_lead"));
-  assert.ok(leadTypes.includes("trial_attended"));
+  assert.ok(leadTypes.includes("registered_after_trial"));
+  assert.ok(leadTypes.includes("not_registered_after_trial"));
+  assert.ok(!leadTypes.includes("trial_attended"));
   assert.ok(leadTypes.includes("birthday_former"));
   assert.ok(leadTypes.includes("missed_trial"));
   assert.ok(!leadTypes.includes("purchase"));
   assert.ok(!leadTypes.includes("birthday"));
   assert.ok(!leadTypes.includes("missed_class"));
   assert.ok(!leadTypes.includes("lost_lead"), "planned lost_lead is not creatable");
+  assert.ok(!(leadTypes as string[]).includes("post_trial_followup"));
 
   assert.deepEqual(
     creatableTriggerOptionsForCell({
@@ -200,7 +206,8 @@ function triggerCatalogAudience(type: string) {
     existingTriggerTypes: [],
   }).map((e) => e.type);
   assert.ok(leadsEmpty.includes("incoming_lead"));
-  assert.ok(leadsEmpty.includes("trial_attended"));
+  assert.ok(leadsEmpty.includes("registered_after_trial"));
+  assert.ok(leadsEmpty.includes("not_registered_after_trial"));
   assert.ok(leadsEmpty.includes("missed_trial"));
 
   const leadsWithIncoming = creatableCatalogEntriesForCell({
@@ -210,7 +217,7 @@ function triggerCatalogAudience(type: string) {
     existingTriggerTypes: ["site_lead"],
   }).map((e) => e.type);
   assert.ok(!leadsWithIncoming.includes("incoming_lead"), "unique incoming_lead: no create card");
-  assert.ok(leadsWithIncoming.includes("trial_attended"), "non-unique still creatable");
+  assert.ok(leadsWithIncoming.includes("registered_after_trial"), "non-unique still creatable");
 
   const leadsWithArboxNew = creatableCatalogEntriesForCell({
     activation: "automatic",
@@ -292,7 +299,8 @@ function triggerCatalogAudience(type: string) {
     assert.equal(
       showsProductFilter(type),
       type === "purchase" ||
-        type === "trial_attended" ||
+        type === "registered_after_trial" ||
+        type === "not_registered_after_trial" ||
         type === "membership_cancelled" ||
         type === "missed_trial"
     );
@@ -319,14 +327,15 @@ function triggerCatalogAudience(type: string) {
   assert.equal(forcesDelayAfter("purchase"), false);
   assert.equal(forcesDelayAfter("credit_refusal"), false);
   assert.equal(forcesDelayAfter("membership_cancelled"), false);
-  assert.equal(forcesDelayAfter("trial_attended"), true);
+  assert.equal(forcesDelayAfter("registered_after_trial"), true);
+  assert.equal(forcesDelayAfter("not_registered_after_trial"), true);
   assert.equal(forcesDelayAfter("birthday"), false);
   assert.equal(forcesDelayAfter("birthday_former"), false);
   assert.equal(forcesDelayAfterFacade("birthday"), false);
   assert.equal(isImmediateDelayTrigger("purchase"), true);
   assert.equal(isImmediateDelayTrigger("credit_refusal"), true);
   assert.equal(isImmediateDelayTrigger("membership_cancelled"), true);
-  assert.equal(isImmediateDelayTrigger("trial_attended"), false);
+  assert.equal(isImmediateDelayTrigger("registered_after_trial"), false);
   assert.equal(showsItemTypeFilter("purchase"), true);
   assert.equal(showsItemTypeFilter("credit_refusal"), false);
   assert.equal(delayDirectionForTrigger("birthday", "before"), "before");
@@ -386,7 +395,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(triggerSendScheduleHintHe("purchase"), triggerSendScheduleHintHe("credit_refusal"));
   assert.equal(
     triggerSendScheduleHintHe("membership_expiring"),
-    triggerSendScheduleHintHe("trial_attended")
+    triggerSendScheduleHintHe("registered_after_trial")
   );
   assert.equal(
     triggerSendScheduleHintHe("sessions_expiring"),

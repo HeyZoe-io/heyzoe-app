@@ -393,10 +393,12 @@ export type BookingsReportFetchPlan = {
   hasMissedRule: boolean;
   /** Force 30d past whenever C1/C2 is live (gap needs last Yes in window). */
   hasAttendanceGapRule: boolean;
+  /** C5/C6 post-trial follow-up — widen past + sales join on daily cron. */
+  hasPostTrialFollowupRule: boolean;
 };
 
 /**
- * True when an enabled trial_attended / missed_* / attendance_gap_* rule has a non-empty template.
+ * True when an enabled bookings-based rule has a non-empty template.
  * Used by the daily cron to decide whether to GET bookingsReport (and how wide).
  */
 export async function businessNeedsBookingsReportFetch(
@@ -409,16 +411,22 @@ export async function businessNeedsBookingsReportFetch(
     .eq("business_id", businessId)
     .eq("enabled", true)
     .in("trigger_type", [
-      "trial_attended",
       "missed_class",
       "missed_trial",
       "attendance_gap_booked",
       "attendance_gap_unbooked",
+      "registered_after_trial",
+      "not_registered_after_trial",
     ])
     .limit(40);
   if (error) {
     console.error("[leads/arbox-missed-class] needs-fetch lookup failed:", error.message);
-    return { needsFetch: true, hasMissedRule: true, hasAttendanceGapRule: true };
+    return {
+      needsFetch: true,
+      hasMissedRule: true,
+      hasAttendanceGapRule: true,
+      hasPostTrialFollowupRule: true,
+    };
   }
   const live = (data ?? []).filter((r) =>
     String((r as { template_name?: unknown }).template_name ?? "").trim()
@@ -432,6 +440,10 @@ export async function businessNeedsBookingsReportFetch(
     hasAttendanceGapRule: live.some((r) => {
       const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
       return t === "attendance_gap_booked" || t === "attendance_gap_unbooked";
+    }),
+    hasPostTrialFollowupRule: live.some((r) => {
+      const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
+      return t === "registered_after_trial" || t === "not_registered_after_trial";
     }),
   };
 }

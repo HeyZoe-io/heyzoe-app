@@ -80,8 +80,8 @@ export const TRIGGER_CATALOG = [
     sendHintHe: SEND_HINT_FREQUENT_HE,
   },
   {
-    type: "trial_attended",
-    labelHe: "נוכחות בשיעור ניסיון",
+    type: "registered_after_trial",
+    labelHe: "נרשם אחרי ניסיון",
     activation: "automatic",
     audience: "leads",
     implemented: true,
@@ -89,10 +89,26 @@ export const TRIGGER_CATALOG = [
     delay: "after",
     showProductFilter: true,
     uniquePerBusiness: false,
-    minDelayDays: 0,
+    minDelayDays: 2,
     recipient: "customer",
-    presetKey: "trial_attended",
+    presetKey: "registered_after_trial",
     uiOrder: 6,
+    sendHintHe: SEND_HINT_DAILY_HE,
+  },
+  {
+    type: "not_registered_after_trial",
+    labelHe: "לא נרשם אחרי ניסיון",
+    activation: "automatic",
+    audience: "leads",
+    implemented: true,
+    arboxOnly: true,
+    delay: "after",
+    showProductFilter: true,
+    uniquePerBusiness: false,
+    minDelayDays: 2,
+    recipient: "customer",
+    presetKey: "not_registered_after_trial",
+    uiOrder: 7,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
@@ -108,7 +124,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "birthday",
-    uiOrder: 7,
+    uiOrder: 8,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
@@ -124,7 +140,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "membership_expiring",
-    uiOrder: 8,
+    uiOrder: 9,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
@@ -140,7 +156,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "sessions_expiring",
-    uiOrder: 9,
+    uiOrder: 10,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
@@ -405,22 +421,6 @@ export const TRIGGER_CATALOG = [
     uiOrder: 13,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
-  {
-    type: "post_trial_followup",
-    labelHe: "מעקב אחרי ניסיון",
-    activation: "automatic",
-    audience: "leads",
-    implemented: false,
-    arboxOnly: true,
-    delay: "after",
-    showProductFilter: false,
-    uniquePerBusiness: false,
-    minDelayDays: 0,
-    recipient: "customer",
-    presetKey: "",
-    uiOrder: 33,
-    sendHintHe: SEND_HINT_PLANNED_HE,
-  },
 
   // —— Manual (M1) — not persisted on template_triggers ——
   {
@@ -644,6 +644,12 @@ export function isBirthdayFamilyTriggerType(value: string): boolean {
   return t === "birthday" || t === "birthday_former";
 }
 
+/** C5/C6 — delay_days is days after trial class_date before conversion decision. */
+export function isPostTrialFollowupTriggerType(value: string): boolean {
+  const t = canonicalizeTriggerType(value);
+  return t === "registered_after_trial" || t === "not_registered_after_trial";
+}
+
 /** C1/C2 — delay_days is absence-tier days, not event+N. */
 export function isAttendanceGapTriggerType(value: string): boolean {
   const t = canonicalizeTriggerType(value);
@@ -713,6 +719,7 @@ export function minDelayDaysForTrigger(triggerType: string): number {
 }
 
 export function defaultDelayDays(triggerType: string): number {
+  if (isPostTrialFollowupTriggerType(triggerType)) return 3;
   return minDelayDaysForTrigger(triggerType);
 }
 
@@ -762,6 +769,9 @@ export function formatDelayLabel(
   }
   if (isAttendanceGapTriggerType(type)) {
     return `${Math.max(1, days)} ימי היעדרות`;
+  }
+  if (isPostTrialFollowupTriggerType(type)) {
+    return days === 0 ? "ביום הניסיון" : `${Math.max(2, days)} ימים אחרי הניסיון`;
   }
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;

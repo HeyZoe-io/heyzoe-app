@@ -27,7 +27,8 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   birthday_former: ["first_name", "business_name"],
   membership_expiring: ["first_name", "business_name", "expiry_date"],
   sessions_expiring: ["first_name", "business_name", "expiry_date"],
-  trial_attended: ["first_name"],
+  registered_after_trial: ["first_name", "class_name"],
+  not_registered_after_trial: ["first_name", "class_name"],
   membership_cancelled: ["membership_type_name", "expiry_date"],
   missed_class: ["first_name", "class_name"],
   missed_trial: ["first_name", "class_name"],
@@ -89,11 +90,17 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     body: "היי {{1}}, הכרטיסייה שלך ב{{2}} עומדת לפוג ב-{{3}}. רוצה לחדש? אם כן יש לכתוב לי ״אשמח לחדש כרטיסיה״ ונעביר את הפניה לצוות המטפל.",
     button_text: "חידוש כרטיסיה",
   },
-  trial_attended: {
-    name: "trial_attended",
+  registered_after_trial: {
+    name: "registered_after_trial",
     category: "MARKETING",
-    body: "היי {{1}}, איך היה בשיעור הניסיון? נשמח לעזור לך להמשיך 😊\nיש לנו מספר אפשרויות להצטרפות למנוי:",
-    button_text: "הצטרפות למנוי",
+    body: "היי {{1}}, איך היה בשיעור הניסיון ({{2}})? שמחנו לראות שנרשמת להמשך — איך אפשר לעזור?",
+    button_text: "אשמח לפרטים",
+  },
+  not_registered_after_trial: {
+    name: "not_registered_after_trial",
+    category: "MARKETING",
+    body: "היי {{1}}, איך היה בשיעור הניסיון ({{2}})? מתי נוח שניצור איתך קשר לגבי הצטרפות?",
+    button_text: "אשמח שיחזרו אליי",
   },
   membership_cancelled: {
     name: "membership_cancelled",

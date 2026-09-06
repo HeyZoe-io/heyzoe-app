@@ -183,17 +183,36 @@ Existing presets may predate this rule; **new** presets must follow it.
   `< today`) **and** `check_in === "No"` (string; not empty, not truthiness).
 - C3 `missed_class` (automatic × members): non-trial bookings. Preset **UTILITY**.
 - C4 `missed_trial` (automatic × leads): trial product filter (same name/id scope as
-  `trial_attended`). Preset **MARKETING**.
-- **Shared fetch** with `trial_attended` on `arbox-daily-triggers`: one GET loop when any
-  of the three rules is enabled; handlers split in memory.
+  former `trial_attended` / now C5–C6). Preset **MARKETING**.
+- **Shared fetch** with post-trial C5/C6 + attendance_gap on `arbox-daily-triggers`: one GET
+  loop when any of these rules is enabled; handlers split in memory.
   - Seed window (30d) only when a `missed_*` rule is enabled and
-    `arbox_missed_class_seeded` is false — not when only `trial_attended` is live.
-  - `trial_attended` filters the shared rows to its own lookback in memory.
+    `arbox_missed_class_seeded` is false — not when only post-trial is live (post-trial
+    forces wide past separately when C5/C6 is enabled).
+  - Post-trial filters the shared rows to its own lookback in memory.
 - Dedup: `arbox_missed_class_sync_log` PK
   `(business_id, user_id, class_date, class_time, class_name)` — no `event_kind`.
 - Seed: `businesses.arbox_missed_class_seeded` — first enable marks past no-shows without
   WhatsApp. Retry: A9 `attempts`/`status` (`gated` does not count).
 - Migration: `supabase/arbox_missed_class_sync_log.sql` (run before deploy).
+
+## Post-trial registered / not registered (C5 / C6)
+
+Replaces legacy `trial_attended` (clean cut — no active rules in production at cutover).
+
+- Source: `bookingsReport` trial attendance (`check_in="Yes"` + trial scope) **joined** with
+  `salesReport` on the same daily cron (+1 sales GET when C5/C6 enabled).
+- **Conversion:** `item_type` is `plan` **or** `session`, sale date `>= class_date`, and the
+  product is **not** a trial membership (`item_type=trial`, trial membership type ids, or
+  trial-like `item_name`). Session punch-cards count as registered (C5).
+- C5 `registered_after_trial` / C6 `not_registered_after_trial` — automatic × leads,
+  MARKETING presets (`first_name`, `class_name`).
+- **Decision delay:** `delay_days` after `class_date` (default 3, min 2). Send immediate once
+  due; do not use delay as Meta enqueue offset.
+- Dedup: `arbox_post_trial_followup_sync_log` PK `(business_id, user_id, class_date)` with
+  `outcome` registered | not_registered — one message per attendance.
+- Seed: `businesses.arbox_post_trial_followup_seeded` + soft-seed per outcome. A9 retry.
+- Migration: `supabase/arbox_post_trial_followup_sync_log.sql` (run before deploy).
 
 ## Attendance gap booked / unbooked (C1 / C2)
 
@@ -228,5 +247,6 @@ State the GETs per run: typically **one report GET per business** (plus pages)
 on the shared cron, not a new job. Extra `/v3/membershipTypes` only when
 filtering. New-lead customer reports (memberships + sessions) only when an
 unseen non-Zoe lead remains. Birthday always adds those two customer reports
-when a birthday / birthday_former rule is enabled. WhatsApp/Meta cost = new
-matching events after seed, not the seed window.
+when a birthday / birthday_former rule is enabled. **C5/C6 add one salesReport
+GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
+events after seed, not the seed window.

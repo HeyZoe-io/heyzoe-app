@@ -8,10 +8,10 @@ import {
   businessNeedsBookingsReportFetch,
   syncArboxMissedClassForBusiness,
 } from "@/lib/leads/arbox-missed-class";
+import { syncArboxPostTrialFollowupForBusiness } from "@/lib/leads/arbox-post-trial-followup";
 import { syncArboxSessionsExpiringForBusiness } from "@/lib/leads/arbox-sessions-expiring";
 import {
   fetchArboxBookingsReport,
-  syncArboxTrialAttendedForBusiness,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -19,8 +19,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps: birthday, membership_expiring, bookingsReport (trial_attended + missed_* +
- * attendance_gap_*), sessions_expiring, membership_cancelled.
+ * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap_* +
+ * post-trial C5/C6), sessions_expiring, membership_cancelled.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -49,6 +49,7 @@ type BusinessRow = {
   arbox_cancellation_seeded: boolean;
   arbox_missed_class_seeded: boolean;
   arbox_attendance_gap_seeded: boolean;
+  arbox_post_trial_followup_seeded: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded"
+      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -87,6 +88,9 @@ export async function GET(req: NextRequest) {
       (row as { arbox_missed_class_seeded?: unknown }).arbox_missed_class_seeded === true;
     const attendanceGapSeeded =
       (row as { arbox_attendance_gap_seeded?: unknown }).arbox_attendance_gap_seeded === true;
+    const postTrialFollowupSeeded =
+      (row as { arbox_post_trial_followup_seeded?: unknown }).arbox_post_trial_followup_seeded ===
+      true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -96,6 +100,7 @@ export async function GET(req: NextRequest) {
       arbox_cancellation_seeded: cancellationSeeded,
       arbox_missed_class_seeded: missedClassSeeded,
       arbox_attendance_gap_seeded: attendanceGapSeeded,
+      arbox_post_trial_followup_seeded: postTrialFollowupSeeded,
     });
   }
 
@@ -104,7 +109,7 @@ export async function GET(req: NextRequest) {
     slug: string;
     birthday?: Awaited<ReturnType<typeof syncArboxBirthdaysForBusiness>>;
     membership_expiring?: Awaited<ReturnType<typeof syncArboxMembershipExpiringForBusiness>>;
-    trial_attended?: Awaited<ReturnType<typeof syncArboxTrialAttendedForBusiness>>;
+    post_trial_followup?: Awaited<ReturnType<typeof syncArboxPostTrialFollowupForBusiness>>;
     missed_class?: Awaited<ReturnType<typeof syncArboxMissedClassForBusiness>>;
     attendance_gap?: Awaited<ReturnType<typeof syncArboxAttendanceGapForBusiness>>;
     sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
@@ -199,7 +204,7 @@ export async function GET(req: NextRequest) {
         const window = bookingsReportSharedLookbackWindow({
           now,
           missedNeedsSeed: plan.hasMissedRule && !business.arbox_missed_class_seeded,
-          forceWidePast: plan.hasAttendanceGapRule,
+          forceWidePast: plan.hasAttendanceGapRule || plan.hasPostTrialFollowupRule,
         });
         lookbackFrom = window.fromDate;
         lookbackTo = window.toDate;
@@ -226,39 +231,46 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // --- Step: trial_attended ---
+    // --- Step: post-trial C5/C6 (bookings × sales) ---
     try {
-      entry.trial_attended = await syncArboxTrialAttendedForBusiness({
+      entry.post_trial_followup = await syncArboxPostTrialFollowupForBusiness({
         admin,
         businessId: business.id,
         businessSlug: business.slug,
         apiKey: business.crm_api_key,
         boxId: business.crm_box_id,
+        postTrialFollowupSeeded: business.arbox_post_trial_followup_seeded,
         now,
-        prefetchedRows,
-        prefetchedPages,
-        lookbackFrom,
-        lookbackTo,
+        ...(prefetchedRows
+          ? {
+              prefetchedPastRows: prefetchedRows,
+              prefetchedPastPages: prefetchedPages,
+              lookbackFrom,
+              lookbackTo,
+            }
+          : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.error("[cron/arbox-daily-triggers] trial_attended step threw", {
+      console.error("[cron/arbox-daily-triggers] post_trial_followup step threw", {
         slug: business.slug,
         error: message,
       });
-      entry.trial_attended = {
-        fetched: 0,
+      entry.post_trial_followup = {
+        fetched_bookings: 0,
+        fetched_sales: 0,
         pages_fetched: 0,
-        attended: 0,
         trial_attended: 0,
-        skipped_non_trial: 0,
+        due: 0,
+        seeded: 0,
+        soft_seeded: 0,
         processed: 0,
-        dedup: 0,
+        already: 0,
         notified: 0,
         deferred: 0,
         gated: 0,
-        not_attended: 0,
         no_phone: 0,
+        abandoned: 0,
         errors: 1,
         fetch_error: message,
       };
