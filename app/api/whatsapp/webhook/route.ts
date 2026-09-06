@@ -252,6 +252,8 @@ import {
   RUNNING_LATE_ACK_MESSAGE,
 } from "@/lib/wa-running-late";
 import {
+  BOOKED_CLASS_MOVE_APP_MODEL,
+  buildBookedClassMoveAppReply,
   classifyRegistrationIntentMembershipReply,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
@@ -6781,8 +6783,8 @@ async function processIncoming(
     }
   }
 
-  // Booked class move/swap — membership vs trial (app / product pick), not Arbox «מצאתי».
-  // 0 extra Claude / Arbox IO; skips bookingsReport (1–20 pages). 10x: still 0 extra paid APIs.
+  // Booked class swap — app if already purchased (membership / punch / trial); product pick only
+  // in an unpaid sales flow. 0 extra Claude / Arbox IO; skips bookingsReport (1–20 pages).
   if (isSalesFlowFreeTextInbound(msg) && businessId && matchesBookedClassMoveIntent(msg.text)) {
     const lastForMove = await fetchLastAssistantModelUsed({
       business_slug,
@@ -6792,32 +6794,13 @@ async function processIncoming(
       lastForMove !== REGISTRATION_INTENT_CLARIFY_MODEL &&
       lastForMove !== BOOKING_LOOKUP_CLARIFY_MODEL
     ) {
+      const salesFlowStartedForMove = await sessionHasSalesFlowGreeting(business_slug, sessionId);
       const moveBranch = resolveBookedClassMoveBranch(msg.text, {
         trialRegistered: contactTrialRegistered === true,
         sessionPhase: contactSessionPhase,
+        salesFlowStarted: salesFlowStartedForMove,
       });
-      if (moveBranch === "app") {
-        try {
-          await sendWhatsAppMessage(
-            msg.toNumber,
-            msg.from,
-            REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
-            accountSid,
-            authToken
-          );
-        } catch (e) {
-          console.error("[WA Webhook] Send booked-class-move has-membership failed:", e);
-        }
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
-          model_used: REGISTRATION_INTENT_HAS_MEMBER_MODEL,
-          session_id: sessionId,
-        });
-        return;
-      }
-      if (moveBranch === "trial_pick") {
+      if (moveBranch === "product_pick") {
         try {
           await sendWhatsAppMessage(
             msg.toNumber,
@@ -6827,7 +6810,7 @@ async function processIncoming(
             authToken
           );
         } catch (e) {
-          console.error("[WA Webhook] Send booked-class-move no-membership failed:", e);
+          console.error("[WA Webhook] Send booked-class-move product-pick failed:", e);
         }
         await logMessage({
           business_slug,
@@ -6863,22 +6846,17 @@ async function processIncoming(
         }
         return;
       }
+      const appReply = buildBookedClassMoveAppReply(msg.text);
       try {
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          REGISTRATION_INTENT_CLARIFY_QUESTION,
-          accountSid,
-          authToken
-        );
+        await sendWhatsAppMessage(msg.toNumber, msg.from, appReply, accountSid, authToken);
       } catch (e) {
-        console.error("[WA Webhook] Send booked-class-move clarify failed:", e);
+        console.error("[WA Webhook] Send booked-class-move app failed:", e);
       }
       await logMessage({
         business_slug,
         role: "assistant",
-        content: REGISTRATION_INTENT_CLARIFY_QUESTION,
-        model_used: REGISTRATION_INTENT_CLARIFY_MODEL,
+        content: appReply,
+        model_used: BOOKED_CLASS_MOVE_APP_MODEL,
         session_id: sessionId,
       });
       return;

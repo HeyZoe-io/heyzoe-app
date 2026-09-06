@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import {
+  BOOKED_CLASS_MOVE_APP_REPLY,
+  buildBookedClassMoveAppReply,
   classifyRegistrationIntentMembershipReply,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
@@ -11,7 +13,6 @@ import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
 assert.equal(matchesRegistrationIntentPhrase("רוצה להצטרף בשבת לפוואר אנד הייט"), true);
 assert.equal(matchesRegistrationIntentPhrase("רוצה להצטרף לפוואר אנד הייט"), true);
-assert.equal(matchesRegistrationIntentPhrase("אשמח להחליף שיעור"), true);
 assert.equal(matchesRegistrationIntentPhrase("אני מנסה להירשם לשיעור"), true);
 assert.equal(matchesRegistrationIntentPhrase("מנסה להירשם לשיעור"), true);
 assert.equal(matchesRegistrationIntentPhrase("רוצה להירשם מחר"), true);
@@ -84,17 +85,33 @@ assert.equal(classifyRegistrationIntentMembershipReply("Power & HIIT"), "unclear
 const sickReschedule =
   "היי, אני רשומה לשיעור ניסיון היום ואני לא מרגישה טוב, אפשר לתאם ליום אחר השבוע?";
 assert.equal(matchesBookedClassMoveIntent(sickReschedule), true);
-assert.equal(resolveBookedClassMoveBranch(sickReschedule), "trial_pick");
-assert.equal(matchesRegistrationIntentPhrase(sickReschedule), true);
+assert.equal(resolveBookedClassMoveBranch(sickReschedule), "app", "trial booking swap → app");
+assert.equal(matchesRegistrationIntentPhrase(sickReschedule), false);
+assert.match(buildBookedClassMoveAppReply(sickReschedule), /מצטערת לשמוע/);
+assert.match(buildBookedClassMoveAppReply(sickReschedule), /מהאפליקציה/);
 assert.equal(matchesBookedClassMoveIntent("אפשר לתאם ליום אחר השבוע?"), true);
-assert.equal(resolveBookedClassMoveBranch("אפשר לתאם ליום אחר השבוע?"), "clarify");
+assert.equal(resolveBookedClassMoveBranch("אפשר לתאם ליום אחר השבוע?"), "app");
+assert.equal(
+  resolveBookedClassMoveBranch("אפשר להחליף שיעור?", { salesFlowStarted: true, sessionPhase: "opening" }),
+  "product_pick"
+);
+assert.equal(
+  resolveBookedClassMoveBranch("אפשר להחליף שיעור?", { trialRegistered: true, salesFlowStarted: true }),
+  "app"
+);
 assert.equal(matchesBookedClassMoveIntent("אשמח להחליף שיעור"), true);
-assert.equal(resolveBookedClassMoveBranch("אשמח להחליף שיעור"), "clarify");
+assert.equal(resolveBookedClassMoveBranch("אשמח להחליף שיעור"), "app");
+assert.equal(buildBookedClassMoveAppReply("אשמח להחליף שיעור"), BOOKED_CLASS_MOVE_APP_REPLY);
 assert.equal(matchesBookedClassMoveIntent("אפשר לדחות שיעור?"), true);
 assert.equal(
   resolveBookedClassMoveBranch("אני רשומה לשיעור, יש לי מנוי, אפשר לדחות?"),
   "app"
 );
+assert.equal(
+  resolveBookedClassMoveBranch("רשומה לשיעור ניסיון, אפשר להחליף?", { salesFlowStarted: true }),
+  "app"
+);
+assert.equal(resolveBookedClassMoveBranch("יש לי כרטיסיה, אפשר להחליף שיעור?"), "app");
 
 assert.equal(matchesBookedClassMoveIntent("אני רשומה לשיעור יוגה"), false);
 assert.equal(matchesBookedClassMoveIntent("לא מרגישה טוב"), false);

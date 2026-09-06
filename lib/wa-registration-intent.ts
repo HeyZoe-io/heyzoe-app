@@ -32,7 +32,6 @@ export function matchesRegistrationIntentPhrase(raw: string): boolean {
   if (/(?:רוצה|רוצים|מעוניין|מעוניינת).{0,40}(?:להצטרף|להירשם|להרשם)/u.test(t)) return true;
   if (/(?:הייתי|היינו)\s+שמח(?:ה|ים)?\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
   if (/(?:אשמח|נשמח)\s+(?:מאוד\s+)?לה[יי]?רשם/u.test(t)) return true;
-  if (/אשמח\s+להחליף\s+שיעור/u.test(t)) return true;
   if (/(?:אני\s+)?מנסה\s+להירשם(?:\s+לשיעור)?/u.test(t)) return true;
   if (/(?:אני\s+)?מנסים\s+להירשם(?:\s+לשיעור)?/u.test(t)) return true;
   // «תרשמי/תרשמו/תירשמי אותי» / «תרשום אותי» / «רשמי אותי»
@@ -42,7 +41,6 @@ export function matchesRegistrationIntentPhrase(raw: string): boolean {
   if (/(?:אפשר|אשמח|נשמח|רוצה|תוכל(?:י|ו)?).{0,24}לרשום\s+אות(?:י|נו)/u.test(t)) return true;
   if (/(?:please\s+)?(?:register|sign)\s+me\s+up\b/i.test(t)) return true;
   if (/(?:can you|could you|please)\s+register\s+me\b/i.test(t)) return true;
-  if (matchesBookedClassMoveIntent(t)) return true;
   return false;
 }
 
@@ -69,21 +67,54 @@ export function matchesBookedClassMoveIntent(raw: string): boolean {
   return false;
 }
 
-export type BookedClassMoveBranch = "clarify" | "app" | "trial_pick";
+export const BOOKED_CLASS_MOVE_APP_REPLY =
+  "אפשר להחליף שיעור ישירות מהאפליקציה: נכנסים, מבטלים את ההרשמה ונרשמים למועד אחר. אם יש בעיה או שצריך עזרה — אני כאן!";
+export const BOOKED_CLASS_MOVE_APP_MODEL = "booked_class_move_app";
 
-/** Membership-vs-trial: skip the question when the inbound already states it. */
+export function buildBookedClassMoveAppReply(raw: string): string {
+  const t = normalizeRegistrationIntentText(raw);
+  const illness =
+    /לא\s+מרגיש(?:ה|ים)?\s+טוב/u.test(t) ||
+    /לא\s+בטוב/u.test(t) ||
+    /(?:^|\s)חולה(?:\s|$|[.,!?])/u.test(t);
+  return illness ? `מצטערת לשמוע! 💜 ${BOOKED_CLASS_MOVE_APP_REPLY}` : BOOKED_CLASS_MOVE_APP_REPLY;
+}
+
+function inboundMentionsExistingPurchase(raw: string): boolean {
+  const t = normalizeRegistrationIntentText(raw);
+  if (!t) return false;
+  if (isExistingTrialEnrollmentMention(raw)) return true;
+  if (EXISTING_BOOKING_CUE.test(t)) return true;
+  if (matchesExistingMembershipClaim(raw)) return true;
+  if (/כרטיסי[יה]|punch\s*card/iu.test(t)) return true;
+  return false;
+}
+
+export type BookedClassMoveBranch = "app" | "product_pick";
+
+/**
+ * Swap of a purchased/booked class (membership, punch card, or trial) → app.
+ * Sales flow with no purchase yet → pick another class. Unknown → app.
+ */
 export function resolveBookedClassMoveBranch(
   raw: string,
-  opts?: { trialRegistered?: boolean; sessionPhase?: string | null }
+  opts?: {
+    trialRegistered?: boolean;
+    sessionPhase?: string | null;
+    salesFlowStarted?: boolean;
+  }
 ): BookedClassMoveBranch | null {
   if (!matchesBookedClassMoveIntent(raw)) return null;
   const phase = String(opts?.sessionPhase ?? "").trim();
-  if (phase === "registered" || matchesExistingMembershipClaim(raw)) return "app";
-  if (opts?.trialRegistered === true || isExistingTrialEnrollmentMention(raw)) return "trial_pick";
-  const yn = classifyRegistrationIntentMembershipReply(raw);
-  if (yn === "yes") return "app";
-  if (yn === "no") return "trial_pick";
-  return "clarify";
+  const purchased =
+    opts?.trialRegistered === true ||
+    phase === "registered" ||
+    inboundMentionsExistingPurchase(raw);
+  if (purchased) return "app";
+  if (opts?.salesFlowStarted === true && phase !== "registered" && opts?.trialRegistered !== true) {
+    return "product_pick";
+  }
+  return "app";
 }
 
 /**
