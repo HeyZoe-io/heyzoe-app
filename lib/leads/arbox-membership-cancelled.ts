@@ -1,4 +1,4 @@
-import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { logMessage } from "@/lib/analytics";
 import {
   firstNameFromFullName,
@@ -222,23 +222,12 @@ function resolveReportFullName(row: ArboxCanceledMembershipRow): string | null {
 }
 
 async function fetchMembershipTypeNameById(apiKey: string): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
-  const res = await arboxPublicFetch("/v3/membershipTypes", { apiKey, method: "GET" });
-  if (!res.ok) {
-    console.error("[leads/arbox-membership-cancelled] membershipTypes fetch failed", {
-      status: res.status,
-      body: res.rawText.slice(0, 300),
-    });
-    return map;
-  }
-  const payload = res.json as { data?: Record<string, unknown>[] } | null;
-  for (const row of payload?.data ?? []) {
-    const id = Number(row.membership_type_id);
-    if (!Number.isFinite(id) || id <= 0) continue;
-    const name = String(row.membership_type_name ?? "").trim();
-    if (name) map.set(Math.trunc(id), name);
-  }
-  return map;
+  const result = await fetchAllArboxMembershipTypes({
+    apiKey,
+    logLabel: "leads/arbox-membership-cancelled",
+  });
+  if (!result.ok) return new Map();
+  return membershipTypeNameById(result.types);
 }
 
 type ContactRow = {
