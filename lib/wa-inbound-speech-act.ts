@@ -3,6 +3,7 @@ import {
   matchClassCancelPlaybook,
   matchesIllnessCheckIn,
 } from "@/lib/wa-closed-playbook-intents";
+import { matchesBookedClassMoveIntent } from "@/lib/wa-registration-intent";
 import {
   asksWhichClassesOnDay,
   looksLikeClassTimeQuestion,
@@ -42,6 +43,7 @@ export function classifyInboundSpeechAct(raw: string, now: Date = new Date()): I
   const t = normalizeActText(raw);
   if (!t) return "other";
   if (isBookingMutationRequest(t)) return "booking_mutation";
+  if (matchesBookedClassMoveIntent(t)) return "other";
   if (matchesIllnessCheckIn(t)) return "illness_only";
   if (isScheduleAsk(t, now)) return "schedule_ask";
   return "other";
@@ -62,6 +64,7 @@ function isTimetableFragment(raw: string, now: Date): boolean {
 export function shouldAnswerFromClassTimetable(raw: string, now: Date = new Date()): boolean {
   const t = normalizeActText(raw);
   if (!t) return false;
+  if (matchesBookedClassMoveIntent(t)) return false;
   const act = classifyInboundSpeechAct(t, now);
   if (act === "booking_mutation" || act === "illness_only") return false;
   if (act === "schedule_ask") return true;

@@ -51,8 +51,7 @@ assert.equal(matchesRunningLateStatusUpdate("איחרתי, אני בדרך"), tr
 assert.equal(cat("החלפתי לשיעור של חמישי")?.category, "reschedule");
 assert.equal(cat("החלפתי לשיעור של חמישי")?.shape, "action");
 assert.equal(matchesClassRescheduleUpdate("החלפתי לשיעור של חמישי"), true);
-assert.equal(cat("אפשר לדחות שיעור?")?.category, "reschedule");
-assert.equal(cat("אפשר לדחות שיעור?")?.shape, "policy");
+assert.equal(cat("אפשר לדחות שיעור?"), null, "postpone request → membership-vs-trial, not playbook");
 assert.equal(matchesClassRescheduleUpdate("אפשר לדחות שיעור?"), false);
 assert.equal(cat("איך משנים מועד לשיעור?")?.shape, "policy");
 
@@ -86,7 +85,7 @@ const sigalClassCancel =
 assert.equal(cat(sigalClassCancel)?.category, "class_cancel");
 assert.equal(cat("אפשר לבטל הרשמה לשיעור?")?.category, "class_cancel");
 assert.equal(cat("אפשר לבטל הרשמה לשיעור?")?.shape, "policy");
-assert.equal(cat("אפשר להחליף שיעור?")?.category, "class_cancel");
+assert.equal(cat("אפשר להחליף שיעור?"), null, "swap request → membership-vs-trial, not playbook");
 assert.equal(cat("לבטל את השיעור של היום")?.category, "class_cancel");
 assert.equal(cat("תבטלי את השיעור עם שיר בבקשה. היא חולה.")?.category, "class_cancel");
 assert.equal(cat("תבטלי את השיעור עם שיר בבקשה. היא חולה.")?.shape, "action");
@@ -237,7 +236,7 @@ assert.equal(rescheduleNoFact?.notifyHumanRequested, true);
 assert.equal(rescheduleNoFact?.modelUsed, "class_reschedule_team_handoff");
 
 const reschedulePolicyFact = resolveClosedPlaybook({
-  inbound: "אפשר לדחות שיעור?",
+  inbound: "איך משנים מועד לשיעור?",
   knowledge: {
     botName: "זואי",
     knowledgeQa: [{ question: "דחיית שיעור", answer: "ניתן לדחות עד 12 שעות מראש" }],

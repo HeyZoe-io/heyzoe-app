@@ -253,8 +253,10 @@ import {
 } from "@/lib/wa-running-late";
 import {
   classifyRegistrationIntentMembershipReply,
+  matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
   EXISTING_MEMBERSHIP_HELP_MODEL,
   EXISTING_MEMBERSHIP_HELP_REPLY,
@@ -6776,6 +6778,110 @@ async function processIncoming(
       return;
     }
     }
+    }
+  }
+
+  // Booked class move/swap — membership vs trial (app / product pick), not Arbox «מצאתי».
+  // 0 extra Claude / Arbox IO; skips bookingsReport (1–20 pages). 10x: still 0 extra paid APIs.
+  if (isSalesFlowFreeTextInbound(msg) && businessId && matchesBookedClassMoveIntent(msg.text)) {
+    const lastForMove = await fetchLastAssistantModelUsed({
+      business_slug,
+      session_id: sessionId,
+    });
+    if (
+      lastForMove !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+      lastForMove !== BOOKING_LOOKUP_CLARIFY_MODEL
+    ) {
+      const moveBranch = resolveBookedClassMoveBranch(msg.text, {
+        trialRegistered: contactTrialRegistered === true,
+        sessionPhase: contactSessionPhase,
+      });
+      if (moveBranch === "app") {
+        try {
+          await sendWhatsAppMessage(
+            msg.toNumber,
+            msg.from,
+            REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+            accountSid,
+            authToken
+          );
+        } catch (e) {
+          console.error("[WA Webhook] Send booked-class-move has-membership failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+          model_used: REGISTRATION_INTENT_HAS_MEMBER_MODEL,
+          session_id: sessionId,
+        });
+        return;
+      }
+      if (moveBranch === "trial_pick") {
+        try {
+          await sendWhatsAppMessage(
+            msg.toNumber,
+            msg.from,
+            REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+            accountSid,
+            authToken
+          );
+        } catch (e) {
+          console.error("[WA Webhook] Send booked-class-move no-membership failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+          model_used: REGISTRATION_INTENT_NO_MEMBER_MODEL,
+          session_id: sessionId,
+        });
+        if (knowledge?.salesFlowConfig) {
+          const started = await beginSalesFlowAtProductPick({
+            entryModel: REGISTRATION_INTENT_NO_MEMBER_MODEL,
+            entryContent: "[heyzoe:registration_intent_no_member]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            allowTrialCta: true,
+            logEntry: false,
+          });
+          contactSessionPhase = started.contactSessionPhase;
+          contactFlowStep = started.contactFlowStep;
+          contactTrialRegistered = false;
+          contactTrialRegisteredAt = null;
+          allowTrialCtaThisSession = true;
+          sfClickedCtaKinds = [];
+          contactInstagramFollowPromptSent = false;
+        }
+        return;
+      }
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          REGISTRATION_INTENT_CLARIFY_QUESTION,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send booked-class-move clarify failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: REGISTRATION_INTENT_CLARIFY_QUESTION,
+        model_used: REGISTRATION_INTENT_CLARIFY_MODEL,
+        session_id: sessionId,
+      });
+      return;
     }
   }
 

@@ -1,4 +1,5 @@
 import { matchesClassRescheduleUpdate } from "@/lib/wa-class-reschedule";
+import { matchesBookedClassMoveIntent } from "@/lib/wa-registration-intent";
 import type { ClosedPlaybookIntent, ClosedPlaybookShape } from "@/lib/wa-closed-playbook-types";
 
 const MAX_LEN = 1200;
@@ -337,7 +338,12 @@ export function detectClosedPlaybookIntent(raw: string): ClosedPlaybookIntent | 
   const t = normalizePlaybookInbound(raw);
   if (tooLongOrEmpty(t)) return null;
   const classCancel = matchClassCancelPlaybook(t);
-  if (classCancel) return classCancel;
+  if (classCancel) {
+    // Swap/postpone → membership-vs-trial. «תבטלי» stays class_cancel action.
+    if (matchesBookedClassMoveIntent(t)) return null;
+    return classCancel;
+  }
+  if (matchesBookedClassMoveIntent(t)) return null;
   if (matchesIllnessCheckIn(t)) return null;
   if (matchesPlainPriceQuestion(t)) return null;
   for (const detect of DETECTORS) {

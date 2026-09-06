@@ -1,6 +1,9 @@
 /** בקשת מועד שכבר נקבע / שליחה ליומן — בלי גישה לחשבון; הבהרה קצרה ואז העברה לצוות. */
 
-import { REGISTRATION_INTENT_CLARIFY_QUESTION } from "@/lib/wa-registration-intent";
+import {
+  matchesBookedClassMoveIntent,
+  REGISTRATION_INTENT_CLARIFY_QUESTION,
+} from "@/lib/wa-registration-intent";
 
 export const BOOKING_LOOKUP_CLARIFY_QUESTION = REGISTRATION_INTENT_CLARIFY_QUESTION;
 export const BOOKING_LOOKUP_CLARIFY_MODEL = "booking_lookup_clarify";
@@ -92,6 +95,7 @@ function matchesAdditionalScheduleInquiry(t: string): boolean {
 
 /** בקשת שיבוץ קיים / «מתי האימון שלי» — כולל matchesBookingLookupPhrase. */
 export function isScheduleInquiryIntent(raw: string): boolean {
+  if (matchesBookedClassMoveIntent(raw)) return false;
   if (matchesBookingLookupPhrase(raw)) return true;
   const t = normalizeBookingLookupText(raw);
   if (!t || t.length > 500) return false;

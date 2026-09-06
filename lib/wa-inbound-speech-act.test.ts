@@ -13,6 +13,20 @@ assert.equal(classifyInboundSpeechAct("לבטל את השיעור של היום"
 assert.equal(classifyInboundSpeechAct("חולה", thu), "illness_only");
 assert.equal(classifyInboundSpeechAct("היא חולה", thu), "illness_only");
 assert.equal(classifyInboundSpeechAct("לא מרגיש טוב", thu), "illness_only");
+assert.equal(
+  classifyInboundSpeechAct(
+    "היי, אני רשומה לשיעור ניסיון היום ואני לא מרגישה טוב, אפשר לתאם ליום אחר השבוע?",
+    thu
+  ),
+  "other"
+);
+assert.equal(
+  shouldAnswerFromClassTimetable(
+    "היי, אני רשומה לשיעור ניסיון היום ואני לא מרגישה טוב, אפשר לתאם ליום אחר השבוע?",
+    thu
+  ),
+  false
+);
 
 assert.equal(classifyInboundSpeechAct("מתי יש אימון היום?", thu), "schedule_ask");
 assert.equal(classifyInboundSpeechAct("יש כיסא מחר?", thu), "schedule_ask");

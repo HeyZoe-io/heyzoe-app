@@ -83,6 +83,13 @@ assert.equal(isScheduleInquiryIntent("מתי נרשמים לשיעור"), false)
 assert.equal(isScheduleInquiryIntent("אני רוצה להירשם לשיעור יוגה"), false);
 assert.equal(isScheduleInquiryIntent("אני רשומה לשיעור בטעות"), false);
 assert.equal(isScheduleInquiryIntent("מתי אפשר להגיע לשיעור"), false);
+assert.equal(
+  isScheduleInquiryIntent(
+    "היי, אני רשומה לשיעור ניסיון היום ואני לא מרגישה טוב, אפשר לתאם ליום אחר השבוע?"
+  ),
+  false
+);
+assert.equal(isScheduleInquiryIntent("אפשר לתאם ליום אחר השבוע?"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("מנוי קיים"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("יש לי מנוי"), "yes");

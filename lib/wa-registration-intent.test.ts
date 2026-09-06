@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   classifyRegistrationIntentMembershipReply,
+  matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
 } from "@/lib/wa-registration-intent";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
@@ -78,5 +80,29 @@ assert.equal(matchesExistingMembershipClaim("יש פילאטיס?"), false);
 assert.equal(classifyRegistrationIntentMembershipReply("אין בעיה"), "unclear");
 assert.equal(classifyRegistrationIntentMembershipReply("מה זה"), "unclear");
 assert.equal(classifyRegistrationIntentMembershipReply("Power & HIIT"), "unclear");
+
+const sickReschedule =
+  "היי, אני רשומה לשיעור ניסיון היום ואני לא מרגישה טוב, אפשר לתאם ליום אחר השבוע?";
+assert.equal(matchesBookedClassMoveIntent(sickReschedule), true);
+assert.equal(resolveBookedClassMoveBranch(sickReschedule), "trial_pick");
+assert.equal(matchesRegistrationIntentPhrase(sickReschedule), true);
+assert.equal(matchesBookedClassMoveIntent("אפשר לתאם ליום אחר השבוע?"), true);
+assert.equal(resolveBookedClassMoveBranch("אפשר לתאם ליום אחר השבוע?"), "clarify");
+assert.equal(matchesBookedClassMoveIntent("אשמח להחליף שיעור"), true);
+assert.equal(resolveBookedClassMoveBranch("אשמח להחליף שיעור"), "clarify");
+assert.equal(matchesBookedClassMoveIntent("אפשר לדחות שיעור?"), true);
+assert.equal(
+  resolveBookedClassMoveBranch("אני רשומה לשיעור, יש לי מנוי, אפשר לדחות?"),
+  "app"
+);
+
+assert.equal(matchesBookedClassMoveIntent("אני רשומה לשיעור יוגה"), false);
+assert.equal(matchesBookedClassMoveIntent("לא מרגישה טוב"), false);
+assert.equal(matchesBookedClassMoveIntent("אשמח לתאם שיעור ניסיון בשישי בעשר"), false);
+assert.equal(matchesBookedClassMoveIntent("מתי אני רשומה"), false);
+assert.equal(
+  matchesBookedClassMoveIntent("תבטלי את השיעור עם שיר בבקשה. היא חולה."),
+  false
+);
 
 console.log("wa-registration-intent.test.ts: ok");

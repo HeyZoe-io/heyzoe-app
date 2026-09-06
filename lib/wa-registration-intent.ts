@@ -1,4 +1,4 @@
-import { matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
+import { isExistingTrialEnrollmentMention, matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
 
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
 export const REGISTRATION_INTENT_CLARIFY_QUESTION =
@@ -42,7 +42,48 @@ export function matchesRegistrationIntentPhrase(raw: string): boolean {
   if (/(?:אפשר|אשמח|נשמח|רוצה|תוכל(?:י|ו)?).{0,24}לרשום\s+אות(?:י|נו)/u.test(t)) return true;
   if (/(?:please\s+)?(?:register|sign)\s+me\s+up\b/i.test(t)) return true;
   if (/(?:can you|could you|please)\s+register\s+me\b/i.test(t)) return true;
+  if (matchesBookedClassMoveIntent(t)) return true;
   return false;
+}
+
+const EXISTING_BOOKING_CUE =
+  /(?:אני|אנחנו)\s+(?:כבר\s+)?רשו[םמ]|נרשמ(?:תי|נו|ה|ת)|יש\s+לי\s+(?:שיעור|אימון)|רשומ(?:ה|ים|ות)\s+ל(?:שיעור|אימון)/u;
+
+const MOVE_SLOT_CUE =
+  /יום\s+אחר|מועד\s+אחר|שבוע\s+אחר|לתאם\s+(?:מחדש|ל(?:יום|מועד))|לקבוע\s+מחדש|לדחות|להעביר|להחליף|לשנות\s+(?:את\s+)?(?:ה)?(?:מועד|שיעור|אימון)|another\s+day|reschedule|postpone/iu;
+
+const EXPLICIT_CLASS_MOVE =
+  /(?:להחליף|לדחות|להעביר)\s+(?:את\s+)?ה?(?:שיעור|אימון)|לשנות\s+(?:את\s+)?ה?מועד|לתאם\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
+
+/**
+ * Already booked + wants another slot (or explicit swap/postpone).
+ * Not «תבטלי» (Zoe do-it → playbook) and not a fresh «לתאם שיעור ניסיון».
+ */
+export function matchesBookedClassMoveIntent(raw: string): boolean {
+  const t = normalizeRegistrationIntentText(raw);
+  if (!t || t.length > 500) return false;
+  if (/תבטל(?:י|ו)?/u.test(t) || /\bplease\s+cancel\b/i.test(t)) return false;
+  if (EXPLICIT_CLASS_MOVE.test(t)) return true;
+  if (EXISTING_BOOKING_CUE.test(t) && MOVE_SLOT_CUE.test(t)) return true;
+  if (isExistingTrialEnrollmentMention(raw) && MOVE_SLOT_CUE.test(t)) return true;
+  return false;
+}
+
+export type BookedClassMoveBranch = "clarify" | "app" | "trial_pick";
+
+/** Membership-vs-trial: skip the question when the inbound already states it. */
+export function resolveBookedClassMoveBranch(
+  raw: string,
+  opts?: { trialRegistered?: boolean; sessionPhase?: string | null }
+): BookedClassMoveBranch | null {
+  if (!matchesBookedClassMoveIntent(raw)) return null;
+  const phase = String(opts?.sessionPhase ?? "").trim();
+  if (phase === "registered" || matchesExistingMembershipClaim(raw)) return "app";
+  if (opts?.trialRegistered === true || isExistingTrialEnrollmentMention(raw)) return "trial_pick";
+  const yn = classifyRegistrationIntentMembershipReply(raw);
+  if (yn === "yes") return "app";
+  if (yn === "no") return "trial_pick";
+  return "clarify";
 }
 
 /**
