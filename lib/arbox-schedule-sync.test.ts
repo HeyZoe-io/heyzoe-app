@@ -11,6 +11,8 @@ import {
   normalizeTimetableToWeeklyClasses,
   parseArboxClassStamp,
   parseServiceDescriptionObject,
+  sanitizeArboxClassDescription,
+  shouldFillProductDescriptionFromArbox,
   shouldNotifyRemovedClass,
   weeklySlotsFromOccurrences,
 } from "@/lib/arbox-schedule-sync";
@@ -56,7 +58,11 @@ assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
 
 {
   const catalog = catalogFromBoxCategoryRows([
-    { box_category_id: 53273, name: "Handstand (Beginner)" },
+    {
+      box_category_id: 53273,
+      name: "Handstand (Beginner)",
+      description: "<p>Foundational drills.<br>Build strength.</p>",
+    },
     { box_category_id: 58510, name: "Open Jam" },
   ]);
   const { classes, unmatchedSessionNames } = normalizeTimetableToWeeklyClasses(
@@ -92,6 +98,7 @@ assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
   const hs = classes.find((c) => c.session_name === "Handstand (Beginner)");
   assert.equal(hs?.box_category_id, 53273);
   assert.deepEqual(hs?.slots, [{ day: "א", time: "18:00" }]);
+  assert.equal(hs?.description, "Foundational drills.\nBuild strength.");
   assert.equal(classes.some((c) => c.session_name === "Open Jam"), false);
 }
 
@@ -182,7 +189,7 @@ assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
 
 {
   const classes = [
-    { session_name: "Ghost Class", box_category_id: 999, slots: [{ day: "א", time: "10:00" }] },
+    { session_name: "Ghost Class", box_category_id: 999, slots: [{ day: "א", time: "10:00" }], description: "" },
   ];
   const indexed = indexWeeklyClassesByMatchKey(classes);
   const hit = findWeeklyClassForStamp(indexed, {
@@ -195,6 +202,20 @@ assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
     arbox_class_name: "Other",
   });
   assert.equal(miss, undefined);
+}
+
+assert.equal(
+  sanitizeArboxClassDescription("<p>Foundational drills.<br>Build strength.</p>"),
+  "Foundational drills.\nBuild strength."
+);
+assert.equal(sanitizeArboxClassDescription("   "), "");
+
+{
+  const existing = JSON.stringify({ description_text: "keep me" });
+  assert.equal(shouldFillProductDescriptionFromArbox(existing, "new from arbox"), false);
+  assert.equal(shouldFillProductDescriptionFromArbox("{}", "new from arbox"), true);
+  assert.equal(shouldFillProductDescriptionFromArbox("", "new from arbox"), true);
+  assert.equal(shouldFillProductDescriptionFromArbox("", ""), false);
 }
 
 console.log("arbox-schedule-sync.test.ts: ok");

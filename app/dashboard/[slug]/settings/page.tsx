@@ -983,6 +983,7 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "sort_order",
   "arbox_box_category_id",
   "arbox_class_name",
+  "arbox_class_description",
   "schedule_removed_notice",
 ]);
 
@@ -2526,6 +2527,7 @@ export default function SlugSettingsPage({
             price_text: service.price_text,
             duration: service.duration,
             description_current: service.description,
+            class_source_text: String(service.description_meta?.arbox_class_description ?? "").trim(),
             location_mode: service.location_mode,
             course_dates_enabled: service.course_dates_enabled,
           }),

@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     price_text: body.price_text,
     duration: body.duration,
     description_current: body.description_current,
+    class_source_text: body.class_source_text,
     location_mode: body.location_mode,
     course_dates_enabled: body.course_dates_enabled,
   });

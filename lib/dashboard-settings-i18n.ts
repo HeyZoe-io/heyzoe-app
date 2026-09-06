@@ -228,7 +228,7 @@ export const dashboardSettingsI18n = {
       details: "תיאור",
       generateDescription: "ג׳נרט תיאור",
       generateDescriptionHint:
-        "יימשך מהאתר אם נמצא מידע מתאים, או לפי הבנת זואי משם השיעור.",
+        "יימשך מארבוקס אם נשאב תיאור שיעור, אחרת מהאתר אם נמצא מידע מתאים, או לפי הבנת זואי משם השיעור.",
       descriptionPlaceholder: "תיאור קצר לשיעור",
       courseCycles: "מחזורי קורס",
       courseCyclesHint:
@@ -738,7 +738,7 @@ export const dashboardSettingsI18n = {
       details: "Description",
       generateDescription: "Generate description",
       generateDescriptionHint:
-        "Pulled from your website when matching data is found, or drafted by Zoe from the class name.",
+        "Pulled from Arbox when a class description was scanned, otherwise from your website, or drafted by Zoe from the class name.",
       descriptionPlaceholder: "Short class description",
       courseCycles: "Course cycles",
       courseCyclesHint:

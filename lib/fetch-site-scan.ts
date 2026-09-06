@@ -1113,6 +1113,8 @@ export type GenerateProductDescriptionInput = {
   description_current?: string;
   location_mode?: string;
   course_dates_enabled?: boolean;
+  /** תיאור שיעור מארבוקס / מקור חיצוני — עדיפות על סריקת אתר */
+  class_source_text?: string;
 };
 
 async function fetchSiteCorpusForProductDescription(websiteUrl: string): Promise<{
@@ -1195,10 +1197,13 @@ export async function generateProductDescriptionFromContext(
   const apiKey = resolveClaudeApiKey();
   if (!apiKey) return { status: 500, body: { error: "missing_anthropic_key" } };
 
+  const classSource = String(input.class_source_text ?? "").trim();
+  const hasClassSource = classSource.length >= 20;
   const websiteUrl = String(input.website_url ?? "").trim();
-  const { corpus: siteCorpus, metaHints } = websiteUrl
-    ? await fetchSiteCorpusForProductDescription(websiteUrl)
-    : { corpus: "", metaHints: "" };
+  const { corpus: siteCorpus, metaHints } =
+    !hasClassSource && websiteUrl
+      ? await fetchSiteCorpusForProductDescription(websiteUrl)
+      : { corpus: "", metaHints: "" };
 
   const businessName = String(input.business_name ?? "").trim();
   const niche = String(input.niche ?? "").trim();
@@ -1211,6 +1216,16 @@ export async function generateProductDescriptionFromContext(
     String(input.description_current ?? "").trim()
   );
   const hasSite = siteCorpus.trim().length >= 40;
+  const sourceNote = hasClassSource
+    ? "עדיפות ראשונה: תיאור השיעור ממערכת השעות (ארבוקס) המצורף. העתק כמעט מילה במילה (1–3 משפטים), נסח לעברית תקנית אם צריך, ואל תקצר אם יש טקסט עשיר."
+    : hasSite
+      ? "עדיפות ראשונה: טקסט האתר המצורף. אם מופיע שם המוצר (או כינוי קרוב) עם פסקה שמסבירה למי זה, מה עושים ולמה שווה — העתק כמעט מילה במילה (1–3 משפטים). אל תקצר אם יש טקסט עשיר."
+      : "אין מקור מהאתר — נסח משפט אחד–שניים פשוטים לפי שם המוצר, הנישה ומאפייני העסק; בלי להמציא מחיר, מיקום או שעות.";
+  const sourceBlock = hasClassSource
+    ? `תיאור השיעור ממערכת השעות:\n${classSource.slice(0, 8_000)}`
+    : hasSite
+      ? `רמזי מטא מהאתר: ${metaHints || "אין"}\n\nטקסט מהאתר:\n${siteCorpus.slice(0, 16_000)}`
+      : "אין אתר או שלא נמשך תוכן מהאתר.";
 
   const prompt = `כתוב תיאור מוצר אחד בעברית תקנית לדשבורד HeyZoe — תשובה ללקוח אחרי בחירת מוצר בווטסאפ.
 
@@ -1223,11 +1238,10 @@ export async function generateProductDescriptionFromContext(
 ${priceText ? `מחיר (לעיון בלבד — לא לשלב בתיאור): ${priceText}` : ""}
 ${duration ? `משך (לעיון בלבד — לא לשלב בתיאור): ${duration}` : ""}
 תיאור קיים (אם יש): "${descriptionCurrent || "ריק"}"
-${hasSite ? `רמזי מטא מהאתר: ${metaHints || "אין"}` : "אין אתר או שלא נמשך תוכן מהאתר."}
 
 חוקים (חובה):
 1) 1–3 משפטים מלאים בעברית תקנית — ניסוח ברור, לא סיסמה שיווקית קצרה מדי.
-2) ${hasSite ? "עדיפות ראשונה: טקסט האתר המצורף. אם מופיע שם המוצר (או כינוי קרוב) עם פסקה שמסבירה למי זה, מה עושים ולמה שווה — העתק כמעט מילה במילה (1–3 משפטים). אל תקצר אם יש טקסט עשיר." : "אין מקור מהאתר — נסח משפט אחד–שניים פשוטים לפי שם המוצר, הנישה ומאפייני העסק; בלי להמציא מחיר, מיקום או שעות."}
+2) ${sourceNote}
 3) שמור «שיעור/שיעורי» מול «אימון/אימוני» כמו במקור; אל תערבב בין השניים באותו משפט.
 4) הסר כותרות ניווט, כפתורים, שעות בלבד ומחירים מהתיאור.
 5) דקדוק: כשהנושא «תרגול / שיעור / אימון» + סוג — פועלים בזכר לפי שורש הפעילות (למשל «תרגול יוגה מחזק…»).
@@ -1235,7 +1249,7 @@ ${hasSite ? `רמזי מטא מהאתר: ${metaHints || "אין"}` : "אין א�
 7) החזר JSON בלבד: {"description":"..."}
 8) אל תכלול מחיר, משך, כתובת או מועדי קורס — המערכת מוסיפה בסוף אוטומטית (בג׳ינרוט בלבד).
 
-${hasSite ? `טקסט מהאתר:\n${siteCorpus.slice(0, 16_000)}` : ""}`;
+${sourceBlock}`;
 
   const client = new Anthropic({ apiKey });
   try {

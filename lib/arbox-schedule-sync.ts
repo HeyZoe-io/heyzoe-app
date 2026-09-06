@@ -24,12 +24,15 @@ export type ArboxWeeklyClass = {
   session_name: string;
   box_category_id: number | null;
   slots: Array<{ day: string; time: string }>;
+  description: string;
 };
 
 export type ArboxBoxCategoryCatalog = {
   ids: Set<number>;
   names: Set<string>;
   nameToId: Map<string, number>;
+  descriptionById: Map<number, string>;
+  descriptionByName: Map<string, string>;
   fetchFailed: boolean;
 };
 
@@ -91,6 +94,40 @@ export function normalizeHhmm(raw: unknown): string {
     return "";
   }
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+const ARBOX_CLASS_DESCRIPTION_MAX_CHARS = 4000;
+
+/** תיאור שיעור מארבוקס — HTML/ישויות → טקסט רגיל. */
+export function sanitizeArboxClassDescription(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const decoded = s
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+  return decoded
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim()
+    .slice(0, ARBOX_CLASS_DESCRIPTION_MAX_CHARS);
+}
+
+export function productDescriptionTextFromMeta(raw: string): string {
+  const meta = parseServiceDescriptionObject(raw);
+  return String(meta.description_text ?? meta.description ?? "").trim();
+}
+
+/** למלא תיאור מארבוקס רק כשאין תיאור קיים (יצירה / ג׳ינרוט ראשון). */
+export function shouldFillProductDescriptionFromArbox(existingDescriptionJson: string, incoming: string): boolean {
+  return Boolean(incoming.trim()) && !productDescriptionTextFromMeta(existingDescriptionJson);
 }
 
 export function parseServiceDescriptionObject(raw: string): ServiceDescriptionBlob {
@@ -278,16 +315,35 @@ export function catalogFromBoxCategoryRows(rows: Record<string, unknown>[]): Arb
   const ids = new Set<number>();
   const names = new Set<string>();
   const nameToId = new Map<string, number>();
+  const descriptionById = new Map<number, string>();
+  const descriptionByName = new Map<string, string>();
   for (const row of rows) {
     const id = Number(row.box_category_id ?? row.id);
     const name = String(row.name ?? row.session_name ?? "").trim();
+    const description = sanitizeArboxClassDescription(row.description);
     if (Number.isFinite(id) && id > 0) ids.add(id);
     if (name) {
       names.add(name);
       if (Number.isFinite(id) && id > 0 && !nameToId.has(name)) nameToId.set(name, id);
     }
+    if (description) {
+      if (Number.isFinite(id) && id > 0 && !descriptionById.has(id)) descriptionById.set(id, description);
+      if (name && !descriptionByName.has(name)) descriptionByName.set(name, description);
+    }
   }
-  return { ids, names, nameToId, fetchFailed: false };
+  return { ids, names, nameToId, descriptionById, descriptionByName, fetchFailed: false };
+}
+
+function catalogDescriptionForClass(
+  catalog: ArboxBoxCategoryCatalog,
+  sessionName: string,
+  boxCategoryId: number | null
+): string {
+  if (boxCategoryId != null && boxCategoryId > 0) {
+    const byId = catalog.descriptionById.get(boxCategoryId);
+    if (byId) return byId;
+  }
+  return catalog.descriptionByName.get(sessionName) ?? "";
 }
 
 export function normalizeTimetableToWeeklyClasses(
@@ -330,6 +386,7 @@ export function normalizeTimetableToWeeklyClasses(
       session_name: acc.session_name,
       box_category_id: acc.box_category_id,
       slots,
+      description: catalogDescriptionForClass(catalog, acc.session_name, acc.box_category_id),
     });
   }
   return { classes, unmatchedSessionNames: unmatched };
@@ -404,12 +461,14 @@ function defaultNewProductMeta(input: {
   sortOrder: number;
   newId: () => string;
 }): ServiceDescriptionBlob {
+  const description = input.classRow.description.trim();
   return {
     price_text: "",
     duration: "",
     payment_link: "",
-    benefit_line: "",
-    description_text: "",
+    benefit_line: description,
+    description_text: description,
+    arbox_class_description: description,
     levels_enabled: false,
     levels: [],
     offer_kind: "trial",
@@ -464,15 +523,21 @@ export async function persistManualArboxScheduleSync(input: {
     const match = byKey.get(key) ?? (nameKey && nameKey !== key ? byKey.get(nameKey) : undefined);
     const slots = slotsToProductScheduleSlots(cls.slots, newSlotId);
     if (match) {
-      const patch = mergeServiceDescriptionPatch(String(match.description ?? ""), {
+      const incomingDesc = cls.description.trim();
+      const patch: ServiceDescriptionBlob = {
         schedule_slots: slots,
         arbox_box_category_id: cls.box_category_id,
         arbox_class_name: cls.session_name,
         schedule_removed_notice: null,
-      });
+      };
+      if (incomingDesc) patch.arbox_class_description = incomingDesc;
+      if (shouldFillProductDescriptionFromArbox(String(match.description ?? ""), incomingDesc)) {
+        patch.description_text = incomingDesc;
+        patch.benefit_line = incomingDesc;
+      }
       const { error: upErr } = await input.admin
         .from("services")
-        .update({ description: patch })
+        .update({ description: mergeServiceDescriptionPatch(String(match.description ?? ""), patch) })
         .eq("id", match.id)
         .eq("business_id", input.businessId);
       if (upErr) throw new Error(upErr.message);
