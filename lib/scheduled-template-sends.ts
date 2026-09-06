@@ -181,6 +181,38 @@ export function buildPostTrialFollowupScheduledDedupKey(
   return nameEnc ? `${base}#${nameEnc}` : base;
 }
 
+/** A8 freeze_created enqueue key: once per membership_hold_id (+ start/end for slot refill). */
+export function buildFreezeCreatedScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  membershipHoldId: number,
+  startYmd?: string | null,
+  endYmd?: string | null
+): string {
+  const start = String(startYmd ?? "").trim();
+  const end = String(endYmd ?? "").trim();
+  const base = `freeze_created:${businessId}:${String(triggerId).trim()}:${membershipHoldId}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    return `${base}:${start}:${end}`;
+  }
+  return base;
+}
+
+/** C14/C15 freeze ending enqueue key: one per hold+end (+ optional class for booked). */
+export function buildFreezeEndingScheduledDedupKey(
+  variant: "booked" | "unbooked",
+  businessId: number,
+  triggerId: string,
+  membershipHoldId: number,
+  endYmd: string,
+  className?: string | null
+): string {
+  const kind = variant === "booked" ? "freeze_ending_booked" : "freeze_ending_unbooked";
+  const nameEnc = encodeURIComponent(String(className ?? "").trim());
+  const base = `${kind}:${businessId}:${String(triggerId).trim()}:${membershipHoldId}:${String(endYmd).trim()}`;
+  return nameEnc ? `${base}#${nameEnc}` : base;
+}
+
 /** Arbox new-lead enqueue key: once per business+trigger+Arbox user_id (allLeadsReport). */
 export function buildArboxNewLeadScheduledDedupKey(
   businessId: number,

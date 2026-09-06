@@ -61,6 +61,24 @@ assert.deepEqual(paramSlotsForTriggerType("attendance_gap_unbooked"), [
 ]);
 assert.equal(isPresetAvailable("attendance_gap_booked", false), false);
 assert.equal(isPresetAvailable("attendance_gap_booked", true), true);
+assert.equal(TEMPLATE_PRESETS.freeze_created.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.freeze_ending_booked.category, "UTILITY");
+assert.deepEqual(paramSlotsForTriggerType("freeze_created"), [
+  "first_name",
+  "start_date",
+  "expiry_date",
+]);
+assert.deepEqual(paramSlotsForTriggerType("freeze_ending_unbooked"), [
+  "first_name",
+  "expiry_date",
+]);
+assert.deepEqual(paramSlotsForTriggerType("freeze_ending_booked"), [
+  "first_name",
+  "class_name",
+  "expiry_date",
+]);
+assert.equal(isPresetAvailable("freeze_created", true), true);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);

@@ -21,6 +21,7 @@ export {
   delayDirectionForTrigger,
   isBirthdayFamilyTriggerType,
   isAttendanceGapTriggerType,
+  isFreezeEndingTriggerType,
   isPostTrialFollowupTriggerType,
   isImmediateDelayTrigger,
   showsItemTypeFilter,

@@ -18,6 +18,7 @@ export type TemplateSendParamContext = {
   firstName?: string | null;
   businessName?: string | null;
   expiryDateYmd?: string | null;
+  startDateYmd?: string | null;
   membershipTypeName?: string | null;
   className?: string | null;
 };
@@ -30,19 +31,32 @@ export function formatTemplateExpiryDate(ymd: string | null | undefined): string
   return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
-/** Last YYYY-MM-DD segment of membership/sessions expiring / membership_cancelled dedup keys. */
+/** Last YYYY-MM-DD segment of membership/sessions expiring / cancelled / freeze keys. */
 export function expiryYmdFromScheduledDedupKey(dedupKey: string): string | null {
   const key = String(dedupKey ?? "").trim().split("#")[0] ?? "";
   if (
     !key.startsWith("membership_expiring:") &&
     !key.startsWith("sessions_expiring:") &&
-    !key.startsWith("membership_cancelled:")
+    !key.startsWith("membership_cancelled:") &&
+    !key.startsWith("freeze_created:") &&
+    !key.startsWith("freeze_ending_unbooked:") &&
+    !key.startsWith("freeze_ending_booked:")
   ) {
     return null;
   }
   const parts = key.split(":");
   const last = parts[parts.length - 1] ?? "";
   return /^\d{4}-\d{2}-\d{2}$/.test(last) ? last : null;
+}
+
+/** freeze_created delayed send: start date is the penultimate YYYY-MM-DD segment. */
+export function startDateYmdFromScheduledDedupKey(dedupKey: string): string | null {
+  const key = String(dedupKey ?? "").trim().split("#")[0] ?? "";
+  if (!key.startsWith("freeze_created:")) return null;
+  const parts = key.split(":");
+  if (parts.length < 2) return null;
+  const start = parts[parts.length - 2] ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : null;
 }
 
 /** membership_cancelled delayed send: type name encoded after `#`. */
@@ -59,7 +73,7 @@ export function membershipTypeNameFromScheduledDedupKey(dedupKey: string): strin
   }
 }
 
-/** missed_class / missed_trial / attendance_gap_booked / post-trial delayed send: class after `#`. */
+/** missed_class / missed_trial / attendance_gap_booked / post-trial / freeze ending booked: class after `#`. */
 export function classNameFromScheduledDedupKey(dedupKey: string): string | null {
   const raw = String(dedupKey ?? "");
   if (
@@ -67,7 +81,8 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
     !raw.startsWith("missed_trial:") &&
     !raw.startsWith("attendance_gap_booked:") &&
     !raw.startsWith("registered_after_trial:") &&
-    !raw.startsWith("not_registered_after_trial:")
+    !raw.startsWith("not_registered_after_trial:") &&
+    !raw.startsWith("freeze_ending_booked:")
   ) {
     return null;
   }
@@ -108,6 +123,10 @@ export function resolveTemplateSlotValue(
   if (slot === "class_name") {
     const name = String(ctx.className ?? "").trim();
     return name || "השיעור";
+  }
+  if (slot === "start_date") {
+    const formatted = formatTemplateExpiryDate(ctx.startDateYmd);
+    return formatted || TEMPLATE_EXPIRY_FALLBACK;
   }
   const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);
   return formatted || TEMPLATE_EXPIRY_FALLBACK;

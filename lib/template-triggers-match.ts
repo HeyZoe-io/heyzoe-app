@@ -516,6 +516,72 @@ export async function loadEnabledAttendanceGapUnbookedTemplateTriggers(
   return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
 }
 
+/** Enabled freeze_created (A8) rules. */
+export async function loadEnabledFreezeCreatedTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "freeze_created")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load freeze_created rules failed:",
+      error.message
+    );
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+/** Enabled freeze_ending_booked (C15) rules. */
+export async function loadEnabledFreezeEndingBookedTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "freeze_ending_booked")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load freeze_ending_booked rules failed:",
+      error.message
+    );
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+/** Enabled freeze_ending_unbooked (C14) rules. */
+export async function loadEnabledFreezeEndingUnbookedTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "freeze_ending_unbooked")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      "[template-triggers-match] load freeze_ending_unbooked rules failed:",
+      error.message
+    );
+    return [];
+  }
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
 /** Enabled arbox_new_lead rules — pick newest with a template name. */
 export async function loadEnabledArboxNewLeadTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,

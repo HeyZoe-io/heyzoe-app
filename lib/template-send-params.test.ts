@@ -136,6 +136,9 @@ import {
     missed_trial: ["דנה", "יוגה"],
     attendance_gap_booked: ["דנה", "יוגה"],
     attendance_gap_unbooked: ["דנה", "Limitless"],
+    freeze_created: ["דנה", "01.09.2026", "15.09.2026"],
+    freeze_ending_unbooked: ["דנה", "15.09.2026"],
+    freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -144,12 +147,25 @@ import {
       storedComponents: [{ type: "BODY", text: preset.body }],
       ...ctx,
       className: "יוגה",
+      startDateYmd: "2026-09-01",
     });
     assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
     assert.deepEqual(values, expected[type], type);
     const slots = paramSlotsForTriggerType(type);
     if (type === "membership_cancelled") {
       assert.deepEqual(slots, ["membership_type_name", "expiry_date"]);
+      continue;
+    }
+    if (type === "freeze_created") {
+      assert.deepEqual(slots, ["first_name", "start_date", "expiry_date"]);
+      continue;
+    }
+    if (type === "freeze_ending_unbooked") {
+      assert.deepEqual(slots, ["first_name", "expiry_date"]);
+      continue;
+    }
+    if (type === "freeze_ending_booked") {
+      assert.deepEqual(slots, ["first_name", "class_name", "expiry_date"]);
       continue;
     }
     if (

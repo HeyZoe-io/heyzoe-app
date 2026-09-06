@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncArboxAttendanceGapForBusiness } from "@/lib/leads/arbox-attendance-gap";
+import {
+  attendanceGapFutureWindow,
+  syncArboxAttendanceGapForBusiness,
+} from "@/lib/leads/arbox-attendance-gap";
 import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
+import {
+  businessNeedsFreezeSync,
+  syncArboxFreezeForBusiness,
+} from "@/lib/leads/arbox-freeze";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
 import {
@@ -20,7 +27,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
  * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap_* +
- * post-trial C5/C6), sessions_expiring, membership_cancelled.
+ * post-trial C5/C6), freeze cluster A8/C14/C15, sessions_expiring, membership_cancelled.
+ * Future bookings GET is shared when attendance_gap or freeze_ending is live.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -50,6 +58,7 @@ type BusinessRow = {
   arbox_missed_class_seeded: boolean;
   arbox_attendance_gap_seeded: boolean;
   arbox_post_trial_followup_seeded: boolean;
+  arbox_freeze_seeded: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -65,7 +74,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded"
+      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -91,6 +100,8 @@ export async function GET(req: NextRequest) {
     const postTrialFollowupSeeded =
       (row as { arbox_post_trial_followup_seeded?: unknown }).arbox_post_trial_followup_seeded ===
       true;
+    const freezeSeeded =
+      (row as { arbox_freeze_seeded?: unknown }).arbox_freeze_seeded === true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -101,6 +112,7 @@ export async function GET(req: NextRequest) {
       arbox_missed_class_seeded: missedClassSeeded,
       arbox_attendance_gap_seeded: attendanceGapSeeded,
       arbox_post_trial_followup_seeded: postTrialFollowupSeeded,
+      arbox_freeze_seeded: freezeSeeded,
     });
   }
 
@@ -112,6 +124,7 @@ export async function GET(req: NextRequest) {
     post_trial_followup?: Awaited<ReturnType<typeof syncArboxPostTrialFollowupForBusiness>>;
     missed_class?: Awaited<ReturnType<typeof syncArboxMissedClassForBusiness>>;
     attendance_gap?: Awaited<ReturnType<typeof syncArboxAttendanceGapForBusiness>>;
+    freeze?: Awaited<ReturnType<typeof syncArboxFreezeForBusiness>>;
     sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
     membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
   }> = [];
@@ -231,6 +244,37 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // --- Shared future bookings (C1/C2 + C14/C15) ---
+    let prefetchedFutureRows: ArboxBookingReportRow[] | undefined;
+    let prefetchedFuturePages = 0;
+    let freezePlan = { needsFreeze: false, needsEndingFuture: false };
+    try {
+      freezePlan = await businessNeedsFreezeSync(admin, business.id);
+      if (hasAttendanceGapRule || freezePlan.needsEndingFuture) {
+        const futureWindow = attendanceGapFutureWindow(now);
+        const futureReport = await fetchArboxBookingsReport({
+          apiKey: business.crm_api_key,
+          fromDate: futureWindow.fromDate,
+          toDate: futureWindow.toDate,
+          locationId: business.crm_box_id,
+        });
+        prefetchedFuturePages = futureReport.pagesFetched;
+        if (futureReport.ok) {
+          prefetchedFutureRows = futureReport.rows;
+        } else {
+          console.error("[cron/arbox-daily-triggers] shared future bookings failed", {
+            slug: business.slug,
+            error: futureReport.error,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[cron/arbox-daily-triggers] shared future prefetch threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     // --- Step: post-trial C5/C6 (bookings × sales) ---
     try {
       entry.post_trial_followup = await syncArboxPostTrialFollowupForBusiness({
@@ -334,6 +378,12 @@ export async function GET(req: NextRequest) {
               lookbackTo,
             }
           : {}),
+        ...(hasAttendanceGapRule && prefetchedFutureRows
+          ? {
+              prefetchedFutureRows,
+              prefetchedFuturePages,
+            }
+          : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -355,6 +405,50 @@ export async function GET(req: NextRequest) {
         gated: 0,
         no_phone: 0,
         abandoned: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: freeze_created + freeze_ending_* (A8 / C14 / C15) ---
+    try {
+      entry.freeze = await syncArboxFreezeForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        freezeSeeded: business.arbox_freeze_seeded,
+        now,
+        ...(freezePlan.needsEndingFuture && prefetchedFutureRows
+          ? {
+              prefetchedFutureRows,
+              prefetchedFuturePages,
+            }
+          : {}),
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] freeze step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.freeze = {
+        fetched_holds: 0,
+        fetched_future: 0,
+        pages_fetched: 0,
+        created_seeded: 0,
+        ending_seeded: 0,
+        soft_seeded: 0,
+        created_processed: 0,
+        ending_processed: 0,
+        already: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        skipped_ended: 0,
         errors: 1,
         fetch_error: message,
       };

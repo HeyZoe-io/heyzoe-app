@@ -149,7 +149,7 @@ Rules:
 ## Delay mode `none` (immediate confirmations)
 
 - Catalog `delay: "none"` for `purchase`, `credit_refusal`,
-  `membership_cancelled` (and manual campaigns). UI hides before/after + days;
+  `membership_cancelled`, `freeze_created` (and manual campaigns). UI hides before/after + days;
   shows «נשלח מיד»; create/edit force `delay_days=0`.
 - Runtime still honors a stored `delay_days > 0` if present (no backfill) —
   existing rows are unchanged.
@@ -174,6 +174,7 @@ Calibration:
 - Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
 - A dry system confirmation must stay UTILITY so Meta approval is reliable.
 - פער נוכחות עם/בלי הזמנה (C1/C2) → **MARKETING**
+- סיום הקפאה בלי הזמנה (C14) → **MARKETING**; עם הזמנה (C15) → **UTILITY**
 
 Existing presets may predate this rule; **new** presets must follow it.
 
@@ -241,6 +242,31 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - Presets: both **MARKETING**. Migration: `supabase/arbox_attendance_gap_sync_log.sql`
   (run before deploy).
 
+## Freeze created / ending (A8 / C14 / C15)
+
+- Source: `membersOnHoldReport` (paginated). Fields: `membership_hold_id`, `user_id`,
+  `phone`, `start_suspend_time`, `end_suspend_time`, …
+- **Cron:** `arbox-daily-triggers` only (not the 15‑minute trial-sync). A8 “immediate”
+  = next daily run after the hold appears (confirmation is not urgent).
+- A8 `freeze_created` — UTILITY confirmation for a new unseen `membership_hold_id`.
+- C14 `freeze_ending_unbooked` / C15 `freeze_ending_booked` — `end_suspend_ymd > today`
+  and due by `delay_days` **before** end; split by future booking
+  (`today+1…today+14`, shared GET with C1/C2).
+- **Past ends:** rows with `end_suspend_time` ≤ today are never sent for C14/C15
+  (`skipped_ended`).
+- Dedup:
+  - `arbox_freeze_created_sync_log` PK `(business_id, membership_hold_id)` — separate
+    table so A8 and C14/C15 never block each other.
+  - `arbox_freeze_ending_sync_log` PK `(business_id, membership_hold_id, end_suspend_ymd)`
+    with `variant` booked|unbooked as a **column only** — one ending message per hold
+    end even if booking state flips.
+- Seed: `businesses.arbox_freeze_seeded` + soft-seed when either table is empty after
+  the flag is true. Seeds all current (future-ending) holds **without WhatsApp**.
+  Retry: A9 `attempts`/`status`.
+- Presets: A8 UTILITY; C14 MARKETING; C15 UTILITY. Ending delay label
+  «ימים לפני סיום ההקפאה».
+- Migration: `supabase/arbox_freeze_sync_log.sql` (run before deploy).
+
 ## IO (10 businesses)
 
 State the GETs per run: typically **one report GET per business** (plus pages)
@@ -249,4 +275,6 @@ filtering. New-lead customer reports (memberships + sessions) only when an
 unseen non-Zoe lead remains. Birthday always adds those two customer reports
 when a birthday / birthday_former rule is enabled. **C5/C6 add one salesReport
 GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
-events after seed, not the seed window.
+events after seed, not the seed window. **Freeze A8/C14/C15:** +1
+`membersOnHoldReport` GET when any freeze rule is live; future bookings GET is
+shared with C1/C2 when either needs it (not doubled).

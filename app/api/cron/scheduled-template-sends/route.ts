@@ -23,6 +23,7 @@ import {
   classNameFromScheduledDedupKey,
   expiryYmdFromScheduledDedupKey,
   membershipTypeNameFromScheduledDedupKey,
+  startDateYmdFromScheduledDedupKey,
   templateSendPayload,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
@@ -178,6 +179,7 @@ async function dispatchOneScheduledSend(
     firstName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     expiryDateYmd: expiryYmdFromScheduledDedupKey(row.dedup_key),
+    startDateYmd: startDateYmdFromScheduledDedupKey(row.dedup_key),
     membershipTypeName: membershipTypeNameFromScheduledDedupKey(row.dedup_key),
     className: classNameFromScheduledDedupKey(row.dedup_key),
   });

@@ -242,38 +242,53 @@ export const TRIGGER_CATALOG = [
     sendHintHe: SEND_HINT_DAILY_HE,
   },
 
-  // —— Planned automatic × members ——
   {
-    type: "hold",
+    type: "freeze_created",
     labelHe: "הקפאת מנוי",
     activation: "automatic",
     audience: "members",
-    implemented: false,
+    implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "none",
     showProductFilter: false,
     uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
-    presetKey: "",
-    uiOrder: 20,
-    sendHintHe: SEND_HINT_PLANNED_HE,
+    presetKey: "freeze_created",
+    uiOrder: 15,
+    sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
-    type: "freeze_ending",
-    labelHe: "סיום הקפאה",
+    type: "freeze_ending_unbooked",
+    labelHe: "סיום הקפאה (בלי הזמנה)",
     activation: "automatic",
     audience: "members",
-    implemented: false,
+    implemented: true,
     arboxOnly: true,
     delay: "before",
     showProductFilter: false,
     uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
-    presetKey: "",
-    uiOrder: 21,
-    sendHintHe: SEND_HINT_PLANNED_HE,
+    presetKey: "freeze_ending_unbooked",
+    uiOrder: 16,
+    sendHintHe: SEND_HINT_DAILY_HE,
+  },
+  {
+    type: "freeze_ending_booked",
+    labelHe: "סיום הקפאה (עם הזמנה)",
+    activation: "automatic",
+    audience: "members",
+    implemented: true,
+    arboxOnly: true,
+    delay: "before",
+    showProductFilter: false,
+    uniquePerBusiness: false,
+    minDelayDays: 0,
+    recipient: "customer",
+    presetKey: "freeze_ending_booked",
+    uiOrder: 17,
+    sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
     type: "attendance_gap_booked",
@@ -656,6 +671,12 @@ export function isAttendanceGapTriggerType(value: string): boolean {
   return t === "attendance_gap_booked" || t === "attendance_gap_unbooked";
 }
 
+/** C14/C15 — delay_days is days before end_suspend. */
+export function isFreezeEndingTriggerType(value: string): boolean {
+  const t = canonicalizeTriggerType(value);
+  return t === "freeze_ending_unbooked" || t === "freeze_ending_booked";
+}
+
 /**
  * Event-based types whose send time is after the event.
  * Birthday must NOT coerce a stored `before` (matcher honors before/after).
@@ -673,11 +694,11 @@ export function isImmediateDelayTrigger(triggerType: string): boolean {
   return triggerCatalogEntry(triggerType)?.delay === "none";
 }
 
-/** Expiry reminders and birthday may fire before the calendar day. */
+/** Expiry / freeze-ending / birthday may fire before the calendar day. */
 export function allowsDelayBefore(triggerType: string): boolean {
   const e = triggerCatalogEntry(triggerType);
   if (!e) return false;
-  if (e.delay === "either") return true;
+  if (e.delay === "either" || e.delay === "before") return true;
   return isBirthdayFamilyTriggerType(e.type);
 }
 
@@ -720,6 +741,7 @@ export function minDelayDaysForTrigger(triggerType: string): number {
 
 export function defaultDelayDays(triggerType: string): number {
   if (isPostTrialFollowupTriggerType(triggerType)) return 3;
+  if (isFreezeEndingTriggerType(triggerType)) return 3;
   return minDelayDaysForTrigger(triggerType);
 }
 
@@ -769,6 +791,9 @@ export function formatDelayLabel(
   }
   if (isAttendanceGapTriggerType(type)) {
     return `${Math.max(1, days)} ימי היעדרות`;
+  }
+  if (isFreezeEndingTriggerType(type)) {
+    return days === 0 ? "ביום סיום ההקפאה" : `${days} ימים לפני סיום ההקפאה`;
   }
   if (isPostTrialFollowupTriggerType(type)) {
     return days === 0 ? "ביום הניסיון" : `${Math.max(2, days)} ימים אחרי הניסיון`;

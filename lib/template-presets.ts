@@ -6,6 +6,7 @@ export type TemplateParamSlot =
   | "first_name"
   | "business_name"
   | "expiry_date"
+  | "start_date"
   | "membership_type_name"
   | "class_name";
 
@@ -34,6 +35,9 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   missed_trial: ["first_name", "class_name"],
   attendance_gap_booked: ["first_name", "class_name"],
   attendance_gap_unbooked: ["first_name", "business_name"],
+  freeze_created: ["first_name", "start_date", "expiry_date"],
+  freeze_ending_unbooked: ["first_name", "expiry_date"],
+  freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
 };
 
 const LEAD_OPENING_BODY =
@@ -128,6 +132,22 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     category: "MARKETING",
     body: "היי {{1}}, כבר לא ראינו אותך ב{{2}} זמן מה. בא לך שנמצא יחד שיעור שמתאים לך לחזור?",
     button_text: "אשמח לחזור",
+  },
+  freeze_created: {
+    name: "freeze_created",
+    category: "UTILITY",
+    body: "היי {{1}}, ההקפאה שלך עודכנה במערכת — מתאריך {{2}} עד {{3}}.",
+  },
+  freeze_ending_unbooked: {
+    name: "freeze_ending_unbooked",
+    category: "MARKETING",
+    body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}. בא לך שנמצא יחד שיעור לחזרה?",
+    button_text: "אשמח לחזור",
+  },
+  freeze_ending_booked: {
+    name: "freeze_ending_booked",
+    category: "UTILITY",
+    body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{3}} — שמחנו לראות שנרשמת ל{{2}}. נתראה!",
   },
 };
 
@@ -280,6 +300,7 @@ export function presetVarHint(triggerType: TriggerType): string {
     first_name: "שם פרטי",
     business_name: "שם העסק",
     expiry_date: "תאריך פקיעה",
+    start_date: "תאריך התחלה",
     membership_type_name: "סוג מנוי",
     class_name: "שם השיעור",
   };

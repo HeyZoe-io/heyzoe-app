@@ -52,6 +52,9 @@ const LIVE_AUTOMATIC = [
   "incoming_lead",
   "no_response",
   "birthday_former",
+  "freeze_created",
+  "freeze_ending_unbooked",
+  "freeze_ending_booked",
   "attendance_gap_booked",
   "attendance_gap_unbooked",
   "missed_class",
@@ -69,6 +72,9 @@ const PREVIOUS_ARBOX = [
   "arbox_new_lead",
   "membership_cancelled",
   "birthday_former",
+  "freeze_created",
+  "freeze_ending_unbooked",
+  "freeze_ending_booked",
   "attendance_gap_booked",
   "attendance_gap_unbooked",
   "missed_class",
@@ -121,7 +127,13 @@ function triggerCatalogAudience(type: string) {
 {
   const autoMembers = catalogEntriesFor({ activation: "automatic", audience: "members" });
   assert.ok(autoMembers.some((e) => e.type === "birthday" && e.implemented));
-  assert.ok(autoMembers.some((e) => e.type === "hold" && !e.implemented));
+  assert.ok(autoMembers.some((e) => e.type === "freeze_created" && e.implemented));
+  assert.ok(autoMembers.some((e) => e.type === "freeze_ending_unbooked" && e.implemented));
+  assert.ok(autoMembers.some((e) => e.type === "freeze_ending_booked" && e.implemented));
+  assert.equal(
+    autoMembers.some((e) => (e.type as string) === "hold"),
+    false
+  );
   const autoLeads = catalogEntriesFor({ activation: "automatic", audience: "leads" });
   assert.ok(autoLeads.some((e) => e.type === "birthday_former" && e.implemented));
   assert.ok(autoLeads.some((e) => e.type === "lost_lead" && !e.implemented));
@@ -150,7 +162,10 @@ function triggerCatalogAudience(type: string) {
   assert.ok(!memberTypes.includes("incoming_lead"));
   assert.ok(!memberTypes.includes("missed_trial"));
   assert.ok(!memberTypes.includes("arbox_new_lead"));
-  assert.ok(!memberTypes.includes("hold"), "planned hold is not creatable");
+  assert.ok(memberTypes.includes("freeze_created"));
+  assert.ok(memberTypes.includes("freeze_ending_unbooked"));
+  assert.ok(memberTypes.includes("freeze_ending_booked"));
+  assert.ok(!(memberTypes as string[]).includes("hold"), "legacy planned hold removed");
   assert.ok(!memberTypes.includes("manual_membership"), "manual not in automatic create");
 
   const leadTypes = creatableTriggerOptionsForCell({
@@ -241,7 +256,9 @@ function triggerCatalogAudience(type: string) {
     activation: "automatic",
     audience: "members",
   }).map((e) => e.type);
-  assert.ok(plannedMembers.includes("hold"));
+  assert.ok(!(plannedMembers as string[]).includes("hold"));
+  assert.ok(!plannedMembers.includes("freeze_created"));
+  assert.ok(!(plannedMembers as string[]).includes("freeze_ending"));
   assert.ok(!(plannedMembers as string[]).includes("attendance_gap"));
   assert.ok(!plannedMembers.includes("attendance_gap_booked"));
   assert.ok(!plannedMembers.includes("missed_class"));
@@ -275,6 +292,8 @@ function triggerCatalogAudience(type: string) {
 {
   assert.equal(isTriggerType("manual_membership"), false);
   assert.equal(isTriggerType("hold"), false);
+  assert.equal(isTriggerType("freeze_created"), true);
+  assert.equal(isTriggerType("freeze_ending_unbooked"), true);
   assert.equal(isTriggerType("birthday_former"), true);
   assert.equal(isCreatableTriggerType("birthday_former", true), true);
   assert.equal(isCreatableTriggerType("birthday_former", false), false);
@@ -344,12 +363,16 @@ function triggerCatalogAudience(type: string) {
   assert.equal(allowsDelayBefore("birthday"), true);
   assert.equal(allowsDelayBefore("birthday_former"), true);
   assert.equal(allowsDelayBefore("purchase"), false);
+  assert.equal(allowsDelayBefore("freeze_ending_unbooked"), true);
   assert.equal(allowsDelayBeforeFacade("membership_expiring"), true);
   assert.equal(allowsDelayBeforeFacade("birthday"), true);
   assert.equal(defaultDelayDirection("membership_expiring"), "before");
+  assert.equal(defaultDelayDirection("freeze_ending_booked"), "before");
   assert.equal(defaultDelayDirection("purchase"), "after");
   assert.equal(defaultDelayDirection("birthday"), "after");
   assert.equal(defaultDelayDirection("birthday_former"), "after");
+  assert.equal(isImmediateDelayTrigger("freeze_created"), true);
+  assert.equal(defaultDelayDays("freeze_ending_unbooked"), 3);
 }
 
 {
@@ -411,7 +434,11 @@ function triggerCatalogAudience(type: string) {
   );
   assert.match(triggerSendScheduleHintHe("incoming_lead"), /מיד/);
   assert.match(triggerSendScheduleHintHe("manual_membership"), /ידנית/);
-  assert.equal(triggerSendScheduleHintHe("hold"), "בקרוב");
+  assert.equal(
+    triggerSendScheduleHintHe("freeze_created"),
+    triggerSendScheduleHintHe("membership_expiring")
+  );
+  assert.equal(triggerSendScheduleHintHe("hold"), "");
 }
 
 console.log("trigger-catalog.test.ts: ok");

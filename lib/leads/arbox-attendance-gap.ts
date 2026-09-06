@@ -527,6 +527,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   prefetchedPastPages?: number;
   lookbackFrom?: string;
   lookbackTo?: string;
+  /** Future bookingsReport rows (shared cron prefetch with freeze ending preferred). */
+  prefetchedFutureRows?: ArboxBookingReportRow[];
+  prefetchedFuturePages?: number;
 }): Promise<AttendanceGapSyncSummary> {
   const summary: AttendanceGapSyncSummary = {
     fetched_past: 0,
@@ -600,19 +603,25 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   const futureWindow = attendanceGapFutureWindow(now);
   summary.future_from = futureWindow.fromDate;
   summary.future_to = futureWindow.toDate;
-  const futureReport = await fetchArboxBookingsReport({
-    apiKey,
-    fromDate: futureWindow.fromDate,
-    toDate: futureWindow.toDate,
-    locationId: boxId,
-  });
-  summary.pages_fetched += futureReport.pagesFetched;
-  if (!futureReport.ok) {
-    summary.fetch_error = futureReport.error;
-    summary.errors += 1;
-    return summary;
+  let futureRows: ArboxBookingReportRow[];
+  if (input.prefetchedFutureRows) {
+    futureRows = input.prefetchedFutureRows;
+    summary.pages_fetched += input.prefetchedFuturePages ?? 0;
+  } else {
+    const futureReport = await fetchArboxBookingsReport({
+      apiKey,
+      fromDate: futureWindow.fromDate,
+      toDate: futureWindow.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched += futureReport.pagesFetched;
+    if (!futureReport.ok) {
+      summary.fetch_error = futureReport.error;
+      summary.errors += 1;
+      return summary;
+    }
+    futureRows = futureReport.rows;
   }
-  const futureRows = futureReport.rows;
   summary.fetched_future = futureRows.length;
 
   const states = computeAttendanceGapStates({
