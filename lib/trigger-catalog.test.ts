@@ -172,11 +172,15 @@ function triggerCatalogAudience(type: string) {
   assert.equal(delayDirectionForTrigger("birthday", "before"), "before");
   assert.equal(delayDirectionForTrigger("purchase", "before"), "after");
   assert.equal(allowsDelayBefore("membership_expiring"), true);
-  assert.equal(allowsDelayBefore("birthday"), false);
+  assert.equal(allowsDelayBefore("birthday"), true);
+  assert.equal(allowsDelayBefore("birthday_former"), true);
+  assert.equal(allowsDelayBefore("purchase"), false);
   assert.equal(allowsDelayBeforeFacade("membership_expiring"), true);
+  assert.equal(allowsDelayBeforeFacade("birthday"), true);
   assert.equal(defaultDelayDirection("membership_expiring"), "before");
   assert.equal(defaultDelayDirection("purchase"), "after");
   assert.equal(defaultDelayDirection("birthday"), "after");
+  assert.equal(defaultDelayDirection("birthday_former"), "after");
 }
 
 {
@@ -193,7 +197,9 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("incoming_lead", 0, "after"), "מיידי");
   assert.equal(formatDelayLabel("arbox_new_lead", 3, "after"), "3 ימים אחרי הליד");
   assert.equal(formatDelayLabel("birthday", 0, "after"), "ביום ההולדת");
-  assert.equal(formatDelayLabel("birthday_former", 2, "after"), "2 ימים לפני יום ההולדת");
+  assert.equal(formatDelayLabel("birthday", 14, "before"), "14 ימים לפני יום ההולדת");
+  assert.equal(formatDelayLabel("birthday_former", 2, "after"), "2 ימים אחרי יום ההולדת");
+  assert.equal(formatDelayLabel("birthday_former", 2, "before"), "2 ימים לפני יום ההולדת");
   assert.equal(formatDelayLabel("membership_expiring", 0, "before"), "ביום פקיעת התוקף");
   assert.equal(
     formatDelayLabel("membership_expiring", 5, "before"),

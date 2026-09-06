@@ -283,6 +283,7 @@ export default function TemplatesClient({
   const [triggerDeletingId, setTriggerDeletingId] = useState<string | null>(null);
   const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
   const [editDelayDays, setEditDelayDays] = useState(0);
+  const [editDelayDirection, setEditDelayDirection] = useState<DelayDirection>("after");
   const [editTemplateName, setEditTemplateName] = useState("");
   const [triggerEditSaving, setTriggerEditSaving] = useState(false);
 
@@ -569,6 +570,9 @@ export default function TemplatesClient({
     setSuccess(null);
     setEditingTriggerId(trigger.id);
     setEditDelayDays(trigger.delay_days);
+    setEditDelayDirection(
+      trigger.delay_direction === "before" ? "before" : "after"
+    );
     setEditTemplateName(trigger.template_name ?? "");
   }
 
@@ -579,14 +583,18 @@ export default function TemplatesClient({
     try {
       const delayMin = trigger.trigger_type === "no_response" ? 2 : 0;
       const delayDays = Math.max(delayMin, Math.trunc(Number(editDelayDays) || 0));
+      const body: Record<string, unknown> = {
+        id: trigger.id,
+        delay_days: delayDays,
+        template_name: editTemplateName.trim() || null,
+      };
+      if (allowsDelayBefore(trigger.trigger_type)) {
+        body.delay_direction = editDelayDirection;
+      }
       const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: trigger.id,
-          delay_days: delayDays,
-          template_name: editTemplateName.trim() || null,
-        }),
+        body: JSON.stringify(body),
       });
       const j = (await res.json().catch(() => ({}))) as {
         trigger?: TriggerRow;
@@ -1304,7 +1312,7 @@ export default function TemplatesClient({
                         </p>
                         {editingTriggerId === trigger.id ? (
                           <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                            {!isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <div className="space-y-1">
                                 <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
                                 <input
@@ -1315,7 +1323,31 @@ export default function TemplatesClient({
                                   className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
                                 />
                               </div>
-                            ) : null}
+                              {allowsDelayBefore(trigger.trigger_type) ? (
+                                <div className="space-y-1">
+                                  <label className="text-xs font-medium text-zinc-700">כיוון</label>
+                                  <select
+                                    value={editDelayDirection}
+                                    onChange={(e) =>
+                                      setEditDelayDirection(e.target.value as DelayDirection)
+                                    }
+                                    className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                                  >
+                                    {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
+                                      <>
+                                        <option value="before">לפני יום ההולדת</option>
+                                        <option value="after">אחרי יום ההולדת</option>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <option value="before">לפני פקיעת התוקף</option>
+                                        <option value="after">אחרי פקיעת התוקף</option>
+                                      </>
+                                    )}
+                                  </select>
+                                </div>
+                              ) : null}
+                            </div>
                             <div className="space-y-1">
                               <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
                               <select
@@ -1565,31 +1597,33 @@ export default function TemplatesClient({
                   ) : null}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {!isBirthdayFamilyTriggerType(newTriggerType) ? (
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-zinc-800">ימים</label>
-                        <input
-                          type="number"
-                          min={newDelayDaysMin}
-                          step={1}
-                          value={newDelayDays}
-                          onChange={(e) =>
-                            setNewDelayDays(
-                              Math.max(
-                                newDelayDaysMin,
-                                Number(e.target.value) || newDelayDaysMin
-                              )
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-zinc-800">ימים</label>
+                      <input
+                        type="number"
+                        min={newDelayDaysMin}
+                        step={1}
+                        value={newDelayDays}
+                        onChange={(e) =>
+                          setNewDelayDays(
+                            Math.max(
+                              newDelayDaysMin,
+                              Number(e.target.value) || newDelayDaysMin
                             )
-                          }
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                        {newTriggerType === "no_response" ? (
-                          <p className="text-xs text-zinc-500">
-                            מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          )
+                        }
+                        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                      />
+                      {newTriggerType === "no_response" ? (
+                        <p className="text-xs text-zinc-500">
+                          מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).
+                        </p>
+                      ) : isBirthdayFamilyTriggerType(newTriggerType) ? (
+                        <p className="text-xs text-zinc-500">
+                          0 = ביום ההולדת. לברכה לפני — בחרו «לפני» ומספר ימים (למשל 14).
+                        </p>
+                      ) : null}
+                    </div>
                     {!hideNewDelayDirection ? (
                       <div className="space-y-1.5">
                         <label className="text-sm font-medium text-zinc-800">כיוון</label>
@@ -1598,8 +1632,17 @@ export default function TemplatesClient({
                           onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
                           className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                         >
-                          <option value="before">לפני פקיעת התוקף</option>
-                          <option value="after">אחרי פקיעת התוקף</option>
+                          {isBirthdayFamilyTriggerType(newTriggerType) ? (
+                            <>
+                              <option value="before">לפני יום ההולדת</option>
+                              <option value="after">אחרי יום ההולדת</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="before">לפני פקיעת התוקף</option>
+                              <option value="after">אחרי פקיעת התוקף</option>
+                            </>
+                          )}
                         </select>
                       </div>
                     ) : null}

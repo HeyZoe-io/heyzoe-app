@@ -572,7 +572,7 @@ export function isBirthdayFamilyTriggerType(value: string): boolean {
 
 /**
  * Event-based types whose send time is after the event.
- * Birthday stores `after` in the UI but must NOT coerce a stored `before` (legacy quirk).
+ * Birthday must NOT coerce a stored `before` (matcher honors before/after).
  */
 export function forcesDelayAfter(triggerType: string): boolean {
   const e = triggerCatalogEntry(triggerType);
@@ -581,9 +581,12 @@ export function forcesDelayAfter(triggerType: string): boolean {
   return true;
 }
 
-/** Expiry reminders may fire before the end date; birthday UI is handled separately. */
+/** Expiry reminders and birthday may fire before the calendar day. */
 export function allowsDelayBefore(triggerType: string): boolean {
-  return triggerCatalogEntry(triggerType)?.delay === "either";
+  const e = triggerCatalogEntry(triggerType);
+  if (!e) return false;
+  if (e.delay === "either") return true;
+  return isBirthdayFamilyTriggerType(e.type);
 }
 
 export function delayDirectionForTrigger(
@@ -608,6 +611,8 @@ export function defaultDelayDays(triggerType: string): number {
 }
 
 export function defaultDelayDirection(triggerType: string): DelayDirection {
+  // Birthday defaults to on-day (after + 0); expiry defaults to before.
+  if (isBirthdayFamilyTriggerType(triggerType)) return "after";
   return allowsDelayBefore(triggerType) ? "before" : "after";
 }
 
@@ -652,7 +657,9 @@ export function formatDelayLabel(
     return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;
   }
   if (isBirthdayFamilyTriggerType(type)) {
-    return days === 0 ? "ביום ההולדת" : `${days} ימים לפני יום ההולדת`;
+    if (days === 0) return "ביום ההולדת";
+    const dir = direction === "before" ? "לפני יום ההולדת" : "אחרי יום ההולדת";
+    return `${days} ימים ${dir}`;
   }
   if (allowsDelayBefore(type)) {
     if (days === 0) return "ביום פקיעת התוקף";
