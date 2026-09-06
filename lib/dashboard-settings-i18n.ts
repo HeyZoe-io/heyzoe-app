@@ -110,6 +110,8 @@ export const dashboardSettingsI18n = {
       trialMembershipTypesLoading: "טוען מוצרים מארבוקס…",
       trialMembershipTypesEmpty: "לא נמצאו מוצרים בארבוקס.",
       trialMembershipTypesFetchError: "לא הצלחנו לטעון את רשימת המוצרים מארבוקס. בדקו את מפתח ה-API.",
+      trialMembershipTypesFilterPlaceholder: "סינון לפי מילים…",
+      trialMembershipTypesFilterEmpty: "אין מוצרים שמתאימים לסינון.",
       instagramLink: "לינק לאינסטגרם",
     },
     about: {
@@ -616,6 +618,8 @@ export const dashboardSettingsI18n = {
       trialMembershipTypesLoading: "Loading products from Arbox…",
       trialMembershipTypesEmpty: "No products found in Arbox.",
       trialMembershipTypesFetchError: "Could not load products from Arbox. Check your API key.",
+      trialMembershipTypesFilterPlaceholder: "Filter by words…",
+      trialMembershipTypesFilterEmpty: "No products match the filter.",
       instagramLink: "Instagram link",
     },
     about: {

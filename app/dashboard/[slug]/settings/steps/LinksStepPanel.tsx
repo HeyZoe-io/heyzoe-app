@@ -63,6 +63,14 @@ type ArboxMembershipTypeRow = {
   membership_type_name: string;
 };
 
+/** All query words must appear in the id or name (order-independent). */
+function arboxMembershipTypeMatchesWords(row: ArboxMembershipTypeRow, query: string): boolean {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const haystack = `${row.membership_type_id} ${row.membership_type_name}`.toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
 type ArboxTaskTypeRow = {
   task_type_id: number;
   task_type_name: string;
@@ -160,6 +168,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
   const [arboxMembershipTypes, setArboxMembershipTypes] = useState<ArboxMembershipTypeRow[]>([]);
   const [arboxMembershipTypesLoading, setArboxMembershipTypesLoading] = useState(false);
   const [arboxMembershipTypesError, setArboxMembershipTypesError] = useState<string | null>(null);
+  const [arboxTrialMembershipFilter, setArboxTrialMembershipFilter] = useState("");
 
   useEffect(() => {
     if (!canLoadArboxMembershipTypes || !slug.trim()) {
@@ -262,6 +271,18 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
       ...arboxTaskTypes,
     ];
   }, [arboxTaskTypes, crmArboxHumanRequestTaskTypeId]);
+
+  const visibleArboxMembershipTypes = useMemo(() => {
+    const matching = arboxMembershipTypes.filter((row) =>
+      arboxMembershipTypeMatchesWords(row, arboxTrialMembershipFilter)
+    );
+    if (!arboxTrialMembershipFilter.trim()) return matching;
+    const selected = new Set(arboxTrialMembershipTypeIds);
+    const selectedRows = arboxMembershipTypes.filter((row) => selected.has(row.membership_type_id));
+    const selectedIds = new Set(selectedRows.map((row) => row.membership_type_id));
+    const rest = matching.filter((row) => !selectedIds.has(row.membership_type_id));
+    return [...selectedRows, ...rest];
+  }, [arboxMembershipTypes, arboxTrialMembershipFilter, arboxTrialMembershipTypeIds]);
 
   const toggleArboxTrialMembershipType = (id: number) => {
     setArboxTrialMembershipTypeIds((prev) => {
@@ -688,36 +709,54 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                       {t.links.trialMembershipTypesEmpty}
                     </p>
                   ) : (
-                    <ul
-                      className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2"
-                      dir={dashboardDir(lang)}
-                    >
-                      {arboxMembershipTypes.map((row) => {
-                        const id = row.membership_type_id;
-                        const checked = arboxTrialMembershipTypeIds.includes(id);
-                        const inputId = `arbox-trial-membership-${id}`;
-                        return (
-                          <li key={id}>
-                            <label
-                              htmlFor={inputId}
-                              className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
-                            >
-                              <input
-                                id={inputId}
-                                type="checkbox"
-                                className="mt-0.5 shrink-0"
-                                checked={checked}
-                                onChange={() => toggleArboxTrialMembershipType(id)}
-                              />
-                              <span
-                                className="text-[12px] leading-snug text-zinc-800"
-                                dir="ltr"
-                              >{`${id} - ${row.membership_type_name}`}</span>
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    <div className="space-y-2">
+                      <Input
+                        type="search"
+                        value={arboxTrialMembershipFilter}
+                        onChange={(e) => setArboxTrialMembershipFilter(e.target.value)}
+                        placeholder={t.links.trialMembershipTypesFilterPlaceholder}
+                        aria-label={t.links.trialMembershipTypesFilterPlaceholder}
+                        autoComplete="off"
+                        dir={dashboardDir(lang)}
+                        className={SALES_PATH_INPUT}
+                      />
+                      {visibleArboxMembershipTypes.length === 0 ? (
+                        <p className="text-[11px] leading-snug text-zinc-500">
+                          {t.links.trialMembershipTypesFilterEmpty}
+                        </p>
+                      ) : (
+                        <ul
+                          className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2"
+                          dir={dashboardDir(lang)}
+                        >
+                          {visibleArboxMembershipTypes.map((row) => {
+                            const id = row.membership_type_id;
+                            const checked = arboxTrialMembershipTypeIds.includes(id);
+                            const inputId = `arbox-trial-membership-${id}`;
+                            return (
+                              <li key={id}>
+                                <label
+                                  htmlFor={inputId}
+                                  className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                                >
+                                  <input
+                                    id={inputId}
+                                    type="checkbox"
+                                    className="mt-0.5 shrink-0"
+                                    checked={checked}
+                                    onChange={() => toggleArboxTrialMembershipType(id)}
+                                  />
+                                  <span
+                                    className="text-[12px] leading-snug text-zinc-800"
+                                    dir="ltr"
+                                  >{`${id} - ${row.membership_type_name}`}</span>
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
