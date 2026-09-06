@@ -3,7 +3,9 @@ import {
   classifyRegistrationIntentMembershipReply,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  shouldAskMembershipVsTrialFirst,
 } from "@/lib/wa-registration-intent";
+import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
 assert.equal(matchesRegistrationIntentPhrase("רוצה להצטרף בשבת לפוואר אנד הייט"), true);
 assert.equal(matchesRegistrationIntentPhrase("רוצה להצטרף לפוואר אנד הייט"), true);
@@ -19,10 +21,30 @@ assert.equal(matchesRegistrationIntentPhrase("הייתי שמח להירשם ל�
 assert.equal(matchesRegistrationIntentPhrase("אשמח להירשם לשיעור"), true);
 assert.equal(matchesRegistrationIntentPhrase("נשמח להירשם"), true);
 
+const liveRegisterMe = "היי אשמח שתרשמי אותי לאימון כוח";
+assert.equal(matchesRegistrationIntentPhrase(liveRegisterMe), true, "register-me (live)");
+assert.equal(isJoinSignupIntentText(liveRegisterMe), false, "register-me is not join-signup");
+assert.equal(shouldAskMembershipVsTrialFirst(liveRegisterMe), true, "register-me asks membership first");
+assert.equal(matchesRegistrationIntentPhrase("אשמח שתרשמי אותי לאימון כוח"), true);
+assert.equal(matchesRegistrationIntentPhrase("תרשמי אותי לאימון כוח"), true);
+assert.equal(matchesRegistrationIntentPhrase("תרשום אותי לשיעור"), true);
+assert.equal(matchesRegistrationIntentPhrase("תרשמו אותי בבקשה"), true);
+assert.equal(matchesRegistrationIntentPhrase("תירשמי אותי לאימון"), true);
+assert.equal(matchesRegistrationIntentPhrase("אפשר לרשום אותי לאימון כוח"), true);
+assert.equal(matchesRegistrationIntentPhrase("רשמי אותי לאימון כוח"), true);
+assert.equal(matchesRegistrationIntentPhrase("please sign me up for strength"), true);
+assert.equal(matchesRegistrationIntentPhrase("can you register me"), true);
+assert.equal(shouldAskMembershipVsTrialFirst("אשמח להירשם לאימון כוח"), true);
+assert.equal(shouldAskMembershipVsTrialFirst("רוצה להצטרף בשבת לפוואר אנד הייט"), true);
+assert.equal(shouldAskMembershipVsTrialFirst("אשמח להירשם לשיעור ניסיון"), false);
+
 assert.equal(matchesRegistrationIntentPhrase("כמה עולה השיעור?"), false);
 assert.equal(matchesRegistrationIntentPhrase("אפשר להירשם רק לשיעור ניסיון 1?"), false);
 assert.equal(matchesRegistrationIntentPhrase("מה הכתובת"), false);
 assert.equal(matchesRegistrationIntentPhrase(""), false);
+assert.equal(matchesRegistrationIntentPhrase("18:30 מצוין"), false);
+assert.equal(matchesRegistrationIntentPhrase("מתי יש אימון כוח"), false);
+assert.equal(shouldAskMembershipVsTrialFirst("18:30 מצוין"), false);
 
 assert.equal(classifyRegistrationIntentMembershipReply("כן"), "yes");
 assert.equal(classifyRegistrationIntentMembershipReply("כן יש לי"), "yes");

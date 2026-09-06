@@ -255,6 +255,7 @@ import {
   classifyRegistrationIntentMembershipReply,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  shouldAskMembershipVsTrialFirst,
   EXISTING_MEMBERSHIP_HELP_MODEL,
   EXISTING_MEMBERSHIP_HELP_REPLY,
   REGISTRATION_INTENT_CLARIFY_MODEL,
@@ -6642,7 +6643,15 @@ async function processIncoming(
   // Out-of-flow «איך נרשמים / רוצה להירשם לשיעור ניסיון» — start sales flow at product pick
   // (or CTA if one product). Immediately before closed-playbook so «אני רוצה להירשם» is not
   // stolen by cancel («לבטל את ההרשמה») / reschedule. Playbook still wins if both match.
-  if (msg.type === "text" && businessId && knowledge?.salesFlowConfig && isJoinSignupIntentText(msg.text)) {
+  // Ambiguous «תרשמי אותי לאימון כוח» / «אשמח להירשם» without «ניסיון» — fall through to
+  // membership-vs-trial (0.3), do not open the trial funnel yet.
+  if (
+    msg.type === "text" &&
+    businessId &&
+    knowledge?.salesFlowConfig &&
+    isJoinSignupIntentText(msg.text) &&
+    !shouldAskMembershipVsTrialFirst(msg.text)
+  ) {
     const salesFlowStartedForSignup = await sessionHasSalesFlowGreeting(business_slug, sessionId);
     if (
       shouldStartSalesFlowFromOutOfFlowSignup({

@@ -1,3 +1,5 @@
+import { matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
+
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
 export const REGISTRATION_INTENT_CLARIFY_QUESTION =
   "היי! 👋 יש לך מנוי קיים אצלנו או שמדובר באימון ניסיון?";
@@ -21,6 +23,7 @@ function normalizeRegistrationIntentText(raw: string): string {
 /**
  * כוונת הרשמה/הצטרפות מעורפלת — דטרמיניסטי, בלי Claude.
  * כולל את דוגמת Limitless: «רוצה להצטרף בשבת לפוואר אנד הייט».
+ * כולל בקשה שזואי תרשום: «אשמח שתרשמי אותי לאימון כוח».
  */
 export function matchesRegistrationIntentPhrase(raw: string): boolean {
   const t = normalizeRegistrationIntentText(raw);
@@ -32,7 +35,22 @@ export function matchesRegistrationIntentPhrase(raw: string): boolean {
   if (/אשמח\s+להחליף\s+שיעור/u.test(t)) return true;
   if (/(?:אני\s+)?מנסה\s+להירשם(?:\s+לשיעור)?/u.test(t)) return true;
   if (/(?:אני\s+)?מנסים\s+להירשם(?:\s+לשיעור)?/u.test(t)) return true;
+  // «תרשמי/תרשמו/תירשמי אותי» / «תרשום אותי» / «רשמי אותי»
+  if (/ת[יי]?רשמ(?:י|ו)\s+אות(?:י|נו)/u.test(t)) return true;
+  if (/תרשום\s+אות(?:י|נו)/u.test(t)) return true;
+  if (/(?:^|[^\p{L}])רשמ(?:י|ו)\s+אות(?:י|נו)/u.test(t)) return true;
+  if (/(?:אפשר|אשמח|נשמח|רוצה|תוכל(?:י|ו)?).{0,24}לרשום\s+אות(?:י|נו)/u.test(t)) return true;
+  if (/(?:please\s+)?(?:register|sign)\s+me\s+up\b/i.test(t)) return true;
+  if (/(?:can you|could you|please)\s+register\s+me\b/i.test(t)) return true;
   return false;
+}
+
+/**
+ * הרשמה מעורפלת בלי «ניסיון» — לשאול מנוי מול ניסיון לפני פלואו מכירה.
+ * «אשמח להירשם לשיעור ניסיון» נשאר בפלואו ניסיון.
+ */
+export function shouldAskMembershipVsTrialFirst(raw: string): boolean {
+  return matchesRegistrationIntentPhrase(raw) && !matchesTrialTopicIntent(raw);
 }
 
 export const EXISTING_MEMBERSHIP_HELP_REPLY = "מעולה! איך אפשר לעזור לך?";
